@@ -37,6 +37,8 @@ public partial class MainWindow : Window
     private readonly CodeEditorPanel         _editorPanel;
     private readonly CheckpointBrowserPanel  _checkpointPanel;
     private readonly SessionBrowserPanel     _sessionPanel;
+    private readonly ToolEditorPanel         _toolEditorPanel;
+    private readonly ToolCompiler            _toolCompiler;
 
     // Editor font size (shared across sessions, adjustable via View menu)
     private double _editorFontSize = 13.0;
@@ -173,6 +175,14 @@ public partial class MainWindow : Window
         // Session history browser
         _sessionPanel = new SessionBrowserPanel(_store);
         _sessionPanel.SessionSelected += ResumeSession;
+
+        // Tool editor + compiler (Phase 7)
+        _toolCompiler    = new ToolCompiler(_registry);
+        _toolEditorPanel = new ToolEditorPanel
+        {
+            Compiler      = _toolCompiler,
+            WorkspaceRoot = _session.WorkspaceRoot,
+        };
 
         // Default sidebar = explorer
         SidebarContent.Content = _explorerPanel;
@@ -404,6 +414,12 @@ public partial class MainWindow : Window
             case "edit.rules":        OpenRulesFile(); break;
             case "pentest.enable":    _ = EnablePentestModeAsync(); break;
             case "show.settings":     BtnSettings_Click(this, null!); break;
+            case "tool.editor":       BtnTools_Click(this, null!); break;
+            case "tool.new":
+                BtnTools_Click(this, null!);
+                _toolEditorPanel.Compiler      = _toolCompiler;
+                _toolEditorPanel.WorkspaceRoot = _session.WorkspaceRoot;
+                break;
             case "session.new":
                 _session = new ProjectSession { WorkspaceRoot = _session.WorkspaceRoot, ActiveModel = _session.ActiveModel };
                 _agentPanel.Session = _session;
@@ -434,6 +450,8 @@ public partial class MainWindow : Window
             new() { Id="pentest.enable",  Label="Enable Pentest Mode",      Detail="Drop PENTEST.agent.md into workspace as .agent.md", Icon="🛡️", Shortcut="", SortOrder=38, Keywords=["pentest","security","rules","agent","red","team","hacking"] },
             new() { Id="show.settings",   Label="Settings",                 Detail="Configure Ollama host, model, workspace", Icon="⚙", Shortcut="", SortOrder=39, Keywords=["settings","config","ollama","host"] },
             new() { Id="session.new",     Label="New Session",              Detail="Clear conversation history and start fresh", Icon="⬡", Shortcut="", SortOrder=40, Keywords=["new","clear","session","reset"] },
+            new() { Id="tool.editor",     Label="Open Tool Editor",         Detail="Write and hot-load custom tools the agent can use (Phase 7)", Icon="🔧", Shortcut="", SortOrder=55, Keywords=["tool","custom","plugin","code","editor","hot","load","compile"] },
+            new() { Id="tool.new",        Label="New Custom Tool",          Detail="Scaffold a new ICustomTool class in the tool editor", Icon="🔧", Shortcut="", SortOrder=56, Keywords=["tool","new","scaffold","custom","plugin","create"] },
         };
 
         // Quick model switch commands — standard coding models
@@ -478,6 +496,13 @@ public partial class MainWindow : Window
         SidebarContent.Content = _checkpointPanel;
     }
 
+    private void BtnTools_Click(object sender, RoutedEventArgs e)
+    {
+        // Tool editor takes the full main content area (needs space for editor + diagnostics)
+        MainContent.Content = _toolEditorPanel;
+        SidebarContent.Content = _explorerPanel;  // keep explorer in sidebar
+    }
+
     private void BtnSettings_Click(object sender, RoutedEventArgs e)
     {
         _settingsPanel.LoadSettings(_settings);   // Refresh before showing
@@ -519,7 +544,11 @@ public partial class MainWindow : Window
         _explorerPanel.LoadWorkspace(path);
         _agentPanel.SetWorkspace(path, confirmed: true);
         _checkpointPanel.SetWorkspace(path);   // keep checkpoint list in sync
+        _toolEditorPanel.WorkspaceRoot = path; // keep tool editor in sync
         UpdateStatusBar();
+
+        // Auto-load any tools saved in .orc/tools/ for this workspace
+        _ = AutoLoadWorkspaceToolsAsync(path);
 
         // Persist as last-used workspace so next session pre-loads it
         _settings.DefaultWorkspace = path;
@@ -527,6 +556,22 @@ public partial class MainWindow : Window
 
         AddActivity(new ActivityEvent(ActivityKind.Info, "Workspace",
             $"Opened: {Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar))}", DateTime.Now));
+    }
+
+    private async Task AutoLoadWorkspaceToolsAsync(string workspaceRoot)
+    {
+        var results = await _toolCompiler.ScanAndLoadAllAsync(workspaceRoot);
+        foreach (var (file, ok, error) in results)
+        {
+            if (ok)
+                AddActivity(new ActivityEvent(ActivityKind.Info, "Custom Tool",
+                    $"Auto-loaded: {file}", DateTime.Now));
+            else
+                AddActivity(new ActivityEvent(ActivityKind.Warning, "Custom Tool",
+                    $"Failed to load {file}: {error}", DateTime.Now));
+        }
+        if (results.Count > 0)
+            Dispatcher.Invoke(() => _toolEditorPanel.RefreshLoadedBadge(_toolCompiler.LoadedToolNames));
     }
 
     private void OnSettingsSaved(AppSettings newSettings)

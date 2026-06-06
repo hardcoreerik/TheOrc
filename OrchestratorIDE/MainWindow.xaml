@@ -148,6 +148,9 @@
                     <Button x:Name="BtnCheckpoints" Content="⬡" ToolTip="Checkpoints"
                             Style="{StaticResource ActivityBtnStyle}"
                             Click="BtnCheckpoints_Click"/>
+                    <Button x:Name="BtnTools" Content="🔧" ToolTip="Tool Editor — write + hot-load custom tools (Phase 7)"
+                            Style="{StaticResource ActivityBtnStyle}"
+                            Click="BtnTools_Click"/>
                     <Button x:Name="BtnSettings" Content="⚙" ToolTip="Settings"
                             Style="{StaticResource ActivityBtnStyle}"
                             Click="BtnSettings_Click"/>
