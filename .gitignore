@@ -21,6 +21,9 @@ Thumbs.db
 # Session data (local only)
 %APPDATA%/OrchestratorIDE/
 
+# Publish output (large binary artifacts — run dotnet publish locally)
+publish/
+
 # Secrets / local config
 appsettings.local.json
 *.env

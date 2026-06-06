@@ -33,7 +33,8 @@
         <ScrollViewer x:Name="MsgScroll" Grid.Row="1"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
-            <ItemsControl x:Name="MsgList" Padding="0,4">
+            <ItemsControl x:Name="MsgList" Padding="0,4"
+                          AutomationProperties.AutomationId="AgentPanel.MessageList">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Border Margin="0,1" Padding="12,8"
@@ -125,11 +126,13 @@
                                          GroupName="Mode" IsChecked="True"
                                          Foreground="{StaticResource Br.Text.Primary}"
                                          FontSize="11" VerticalAlignment="Center"
+                                         AutomationProperties.AutomationId="AgentPanel.ModePlan"
                                          Checked="ModeChanged"/>
                             <RadioButton x:Name="RbExec" Content=" Execute "
                                          GroupName="Mode" Margin="4,0,0,0"
                                          Foreground="{StaticResource Br.Text.Primary}"
                                          FontSize="11" VerticalAlignment="Center"
+                                         AutomationProperties.AutomationId="AgentPanel.ModeExecute"
                                          Checked="ModeChanged"/>
                         </StackPanel>
                     </Border>
@@ -139,6 +142,7 @@
                             Margin="0,0,8,0" DockPanel.Dock="Left"
                             Background="#3A3010" Cursor="Hand"
                             ToolTip="Click to open a project folder"
+                            AutomationProperties.AutomationId="AgentPanel.WorkspaceBadge"
                             MouseLeftButtonUp="WsBadge_Click">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="📁" FontSize="10" Margin="0,0,5,0"
@@ -154,6 +158,7 @@
                     <Border x:Name="RulesBadge" CornerRadius="3" Padding="7,3"
                             Margin="0,0,8,0" DockPanel.Dock="Left"
                             Background="#102A20" Visibility="Collapsed"
+                            AutomationProperties.AutomationId="AgentPanel.RulesBadge"
                             Cursor="Hand" MouseLeftButtonUp="RulesBadge_Click">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="📋" FontSize="10" Margin="0,0,4,0"
@@ -169,6 +174,7 @@
                             Margin="0,0,8,0" DockPanel.Dock="Left"
                             Background="#2A1A08" Cursor="Hand"
                             ToolTip="Drop pentest rules into this workspace (.agent.md)"
+                            AutomationProperties.AutomationId="AgentPanel.PentestButton"
                             MouseLeftButtonUp="PentestBtn_Click">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="🛡️" FontSize="10" Margin="0,0,4,0"
@@ -198,11 +204,13 @@
                         <Button x:Name="BtnStop" Content="■ Stop" Width="70"
                                 Background="#3A1A1A" Foreground="{StaticResource Br.Error}"
                                 BorderBrush="#5A2A2A" FontSize="11"
+                                AutomationProperties.AutomationId="AgentPanel.Stop"
                                 Click="BtnStop_Click" IsEnabled="False"/>
                         <Button x:Name="BtnSend" Content="Send  ↵" Width="84"
                                 Background="{StaticResource Br.Bg.Active}"
                                 Foreground="{StaticResource Br.Text.White}"
                                 FontSize="11" Margin="6,0,0,0"
+                                AutomationProperties.AutomationId="AgentPanel.Send"
                                 Click="BtnSend_Click"/>
                     </StackPanel>
 
@@ -219,6 +227,7 @@
                              BorderThickness="1" Padding="8,6"
                              FontFamily="Consolas, 'Cascadia Code', monospace"
                              FontSize="12"
+                             AutomationProperties.AutomationId="AgentPanel.Input"
                              KeyDown="TbInput_KeyDown"
                              TextChanged="TbInput_TextChanged"/>
                     <TextBlock x:Name="TbPlaceholder"

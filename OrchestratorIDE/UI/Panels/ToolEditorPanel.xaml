@@ -50,6 +50,7 @@
                              FontSize="11"
                              VerticalContentAlignment="Center"
                              ToolTip="Tool identifier — lowercase_with_underscores"
+                             AutomationProperties.AutomationId="ToolEditor.ToolName"
                              Text="my_tool"/>
                 </StackPanel>
 
@@ -61,6 +62,7 @@
                             BorderBrush="#444" BorderThickness="1"
                             FontSize="11" Cursor="Hand"
                             ToolTip="Insert a fresh tool scaffold into the editor"
+                            AutomationProperties.AutomationId="ToolEditor.New"
                             Click="BtnNew_Click"/>
 
                     <Button x:Name="BtnCompile" Content="▶ Compile"
@@ -69,6 +71,7 @@
                             BorderBrush="#3A6A3A" BorderThickness="1"
                             FontSize="11" Cursor="Hand"
                             ToolTip="Compile the current source (no load yet)"
+                            AutomationProperties.AutomationId="ToolEditor.Compile"
                             Click="BtnCompile_Click"/>
 
                     <Button x:Name="BtnLoad" Content="⚡ Load"
@@ -77,6 +80,7 @@
                             BorderBrush="#2A4A6A" BorderThickness="1"
                             FontSize="11" Cursor="Hand"
                             ToolTip="Compile + hot-load into the live agent session"
+                            AutomationProperties.AutomationId="ToolEditor.Load"
                             Click="BtnLoad_Click"/>
 
                     <Button x:Name="BtnSave" Content="💾 Save"
@@ -85,6 +89,7 @@
                             BorderBrush="#4A4A2A" BorderThickness="1"
                             FontSize="11" Cursor="Hand"
                             ToolTip="Save to workspace/.orc/tools/ (reloads on next workspace open)"
+                            AutomationProperties.AutomationId="ToolEditor.Save"
                             Click="BtnSave_Click"/>
                 </StackPanel>
             </DockPanel>
@@ -97,7 +102,8 @@
                 <TextBlock x:Name="TbStatus"
                            Text="Ready — hit ▶ Compile or ⚡ Load to get started"
                            Foreground="{StaticResource Br.Text.Muted}"
-                           FontSize="11" VerticalAlignment="Center"/>
+                           FontSize="11" VerticalAlignment="Center"
+                           AutomationProperties.AutomationId="ToolEditor.Status"/>
                 <TextBlock x:Name="TbLoadedTools" DockPanel.Dock="Right"
                            Text=""
                            Foreground="#4EC9B0"
@@ -117,7 +123,8 @@
                            Background="#1E1E1E"
                            Foreground="#D4D4D4"
                            LineNumbersForeground="#858585"
-                           BorderThickness="0"/>
+                           BorderThickness="0"
+                           AutomationProperties.AutomationId="ToolEditor.Editor"/>
 
         <!-- ══ Splitter ══════════════════════════════════════════════════════ -->
         <GridSplitter Grid.Row="3" Height="4" HorizontalAlignment="Stretch"
@@ -144,7 +151,8 @@
                 <!-- Diagnostic rows -->
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
-                    <ItemsControl x:Name="DiagList" Padding="2">
+                    <ItemsControl x:Name="DiagList" Padding="2"
+                                  AutomationProperties.AutomationId="ToolEditor.DiagList">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Border Margin="0,1" Padding="6,3" CornerRadius="2"

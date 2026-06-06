@@ -36,7 +36,8 @@
                            Foreground="#D4D4D4"
                            FontSize="13"
                            TextWrapping="Wrap"
-                           LineHeight="20"/>
+                           LineHeight="20"
+                           AutomationProperties.AutomationId="UserInputDialog.Question"/>
             </StackPanel>
         </DockPanel>
 
@@ -52,6 +53,7 @@
                  BorderThickness="1"
                  CaretBrush="#D4D4D4"
                  SelectionBrush="#264F78"
+                 AutomationProperties.AutomationId="UserInputDialog.Answer"
                  TextChanged="TbAnswer_TextChanged"/>
 
         <!-- Hint (shown when options are hinted in the question) -->
@@ -68,11 +70,13 @@
                     Background="#2D2D2D" Foreground="#888888"
                     BorderBrush="#444444"
                     Margin="0,0,8,0"
+                    AutomationProperties.AutomationId="UserInputDialog.Cancel"
                     Click="BtnCancel_Click"/>
             <Button x:Name="BtnOk" Content="Send to Agent"
                     Background="#0E639C" Foreground="White"
                     BorderBrush="#1177BB"
                     IsDefault="True"
+                    AutomationProperties.AutomationId="UserInputDialog.Ok"
                     Click="BtnOk_Click"/>
         </StackPanel>
 

@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="OrchestratorIDE.UITests/OrchestratorIDE.UITests.csproj" />
+  <Project Path="OrchestratorIDE/OrchestratorIDE.csproj" />
+</Solution>

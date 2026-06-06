@@ -29,6 +29,7 @@
                              FontFamily="Consolas, 'Cascadia Code', monospace"
                              FontSize="14" Padding="0,10"
                              CaretBrush="{StaticResource Br.Text.Primary}"
+                             AutomationProperties.AutomationId="CommandPalette.Search"
                              TextChanged="SearchBox_TextChanged"
                              KeyDown="SearchBox_KeyDown"/>
                     <TextBlock x:Name="SearchPlaceholder"
@@ -51,6 +52,7 @@
             <ListBox x:Name="ResultsList"
                      Background="Transparent" BorderBrush="Transparent"
                      MaxHeight="320"
+                     AutomationProperties.AutomationId="CommandPalette.Results"
                      SelectionChanged="ResultsList_SelectionChanged"
                      MouseDoubleClick="ResultsList_DoubleClick"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">

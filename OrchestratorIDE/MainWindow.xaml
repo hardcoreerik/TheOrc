@@ -9,7 +9,9 @@
         Title="Orchestrator IDE" Height="800" Width="1300"
         Background="{StaticResource Br.Bg.App}"
         WindowState="Normal"
-        KeyDown="Window_KeyDown">
+        KeyDown="Window_KeyDown"
+        AutomationProperties.AutomationId="MainWindow"
+        AutomationProperties.Name="Orchestrator IDE">
 
     <!--
     ═══════════════════════════════════════════════════════════════════
@@ -141,18 +143,23 @@
                 <StackPanel VerticalAlignment="Top" Margin="0,8,0,0">
                     <Button x:Name="BtnExplorer" Content="📁" ToolTip="File Explorer (Ctrl+Shift+E)"
                             Style="{StaticResource ActivityBtnStyle}"
+                            AutomationProperties.AutomationId="ActivityBar.Explorer"
                             Click="BtnExplorer_Click"/>
                     <Button x:Name="BtnAgent" Content="⚡" ToolTip="Code Agent (Ctrl+Shift+A)"
                             Style="{StaticResource ActivityBtnStyle}"
+                            AutomationProperties.AutomationId="ActivityBar.Agent"
                             Click="BtnAgent_Click"/>
                     <Button x:Name="BtnCheckpoints" Content="⬡" ToolTip="Checkpoints"
                             Style="{StaticResource ActivityBtnStyle}"
+                            AutomationProperties.AutomationId="ActivityBar.Checkpoints"
                             Click="BtnCheckpoints_Click"/>
                     <Button x:Name="BtnTools" Content="🔧" ToolTip="Tool Editor — write + hot-load custom tools (Phase 7)"
                             Style="{StaticResource ActivityBtnStyle}"
+                            AutomationProperties.AutomationId="ActivityBar.Tools"
                             Click="BtnTools_Click"/>
                     <Button x:Name="BtnSettings" Content="⚙" ToolTip="Settings"
                             Style="{StaticResource ActivityBtnStyle}"
+                            AutomationProperties.AutomationId="ActivityBar.Settings"
                             Click="BtnSettings_Click"/>
                 </StackPanel>
             </Border>
@@ -247,18 +254,22 @@
             <DockPanel>
                 <TextBlock x:Name="SbWorkspace" DockPanel.Dock="Left"
                            Text="📁 No workspace" Foreground="{StaticResource Br.Text.White}"
-                           Margin="8,0" VerticalAlignment="Center" FontSize="11"/>
+                           Margin="8,0" VerticalAlignment="Center" FontSize="11"
+                           AutomationProperties.AutomationId="StatusBar.Workspace"/>
                 <TextBlock x:Name="SbBranch" DockPanel.Dock="Left"
                            Text="" Foreground="#B0D0FF"
-                           Margin="0,0,8,0" VerticalAlignment="Center" FontSize="11"/>
+                           Margin="0,0,8,0" VerticalAlignment="Center" FontSize="11"
+                           AutomationProperties.AutomationId="StatusBar.Branch"/>
                 <TextBlock x:Name="SbModel" DockPanel.Dock="Right"
                            Foreground="{StaticResource Br.Text.White}"
                            Margin="8,0" VerticalAlignment="Center" FontSize="11"
                            Cursor="Hand" MouseDown="SbModel_Click"
-                           ToolTip="Click to change model"/>
+                           ToolTip="Click to change model"
+                           AutomationProperties.AutomationId="StatusBar.Model"/>
                 <TextBlock x:Name="SbStatus" Text="Ready"
                            Foreground="{StaticResource Br.Text.White}"
-                           HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="11"/>
+                           HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="11"
+                           AutomationProperties.AutomationId="StatusBar.Status"/>
             </DockPanel>
         </Border>
 
