@@ -8,7 +8,7 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>OrchestratorSetup</RootNamespace>
     <AssemblyName>OrchestratorSetup</AssemblyName>
-    <!-- ApplicationIcon>setup-icon.ico</ApplicationIcon -->  <!-- add .ico in Phase G -->
+    <ApplicationIcon>..\Assets\icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

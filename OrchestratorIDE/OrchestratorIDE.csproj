@@ -7,6 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <RootNamespace>OrchestratorIDE</RootNamespace>
+    <ApplicationIcon>..\Assets\icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <!-- Global usings for the whole project -->
