@@ -11,6 +11,13 @@ public partial class SettingsPanel : UserControl
     /// <summary>Fired when the user saves — MainWindow applies changes live.</summary>
     public event Action<AppSettings>? SettingsSaved;
 
+    /// <summary>
+    /// Fired when the user clicks "Check Now" — MainWindow wires this to
+    /// <see cref="OrchestratorIDE.Core.UpdateChecker.CheckAsync"/> and shows
+    /// the result badge / dialog.
+    /// </summary>
+    public event Func<Task>? CheckUpdatesRequested;
+
     private readonly OllamaClient _ollama;
 
     public SettingsPanel(OllamaClient ollama)
@@ -23,25 +30,34 @@ public partial class SettingsPanel : UserControl
 
     public void LoadSettings(AppSettings s)
     {
-        TbOllamaHost.Text        = s.OllamaHost;
-        TbDefaultModel.Text      = s.DefaultModel;
-        TbMaxSteps.Text          = s.MaxStepsOverride.ToString();
-        TglAutoVerify.IsChecked  = s.AutoVerify;
+        TbOllamaHost.Text           = s.OllamaHost;
+        TbDefaultModel.Text         = s.DefaultModel;
+        TbMaxSteps.Text             = s.MaxStepsOverride.ToString();
+        TglAutoVerify.IsChecked     = s.AutoVerify;
         TglAutoCheckpoint.IsChecked = s.AutoCheckpoint;
-        TbDefaultWorkspace.Text  = s.DefaultWorkspace;
-        TbStatus.Text            = "";
+        TglCheckUpdates.IsChecked   = s.CheckForUpdates;
+        TbDefaultWorkspace.Text     = s.DefaultWorkspace;
+        TbStatus.Text               = "";
+
+        // Show current version + last known latest
+        var current = UpdateChecker.CurrentVersion();
+        var known   = s.LastKnownLatestVersion;
+        TbVersionInfo.Text = string.IsNullOrEmpty(known)
+            ? $"v{current} installed"
+            : $"v{current} installed  •  latest: v{known}";
     }
 
     // ── Read controls → AppSettings ──────────────────────────────────────
 
     private AppSettings ReadSettings() => new AppSettings
     {
-        OllamaHost        = TbOllamaHost.Text.Trim().TrimEnd('/'),
-        DefaultModel      = TbDefaultModel.Text.Trim(),
-        MaxStepsOverride  = int.TryParse(TbMaxSteps.Text, out var n) ? Math.Max(0, n) : 0,
-        AutoVerify        = TglAutoVerify.IsChecked == true,
-        AutoCheckpoint    = TglAutoCheckpoint.IsChecked == true,
-        DefaultWorkspace  = TbDefaultWorkspace.Text.Trim(),
+        OllamaHost            = TbOllamaHost.Text.Trim().TrimEnd('/'),
+        DefaultModel          = TbDefaultModel.Text.Trim(),
+        MaxStepsOverride      = int.TryParse(TbMaxSteps.Text, out var n) ? Math.Max(0, n) : 0,
+        AutoVerify            = TglAutoVerify.IsChecked    == true,
+        AutoCheckpoint        = TglAutoCheckpoint.IsChecked == true,
+        CheckForUpdates       = TglCheckUpdates.IsChecked   == true,
+        DefaultWorkspace      = TbDefaultWorkspace.Text.Trim(),
     };
 
     // ── Test connection ───────────────────────────────────────────────────
@@ -91,6 +107,20 @@ public partial class SettingsPanel : UserControl
         settings.Save();
         SetStatus("✓  Saved", "#4EC9B0");
         SettingsSaved?.Invoke(settings);
+    }
+
+    // ── Check for updates ─────────────────────────────────────────────────
+
+    private async void BtnCheckNow_Click(object sender, RoutedEventArgs e)
+    {
+        BtnCheckNow.IsEnabled = false;
+        SetStatus("Checking for updates…", "#CCA700");
+
+        if (CheckUpdatesRequested != null)
+            await CheckUpdatesRequested.Invoke();
+
+        BtnCheckNow.IsEnabled = true;
+        SetStatus("", "#4EC9B0");
     }
 
     // ── Browse workspace ─────────────────────────────────────────────────

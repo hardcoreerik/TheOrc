@@ -95,50 +95,89 @@ public static class ProfileMerger
         File.WriteAllText(settingsPath, json);
     }
 
-    // ── Desktop / Start Menu shortcuts (stub — Phase G) ───────────────────────
+    // ── Desktop / Start Menu shortcuts ───────────────────────────────────────
 
     /// <summary>
-    /// Placeholder for Phase G shortcut creation.
-    /// Creates a simple .lnk via WScript.Shell COM if available, otherwise skips.
+    /// Creates .lnk shortcuts on the Desktop and/or Start Menu as requested.
+    /// Uses WScript.Shell COM — available on every Windows version.
+    /// Sets TargetPath, WorkingDirectory, IconLocation (embedded .ico), and Description.
     /// </summary>
     public static void CreateShortcuts(InstallerState state)
     {
         var exePath = Path.Combine(state.AppInstallPath, "OrchestratorIDE.exe");
-        if (!File.Exists(exePath)) return; // nothing to point to yet
+        if (!File.Exists(exePath)) return; // installer will call this after copying the exe
 
         if (state.CreateDesktopShortcut)
-            TryCreateShortcut(exePath,
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-                             "The Orc.lnk"));
+        {
+            var lnk = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                "The Orc.lnk");
+            TryCreateShortcut(exePath, lnk, state.AppInstallPath);
+        }
 
         if (state.CreateStartMenuShortcut)
         {
-            var startMenuDir = Path.Combine(
+            var dir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.StartMenu),
                 "Programs", "The Orc");
-            Directory.CreateDirectory(startMenuDir);
-            TryCreateShortcut(exePath, Path.Combine(startMenuDir, "The Orc.lnk"));
+            Directory.CreateDirectory(dir);
+            TryCreateShortcut(exePath, Path.Combine(dir, "The Orc.lnk"),
+                              state.AppInstallPath);
         }
     }
 
-    private static void TryCreateShortcut(string targetPath, string shortcutPath)
+    /// <summary>
+    /// Creates a Windows shortcut (.lnk) at <paramref name="shortcutPath"/> pointing
+    /// at <paramref name="targetPath"/> with the icon embedded in the target exe.
+    /// </summary>
+    private static void TryCreateShortcut(string targetPath,
+                                          string shortcutPath,
+                                          string workingDirectory)
     {
         try
         {
-            // Use WScript.Shell COM object — available on all Windows versions
-            var shell    = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!);
-            var shortcut = shell!.GetType().InvokeMember(
-                "CreateShortcut", System.Reflection.BindingFlags.InvokeMethod,
+            // WScript.Shell is a built-in COM server on every Windows version.
+            var shell = Activator.CreateInstance(
+                Type.GetTypeFromProgID("WScript.Shell")!);
+
+            if (shell is null) return;
+
+            var sc = shell.GetType().InvokeMember(
+                "CreateShortcut",
+                System.Reflection.BindingFlags.InvokeMethod,
                 null, shell, [shortcutPath]);
 
-            shortcut!.GetType().InvokeMember("TargetPath",
-                System.Reflection.BindingFlags.SetProperty, null, shortcut, [targetPath]);
-            shortcut.GetType().InvokeMember("Description",
-                System.Reflection.BindingFlags.SetProperty, null, shortcut,
-                ["The Orc — Local AI Coding Assistant"]);
-            shortcut.GetType().InvokeMember("Save",
-                System.Reflection.BindingFlags.InvokeMethod, null, shortcut, null);
+            if (sc is null) return;
+
+            var t = sc.GetType();
+
+            void Set(string prop, object value) =>
+                t.InvokeMember(prop,
+                    System.Reflection.BindingFlags.SetProperty,
+                    null, sc, [value]);
+
+            void Invoke(string method) =>
+                t.InvokeMember(method,
+                    System.Reflection.BindingFlags.InvokeMethod,
+                    null, sc, null);
+
+            // Target exe
+            Set("TargetPath",       targetPath);
+
+            // Launch from the install directory (not System32 or wherever the
+            // user double-clicked the shortcut from)
+            Set("WorkingDirectory", workingDirectory);
+
+            // Use the embedded icon from the exe (resource index 0)
+            // Format: "C:\path\to\app.exe,0"
+            Set("IconLocation",     $"{targetPath},0");
+
+            // Tooltip shown in Windows Explorer / Start Menu
+            Set("Description",      "TheOrc — Free local AI coding assistant");
+
+            // Persist the shortcut to disk
+            Invoke("Save");
         }
-        catch { /* shortcut creation is best-effort */ }
+        catch { /* shortcut creation is best-effort — never crash the installer */ }
     }
 }

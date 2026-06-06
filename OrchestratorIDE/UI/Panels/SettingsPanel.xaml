@@ -109,6 +109,35 @@
                     </DockPanel>
                 </Border>
 
+                <!-- ── UPDATES ──────────────────────────────────────── -->
+                <TextBlock Text="UPDATES" Style="{StaticResource SectionHeader}" Margin="0,12,0,0"/>
+
+                <Border Style="{StaticResource SettingRowBorder}">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Left">
+                            <TextBlock Text="Check for updates on startup"
+                                       Style="{StaticResource SettingLabel}"/>
+                            <TextBlock Text="Silent check against GitHub Releases once per day"
+                                       Style="{StaticResource SettingHint}"/>
+                        </StackPanel>
+                        <ToggleButton x:Name="TglCheckUpdates"
+                                      DockPanel.Dock="Right"
+                                      Style="{StaticResource ToggleStyle}"
+                                      IsChecked="True"/>
+                    </DockPanel>
+                </Border>
+
+                <StackPanel Style="{StaticResource SettingRow}" Orientation="Horizontal">
+                    <Button x:Name="BtnCheckNow" Content="⬆ Check Now"
+                            Click="BtnCheckNow_Click"
+                            Background="{StaticResource Br.Bg.Input}"
+                            Foreground="{StaticResource Br.Text.Primary}"
+                            FontSize="11" Padding="8,6" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="TbVersionInfo" Text=""
+                               Style="{StaticResource SettingHint}"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+
                 <!-- ── WORKSPACE ─────────────────────────────────────── -->
                 <TextBlock Text="WORKSPACE" Style="{StaticResource SectionHeader}" Margin="0,12,0,0"/>
 

@@ -67,6 +67,16 @@ public class AppSettings
     public bool   ShowActivityLog  { get; set; } = true;
     public double ActivityLogHeight { get; set; } = 180;
 
+    // ── Updates ───────────────────────────────────────────────────────────
+    /// <summary>Whether to silently check GitHub for newer releases on startup.</summary>
+    public bool      CheckForUpdates        { get; set; } = true;
+
+    /// <summary>UTC timestamp of the last successful update check (null = never checked).</summary>
+    public DateTime? LastUpdateCheckUtc     { get; set; } = null;
+
+    /// <summary>Tag version string from the last check, e.g. "1.1.0". Empty = unknown.</summary>
+    public string    LastKnownLatestVersion { get; set; } = "";
+
     // ── Persistence ───────────────────────────────────────────────────────
     private static readonly string _path = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),

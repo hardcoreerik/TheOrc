@@ -127,6 +127,14 @@
                 <Separator/>
                 <MenuItem Header="New Session"                                  Click="Menu_NewSession"/>
             </MenuItem>
+
+            <!-- ── Help ──────────────────────────────────────────── -->
+            <MenuItem Header="_Help">
+                <MenuItem Header="Check for Updates…"   Click="Menu_CheckUpdates"/>
+                <Separator/>
+                <MenuItem Header="View Release Notes"   Click="Menu_ReleaseNotes"/>
+                <MenuItem Header="GitHub Repository"    Click="Menu_GitHub"/>
+            </MenuItem>
         </Menu>
 
         <!-- ── Workbench ──────────────────────────────────────────── -->
@@ -266,6 +274,25 @@
                            Cursor="Hand" MouseDown="SbModel_Click"
                            ToolTip="Click to change model"
                            AutomationProperties.AutomationId="StatusBar.Model"/>
+
+                <!-- Update badge — collapsed until a newer release is detected -->
+                <Border x:Name="BdrUpdateBadge"
+                        DockPanel.Dock="Right"
+                        Background="#1A6B35"
+                        CornerRadius="3"
+                        Padding="6,0,6,0"
+                        Margin="4,2,0,2"
+                        Cursor="Hand"
+                        Visibility="Collapsed"
+                        MouseDown="BdrUpdateBadge_Click"
+                        ToolTip="Click to view release notes">
+                    <TextBlock x:Name="TbUpdateBadge"
+                               Text="↑ Update available"
+                               Foreground="#AAFFAA"
+                               FontSize="11"
+                               VerticalAlignment="Center"/>
+                </Border>
+
                 <TextBlock x:Name="SbStatus" Text="Ready"
                            Foreground="{StaticResource Br.Text.White}"
                            HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="11"

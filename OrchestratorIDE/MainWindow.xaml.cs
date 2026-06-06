@@ -28,6 +28,7 @@ public partial class MainWindow : Window
     // ── State ─────────────────────────────────────────────────────────────
     private ProjectSession           _session;
     private AppSettings              _settings = AppSettings.Load();
+    private string                   _pendingReleaseUrl = "";
     private List<string>             _installedModels = [];
     private readonly ObservableCollection<ActivityEvent> _activityItems = [];
 
@@ -166,7 +167,9 @@ public partial class MainWindow : Window
         // Build settings panel
         _settingsPanel = new SettingsPanel(_ollama);
         _settingsPanel.LoadSettings(_settings);
-        _settingsPanel.SettingsSaved += OnSettingsSaved;
+        _settingsPanel.SettingsSaved         += OnSettingsSaved;
+        _settingsPanel.CheckUpdatesRequested += async () =>
+            await Menu_CheckUpdatesAsync(force: true);
 
         // Checkpoint browser
         _checkpointPanel = new CheckpointBrowserPanel(_git);
@@ -257,6 +260,18 @@ public partial class MainWindow : Window
                 : "No models found — check Ollama host connection in Settings.";
             AddActivity(new ActivityEvent(ActivityKind.Warning, backendLabel, hint, DateTime.Now));
         }
+
+        // ── Auto-update check (silent, background) ────────────────────────
+        _ = Task.Run(async () =>
+        {
+            var result = await UpdateChecker.CheckAsync(_settings);
+            if (result?.UpdateAvailable == true)
+            {
+                Dispatcher.Invoke(() => ShowUpdateBadge(result));
+                AddActivity(new ActivityEvent(ActivityKind.Info, "Update",
+                    $"v{result.LatestVersion} available — Help → Check for Updates", DateTime.Now));
+            }
+        });
 
         var saved = await _store.LoadLatestAsync();
         if (saved != null)
@@ -974,6 +989,79 @@ public partial class MainWindow : Window
 
     private void Menu_ChangeModel(object sender, RoutedEventArgs e)
         => SbModel_Click(sender, null!);
+
+    // ── Update badge ──────────────────────────────────────────────────────
+
+    private void ShowUpdateBadge(UpdateChecker.UpdateResult result)
+    {
+        _pendingReleaseUrl    = result.ReleaseUrl;
+        TbUpdateBadge.Text    = $"↑ v{result.LatestVersion} available";
+        BdrUpdateBadge.Visibility = Visibility.Visible;
+
+        // Also update the window title while we're here
+        Title = $"Orchestrator IDE  v{result.CurrentVersion}";
+    }
+
+    private void BdrUpdateBadge_Click(object sender, MouseButtonEventArgs e)
+        => UpdateChecker.OpenReleasePage(_pendingReleaseUrl);
+
+    // ── Menu handlers — Help ──────────────────────────────────────────────
+
+    private async void Menu_CheckUpdates(object sender, RoutedEventArgs e)
+        => await Menu_CheckUpdatesAsync(force: true);
+
+    /// <summary>
+    /// Shared update-check logic used by both the menu item and
+    /// the Settings panel "Check Now" button.
+    /// </summary>
+    private async Task Menu_CheckUpdatesAsync(bool force)
+    {
+        SetStatus("Checking for updates…");
+        var result = await UpdateChecker.CheckAsync(_settings, force: force);
+
+        if (result == null)
+        {
+            SetStatus("Update check failed — check your internet connection.");
+            return;
+        }
+
+        if (result.UpdateAvailable)
+        {
+            ShowUpdateBadge(result);
+            SetStatus($"v{result.LatestVersion} available");
+
+            var answer = MessageBox.Show(
+                $"A new version of TheOrc is available!\n\n" +
+                $"  Current:  v{result.CurrentVersion}\n" +
+                $"  Latest:   v{result.LatestVersion} — {result.ReleaseName}\n\n" +
+                "Open release page in browser?",
+                "Update Available",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Information);
+
+            if (answer == MessageBoxResult.Yes)
+                UpdateChecker.OpenReleasePage(result.ReleaseUrl);
+        }
+        else
+        {
+            BdrUpdateBadge.Visibility = Visibility.Collapsed;
+            SetStatus($"You're up to date — v{result.CurrentVersion}");
+            if (force) // only show the "up to date" dialog when the user explicitly clicked
+            {
+                MessageBox.Show(
+                    $"TheOrc is up to date.\n\nVersion: v{result.CurrentVersion}",
+                    "No Updates Available",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+        }
+    }
+
+    private void Menu_ReleaseNotes(object sender, RoutedEventArgs e)
+        => UpdateChecker.OpenReleasePage(_pendingReleaseUrl);
+
+    private void Menu_GitHub(object sender, RoutedEventArgs e)
+        => UpdateChecker.OpenReleasePage("https://github.com/hardcoreerik/The-Orchestrator");
 
     // ── Keyboard shortcuts (extend existing handler) ───────────────────────
 

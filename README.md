@@ -248,8 +248,8 @@ Setup/
 - [x] GPU-aware model selection
 - [x] 8 coding profiles
 - [x] HTTP range-resume model downloads
-- [ ] **Phase F** — WMI hardware detection (real GPU/CUDA query)
-- [ ] **Phase G** — Auto-update checker (GitHub Releases API)
+- [x] **Phase F** — WMI hardware detection (real GPU/CUDA/VRAM query, registry fallback)
+- [x] **Phase G** — Auto-update checker (GitHub Releases API, 24-hr throttle, Settings toggle)
 - [ ] FlaUI UI automation test suite
 - [ ] Linux / macOS (Avalonia port, planned)
 
