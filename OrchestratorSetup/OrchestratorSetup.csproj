@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>OrchestratorSetup</RootNamespace>
+    <AssemblyName>OrchestratorSetup</AssemblyName>
+    <!-- ApplicationIcon>setup-icon.ico</ApplicationIcon -->  <!-- add .ico in Phase G -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="System.IO"/>
+    <Using Include="System.Collections.Generic"/>
+    <Using Include="System.Collections.ObjectModel"/>
+    <Using Include="System.Linq"/>
+    <Using Include="System.Threading"/>
+    <Using Include="System.Threading.Tasks"/>
+    <Using Include="System.ComponentModel"/>
+    <Using Include="System.Runtime.CompilerServices"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="10.0.8" />
+  </ItemGroup>
+
+  <!-- Bundle the model manifest and profile templates so the installer
+       can work offline after download, and so we can read them at runtime. -->
+  <ItemGroup>
+    <Content Include="..\Setup\model-manifest.json" Link="Resources\model-manifest.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\Setup\Profiles\*.agent.md" Link="Resources\Profiles\%(Filename)%(Extension)">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

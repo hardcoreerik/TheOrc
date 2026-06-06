@@ -1,0 +1,75 @@
+<UserControl x:Class="OrchestratorSetup.Pages.DownloadPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgPanel}"
+             AutomationProperties.AutomationId="Page.Download">
+
+    <Grid Margin="40,32">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,24">
+            <TextBlock x:Name="TxtPageTitle"
+                       Text="Downloading &amp; Installing…"
+                       Style="{StaticResource TextPageTitle}"/>
+            <TextBlock x:Name="TxtPageSubtitle"
+                       Style="{StaticResource TextSubtitle}">
+                Please wait while The Orc downloads and installs all components.
+                Large models may take several minutes.
+            </TextBlock>
+        </StackPanel>
+
+        <!-- Overall progress -->
+        <Border Grid.Row="1" Style="{StaticResource CardBorder}" Margin="0,0,0,16">
+            <StackPanel>
+                <Grid Margin="0,0,0,8">
+                    <TextBlock Text="OVERALL PROGRESS"
+                               Style="{StaticResource TextLabel}"/>
+                    <TextBlock x:Name="TxtOverallPct"
+                               HorizontalAlignment="Right"
+                               Style="{StaticResource TextLabel}"
+                               Foreground="{StaticResource Accent}"/>
+                </Grid>
+                <ProgressBar x:Name="PbOverall"
+                             Style="{StaticResource ThemedProgressBar}"
+                             Height="10"
+                             Value="0" Maximum="100"
+                             AutomationProperties.AutomationId="Download.Overall"/>
+                <TextBlock x:Name="TxtOverallStatus"
+                           Style="{StaticResource TextSubtitle}"
+                           FontSize="11"
+                           Margin="0,8,0,0"
+                           Text="Preparing…"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Per-item download list -->
+        <ScrollViewer Grid.Row="2"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="DownloadItems"/>
+        </ScrollViewer>
+
+        <!-- Log / error area -->
+        <Border Grid.Row="3"
+                Style="{StaticResource CardBorder}"
+                Padding="12,8"
+                Margin="0,12,0,0"
+                MaxHeight="100">
+            <ScrollViewer x:Name="LogScroller"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <TextBlock x:Name="TxtLog"
+                           FontFamily="Consolas"
+                           FontSize="11"
+                           Foreground="{StaticResource TextSecondary}"
+                           TextWrapping="Wrap"/>
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</UserControl>

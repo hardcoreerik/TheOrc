@@ -1,0 +1,159 @@
+<UserControl x:Class="OrchestratorSetup.Pages.ModelPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgPanel}"
+             AutomationProperties.AutomationId="Page.Model">
+
+    <Grid Margin="40,32">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <TextBlock Text="Model Selection" Style="{StaticResource TextPageTitle}"/>
+            <TextBlock Style="{StaticResource TextSubtitle}">
+                Based on your GPU and coding profile, we recommend the model below.
+                You can choose any model from the full list.
+            </TextBlock>
+        </StackPanel>
+
+        <!-- Recommended card -->
+        <Border Grid.Row="1" Style="{StaticResource CardBorder}"
+                BorderBrush="{StaticResource BorderAccent}"
+                Margin="0,0,0,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <Border Background="{StaticResource Accent}"
+                                CornerRadius="3" Padding="6,2" Margin="0,0,8,0">
+                            <TextBlock Text="RECOMMENDED" Foreground="White"
+                                       FontSize="10" FontWeight="Bold"
+                                       FontFamily="Segoe UI"/>
+                        </Border>
+                        <TextBlock x:Name="TxtRecName"
+                                   FontFamily="Segoe UI" FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimary}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <TextBlock x:Name="TxtRecDesc"
+                               Style="{StaticResource TextSubtitle}"
+                               Margin="0,0,0,10"/>
+
+                    <WrapPanel>
+                        <Border Background="#1A2A3A" CornerRadius="3" Padding="6,2" Margin="0,0,6,4">
+                            <TextBlock x:Name="TxtRecVram" FontSize="11"
+                                       Foreground="{StaticResource Accent}"
+                                       FontFamily="Segoe UI"/>
+                        </Border>
+                        <Border Background="#1A2A1A" CornerRadius="3" Padding="6,2" Margin="0,0,6,4">
+                            <TextBlock x:Name="TxtRecSize" FontSize="11"
+                                       Foreground="{StaticResource Success}"
+                                       FontFamily="Segoe UI"/>
+                        </Border>
+                        <Border Background="#2A2A1A" CornerRadius="3" Padding="6,2" Margin="0,0,6,4">
+                            <TextBlock x:Name="TxtRecContext" FontSize="11"
+                                       Foreground="{StaticResource Warning}"
+                                       FontFamily="Segoe UI"/>
+                        </Border>
+                        <TextBlock x:Name="TxtRecStars" FontSize="14"
+                                   Foreground="{StaticResource Warning}"
+                                   VerticalAlignment="Center" Margin="4,0,0,0"/>
+                    </WrapPanel>
+                </StackPanel>
+
+                <!-- Use this button -->
+                <Button Grid.Column="1"
+                        x:Name="BtnUseRecommended"
+                        Content="Use This ✓"
+                        Style="{StaticResource PrimaryButton}"
+                        VerticalAlignment="Center"
+                        Margin="16,0,0,0"
+                        Click="BtnUseRecommended_Click"
+                        AutomationProperties.AutomationId="Model.UseRecommended"/>
+            </Grid>
+        </Border>
+
+        <!-- Full list toggle -->
+        <Expander Grid.Row="2"
+                  x:Name="ExpanderAllModels"
+                  Header="Show all models"
+                  Foreground="{StaticResource TextSecondary}"
+                  FontFamily="Segoe UI"
+                  FontSize="12"
+                  Margin="0,0,0,0">
+            <ScrollViewer MaxHeight="260"
+                          VerticalScrollBarVisibility="Auto"
+                          Margin="0,8,0,0">
+                <ItemsControl x:Name="ModelList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border x:Name="ModelRow"
+                                    Style="{StaticResource CardBorder}"
+                                    Margin="0,0,0,6"
+                                    Padding="12,10"
+                                    Cursor="Hand"
+                                    MouseLeftButtonUp="ModelRow_Click">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="{Binding Name}"
+                                                   FontFamily="Segoe UI" FontSize="13"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextPrimary}"
+                                                   Margin="0,0,0,4"/>
+                                        <TextBlock Text="{Binding Description}"
+                                                   Style="{StaticResource TextSubtitle}"
+                                                   FontSize="11"/>
+                                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                            <TextBlock Text="{Binding VramDisplay}"
+                                                       FontSize="11" FontFamily="Segoe UI"
+                                                       Foreground="{StaticResource Accent}"
+                                                       Margin="0,0,12,0"/>
+                                            <TextBlock Text="{Binding SizeDisplay}"
+                                                       FontSize="11" FontFamily="Segoe UI"
+                                                       Foreground="{StaticResource Success}"
+                                                       Margin="0,0,12,0"/>
+                                            <TextBlock Text="{Binding StarsDisplay}"
+                                                       FontSize="13"
+                                                       Foreground="{StaticResource Warning}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                    <Button Grid.Column="1"
+                                            Content="Select"
+                                            Style="{StaticResource SecondaryButton}"
+                                            Padding="12,6"
+                                            FontSize="12"
+                                            VerticalAlignment="Center"
+                                            Margin="12,0,0,0"
+                                            Click="ModelSelectBtn_Click"
+                                            Tag="{Binding Id}"/>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Expander>
+
+        <!-- Current selection -->
+        <TextBlock Grid.Row="3"
+                   x:Name="TxtCurrentSelection"
+                   Style="{StaticResource TextSubtitle}"
+                   FontSize="11"
+                   VerticalAlignment="Bottom"
+                   Margin="0,12,0,0"/>
+    </Grid>
+</UserControl>
