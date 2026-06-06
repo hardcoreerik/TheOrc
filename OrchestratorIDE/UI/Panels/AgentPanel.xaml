@@ -1,0 +1,175 @@
+<UserControl x:Class="OrchestratorIDE.UI.Panels.AgentPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource Br.Bg.App}">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="28"/>   <!-- Tab bar -->
+            <RowDefinition Height="*"/>    <!-- Message list -->
+            <RowDefinition Height="Auto"/> <!-- Diff viewer (hidden until needed) -->
+            <RowDefinition Height="4"/>    <!-- Splitter -->
+            <RowDefinition Height="160" MinHeight="80"/> <!-- Input area -->
+        </Grid.RowDefinitions>
+
+        <!-- Tab bar -->
+        <Border Grid.Row="0" Background="#2D2D2D"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1">
+            <StackPanel Orientation="Horizontal">
+                <Border Background="{StaticResource Br.Bg.Active}"
+                        BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,1,0"
+                        Padding="12,0">
+                    <TextBlock Text="⚡ Code Agent" VerticalAlignment="Center"
+                               FontSize="12" Foreground="{StaticResource Br.Text.White}"/>
+                </Border>
+                <!-- Mode indicator -->
+                <TextBlock x:Name="TbMode" Text="● PLAN"
+                           Foreground="#CCA700" FontSize="10" FontWeight="Bold"
+                           VerticalAlignment="Center" Margin="10,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Message list (scrollable conversation) -->
+        <ScrollViewer x:Name="MsgScroll" Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl x:Name="MsgList" Padding="0,4">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Margin="0,1" Padding="12,8"
+                                Background="{Binding BubbleBg}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="28"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <!-- Role icon -->
+                                <TextBlock Grid.Column="0" Text="{Binding RoleIcon}"
+                                           FontSize="14" VerticalAlignment="Top"
+                                           HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                <!-- Content -->
+                                <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                    <TextBlock Text="{Binding RoleLabel}"
+                                               Foreground="{Binding RoleColor}"
+                                               FontSize="10" FontWeight="Bold"
+                                               Margin="0,0,0,3"/>
+                                    <TextBlock Text="{Binding Content}"
+                                               Foreground="{StaticResource Br.Text.Primary}"
+                                               FontFamily="Consolas, 'Cascadia Code', monospace"
+                                               FontSize="12" TextWrapping="Wrap"/>
+                                    <!-- Tool call badge (if applicable) -->
+                                    <ItemsControl ItemsSource="{Binding ToolBadges}"
+                                                  Margin="0,4,0,0"
+                                                  Visibility="{Binding HasTools}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="#2D2D2D" CornerRadius="3"
+                                                        Padding="6,2" Margin="0,0,4,0">
+                                                    <TextBlock Text="{Binding}"
+                                                               Foreground="{StaticResource Br.Accent.Blue}"
+                                                               FontSize="10"/>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- Diff viewer panel (collapsed until write_file approval) -->
+        <Border x:Name="DiffPanel" Grid.Row="2"
+                Visibility="Collapsed"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,1,0,0"
+                MaxHeight="340">
+            <!-- DiffViewer inserted here at runtime -->
+        </Border>
+
+        <GridSplitter Grid.Row="3" Height="4" HorizontalAlignment="Stretch"
+                      Background="{StaticResource Br.Border}" Cursor="SizeNS"/>
+
+        <!-- Input area -->
+        <Border Grid.Row="4" Background="{StaticResource Br.Bg.Panel}"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,1,0,0">
+            <DockPanel Margin="8,6">
+
+                <!-- Bottom toolbar -->
+                <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                    <!-- Mode toggle -->
+                    <Border Background="{StaticResource Br.Bg.Input}" CornerRadius="3"
+                            Padding="2" Margin="0,0,8,0" DockPanel.Dock="Left">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton x:Name="RbPlan" Content=" Plan "
+                                         GroupName="Mode" IsChecked="True"
+                                         Foreground="{StaticResource Br.Text.Primary}"
+                                         FontSize="11" VerticalAlignment="Center"
+                                         Checked="ModeChanged"/>
+                            <RadioButton x:Name="RbExec" Content=" Execute "
+                                         GroupName="Mode" Margin="4,0,0,0"
+                                         Foreground="{StaticResource Br.Text.Primary}"
+                                         FontSize="11" VerticalAlignment="Center"
+                                         Checked="ModeChanged"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Token counter + mini progress bar -->
+                    <StackPanel DockPanel.Dock="Left" Orientation="Vertical"
+                                VerticalAlignment="Center" Margin="0,0,10,0" Width="80">
+                        <TextBlock x:Name="TbTokens" Text="0 tokens"
+                                   Foreground="{StaticResource Br.Text.Muted}"
+                                   FontSize="9" HorizontalAlignment="Center"/>
+                        <Border Height="3" CornerRadius="2"
+                                Background="{StaticResource Br.Bg.App}" Margin="0,2,0,0">
+                            <Border x:Name="CtxBar" Height="3" CornerRadius="2"
+                                    HorizontalAlignment="Left" Width="0"
+                                    Background="{StaticResource Br.Accent.Blue}"/>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Buttons -->
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <Button x:Name="BtnStop" Content="■ Stop" Width="70"
+                                Background="#3A1A1A" Foreground="{StaticResource Br.Error}"
+                                BorderBrush="#5A2A2A" FontSize="11"
+                                Click="BtnStop_Click" IsEnabled="False"/>
+                        <Button x:Name="BtnSend" Content="Send  ↵" Width="84"
+                                Background="{StaticResource Br.Bg.Active}"
+                                Foreground="{StaticResource Br.Text.White}"
+                                FontSize="11" Margin="6,0,0,0"
+                                Click="BtnSend_Click"/>
+                    </StackPanel>
+
+                    <Border/><!-- spacer -->
+                </DockPanel>
+
+                <!-- Text input with placeholder -->
+                <Grid>
+                    <TextBox x:Name="TbInput"
+                             AcceptsReturn="True" TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto"
+                             Background="{StaticResource Br.Bg.Input}"
+                             BorderBrush="{StaticResource Br.Border}"
+                             BorderThickness="1" Padding="8,6"
+                             FontFamily="Consolas, 'Cascadia Code', monospace"
+                             FontSize="12"
+                             KeyDown="TbInput_KeyDown"
+                             TextChanged="TbInput_TextChanged"/>
+                    <TextBlock x:Name="TbPlaceholder"
+                               Text="Ask the agent anything… (Enter to send, Shift+Enter for newline)"
+                               Foreground="#555" FontSize="11"
+                               IsHitTestVisible="False"
+                               VerticalAlignment="Top" Margin="9,8,0,0"/>
+                </Grid>
+            </DockPanel>
+        </Border>
+
+    </Grid>
+</UserControl>

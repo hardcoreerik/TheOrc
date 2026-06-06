@@ -1,0 +1,95 @@
+﻿<Application x:Class="OrchestratorIDE.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:OrchestratorIDE"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+
+        <!-- ── Colour palette (VS Code Dark+) ───────────────────────── -->
+        <SolidColorBrush x:Key="Br.Bg.App"       Color="#1E1E1E"/>
+        <SolidColorBrush x:Key="Br.Bg.Panel"     Color="#252526"/>
+        <SolidColorBrush x:Key="Br.Bg.Sidebar"   Color="#333333"/>
+        <SolidColorBrush x:Key="Br.Bg.StatusBar" Color="#007ACC"/>
+        <SolidColorBrush x:Key="Br.Bg.Input"     Color="#3C3C3C"/>
+        <SolidColorBrush x:Key="Br.Bg.Hover"     Color="#2A2D2E"/>
+        <SolidColorBrush x:Key="Br.Bg.Active"    Color="#094771"/>
+        <SolidColorBrush x:Key="Br.Border"       Color="#474747"/>
+        <SolidColorBrush x:Key="Br.Text.Primary" Color="#CCCCCC"/>
+        <SolidColorBrush x:Key="Br.Text.Muted"   Color="#858585"/>
+        <SolidColorBrush x:Key="Br.Text.White"   Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="Br.Accent.Blue"  Color="#569CD6"/>
+        <SolidColorBrush x:Key="Br.Accent.Green" Color="#4EC9B0"/>
+        <SolidColorBrush x:Key="Br.Warning"      Color="#CCA700"/>
+        <SolidColorBrush x:Key="Br.Error"        Color="#F44747"/>
+
+        <!-- ── Global font ───────────────────────────────────────────── -->
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Br.Text.Primary}"/>
+            <Setter Property="FontFamily" Value="Consolas, 'Cascadia Code', monospace"/>
+            <Setter Property="FontSize"   Value="12"/>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="Background"  Value="{StaticResource Br.Bg.Input}"/>
+            <Setter Property="Foreground"  Value="{StaticResource Br.Text.Primary}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Br.Border}"/>
+            <Setter Property="FontFamily"  Value="Consolas, 'Cascadia Code', monospace"/>
+            <Setter Property="FontSize"    Value="12"/>
+            <Setter Property="CaretBrush" Value="{StaticResource Br.Text.Primary}"/>
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Background"  Value="{StaticResource Br.Bg.Input}"/>
+            <Setter Property="Foreground"  Value="{StaticResource Br.Text.Primary}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Br.Border}"/>
+            <Setter Property="Padding"     Value="8,4"/>
+            <Setter Property="Cursor"      Value="Hand"/>
+        </Style>
+
+        <!-- File tree item style -->
+        <Style x:Key="FileTreeItemStyle" TargetType="TreeViewItem">
+            <Setter Property="Foreground" Value="{StaticResource Br.Text.Primary}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding"    Value="2,1"/>
+            <Setter Property="FontSize"   Value="12"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource Br.Bg.Hover}"/>
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{StaticResource Br.Bg.Active}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Activity bar icon buttons -->
+        <Style x:Key="ActivityBtnStyle" TargetType="Button">
+            <Setter Property="Background"  Value="Transparent"/>
+            <Setter Property="Foreground"  Value="{StaticResource Br.Text.Muted}"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="FontSize"    Value="16"/>
+            <Setter Property="Width"       Value="44"/>
+            <Setter Property="Height"      Value="44"/>
+            <Setter Property="Cursor"      Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{StaticResource Br.Bg.Hover}"/>
+                                <Setter Property="Foreground" Value="{StaticResource Br.Text.White}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+    </Application.Resources>
+</Application>
