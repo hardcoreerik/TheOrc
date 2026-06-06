@@ -4,6 +4,13 @@ public class ProjectSession
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public string WorkspaceRoot { get; set; } = "";
+
+    /// <summary>
+    /// True only when the user explicitly opened a folder this session.
+    /// Loaded defaults do NOT count — the agent must not write files until confirmed.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsWorkspaceConfirmed { get; set; } = false;
     public string ActiveModel { get; set; } = "qwen2.5-coder:14b";
     public List<AgentMessage> Messages { get; set; } = [];
     public List<string> ActiveRules { get; set; } = [];

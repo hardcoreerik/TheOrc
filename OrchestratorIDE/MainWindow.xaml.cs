@@ -34,6 +34,10 @@ public partial class MainWindow : Window
     private readonly FileExplorerPanel _explorerPanel;
     private readonly AgentPanel        _agentPanel;
     private readonly SettingsPanel     _settingsPanel;
+    private readonly CodeEditorPanel   _editorPanel;
+
+    // Editor font size (shared across sessions, adjustable via View menu)
+    private double _editorFontSize = 13.0;
 
     public MainWindow()
     {
@@ -63,14 +67,18 @@ public partial class MainWindow : Window
 
         // Build panels
         _explorerPanel = new FileExplorerPanel();
-        _explorerPanel.WorkspaceChanged += path =>
-        {
-            _session.WorkspaceRoot = path;
-            RegisterAllTools();
-            UpdateStatusBar();
-        };
+        _explorerPanel.WorkspaceChanged += path => ConfirmWorkspace(path);
         _explorerPanel.FileSelected += path =>
+        {
             AddActivity(new ActivityEvent(ActivityKind.Info, "Open", Path.GetFileName(path), DateTime.Now));
+            ShowEditorPane();
+            _editorPanel.OpenFile(path);
+        };
+
+        // Code editor — wires up close-pane button
+        _editorPanel = new CodeEditorPanel();
+        _editorPanel.ClosePane += HideEditorPane;
+        EditorContent.Content   = _editorPanel;
 
         _agentPanel = new AgentPanel
         {
@@ -81,6 +89,12 @@ public partial class MainWindow : Window
 
         // Wire live token streaming → chat bubble
         _loop.OnToken += token => _agentPanel.AppendStreamingToken(token);
+
+        // Wire token usage → bubble badge + session counter
+        _loop.OnUsage += (p, c) => _agentPanel.OnTokensUsed(p, c);
+
+        // Badge click → open folder picker (same as explorer panel open)
+        _agentPanel.WorkspaceChangeRequested += () => _explorerPanel.PromptOpenFolder();
 
         // Auto-save session after every message cycle
         _agentPanel.ConversationChanged += async () =>
@@ -104,6 +118,13 @@ public partial class MainWindow : Window
         // Approval gate — use diff viewer in AgentPanel for write_file, dialog for shell
         _approvals.ApprovalRequested += OnApprovalRequested;
 
+        // Layer 2: unknown tool card — shown in the diff panel slot
+        _registry.OnUnknownTool = async call =>
+        {
+            var names = _registry.GetRegisteredNames();
+            return await _agentPanel.ShowUnknownToolCard(call, names);
+        };
+
         // Build settings panel
         _settingsPanel = new SettingsPanel(_ollama);
         _settingsPanel.LoadSettings(_settings);
@@ -115,6 +136,9 @@ public partial class MainWindow : Window
 
         // Main area = agent panel
         MainContent.Content = _agentPanel;
+
+        // Show unconfirmed badge on startup (default workspace, not explicitly opened)
+        _agentPanel.SetWorkspace(_session.WorkspaceRoot, confirmed: false);
 
         UpdateStatusBar();
         Loaded += async (_, _) => await OnLoadedAsync();
@@ -190,38 +214,40 @@ public partial class MainWindow : Window
 
     private void OnApprovalRequested(PendingApproval pending)
     {
-        Dispatcher.Invoke(() =>
-        {
-            var tc = pending.Call;
+        var tc = pending.Call;
 
-            if (tc.Name == "write_file")
+        if (tc.Name == "write_file")
+        {
+            Dispatcher.Invoke(() =>
             {
                 // Read old file for diff
-                var pathArg = tc.Arguments.TryGetValue("path", out var p) ? p?.ToString() ?? "" : "";
-                var content = tc.Arguments.TryGetValue("content", out var c) ? c?.ToString() ?? "" : "";
-                var reason  = tc.Arguments.TryGetValue("reason",  out var r) ? r?.ToString() ?? "" : "";
+                var pathArg  = tc.Arguments.TryGetValue("path",    out var p) ? p?.ToString() ?? "" : "";
+                var content  = tc.Arguments.TryGetValue("content", out var c) ? c?.ToString() ?? "" : "";
+                var reason   = tc.Arguments.TryGetValue("reason",  out var r) ? r?.ToString() ?? "" : "";
                 var fullPath = Path.IsPathRooted(pathArg)
                     ? pathArg : Path.Combine(_session.WorkspaceRoot, pathArg);
-                var oldText = File.Exists(fullPath) ? File.ReadAllText(fullPath) : "";
+                var oldText  = File.Exists(fullPath) ? File.ReadAllText(fullPath) : "";
 
                 _agentPanel.ShowDiff(fullPath, oldText, content, reason,
-                    onApproved: () => _approvals.Approve(pending),
+                    onApproved: () =>
+                    {
+                        _approvals.Approve(pending);
+                        // Refresh editor tab if this file is open
+                        Dispatcher.InvokeAsync(() => _editorPanel.RefreshFile(fullPath));
+                    },
                     onRejected: () => _approvals.Reject(pending));
-            }
-            else
+            });
+        }
+        else
+        {
+            // run_shell and all other tools — inline approval card (no MessageBox)
+            _ = Task.Run(async () =>
             {
-                // Shell / other — simple dialog
-                var msg = $"Tool: {tc.Name}\n"
-                        + string.Join("\n", tc.Arguments.Select(kv => $"  {kv.Key} = {kv.Value}"))
-                        + (tc.ExplainWhy != null ? $"\n\nReason: {tc.ExplainWhy}" : "");
-
-                var res = MessageBox.Show(msg, $"Approve: {tc.Name}?",
-                    MessageBoxButton.YesNo, MessageBoxImage.Question);
-
-                if (res == MessageBoxResult.Yes) _approvals.Approve(pending);
-                else _approvals.Reject(pending);
-            }
-        });
+                var approved = await _agentPanel.ShowShellApproval(tc);
+                if (approved) _approvals.Approve(pending);
+                else          _approvals.Reject(pending);
+            });
+        }
     }
 
     // ── Activity log helpers ──────────────────────────────────────────────
@@ -278,6 +304,24 @@ public partial class MainWindow : Window
         {
             e.Handled = true;
             SidebarContent.Content = _explorerPanel;
+        }
+        // Ctrl+Shift+C = toggle code editor pane
+        if (e.Key == Key.C && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
+        {
+            e.Handled = true;
+            ToggleEditorPane();
+        }
+        // Ctrl+N = new session
+        if (e.Key == Key.N && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            e.Handled = true;
+            Menu_NewSession(this, null!);
+        }
+        // Ctrl+O = open folder
+        if (e.Key == Key.O && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            e.Handled = true;
+            _explorerPanel.OpenFolderDialog();
         }
     }
 
@@ -367,6 +411,27 @@ public partial class MainWindow : Window
         SidebarContent.Content = _settingsPanel;
     }
 
+    /// <summary>
+    /// Called whenever the user explicitly opens a folder — confirms the workspace
+    /// and unlocks Execute mode. Also saves it as the last-used folder.
+    /// </summary>
+    private void ConfirmWorkspace(string path)
+    {
+        _session.WorkspaceRoot          = path;
+        _session.IsWorkspaceConfirmed   = true;
+        RegisterAllTools();
+        _explorerPanel.LoadWorkspace(path);
+        _agentPanel.SetWorkspace(path, confirmed: true);
+        UpdateStatusBar();
+
+        // Persist as last-used workspace so next session pre-loads it
+        _settings.DefaultWorkspace = path;
+        _settings.Save();
+
+        AddActivity(new ActivityEvent(ActivityKind.Info, "Workspace",
+            $"Opened: {Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar))}", DateTime.Now));
+    }
+
     private void OnSettingsSaved(AppSettings newSettings)
     {
         _settings = newSettings;
@@ -374,17 +439,20 @@ public partial class MainWindow : Window
         // Apply Ollama host live
         _ollama.Host = newSettings.OllamaHost;
 
-        // Apply default workspace if changed and no workspace currently open
-        if (!string.IsNullOrEmpty(newSettings.DefaultWorkspace)
-            && _session.WorkspaceRoot == Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))
+        // Settings workspace change updates the default but does NOT confirm —
+        // the user must still explicitly open the folder this session.
+        if (!string.IsNullOrEmpty(newSettings.DefaultWorkspace))
         {
             _session.WorkspaceRoot = newSettings.DefaultWorkspace;
             RegisterAllTools();
             _explorerPanel.LoadWorkspace(newSettings.DefaultWorkspace);
+            // Keep badge amber (unconfirmed) — don't call ConfirmWorkspace here
+            _agentPanel.SetWorkspace(newSettings.DefaultWorkspace, confirmed: false);
         }
 
         UpdateStatusBar();
-        AddActivity(new ActivityEvent(ActivityKind.Info, "Settings", $"Saved — Ollama: {newSettings.OllamaHost}", DateTime.Now));
+        AddActivity(new ActivityEvent(ActivityKind.Info, "Settings",
+            $"Saved — Ollama: {newSettings.OllamaHost}", DateTime.Now));
     }
 
     private void AgentMode_Changed(object sender, RoutedEventArgs e) { }
@@ -414,6 +482,107 @@ public partial class MainWindow : Window
     }
 
     private void CloseModelPicker() => ModelPickerPopup.IsOpen = false;
+
+    // ── Editor split pane ─────────────────────────────────────────────────
+
+    private bool _editorVisible = false;
+
+    private void ShowEditorPane()
+    {
+        if (_editorVisible) return;
+        _editorVisible               = true;
+        ColEditorSplitter.Width      = new GridLength(4);
+        ColEditor.Width              = new GridLength(1, GridUnitType.Star);
+        SplitterEditor.Visibility    = Visibility.Visible;
+        EditorContent.Visibility     = Visibility.Visible;
+    }
+
+    private void HideEditorPane()
+    {
+        _editorVisible               = false;
+        ColEditorSplitter.Width      = new GridLength(0);
+        ColEditor.Width              = new GridLength(0);
+        SplitterEditor.Visibility    = Visibility.Collapsed;
+        EditorContent.Visibility     = Visibility.Collapsed;
+    }
+
+    private void ToggleEditorPane()
+    {
+        if (_editorVisible) HideEditorPane();
+        else                ShowEditorPane();
+    }
+
+    // ── Menu handlers — File ──────────────────────────────────────────────
+
+    private void Menu_OpenFolder(object sender, RoutedEventArgs e)
+        => _explorerPanel.OpenFolderDialog();
+
+    private void Menu_OpenExplorer(object sender, RoutedEventArgs e)
+        => FileExplorerPanel.RevealInExplorer(_session.WorkspaceRoot);
+
+    private void Menu_NewSession(object sender, RoutedEventArgs e)
+    {
+        _session = new ProjectSession
+        {
+            WorkspaceRoot = _session.WorkspaceRoot,
+            ActiveModel   = _session.ActiveModel,
+        };
+        _agentPanel.Session = _session;
+        AddActivity(new ActivityEvent(ActivityKind.Info, "Session", "New session started", DateTime.Now));
+    }
+
+    private void Menu_Exit(object sender, RoutedEventArgs e)
+        => Close();
+
+    // ── Menu handlers — Edit ──────────────────────────────────────────────
+
+    private void Menu_CommandPalette(object sender, RoutedEventArgs e)
+        => OpenCommandPalette();
+
+    private void Menu_Settings(object sender, RoutedEventArgs e)
+        => BtnSettings_Click(sender, e);
+
+    // ── Menu handlers — View ──────────────────────────────────────────────
+
+    private void Menu_ShowExplorer(object sender, RoutedEventArgs e)
+        => SidebarContent.Content = _explorerPanel;
+
+    private void Menu_ToggleEditor(object sender, RoutedEventArgs e)
+        => ToggleEditorPane();
+
+    private void Menu_WordWrap(object sender, RoutedEventArgs e)
+        => _editorPanel.SetWordWrap(MiWordWrap.IsChecked);
+
+    private void Menu_FontBigger(object sender, RoutedEventArgs e)
+    {
+        _editorFontSize = Math.Min(32, _editorFontSize + 1);
+        _editorPanel.SetFontSize(_editorFontSize);
+    }
+
+    private void Menu_FontSmaller(object sender, RoutedEventArgs e)
+    {
+        _editorFontSize = Math.Max(8, _editorFontSize - 1);
+        _editorPanel.SetFontSize(_editorFontSize);
+    }
+
+    private void Menu_FontReset(object sender, RoutedEventArgs e)
+    {
+        _editorFontSize = 13.0;
+        _editorPanel.SetFontSize(_editorFontSize);
+    }
+
+    // ── Menu handlers — Agent ─────────────────────────────────────────────
+
+    private void Menu_ModePlan(object sender, RoutedEventArgs e)
+        => _agentPanel.SetMode(isPlan: true);
+
+    private void Menu_ModeExecute(object sender, RoutedEventArgs e)
+        => _agentPanel.SetMode(isPlan: false);
+
+    private void Menu_ChangeModel(object sender, RoutedEventArgs e)
+        => SbModel_Click(sender, null!);
+
+    // ── Keyboard shortcuts (extend existing handler) ───────────────────────
 
     // stubs kept for XAML compat
     private void BtnSend_Click(object sender, RoutedEventArgs e) { }

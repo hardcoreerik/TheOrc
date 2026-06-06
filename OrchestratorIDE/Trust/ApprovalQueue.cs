@@ -13,6 +13,12 @@ public class ApprovalQueue
 
     public event Action<PendingApproval>? ApprovalRequested;
 
+    /// <summary>
+    /// When true, every approval request is immediately granted without UI interaction.
+    /// Used by --autotest mode. Never set this in production.
+    /// </summary>
+    public bool AutoApprove { get; set; } = false;
+
     public async Task<bool> RequestApprovalAsync(ToolCall call, CancellationToken ct)
     {
         var tcs = new TaskCompletionSource<bool>();
@@ -20,7 +26,16 @@ public class ApprovalQueue
 
         var pending = new PendingApproval(call, tcs);
         lock (_lock) { _queue.Add(pending); }
-        ApprovalRequested?.Invoke(pending);
+
+        if (AutoApprove)
+        {
+            // Headless mode — approve immediately, no UI needed
+            Approve(pending);
+        }
+        else
+        {
+            ApprovalRequested?.Invoke(pending);
+        }
 
         try { return await tcs.Task; }
         finally { lock (_lock) { _queue.Remove(pending); } }

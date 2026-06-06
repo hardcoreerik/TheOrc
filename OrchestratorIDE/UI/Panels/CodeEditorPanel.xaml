@@ -1,0 +1,445 @@
+<UserControl x:Class="OrchestratorIDE.UI.Panels.CodeEditorPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:avalon="clr-namespace:AvalonEditB;assembly=AvalonEditB"
+             Background="{StaticResource Br.Bg.App}">
+
+    <UserControl.Resources>
+
+        <!-- Close button: gray ×, turns red on hover -->
+        <Style x:Key="TabCloseStyle" TargetType="Button">
+            <Setter Property="Width"           Value="20"/>
+            <Setter Property="Height"          Value="20"/>
+            <Setter Property="FontSize"        Value="13"/>
+            <Setter Property="Cursor"          Value="Hand"/>
+            <Setter Property="Background"      Value="Transparent"/>
+            <Setter Property="Foreground"      Value="#888888"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="ToolTip"         Value="Close tab"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="3"
+                                Width="18" Height="18">
+                            <TextBlock Text="✕"
+                                       Foreground="{TemplateBinding Foreground}"
+                                       FontSize="{TemplateBinding FontSize}"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       FontWeight="Bold"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#3A1010"/>
+                                <Setter Property="Foreground" Value="#F47070"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Subtle icon button used in the tab bar header -->
+        <Style x:Key="TabBarIconBtn" TargetType="Button">
+            <Setter Property="Width"           Value="32"/>
+            <Setter Property="Height"          Value="35"/>
+            <Setter Property="Background"      Value="Transparent"/>
+            <Setter Property="Foreground"      Value="#888888"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor"          Value="Hand"/>
+            <Setter Property="FontSize"        Value="14"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}">
+                            <TextBlock Text="{TemplateBinding Content}"
+                                       Foreground="{TemplateBinding Foreground}"
+                                       FontSize="{TemplateBinding FontSize}"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#3C3C3C"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Tab item DataTemplate (shared by both panes) -->
+        <DataTemplate x:Key="TabItemTemplate">
+            <Border Height="35" HorizontalAlignment="Stretch"
+                    Background="{Binding TabBackground}"
+                    BorderBrush="{StaticResource Br.Border}"
+                    BorderThickness="0,0,1,0"
+                    Cursor="Hand"
+                    Tag="{Binding}"
+                    PreviewMouseLeftButtonDown="Tab_MouseDown"
+                    PreviewMouseMove="Tab_PreviewMouseMove">
+                <DockPanel Margin="10,0,4,0">
+                    <!-- Close × — always visible, turns red on hover -->
+                    <Button DockPanel.Dock="Right"
+                            Style="{StaticResource TabCloseStyle}"
+                            Tag="{Binding}"
+                            Click="BtnCloseTab_Click"
+                            Margin="4,0,0,0"/>
+                    <TextBlock Text="{Binding DisplayName}"
+                               FontSize="12"
+                               VerticalAlignment="Center"
+                               Foreground="{Binding TabForeground}"
+                               TextTrimming="CharacterEllipsis"
+                               ToolTip="{Binding Path}"/>
+                </DockPanel>
+            </Border>
+        </DataTemplate>
+
+    </UserControl.Resources>
+
+    <!--
+    ═══════════════════════════════════════════════════════════════
+    CODE EDITOR PANEL — Phase 4
+    ┌─────────────────────────────┬───────────────────────────────┐
+    │ [file.cs ×][other.py ×][⊟✕]│ [split.cs ×]             [✕] │ ← tab bars
+    ├─────────────────────────────┤───────────────────────────────┤
+    │  AvalonEdit (primary)       │  AvalonEdit (secondary)       │ ← drag tab to split
+    ├─────────────────────────────┴───────────────────────────────┤
+    │  /full/path/file.cs          C#      Ln 12, Col 5  ? Legend │ ← footer
+    └─────────────────────────────────────────────────────────────┘
+    ═══════════════════════════════════════════════════════════════
+    -->
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>    <!-- Split pane area -->
+            <RowDefinition Height="22"/>   <!-- Footer          -->
+        </Grid.RowDefinitions>
+
+        <!-- ═════════════════════════════════════════════════════
+             SPLIT PANE AREA
+             Col 0 = primary  |  Col 1 = gutter  |  Col 2 = secondary
+             ═════════════════════════════════════════════════════ -->
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MinWidth="150"/>
+                <ColumnDefinition x:Name="ColGutter"    Width="0"/>
+                <ColumnDefinition x:Name="ColSecondary" Width="0" MinWidth="0"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- ══ PRIMARY PANE ══════════════════════════════════ -->
+            <Grid Grid.Column="0"
+                  AllowDrop="True"
+                  DragOver="Primary_DragOver"
+                  DragLeave="Pane_DragLeave"
+                  Drop="Primary_Drop">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="35"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Primary tab bar -->
+                <Border Grid.Row="0" Background="#252526"
+                        BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1">
+                    <DockPanel>
+                        <!-- Split right button -->
+                        <Button DockPanel.Dock="Right" Content="⊟"
+                                Style="{StaticResource TabBarIconBtn}"
+                                ToolTip="Split Editor Right (or drag a tab to the right side)"
+                                Click="BtnSplit_Click"/>
+                        <!-- Close pane button -->
+                        <Button DockPanel.Dock="Right" Content="✕"
+                                Style="{StaticResource TabBarIconBtn}"
+                                ToolTip="Close editor pane"
+                                Click="BtnClosePrimary_Click"/>
+                        <!-- Tabs -->
+                        <!-- HorizontalScrollBarVisibility=Disabled gives UniformGrid a bounded width
+                             so all tabs share the space equally and auto-resize on open/close -->
+                        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Disabled">
+                            <Grid>
+                                <TextBlock x:Name="TbNoFile1"
+                                           Text="Open a file from the explorer"
+                                           Foreground="{StaticResource Br.Text.Muted}"
+                                           FontSize="11" VerticalAlignment="Center" Margin="12,0"/>
+                                <ItemsControl x:Name="TabList1"
+                                              ItemTemplate="{StaticResource TabItemTemplate}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <!-- UniformGrid auto-sizes all tabs to equal width -->
+                                            <UniformGrid Rows="1"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                </ItemsControl>
+                            </Grid>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+
+                <!-- Primary editor + drag-drop overlay -->
+                <Grid Grid.Row="1">
+                    <TextBlock x:Name="TbPlaceholder1"
+                               Text="Click a file in the explorer to open it."
+                               Foreground="{StaticResource Br.Text.Muted}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               FontSize="13"/>
+                    <avalon:TextEditor x:Name="EditorPrimary"
+                                       FontFamily="Cascadia Code, Consolas, Courier New"
+                                       FontSize="13"
+                                       ShowLineNumbers="True"
+                                       IsReadOnly="True"
+                                       WordWrap="False"
+                                       Background="#1E1E1E"
+                                       Foreground="#D4D4D4"
+                                       LineNumbersForeground="#858585"
+                                       BorderThickness="0"
+                                       Visibility="Collapsed"/>
+                    <!-- Drop indicator: appears on right half when dragging a tab over it -->
+                    <Border x:Name="DropZonePrimary"
+                            Background="#22094771"
+                            BorderBrush="#569CD6"
+                            BorderThickness="0,0,3,0"
+                            HorizontalAlignment="Right"
+                            Width="0"
+                            Visibility="Collapsed">
+                        <TextBlock Text="Drop to split →"
+                                   Foreground="#569CD6"
+                                   FontSize="12"
+                                   VerticalAlignment="Center"
+                                   HorizontalAlignment="Center"
+                                   Margin="12"/>
+                    </Border>
+                </Grid>
+            </Grid>
+
+            <!-- Pane splitter -->
+            <GridSplitter x:Name="PaneSplitter" Grid.Column="1"
+                          Width="4" HorizontalAlignment="Stretch"
+                          Background="{StaticResource Br.Border}"
+                          Cursor="SizeWE"
+                          Visibility="Collapsed"/>
+
+            <!-- ══ SECONDARY PANE ════════════════════════════════ -->
+            <Grid x:Name="SecondaryPane" Grid.Column="2" Visibility="Collapsed"
+                  AllowDrop="True"
+                  DragOver="Secondary_DragOver"
+                  DragLeave="Pane_DragLeave"
+                  Drop="Secondary_Drop">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="35"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Secondary tab bar -->
+                <Border Grid.Row="0" Background="#252526"
+                        BorderBrush="{StaticResource Br.Border}" BorderThickness="1,0,0,1">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="✕"
+                                Style="{StaticResource TabBarIconBtn}"
+                                ToolTip="Close second pane"
+                                Click="BtnCloseSecondary_Click"/>
+                        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Disabled">
+                            <Grid>
+                                <TextBlock x:Name="TbNoFile2"
+                                           Text="Drop a tab here to view side-by-side"
+                                           Foreground="{StaticResource Br.Text.Muted}"
+                                           FontSize="11" VerticalAlignment="Center" Margin="12,0"/>
+                                <ItemsControl x:Name="TabList2"
+                                              ItemTemplate="{StaticResource TabItemTemplate}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <UniformGrid Rows="1"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                </ItemsControl>
+                            </Grid>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+
+                <!-- Secondary editor + drop overlay -->
+                <Grid Grid.Row="1">
+                    <TextBlock x:Name="TbPlaceholder2"
+                               Text="Drag a file tab here to view it side-by-side."
+                               Foreground="{StaticResource Br.Text.Muted}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               FontSize="13" TextWrapping="Wrap" Margin="24"/>
+                    <avalon:TextEditor x:Name="EditorSecondary"
+                                       FontFamily="Cascadia Code, Consolas, Courier New"
+                                       FontSize="13"
+                                       ShowLineNumbers="True"
+                                       IsReadOnly="True"
+                                       WordWrap="False"
+                                       Background="#1E1E1E"
+                                       Foreground="#D4D4D4"
+                                       LineNumbersForeground="#858585"
+                                       BorderThickness="0"
+                                       Visibility="Collapsed"/>
+                    <!-- Full-pane drop highlight -->
+                    <Border x:Name="DropZoneSecondary"
+                            Background="#22094771"
+                            BorderBrush="#569CD6"
+                            BorderThickness="2"
+                            Visibility="Collapsed">
+                        <TextBlock Text="Drop here"
+                                   Foreground="#569CD6"
+                                   FontSize="14"
+                                   VerticalAlignment="Center"
+                                   HorizontalAlignment="Center"/>
+                    </Border>
+                </Grid>
+            </Grid>
+        </Grid>
+
+        <!-- ═════════════════════════════════════════════════════
+             FOOTER
+             ═════════════════════════════════════════════════════ -->
+        <Border Grid.Row="1" Background="#007ACC">
+            <DockPanel Margin="8,0">
+                <!-- Right: legend button, language, position -->
+                <Button x:Name="BtnLegend" DockPanel.Dock="Right"
+                        Content="? Legend"
+                        Padding="8,0" Height="22"
+                        Background="#005A9E" Foreground="White"
+                        BorderBrush="#0070CC" BorderThickness="1,0,0,0"
+                        FontSize="11" Cursor="Hand"
+                        ToolTip="Show syntax color guide"
+                        Click="BtnLegend_Click"/>
+                <TextBlock x:Name="TbLang" DockPanel.Dock="Right"
+                           Text="" Foreground="White" FontSize="11"
+                           VerticalAlignment="Center" Margin="12,0,8,0"/>
+                <TextBlock x:Name="TbPosition" DockPanel.Dock="Right"
+                           Text="" Foreground="White" FontSize="11"
+                           VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <!-- Left: full path -->
+                <TextBlock x:Name="TbFilePath"
+                           Text="" Foreground="White" FontSize="11"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
+                           ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+            </DockPanel>
+        </Border>
+
+        <!-- ═════════════════════════════════════════════════════
+             LEGEND POPUP
+             ═════════════════════════════════════════════════════ -->
+        <Popup x:Name="LegendPopup"
+               Placement="Top"
+               PlacementTarget="{Binding ElementName=BtnLegend}"
+               StaysOpen="False"
+               AllowsTransparency="True"
+               PopupAnimation="Fade">
+            <Border Background="#252526"
+                    BorderBrush="#555555" BorderThickness="1"
+                    Padding="16,12" MinWidth="340">
+                <StackPanel>
+                    <TextBlock Text="Syntax Color Guide"
+                               FontWeight="SemiBold" FontSize="13"
+                               Foreground="White" Margin="0,0,0,10"/>
+
+                    <!-- Each row: swatch + category + example -->
+                    <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Width="10" Height="10" Background="#569CD6" CornerRadius="2" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="Keywords" Foreground="#CCCCCC" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center">
+                            <Run Foreground="#569CD6">public</Run><Run Foreground="#CCCCCC"> </Run><Run Foreground="#569CD6">class</Run><Run Foreground="#CCCCCC"> </Run><Run Foreground="#569CD6">if</Run><Run Foreground="#CCCCCC"> </Run><Run Foreground="#569CD6">return</Run>
+                        </TextBlock>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Width="10" Height="10" Background="#57A64A" CornerRadius="2" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="Comments" Foreground="#CCCCCC" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center">
+                            <Run Foreground="#57A64A">// explains what the code does</Run>
+                        </TextBlock>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Width="10" Height="10" Background="#D69D85" CornerRadius="2" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="Strings" Foreground="#CCCCCC" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center">
+                            <Run Foreground="#D69D85">"Hello, World!"</Run>
+                        </TextBlock>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Width="10" Height="10" Background="#4EC9B0" CornerRadius="2" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="Types &amp; Classes" Foreground="#CCCCCC" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center">
+                            <Run Foreground="#4EC9B0">Calculator</Run><Run Foreground="#CCCCCC">  </Run><Run Foreground="#4EC9B0">List</Run><Run Foreground="#CCCCCC">&lt;</Run><Run Foreground="#4EC9B0">string</Run><Run Foreground="#CCCCCC">&gt;</Run>
+                        </TextBlock>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Width="10" Height="10" Background="#B5CEA8" CornerRadius="2" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="Numbers" Foreground="#CCCCCC" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center">
+                            <Run Foreground="#B5CEA8">42</Run><Run Foreground="#CCCCCC">   </Run><Run Foreground="#B5CEA8">3.14</Run><Run Foreground="#CCCCCC">   </Run><Run Foreground="#B5CEA8">0xFF</Run>
+                        </TextBlock>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Width="10" Height="10" Background="#9B9B9B" CornerRadius="2" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="Preprocessor" Foreground="#CCCCCC" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center">
+                            <Run Foreground="#9B9B9B">#region  #pragma  #if</Run>
+                        </TextBlock>
+                    </Grid>
+
+                    <Grid Margin="0,0,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="12"/>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Width="10" Height="10" Background="#DCDCDC" CornerRadius="2" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="Plain code" Foreground="#CCCCCC" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" FontFamily="Consolas" FontSize="12" VerticalAlignment="Center">
+                            <Run Foreground="#DCDCDC">= + - * / ( ) { }</Run>
+                        </TextBlock>
+                    </Grid>
+
+                    <Border Margin="0,10,0,0" BorderBrush="#3C3C3C" BorderThickness="0,1,0,0" Padding="0,8,0,0">
+                        <TextBlock Foreground="#888888" FontSize="11" TextWrapping="Wrap">
+                            <Run>Tip: </Run>
+                            <Run Foreground="#CCCCCC">Colors vary slightly by file type — Python, JavaScript, and XML each have their own scheme.</Run>
+                        </TextBlock>
+                    </Border>
+                </StackPanel>
+            </Border>
+        </Popup>
+
+    </Grid>
+</UserControl>

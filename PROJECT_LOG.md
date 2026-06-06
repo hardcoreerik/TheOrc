@@ -136,11 +136,11 @@ OrchestratorIDE/
 - [ ] Test DiffViewer approval flow end-to-end
 - [ ] Test Git checkpoint fires before execute
 
-### Phase 3 — Command Palette + Keyboard
-- [ ] Build CommandPalette.xaml (Ctrl+K overlay — currently shows MessageBox stub)
-- [ ] Register all actions in palette
-- [ ] Keyboard shortcut for model switching
-- [ ] Keyboard shortcut for Plan/Execute toggle
+### Phase 3 — Command Palette + Keyboard ✅ DONE
+- [x] Ctrl+K command palette with fuzzy search
+- [x] All actions registered (model switch, folder open, Plan/Execute, Settings, New Session)
+- [x] Keyboard shortcut for model switching
+- [x] Keyboard shortcut for Plan/Execute toggle
 - [ ] Vim-style j/k navigation in file explorer
 
 ### Phase 4 — Code Editor (AvalonEdit integration)
@@ -149,14 +149,67 @@ OrchestratorIDE/
 - [ ] Read-only / editable toggle
 - [ ] Jump-to-line when agent reads a file
 
-### Phase 5 — Polish + Publish
-- [ ] .NET Fluent dark theme (Windows 11 Mica/Acrylic)
-- [ ] Status bar: git branch, workspace name, token count
-- [ ] Settings panel (Ollama host, workspace root, rules file path)
+### Phase 5 — Polish + Sidebar Features ✅ MOSTLY DONE
+- [x] Settings panel (Ollama host, model, toggles, workspace, Test Connection)
+- [x] Status bar: git branch display
+- [x] Single-file publish + desktop shortcut
+- [x] Workspace guard (Option D) — badge, Execute block, ConfirmWorkspace flow
+- [x] Session auto-save + crash recovery
+- [x] Token counter per message + session total
+- [x] Text selection in chat bubbles (Ctrl+C works)
+- [ ] Checkpoint browser (sidebar list of [agent] commits + Restore button)
 - [ ] Session history browser in sidebar
-- [ ] Checkpoint history browser in sidebar
-- [ ] Single-file publish (`dotnet publish -r win-x64 --self-contained`)
-- [ ] Test on clean machine (no Python, no .NET runtime)
+- [ ] Shell approval cards (inline card instead of MessageBox)
+- [ ] Windows 11 Mica/Acrylic theme (cosmetic, low priority)
+
+### Phase 6 — Testing Infrastructure
+- [x] Two-stage Auto-Verify (build check always + test run only if test files found)
+- [x] `--autotest` flag (Option B) — headless pipeline test, CI-friendly
+  - Boots services, confirms workspace, runs Plan → Execute, auto-approves diffs
+  - Checks file created on disk with expected content
+  - Exits 0 (pass) / 1 (fail), prints structured results
+- [ ] **FlaUI UI automation (Option A)** — true end-to-end, clicks real buttons
+  - NuGet: `FlaUI.Core`, `FlaUI.UIA3`
+  - Add `AutomationId` to key XAML controls: TbInput, BtnSend, RbPlan, RbExec, WsBadge
+  - Separate test project: `OrchestratorIDE.UITests`
+  - Tests: startup model detection, workspace guard, Plan streaming, Execute + DiffViewer approve, file-on-disk check
+  - Run against published exe: `dotnet test` launches and drives the real app
+  - See: https://github.com/FlaUI/FlaUI
+
+### Phase 7 — Dynamic Tool System (Hot-load + Self-Improvement)
+
+**Goal:** Agent can discover it needs a tool that doesn't exist, and either fix itself
+or ask the user to implement it — without stopping the workflow.
+
+**Layer 1 ✅ DONE — Rich not-found feedback**
+- `ToolRegistry.BuildRichNotFoundMessage()` — lists every available tool with purpose + usage examples
+- Context-aware hints: `create_project` → `run_shell("dotnet new winforms -n ...")`,
+  `install_package` → `run_shell("dotnet add package ...")`, etc.
+- Model reads the result and self-corrects on the next step. Zero UI change needed.
+
+**Layer 2 ✅ DONE — UnknownToolCard UI**
+- `UI/Controls/UnknownToolCard.xaml/.cs`
+- Shown in the diff-panel slot whenever agent calls an unregistered tool
+- Three actions:
+  - **Auto-translate** → feeds Layer-1 message to model, it self-corrects
+  - **Skip** → injects "(tool skipped)" and continues the run
+  - **Implement it…** → stub, triggers Layer 3 (see below)
+- Wired via `ToolRegistry.OnUnknownTool` → `AgentPanel.ShowUnknownToolCard`
+
+**Layer 3 — Roslyn Hot-load Tool Editor (next major milestone)**
+- Clicking "Implement it…" opens a tool editor sidebar (uses our AvalonEdit panel)
+- Editor pre-filled with a `Func<Dictionary<string,object?>, CancellationToken, Task<string>>` template
+- "Let Agent Write It" — spawns mini inner-loop: agent writes the handler in the editor
+- "Register & Resume" — compiles with Roslyn scripting at runtime, drops into ToolRegistry, paused step resumes
+- NuGet needed: `Microsoft.CodeAnalysis.CSharp.Scripting`
+- Key files: `UI/Panels/ToolEditorPanel.xaml/.cs`, `Core/ToolCompiler.cs`
+- This closes the self-improvement loop: agent discovers need → writes tool → uses it immediately
+
+**Layer 4 — .agent.md knowledge file (enabler for self-improvement)**
+- `F:\Ai\OrchestratorIDE\.agent.md` — loaded by RulesLoader and injected into execute system prompt
+- Contents: project structure map, build commands, coding conventions, key files per area, what NOT to touch
+- Without this, agent working on its own source code is flying blind
+- Write once, agent keeps it updated as the project grows
 
 ### Backlog (post-v1)
 - [ ] Inline diff editing (edit proposed diff before approving)
@@ -164,7 +217,7 @@ OrchestratorIDE/
 - [ ] Token cost estimator (show estimated usage before long runs)
 - [ ] Devstral:24b integration (128k context agent tasks)
 - [ ] Multi-workspace support
-- [ ] Web fetch tool (for documentation lookup)
+- [ ] fetch_url tool (for documentation lookup) ✅ DONE
 
 ---
 

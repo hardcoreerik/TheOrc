@@ -10,6 +10,8 @@ public partial class FileExplorerPanel : UserControl
     public event Action<string>? FileSelected;
     public event Action<string>? WorkspaceChanged;
 
+    private string _currentRoot = "";
+
     private static readonly HashSet<string> SkipDirs =
     [
         "node_modules", ".venv", "venv", "__pycache__", ".git",
@@ -25,6 +27,7 @@ public partial class FileExplorerPanel : UserControl
     public void LoadWorkspace(string rootPath)
     {
         if (!Directory.Exists(rootPath)) return;
+        _currentRoot = rootPath;
         TbWorkspaceLabel.Text = Path.GetFileName(rootPath);
         FileTree.Items.Clear();
 
@@ -45,13 +48,34 @@ public partial class FileExplorerPanel : UserControl
         }
     }
 
+    /// <summary>Public entry point — called by AgentPanel badge click or command palette.</summary>
+    public void PromptOpenFolder() => OpenFolderDialog();
+
     private void BtnOpenFolder_Click(object sender, RoutedEventArgs e)
         => OpenFolderDialog();
+
+    private void BtnReveal_Click(object sender, RoutedEventArgs e)
+        => RevealInExplorer(_currentRoot);
 
     private void FileTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         if (e.NewValue is FileNode node && node.IsFile)
             FileSelected?.Invoke(node.FullPath);
+    }
+
+    // ── Shell helpers ─────────────────────────────────────────────────────
+
+    public static void RevealInExplorer(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        try
+        {
+            if (File.Exists(path))
+                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\"");
+            else if (Directory.Exists(path))
+                System.Diagnostics.Process.Start("explorer.exe", $"\"{path}\"");
+        }
+        catch { /* non-fatal */ }
     }
 
     // ── Tree building ─────────────────────────────────────────────────────

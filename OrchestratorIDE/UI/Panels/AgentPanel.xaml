@@ -53,10 +53,24 @@
                                                Foreground="{Binding RoleColor}"
                                                FontSize="10" FontWeight="Bold"
                                                Margin="0,0,0,3"/>
-                                    <TextBlock Text="{Binding Content}"
-                                               Foreground="{StaticResource Br.Text.Primary}"
-                                               FontFamily="Consolas, 'Cascadia Code', monospace"
-                                               FontSize="12" TextWrapping="Wrap"/>
+                                    <!-- Selectable text — use read-only TextBox so Ctrl+C and text selection work -->
+                                    <TextBox Text="{Binding Content, Mode=OneWay}"
+                                             IsReadOnly="True"
+                                             Background="Transparent"
+                                             BorderThickness="0"
+                                             Padding="0"
+                                             IsTabStop="False"
+                                             Foreground="{StaticResource Br.Text.Primary}"
+                                             FontFamily="Consolas, 'Cascadia Code', monospace"
+                                             FontSize="12"
+                                             TextWrapping="Wrap"
+                                             SelectionBrush="#3A4A5A"
+                                             CaretBrush="Transparent"/>
+                                    <!-- Token count badge (assistant only, shown after response completes) -->
+                                    <TextBlock Text="{Binding TokenLabel}"
+                                               Visibility="{Binding HasTokenLabel}"
+                                               Foreground="{StaticResource Br.Text.Muted}"
+                                               FontSize="9" Margin="0,4,0,0"/>
                                     <!-- Tool call badge (if applicable) -->
                                     <ItemsControl ItemsSource="{Binding ToolBadges}"
                                                   Margin="0,4,0,0"
@@ -120,9 +134,25 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- Workspace badge — click to open folder picker -->
+                    <Border x:Name="WsBadge" CornerRadius="3" Padding="7,3"
+                            Margin="0,0,8,0" DockPanel.Dock="Left"
+                            Background="#3A3010" Cursor="Hand"
+                            ToolTip="Click to open a project folder"
+                            MouseLeftButtonUp="WsBadge_Click">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="📁" FontSize="10" Margin="0,0,5,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock x:Name="WsLabel" Text="no folder open"
+                                       Foreground="#CCA700" FontSize="10"
+                                       VerticalAlignment="Center" MaxWidth="180"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                    </Border>
+
                     <!-- Token counter + mini progress bar -->
                     <StackPanel DockPanel.Dock="Left" Orientation="Vertical"
-                                VerticalAlignment="Center" Margin="0,0,10,0" Width="80">
+                                VerticalAlignment="Center" Margin="0,0,10,0" Width="100">
                         <TextBlock x:Name="TbTokens" Text="0 tokens"
                                    Foreground="{StaticResource Br.Text.Muted}"
                                    FontSize="9" HorizontalAlignment="Center"/>

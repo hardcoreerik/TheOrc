@@ -86,7 +86,11 @@ public static class FileTools
                 var depth = args.TryGetValue("depth", out var d) ? int.Parse(d?.ToString() ?? "3") : 3;
                 var lines = new List<string>();
                 WalkDir(dir, workspaceRoot, "", depth, lines);
-                return Task.FromResult(string.Join('\n', lines));
+                var result = string.Join('\n', lines);
+                // Always return a non-empty string so the model knows the tool ran
+                return Task.FromResult(string.IsNullOrWhiteSpace(result)
+                    ? $"(empty directory — no files found in {Path.GetRelativePath(workspaceRoot, dir)})"
+                    : result);
             }
         });
     }

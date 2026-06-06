@@ -19,11 +19,18 @@ public partial class AgentPanel : UserControl
     // Fires after every send/receive cycle — use to auto-save session
     public event Action? ConversationChanged;
 
+    // Fires when user clicks the workspace badge — MainWindow opens folder picker
+    public event Action? WorkspaceChangeRequested;
+
     private CancellationTokenSource? _cts;
     private readonly ObservableCollection<MessageVm> _messages = [];
 
     // Current streaming assistant bubble
     private MessageVm? _streamingBubble;
+
+    // Running session token total
+    private int _sessionPromptTokens    = 0;
+    private int _sessionCompleteTokens  = 0;
 
     public AgentPanel()
     {
@@ -67,11 +74,77 @@ public partial class AgentPanel : UserControl
         });
     }
 
+    // ── Workspace badge ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// Called by MainWindow whenever the workspace path changes (open folder,
+    /// settings save, startup). Updates badge label + colour.
+    /// confirmed = user explicitly opened this folder (not a loaded default).
+    /// </summary>
+    public void SetWorkspace(string path, bool confirmed)
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            // Label = last folder segment (or drive root if at top)
+            var name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar,
+                                                      Path.AltDirectorySeparatorChar));
+            if (string.IsNullOrEmpty(name)) name = path;   // e.g. "F:\"
+            WsLabel.Text = name;
+
+            // Depth check — how many segments from the drive root?
+            var depth = path.TrimEnd(Path.DirectorySeparatorChar)
+                            .Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries)
+                            .Length;
+
+            if (!confirmed)
+            {
+                // Amber — loaded from settings, not explicitly opened
+                WsLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xA7, 0x00));
+                WsBadge.Background = new SolidColorBrush(Color.FromRgb(0x3A, 0x30, 0x10));
+                WsBadge.ToolTip    = "No project folder open — click to choose one before executing";
+            }
+            else if (depth <= 1)
+            {
+                // Red — root or drive letter, very dangerous
+                WsLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
+                WsBadge.Background = new SolidColorBrush(Color.FromRgb(0x3A, 0x10, 0x10));
+                WsBadge.ToolTip    = "⚠ Root drive selected — click to choose a safer project folder";
+            }
+            else
+            {
+                // Teal — good, specific project folder
+                WsLabel.Foreground = new SolidColorBrush(Color.FromRgb(0x4E, 0xC9, 0xB0));
+                WsBadge.Background = new SolidColorBrush(Color.FromRgb(0x10, 0x2A, 0x26));
+                WsBadge.ToolTip    = $"Workspace: {path}\nClick to change";
+            }
+        });
+    }
+
+    private void WsBadge_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        => WorkspaceChangeRequested?.Invoke();
+
     // ── Send ──────────────────────────────────────────────────────────────
     private async void BtnSend_Click(object sender, RoutedEventArgs e)
     {
         var prompt = TbInput.Text.Trim();
         if (string.IsNullOrWhiteSpace(prompt) || Loop == null || Session == null) return;
+
+        // ── Guard: block Execute if no folder has been explicitly opened ──
+        if (RbExec.IsChecked == true && Session.IsWorkspaceConfirmed != true)
+        {
+            _messages.Add(new MessageVm
+            {
+                Role    = MessageRole.System,
+                Content = "⚠  No project folder open.\n\n"
+                        + "The agent needs an explicit workspace before it can create or modify files.\n\n"
+                        + "Click the  📁 folder badge  in the toolbar below, or use the "
+                        + "File Explorer panel on the left to open a project folder.\n\n"
+                        + "Once a folder is open the badge turns teal and Execute is unlocked.",
+                Status  = MessageStatus.Error,
+            });
+            ScrollToBottom();
+            return;
+        }
 
         TbInput.Text      = "";
         BtnSend.IsEnabled = false;
@@ -165,7 +238,7 @@ public partial class AgentPanel : UserControl
                 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    // ── Streaming token append (called from AgentLoop activity events) ────
+    // ── Streaming token append (called from AgentLoop.OnToken) ──────────
     public void AppendStreamingToken(string token)
     {
         Dispatcher.InvokeAsync(() =>
@@ -175,6 +248,25 @@ public partial class AgentPanel : UserControl
                 _streamingBubble.Content += token;
                 ScrollToBottom();
             }
+        });
+    }
+
+    // ── Token usage (called from AgentLoop.OnUsage) ───────────────────────
+    public void OnTokensUsed(int promptTokens, int completionTokens)
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            // Update bubble badge
+            if (_streamingBubble != null)
+                _streamingBubble.CompletionTokens += completionTokens;
+
+            // Accumulate session totals
+            _sessionPromptTokens   += promptTokens;
+            _sessionCompleteTokens += completionTokens;
+
+            // Update toolbar display
+            var total = _sessionPromptTokens + _sessionCompleteTokens;
+            TbTokens.Text = $"↳ {_sessionCompleteTokens:N0} out  ·  {total:N0} total";
         });
     }
 
@@ -199,6 +291,66 @@ public partial class AgentPanel : UserControl
     {
         DiffPanel.Child      = null;
         DiffPanel.Visibility = Visibility.Collapsed;
+    }
+
+    // ── Shell approval card ───────────────────────────────────────────────
+
+    /// <summary>
+    /// Shows the ShellApprovalCard in the diff panel slot for run_shell and
+    /// other non-write_file tool calls. Returns true if approved, false if rejected.
+    /// Replaces the old MessageBox.Show approval dialog.
+    /// </summary>
+    public Task<bool> ShowShellApproval(OrchestratorIDE.Models.ToolCall call)
+    {
+        var tcs = new TaskCompletionSource<bool>();
+
+        Dispatcher.Invoke(() =>
+        {
+            var card = new OrchestratorIDE.UI.Controls.ShellApprovalCard(call);
+
+            card.Resolved += approved =>
+            {
+                HideDiff();
+                tcs.TrySetResult(approved);
+            };
+
+            DiffPanel.Child      = card;
+            DiffPanel.Visibility = Visibility.Visible;
+            ScrollToBottom();
+        });
+
+        return tcs.Task;
+    }
+
+    // ── Unknown tool card (Layer 2) ───────────────────────────────────────
+
+    /// <summary>
+    /// Shows the UnknownToolCard in the diff panel slot and returns a Task that
+    /// resolves with the result string once the user makes a choice.
+    /// Called from MainWindow which wires it to ToolRegistry.OnUnknownTool.
+    /// </summary>
+    public Task<string> ShowUnknownToolCard(
+        OrchestratorIDE.Models.ToolCall call,
+        IEnumerable<string> registeredTools)
+    {
+        var tcs = new TaskCompletionSource<string>();
+
+        Dispatcher.Invoke(() =>
+        {
+            var card = new OrchestratorIDE.UI.Controls.UnknownToolCard(call, registeredTools);
+
+            card.Resolved += result =>
+            {
+                HideDiff();
+                tcs.TrySetResult(result);
+            };
+
+            DiffPanel.Child      = card;
+            DiffPanel.Visibility = Visibility.Visible;
+            ScrollToBottom();
+        });
+
+        return tcs.Task;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
@@ -227,6 +379,7 @@ public class MessageVm : System.ComponentModel.INotifyPropertyChanged
 {
     private string _content = "";
     private MessageStatus _status = MessageStatus.Pending;
+    private int _completionTokens = 0;
 
     public MessageRole   Role    { get; init; }
     public MessageStatus Status
@@ -239,6 +392,21 @@ public class MessageVm : System.ComponentModel.INotifyPropertyChanged
         get => _content;
         set { _content = value; OnPropChanged(nameof(Content)); }
     }
+
+    public int CompletionTokens
+    {
+        get => _completionTokens;
+        set
+        {
+            _completionTokens = value;
+            OnPropChanged(nameof(CompletionTokens));
+            OnPropChanged(nameof(TokenLabel));
+            OnPropChanged(nameof(HasTokenLabel));
+        }
+    }
+    public string TokenLabel  => _completionTokens > 0 ? $"↳ {_completionTokens:N0} tokens" : "";
+    public Visibility HasTokenLabel => _completionTokens > 0 && Role == MessageRole.Assistant
+        ? Visibility.Visible : Visibility.Collapsed;
 
     public string RoleLabel => Role switch
     {

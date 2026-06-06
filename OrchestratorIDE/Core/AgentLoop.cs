@@ -1,3 +1,5 @@
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using OrchestratorIDE.Models;
 
 namespace OrchestratorIDE.Core;
@@ -23,6 +25,9 @@ public class AgentLoop
 
     // Token event — fires for every streamed token so the UI bubble updates live
     public event Action<string>? OnToken;
+
+    // Usage event — fires after each model response with (promptTokens, completionTokens)
+    public event Action<int, int>? OnUsage;
 
     public AgentLoop(
         OllamaClient ollama,
@@ -59,6 +64,7 @@ public class AgentLoop
             session.ActiveModel, messages,
             tools: null,   // no tools in plan mode
             temperature: profile.Temperature,
+            onUsage: (p, c) => OnUsage?.Invoke(p, c),
             ct: ct))
         {
             planText.Append(token);
@@ -67,6 +73,16 @@ public class AgentLoop
 
         var plan = planText.ToString().Trim();
         session.PlanText = plan;
+
+        // Strip fake tool-call JSON blocks the model may have written in the plan
+        // (e.g. ```json {"name":"create_project",...}```).
+        // These don't correspond to real tools and confuse the Execute phase.
+        var cleanPlan = StripFakeToolBlocks(plan);
+
+        // Add to session messages so Execute sees the plan in its history
+        session.Messages.Add(new AgentMessage { Role = MessageRole.User,      Content = userPrompt });
+        session.Messages.Add(new AgentMessage { Role = MessageRole.Assistant,  Content = cleanPlan });
+
         Emit(ActivityKind.Info, "Plan ready", "Review the plan and click Execute when ready.");
         return plan;
     }
@@ -116,6 +132,7 @@ public class AgentLoop
                 session.ActiveModel, messages, tools,
                 temperature: profile.Temperature,
                 onToolCall: tc => pendingToolCalls.Add(tc),
+                onUsage: (p, c) => OnUsage?.Invoke(p, c),
                 ct: ct))
             {
                 contentBuilder.Append(token);
@@ -125,20 +142,74 @@ public class AgentLoop
             var content = contentBuilder.ToString();
             finalResponse = content;
 
-            // Add assistant message to history
+            // Fallback: some models output tool calls as JSON text instead of
+            // structured tool_calls. Parse them so the loop can still execute.
+            if (pendingToolCalls.Count == 0 && !string.IsNullOrWhiteSpace(content))
+            {
+                var textParsed = TryParseTextToolCalls(content);
+                if (textParsed.Count > 0)
+                {
+                    Emit(ActivityKind.Info, "Tool-call parse",
+                        $"Detected {textParsed.Count} text-format tool call(s) — executing.");
+                    pendingToolCalls.AddRange(textParsed);
+                }
+            }
+
+            // Add assistant message to history.
+            // If the content is purely text-format tool call JSON (no readable prose),
+            // summarise it so the history stays clean rather than full of raw JSON.
+            var historyContent = content;
+            if (pendingToolCalls.Count > 0 && pendingToolCalls.All(t => t.IsTextFormat))
+            {
+                var callSummary = string.Join(", ", pendingToolCalls.Select(t => $"{t.Name}(...)"));
+                historyContent = string.IsNullOrWhiteSpace(
+                    System.Text.RegularExpressions.Regex.Replace(content, @"\{[\s\S]*\}", "").Trim())
+                    ? $"[Calling: {callSummary}]"
+                    : content;  // keep if model also wrote prose alongside the JSON
+            }
+
             var assistantMsg = new AgentMessage
             {
-                Role = MessageRole.Assistant,
-                Content = content,
+                Role      = MessageRole.Assistant,
+                Content   = historyContent,
                 ToolCalls = pendingToolCalls,
-                Status = MessageStatus.Complete
+                Status    = MessageStatus.Complete
             };
             session.Messages.Add(assistantMsg);
             messages = [.. messages, assistantMsg];
             _context.AddTokens(ContextManager.EstimateTokens(content));
 
-            // No tool calls → done
-            if (pendingToolCalls.Count == 0) break;
+            // No tool calls → check for refusal before accepting as done.
+            if (pendingToolCalls.Count == 0)
+            {
+                // Detect "I'm sorry / I cannot / here's a guide" refusal patterns.
+                // Push back once with a hard nudge instead of silently finishing.
+                if (IsRefusal(content) && stepCount <= 2)
+                {
+                    Emit(ActivityKind.Warning, "Refusal detected", "Pushing back — telling model to use tools.");
+                    var nudge = new AgentMessage
+                    {
+                        Role    = MessageRole.User,
+                        Content = "Stop. Do NOT give instructions or say you cannot do something. "
+                                + "You have write_file and run_shell tools. Use them RIGHT NOW to create the files. "
+                                + "Call run_shell to create the project, then write_file to write the code. "
+                                + "Output a JSON tool call — nothing else.",
+                        Status  = MessageStatus.Complete,
+                    };
+                    session.Messages.Add(nudge);
+                    messages = [.. messages, nudge];
+                    continue;   // re-enter the loop with the nudge
+                }
+
+                if (!string.IsNullOrWhiteSpace(content))
+                {
+                    var preview = content.Length > 120
+                        ? content[..120].Replace("\n", " ").TrimEnd() + "…"
+                        : content.Replace("\n", " ");
+                    Emit(ActivityKind.Info, "Done", preview);
+                }
+                break;
+            }
 
             // Execute each tool call
             foreach (var tc in pendingToolCalls)
@@ -161,14 +232,35 @@ public class AgentLoop
                     Emit(ActivityKind.Info, "Auto-verify done", verifyResult.Length > 100 ? verifyResult[..100] + "…" : verifyResult);
                 }
 
-                // Append tool result to history
-                var toolMsg = new AgentMessage
+                // Append tool result to history.
+                // Text-format tool calls must get a user-role reply — the model
+                // won't understand a "tool" role message because it never used
+                // the structured tool_calls API.
+                AgentMessage toolMsg;
+                if (tc.IsTextFormat)
                 {
-                    Role = MessageRole.Tool,
-                    Content = result,
-                    ToolCallId = tc.Id,
-                    Status = MessageStatus.Complete
-                };
+                    // Ensure the body is never empty — an empty result looks like a
+                    // missing response to the model and causes it to retry forever.
+                    var body = string.IsNullOrWhiteSpace(result)
+                        ? "(tool completed — no output)"
+                        : result;
+                    toolMsg = new AgentMessage
+                    {
+                        Role    = MessageRole.User,
+                        Content = $"[Tool result: {tc.Name}]\n{body}",
+                        Status  = MessageStatus.Complete,
+                    };
+                }
+                else
+                {
+                    toolMsg = new AgentMessage
+                    {
+                        Role       = MessageRole.Tool,
+                        Content    = result,
+                        ToolCallId = tc.Id,
+                        Status     = MessageStatus.Complete,
+                    };
+                }
                 session.Messages.Add(toolMsg);
                 messages = [.. messages, toolMsg];
                 _context.AddTokens(ContextManager.EstimateTokens(result));
@@ -200,7 +292,7 @@ public class AgentLoop
         var profile = ModelProfiles.Get(session.ActiveModel);
         var systemPrompt = planOnly
             ? BuildPlanSystemPrompt(profile, rulesText)
-            : BuildExecuteSystemPrompt(profile, rulesText);
+            : BuildExecuteSystemPrompt(profile, session.WorkspaceRoot, rulesText);
 
         var messages = new List<AgentMessage>
         {
@@ -229,7 +321,7 @@ public class AgentLoop
         return sb.ToString();
     }
 
-    private static string BuildExecuteSystemPrompt(ModelProfile profile, string? rules)
+    private static string BuildExecuteSystemPrompt(ModelProfile profile, string workspaceRoot, string? rules)
     {
         var prompt = profile.PromptStyle switch
         {
@@ -256,10 +348,161 @@ public class AgentLoop
                 """
         };
 
+        // Always tell the model exactly where to work
+        prompt += $"\n\nWorkspace root: {workspaceRoot}";
+        prompt += "\nUse ONLY absolute paths or paths relative to the workspace root when calling file tools.";
+        prompt += "\nDo NOT use placeholder values like <file-path> — always use real paths.";
+        prompt += "\n\nCRITICAL BEHAVIOUR RULES (never break these):";
+        prompt += "\n- NEVER say \"I cannot\", \"I'm sorry\", \"I'm unable\", or give instructions for the user to follow.";
+        prompt += "\n- NEVER describe what you would do. DO IT using tool calls.";
+        prompt += "\n- To create a .NET project: {\"name\":\"run_shell\",\"arguments\":{\"command\":\"dotnet new winforms -n ProjectName\"}}";
+        prompt += "\n- To create files: {\"name\":\"write_file\",\"arguments\":{\"path\":\"...\",\"content\":\"...\"}}";
+        prompt += "\n- If a tool does not exist, use write_file + run_shell to achieve the same result.";
+        prompt += "\n- The user cannot follow manual instructions — they need working files on disk.";
+
+        // Explicit tool call format — required for models that don't use structured tool_calls API
+        prompt += """
+
+
+TOOL CALL FORMAT (critical — follow exactly):
+To use a tool, output a raw JSON object on its own line. No markdown, no explanation before or after it.
+
+Examples:
+{"name": "write_file", "arguments": {"path": "Calculator.cs", "content": "public class Calculator\n{\n    public double Add(double a, double b) => a + b;\n}"}}
+{"name": "read_file", "arguments": {"path": "Program.cs"}}
+{"name": "list_files", "arguments": {"path": ".", "depth": 2}}
+{"name": "run_shell", "arguments": {"command": "dotnet build"}}
+
+RULES:
+- Do NOT wrap code in ```code blocks```. Put file content inside the JSON "content" field.
+- Do NOT say "I would write..." or describe what you plan to do. Call the tool directly.
+- Escape newlines as \n and quotes as \" inside JSON string values.
+- After every tool call, wait for the result before continuing.
+- When the task is fully complete, respond with plain text — no more JSON.
+""";
+
         if (!string.IsNullOrEmpty(rules))
             prompt += $"\n\nProject rules (follow strictly):\n{rules}";
 
         return prompt;
+    }
+
+    /// <summary>
+    /// Fallback parser: detects tool calls emitted as plain-text JSON
+    /// (e.g. {"name":"write_file","arguments":{...}}) rather than via the
+    /// structured tool_calls API field. Handles bare JSON and ```json fences.
+    /// </summary>
+    private static List<ToolCall> TryParseTextToolCalls(string content)
+    {
+        var result = new List<ToolCall>();
+
+        // Strip markdown code fences so we can parse the JSON
+        var stripped = Regex.Replace(content, @"```(?:json)?", "", RegexOptions.IgnoreCase).Trim();
+
+        // Walk through the text and extract every top-level JSON object
+        int i = 0;
+        while (i < stripped.Length)
+        {
+            var start = stripped.IndexOf('{', i);
+            if (start < 0) break;
+
+            // Find the matching closing brace (handle nesting)
+            int depth = 0, end = -1;
+            bool inString = false;
+            for (int j = start; j < stripped.Length; j++)
+            {
+                var ch = stripped[j];
+                if (ch == '"' && (j == 0 || stripped[j - 1] != '\\')) inString = !inString;
+                if (inString) continue;
+                if (ch == '{') depth++;
+                else if (ch == '}') { depth--; if (depth == 0) { end = j; break; } }
+            }
+
+            if (end < 0) break;
+
+            var json = stripped[start..(end + 1)];
+            try
+            {
+                var node = JsonNode.Parse(json);
+                var name = node?["name"]?.GetValue<string>();
+                if (!string.IsNullOrEmpty(name))
+                {
+                    var args = new Dictionary<string, object?>();
+                    if (node?["arguments"] is JsonObject argsObj)
+                    {
+                        foreach (var kvp in argsObj)
+                        {
+                            // Unwrap string values; fall back to raw JSON for others
+                            args[kvp.Key] = kvp.Value is JsonValue jv && jv.TryGetValue<string>(out var s)
+                                ? s
+                                : kvp.Value?.ToString();
+                        }
+                    }
+                    result.Add(new ToolCall
+                    {
+                        Id           = Guid.NewGuid().ToString("N")[..8],
+                        Name         = name,
+                        Arguments    = args,
+                        IsTextFormat = true,   // result must be injected as user message
+                    });
+                }
+            }
+            catch { /* malformed JSON — skip */ }
+
+            i = end + 1;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Remove ```json blocks from a plan that contain fake tool-call shapes
+    /// like {"name":"create_project","arguments":{...}}.
+    /// These are planning artifacts — not real tool calls — and confuse Execute.
+    /// </summary>
+    private static string StripFakeToolBlocks(string plan)
+    {
+        // Match fenced code blocks (```json or ```) whose content looks like a tool call
+        var stripped = Regex.Replace(
+            plan,
+            @"```(?:json)?\s*\r?\n\s*\{\s*""name""\s*:[\s\S]*?\}\s*\r?\n```",
+            "",
+            RegexOptions.IgnoreCase);
+
+        // Also strip bare (unfenced) JSON objects that are tool-call shaped,
+        // sitting on their own line (common when model forgets the fence)
+        stripped = Regex.Replace(
+            stripped,
+            @"(?m)^\s*\{\s*""name""\s*:\s*""[^""]+""[\s\S]*?\}\s*$",
+            "",
+            RegexOptions.Multiline);
+
+        // Collapse extra blank lines left behind
+        stripped = Regex.Replace(stripped, @"\n{3,}", "\n\n").Trim();
+        return stripped;
+    }
+
+    /// <summary>
+    /// Returns true when the model responded with a refusal or instructional text
+    /// instead of using a tool call.
+    /// </summary>
+    private static bool IsRefusal(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return false;
+        var lower = content.ToLowerInvariant();
+        return lower.Contains("i'm sorry")
+            || lower.Contains("i am sorry")
+            || lower.Contains("i cannot")
+            || lower.Contains("i can't")
+            || lower.Contains("i'm unable")
+            || lower.Contains("i am unable")
+            || lower.Contains("as an ai")
+            || lower.Contains("step-by-step guide")
+            || lower.Contains("guide you through")
+            || lower.Contains("here's how you can")
+            || lower.Contains("here is how you can")
+            || lower.Contains("open visual studio")
+            || lower.Contains("manually implement");
     }
 
     private static string FormatArgs(Dictionary<string, object?> args)

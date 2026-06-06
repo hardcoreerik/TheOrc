@@ -19,8 +19,9 @@ public class OllamaClient
 
     private static readonly JsonSerializerOptions _json = new()
     {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        WriteIndented = false,
+        PropertyNamingPolicy        = JsonNamingPolicy.SnakeCaseLower,
+        WriteIndented               = false,
+        DefaultIgnoreCondition      = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
     };
 
     public string Host
@@ -56,6 +57,7 @@ public class OllamaClient
 
     /// <summary>
     /// Streams content tokens. Fires onToolCall when a complete tool call is parsed.
+    /// Fires onUsage(promptTokens, completionTokens) at end of response.
     /// Yields each text delta as it arrives.
     /// </summary>
     public async IAsyncEnumerable<string> StreamCompletionAsync(
@@ -65,6 +67,7 @@ public class OllamaClient
         double temperature = 0.1,
         int maxTokens = 4096,
         Action<ToolCall>? onToolCall = null,
+        Action<int, int>? onUsage = null,   // promptTokens, completionTokens
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var messages = history.Select(m => new
@@ -113,6 +116,7 @@ public class OllamaClient
 
         // Accumulate tool call fragments across chunks
         var toolCallAccum = new Dictionary<int, ToolCallBuilder>();
+        int lastPromptTokens = 0, lastCompletionTokens = 0;
 
         while (!ct.IsCancellationRequested)
         {
@@ -125,6 +129,14 @@ public class OllamaClient
             JsonNode? chunk;
             try { chunk = JsonNode.Parse(line[6..]); }
             catch { continue; }
+
+            // Track usage (may appear on any chunk, last one wins)
+            var usageNode = chunk?["usage"];
+            if (usageNode != null)
+            {
+                lastPromptTokens     = usageNode["prompt_tokens"]?.GetValue<int>()     ?? lastPromptTokens;
+                lastCompletionTokens = usageNode["completion_tokens"]?.GetValue<int>() ?? lastCompletionTokens;
+            }
 
             var choices = chunk?["choices"]?.AsArray();
             if (choices == null || choices.Count == 0) continue;
@@ -165,6 +177,10 @@ public class OllamaClient
                 toolCallAccum.Clear();
             }
         }
+
+        // Report usage at end of stream
+        if (lastCompletionTokens > 0 || lastPromptTokens > 0)
+            onUsage?.Invoke(lastPromptTokens, lastCompletionTokens);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@
         xmlns:panels="clr-namespace:OrchestratorIDE.UI.Panels"
         xmlns:controls="clr-namespace:OrchestratorIDE.UI.Controls"
         mc:Ignorable="d"
-        Title="Orchestrator IDE" Height="700" Width="1200"
+        Title="Orchestrator IDE" Height="800" Width="1300"
         Background="{StaticResource Br.Bg.App}"
         WindowState="Normal"
         KeyDown="Window_KeyDown">
@@ -16,10 +16,13 @@
     ROOT LAYOUT
     ┌─────────────────────────────────────────────────────────────────┐
     │  Title bar (custom)                                             │
+    ├─────────────────────────────────────────────────────────────────┤
+    │  Menu bar  File | Edit | View | Agent                           │
     ├────┬────────────────────────┬────────────────────────────────── │
-    │ AB │  Sidebar               │  Main area                       │
-    │    │  (file explorer /      │  (chat panel + activity log)     │
-    │    │   agent panel list)    │                                   │
+    │ AB │  Sidebar               │  Agent Panel  │  Code Editor      │
+    │    │  (file explorer /      │  (chat)       │  (AvalonEdit)     │
+    │    │   settings …)          ├───────────────┴───────────────────│
+    │    │                        │  Activity log                     │
     ├────┴────────────────────────┴──────────────────────────────────┤
     │  Status bar                                                     │
     └─────────────────────────────────────────────────────────────────┘
@@ -30,7 +33,8 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="32"/>   <!-- Title bar -->
-            <RowDefinition Height="*"/>    <!-- Workbench -->
+            <RowDefinition Height="22"/>   <!-- Menu bar   -->
+            <RowDefinition Height="*"/>    <!-- Workbench  -->
             <RowDefinition Height="24"/>   <!-- Status bar -->
         </Grid.RowDefinitions>
 
@@ -54,8 +58,76 @@
             </DockPanel>
         </Border>
 
+        <!-- ── Menu bar ───────────────────────────────────────────── -->
+        <Menu Grid.Row="1"
+              Background="#2D2D2D" Foreground="#CCCCCC"
+              BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1"
+              FontSize="12">
+
+            <Menu.Resources>
+                <!-- Dark style for top-level and popup items -->
+                <Style TargetType="MenuItem">
+                    <Setter Property="Background"   Value="#2D2D2D"/>
+                    <Setter Property="Foreground"   Value="#CCCCCC"/>
+                    <Setter Property="BorderBrush"  Value="#3C3C3C"/>
+                    <Style.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter Property="Background" Value="#094771"/>
+                            <Setter Property="Foreground" Value="White"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground" Value="#666"/>
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+                <Style TargetType="Separator">
+                    <Setter Property="Background" Value="#3C3C3C"/>
+                    <Setter Property="Margin"     Value="4,2"/>
+                </Style>
+            </Menu.Resources>
+
+            <!-- ── File ─────────────────────────────────────────── -->
+            <MenuItem Header="_File">
+                <MenuItem Header="Open Folder…"    InputGestureText="Ctrl+O"   Click="Menu_OpenFolder"/>
+                <MenuItem Header="Open in Explorer"                             Click="Menu_OpenExplorer"/>
+                <Separator/>
+                <MenuItem Header="New Session"      InputGestureText="Ctrl+N"   Click="Menu_NewSession"/>
+                <Separator/>
+                <MenuItem Header="Exit"             InputGestureText="Alt+F4"   Click="Menu_Exit"/>
+            </MenuItem>
+
+            <!-- ── Edit ─────────────────────────────────────────── -->
+            <MenuItem Header="_Edit">
+                <MenuItem Header="Command Palette…" InputGestureText="Ctrl+K"   Click="Menu_CommandPalette"/>
+                <Separator/>
+                <MenuItem Header="Settings"                                      Click="Menu_Settings"/>
+            </MenuItem>
+
+            <!-- ── View ─────────────────────────────────────────── -->
+            <MenuItem Header="_View">
+                <MenuItem Header="File Explorer"    InputGestureText="Ctrl+Shift+E"  Click="Menu_ShowExplorer"/>
+                <MenuItem Header="Code Editor"      InputGestureText="Ctrl+Shift+C"  Click="Menu_ToggleEditor"/>
+                <Separator/>
+                <MenuItem x:Name="MiWordWrap" Header="Word Wrap" IsCheckable="True"  Click="Menu_WordWrap"/>
+                <Separator/>
+                <MenuItem Header="Increase Font Size"   InputGestureText="Ctrl+="   Click="Menu_FontBigger"/>
+                <MenuItem Header="Decrease Font Size"   InputGestureText="Ctrl+-"   Click="Menu_FontSmaller"/>
+                <MenuItem Header="Reset Font Size"      InputGestureText="Ctrl+0"   Click="Menu_FontReset"/>
+            </MenuItem>
+
+            <!-- ── Agent ────────────────────────────────────────── -->
+            <MenuItem Header="_Agent">
+                <MenuItem Header="Plan Mode"                                    Click="Menu_ModePlan"/>
+                <MenuItem Header="Execute Mode"                                 Click="Menu_ModeExecute"/>
+                <Separator/>
+                <MenuItem Header="Change Model…"                                Click="Menu_ChangeModel"/>
+                <Separator/>
+                <MenuItem Header="New Session"                                  Click="Menu_NewSession"/>
+            </MenuItem>
+        </Menu>
+
         <!-- ── Workbench ──────────────────────────────────────────── -->
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="44"/>   <!-- Activity bar -->
                 <ColumnDefinition Width="220" MinWidth="140"/>  <!-- Sidebar -->
@@ -92,16 +164,38 @@
             <GridSplitter Grid.Column="2" Width="4" HorizontalAlignment="Stretch"
                           Background="{StaticResource Br.Border}" Cursor="SizeWE"/>
 
-            <!-- Main area: split — agent panel top, activity log bottom -->
+            <!-- Main area: vertical split — [Agent+Editor] top / Activity log bottom -->
             <Grid Grid.Column="3">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="2*"/>   <!-- Agent panel (chat + input) -->
-                    <RowDefinition Height="4"/>    <!-- Splitter -->
-                    <RowDefinition Height="*" MinHeight="60"/>  <!-- Activity log -->
+                    <RowDefinition Height="2*"/>              <!-- Top: Agent + Editor -->
+                    <RowDefinition Height="4"/>               <!-- H-splitter -->
+                    <RowDefinition Height="*" MinHeight="60"/><!-- Activity log -->
                 </Grid.RowDefinitions>
 
-                <!-- Agent panel (chat bubbles + diff + input) -->
-                <ContentPresenter x:Name="MainContent" Grid.Row="0"/>
+                <!-- Top: horizontal split — Agent panel | Editor pane -->
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" MinWidth="300"/>           <!-- Agent -->
+                        <ColumnDefinition x:Name="ColEditorSplitter" Width="0"/> <!-- V-splitter -->
+                        <ColumnDefinition x:Name="ColEditor" Width="0"/>         <!-- Editor (hidden until file opened) -->
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Agent panel (chat bubbles + diff + input) -->
+                    <ContentPresenter x:Name="MainContent" Grid.Column="0"/>
+
+                    <!-- Vertical splitter between agent and editor -->
+                    <GridSplitter x:Name="SplitterEditor"
+                                  Grid.Column="1"
+                                  Width="4" HorizontalAlignment="Stretch"
+                                  Background="{StaticResource Br.Border}"
+                                  Cursor="SizeWE"
+                                  Visibility="Collapsed"/>
+
+                    <!-- Code editor pane -->
+                    <ContentPresenter x:Name="EditorContent"
+                                      Grid.Column="2"
+                                      Visibility="Collapsed"/>
+                </Grid>
 
                 <GridSplitter Grid.Row="1" Height="4" HorizontalAlignment="Stretch"
                               Background="{StaticResource Br.Border}" Cursor="SizeNS"/>
@@ -145,7 +239,7 @@
         </Grid>
 
         <!-- ── Status bar ─────────────────────────────────────────── -->
-        <Border Grid.Row="2" Background="{StaticResource Br.Bg.StatusBar}">
+        <Border Grid.Row="3" Background="{StaticResource Br.Bg.StatusBar}">
             <DockPanel>
                 <TextBlock x:Name="SbWorkspace" DockPanel.Dock="Left"
                            Text="📁 No workspace" Foreground="{StaticResource Br.Text.White}"

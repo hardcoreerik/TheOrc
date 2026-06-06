@@ -10,12 +10,20 @@
                 BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1"
                 Padding="8,5">
             <DockPanel>
+                <!-- Open folder picker -->
                 <Button x:Name="BtnOpenFolder" DockPanel.Dock="Right"
-                        Content="📂" ToolTip="Open Folder"
+                        Content="📂" ToolTip="Open Folder…"
                         Background="Transparent" BorderBrush="Transparent"
                         Foreground="{StaticResource Br.Text.Muted}"
                         FontSize="13" Padding="4,0"
                         Click="BtnOpenFolder_Click" Cursor="Hand"/>
+                <!-- Reveal current workspace in Windows Explorer -->
+                <Button x:Name="BtnReveal" DockPanel.Dock="Right"
+                        Content="🔍" ToolTip="Show in Explorer"
+                        Background="Transparent" BorderBrush="Transparent"
+                        Foreground="{StaticResource Br.Text.Muted}"
+                        FontSize="13" Padding="4,0" Margin="0,0,2,0"
+                        Click="BtnReveal_Click" Cursor="Hand"/>
                 <TextBlock Text="EXPLORER" Foreground="{StaticResource Br.Text.Muted}"
                            FontSize="10" FontWeight="Bold"
                            VerticalAlignment="Center"/>
