@@ -31,10 +31,12 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<ActivityEvent> _activityItems = [];
 
     // ── Panels ────────────────────────────────────────────────────────────
-    private readonly FileExplorerPanel _explorerPanel;
-    private readonly AgentPanel        _agentPanel;
-    private readonly SettingsPanel     _settingsPanel;
-    private readonly CodeEditorPanel   _editorPanel;
+    private readonly FileExplorerPanel       _explorerPanel;
+    private readonly AgentPanel              _agentPanel;
+    private readonly SettingsPanel           _settingsPanel;
+    private readonly CodeEditorPanel         _editorPanel;
+    private readonly CheckpointBrowserPanel  _checkpointPanel;
+    private readonly SessionBrowserPanel     _sessionPanel;
 
     // Editor font size (shared across sessions, adjustable via View menu)
     private double _editorFontSize = 13.0;
@@ -125,10 +127,29 @@ public partial class MainWindow : Window
             return await _agentPanel.ShowUnknownToolCard(call, names);
         };
 
+        // Rules badge: update when agent loads (or fails to find) .agent.md
+        _loop.OnRulesLoaded += filePath => _agentPanel.SetRulesStatus(filePath);
+
+        // Rules badge click → open the rules file in the code editor
+        _agentPanel.RulesEditRequested += OpenRulesFile;
+
         // Build settings panel
         _settingsPanel = new SettingsPanel(_ollama);
         _settingsPanel.LoadSettings(_settings);
         _settingsPanel.SettingsSaved += OnSettingsSaved;
+
+        // Checkpoint browser
+        _checkpointPanel = new CheckpointBrowserPanel(_git);
+        _checkpointPanel.CheckpointRestored += sha =>
+        {
+            // Reload the file explorer and editor after a restore
+            _explorerPanel.LoadWorkspace(_session.WorkspaceRoot);
+            AddActivity(new ActivityEvent(ActivityKind.Git, "Restored", $"Hard-reset to {sha[..8]}", DateTime.Now));
+        };
+
+        // Session history browser
+        _sessionPanel = new SessionBrowserPanel(_store);
+        _sessionPanel.SessionSelected += ResumeSession;
 
         // Default sidebar = explorer
         SidebarContent.Content = _explorerPanel;
@@ -311,6 +332,12 @@ public partial class MainWindow : Window
             e.Handled = true;
             ToggleEditorPane();
         }
+        // Ctrl+Shift+R = open rules file in editor
+        if (e.Key == Key.R && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
+        {
+            e.Handled = true;
+            OpenRulesFile();
+        }
         // Ctrl+N = new session
         if (e.Key == Key.N && Keyboard.Modifiers == ModifierKeys.Control)
         {
@@ -351,6 +378,7 @@ public partial class MainWindow : Window
             case "mode.execute":      _agentPanel.SetMode(isPlan: false); break;
             case "model.picker":      SbModel_Click(this, null!); break;
             case "open.folder":       _explorerPanel.OpenFolderDialog(); break;
+            case "edit.rules":        OpenRulesFile(); break;
             case "show.settings":     BtnSettings_Click(this, null!); break;
             case "session.new":
                 _session = new ProjectSession { WorkspaceRoot = _session.WorkspaceRoot, ActiveModel = _session.ActiveModel };
@@ -373,6 +401,7 @@ public partial class MainWindow : Window
             new() { Id="mode.execute",    Label="Switch to Execute mode",   Detail="Agent uses tools and can write files", Icon="▶", Shortcut="", SortOrder=21, Keywords=["execute","run","mode"] },
             new() { Id="model.picker",    Label="Change Model…",            Detail="Open the model picker flyout", Icon="⚙", Shortcut="", SortOrder=30, Keywords=["model","switch","llm"] },
             new() { Id="open.folder",     Label="Open Folder…",             Detail="Choose a new workspace folder", Icon="📁", Shortcut="", SortOrder=35, Keywords=["folder","open","workspace"] },
+            new() { Id="edit.rules",      Label="Edit Rules File",          Detail="Open .agent.md in the code editor (Ctrl+Shift+R)", Icon="📋", Shortcut="Ctrl+Shift+R", SortOrder=37, Keywords=["rules","agent","md","knowledge"] },
             new() { Id="show.settings",   Label="Settings",                 Detail="Configure Ollama host, model, workspace", Icon="⚙", Shortcut="", SortOrder=38, Keywords=["settings","config","ollama","host"] },
             new() { Id="session.new",     Label="New Session",              Detail="Clear conversation history and start fresh", Icon="⬡", Shortcut="", SortOrder=40, Keywords=["new","clear","session","reset"] },
         };
@@ -395,20 +424,45 @@ public partial class MainWindow : Window
     private void BtnExplorer_Click(object sender, RoutedEventArgs e) =>
         SidebarContent.Content = _explorerPanel;
 
-    private void BtnAgent_Click(object sender, RoutedEventArgs e) =>
-        SidebarContent.Content = new TextBlock
-            { Text = "Agent history\n(Phase 2)", Margin = new Thickness(8),
-              Foreground = (Brush)FindResource("Br.Text.Muted") };
+    private void BtnAgent_Click(object sender, RoutedEventArgs e)
+    {
+        _sessionPanel.Refresh();
+        SidebarContent.Content = _sessionPanel;
+    }
 
-    private void BtnCheckpoints_Click(object sender, RoutedEventArgs e) =>
-        SidebarContent.Content = new TextBlock
-            { Text = "Git checkpoints\n(Phase 2)", Margin = new Thickness(8),
-              Foreground = (Brush)FindResource("Br.Text.Muted") };
+    private void BtnCheckpoints_Click(object sender, RoutedEventArgs e)
+    {
+        _checkpointPanel.SetWorkspace(_session.WorkspaceRoot);
+        SidebarContent.Content = _checkpointPanel;
+    }
 
     private void BtnSettings_Click(object sender, RoutedEventArgs e)
     {
         _settingsPanel.LoadSettings(_settings);   // Refresh before showing
         SidebarContent.Content = _settingsPanel;
+    }
+
+    /// <summary>
+    /// Resumes a previously saved session — replaces the current session and
+    /// updates the workspace, agent panel, and status bar.
+    /// </summary>
+    private void ResumeSession(ProjectSession session)
+    {
+        _session = session;
+        _agentPanel.Loop    = _loop;
+        _agentPanel.Session = _session;
+
+        // Workspace is loaded but not re-confirmed — user must click to unlock Execute
+        _agentPanel.SetWorkspace(_session.WorkspaceRoot, confirmed: false);
+        _explorerPanel.LoadWorkspace(_session.WorkspaceRoot);
+        _checkpointPanel.SetWorkspace(_session.WorkspaceRoot);
+        UpdateStatusBar();
+
+        // Switch back to main agent view
+        SidebarContent.Content = _explorerPanel;
+
+        AddActivity(new ActivityEvent(ActivityKind.Info, "Session",
+            $"Resumed: {Path.GetFileName(_session.WorkspaceRoot.TrimEnd(Path.DirectorySeparatorChar))}", DateTime.Now));
     }
 
     /// <summary>
@@ -422,6 +476,7 @@ public partial class MainWindow : Window
         RegisterAllTools();
         _explorerPanel.LoadWorkspace(path);
         _agentPanel.SetWorkspace(path, confirmed: true);
+        _checkpointPanel.SetWorkspace(path);   // keep checkpoint list in sync
         UpdateStatusBar();
 
         // Persist as last-used workspace so next session pre-loads it
@@ -549,6 +604,39 @@ public partial class MainWindow : Window
 
     private void Menu_ToggleEditor(object sender, RoutedEventArgs e)
         => ToggleEditorPane();
+
+    private void Menu_EditRules(object sender, RoutedEventArgs e)
+        => OpenRulesFile();
+
+    /// <summary>
+    /// Opens the workspace rules file (.agent.md etc.) in the code editor.
+    /// If none exists, offers to create one from the default template.
+    /// </summary>
+    private void OpenRulesFile()
+    {
+        var path = _rules.FindRulesFile(_session.WorkspaceRoot);
+
+        if (path == null)
+        {
+            // No rules file — offer to create .agent.md from default template
+            var result = MessageBox.Show(
+                $"No rules file found in:\n{_session.WorkspaceRoot}\n\n" +
+                "Create a default .agent.md now?",
+                "No Rules File Found",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result != MessageBoxResult.Yes) return;
+
+            path = Path.Combine(_session.WorkspaceRoot, ".agent.md");
+            var projectName = Path.GetFileName(_session.WorkspaceRoot.TrimEnd(
+                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            File.WriteAllText(path, RulesLoader.DefaultTemplate(projectName));
+        }
+
+        ShowEditorPane();
+        _editorPanel.OpenFile(path);
+    }
 
     private void Menu_WordWrap(object sender, RoutedEventArgs e)
         => _editorPanel.SetWordWrap(MiWordWrap.IsChecked);

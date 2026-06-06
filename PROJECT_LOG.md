@@ -143,13 +143,15 @@ OrchestratorIDE/
 - [x] Keyboard shortcut for Plan/Execute toggle
 - [ ] Vim-style j/k navigation in file explorer
 
-### Phase 4 — Code Editor (AvalonEdit integration)
-- [ ] Open file from FileExplorer → show in AvalonEditB editor pane
-- [ ] Syntax highlighting for .cs, .py, .ts, .json
-- [ ] Read-only / editable toggle
-- [ ] Jump-to-line when agent reads a file
+### Phase 4 — Code Editor ✅ DONE
+- [x] Open file from FileExplorer → show in AvalonEditB editor pane
+- [x] Syntax highlighting for .cs, .py, .ts, .json, .xaml, .md, etc.
+- [x] Multi-tab editor with equal-width tabs (UniformGrid)
+- [x] Drag-to-split side-by-side view
+- [x] Red × close buttons, syntax color legend popup
+- [x] Jump-to-line / refresh when agent writes a file
 
-### Phase 5 — Polish + Sidebar Features ✅ MOSTLY DONE
+### Phase 5 — Polish + Sidebar Features ✅ DONE
 - [x] Settings panel (Ollama host, model, toggles, workspace, Test Connection)
 - [x] Status bar: git branch display
 - [x] Single-file publish + desktop shortcut
@@ -157,9 +159,9 @@ OrchestratorIDE/
 - [x] Session auto-save + crash recovery
 - [x] Token counter per message + session total
 - [x] Text selection in chat bubbles (Ctrl+C works)
-- [ ] Checkpoint browser (sidebar list of [agent] commits + Restore button)
-- [ ] Session history browser in sidebar
-- [ ] Shell approval cards (inline card instead of MessageBox)
+- [x] Checkpoint browser — sidebar list of [agent] commits + Restore button (hard-reset)
+- [x] Session history browser — list all saved sessions, click to resume, ✕ to delete
+- [x] Shell approval cards (inline ShellApprovalCard instead of MessageBox)
 - [ ] Windows 11 Mica/Acrylic theme (cosmetic, low priority)
 
 ### Phase 6 — Testing Infrastructure
@@ -205,11 +207,14 @@ or ask the user to implement it — without stopping the workflow.
 - Key files: `UI/Panels/ToolEditorPanel.xaml/.cs`, `Core/ToolCompiler.cs`
 - This closes the self-improvement loop: agent discovers need → writes tool → uses it immediately
 
-**Layer 4 — .agent.md knowledge file (enabler for self-improvement)**
-- `F:\Ai\OrchestratorIDE\.agent.md` — loaded by RulesLoader and injected into execute system prompt
-- Contents: project structure map, build commands, coding conventions, key files per area, what NOT to touch
-- Without this, agent working on its own source code is flying blind
-- Write once, agent keeps it updated as the project grows
+**Layer 4 ✅ DONE — .agent.md knowledge file + UI backend**
+- `.agent.md` written at project root — full architecture map, tools, WPF patterns, color palette, what NOT to touch
+- `RulesLoader` picks it up automatically (first in candidates list)
+- **Plan mode fix** — `PlanAsync` now also loads rules (was only Execute before)
+- **Rules badge** — 📋 teal badge in agent toolbar lights up when `.agent.md` is active; shows filename; click to open
+- **View → Edit Rules File** (Ctrl+Shift+R) — opens rules file in code editor; creates default template if none exists
+- **Command palette** — "Edit Rules File" command registered with fuzzy search
+- Both Plan and Execute system prompts now inject the full rules text
 
 ### Backlog (post-v1)
 - [ ] Inline diff editing (edit proposed diff before approving)

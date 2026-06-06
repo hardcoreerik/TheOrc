@@ -22,6 +22,9 @@ public partial class AgentPanel : UserControl
     // Fires when user clicks the workspace badge — MainWindow opens folder picker
     public event Action? WorkspaceChangeRequested;
 
+    // Fires when user clicks the rules badge — MainWindow opens the rules file in the editor
+    public event Action? RulesEditRequested;
+
     private CancellationTokenSource? _cts;
     private readonly ObservableCollection<MessageVm> _messages = [];
 
@@ -122,6 +125,33 @@ public partial class AgentPanel : UserControl
 
     private void WsBadge_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
         => WorkspaceChangeRequested?.Invoke();
+
+    // ── Rules badge ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Called by MainWindow when AgentLoop.OnRulesLoaded fires.
+    /// filePath = null means no rules file was found (badge hidden).
+    /// filePath = path means a rules file is active (badge shown with filename).
+    /// </summary>
+    public void SetRulesStatus(string? filePath)
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            if (string.IsNullOrEmpty(filePath))
+            {
+                RulesBadge.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                RulesLabel.Text       = Path.GetFileName(filePath);
+                RulesBadge.ToolTip    = $"Rules active: {filePath}\nClick to edit";
+                RulesBadge.Visibility = Visibility.Visible;
+            }
+        });
+    }
+
+    private void RulesBadge_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        => RulesEditRequested?.Invoke();
 
     // ── Send ──────────────────────────────────────────────────────────────
     private async void BtnSend_Click(object sender, RoutedEventArgs e)

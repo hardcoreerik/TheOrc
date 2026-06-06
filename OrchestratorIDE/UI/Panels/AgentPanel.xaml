@@ -150,6 +150,20 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- Rules badge — shown when .agent.md is active -->
+                    <Border x:Name="RulesBadge" CornerRadius="3" Padding="7,3"
+                            Margin="0,0,8,0" DockPanel.Dock="Left"
+                            Background="#102A20" Visibility="Collapsed"
+                            Cursor="Hand" MouseLeftButtonUp="RulesBadge_Click">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="📋" FontSize="10" Margin="0,0,4,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock x:Name="RulesLabel" Text=".agent.md"
+                                       Foreground="#4EC9B0" FontSize="10"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+
                     <!-- Token counter + mini progress bar -->
                     <StackPanel DockPanel.Dock="Left" Orientation="Vertical"
                                 VerticalAlignment="Center" Margin="0,0,10,0" Width="100">

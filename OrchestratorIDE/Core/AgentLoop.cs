@@ -29,6 +29,10 @@ public class AgentLoop
     // Usage event — fires after each model response with (promptTokens, completionTokens)
     public event Action<int, int>? OnUsage;
 
+    // Rules event — fires when .agent.md (or other rules file) is loaded.
+    // null = no rules file found; string = full path of the loaded file.
+    public event Action<string?>? OnRulesLoaded;
+
     public AgentLoop(
         OllamaClient ollama,
         ToolRegistry registry,
@@ -57,7 +61,20 @@ public class AgentLoop
         Emit(ActivityKind.Info, "Planning…", "Reading task and building plan.");
 
         var profile = ModelProfiles.Get(session.ActiveModel);
-        var messages = BuildMessages(session, userPrompt, planOnly: true);
+
+        // Load project rules so the plan knows the project conventions
+        var rulesText = await _rules.LoadAsync(session.WorkspaceRoot);
+        if (!string.IsNullOrEmpty(rulesText))
+        {
+            Emit(ActivityKind.Info, "Rules loaded", $"{rulesText.Length} chars injected into plan prompt");
+            OnRulesLoaded?.Invoke(_rules.FindRulesFile(session.WorkspaceRoot));
+        }
+        else
+        {
+            OnRulesLoaded?.Invoke(null);
+        }
+
+        var messages = BuildMessages(session, userPrompt, planOnly: true, rulesText: rulesText);
 
         var planText = new System.Text.StringBuilder();
         await foreach (var token in _ollama.StreamCompletionAsync(
@@ -104,7 +121,14 @@ public class AgentLoop
         // Load project rules
         var rulesText = await _rules.LoadAsync(session.WorkspaceRoot);
         if (!string.IsNullOrEmpty(rulesText))
+        {
             Emit(ActivityKind.Info, "Rules loaded", $"{rulesText.Length} chars from .agent.md");
+            OnRulesLoaded?.Invoke(_rules.FindRulesFile(session.WorkspaceRoot));
+        }
+        else
+        {
+            OnRulesLoaded?.Invoke(null);
+        }
 
         // Git checkpoint before we touch anything
         var checkpointSha = await _git.CheckpointAsync(session.WorkspaceRoot, "Pre-agent checkpoint");

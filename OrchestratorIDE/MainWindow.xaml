@@ -107,6 +107,7 @@
             <MenuItem Header="_View">
                 <MenuItem Header="File Explorer"    InputGestureText="Ctrl+Shift+E"  Click="Menu_ShowExplorer"/>
                 <MenuItem Header="Code Editor"      InputGestureText="Ctrl+Shift+C"  Click="Menu_ToggleEditor"/>
+                <MenuItem Header="Edit Rules File"  InputGestureText="Ctrl+Shift+R"  Click="Menu_EditRules"/>
                 <Separator/>
                 <MenuItem x:Name="MiWordWrap" Header="Word Wrap" IsCheckable="True"  Click="Menu_WordWrap"/>
                 <Separator/>

@@ -1,0 +1,72 @@
+<Window x:Class="OrchestratorIDE.Tests.AutoTestWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="OrchestratorIDE — AutoTest"
+        Width="720" Height="560"
+        WindowStartupLocation="CenterScreen"
+        Background="#1E1E1E">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="OrchestratorIDE  ──  AutoTest Runner"
+                       Foreground="#4EC9B0" FontFamily="Consolas" FontSize="14"
+                       FontWeight="Bold"/>
+            <TextBlock x:Name="TbSubtitle" Text="Running tests…"
+                       Foreground="#858585" FontFamily="Consolas" FontSize="11"
+                       Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <!-- Output log -->
+        <Border Grid.Row="1" Background="#141414" BorderBrush="#333"
+                BorderThickness="1" CornerRadius="4">
+            <ScrollViewer x:Name="LogScroll" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Auto" Padding="10">
+                <TextBox x:Name="TbLog"
+                         Background="Transparent" BorderThickness="0"
+                         Foreground="#CCCCCC" FontFamily="Consolas" FontSize="11"
+                         IsReadOnly="True" TextWrapping="NoWrap"
+                         VerticalAlignment="Top"/>
+            </ScrollViewer>
+        </Border>
+
+        <!-- Progress bar -->
+        <ProgressBar x:Name="PbProgress" Grid.Row="2"
+                     Height="4" Margin="0,10,0,0"
+                     Background="#333" Foreground="#4EC9B0"
+                     IsIndeterminate="True"/>
+
+        <!-- Footer buttons -->
+        <DockPanel Grid.Row="3" Margin="0,12,0,0">
+            <!-- Workspace path label -->
+            <TextBlock x:Name="TbWorkspacePath" DockPanel.Dock="Left"
+                       Foreground="#555" FontFamily="Consolas" FontSize="10"
+                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                       MaxWidth="340" Margin="0,0,8,0"/>
+            <!-- Buttons right-aligned -->
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                        HorizontalAlignment="Right">
+                <Button x:Name="BtnOpenWorkspace" Content="📂 Open Folder" Width="110"
+                        Background="#2D2D2D" Foreground="#4EC9B0"
+                        BorderBrush="#474747" FontFamily="Consolas" FontSize="11"
+                        Padding="0,6" Click="BtnOpenWorkspace_Click" IsEnabled="False"/>
+                <Button x:Name="BtnCopy" Content="Copy Log" Width="90"
+                        Background="#2D2D2D" Foreground="#CCCCCC"
+                        BorderBrush="#474747" FontFamily="Consolas" FontSize="11"
+                        Padding="0,6" Margin="8,0,0,0" Click="BtnCopy_Click"/>
+                <Button x:Name="BtnClose" Content="Close" Width="80"
+                        Background="#094771" Foreground="#FFFFFF"
+                        BorderBrush="#094771" FontFamily="Consolas" FontSize="11"
+                        Padding="0,6" Margin="8,0,0,0"
+                        Click="BtnClose_Click" IsEnabled="False"/>
+            </StackPanel>
+        </DockPanel>
+    </Grid>
+</Window>
