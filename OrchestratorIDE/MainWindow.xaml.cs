@@ -38,7 +38,7 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         // Boot services
-        _ollama    = new OllamaClient("http://192.168.1.15:11434");
+        _ollama    = new OllamaClient("http://localhost:11434");
         _approvals = new ApprovalQueue();
         _registry  = new ToolRegistry(_approvals);
         _context   = new ContextManager(32_768);
@@ -50,7 +50,7 @@ public partial class MainWindow : Window
         // Default session — model will be refined in OnLoadedAsync based on what's installed
         _session = new ProjectSession
         {
-            WorkspaceRoot = @"F:\Ai\TheOrchestrator",
+            WorkspaceRoot = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ActiveModel   = "qwen2.5-coder:14b",
         };
 
@@ -144,7 +144,7 @@ public partial class MainWindow : Window
         else
         {
             AddActivity(new ActivityEvent(ActivityKind.Warning, "Ollama",
-                "No models found — check connection to 192.168.1.15:11434", DateTime.Now));
+                "No models found — check connection to Ollama host", DateTime.Now));
         }
 
         var saved = await _store.LoadLatestAsync();

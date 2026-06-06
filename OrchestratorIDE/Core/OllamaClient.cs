@@ -23,7 +23,7 @@ public class OllamaClient
         WriteIndented = false,
     };
 
-    public OllamaClient(string ollamaHost = "http://192.168.1.15:11434")
+    public OllamaClient(string ollamaHost = "http://localhost:11434")
     {
         _baseUrl = ollamaHost.TrimEnd('/');
         _http = new HttpClient { Timeout = TimeSpan.FromSeconds(300) };
