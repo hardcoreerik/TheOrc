@@ -262,6 +262,70 @@ public partial class MainWindow : Window
         SearchTools.Register(_registry, ws);
         TestTools.Register(_registry, ws);
         WebTools.Register(_registry);
+        RegisterAskUserTool();
+    }
+
+    /// <summary>
+    /// Registers the ask_user tool and wires it to UserInputDialog.
+    /// The agent calls ask_user(question) → modal dialog pops up →
+    /// user types their answer → agent continues with that string.
+    /// </summary>
+    private void RegisterAskUserTool()
+    {
+        // Wire the hook so the tool can show the dialog on the UI thread
+        _registry.OnAskUser = async (question, ct) =>
+        {
+            string answer = "[CANCELLED]";
+            await Dispatcher.InvokeAsync(() =>
+            {
+                var dlg = new OrchestratorIDE.UI.Controls.UserInputDialog(question)
+                {
+                    Owner = this
+                };
+                if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.Answer))
+                    answer = dlg.Answer;
+            });
+            return answer;
+        };
+
+        _registry.Register(new ToolDefinition
+        {
+            Name        = "ask_user",
+            Description =
+                "Pause and ask the user a question. " +
+                "Returns exactly what the user types. " +
+                "Use this whenever you need the user's preference before taking an action — " +
+                "e.g. 'Install system-wide (C:\\esp-idf) or workspace-only? (type system or workspace)'. " +
+                "Do NOT ask yes/no with this tool — use the approval gate for that. " +
+                "Use ask_user for open-ended answers: paths, names, preferences.",
+            Parameters = new()
+            {
+                ["question"] = new ToolParameter("string",
+                    "The question to display. Be specific. If there are expected values " +
+                    "include them in parentheses at the end, e.g. \"(type 'system' or 'workspace')\"."),
+            },
+            Required         = ["question"],
+            RequiresApproval = false,   // the dialog IS the interaction — no extra gate needed
+            Handler = async (args, ct) =>
+            {
+                var question = args.TryGetValue("question", out var q) ? q?.ToString() ?? "" : "";
+                if (string.IsNullOrWhiteSpace(question))
+                    return "[ERROR] ask_user requires a non-empty 'question' argument.";
+
+                if (_registry.OnAskUser is null)
+                    return "[No UI available — user must answer manually in the chat.]";
+
+                AddActivity(new ActivityEvent(ActivityKind.Info, "ask_user",
+                    $"Waiting for user: {question[..Math.Min(60, question.Length)]}…", DateTime.Now));
+
+                var answer = await _registry.OnAskUser(question, ct);
+
+                AddActivity(new ActivityEvent(ActivityKind.Info, "ask_user",
+                    $"User answered: {answer}", DateTime.Now));
+
+                return answer;
+            }
+        });
     }
 
     // ── Approval gate ─────────────────────────────────────────────────────

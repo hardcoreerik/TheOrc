@@ -23,6 +23,14 @@ public class ToolRegistry
     /// </summary>
     public Func<ToolCall, Task<string>>? OnUnknownTool { get; set; }
 
+    /// <summary>
+    /// Wired by MainWindow to the UserInputDialog.
+    /// Called when the agent invokes ask_user(question).
+    /// Should show a modal dialog and return the user's answer string.
+    /// If null, ask_user returns a static "[No UI]" message.
+    /// </summary>
+    public Func<string, CancellationToken, Task<string>>? OnAskUser { get; set; }
+
     public ToolRegistry(Trust.ApprovalQueue approvalQueue)
     {
         _approvalQueue = approvalQueue;

@@ -14,26 +14,42 @@ public static class ShellTools
         registry.Register(new ToolDefinition
         {
             Name = "run_shell",
-            Description = "Run a shell command in the workspace. Blocked: destructive commands.",
+            Description =
+                "Run a PowerShell command in the workspace. " +
+                "Use env_setup to source an environment script BEFORE the command — " +
+                "both run in the same process so variables like IDF_PATH survive. " +
+                "Example: env_setup='. C:\\esp-idf\\export.ps1', command='idf.py build'. " +
+                "Blocked: destructive commands.",
             Parameters = new()
             {
-                ["command"] = new("string", "The command to run (PowerShell on Windows)."),
-                ["cwd"]     = new("string", "Working directory (default: workspace root)."),
-                ["reason"]  = new("string", "Why this command needs to run."),
+                ["command"]   = new("string", "The PowerShell command to run."),
+                ["env_setup"] = new("string",
+                    "Optional. A PowerShell snippet run BEFORE command in the same process. " +
+                    "Use this to source environment scripts (e.g. '. C:\\esp-idf\\export.ps1'). " +
+                    "The environment it sets is visible to command."),
+                ["cwd"]       = new("string", "Working directory (default: workspace root)."),
+                ["reason"]    = new("string", "Why this command needs to run."),
             },
             Required = ["command"],
             RequiresApproval = true,   // all shell commands need approval
             Handler = async (args, ct) =>
             {
-                var cmd = args.TryGetValue("command", out var c) ? c?.ToString() ?? "" : "";
-                var cwd = args.TryGetValue("cwd",     out var d) ? d?.ToString() ?? "" : "";
+                var cmd      = args.TryGetValue("command",   out var c) ? c?.ToString() ?? "" : "";
+                var envSetup = args.TryGetValue("env_setup", out var e) ? e?.ToString() ?? "" : "";
+                var cwd      = args.TryGetValue("cwd",       out var d) ? d?.ToString() ?? "" : "";
                 if (string.IsNullOrEmpty(cwd)) cwd = workspaceRoot;
 
-                // Safety check
-                if (_blocked.Any(b => cmd.Contains(b, StringComparison.OrdinalIgnoreCase)))
+                // Combine env_setup + command into a single invocation so the
+                // environment set by env_setup is visible to command.
+                var fullCmd = string.IsNullOrWhiteSpace(envSetup)
+                    ? cmd
+                    : $"{envSetup.TrimEnd(';', ' ')}; {cmd}";
+
+                // Safety check (run on the combined string)
+                if (_blocked.Any(b => fullCmd.Contains(b, StringComparison.OrdinalIgnoreCase)))
                     return "[BLOCKED] This command is not allowed for safety.";
 
-                return await RunAsync(cmd, cwd, ct);
+                return await RunAsync(fullCmd, cwd, ct);
             }
         });
     }
