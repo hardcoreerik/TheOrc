@@ -2,13 +2,57 @@ using System.Text.Json;
 
 namespace OrchestratorIDE.Core;
 
+// ── Inference backend selection ──────────────────────────────────────────────
+
+/// <summary>
+/// Which inference runtime The Orc connects to.
+/// Ollama   — an external Ollama service (existing behaviour).
+/// LlamaCpp — llama-server.exe managed directly by The Orc (installer path).
+/// </summary>
+public enum InferenceBackend { Ollama, LlamaCpp }
+
 /// <summary>
 /// User-configurable settings. Persisted to %APPDATA%\OrchestratorIDE\settings.json.
 /// </summary>
 public class AppSettings
 {
-    // ── Ollama ────────────────────────────────────────────────────────────
+    // ── Inference backend ─────────────────────────────────────────────────
+    /// <summary>Which runtime to use. Default: Ollama (backwards-compatible).</summary>
+    public InferenceBackend Backend { get; set; } = InferenceBackend.Ollama;
+
+    // ── Ollama (Backend == Ollama) ────────────────────────────────────────
     public string OllamaHost    { get; set; } = "http://localhost:11434";
+
+    // ── llama.cpp (Backend == LlamaCpp) ──────────────────────────────────
+    /// <summary>Folder that contains llama-server.exe (and its CUDA/Vulkan DLLs).</summary>
+    public string LlamaCppRuntimePath { get; set; } = "";
+
+    /// <summary>Absolute path to the .gguf model file to load.</summary>
+    public string LlamaCppModelPath   { get; set; } = "";
+
+    /// <summary>Port the llama-server listens on. Default: 8080.</summary>
+    public int    LlamaCppPort        { get; set; } = 8080;
+
+    /// <summary>
+    /// GPU layers to offload.
+    ///  -1  = offload ALL layers (default — uses full GPU)
+    ///   0  = CPU only
+    ///  N>0 = offload exactly N layers
+    /// </summary>
+    public int    LlamaCppGpuLayers   { get; set; } = -1;
+
+    /// <summary>Context window size in tokens. Default: 8192.</summary>
+    public int    LlamaCppContextSize { get; set; } = 8192;
+
+    /// <summary>CPU threads for token generation. 0 = auto-detect.</summary>
+    public int    LlamaCppThreads     { get; set; } = 0;
+
+    // ── Derived helper ────────────────────────────────────────────────────
+    /// <summary>Base URL that OllamaClient should point at for the active backend.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string InferenceBaseUrl => Backend == InferenceBackend.LlamaCpp
+        ? $"http://127.0.0.1:{LlamaCppPort}"
+        : OllamaHost;
 
     // ── Agent behaviour ──────────────────────────────────────────────────
     public string DefaultModel  { get; set; } = "qwen2.5-coder:14b";

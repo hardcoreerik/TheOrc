@@ -15,14 +15,15 @@ namespace OrchestratorIDE;
 public partial class MainWindow : Window
 {
     // ── Services ──────────────────────────────────────────────────────────
-    private readonly OllamaClient    _ollama;
-    private readonly ApprovalQueue   _approvals;
-    private readonly ToolRegistry    _registry;
-    private readonly ContextManager  _context;
-    private readonly GitCheckpoint   _git;
-    private readonly RulesLoader     _rules;
-    private readonly AgentLoop       _loop;
-    private readonly SessionStore    _store;
+    private readonly OllamaClient       _ollama;
+    private readonly ApprovalQueue      _approvals;
+    private readonly ToolRegistry       _registry;
+    private readonly ContextManager     _context;
+    private readonly GitCheckpoint      _git;
+    private readonly RulesLoader        _rules;
+    private readonly AgentLoop          _loop;
+    private readonly SessionStore       _store;
+    private          LlamaServerManager? _llamaServer;
 
     // ── State ─────────────────────────────────────────────────────────────
     private ProjectSession           _session;
@@ -47,8 +48,12 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        // Boot services — use saved Ollama host immediately
-        _ollama    = new OllamaClient(_settings.OllamaHost);
+        // Boot services — configure inference client from saved settings
+        _ollama    = new OllamaClient(_settings.InferenceBaseUrl, _settings.Backend);
+        _llamaServer = BuildServerManager(_settings);
+
+        // Stop llama-server on window close (before process exits)
+        Closed += (_, _) => _llamaServer?.Stop();
         _approvals = new ApprovalQueue();
         _registry  = new ToolRegistry(_approvals);
         _context   = new ContextManager(32_768);
@@ -202,13 +207,30 @@ public partial class MainWindow : Window
 
     private async Task OnLoadedAsync()
     {
-        AddActivity(new ActivityEvent(ActivityKind.Info, "Startup", "Checking Ollama connection…", DateTime.Now));
+        // ── Start llama.cpp server if that backend is selected ────────────
+        if (_settings.Backend == InferenceBackend.LlamaCpp && _llamaServer != null)
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Info, "llama.cpp",
+                "Starting local inference server…", DateTime.Now));
+
+            var ready = await _llamaServer.StartAsync(ct: default);
+            if (!ready)
+            {
+                AddActivity(new ActivityEvent(ActivityKind.Warning, "llama.cpp",
+                    "Server failed to start — check RuntimePath and ModelPath in Settings.", DateTime.Now));
+            }
+        }
+
+        var backendLabel = _settings.Backend == InferenceBackend.LlamaCpp ? "llama.cpp" : "Ollama";
+        AddActivity(new ActivityEvent(ActivityKind.Info, "Startup",
+            $"Checking {backendLabel} connection…", DateTime.Now));
+
         var models = await _ollama.GetInstalledModelsAsync();
 
         if (models.Count > 0)
         {
-            AddActivity(new ActivityEvent(ActivityKind.Info, "Ollama",
-                $"{models.Count} models: {string.Join(", ", models.Take(3))}…", DateTime.Now));
+            AddActivity(new ActivityEvent(ActivityKind.Info, backendLabel,
+                $"{models.Count} model(s): {string.Join(", ", models.Take(3))}", DateTime.Now));
 
             // Auto-select best available coding model (always on fresh start)
             _installedModels = models;
@@ -230,8 +252,10 @@ public partial class MainWindow : Window
         }
         else
         {
-            AddActivity(new ActivityEvent(ActivityKind.Warning, "Ollama",
-                "No models found — check connection to Ollama host", DateTime.Now));
+            var hint = _settings.Backend == InferenceBackend.LlamaCpp
+                ? "No models found — check LlamaCppRuntimePath and LlamaCppModelPath in Settings."
+                : "No models found — check Ollama host connection in Settings.";
+            AddActivity(new ActivityEvent(ActivityKind.Warning, backendLabel, hint, DateTime.Now));
         }
 
         var saved = await _store.LoadLatestAsync();
@@ -640,10 +664,38 @@ public partial class MainWindow : Window
 
     private void OnSettingsSaved(AppSettings newSettings)
     {
+        var oldBackend = _settings.Backend;
         _settings = newSettings;
 
-        // Apply Ollama host live
-        _ollama.Host = newSettings.OllamaHost;
+        // ── Apply backend change ──────────────────────────────────────────
+        if (newSettings.Backend != oldBackend ||
+            (newSettings.Backend == InferenceBackend.LlamaCpp &&
+             _llamaServer != null &&
+             (_llamaServer.ModelPath    != newSettings.LlamaCppModelPath ||
+              _llamaServer.RuntimePath  != newSettings.LlamaCppRuntimePath ||
+              _llamaServer.Port         != newSettings.LlamaCppPort)))
+        {
+            // Stop the old server (if any) before switching
+            _llamaServer?.Stop();
+            _llamaServer = BuildServerManager(newSettings);
+
+            // Point the inference client at the correct URL + backend
+            _ollama.Host    = newSettings.InferenceBaseUrl;
+            _ollama.Backend = newSettings.Backend;
+
+            // Start new server in the background (don't block UI)
+            if (newSettings.Backend == InferenceBackend.LlamaCpp && _llamaServer != null)
+            {
+                AddActivity(new ActivityEvent(ActivityKind.Info, "llama.cpp",
+                    "Restarting server with new settings…", DateTime.Now));
+                _ = _llamaServer.StartAsync();
+            }
+        }
+        else
+        {
+            // Ollama host may have changed — apply live
+            _ollama.Host = newSettings.InferenceBaseUrl;
+        }
 
         // Settings workspace change updates the default but does NOT confirm —
         // the user must still explicitly open the folder this session.
@@ -657,8 +709,42 @@ public partial class MainWindow : Window
         }
 
         UpdateStatusBar();
+        var backendTag = newSettings.Backend == InferenceBackend.LlamaCpp
+            ? $"llama.cpp → port {newSettings.LlamaCppPort}"
+            : $"Ollama → {newSettings.OllamaHost}";
         AddActivity(new ActivityEvent(ActivityKind.Info, "Settings",
-            $"Saved — Ollama: {newSettings.OllamaHost}", DateTime.Now));
+            $"Saved — {backendTag}", DateTime.Now));
+    }
+
+    // ── Backend helpers ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// Creates and wires a LlamaServerManager from settings.
+    /// Returns null if the backend is Ollama (no server to manage).
+    /// </summary>
+    private LlamaServerManager? BuildServerManager(AppSettings s)
+    {
+        if (s.Backend != InferenceBackend.LlamaCpp) return null;
+
+        var mgr = new LlamaServerManager
+        {
+            RuntimePath = s.LlamaCppRuntimePath,
+            ModelPath   = s.LlamaCppModelPath,
+            Port        = s.LlamaCppPort,
+            GpuLayers   = s.LlamaCppGpuLayers,
+            ContextSize = s.LlamaCppContextSize,
+            Threads     = s.LlamaCppThreads,
+        };
+
+        // Forward server logs to the activity panel
+        mgr.OnLog += msg =>
+            AddActivity(new ActivityEvent(ActivityKind.Info, "llama.cpp", msg, DateTime.Now));
+
+        mgr.OnStatusChanged += running =>
+            Dispatcher.InvokeAsync(() =>
+                SetStatus(running ? "⚙ llama.cpp server running" : "⚠ llama.cpp server stopped"));
+
+        return mgr;
     }
 
     private void AgentMode_Changed(object sender, RoutedEventArgs e) { }

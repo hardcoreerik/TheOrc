@@ -9,8 +9,12 @@ using OrchestratorIDE.Models;
 namespace OrchestratorIDE.Core;
 
 /// <summary>
-/// Streams completions from Ollama using the OpenAI-compatible /v1/chat/completions endpoint.
-/// Yields tokens as they arrive. Supports tool call parsing.
+/// Streams completions from a local inference server using the OpenAI-compatible
+/// /v1/chat/completions endpoint. Works with both Ollama and llama.cpp server.
+///
+/// The streaming endpoint is identical for both backends. The only divergence
+/// is model discovery: Ollama uses /api/tags, llama.cpp uses /v1/models.
+/// Set <see cref="Backend"/> to switch between them.
 /// </summary>
 public class OllamaClient
 {
@@ -24,21 +28,40 @@ public class OllamaClient
         DefaultIgnoreCondition      = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
     };
 
+    /// <summary>Base URL of the inference server (Ollama or llama.cpp).</summary>
     public string Host
     {
         get => _baseUrl;
         set => _baseUrl = value.TrimEnd('/');
     }
 
-    public OllamaClient(string ollamaHost = "http://localhost:11434")
+    /// <summary>
+    /// Controls which model-list endpoint is used.
+    /// Does NOT affect completion streaming (always /v1/chat/completions).
+    /// </summary>
+    public InferenceBackend Backend { get; set; } = InferenceBackend.Ollama;
+
+    public OllamaClient(string host = "http://localhost:11434",
+                        InferenceBackend backend = InferenceBackend.Ollama)
     {
-        _baseUrl = ollamaHost.TrimEnd('/');
-        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(300) };
+        _baseUrl = host.TrimEnd('/');
+        Backend  = backend;
+        _http    = new HttpClient { Timeout = TimeSpan.FromSeconds(300) };
     }
 
     // ── Model discovery ──────────────────────────────────────────────────────
 
-    public async Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default)
+    /// <summary>
+    /// Returns the list of available model IDs from the inference server.
+    /// Ollama   → GET /api/tags          (returns models[].name)
+    /// LlamaCpp → GET /v1/models         (returns data[].id)
+    /// </summary>
+    public Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default)
+        => Backend == InferenceBackend.LlamaCpp
+            ? GetLlamaCppModelsAsync(ct)
+            : GetOllamaModelsAsync(ct);
+
+    private async Task<List<string>> GetOllamaModelsAsync(CancellationToken ct)
     {
         try
         {
@@ -51,6 +74,41 @@ public class OllamaClient
                 .ToList() ?? [];
         }
         catch { return []; }
+    }
+
+    private async Task<List<string>> GetLlamaCppModelsAsync(CancellationToken ct)
+    {
+        try
+        {
+            // llama-server exposes OpenAI-compatible GET /v1/models
+            var resp = await _http.GetAsync($"{_baseUrl}/v1/models", ct);
+            resp.EnsureSuccessStatusCode();
+            var json = JsonNode.Parse(await resp.Content.ReadAsStringAsync(ct));
+            return json?["data"]?.AsArray()
+                .Select(m => m?["id"]?.GetValue<string>() ?? "")
+                .Where(n => n.Length > 0)
+                .ToList() ?? [];
+        }
+        catch { return []; }
+    }
+
+    /// <summary>
+    /// Quick connectivity check — returns true if the server answers /health (llama.cpp)
+    /// or /api/tags (Ollama) within 3 seconds.
+    /// </summary>
+    public async Task<bool> IsReachableAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(3));
+            var url = Backend == InferenceBackend.LlamaCpp
+                ? $"{_baseUrl}/health"
+                : $"{_baseUrl}/api/tags";
+            var resp = await _http.GetAsync(url, cts.Token);
+            return resp.IsSuccessStatusCode;
+        }
+        catch { return false; }
     }
 
     // ── Streaming completion ─────────────────────────────────────────────────
