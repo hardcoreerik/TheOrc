@@ -122,7 +122,38 @@ public static class ModelProfiles
             Description: "Standard Llama 3.1 8B. Very fast. Good for quick questions."
         ),
 
-        // ── Future/planned (not yet installed) ───────────────────────────────
+        // ── Security research stack ──────────────────────────────────────────
+        ["deepseek-coder-v2:16b"] = new(
+            "deepseek-coder-v2:16b", "DeepSeek-Coder V2 16B", 163_840, true,
+            ["coding", "security", "algorithms", "debug", "exploit"],
+            ToolSet.Full, PromptStyle.Agent,
+            MaxSteps: 20, Temperature: 0.1, TimeoutSeconds: 120, AutoVerify: true,
+            Description: "DeepSeek Coder V2 16B — strong on code, security tooling, and algorithms. Fewer restrictions than mainstream models. 160k context."
+        ),
+        ["mistral-small"] = new(
+            "mistral-small", "Mistral Small 3.1 24B", 131_072, true,
+            ["agent", "security", "reasoning", "tool-use", "coding"],
+            ToolSet.Full, PromptStyle.Agent,
+            MaxSteps: 22, Temperature: 0.1, TimeoutSeconds: 150, AutoVerify: true,
+            Description: "Mistral Small 3.1 — native tool calling, 128k context, fewer RLHF restrictions than Llama/Qwen. Good security research model."
+        ),
+        ["mistral-small:latest"] = new(
+            "mistral-small:latest", "Mistral Small 3.1 24B", 131_072, true,
+            ["agent", "security", "reasoning", "tool-use", "coding"],
+            ToolSet.Full, PromptStyle.Agent,
+            MaxSteps: 22, Temperature: 0.1, TimeoutSeconds: 150, AutoVerify: true,
+            Description: "Mistral Small 3.1 — native tool calling, 128k context. Strong security research model."
+        ),
+        ["hf.co/bartowski/dolphin-2.9.2-qwen2-7b-GGUF:Q5_K_M"] = new(
+            "hf.co/bartowski/dolphin-2.9.2-qwen2-7b-GGUF:Q5_K_M",
+            "Dolphin 2.9.2 Qwen2 7B (Q5)", 32_768, true,
+            ["uncensored", "security", "coding", "agentic", "tool-use"],
+            ToolSet.Full, PromptStyle.Agent,
+            MaxSteps: 15, Temperature: 0.1, TimeoutSeconds: 75, AutoVerify: true,
+            Description: "Dolphin 2.9.2 on Qwen2 base — explicitly uncensored fine-tune, good tool calling. Best fast option for security research."
+        ),
+
+        // ── Future/planned ───────────────────────────────────────────────────
         ["devstral:24b"] = new(
             "devstral:24b", "Devstral 24B", 131_072, true,
             ["agent", "coding", "planning", "multi-file"],
@@ -130,14 +161,23 @@ public static class ModelProfiles
             MaxSteps: 30, Temperature: 0.1, TimeoutSeconds: 180, AutoVerify: true,
             Description: "Mistral's agent-tuned model. 128k context. Best for long autonomous tasks."
         ),
-        ["deepseek-coder-v2:16b"] = new(
-            "deepseek-coder-v2:16b", "DeepSeek-Coder V2 16B", 32_768, true,
-            ["coding", "algorithms", "math", "debug"],
-            ToolSet.Coding, PromptStyle.Coding,
-            MaxSteps: 18, Temperature: 0.1, TimeoutSeconds: 90, AutoVerify: true,
-            Description: "Strong on algorithmic problems, data structures, and numerical code."
-        ),
     };
+
+    // ── Security research model preference order ──────────────────────────────
+    // Used by auto-switch when a pentest workspace is detected.
+    // Priority: purpose-built tool-calling unrestricted models first,
+    // then larger heretic merges, then fast uncensored fallbacks.
+    public static readonly string[] SecurityPreference =
+    [
+        "hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:Q5_K_M",   // purpose-built agentic, low restriction
+        "mistral-small",                                              // native tools, 128k, less restricted
+        "mistral-small:latest",
+        "hf.co/bartowski/dolphin-2.9.2-qwen2-7b-GGUF:Q5_K_M",      // explicitly uncensored + tool calling
+        "hf.co/bartowski/p-e-w_gpt-oss-20b-heretic-GGUF:Q4_K_M",   // heretic merge, large capacity
+        "deepseek-coder-v2:16b",                                     // strong coder, fewer restrictions
+        "hf.co/cognitivecomputations/Dolphin3.0-Llama3.1-8B-GGUF:Q4_0",  // uncensored fallback
+        "hf.co/bartowski/p-e-w_Llama-3.1-8B-Instruct-heretic-GGUF:Q4_K_M", // fast heretic fallback
+    ];
 
     public static ModelProfile Get(string modelId)
     {

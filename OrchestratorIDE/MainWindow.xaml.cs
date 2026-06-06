@@ -127,14 +127,27 @@ public partial class MainWindow : Window
             return await _agentPanel.ShowUnknownToolCard(call, names);
         };
 
-        // Rules badge: update when agent loads (or fails to find) .agent.md
+        // Rules badge + pentest button + security model auto-switch
         _loop.OnRulesLoaded += filePath =>
         {
             _agentPanel.SetRulesStatus(filePath);
-            // Light up (or dim) the Pentest button based on whether the active rules
-            // file looks like a pentest template (has ENGAGEMENT CONTEXT header etc.)
-            _agentPanel.SetPentestActive(
-                filePath != null && PentestRules.IsPentestTemplate(filePath));
+
+            var isPentest = filePath != null && PentestRules.IsPentestTemplate(filePath);
+            _agentPanel.SetPentestActive(isPentest);
+
+            // Auto-switch to best available security research model when a pentest
+            // workspace is detected. Silent switch — logged to activity panel.
+            if (isPentest)
+            {
+                var secModel = GetBestSecurityModel();
+                if (secModel != null && !secModel.Equals(_session.ActiveModel, StringComparison.OrdinalIgnoreCase))
+                {
+                    OnModelSelected(secModel);
+                    AddActivity(new ActivityEvent(ActivityKind.Info, "Pentest Mode",
+                        $"Auto-switched to {ModelProfiles.Get(secModel).Name} for security research",
+                        DateTime.Now));
+                }
+            }
         };
 
         // Rules badge click → open the rules file in the code editor
@@ -396,10 +409,15 @@ public partial class MainWindow : Window
                 _agentPanel.Session = _session;
                 AddActivity(new ActivityEvent(ActivityKind.Info, "Session", "New session started", DateTime.Now));
                 break;
-            case "model.switch.coder14":  OnModelSelected("qwen2.5-coder:14b"); break;
-            case "model.switch.coder7":   OnModelSelected("qwen2.5-coder:7b"); break;
-            case "model.switch.gemma":    OnModelSelected("gemma4:e4b"); break;
-            case "model.switch.llama":    OnModelSelected("llama3.1:8b"); break;
+            case "model.switch.coder14":   OnModelSelected("qwen2.5-coder:14b"); break;
+            case "model.switch.coder7":    OnModelSelected("qwen2.5-coder:7b"); break;
+            case "model.switch.gemma":     OnModelSelected("gemma4:e4b"); break;
+            case "model.switch.llama":     OnModelSelected("llama3.1:8b"); break;
+            case "model.switch.hermes":    OnModelSelected("hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:Q5_K_M"); break;
+            case "model.switch.mistral":   OnModelSelected("mistral-small"); break;
+            case "model.switch.dolphin7":  OnModelSelected("hf.co/bartowski/dolphin-2.9.2-qwen2-7b-GGUF:Q5_K_M"); break;
+            case "model.switch.deepseek":  OnModelSelected("deepseek-coder-v2:16b"); break;
+            case "model.switch.security":  var sec = GetBestSecurityModel(); if (sec != null) OnModelSelected(sec); break;
         }
     }
 
@@ -418,15 +436,27 @@ public partial class MainWindow : Window
             new() { Id="session.new",     Label="New Session",              Detail="Clear conversation history and start fresh", Icon="⬡", Shortcut="", SortOrder=40, Keywords=["new","clear","session","reset"] },
         };
 
-        // Add quick model switch commands for installed models
+        // Quick model switch commands — standard coding models
         if (_installedModels.Contains("qwen2.5-coder:14b"))
-            list.Add(new() { Id="model.switch.coder14", Label="Use Qwen2.5-Coder 14B", Detail="Best speed/quality balance for coding tasks", Icon="⚡", SortOrder=50, Keywords=["qwen","coder","14b"] });
+            list.Add(new() { Id="model.switch.coder14", Label="Use Qwen2.5-Coder 14B",  Detail="Best speed/quality balance for coding tasks", Icon="⚡", SortOrder=50, Keywords=["qwen","coder","14b"] });
         if (_installedModels.Contains("qwen2.5-coder:7b"))
-            list.Add(new() { Id="model.switch.coder7",  Label="Use Qwen2.5-Coder 7B",  Detail="Faster coder, good for quick edits", Icon="⚡", SortOrder=51, Keywords=["qwen","coder","7b","fast"] });
+            list.Add(new() { Id="model.switch.coder7",  Label="Use Qwen2.5-Coder 7B",   Detail="Faster coder, good for quick edits", Icon="⚡", SortOrder=51, Keywords=["qwen","coder","7b","fast"] });
         if (_installedModels.Contains("gemma4:e4b"))
-            list.Add(new() { Id="model.switch.gemma",   Label="Use Gemma 4 (E4B)",      Detail="Very fast, 32k context", Icon="⚡", SortOrder=52, Keywords=["gemma","fast"] });
+            list.Add(new() { Id="model.switch.gemma",   Label="Use Gemma 4 (E4B)",       Detail="Very fast, 32k context", Icon="⚡", SortOrder=52, Keywords=["gemma","fast"] });
         if (_installedModels.Contains("llama3.1:8b"))
-            list.Add(new() { Id="model.switch.llama",   Label="Use Llama 3.1 8B",       Detail="Fast general chat model", Icon="⚡", SortOrder=53, Keywords=["llama","fast","chat"] });
+            list.Add(new() { Id="model.switch.llama",   Label="Use Llama 3.1 8B",        Detail="Fast general chat model", Icon="⚡", SortOrder=53, Keywords=["llama","fast","chat"] });
+
+        // Quick model switch commands — security research models
+        if (_installedModels.Contains("hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:Q5_K_M"))
+            list.Add(new() { Id="model.switch.hermes",   Label="Use Hermes 4 14B",        Detail="NousResearch — purpose-built agentic, minimal restrictions, best tool calling", Icon="🛡️", SortOrder=60, Keywords=["hermes","security","agentic","nousresearch","unrestricted"] });
+        if (_installedModels.Any(m => m.StartsWith("mistral-small", StringComparison.OrdinalIgnoreCase)))
+            list.Add(new() { Id="model.switch.mistral",  Label="Use Mistral Small 24B",   Detail="128k context, native tool calling, fewer RLHF restrictions", Icon="🛡️", SortOrder=61, Keywords=["mistral","security","tools","128k"] });
+        if (_installedModels.Contains("hf.co/bartowski/dolphin-2.9.2-qwen2-7b-GGUF:Q5_K_M"))
+            list.Add(new() { Id="model.switch.dolphin7", Label="Use Dolphin 2.9 Qwen2 7B", Detail="Explicitly uncensored fine-tune, fast, good tool calling", Icon="🛡️", SortOrder=62, Keywords=["dolphin","uncensored","security","fast"] });
+        if (_installedModels.Any(m => m.StartsWith("deepseek-coder-v2", StringComparison.OrdinalIgnoreCase)))
+            list.Add(new() { Id="model.switch.deepseek", Label="Use DeepSeek-Coder V2 16B", Detail="Strong on security tooling and algorithms, 160k context", Icon="🛡️", SortOrder=63, Keywords=["deepseek","coder","security","code"] });
+        // Always show "best security model" shortcut
+        list.Add(new() { Id="model.switch.security", Label="Use Best Security Model",   Detail="Auto-selects highest-priority available security research model", Icon="🛡️", SortOrder=59, Keywords=["security","pentest","best","auto","unrestricted","hacking"] });
 
         return list;
     }
@@ -649,6 +679,15 @@ public partial class MainWindow : Window
         ShowEditorPane();
         _editorPanel.OpenFile(path);
     }
+
+    /// <summary>
+    /// Returns the best installed model for security research work,
+    /// using the priority order defined in ModelProfiles.SecurityPreference.
+    /// Returns null if none of the preferred models are installed.
+    /// </summary>
+    private string? GetBestSecurityModel()
+        => ModelProfiles.SecurityPreference
+            .FirstOrDefault(p => _installedModels.Contains(p, StringComparer.OrdinalIgnoreCase));
 
     /// <summary>
     /// Drops PENTEST.agent.md into the current workspace as .agent.md,
