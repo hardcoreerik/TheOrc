@@ -9,6 +9,7 @@
     <RootNamespace>OrchestratorSetup</RootNamespace>
     <AssemblyName>OrchestratorSetup</AssemblyName>
     <ApplicationIcon>..\Assets\icon.ico</ApplicationIcon>
+    <NoWarn>$(NoWarn);NU1510</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,7 +24,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.Text.Json" Version="10.0.8" />
+    <!-- System.Text.Json is inbox in .NET 10 but kept explicit for IDE Intellisense -->
+    <PackageReference Include="System.Text.Json"  Version="10.0.8" NoWarn="NU1510" />
+    <!-- WMI managed API — required for Win32_VideoController and ComputerSystem queries -->
+    <PackageReference Include="System.Management"  Version="9.0.0" />
   </ItemGroup>
 
   <!-- Bundle the model manifest and profile templates so the installer

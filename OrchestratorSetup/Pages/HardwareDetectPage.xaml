@@ -6,26 +6,52 @@
 
     <Grid Margin="40,32">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>  <!-- 0: header            -->
+            <RowDefinition Height="Auto"/>  <!-- 1: scanning banner   -->
+            <RowDefinition Height="Auto"/>  <!-- 2: result card       -->
+            <RowDefinition Height="Auto"/>  <!-- 3: override combo    -->
+            <RowDefinition Height="Auto"/>  <!-- 4: detection log     -->
+            <RowDefinition Height="*"/>     <!-- 5: spacer            -->
         </Grid.RowDefinitions>
 
-        <!-- Header -->
+        <!-- ── Row 0: Header ────────────────────────────────────────────── -->
         <StackPanel Grid.Row="0" Margin="0,0,0,20">
-            <TextBlock Text="Hardware Detection" Style="{StaticResource TextPageTitle}"/>
+            <TextBlock Text="Hardware Detection"
+                       Style="{StaticResource TextPageTitle}"/>
             <TextBlock Style="{StaticResource TextSubtitle}">
-                The Orc detected your hardware and selected the best llama.cpp runtime
-                variant. You can override these choices if needed.
+                The Orc scans your GPU and selects the best llama.cpp runtime.
+                You can override the auto-selected variant if needed.
             </TextBlock>
         </StackPanel>
 
-        <!-- Detection status -->
-        <Border Grid.Row="1" Style="{StaticResource CardBorder}" Margin="0,0,0,16">
+        <!-- ── Row 1: Scanning banner (hidden once detection finishes) ──── -->
+        <Border Grid.Row="1" x:Name="BdrScanning"
+                Background="#1A2030"
+                CornerRadius="6"
+                Padding="14,10,14,10"
+                Margin="0,0,0,12"
+                Visibility="Visible">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <ProgressBar x:Name="PbScanning"
+                             IsIndeterminate="True"
+                             Width="110" Height="3"
+                             VerticalAlignment="Center"
+                             Style="{StaticResource ThemedProgressBar}"/>
+                <TextBlock x:Name="TxtScanStatus"
+                           Text="Scanning hardware…"
+                           Margin="12,0,0,0"
+                           Foreground="{StaticResource TextSecondary}"
+                           FontFamily="Segoe UI"
+                           FontSize="12"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <!-- ── Row 2: Detection results card ────────────────────────────── -->
+        <Border Grid.Row="2" Style="{StaticResource CardBorder}" Margin="0,0,0,16">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="140"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>
@@ -33,50 +59,75 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- GPU -->
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="GPU"
-                           Style="{StaticResource TextLabel}" Width="120" Margin="0,0,0,10"/>
+                <!-- GPU Name -->
+                <TextBlock Grid.Row="0" Grid.Column="0"
+                           Text="GPU" Style="{StaticResource TextLabel}"
+                           Margin="0,0,0,10"/>
                 <TextBlock Grid.Row="0" Grid.Column="1"
                            x:Name="TxtGpuName"
+                           Text="Detecting…"
                            Style="{StaticResource TextBody}"
-                           Margin="0,0,0,10"/>
+                           Margin="0,0,0,10"
+                           TextTrimming="CharacterEllipsis"/>
 
                 <!-- VRAM -->
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="VRAM"
-                           Style="{StaticResource TextLabel}" Margin="0,0,0,10"/>
+                <TextBlock Grid.Row="1" Grid.Column="0"
+                           Text="VRAM" Style="{StaticResource TextLabel}"
+                           Margin="0,0,0,10"/>
                 <TextBlock Grid.Row="1" Grid.Column="1"
                            x:Name="TxtVram"
+                           Text="Detecting…"
                            Style="{StaticResource TextBody}"
                            Margin="0,0,0,10"/>
 
                 <!-- CUDA -->
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="CUDA"
-                           Style="{StaticResource TextLabel}" Margin="0,0,0,10"/>
+                <TextBlock Grid.Row="2" Grid.Column="0"
+                           Text="CUDA" Style="{StaticResource TextLabel}"
+                           Margin="0,0,0,10"/>
                 <TextBlock Grid.Row="2" Grid.Column="1"
                            x:Name="TxtCuda"
+                           Text="Detecting…"
                            Style="{StaticResource TextBody}"
                            Margin="0,0,0,10"/>
 
-                <!-- Runtime variant -->
-                <TextBlock Grid.Row="3" Grid.Column="0" Text="Runtime Variant"
-                           Style="{StaticResource TextLabel}"/>
-                <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal">
+                <!-- System RAM -->
+                <TextBlock Grid.Row="3" Grid.Column="0"
+                           Text="System RAM" Style="{StaticResource TextLabel}"
+                           Margin="0,0,0,10"/>
+                <TextBlock Grid.Row="3" Grid.Column="1"
+                           x:Name="TxtRam"
+                           Text="Detecting…"
+                           Style="{StaticResource TextBody}"
+                           Margin="0,0,0,10"/>
+
+                <!-- Runtime variant (auto-selected) -->
+                <TextBlock Grid.Row="4" Grid.Column="0"
+                           Text="Runtime" Style="{StaticResource TextLabel}"/>
+                <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal">
                     <TextBlock x:Name="TxtVariant"
+                               Text="—"
                                Style="{StaticResource TextBody}"
                                VerticalAlignment="Center"/>
-                    <TextBlock Text="(auto-selected)"
-                               Margin="8,0,0,0"
-                               Style="{StaticResource TextSubtitle}"
-                               FontSize="11"
-                               VerticalAlignment="Center"/>
+                    <Border x:Name="BdrVariantBadge"
+                            Background="#002233"
+                            CornerRadius="3"
+                            Padding="6,2,6,2"
+                            Margin="8,0,0,0"
+                            Visibility="Collapsed">
+                        <TextBlock x:Name="TxtVariantBadge"
+                                   Foreground="#00BFFF"
+                                   FontFamily="Consolas"
+                                   FontSize="11"/>
+                    </Border>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- Runtime variant override -->
-        <Border Grid.Row="2" Style="{StaticResource CardBorder}">
+        <!-- ── Row 3: Runtime override ───────────────────────────────────── -->
+        <Border Grid.Row="3" Style="{StaticResource CardBorder}">
             <StackPanel>
                 <TextBlock Text="OVERRIDE RUNTIME VARIANT"
                            Style="{StaticResource TextLabel}"
@@ -89,18 +140,40 @@
                           FontFamily="Segoe UI"
                           FontSize="12"
                           AutomationProperties.AutomationId="Hardware.VariantOverride">
-                    <ComboBoxItem Tag="cuda12"  Content="CUDA 12.x — NVIDIA RTX 20-series and newer"/>
-                    <ComboBoxItem Tag="cuda11"  Content="CUDA 11.x — older NVIDIA GPUs"/>
-                    <ComboBoxItem Tag="vulkan"  Content="Vulkan — AMD or Intel Arc GPUs"/>
-                    <ComboBoxItem Tag="avx2"    Content="AVX2 CPU — no GPU, modern CPU"/>
-                    <ComboBoxItem Tag="cpu"     Content="CPU baseline — maximum compatibility"/>
+                    <ComboBoxItem Tag="cuda12" Content="CUDA 12.x  —  NVIDIA RTX 20-series and newer"/>
+                    <ComboBoxItem Tag="cuda11" Content="CUDA 11.x  —  older NVIDIA GPUs"/>
+                    <ComboBoxItem Tag="vulkan" Content="Vulkan  —  AMD, Intel Arc, or cross-GPU"/>
+                    <ComboBoxItem Tag="avx2"   Content="AVX2 CPU  —  no GPU, modern CPU"/>
+                    <ComboBoxItem Tag="cpu"    Content="CPU baseline  —  maximum compatibility"/>
                 </ComboBox>
-                <TextBlock Margin="0,8,0,0" Style="{StaticResource TextSubtitle}" FontSize="11">
-                    If The Orc crashes on first launch, try selecting a lower variant
+                <TextBlock Margin="0,8,0,0"
+                           Style="{StaticResource TextSubtitle}"
+                           FontSize="11">
+                    If TheOrc crashes on first launch, try selecting a lower variant
                     (Vulkan → AVX2 → CPU baseline).
                 </TextBlock>
             </StackPanel>
         </Border>
+
+        <!-- ── Row 4: Detection log (collapsible) ────────────────────────── -->
+        <Expander Grid.Row="4"
+                  Header="Detection log"
+                  Margin="0,12,0,0"
+                  Foreground="{StaticResource TextSecondary}"
+                  FontFamily="Segoe UI"
+                  FontSize="11">
+            <TextBox x:Name="TxtLog"
+                     IsReadOnly="True"
+                     TextWrapping="Wrap"
+                     MaxHeight="140"
+                     VerticalScrollBarVisibility="Auto"
+                     Background="#0D0D0D"
+                     Foreground="#888888"
+                     BorderThickness="0"
+                     FontFamily="Consolas"
+                     FontSize="11"
+                     Padding="8"/>
+        </Expander>
 
     </Grid>
 </UserControl>

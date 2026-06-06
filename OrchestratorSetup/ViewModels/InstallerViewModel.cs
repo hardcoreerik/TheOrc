@@ -73,6 +73,35 @@ public class InstallerViewModel : INotifyPropertyChanged
 
     public void NavigateTo(Page page) => CurrentPage = page;
 
+    // ── Hardware detection result ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Called by <see cref="Pages.HardwareDetectPage"/> once async detection finishes.
+    /// Writes results into <see cref="InstallerState"/> and immediately refreshes
+    /// the model recommendation so the ModelSelect page starts with the right pick.
+    /// </summary>
+    public void ApplyHardwareInfo(Services.HardwareDetector.HardwareInfo info)
+    {
+        State.DetectedGpuName        = info.GpuName;
+        State.DetectedVramGb         = info.VramGb;
+        State.DetectedGpuVendor      = info.Vendor;
+        State.CudaVersion            = info.CudaVersion;
+        State.SelectedRuntimeVariant = info.RuntimeVariant;
+
+        // Reset any previously auto-selected model so UpdateRecommendedModel
+        // can pick again with the real VRAM value.
+        if (string.IsNullOrEmpty(State.SelectedModelId) ||
+            State.SelectedModelId == "qwen25-coder-7b-q5")
+        {
+            State.SelectedModelId        = "";
+            State.SelectedModelUrl       = "";
+            State.SelectedModelSizeBytes = 0;
+        }
+
+        UpdateRecommendedModel();
+        OnPropertyChanged(nameof(State));
+    }
+
     // ── Model recommendation ──────────────────────────────────────────────────
 
     /// <summary>
