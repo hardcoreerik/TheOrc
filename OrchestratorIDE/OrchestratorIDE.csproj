@@ -25,4 +25,11 @@
     <PackageReference Include="System.Text.Json" Version="10.0.8" />
   </ItemGroup>
 
+  <!-- Pentest template shipped alongside the exe so the user can edit it -->
+  <ItemGroup>
+    <Content Include="..\PENTEST.agent.md" Link="PENTEST.agent.md">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

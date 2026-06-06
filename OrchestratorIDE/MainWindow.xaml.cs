@@ -128,10 +128,20 @@ public partial class MainWindow : Window
         };
 
         // Rules badge: update when agent loads (or fails to find) .agent.md
-        _loop.OnRulesLoaded += filePath => _agentPanel.SetRulesStatus(filePath);
+        _loop.OnRulesLoaded += filePath =>
+        {
+            _agentPanel.SetRulesStatus(filePath);
+            // Light up (or dim) the Pentest button based on whether the active rules
+            // file looks like a pentest template (has ENGAGEMENT CONTEXT header etc.)
+            _agentPanel.SetPentestActive(
+                filePath != null && PentestRules.IsPentestTemplate(filePath));
+        };
 
         // Rules badge click → open the rules file in the code editor
         _agentPanel.RulesEditRequested += OpenRulesFile;
+
+        // Pentest button → drop PENTEST.agent.md into current workspace
+        _agentPanel.PentestModeRequested += () => _ = EnablePentestModeAsync();
 
         // Build settings panel
         _settingsPanel = new SettingsPanel(_ollama);
@@ -379,6 +389,7 @@ public partial class MainWindow : Window
             case "model.picker":      SbModel_Click(this, null!); break;
             case "open.folder":       _explorerPanel.OpenFolderDialog(); break;
             case "edit.rules":        OpenRulesFile(); break;
+            case "pentest.enable":    _ = EnablePentestModeAsync(); break;
             case "show.settings":     BtnSettings_Click(this, null!); break;
             case "session.new":
                 _session = new ProjectSession { WorkspaceRoot = _session.WorkspaceRoot, ActiveModel = _session.ActiveModel };
@@ -402,7 +413,8 @@ public partial class MainWindow : Window
             new() { Id="model.picker",    Label="Change Model…",            Detail="Open the model picker flyout", Icon="⚙", Shortcut="", SortOrder=30, Keywords=["model","switch","llm"] },
             new() { Id="open.folder",     Label="Open Folder…",             Detail="Choose a new workspace folder", Icon="📁", Shortcut="", SortOrder=35, Keywords=["folder","open","workspace"] },
             new() { Id="edit.rules",      Label="Edit Rules File",          Detail="Open .agent.md in the code editor (Ctrl+Shift+R)", Icon="📋", Shortcut="Ctrl+Shift+R", SortOrder=37, Keywords=["rules","agent","md","knowledge"] },
-            new() { Id="show.settings",   Label="Settings",                 Detail="Configure Ollama host, model, workspace", Icon="⚙", Shortcut="", SortOrder=38, Keywords=["settings","config","ollama","host"] },
+            new() { Id="pentest.enable",  Label="Enable Pentest Mode",      Detail="Drop PENTEST.agent.md into workspace as .agent.md", Icon="🛡️", Shortcut="", SortOrder=38, Keywords=["pentest","security","rules","agent","red","team","hacking"] },
+            new() { Id="show.settings",   Label="Settings",                 Detail="Configure Ollama host, model, workspace", Icon="⚙", Shortcut="", SortOrder=39, Keywords=["settings","config","ollama","host"] },
             new() { Id="session.new",     Label="New Session",              Detail="Clear conversation history and start fresh", Icon="⬡", Shortcut="", SortOrder=40, Keywords=["new","clear","session","reset"] },
         };
 
@@ -636,6 +648,65 @@ public partial class MainWindow : Window
 
         ShowEditorPane();
         _editorPanel.OpenFile(path);
+    }
+
+    /// <summary>
+    /// Drops PENTEST.agent.md into the current workspace as .agent.md,
+    /// reloads rules so the badge updates immediately, and refreshes the file explorer.
+    /// Triggered by the 🛡️ Pentest button, the command palette, or the menu.
+    /// </summary>
+    private async Task EnablePentestModeAsync()
+    {
+        // Guard: workspace must be open
+        if (string.IsNullOrEmpty(_session.WorkspaceRoot) || !Directory.Exists(_session.WorkspaceRoot))
+        {
+            MessageBox.Show(
+                "Open a project folder first — use File → Open Folder or click the 📁 badge.",
+                "No Workspace Open", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var destPath = Path.Combine(_session.WorkspaceRoot, ".agent.md");
+
+        // If a rules file already exists, confirm before overwriting
+        var existing = _rules.FindRulesFile(_session.WorkspaceRoot);
+        if (existing != null)
+        {
+            var answer = MessageBox.Show(
+                $"A rules file already exists:\n{existing}\n\n" +
+                "Replace it with the pentest template?\n\n" +
+                "Your existing file will be overwritten.",
+                "Replace Existing Rules?",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (answer != MessageBoxResult.Yes) return;
+        }
+
+        // Write the template
+        try
+        {
+            File.WriteAllText(destPath, PentestRules.GetTemplate());
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Failed to write .agent.md:\n{ex.Message}",
+                "Write Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        // Reload rules in the agent loop → fires OnRulesLoaded → badge + button update
+        await _loop.RefreshRulesAsync(_session.WorkspaceRoot);
+
+        // Refresh file explorer so the new .agent.md appears in the tree
+        _explorerPanel.LoadWorkspace(_session.WorkspaceRoot);
+
+        // Open the file in the editor so the user can fill in ENGAGEMENT CONTEXT
+        ShowEditorPane();
+        _editorPanel.OpenFile(destPath);
+
+        AddActivity(new ActivityEvent(ActivityKind.Info, "Pentest Mode",
+            $"Pentest template written to {destPath}", DateTime.Now));
     }
 
     private void Menu_WordWrap(object sender, RoutedEventArgs e)

@@ -47,6 +47,20 @@ public class AgentLoop
         _rules = rules;
     }
 
+    // ── Rules refresh (call after dropping a new .agent.md) ─────────────────
+
+    /// <summary>
+    /// Re-reads the rules file for <paramref name="workspaceRoot"/> and fires
+    /// <see cref="OnRulesLoaded"/> so the badge and system prompt stay in sync.
+    /// Call this after programmatically writing a new .agent.md into the workspace.
+    /// </summary>
+    public async Task RefreshRulesAsync(string workspaceRoot)
+    {
+        var rulesText = await _rules.LoadAsync(workspaceRoot);
+        var path      = _rules.FindRulesFile(workspaceRoot);
+        OnRulesLoaded?.Invoke(string.IsNullOrEmpty(rulesText) ? null : path);
+    }
+
     // ── Plan mode ────────────────────────────────────────────────────────────
 
     /// <summary>

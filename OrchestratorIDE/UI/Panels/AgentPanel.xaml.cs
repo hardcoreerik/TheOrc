@@ -25,6 +25,9 @@ public partial class AgentPanel : UserControl
     // Fires when user clicks the rules badge — MainWindow opens the rules file in the editor
     public event Action? RulesEditRequested;
 
+    // Fires when user clicks the 🛡️ Pentest button — MainWindow drops PENTEST.agent.md
+    public event Action? PentestModeRequested;
+
     private CancellationTokenSource? _cts;
     private readonly ObservableCollection<MessageVm> _messages = [];
 
@@ -152,6 +155,35 @@ public partial class AgentPanel : UserControl
 
     private void RulesBadge_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
         => RulesEditRequested?.Invoke();
+
+    // ── Pentest mode button ───────────────────────────────────────────────
+
+    private void PentestBtn_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        => PentestModeRequested?.Invoke();
+
+    /// <summary>
+    /// Called by MainWindow after a pentest template is successfully dropped.
+    /// <paramref name="active"/> = true → button glows orange (pentest rules live).
+    /// <paramref name="active"/> = false → button returns to dim/idle state.
+    /// </summary>
+    public void SetPentestActive(bool active)
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            if (active)
+            {
+                PentestBtn.Background = new SolidColorBrush(Color.FromRgb(0x3A, 0x22, 0x08));
+                PentestBtn.ToolTip    = "Pentest rules active — click to re-drop template";
+                PentestLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xA0, 0x40));
+            }
+            else
+            {
+                PentestBtn.Background = new SolidColorBrush(Color.FromRgb(0x2A, 0x1A, 0x08));
+                PentestBtn.ToolTip    = "Drop pentest rules into this workspace (.agent.md)";
+                PentestLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0x88, 0x44));
+            }
+        });
+    }
 
     // ── Send ──────────────────────────────────────────────────────────────
     private async void BtnSend_Click(object sender, RoutedEventArgs e)

@@ -164,6 +164,21 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- Pentest mode button — drops PENTEST.agent.md into workspace -->
+                    <Border x:Name="PentestBtn" CornerRadius="3" Padding="7,3"
+                            Margin="0,0,8,0" DockPanel.Dock="Left"
+                            Background="#2A1A08" Cursor="Hand"
+                            ToolTip="Drop pentest rules into this workspace (.agent.md)"
+                            MouseLeftButtonUp="PentestBtn_Click">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="🛡️" FontSize="10" Margin="0,0,4,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock x:Name="PentestLabel" Text="Pentest"
+                                       Foreground="#CC8844" FontSize="10"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+
                     <!-- Token counter + mini progress bar -->
                     <StackPanel DockPanel.Dock="Left" Orientation="Vertical"
                                 VerticalAlignment="Center" Margin="0,0,10,0" Width="100">
