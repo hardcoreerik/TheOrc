@@ -9,6 +9,7 @@
 [![License](https://img.shields.io/badge/license-MIT-brightgreen?style=for-the-badge)](LICENSE)
 [![Backend](https://img.shields.io/badge/inference-llama.cpp-orange?style=for-the-badge)](https://github.com/ggml-org/llama.cpp)
 [![Models](https://img.shields.io/badge/models-HuggingFace_GGUF-yellow?style=for-the-badge)](https://huggingface.co/bartowski)
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?style=for-the-badge&logo=github-sponsors)](https://github.com/sponsors/hardcoreerik)
 
 <br/>
 
@@ -183,6 +184,25 @@ Settings are stored at `%APPDATA%\OrchestratorIDE\settings.json`.
 ```
 
 Alternatively, use the **Settings** panel in the app (gear icon in the activity bar).
+
+---
+
+## Support TheOrc
+
+TheOrc is free, open source, and always will be. If it saves you time or money, consider buying the orc a coffee:
+
+<div align="center">
+
+[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?style=for-the-badge&logo=github-sponsors&logoColor=white)](https://github.com/sponsors/hardcoreerik)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support_the_Orc-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/hardcoreerik)
+[![PayPal](https://img.shields.io/badge/PayPal-Donate-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/hardcoreerik)
+
+</div>
+
+Sponsorships go directly toward:
+- 🖥️ GPU time for testing models across hardware tiers
+- 📦 Hosting the live `model-manifest.json` update feed
+- ⚡ New features, profiles, and tool packs
 
 ---
 

@@ -1,0 +1,11 @@
+# GitHub Sponsors button configuration
+# Displays the pink "Sponsor" heart button on the repo page sidebar.
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+
+github: hardcoreerik          # https://github.com/sponsors/hardcoreerik
+
+ko_fi: hardcoreerik           # https://ko-fi.com/hardcoreerik
+                               # Update if your Ko-fi username differs from your GitHub username.
+
+custom:
+  - https://paypal.me/hardcoreerik
