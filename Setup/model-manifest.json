@@ -1,0 +1,255 @@
+{
+  "_comment": "The Orc model manifest v1. The installer fetches this file at runtime so models and runtime URLs can be updated without releasing a new setup.exe. Update this file and push to master — users get the new list on their next install.",
+  "manifest_url": "https://raw.githubusercontent.com/hardcoreerik/The-Orchestrator/master/Setup/model-manifest.json",
+  "version": "1.0.0",
+  "updated": "2026-06-06",
+
+  "runtimes": {
+    "llama_cpp": {
+      "_comment": "Update 'version' and 'release_base' when a new llama.cpp build is tested. The installer builds the full URL as: release_base + '/' + variants[selected]",
+      "version": "b5200",
+      "release_base": "https://github.com/ggml-org/llama.cpp/releases/download/b5200",
+      "variants": {
+        "cuda12":  "llama-b5200-bin-win-cuda-cu12.2.0-x64.zip",
+        "cuda11":  "llama-b5200-bin-win-cuda-cu11.7.1-x64.zip",
+        "vulkan":  "llama-b5200-bin-win-vulkan-x64.zip",
+        "avx2":    "llama-b5200-bin-win-avx2-x64.zip",
+        "cpu":     "llama-b5200-bin-win-x64.zip"
+      },
+      "size_mb": {
+        "cuda12": 125,
+        "cuda11": 120,
+        "vulkan":  48,
+        "avx2":    22,
+        "cpu":     16
+      },
+      "hardware_selection": {
+        "_comment": "Hardware detection logic maps detected GPU to a variant key above.",
+        "nvidia_cuda12": "cuda12",
+        "nvidia_cuda11": "cuda11",
+        "nvidia_cuda10": "avx2",
+        "amd":           "vulkan",
+        "intel_arc":     "vulkan",
+        "cpu_avx2":      "avx2",
+        "cpu_baseline":  "cpu"
+      }
+    }
+  },
+
+  "models": [
+
+    {
+      "id": "qwen25-coder-1-5b-q8",
+      "name": "Qwen 2.5 Coder 1.5B",
+      "description": "Ultra-light coder. Best choice for CPU-only machines or GPUs below 4 GB. Handles simple edits and single-file tasks well.",
+      "publisher": "Qwen / bartowski",
+      "quantization": "Q8_0",
+      "parameters_b": 1.5,
+      "vram_min_gb": 0,
+      "vram_recommended_gb": 2,
+      "size_bytes": 1880000000,
+      "url": "https://huggingface.co/bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-1.5B-Instruct-Q8_0.gguf",
+      "sha256": null,
+      "quality_stars": 2,
+      "cpu_ok": true,
+      "context_k": 32,
+      "profiles": ["web", "systems", "data", "uiux", "mobile", "finance", "game", "security"],
+      "tags": ["tiny", "cpu-ok", "fast"]
+    },
+
+    {
+      "id": "qwen25-coder-3b-q8",
+      "name": "Qwen 2.5 Coder 3B",
+      "description": "Solid entry-level coder. Fits comfortably in 4 GB VRAM. Good for straightforward coding tasks and Q&A.",
+      "publisher": "Qwen / bartowski",
+      "quantization": "Q8_0",
+      "parameters_b": 3,
+      "vram_min_gb": 3,
+      "vram_recommended_gb": 4,
+      "size_bytes": 3420000000,
+      "url": "https://huggingface.co/bartowski/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-3B-Instruct-Q8_0.gguf",
+      "sha256": null,
+      "quality_stars": 3,
+      "cpu_ok": true,
+      "context_k": 32,
+      "profiles": ["web", "systems", "data", "uiux", "mobile", "finance", "game", "security"],
+      "tags": ["small", "cpu-ok"]
+    },
+
+    {
+      "id": "qwen25-coder-7b-q5",
+      "name": "Qwen 2.5 Coder 7B  ★ Balanced",
+      "description": "The sweet spot. Excellent coding quality for multi-step tasks, strong tool use, fast responses. Recommended for 6–8 GB VRAM.",
+      "publisher": "Qwen / bartowski",
+      "quantization": "Q5_K_M",
+      "parameters_b": 7,
+      "vram_min_gb": 5,
+      "vram_recommended_gb": 6,
+      "size_bytes": 5130000000,
+      "url": "https://huggingface.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-7B-Instruct-Q5_K_M.gguf",
+      "sha256": null,
+      "quality_stars": 4,
+      "cpu_ok": false,
+      "context_k": 128,
+      "profiles": ["web", "systems", "data", "uiux", "mobile", "finance", "game", "security"],
+      "tags": ["recommended", "balanced", "128k"]
+    },
+
+    {
+      "id": "qwen25-coder-7b-q8",
+      "name": "Qwen 2.5 Coder 7B  (Q8 full)",
+      "description": "Near-lossless 7B. Best quality in the 7B class. Ideal for 8–12 GB VRAM users who want maximum accuracy.",
+      "publisher": "Qwen / bartowski",
+      "quantization": "Q8_0",
+      "parameters_b": 7,
+      "vram_min_gb": 8,
+      "vram_recommended_gb": 10,
+      "size_bytes": 7700000000,
+      "url": "https://huggingface.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-7B-Instruct-Q8_0.gguf",
+      "sha256": null,
+      "quality_stars": 4,
+      "cpu_ok": false,
+      "context_k": 128,
+      "profiles": ["web", "systems", "data", "uiux", "mobile", "finance", "game", "security"],
+      "tags": ["high-quality", "128k"]
+    },
+
+    {
+      "id": "qwen25-coder-14b-q4",
+      "name": "Qwen 2.5 Coder 14B  ★ Recommended",
+      "description": "Handles complex multi-file tasks, architecture discussions, and refactoring with ease. Best pick for 12–16 GB VRAM.",
+      "publisher": "Qwen / bartowski",
+      "quantization": "Q4_K_M",
+      "parameters_b": 14,
+      "vram_min_gb": 9,
+      "vram_recommended_gb": 12,
+      "size_bytes": 8960000000,
+      "url": "https://huggingface.co/bartowski/Qwen2.5-Coder-14B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-14B-Instruct-Q4_K_M.gguf",
+      "sha256": null,
+      "quality_stars": 5,
+      "cpu_ok": false,
+      "context_k": 128,
+      "profiles": ["web", "systems", "data", "uiux", "mobile", "finance", "game", "security"],
+      "tags": ["recommended", "flagship", "128k"]
+    },
+
+    {
+      "id": "qwen25-coder-32b-q3",
+      "name": "Qwen 2.5 Coder 32B  (Q3 compressed)",
+      "description": "Full 32B class in a lighter package. Outstanding reasoning and large-codebase understanding. For 16–20 GB VRAM.",
+      "publisher": "Qwen / bartowski",
+      "quantization": "Q3_K_M",
+      "parameters_b": 32,
+      "vram_min_gb": 14,
+      "vram_recommended_gb": 18,
+      "size_bytes": 14500000000,
+      "url": "https://huggingface.co/bartowski/Qwen2.5-Coder-32B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-32B-Instruct-Q3_K_M.gguf",
+      "sha256": null,
+      "quality_stars": 5,
+      "cpu_ok": false,
+      "context_k": 128,
+      "profiles": ["web", "systems", "data", "uiux", "mobile", "finance", "game", "security"],
+      "tags": ["flagship", "large", "128k"]
+    },
+
+    {
+      "id": "qwen25-coder-32b-q4",
+      "name": "Qwen 2.5 Coder 32B  ★ Best Available",
+      "description": "The best locally-runnable coding model. Elite at architecture, debugging, and large-scale refactoring. Requires 24 GB VRAM.",
+      "publisher": "Qwen / bartowski",
+      "quantization": "Q4_K_M",
+      "parameters_b": 32,
+      "vram_min_gb": 20,
+      "vram_recommended_gb": 24,
+      "size_bytes": 19600000000,
+      "url": "https://huggingface.co/bartowski/Qwen2.5-Coder-32B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-32B-Instruct-Q4_K_M.gguf",
+      "sha256": null,
+      "quality_stars": 5,
+      "cpu_ok": false,
+      "context_k": 128,
+      "profiles": ["web", "systems", "data", "uiux", "mobile", "finance", "game", "security"],
+      "tags": ["flagship", "best", "large", "128k"]
+    },
+
+    {
+      "_comment": "Security-specific alternative. Fewer RLHF restrictions — designed for agentic/research use. Recommended when the Security/Pentest profile is selected.",
+      "id": "hermes4-14b-q5",
+      "name": "Hermes 4 14B  (Security)",
+      "description": "NousResearch — purpose-built agentic model. Fewer restrictions than standard models, excellent tool use, designed for security research and red-team workflows.",
+      "publisher": "NousResearch / bartowski",
+      "quantization": "Q5_K_M",
+      "parameters_b": 14,
+      "vram_min_gb": 10,
+      "vram_recommended_gb": 12,
+      "size_bytes": 9800000000,
+      "url": "https://huggingface.co/bartowski/NousResearch_Hermes-4-14B-GGUF/resolve/main/NousResearch_Hermes-4-14B-Q5_K_M.gguf",
+      "sha256": null,
+      "quality_stars": 5,
+      "cpu_ok": false,
+      "context_k": 128,
+      "profiles": ["security"],
+      "tags": ["security", "agentic", "unrestricted", "pentest"]
+    },
+
+    {
+      "_comment": "Game dev / systems alternative. Stronger on C++, HLSL/GLSL, and low-level algorithm reasoning than base Qwen models.",
+      "id": "deepseek-coder-v2-lite-q5",
+      "name": "DeepSeek Coder V2 Lite  (Game/Systems)",
+      "description": "Specialised for C++, game engine code, shader languages, and systems-level algorithms. Alternative pick for Game Dev and Systems/Embedded profiles.",
+      "publisher": "DeepSeek / bartowski",
+      "quantization": "Q5_K_M",
+      "parameters_b": 16,
+      "vram_min_gb": 8,
+      "vram_recommended_gb": 12,
+      "size_bytes": 11200000000,
+      "url": "https://huggingface.co/bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF/resolve/main/DeepSeek-Coder-V2-Lite-Instruct-Q5_K_M.gguf",
+      "sha256": null,
+      "quality_stars": 4,
+      "cpu_ok": false,
+      "context_k": 128,
+      "profiles": ["game", "systems"],
+      "tags": ["cpp", "game-dev", "systems", "alternative"]
+    },
+
+    {
+      "_comment": "Compact high-quality model for UI/UX and mobile profiles where task complexity is moderate but speed matters.",
+      "id": "phi4-mini-q8",
+      "name": "Phi-4 Mini  (UI/Mobile)",
+      "description": "Microsoft's compact but surprisingly capable model. Fast responses, good at structured output. Great for UI component generation and mobile app patterns.",
+      "publisher": "Microsoft / bartowski",
+      "quantization": "Q8_0",
+      "parameters_b": 3.8,
+      "vram_min_gb": 4,
+      "vram_recommended_gb": 6,
+      "size_bytes": 4000000000,
+      "url": "https://huggingface.co/bartowski/phi-4-mini-instruct-GGUF/resolve/main/phi-4-mini-instruct-Q8_0.gguf",
+      "sha256": null,
+      "quality_stars": 4,
+      "cpu_ok": false,
+      "context_k": 128,
+      "profiles": ["uiux", "mobile", "web"],
+      "tags": ["microsoft", "compact", "fast", "alternative"]
+    }
+
+  ],
+
+  "vram_to_model_id": {
+    "_comment": "The installer uses this map to pre-select a recommended model based on detected VRAM. Key is the VRAM tier ceiling in GB.",
+    "2":  "qwen25-coder-1-5b-q8",
+    "4":  "qwen25-coder-3b-q8",
+    "6":  "qwen25-coder-7b-q5",
+    "10": "qwen25-coder-7b-q8",
+    "14": "qwen25-coder-14b-q4",
+    "20": "qwen25-coder-32b-q3",
+    "99": "qwen25-coder-32b-q4"
+  },
+
+  "profile_model_overrides": {
+    "_comment": "When the user selects these profiles AND has sufficient VRAM, the installer suggests this model INSTEAD OF the VRAM-tier default. The user can still choose the Qwen model.",
+    "security": { "min_vram_gb": 10, "preferred_model_id": "hermes4-14b-q5" },
+    "game":     { "min_vram_gb":  8, "preferred_model_id": "deepseek-coder-v2-lite-q5" },
+    "systems":  { "min_vram_gb":  8, "preferred_model_id": "deepseek-coder-v2-lite-q5" },
+    "uiux":     { "min_vram_gb":  4, "preferred_model_id": "phi4-mini-q8" },
+    "mobile":   { "min_vram_gb":  4, "preferred_model_id": "phi4-mini-q8" }
+  }
+}
