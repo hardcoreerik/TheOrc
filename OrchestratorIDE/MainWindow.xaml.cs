@@ -26,19 +26,21 @@ public partial class MainWindow : Window
 
     // ── State ─────────────────────────────────────────────────────────────
     private ProjectSession           _session;
+    private AppSettings              _settings = AppSettings.Load();
     private List<string>             _installedModels = [];
     private readonly ObservableCollection<ActivityEvent> _activityItems = [];
 
     // ── Panels ────────────────────────────────────────────────────────────
     private readonly FileExplorerPanel _explorerPanel;
     private readonly AgentPanel        _agentPanel;
+    private readonly SettingsPanel     _settingsPanel;
 
     public MainWindow()
     {
         InitializeComponent();
 
-        // Boot services
-        _ollama    = new OllamaClient("http://localhost:11434");
+        // Boot services — use saved Ollama host immediately
+        _ollama    = new OllamaClient(_settings.OllamaHost);
         _approvals = new ApprovalQueue();
         _registry  = new ToolRegistry(_approvals);
         _context   = new ContextManager(32_768);
@@ -47,11 +49,13 @@ public partial class MainWindow : Window
         _store     = new SessionStore();
         _loop      = new AgentLoop(_ollama, _registry, _context, _git, _rules);
 
-        // Default session — model will be refined in OnLoadedAsync based on what's installed
+        // Default session — use saved settings, refine model in OnLoadedAsync
         _session = new ProjectSession
         {
-            WorkspaceRoot = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ActiveModel   = "qwen2.5-coder:14b",
+            WorkspaceRoot = !string.IsNullOrEmpty(_settings.DefaultWorkspace)
+                ? _settings.DefaultWorkspace
+                : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ActiveModel = _settings.DefaultModel,
         };
 
         // Register tools — wire diff preview into AgentPanel
@@ -99,6 +103,11 @@ public partial class MainWindow : Window
 
         // Approval gate — use diff viewer in AgentPanel for write_file, dialog for shell
         _approvals.ApprovalRequested += OnApprovalRequested;
+
+        // Build settings panel
+        _settingsPanel = new SettingsPanel(_ollama);
+        _settingsPanel.LoadSettings(_settings);
+        _settingsPanel.SettingsSaved += OnSettingsSaved;
 
         // Default sidebar = explorer
         SidebarContent.Content = _explorerPanel;
@@ -298,6 +307,7 @@ public partial class MainWindow : Window
             case "mode.execute":      _agentPanel.SetMode(isPlan: false); break;
             case "model.picker":      SbModel_Click(this, null!); break;
             case "open.folder":       _explorerPanel.OpenFolderDialog(); break;
+            case "show.settings":     BtnSettings_Click(this, null!); break;
             case "session.new":
                 _session = new ProjectSession { WorkspaceRoot = _session.WorkspaceRoot, ActiveModel = _session.ActiveModel };
                 _agentPanel.Session = _session;
@@ -319,6 +329,7 @@ public partial class MainWindow : Window
             new() { Id="mode.execute",    Label="Switch to Execute mode",   Detail="Agent uses tools and can write files", Icon="▶", Shortcut="", SortOrder=21, Keywords=["execute","run","mode"] },
             new() { Id="model.picker",    Label="Change Model…",            Detail="Open the model picker flyout", Icon="⚙", Shortcut="", SortOrder=30, Keywords=["model","switch","llm"] },
             new() { Id="open.folder",     Label="Open Folder…",             Detail="Choose a new workspace folder", Icon="📁", Shortcut="", SortOrder=35, Keywords=["folder","open","workspace"] },
+            new() { Id="show.settings",   Label="Settings",                 Detail="Configure Ollama host, model, workspace", Icon="⚙", Shortcut="", SortOrder=38, Keywords=["settings","config","ollama","host"] },
             new() { Id="session.new",     Label="New Session",              Detail="Clear conversation history and start fresh", Icon="⬡", Shortcut="", SortOrder=40, Keywords=["new","clear","session","reset"] },
         };
 
@@ -350,10 +361,31 @@ public partial class MainWindow : Window
             { Text = "Git checkpoints\n(Phase 2)", Margin = new Thickness(8),
               Foreground = (Brush)FindResource("Br.Text.Muted") };
 
-    private void BtnSettings_Click(object sender, RoutedEventArgs e) =>
-        SidebarContent.Content = new TextBlock
-            { Text = "Settings\n(Phase 5)", Margin = new Thickness(8),
-              Foreground = (Brush)FindResource("Br.Text.Muted") };
+    private void BtnSettings_Click(object sender, RoutedEventArgs e)
+    {
+        _settingsPanel.LoadSettings(_settings);   // Refresh before showing
+        SidebarContent.Content = _settingsPanel;
+    }
+
+    private void OnSettingsSaved(AppSettings newSettings)
+    {
+        _settings = newSettings;
+
+        // Apply Ollama host live
+        _ollama.Host = newSettings.OllamaHost;
+
+        // Apply default workspace if changed and no workspace currently open
+        if (!string.IsNullOrEmpty(newSettings.DefaultWorkspace)
+            && _session.WorkspaceRoot == Environment.GetFolderPath(Environment.SpecialFolder.UserProfile))
+        {
+            _session.WorkspaceRoot = newSettings.DefaultWorkspace;
+            RegisterAllTools();
+            _explorerPanel.LoadWorkspace(newSettings.DefaultWorkspace);
+        }
+
+        UpdateStatusBar();
+        AddActivity(new ActivityEvent(ActivityKind.Info, "Settings", $"Saved — Ollama: {newSettings.OllamaHost}", DateTime.Now));
+    }
 
     private void AgentMode_Changed(object sender, RoutedEventArgs e) { }
 

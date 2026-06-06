@@ -63,6 +63,78 @@
             </Style.Triggers>
         </Style>
 
+        <!-- ── Settings panel styles ────────────────────────────────────── -->
+        <Style x:Key="SectionHeader" TargetType="TextBlock">
+            <Setter Property="Foreground"  Value="{StaticResource Br.Text.Muted}"/>
+            <Setter Property="FontSize"    Value="10"/>
+            <Setter Property="FontWeight"  Value="Bold"/>
+            <Setter Property="Margin"      Value="8,8,8,2"/>
+        </Style>
+
+        <Style x:Key="SettingLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Br.Text.Primary}"/>
+            <Setter Property="FontSize"   Value="12"/>
+            <Setter Property="Margin"     Value="0,0,0,2"/>
+        </Style>
+
+        <Style x:Key="SettingHint" TargetType="TextBlock">
+            <Setter Property="Foreground"   Value="{StaticResource Br.Text.Muted}"/>
+            <Setter Property="FontSize"     Value="10"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin"       Value="0,0,0,4"/>
+        </Style>
+
+        <Style x:Key="SettingInput" TargetType="TextBox">
+            <Setter Property="Background"      Value="{StaticResource Br.Bg.Input}"/>
+            <Setter Property="Foreground"      Value="{StaticResource Br.Text.Primary}"/>
+            <Setter Property="BorderBrush"     Value="{StaticResource Br.Border}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding"         Value="6,5"/>
+            <Setter Property="FontFamily"      Value="Consolas, 'Cascadia Code', monospace"/>
+            <Setter Property="FontSize"        Value="12"/>
+        </Style>
+
+        <Style x:Key="SettingRow" TargetType="StackPanel">
+            <Setter Property="Margin" Value="8,4,8,4"/>
+        </Style>
+
+        <Style x:Key="SettingRowBorder" TargetType="Border">
+            <Setter Property="Margin"  Value="8,4,8,4"/>
+            <Setter Property="Padding" Value="0,6"/>
+        </Style>
+
+        <!-- Toggle switch -->
+        <Style x:Key="ToggleStyle" TargetType="ToggleButton">
+            <Setter Property="Width"             Value="40"/>
+            <Setter Property="Height"            Value="20"/>
+            <Setter Property="Cursor"            Value="Hand"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Track" CornerRadius="10" Width="40" Height="20"
+                                Background="{StaticResource Br.Bg.Input}">
+                            <Ellipse x:Name="Thumb" Width="14" Height="14"
+                                     Fill="{StaticResource Br.Text.Muted}"
+                                     HorizontalAlignment="Left" Margin="3,0,0,0"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Track" Property="Background"
+                                        Value="{StaticResource Br.Bg.Active}"/>
+                                <Setter TargetName="Thumb" Property="Fill"
+                                        Value="{StaticResource Br.Accent.Green}"/>
+                                <Setter TargetName="Thumb" Property="HorizontalAlignment"
+                                        Value="Right"/>
+                                <Setter TargetName="Thumb" Property="Margin"
+                                        Value="0,0,3,0"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Activity bar icon buttons -->
         <Style x:Key="ActivityBtnStyle" TargetType="Button">
             <Setter Property="Background"  Value="Transparent"/>

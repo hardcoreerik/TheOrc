@@ -15,13 +15,19 @@ namespace OrchestratorIDE.Core;
 public class OllamaClient
 {
     private readonly HttpClient _http;
-    private readonly string _baseUrl;
+    private string _baseUrl;
 
     private static readonly JsonSerializerOptions _json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         WriteIndented = false,
     };
+
+    public string Host
+    {
+        get => _baseUrl;
+        set => _baseUrl = value.TrimEnd('/');
+    }
 
     public OllamaClient(string ollamaHost = "http://localhost:11434")
     {
