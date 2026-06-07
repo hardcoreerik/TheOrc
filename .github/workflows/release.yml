@@ -1,37 +1,43 @@
 name: Release
 
-# Fires when a version tag is pushed: git tag v1.0.0 && git push origin v1.0.0
+# Fires when a version tag is pushed: git tag v1.2.3 && git push origin v1.2.3
+# Also supports manual trigger for testing (workflow_dispatch will CREATE the tag).
 on:
   push:
     tags:
       - 'v[0-9]*'
 
-  # Allow manual trigger from GitHub Actions UI (useful for testing)
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Version tag to publish (e.g. v1.0.0)'
+        description: 'Version tag (e.g. v1.0.0) — will be created if it does not exist'
         required: true
         default: 'v1.0.0'
+      prerelease:
+        description: 'Mark as pre-release?'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['false', 'true']
 
 permissions:
-  contents: write   # needed to create GitHub releases and upload assets
+  contents: write   # create releases + upload assets
 
 jobs:
-  build-and-release:
+  release:
     name: Build & Release
     runs-on: windows-latest
 
     steps:
-      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      # ── Checkout (full history for release notes) ─────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # full history so git describe works
+          fetch-depth: 0
 
-      # ── 2. Resolve version ───────────────────────────────────────────────────
+      # ── Resolve version from tag or dispatch input ────────────────────────────
       - name: Resolve version
-        id: version
+        id: ver
         shell: pwsh
         run: |
           if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
@@ -40,29 +46,38 @@ jobs:
             $tag = $env:GITHUB_REF -replace '^refs/tags/', ''
           }
           $ver = $tag -replace '^v', ''
-          echo "TAG=$tag"       >> $env:GITHUB_OUTPUT
-          echo "VERSION=$ver"   >> $env:GITHUB_OUTPUT
-          Write-Host "Building tag=$tag  version=$ver"
 
-      # ── 3. Install .NET 10 ───────────────────────────────────────────────────
+          # Validate: must look like N.N.N or N.N.N.N
+          if ($ver -notmatch '^\d+\.\d+(\.\d+)?(\.\d+)?$') {
+            Write-Error "Tag '$tag' does not look like a version number."
+            exit 1
+          }
+
+          "TAG=$tag"         >> $env:GITHUB_OUTPUT
+          "VERSION=$ver"     >> $env:GITHUB_OUTPUT
+          "PRERELEASE=${{ github.event.inputs.prerelease || 'false' }}" >> $env:GITHUB_OUTPUT
+          Write-Host "tag=$tag  version=$ver"
+
+      # ── Install .NET 10 ───────────────────────────────────────────────────────
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
-      # ── 4. Restore ───────────────────────────────────────────────────────────
+      # ── Restore (solution-level — restores all three projects) ────────────────
       - name: Restore
         run: dotnet restore OrchestratorIDE.slnx
 
-      # ── 5. Publish OrchestratorIDE (main app) ────────────────────────────────
+      # ── Publish OrchestratorIDE (main app, self-contained single-file) ────────
       - name: Publish OrchestratorIDE
         shell: pwsh
         run: |
-          $ver = '${{ steps.version.outputs.VERSION }}'
+          $ver = '${{ steps.ver.outputs.VERSION }}'
           dotnet publish OrchestratorIDE/OrchestratorIDE.csproj `
             --configuration Release `
             --runtime win-x64 `
             --self-contained `
+            --no-restore `
             -p:PublishSingleFile=true `
             -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:DebugType=none `
@@ -72,15 +87,16 @@ jobs:
             -p:FileVersion=$ver `
             --output publish/app
 
-      # ── 6. Publish OrchestratorSetup (installer) ─────────────────────────────
+      # ── Publish OrchestratorSetup (installer, self-contained single-file) ─────
       - name: Publish OrchestratorSetup
         shell: pwsh
         run: |
-          $ver = '${{ steps.version.outputs.VERSION }}'
+          $ver = '${{ steps.ver.outputs.VERSION }}'
           dotnet publish OrchestratorSetup/OrchestratorSetup.csproj `
             --configuration Release `
             --runtime win-x64 `
             --self-contained `
+            --no-restore `
             -p:PublishSingleFile=true `
             -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:DebugType=none `
@@ -90,37 +106,76 @@ jobs:
             -p:FileVersion=$ver `
             --output publish/setup
 
-      # ── 7. List outputs (diagnostics) ────────────────────────────────────────
-      - name: List published files
+      # ── Bundle portable zip (exe + PENTEST template for users skipping setup) ──
+      - name: Create portable zip
+        shell: pwsh
+        run: |
+          $ver = '${{ steps.ver.outputs.VERSION }}'
+          $zip = "publish/TheOrc-$ver-win-x64-portable.zip"
+
+          # PENTEST.agent.md is a Content file — CopyToOutputDirectory=Always puts
+          # it next to the exe in the publish folder.
+          $files = @("publish/app/OrchestratorIDE.exe")
+          if (Test-Path "publish/app/PENTEST.agent.md") {
+            $files += "publish/app/PENTEST.agent.md"
+          }
+
+          Compress-Archive -Path $files -DestinationPath $zip -CompressionLevel Optimal
+          $mb = [math]::Round((Get-Item $zip).Length / 1MB, 1)
+          Write-Host "Created $zip ($mb MB)"
+
+      # ── Diagnostics: list all publish artifacts ───────────────────────────────
+      - name: List artifacts
         shell: pwsh
         run: |
           Get-ChildItem publish -Recurse -File |
-            Select-Object FullName, @{N='MB';E={[math]::Round($_.Length/1MB,1)}} |
+            Select-Object FullName,
+              @{N='MB'; E={ [math]::Round($_.Length/1MB, 1) }} |
             Format-Table -AutoSize
 
-      # ── 8. Create GitHub Release ─────────────────────────────────────────────
+      # ── Verify the two required release assets exist ──────────────────────────
+      - name: Verify assets
+        shell: pwsh
+        run: |
+          $required = @(
+            "publish/app/OrchestratorIDE.exe",
+            "publish/setup/OrchestratorSetup.exe"
+          )
+          $missing = $required | Where-Object { -not (Test-Path $_) }
+          if ($missing) {
+            Write-Error "Missing required assets:`n$($missing -join "`n")"
+            exit 1
+          }
+          Write-Host "All required assets present."
+
+      # ── Create GitHub Release + upload assets ─────────────────────────────────
       - name: Create GitHub Release
-        id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name:   ${{ steps.version.outputs.TAG }}
-          name:       TheOrc ${{ steps.version.outputs.TAG }}
-          draft:      false
-          prerelease: false
+          tag_name:   ${{ steps.ver.outputs.TAG }}
+          name:       "TheOrc ${{ steps.ver.outputs.TAG }}"
+          prerelease: ${{ steps.ver.outputs.PRERELEASE == 'true' }}
           generate_release_notes: true
           body: |
-            ## TheOrc ${{ steps.version.outputs.TAG }}
+            ## TheOrc ${{ steps.ver.outputs.TAG }}
 
-            ### Installation
-            Download **OrchestratorSetup.exe** and run it.
-            The installer detects your GPU, downloads the right llama.cpp runtime and GGUF model,
-            and sets everything up in one click.
+            ### Quick start — one-click install (recommended)
+            1. Download **OrchestratorSetup.exe** below
+            2. Run it — the wizard detects your GPU, downloads the right runtime and model, configures everything
+            3. Launch from the Desktop shortcut
 
-            ### Manual / portable install
-            Download **OrchestratorIDE.exe** directly if you already have a runtime and model configured.
+            ### Portable / manual install
+            Download **TheOrc-${{ steps.ver.outputs.VERSION }}-win-x64-portable.zip** for a pre-built exe you can drop anywhere.
+            Requires an existing llama.cpp runtime or Ollama configured in Settings.
+
+            ### System requirements
+            - Windows 10 / 11 (x64)
+            - No .NET installation required — fully self-contained
+            - GPU: NVIDIA RTX (CUDA 12), AMD (Vulkan), or CPU-only (AVX2 / baseline)
 
             ---
-            *Built with .NET 10 — Windows x64 only. No .NET installation required.*
+            *Built automatically from `${{ steps.ver.outputs.TAG }}` · .NET 10 · [Source](https://github.com/hardcoreerik/The-Orchestrator)*
           files: |
-            publish/app/OrchestratorIDE.exe
             publish/setup/OrchestratorSetup.exe
+            publish/app/OrchestratorIDE.exe
+            publish/TheOrc-${{ steps.ver.outputs.VERSION }}-win-x64-portable.zip

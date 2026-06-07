@@ -1,0 +1,57 @@
+name: CI
+
+# Build check on every push to master and every pull request.
+# No publish, no release — just confirm the code compiles clean.
+on:
+  push:
+    branches: [master, main]
+    paths-ignore:
+      - '**.md'
+      - 'Assets/**'
+      - 'Setup/Profiles/**'
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  build:
+    name: Build (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore OrchestratorIDE.slnx
+
+      # Build OrchestratorIDE (main app)
+      - name: Build OrchestratorIDE
+        run: |
+          dotnet build OrchestratorIDE/OrchestratorIDE.csproj ^
+            --configuration Release ^
+            --no-restore ^
+            --no-incremental
+        shell: cmd
+
+      # Build OrchestratorSetup (installer)
+      - name: Build OrchestratorSetup
+        run: |
+          dotnet build OrchestratorSetup/OrchestratorSetup.csproj ^
+            --configuration Release ^
+            --no-restore ^
+            --no-incremental
+        shell: cmd
+
+      # UITests just needs to restore+build — no test run without a real desktop
+      - name: Build UITests
+        run: |
+          dotnet build OrchestratorIDE.UITests/OrchestratorIDE.UITests.csproj ^
+            --configuration Release ^
+            --no-restore ^
+            --no-incremental
+        shell: cmd
