@@ -9,7 +9,7 @@ namespace OrchestratorIDE.UITests.Tests;
 /// implementation — that belongs in integration tests.
 /// </summary>
 [TestFixture]
-public class T04_ToolEditorTests
+public class T04_ToolEditorTests : RecordingTestBase
 {
     [SetUp]
     public void NavigateToToolEditor()

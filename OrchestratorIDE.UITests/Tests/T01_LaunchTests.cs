@@ -8,7 +8,7 @@ namespace OrchestratorIDE.UITests.Tests;
 /// These tests must pass before any other suite is meaningful.
 /// </summary>
 [TestFixture]
-public class T01_LaunchTests
+public class T01_LaunchTests : RecordingTestBase
 {
     [Test]
     public void MainWindow_IsVisible()

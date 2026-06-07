@@ -8,7 +8,7 @@ namespace OrchestratorIDE.UITests.Tests;
 /// Does NOT actually invoke the agent (that would require an Ollama server).
 /// </summary>
 [TestFixture]
-public class T05_AgentPanelTests
+public class T05_AgentPanelTests : RecordingTestBase
 {
     [SetUp]
     public void NavigateToAgent()

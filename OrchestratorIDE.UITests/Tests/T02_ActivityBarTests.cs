@@ -7,7 +7,7 @@ namespace OrchestratorIDE.UITests.Tests;
 /// T02 — Activity bar buttons exist, are enabled, and swap the main content panel.
 /// </summary>
 [TestFixture]
-public class T02_ActivityBarTests
+public class T02_ActivityBarTests : RecordingTestBase
 {
     private static readonly string[] ActivityBarIds =
     [

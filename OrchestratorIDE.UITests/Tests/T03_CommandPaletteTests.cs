@@ -9,7 +9,7 @@ namespace OrchestratorIDE.UITests.Tests;
 /// T03 — Command palette (Ctrl+K): opens, accepts input, shows filtered results, closes with Esc.
 /// </summary>
 [TestFixture]
-public class T03_CommandPaletteTests
+public class T03_CommandPaletteTests : RecordingTestBase
 {
     private void OpenPalette()
     {
