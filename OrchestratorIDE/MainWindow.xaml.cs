@@ -331,6 +331,10 @@ public partial class MainWindow : Window
             _approvals.AutoApprove = true;
             AddActivity(new ActivityEvent(ActivityKind.Info, "AutoApprove",
                 "Auto-approve enabled — write_file approved without UI (FlaUI test mode)", DateTime.Now));
+            // Start watching for file-based IPC commands from the FlaUI test harness.
+            // The test writes a prompt to <workspace>/.flaui_cmd; we read it and call
+            // AutoSend directly — bypassing IValueProvider.SetValue which truncates at ~383 chars.
+            WatchForFlaUICommands();
         }
 
         // ── Auto-open last workspace on startup ───────────────────────────
@@ -355,7 +359,9 @@ public partial class MainWindow : Window
         }
 
         // ── First-run personalisation wizard ──────────────────────────────
-        if (!_settings.FirstRunComplete)
+        // Skipped in --autoapprove mode (FlaUI headless tests) to avoid a modal
+        // dialog blocking the main window during automated runs.
+        if (!_settings.FirstRunComplete && !cliArgs.Contains("--autoapprove"))
         {
             Dispatcher.Invoke(() =>
             {
@@ -367,6 +373,50 @@ public partial class MainWindow : Window
                         $"Personalised .agent.md written to {_session.WorkspaceRoot}", DateTime.Now));
             });
         }
+    }
+
+    // ── File-based IPC (FlaUI test harness) ──────────────────────────────
+
+    private System.IO.FileSystemWatcher? _flaUIWatcher;
+
+    /// <summary>
+    /// Watches the workspace for a ".flaui_cmd" file written by the FlaUI test harness.
+    /// When detected, reads the file, deletes it, and calls _agentPanel.AutoSend(prompt)
+    /// on the UI thread — completely bypasses IValueProvider.SetValue truncation.
+    /// Only called when --autoapprove is present (test mode).
+    /// </summary>
+    private void WatchForFlaUICommands()
+    {
+        var dir = _session.WorkspaceRoot;
+        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
+
+        _flaUIWatcher = new System.IO.FileSystemWatcher(dir, ".flaui_cmd")
+        {
+            NotifyFilter        = System.IO.NotifyFilters.FileName
+                                | System.IO.NotifyFilters.LastWrite,
+            EnableRaisingEvents = true,
+        };
+        _flaUIWatcher.Created += (_, e) => HandleFlaUICmd(e.FullPath);
+        _flaUIWatcher.Changed += (_, e) => HandleFlaUICmd(e.FullPath);
+
+        AddActivity(new ActivityEvent(ActivityKind.Info, "FlaUI IPC",
+            $"Watching {dir}\\.flaui_cmd for test commands", DateTime.Now));
+    }
+
+    private void HandleFlaUICmd(string path)
+    {
+        try
+        {
+            // Brief delay so the writer can fully flush the file before we read it
+            System.Threading.Thread.Sleep(150);
+            if (!File.Exists(path)) return;
+            var prompt = File.ReadAllText(path, System.Text.Encoding.UTF8).Trim();
+            File.Delete(path);
+            if (string.IsNullOrWhiteSpace(prompt)) return;
+
+            Dispatcher.Invoke(() => _agentPanel.AutoSend(prompt));
+        }
+        catch { /* best-effort; test harness will detect if agent didn't start */ }
     }
 
     // ── Agent file regeneration (called from Settings panel) ─────────────

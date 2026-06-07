@@ -193,6 +193,21 @@ public class AgentLoop
                 }
             }
 
+            // ── Diagnostic dump so the FlaUI test can see what the model produced ───
+            if (!string.IsNullOrEmpty(session.WorkspaceRoot))
+            {
+                try
+                {
+                    var diagPath = Path.Combine(session.WorkspaceRoot, "_agentlog.txt");
+                    var native   = pendingToolCalls.Count(t => !t.IsTextFormat);
+                    var textFmt  = pendingToolCalls.Count(t =>  t.IsTextFormat);
+                    var snippet  = content.Length > 400 ? content[..400] : content;
+                    var diagLine = $"[Step {stepCount}] len={content.Length} native={native} text={textFmt} refusal={IsRefusal(content)}\n{snippet}\n---\n";
+                    File.AppendAllText(diagPath, diagLine, System.Text.Encoding.UTF8);
+                }
+                catch { }
+            }
+
             // Add assistant message to history.
             // If the content is purely text-format tool call JSON (no readable prose),
             // summarise it so the history stays clean rather than full of raw JSON.
@@ -228,10 +243,11 @@ public class AgentLoop
                     var nudge = new AgentMessage
                     {
                         Role    = MessageRole.User,
-                        Content = "Stop. Do NOT give instructions or say you cannot do something. "
-                                + "You have write_file and run_shell tools. Use them RIGHT NOW to create the files. "
-                                + "Call run_shell to create the project, then write_file to write the code. "
-                                + "Output a JSON tool call — nothing else.",
+                        Content = "STOP. You gave me code in a chat message instead of using the write_file tool. "
+                                + "Do NOT put code in markdown blocks. "
+                                + "You MUST call write_file for each file RIGHT NOW. "
+                                + "Output a JSON tool call on a single line — nothing else. Example:\n"
+                                + "{\"name\":\"write_file\",\"arguments\":{\"path\":\"example.py\",\"content\":\"print('hello')\"}}",
                         Status  = MessageStatus.Complete,
                     };
                     session.Messages.Add(nudge);
@@ -521,14 +537,17 @@ RULES:
     }
 
     /// <summary>
-    /// Returns true when the model responded with a refusal or instructional text
-    /// instead of using a tool call.
+    /// Returns true when the model responded with a refusal, instructional text,
+    /// or code-in-chat (markdown blocks) instead of using a tool call.
+    /// All of these cases warrant a nudge to use write_file directly.
     /// </summary>
     private static bool IsRefusal(string content)
     {
         if (string.IsNullOrWhiteSpace(content)) return false;
         var lower = content.ToLowerInvariant();
-        return lower.Contains("i'm sorry")
+
+        // Classic refusal patterns
+        if (lower.Contains("i'm sorry")
             || lower.Contains("i am sorry")
             || lower.Contains("i cannot")
             || lower.Contains("i can't")
@@ -540,7 +559,25 @@ RULES:
             || lower.Contains("here's how you can")
             || lower.Contains("here is how you can")
             || lower.Contains("open visual studio")
-            || lower.Contains("manually implement");
+            || lower.Contains("manually implement"))
+            return true;
+
+        // Code-in-chat: model provided code as markdown blocks instead of calling write_file.
+        // Detected by: code fences containing actual code keywords.
+        // This is a very common failure mode — the nudge gets the model to switch to tool calls.
+        if (content.Contains("```"))
+        {
+            if (lower.Contains("```python") || lower.Contains("```py"))
+                return true;
+            // Generic code fence containing import/def/class/function keywords
+            if (lower.Contains("```") && (
+                lower.Contains("import ") || lower.Contains("def ") ||
+                lower.Contains("class ") || lower.Contains("function ") ||
+                lower.Contains("public ") || lower.Contains("private ")))
+                return true;
+        }
+
+        return false;
     }
 
     private static string FormatArgs(Dictionary<string, object?> args)

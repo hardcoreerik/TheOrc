@@ -185,6 +185,19 @@ public partial class AgentPanel : UserControl
         });
     }
 
+    // ── AutoSend (file-based IPC — called from MainWindow.HandleFlaUICmd) ──
+    /// <summary>
+    /// Sets Execute mode, loads the prompt into TbInput, then fires BtnSend_Click
+    /// directly — bypasses IValueProvider.SetValue which truncates at ~383 chars.
+    /// Must be called on the UI thread (MainWindow dispatches before calling this).
+    /// </summary>
+    public void AutoSend(string prompt)
+    {
+        RbExec.IsChecked = true;
+        TbInput.Text     = prompt;
+        BtnSend_Click(this, new RoutedEventArgs());
+    }
+
     // ── Send ──────────────────────────────────────────────────────────────
     private async void BtnSend_Click(object sender, RoutedEventArgs e)
     {
