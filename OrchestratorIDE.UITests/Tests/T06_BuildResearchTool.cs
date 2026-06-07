@@ -97,7 +97,9 @@ public class T06_BuildResearchTool : RecordingTestBase
         TestContext.WriteLine($"[T06] Executable: {exe}");
 
         _automation = new UIA3Automation();
-        _app        = Application.Launch(exe, $"--workspace \"{_workspace}\" --autotest");
+        // --autoapprove: sets _approvals.AutoApprove=true in MainWindow so write_file never blocks.
+        // Do NOT use --autotest — that flag is intercepted by App.xaml.cs and opens AutoTestWindow.
+        _app        = Application.Launch(exe, $"--workspace \"{_workspace}\" --autoapprove");
         _win        = _app.GetMainWindow(_automation, TimeSpan.FromSeconds(20));
 
         Assert.That(_win, Is.Not.Null, "Main window did not appear within 20s.");
