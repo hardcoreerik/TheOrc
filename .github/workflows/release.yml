@@ -65,8 +65,11 @@ jobs:
           dotnet-version: '10.0.x'
 
       # ── Restore (solution-level — restores all three projects) ────────────────
+      # --runtime win-x64 is required so the assets file includes the win-x64
+      # target; without it, the subsequent publish steps with --no-restore fail
+      # with NETSDK1047 ("Assets file doesn't have a target for win-x64").
       - name: Restore
-        run: dotnet restore OrchestratorIDE.slnx
+        run: dotnet restore OrchestratorIDE.slnx --runtime win-x64
 
       # ── Publish OrchestratorIDE (main app, self-contained single-file) ────────
       - name: Publish OrchestratorIDE
