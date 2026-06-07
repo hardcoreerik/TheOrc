@@ -179,8 +179,14 @@ public partial class MainWindow : Window
         // Rules badge click → open the rules file in the code editor
         _agentPanel.RulesEditRequested += OpenRulesFile;
 
-        // Pentest button → drop PENTEST.agent.md into current workspace
-        _agentPanel.PentestModeRequested += () => _ = EnablePentestModeAsync();
+        // Workspace Rules button → open rules editor for this workspace
+        _agentPanel.WorkspaceRulesRequested += OpenWorkspaceRules;
+
+        // Global Agent badge → open global agent picker
+        _agentPanel.GlobalAgentRequested += OpenGlobalAgentPicker;
+
+        // Initialize global agent badge label
+        RefreshGlobalAgentBadge();
 
         // Build settings panel
         _settingsPanel = new SettingsPanel(_ollama);
@@ -917,7 +923,8 @@ public partial class MainWindow : Window
             case "model.picker":      SbModel_Click(this, null!); break;
             case "open.folder":       _explorerPanel.OpenFolderDialog(); break;
             case "edit.rules":        OpenRulesFile(); break;
-            case "pentest.enable":    _ = EnablePentestModeAsync(); break;
+            case "pentest.enable":
+            case "workspace.rules":   OpenWorkspaceRules(); break;
             case "show.settings":     BtnSettings_Click(this, null!); break;
             case "tool.editor":       BtnTools_Click(this, null!); break;
             case "tool.new":
@@ -952,7 +959,7 @@ public partial class MainWindow : Window
             new() { Id="model.picker",    Label="Change Model…",            Detail="Open the model picker flyout", Icon="⚙", Shortcut="", SortOrder=30, Keywords=["model","switch","llm"] },
             new() { Id="open.folder",     Label="Open Folder…",             Detail="Choose a new workspace folder", Icon="📁", Shortcut="", SortOrder=35, Keywords=["folder","open","workspace"] },
             new() { Id="edit.rules",      Label="Edit Rules File",          Detail="Open .agent.md in the code editor (Ctrl+Shift+R)", Icon="📋", Shortcut="Ctrl+Shift+R", SortOrder=37, Keywords=["rules","agent","md","knowledge"] },
-            new() { Id="pentest.enable",  Label="Enable Pentest Mode",      Detail="Drop PENTEST.agent.md into workspace as .agent.md", Icon="🛡️", Shortcut="", SortOrder=38, Keywords=["pentest","security","rules","agent","red","team","hacking"] },
+            new() { Id="workspace.rules", Label="Workspace Rules…",          Detail="Apply a rules preset or edit .agent.md for this workspace", Icon="📝", Shortcut="", SortOrder=38, Keywords=["workspace","rules","agent","md","pentest","security","preset","template"] },
             new() { Id="show.settings",   Label="Settings",                 Detail="Configure Ollama host, model, workspace", Icon="⚙", Shortcut="", SortOrder=39, Keywords=["settings","config","ollama","host"] },
             new() { Id="session.new",     Label="New Session",              Detail="Clear conversation history and start fresh", Icon="⬡", Shortcut="", SortOrder=40, Keywords=["new","clear","session","reset"] },
             new() { Id="tool.editor",     Label="Open Tool Editor",         Detail="Write and hot-load custom tools the agent can use (Phase 7)", Icon="🔧", Shortcut="", SortOrder=55, Keywords=["tool","custom","plugin","code","editor","hot","load","compile"] },
@@ -1352,63 +1359,74 @@ public partial class MainWindow : Window
         => ModelProfiles.SecurityPreference
             .FirstOrDefault(p => _installedModels.Contains(p, StringComparer.OrdinalIgnoreCase));
 
+    // ── Workspace Rules ───────────────────────────────────────────────────
+
     /// <summary>
-    /// Drops PENTEST.agent.md into the current workspace as .agent.md,
-    /// reloads rules so the badge updates immediately, and refreshes the file explorer.
-    /// Triggered by the 🛡️ Pentest button, the command palette, or the menu.
+    /// Opens the Workspace Rules editor: shows a preset picker + current .agent.md.
+    /// If no .agent.md exists yet, prompts to create one from a preset.
     /// </summary>
-    private async Task EnablePentestModeAsync()
+    private void OpenWorkspaceRules()
     {
-        // Guard: workspace must be open
-        if (string.IsNullOrEmpty(_session.WorkspaceRoot) || !Directory.Exists(_session.WorkspaceRoot))
+        var dlg = new OrchestratorIDE.UI.Dialogs.WorkspaceRulesDialog(
+            _session.WorkspaceRoot, _rules);
+        dlg.Owner = this;
+
+        if (dlg.ShowDialog() == true)
         {
-            MessageBox.Show(
-                "Open a project folder first — use File → Open Folder or click the 📁 badge.",
-                "No Workspace Open", MessageBoxButton.OK, MessageBoxImage.Information);
+            _ = _loop.RefreshRulesAsync(_session.WorkspaceRoot);
+            _explorerPanel.LoadWorkspace(_session.WorkspaceRoot);
+            var rulesPath = _rules.FindRulesFile(_session.WorkspaceRoot);
+            if (rulesPath != null)
+            {
+                ShowEditorPane();
+                _editorPanel.OpenFile(rulesPath);
+            }
+            AddActivity(new ActivityEvent(ActivityKind.Info, "Workspace Rules",
+                $"Rules updated for {Path.GetFileName(_session.WorkspaceRoot)}", DateTime.Now));
+        }
+    }
+
+    // ── Global Agent ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Opens the Global Agent picker: lets user choose a premade preset or edit
+    /// the global_agent.md directly.
+    /// </summary>
+    private void OpenGlobalAgentPicker()
+    {
+        var dlg = new OrchestratorIDE.UI.Dialogs.GlobalAgentDialog();
+        dlg.Owner = this;
+
+        if (dlg.ShowDialog() == true)
+        {
+            RefreshGlobalAgentBadge();
+            AddActivity(new ActivityEvent(ActivityKind.Info, "Global Agent",
+                $"Set to: {dlg.SelectedPresetName}", DateTime.Now));
+        }
+    }
+
+    private void RefreshGlobalAgentBadge()
+    {
+        var path = AgentPresets.GlobalAgentPath;
+        if (!File.Exists(path))
+        {
+            _agentPanel.SetGlobalAgentLabel("No global agent");
             return;
         }
 
-        var destPath = Path.Combine(_session.WorkspaceRoot, ".agent.md");
+        // Try to match content to a known preset name
+        var content = File.ReadAllText(path);
+        var firstLine = content.TrimStart().Split('\n').FirstOrDefault() ?? "";
+        var name = firstLine.TrimStart('#').Trim();
+        _agentPanel.SetGlobalAgentLabel(string.IsNullOrEmpty(name) ? "Custom" : name);
+    }
 
-        // If a rules file already exists, confirm before overwriting
-        var existing = _rules.FindRulesFile(_session.WorkspaceRoot);
-        if (existing != null)
-        {
-            var answer = MessageBox.Show(
-                $"A rules file already exists:\n{existing}\n\n" +
-                "Replace it with the pentest template?\n\n" +
-                "Your existing file will be overwritten.",
-                "Replace Existing Rules?",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Question);
-
-            if (answer != MessageBoxResult.Yes) return;
-        }
-
-        // Write the template
-        try
-        {
-            File.WriteAllText(destPath, PentestRules.GetTemplate());
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"Failed to write .agent.md:\n{ex.Message}",
-                "Write Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
-        }
-
-        // Reload rules in the agent loop → fires OnRulesLoaded → badge + button update
-        await _loop.RefreshRulesAsync(_session.WorkspaceRoot);
-
-        // Refresh file explorer so the new .agent.md appears in the tree
-        _explorerPanel.LoadWorkspace(_session.WorkspaceRoot);
-
-        // Open the file in the editor so the user can fill in ENGAGEMENT CONTEXT
-        ShowEditorPane();
-        _editorPanel.OpenFile(destPath);
-
-        AddActivity(new ActivityEvent(ActivityKind.Info, "Pentest Mode",
-            $"Pentest template written to {destPath}", DateTime.Now));
+    // ── Kept for command-palette compat ───────────────────────────────────
+    private Task EnablePentestModeAsync()
+    {
+        // Pentest is now a preset — route through workspace rules dialog
+        OpenWorkspaceRules();
+        return Task.CompletedTask;
     }
 
     private void Menu_WordWrap(object sender, RoutedEventArgs e)

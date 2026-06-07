@@ -25,8 +25,11 @@ public partial class AgentPanel : UserControl
     // Fires when user clicks the rules badge — MainWindow opens the rules file in the editor
     public event Action? RulesEditRequested;
 
-    // Fires when user clicks the 🛡️ Pentest button — MainWindow drops PENTEST.agent.md
-    public event Action? PentestModeRequested;
+    // Fires when user clicks Workspace Rules — MainWindow opens workspace rules editor
+    public event Action? WorkspaceRulesRequested;
+
+    // Fires when user clicks Global Agent badge — MainWindow opens global agent picker
+    public event Action? GlobalAgentRequested;
 
     private CancellationTokenSource? _cts;
     private readonly ObservableCollection<MessageVm> _messages = [];
@@ -156,34 +159,29 @@ public partial class AgentPanel : UserControl
     private void RulesBadge_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
         => RulesEditRequested?.Invoke();
 
-    // ── Pentest mode button ───────────────────────────────────────────────
+    // ── Workspace Rules button ────────────────────────────────────────────
 
-    private void PentestBtn_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
-        => PentestModeRequested?.Invoke();
+    private void WorkspaceRulesBtn_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        => WorkspaceRulesRequested?.Invoke();
+
+    // ── Global Agent badge ────────────────────────────────────────────────
+
+    private void GlobalAgentBadge_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        => GlobalAgentRequested?.Invoke();
 
     /// <summary>
-    /// Called by MainWindow after a pentest template is successfully dropped.
-    /// <paramref name="active"/> = true → button glows orange (pentest rules live).
-    /// <paramref name="active"/> = false → button returns to dim/idle state.
+    /// Called by MainWindow to update the Global Agent badge label (preset name).
     /// </summary>
-    public void SetPentestActive(bool active)
+    public void SetGlobalAgentLabel(string presetName)
     {
         Dispatcher.InvokeAsync(() =>
         {
-            if (active)
-            {
-                PentestBtn.Background = new SolidColorBrush(Color.FromRgb(0x3A, 0x22, 0x08));
-                PentestBtn.ToolTip    = "Pentest rules active — click to re-drop template";
-                PentestLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xA0, 0x40));
-            }
-            else
-            {
-                PentestBtn.Background = new SolidColorBrush(Color.FromRgb(0x2A, 0x1A, 0x08));
-                PentestBtn.ToolTip    = "Drop pentest rules into this workspace (.agent.md)";
-                PentestLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0x88, 0x44));
-            }
+            GlobalAgentLabel.Text = presetName;
         });
     }
+
+    // ── Kept for backwards-compat (pentest is now a preset, not a button) ─
+    public void SetPentestActive(bool active) { /* no-op — pentest is now a workspace preset */ }
 
     // ── AutoSend (file-based IPC — called from MainWindow.HandleFlaUICmd) ──
     /// <summary>
@@ -428,6 +426,52 @@ public partial class AgentPanel : UserControl
         return tcs.Task;
     }
 
+    // ── Chat right-click handlers ─────────────────────────────────────────
+
+    private void MsgCopyMessage_Click(object sender, RoutedEventArgs e)
+    {
+        // Walk up to find the DataContext (MessageVm)
+        var el  = (sender as System.Windows.FrameworkElement)?.DataContext
+               ?? (e.OriginalSource as System.Windows.FrameworkElement)?.DataContext;
+        if (el is MessageVm vm)
+            System.Windows.Clipboard.SetText($"[{vm.RoleLabel}]\n{vm.Content}");
+    }
+
+    private void MsgCopyAll_Click(object sender, RoutedEventArgs e)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var vm in _messages)
+        {
+            sb.AppendLine($"[{vm.RoleLabel}]");
+            sb.AppendLine(vm.Content);
+            sb.AppendLine();
+        }
+        System.Windows.Clipboard.SetText(sb.ToString());
+    }
+
+    private void MsgSaveChat_Click(object sender, RoutedEventArgs e)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"# Chat Log — {DateTime.Now:yyyy-MM-dd HH:mm}");
+        sb.AppendLine();
+        foreach (var vm in _messages)
+        {
+            sb.AppendLine($"## {vm.RoleLabel}");
+            sb.AppendLine(vm.Content);
+            sb.AppendLine();
+        }
+
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title      = "Save Chat Log",
+            FileName   = $"TheOrc_Chat_{DateTime.Now:yyyyMMdd_HHmmss}",
+            DefaultExt = ".md",
+            Filter     = "Markdown (*.md)|*.md|Text (*.txt)|*.txt|All files|*.*",
+        };
+        if (dlg.ShowDialog() == true)
+            File.WriteAllText(dlg.FileName, sb.ToString(), System.Text.Encoding.UTF8);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
     private void AddMessage(MessageRole role, string content)
     {
@@ -491,19 +535,23 @@ public class MessageVm : System.ComponentModel.INotifyPropertyChanged
         MessageRole.Tool      => "TOOL",
         _ => "?"
     };
+    /// <summary>
+    /// Segoe MDL2 Assets glyphs — readable on dark background, Windows-native.
+    ///   E77B = Contact/Person,  E8D4 = Robot,  E7EF = Code/Terminal,  E7BA = System/Info
+    /// </summary>
     public string RoleIcon => Role switch
     {
-        MessageRole.User      => "👤",
-        MessageRole.Assistant => "⚡",
-        MessageRole.Tool      => "⚙",
-        _ => "·"
+        MessageRole.User      => "",   // Contact
+        MessageRole.Assistant => "",   // Robot
+        MessageRole.Tool      => "",   // Code
+        _                     => ""    // Info
     };
     public Brush RoleColor => Role switch
     {
-        MessageRole.User      => new SolidColorBrush(Color.FromRgb(0x56, 0x9C, 0xD6)),
-        MessageRole.Assistant => new SolidColorBrush(Color.FromRgb(0x4E, 0xC9, 0xB0)),
-        MessageRole.Tool      => new SolidColorBrush(Color.FromRgb(0xDC, 0xDC, 0xAA)),
-        _ => Brushes.Gray
+        MessageRole.User      => new SolidColorBrush(Color.FromRgb(0x70, 0xB0, 0xE8)),  // brighter blue
+        MessageRole.Assistant => new SolidColorBrush(Color.FromRgb(0x60, 0xD9, 0xC0)),  // brighter teal
+        MessageRole.Tool      => new SolidColorBrush(Color.FromRgb(0xF0, 0xF0, 0x80)),  // bright yellow
+        _                     => new SolidColorBrush(Color.FromRgb(0xA0, 0xA0, 0xA0))   // mid-grey
     };
     public Brush BubbleBg => Role == MessageRole.User
         ? new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x26))

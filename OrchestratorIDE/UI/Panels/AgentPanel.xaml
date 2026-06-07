@@ -44,29 +44,44 @@
                                     <ColumnDefinition Width="28"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <!-- Role icon -->
-                                <TextBlock Grid.Column="0" Text="{Binding RoleIcon}"
-                                           FontSize="14" VerticalAlignment="Top"
-                                           HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                <!-- Role icon — Segoe MDL2 Assets glyph -->
+                                <TextBlock Grid.Column="0"
+                                           Text="{Binding RoleIcon}"
+                                           FontFamily="Segoe MDL2 Assets"
+                                           FontSize="16" VerticalAlignment="Top"
+                                           HorizontalAlignment="Center" Margin="0,2,0,0"
+                                           Foreground="{Binding RoleColor}"/>
                                 <!-- Content -->
                                 <StackPanel Grid.Column="1" Margin="8,0,0,0">
                                     <TextBlock Text="{Binding RoleLabel}"
                                                Foreground="{Binding RoleColor}"
                                                FontSize="10" FontWeight="Bold"
                                                Margin="0,0,0,3"/>
-                                    <!-- Selectable text — use read-only TextBox so Ctrl+C and text selection work -->
+                                    <!-- Selectable text (Option A: per-message selection via read-only TextBox) -->
                                     <TextBox Text="{Binding Content, Mode=OneWay}"
                                              IsReadOnly="True"
                                              Background="Transparent"
                                              BorderThickness="0"
                                              Padding="0"
                                              IsTabStop="False"
-                                             Foreground="{StaticResource Br.Text.Primary}"
+                                             Foreground="#E0E0E0"
                                              FontFamily="Consolas, 'Cascadia Code', monospace"
                                              FontSize="12"
                                              TextWrapping="Wrap"
-                                             SelectionBrush="#3A4A5A"
-                                             CaretBrush="Transparent"/>
+                                             SelectionBrush="#3A5A8A"
+                                             CaretBrush="Transparent">
+                                        <TextBox.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Copy selection"   Command="ApplicationCommands.Copy"/>
+                                                <MenuItem Header="Select all"       Command="ApplicationCommands.SelectAll"/>
+                                                <Separator/>
+                                                <MenuItem Header="Copy message"     Click="MsgCopyMessage_Click"/>
+                                                <MenuItem Header="Copy all messages" Click="MsgCopyAll_Click"/>
+                                                <Separator/>
+                                                <MenuItem Header="Save chat to…"    Click="MsgSaveChat_Click"/>
+                                            </ContextMenu>
+                                        </TextBox.ContextMenu>
+                                    </TextBox>
                                     <!-- Token count badge (assistant only, shown after response completes) -->
                                     <TextBlock Text="{Binding TokenLabel}"
                                                Visibility="{Binding HasTokenLabel}"
@@ -172,18 +187,34 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Pentest mode button — drops PENTEST.agent.md into workspace -->
-                    <Border x:Name="PentestBtn" CornerRadius="3" Padding="7,3"
+                    <!-- Global Agent badge — shows active global agent preset -->
+                    <Border x:Name="GlobalAgentBadge" CornerRadius="3" Padding="7,3"
                             Margin="0,0,8,0" DockPanel.Dock="Left"
-                            Background="#2A1A08" Cursor="Hand"
-                            ToolTip="Drop pentest rules into this workspace (.agent.md)"
-                            AutomationProperties.AutomationId="AgentPanel.PentestButton"
-                            MouseLeftButtonUp="PentestBtn_Click">
+                            Background="#1A2A1A" Cursor="Hand"
+                            ToolTip="Global Agent — applies to all workspaces. Click to change."
+                            AutomationProperties.AutomationId="AgentPanel.GlobalAgentBadge"
+                            MouseLeftButtonUp="GlobalAgentBadge_Click">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="🛡️" FontSize="10" Margin="0,0,4,0"
+                            <TextBlock Text="⚙" FontSize="10" Margin="0,0,4,0"
+                                       Foreground="#6A9955" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="GlobalAgentLabel" Text="Global Agent"
+                                       Foreground="#6A9955" FontSize="10"
                                        VerticalAlignment="Center"/>
-                            <TextBlock x:Name="PentestLabel" Text="Pentest"
-                                       Foreground="#CC8844" FontSize="10"
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Workspace Rules button — fine-tune rules for this project -->
+                    <Border x:Name="WorkspaceRulesBtn" CornerRadius="3" Padding="7,3"
+                            Margin="0,0,8,0" DockPanel.Dock="Left"
+                            Background="#1A1A2A" Cursor="Hand"
+                            ToolTip="Project/Workspace Rules — fine-tune agent rules for this workspace"
+                            AutomationProperties.AutomationId="AgentPanel.WorkspaceRules"
+                            MouseLeftButtonUp="WorkspaceRulesBtn_Click">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="📝" FontSize="10" Margin="0,0,4,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock x:Name="WorkspaceRulesLabel" Text="Workspace Rules"
+                                       Foreground="#7A7ACC" FontSize="10"
                                        VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
