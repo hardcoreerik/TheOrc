@@ -136,8 +136,15 @@ public class AgentLoop
         var rulesText = await _rules.LoadAsync(session.WorkspaceRoot);
         if (!string.IsNullOrEmpty(rulesText))
         {
-            Emit(ActivityKind.Info, "Rules loaded", $"{rulesText.Length} chars from .agent.md");
-            OnRulesLoaded?.Invoke(_rules.FindRulesFile(session.WorkspaceRoot));
+            var rulesFile = _rules.FindRulesFile(session.WorkspaceRoot);
+            Emit(ActivityKind.Info, "Rules loaded", $"{rulesText.Length} chars from {Path.GetFileName(rulesFile ?? ".agent.md")}");
+            // V3: show rules content preview
+            var preview = rulesText.Length > 600 ? rulesText[..600] + "\n…(truncated)" : rulesText;
+            Emit(ActivityKind.Rules, "Rules content", preview, 3);
+            // V5: show full rules file path
+            if (rulesFile != null)
+                Emit(ActivityKind.Debug, "Rules path", rulesFile, 5);
+            OnRulesLoaded?.Invoke(rulesFile);
         }
         else
         {
@@ -157,6 +164,9 @@ public class AgentLoop
 
         var stepCount = 0;
         var finalResponse = "";
+
+        // V3: context usage at start of execute
+        Emit(ActivityKind.Debug, "Context", $"{_context.UsedTokens} / {_context.MaxTokens} tokens used ({_context.UsagePercent:F0}%)", 3);
 
         while (stepCount < profile.MaxSteps && !ct.IsCancellationRequested)
         {
@@ -179,6 +189,13 @@ public class AgentLoop
 
             var content = contentBuilder.ToString();
             finalResponse = content;
+
+            // V4: step response snippet
+            if (content.Length > 0)
+            {
+                var snippet4 = content.Length > 300 ? content[..300].Replace("\n", " ").TrimEnd() + "…" : content.Replace("\n", " ");
+                Emit(ActivityKind.Debug, $"Step {stepCount} response", $"[{content.Length} chars] {snippet4}", 4);
+            }
 
             // Fallback: some models output tool calls as JSON text instead of
             // structured tool_calls. Parse them so the loop can still execute.
@@ -269,11 +286,17 @@ public class AgentLoop
             foreach (var tc in pendingToolCalls)
             {
                 Emit(ActivityKind.Tool, tc.Name, FormatArgs(tc.Arguments));
+                // V3: full untruncated args
+                var fullArgs = string.Join(", ", tc.Arguments.Select(kv => $"{kv.Key}={kv.Value}"));
+                Emit(ActivityKind.Debug, $"{tc.Name} [full args]", fullArgs, 3);
 
                 var result = await _registry.ExecuteAsync(tc, ct,
                     onActivity: msg => Emit(ActivityKind.Tool, tc.Name, msg));
 
                 Emit(ActivityKind.ToolResult, tc.Name, result.Length > 200 ? result[..200] + "…" : result);
+                // V4: full tool result
+                if (result.Length > 200)
+                    Emit(ActivityKind.Debug, $"{tc.Name} [full result]", result, 4);
 
                 // Auto-verify after write_file
                 if (tc.Name == "write_file" && profile.AutoVerify
@@ -587,24 +610,52 @@ RULES:
         return string.Join(", ", parts);
     }
 
-    private void Emit(ActivityKind kind, string label, string detail)
-        => Activity?.Invoke(new ActivityEvent(kind, label, detail, DateTime.UtcNow));
+    private void Emit(ActivityKind kind, string label, string detail, int verbosity = 2)
+        => Activity?.Invoke(new ActivityEvent(kind, label, detail, DateTime.UtcNow, verbosity));
 }
 
 // ── Activity event model ─────────────────────────────────────────────────────
 
-public enum ActivityKind { Info, Step, Tool, ToolResult, Git, Warning, Error }
+/// <summary>
+/// Verbosity levels for activity events:
+///   1 = Silent   — nothing shown
+///   2 = Default  — current behavior (model switches, tool calls, warnings)
+///   3 = Medium   — + rules content preview, full tool args, context usage
+///   4 = High     — + step response snippets, full tool results, agent file content
+///   5 = Everything — raw sizes, timing, full untruncated content
+/// </summary>
+public enum ActivityKind { Info, Step, Tool, ToolResult, Git, Warning, Error, Rules, Debug }
 
-public record ActivityEvent(ActivityKind Kind, string Label, string Detail, DateTime Timestamp)
+public record ActivityEvent(ActivityKind Kind, string Label, string Detail, DateTime Timestamp, int Verbosity = 2)
 {
     public string Icon => Kind switch
     {
-        ActivityKind.Step => "▶",
-        ActivityKind.Tool => "⚙",
+        ActivityKind.Step       => "▶",
+        ActivityKind.Tool       => "⚙",
         ActivityKind.ToolResult => "✓",
-        ActivityKind.Git => "⬡",
-        ActivityKind.Warning => "⚠",
-        ActivityKind.Error => "✗",
-        _ => "·"
+        ActivityKind.Git        => "⬡",
+        ActivityKind.Warning    => "⚠",
+        ActivityKind.Error      => "✗",
+        ActivityKind.Rules      => "📋",
+        ActivityKind.Debug      => "🔍",
+        _                       => "·"
     };
+
+    /// <summary>Color hex for the icon column, by kind.</summary>
+    public string IconColor => Kind switch
+    {
+        ActivityKind.Warning    => "#CCA700",
+        ActivityKind.Error      => "#F44747",
+        ActivityKind.Rules      => "#9CDCFE",
+        ActivityKind.Git        => "#C586C0",
+        ActivityKind.Tool       => "#4EC9B0",
+        ActivityKind.ToolResult => "#4EC9B0",
+        ActivityKind.Step       => "#569CD6",
+        ActivityKind.Debug      => "#808080",
+        _                       => "#569CD6"
+    };
+
+    /// <summary>True if Detail looks like an absolute file path on Windows.</summary>
+    public bool HasFilePath => Detail.Length > 3 &&
+        (Detail.Contains(":\\") || Detail.Contains(":/"));
 }

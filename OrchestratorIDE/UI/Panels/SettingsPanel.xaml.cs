@@ -25,6 +25,7 @@ public partial class SettingsPanel : UserControl
     public event Func<Task>? RegenerateAgentFileRequested;
 
     private readonly OllamaClient _ollama;
+    private AppSettings _current = new();  // snapshot from last LoadSettings call
 
     public SettingsPanel(OllamaClient ollama)
     {
@@ -36,14 +37,17 @@ public partial class SettingsPanel : UserControl
 
     public void LoadSettings(AppSettings s)
     {
-        TbOllamaHost.Text           = s.OllamaHost;
-        TbDefaultModel.Text         = s.DefaultModel;
-        TbMaxSteps.Text             = s.MaxStepsOverride.ToString();
-        TglAutoVerify.IsChecked     = s.AutoVerify;
-        TglAutoCheckpoint.IsChecked = s.AutoCheckpoint;
-        TglCheckUpdates.IsChecked   = s.CheckForUpdates;
-        TbDefaultWorkspace.Text     = s.DefaultWorkspace;
-        TbStatus.Text               = "";
+        _current = s;  // keep reference so ReadSettings can preserve unknown fields
+
+        TbOllamaHost.Text            = s.OllamaHost;
+        TbDefaultModel.Text          = s.DefaultModel;
+        TbMaxSteps.Text              = s.MaxStepsOverride.ToString();
+        TglAutoVerify.IsChecked      = s.AutoVerify;
+        TglAutoCheckpoint.IsChecked  = s.AutoCheckpoint;
+        TglAutoModelSwitch.IsChecked = s.AutoModelSwitch;
+        TglCheckUpdates.IsChecked    = s.CheckForUpdates;
+        TbDefaultWorkspace.Text      = s.DefaultWorkspace;
+        TbStatus.Text                = "";
 
         // Show current version + last known latest
         var current = UpdateChecker.CurrentVersion();
@@ -54,17 +58,23 @@ public partial class SettingsPanel : UserControl
     }
 
     // ── Read controls → AppSettings ──────────────────────────────────────
+    // Start from _current so fields this panel doesn't control are preserved.
 
-    private AppSettings ReadSettings() => new AppSettings
+    private AppSettings ReadSettings()
     {
-        OllamaHost            = TbOllamaHost.Text.Trim().TrimEnd('/'),
-        DefaultModel          = TbDefaultModel.Text.Trim(),
-        MaxStepsOverride      = int.TryParse(TbMaxSteps.Text, out var n) ? Math.Max(0, n) : 0,
-        AutoVerify            = TglAutoVerify.IsChecked    == true,
-        AutoCheckpoint        = TglAutoCheckpoint.IsChecked == true,
-        CheckForUpdates       = TglCheckUpdates.IsChecked   == true,
-        DefaultWorkspace      = TbDefaultWorkspace.Text.Trim(),
-    };
+        // Clone current settings to preserve fields we don't surface in the UI
+        // (ActivityVerbosity, FirstRunComplete, RecentWorkspaces, detected hardware, etc.)
+        var s = _current;
+        s.OllamaHost        = TbOllamaHost.Text.Trim().TrimEnd('/');
+        s.DefaultModel      = TbDefaultModel.Text.Trim();
+        s.MaxStepsOverride  = int.TryParse(TbMaxSteps.Text, out var n) ? Math.Max(0, n) : 0;
+        s.AutoVerify        = TglAutoVerify.IsChecked       == true;
+        s.AutoCheckpoint    = TglAutoCheckpoint.IsChecked   == true;
+        s.AutoModelSwitch   = TglAutoModelSwitch.IsChecked  == true;
+        s.CheckForUpdates   = TglCheckUpdates.IsChecked     == true;
+        s.DefaultWorkspace  = TbDefaultWorkspace.Text.Trim();
+        return s;
+    }
 
     // ── Test connection ───────────────────────────────────────────────────
 

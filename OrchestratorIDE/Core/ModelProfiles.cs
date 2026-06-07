@@ -100,6 +100,29 @@ public static class ModelProfiles
         ),
 
         // ── Compact / fast ───────────────────────────────────────────────────
+        // ── NVIDIA Nemotron 3 ────────────────────────────────────────────────
+        ["nemotron-3-nano:4b"] = new(
+            "nemotron-3-nano:4b", "Nemotron 3 Nano 4B", 131_072, true,
+            ["agent", "reasoning", "tool-use", "fast", "coding"],
+            ToolSet.Full, PromptStyle.Agent,
+            MaxSteps: 18, Temperature: 0.1, TimeoutSeconds: 60, AutoVerify: true,
+            Description: "NVIDIA Nemotron 3 Nano 4B — agentic-tuned, 128K context, 2.8 GB. Fast local agent."
+        ),
+        ["nemotron-3-nano:4b-q8_0"] = new(
+            "nemotron-3-nano:4b-q8_0", "Nemotron 3 Nano 4B (Q8)", 131_072, true,
+            ["agent", "reasoning", "tool-use", "coding"],
+            ToolSet.Full, PromptStyle.Agent,
+            MaxSteps: 18, Temperature: 0.1, TimeoutSeconds: 60, AutoVerify: true,
+            Description: "NVIDIA Nemotron 3 Nano 4B Q8 — higher precision, 4.2 GB. Better quality vs 4b base."
+        ),
+
+        ["gemma4:12b"] = new(
+            "gemma4:12b", "Gemma 4 12B", 262_144, true,
+            ["agent", "reasoning", "coding", "tool-use", "multimodal"],
+            ToolSet.Full, PromptStyle.Agent,
+            MaxSteps: 22, Temperature: 0.1, TimeoutSeconds: 90, AutoVerify: true,
+            Description: "Google Gemma 4 12B — native function calling, 256K context, ~6.7 GB VRAM. Encoder-free multimodal. Apache 2.0. ★ Recommended"
+        ),
         ["gemma4:e4b"] = new(
             "gemma4:e4b", "Gemma 4 (E4B)", 32_768, true,
             ["general", "chat", "fast", "reasoning"],

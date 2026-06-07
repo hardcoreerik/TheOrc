@@ -109,6 +109,21 @@
                     </DockPanel>
                 </Border>
 
+                <Border Style="{StaticResource SettingRowBorder}">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Left">
+                            <TextBlock Text="Auto-switch model"
+                                       Style="{StaticResource SettingLabel}"/>
+                            <TextBlock Text="Selects best model on startup; switches to security model for pentest workspaces"
+                                       Style="{StaticResource SettingHint}"/>
+                        </StackPanel>
+                        <ToggleButton x:Name="TglAutoModelSwitch"
+                                      DockPanel.Dock="Right"
+                                      Style="{StaticResource ToggleStyle}"
+                                      IsChecked="True"/>
+                    </DockPanel>
+                </Border>
+
                 <!-- ── UPDATES ──────────────────────────────────────── -->
                 <TextBlock Text="UPDATES" Style="{StaticResource SectionHeader}" Margin="0,12,0,0"/>
 

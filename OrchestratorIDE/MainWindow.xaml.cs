@@ -31,6 +31,7 @@ public partial class MainWindow : Window
     private string                   _pendingReleaseUrl = "";
     private List<string>             _installedModels = [];
     private readonly ObservableCollection<ActivityEvent> _activityItems = [];
+    private readonly List<ActivityEvent>                 _allActivityItems = [];  // full unfiltered log
 
     // ── Panels ────────────────────────────────────────────────────────────
     private readonly FileExplorerPanel       _explorerPanel;
@@ -131,6 +132,7 @@ public partial class MainWindow : Window
 
         // Wire activity log
         ActivityLog.ItemsSource = _activityItems;
+        UpdateVerbosityButtons(_settings.ActivityVerbosity);
         _loop.Activity += ev => Dispatcher.InvokeAsync(() =>
         {
             _activityItems.Add(ev);
@@ -160,8 +162,8 @@ public partial class MainWindow : Window
             _agentPanel.SetPentestActive(isPentest);
 
             // Auto-switch to best available security research model when a pentest
-            // workspace is detected. Silent switch — logged to activity panel.
-            if (isPentest)
+            // workspace is detected. Gated by AutoModelSwitch setting.
+            if (isPentest && _settings.AutoModelSwitch)
             {
                 var secModel = GetBestSecurityModel();
                 if (secModel != null && !secModel.Equals(_session.ActiveModel, StringComparison.OrdinalIgnoreCase))
@@ -253,22 +255,40 @@ public partial class MainWindow : Window
             AddActivity(new ActivityEvent(ActivityKind.Info, backendLabel,
                 $"{models.Count} model(s): {string.Join(", ", models.Take(3))}", DateTime.Now));
 
-            // Auto-select best available coding model (always on fresh start)
             _installedModels = models;
-            var preferred = new[] {
-                "qwen2.5-coder:14b",
-                "qwen2.5-coder:7b",
-                "hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:Q5_K_M",
-                "hf.co/bartowski/p-e-w_gpt-oss-20b-heretic-GGUF:Q4_K_M",
-                "qwen2.5:14b-instruct",
-                "gemma4:e4b",
-                "llama3.1:8b",
-            };
-            var best = preferred.FirstOrDefault(p => models.Contains(p, StringComparer.OrdinalIgnoreCase))
-                    ?? models.First();
-            _session.ActiveModel = best;
-            AddActivity(new ActivityEvent(ActivityKind.Info, "Model",
-                $"Active: {best}", DateTime.Now));
+
+            // Auto-select best available model — skipped if AutoModelSwitch is off
+            // (in that case we keep whatever DefaultModel is set in settings).
+            if (_settings.AutoModelSwitch)
+            {
+                var preferred = new[] {
+                    "qwen2.5-coder:14b",
+                    "qwen2.5-coder:7b",
+                    "gemma4:12b",
+                    "nemotron-3-nano:4b-q8_0",
+                    "nemotron-3-nano:4b",
+                    "hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:Q5_K_M",
+                    "hf.co/bartowski/p-e-w_gpt-oss-20b-heretic-GGUF:Q4_K_M",
+                    "qwen2.5:14b-instruct",
+                    "gemma4:e4b",
+                    "llama3.1:8b",
+                };
+                var best = preferred.FirstOrDefault(p => models.Contains(p, StringComparer.OrdinalIgnoreCase))
+                        ?? models.First();
+                _session.ActiveModel = best;
+                AddActivity(new ActivityEvent(ActivityKind.Info, "Model",
+                    $"Auto-selected: {best}", DateTime.Now));
+            }
+            else
+            {
+                // Respect the DefaultModel setting; fall back to first available if not installed
+                var pinned = _settings.DefaultModel;
+                _session.ActiveModel = models.Contains(pinned, StringComparer.OrdinalIgnoreCase)
+                    ? pinned
+                    : models.First();
+                AddActivity(new ActivityEvent(ActivityKind.Info, "Model",
+                    $"Active: {_session.ActiveModel}", DateTime.Now));
+            }
             Dispatcher.Invoke(UpdateStatusBar);
         }
         else
@@ -604,10 +624,158 @@ public partial class MainWindow : Window
 
     private void AddActivity(ActivityEvent ev) => Dispatcher.InvokeAsync(() =>
     {
-        _activityItems.Add(ev);
-        if (_activityItems.Count > 500) _activityItems.RemoveAt(0);
-        ActivityScroll.ScrollToBottom();
+        // Always keep the full log (cap at 5000)
+        _allActivityItems.Add(ev);
+        if (_allActivityItems.Count > 5000) _allActivityItems.RemoveAt(0);
+
+        // Only display if within current verbosity
+        if (ev.Verbosity <= _settings.ActivityVerbosity)
+        {
+            _activityItems.Add(ev);
+            if (_activityItems.Count > 2000) _activityItems.RemoveAt(0);
+            ActivityScroll.ScrollToBottom();
+        }
     });
+
+    /// <summary>
+    /// Change verbosity level, rebuild filtered display from full log, persist setting.
+    /// </summary>
+    private void SetActivityVerbosity(int level)
+    {
+        _settings.ActivityVerbosity = level;
+        _settings.Save();
+        UpdateVerbosityButtons(level);
+
+        // Rebuild display from full log
+        _activityItems.Clear();
+        foreach (var ev in _allActivityItems.Where(e => e.Verbosity <= level).TakeLast(2000))
+            _activityItems.Add(ev);
+        ActivityScroll.ScrollToBottom();
+    }
+
+    private void UpdateVerbosityButtons(int level)
+    {
+        if (VerbBtn1 == null) return;
+        var btns = new[] { VerbBtn1, VerbBtn2, VerbBtn3, VerbBtn4, VerbBtn5 };
+        for (int i = 0; i < btns.Length; i++)
+        {
+            btns[i].Background = (i + 1 == level)
+                ? new System.Windows.Media.SolidColorBrush(
+                    (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1E90FF"))
+                : System.Windows.Media.Brushes.Transparent;
+            btns[i].Foreground = (i + 1 == level)
+                ? System.Windows.Media.Brushes.White
+                : new System.Windows.Media.SolidColorBrush(
+                    (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#999999"));
+        }
+    }
+
+    private void VerbBtn_Click(object sender, System.Windows.RoutedEventArgs e)
+    {
+        if (sender is System.Windows.Controls.Button btn && btn.Tag is string tag && int.TryParse(tag, out var level))
+            SetActivityVerbosity(level);
+    }
+
+    private void ActivityCopyDetail_Click(object sender, System.Windows.RoutedEventArgs e)
+    {
+        if (sender is System.Windows.Controls.MenuItem mi &&
+            mi.DataContext is ActivityEvent ev)
+            System.Windows.Clipboard.SetText(ev.Detail);
+    }
+
+    private void ActivityCopyFull_Click(object sender, System.Windows.RoutedEventArgs e)
+    {
+        if (sender is System.Windows.Controls.MenuItem mi &&
+            mi.DataContext is ActivityEvent ev)
+            System.Windows.Clipboard.SetText($"[{ev.Timestamp:HH:mm:ss}] {ev.Label}: {ev.Detail}");
+    }
+
+    private void ActivityClearLog_Click(object sender, System.Windows.RoutedEventArgs e)
+    {
+        _activityItems.Clear();
+        _allActivityItems.Clear();
+    }
+
+    private void ActivitySaveOutput_Click(object sender, System.Windows.RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.MenuItem mi) return;
+        var ext = mi.Tag as string ?? "txt";
+
+        // Build content from the FULL log (not just filtered view)
+        var lines = _allActivityItems;
+        string content;
+
+        if (ext == "md")
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"# Activity Log");
+            sb.AppendLine($"**Workspace:** {_session.WorkspaceRoot}");
+            sb.AppendLine($"**Model:** {_session.ActiveModel}");
+            sb.AppendLine($"**Exported:** {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            sb.AppendLine();
+            sb.AppendLine("| Time | Kind | Label | Detail |");
+            sb.AppendLine("|------|------|-------|--------|");
+            foreach (var ev in lines)
+                sb.AppendLine($"| {ev.Timestamp:HH:mm:ss} | {ev.Kind} | {ev.Label} | {ev.Detail.Replace("|", "\\|").Replace("\n", " ")} |");
+            content = sb.ToString();
+        }
+        else
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"Activity Log — {_session.WorkspaceRoot} — {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            sb.AppendLine(new string('-', 80));
+            foreach (var ev in lines)
+                sb.AppendLine($"[{ev.Timestamp:HH:mm:ss}] {ev.Kind,-11} {ev.Label,-20} {ev.Detail}");
+            content = sb.ToString();
+        }
+
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title            = "Save Activity Log",
+            FileName         = $"TheOrc_Activity_{DateTime.Now:yyyyMMdd_HHmmss}",
+            DefaultExt       = $".{ext}",
+            Filter           = ext switch
+            {
+                "md"  => "Markdown (*.md)|*.md|All files (*.*)|*.*",
+                "log" => "Log file (*.log)|*.log|All files (*.*)|*.*",
+                _     => "Text file (*.txt)|*.txt|All files (*.*)|*.*",
+            },
+            InitialDirectory = string.IsNullOrEmpty(_session.WorkspaceRoot)
+                ? Environment.GetFolderPath(Environment.SpecialFolder.Desktop)
+                : _session.WorkspaceRoot,
+        };
+
+        if (dlg.ShowDialog() == true)
+        {
+            File.WriteAllText(dlg.FileName, content, System.Text.Encoding.UTF8);
+            AddActivity(new ActivityEvent(ActivityKind.Info, "Log saved",
+                dlg.FileName, DateTime.Now));
+        }
+    }
+
+    private void ActivityLog_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        // Find the ActivityEvent from the clicked element
+        var el = e.OriginalSource as System.Windows.FrameworkElement;
+        var ev = el?.DataContext as ActivityEvent;
+        if (ev == null) return;
+
+        // Clickable file paths — open in editor
+        if (ev.HasFilePath)
+        {
+            // Extract first path-like token from Detail
+            var parts = ev.Detail.Split(' ', '\t', '\n');
+            var path  = parts.FirstOrDefault(p => p.Length > 3 &&
+                (p.Contains(":\\") || p.Contains(":/")) &&
+                System.IO.File.Exists(p.Trim('"', '\'')));
+            if (path != null)
+            {
+                ShowEditorPane();
+                _editorPanel.OpenFile(path.Trim('"', '\''));
+                e.Handled = true;
+            }
+        }
+    }
 
     // ── Status + context ──────────────────────────────────────────────────
 

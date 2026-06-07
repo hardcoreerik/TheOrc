@@ -60,6 +60,19 @@ public class AppSettings
     public bool   AutoVerify    { get; set; } = true;
     public bool   AutoCheckpoint { get; set; } = true;  // git commit before every Execute run
 
+    /// <summary>
+    /// When true, TheOrc automatically selects the best available model on startup
+    /// and switches to a security-focused model when a pentest workspace is detected.
+    /// Disable to always stay on the manually selected model.
+    /// </summary>
+    public bool   AutoModelSwitch { get; set; } = true;
+
+    /// <summary>
+    /// Activity log verbosity level.
+    ///   1 = Silent, 2 = Default, 3 = Medium, 4 = High, 5 = Everything
+    /// </summary>
+    public int    ActivityVerbosity { get; set; } = 2;
+
     // ── Workspace ────────────────────────────────────────────────────────
     public string DefaultWorkspace { get; set; } = "";
 

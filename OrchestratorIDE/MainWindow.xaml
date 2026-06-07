@@ -233,30 +233,121 @@
                 <Border Grid.Row="2" Background="{StaticResource Br.Bg.Panel}"
                         BorderBrush="{StaticResource Br.Border}" BorderThickness="0,1,0,0">
                     <DockPanel>
-                        <TextBlock DockPanel.Dock="Top" Text="ACTIVITY"
-                                   Foreground="{StaticResource Br.Text.Muted}"
-                                   FontSize="10" FontWeight="Bold" Padding="8,4"
-                                   Background="#2D2D2D"/>
+                        <!-- Header: title + verbosity selector -->
+                        <DockPanel DockPanel.Dock="Top" Background="#2D2D2D" LastChildFill="False">
+                            <TextBlock DockPanel.Dock="Left" Text="ACTIVITY"
+                                       Foreground="{StaticResource Br.Text.Muted}"
+                                       FontSize="10" FontWeight="Bold" Padding="8,4"/>
+                            <!-- Verbosity buttons (right-aligned) -->
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,1,4,1">
+                                <Button x:Name="VerbBtn1" Content="1" Tag="1"
+                                        Width="20" Height="18" FontSize="9" Padding="0"
+                                        Background="Transparent" Foreground="#999999"
+                                        BorderThickness="0" Cursor="Hand"
+                                        ToolTip="Silent — hide all events"
+                                        Click="VerbBtn_Click"/>
+                                <Button x:Name="VerbBtn2" Content="2" Tag="2"
+                                        Width="20" Height="18" FontSize="9" Padding="0"
+                                        Background="Transparent" Foreground="#999999"
+                                        BorderThickness="0" Cursor="Hand"
+                                        ToolTip="Default — key events only"
+                                        Click="VerbBtn_Click"/>
+                                <Button x:Name="VerbBtn3" Content="3" Tag="3"
+                                        Width="20" Height="18" FontSize="9" Padding="0"
+                                        Background="Transparent" Foreground="#999999"
+                                        BorderThickness="0" Cursor="Hand"
+                                        ToolTip="Medium — + rules content, full tool args"
+                                        Click="VerbBtn_Click"/>
+                                <Button x:Name="VerbBtn4" Content="4" Tag="4"
+                                        Width="20" Height="18" FontSize="9" Padding="0"
+                                        Background="Transparent" Foreground="#999999"
+                                        BorderThickness="0" Cursor="Hand"
+                                        ToolTip="High — + step responses, full tool results"
+                                        Click="VerbBtn_Click"/>
+                                <Button x:Name="VerbBtn5" Content="5" Tag="5"
+                                        Width="20" Height="18" FontSize="9" Padding="0"
+                                        Background="Transparent" Foreground="#999999"
+                                        BorderThickness="0" Cursor="Hand"
+                                        ToolTip="Everything — raw content, timing, full debug"
+                                        Click="VerbBtn_Click"/>
+                            </StackPanel>
+                        </DockPanel>
                         <ScrollViewer x:Name="ActivityScroll"
                                       VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled">
-                            <ItemsControl x:Name="ActivityLog" Padding="6,2">
+                            <ItemsControl x:Name="ActivityLog" Padding="6,2"
+                                          MouseLeftButtonDown="ActivityLog_MouseLeftButtonDown">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
                                         <Grid Margin="0,1">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="16"/>
-                                                <ColumnDefinition Width="100"/>
+                                                <ColumnDefinition Width="18"/>
+                                                <ColumnDefinition Width="110"/>
                                                 <ColumnDefinition Width="*"/>
                                             </Grid.ColumnDefinitions>
+                                            <Grid.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="Copy detail"    Click="ActivityCopyDetail_Click"/>
+                                                    <MenuItem Header="Copy full line" Click="ActivityCopyFull_Click"/>
+                                                    <Separator/>
+                                                    <MenuItem Header="Save output to…">
+                                                        <MenuItem Header="Markdown (.md)"  Tag="md"  Click="ActivitySaveOutput_Click"/>
+                                                        <MenuItem Header="Log file (.log)" Tag="log" Click="ActivitySaveOutput_Click"/>
+                                                        <MenuItem Header="Text file (.txt)" Tag="txt" Click="ActivitySaveOutput_Click"/>
+                                                    </MenuItem>
+                                                    <Separator/>
+                                                    <MenuItem Header="Clear log"      Click="ActivityClearLog_Click"/>
+                                                </ContextMenu>
+                                            </Grid.ContextMenu>
                                             <TextBlock Grid.Column="0" Text="{Binding Icon}"
-                                                       Foreground="{StaticResource Br.Accent.Blue}"
-                                                       FontSize="11"/>
+                                                       FontSize="11" VerticalAlignment="Top">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{StaticResource Br.Accent.Blue}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Kind}" Value="Warning">
+                                                                <Setter Property="Foreground" Value="#CCA700"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Kind}" Value="Error">
+                                                                <Setter Property="Foreground" Value="#F44747"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Kind}" Value="Rules">
+                                                                <Setter Property="Foreground" Value="#9CDCFE"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Kind}" Value="Git">
+                                                                <Setter Property="Foreground" Value="#C586C0"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Kind}" Value="Tool">
+                                                                <Setter Property="Foreground" Value="#4EC9B0"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Kind}" Value="ToolResult">
+                                                                <Setter Property="Foreground" Value="#4EC9B0"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Kind}" Value="Debug">
+                                                                <Setter Property="Foreground" Value="#606060"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
                                             <TextBlock Grid.Column="1" Text="{Binding Label}"
                                                        Foreground="{StaticResource Br.Text.Muted}"
-                                                       FontSize="11" Margin="4,0"/>
+                                                       FontSize="11" Margin="4,0"
+                                                       VerticalAlignment="Top"/>
                                             <TextBlock Grid.Column="2" Text="{Binding Detail}"
-                                                       FontSize="11" TextWrapping="Wrap"/>
+                                                       FontSize="11" TextWrapping="Wrap">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HasFilePath}" Value="True">
+                                                                <Setter Property="Cursor"  Value="Hand"/>
+                                                                <Setter Property="ToolTip" Value="Click to open in editor"/>
+                                                                <Setter Property="Foreground" Value="#9CDCFE"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
                                         </Grid>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
