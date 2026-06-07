@@ -138,6 +138,23 @@
                                VerticalAlignment="Center"/>
                 </StackPanel>
 
+                <!-- ── AGENT FILE ────────────────────────────────────── -->
+                <TextBlock Text="AGENT FILE" Style="{StaticResource SectionHeader}" Margin="0,12,0,0"/>
+
+                <StackPanel Style="{StaticResource SettingRow}">
+                    <TextBlock Text="Personalise your .agent.md" Style="{StaticResource SettingLabel}"/>
+                    <TextBlock Style="{StaticResource SettingHint}"
+                               TextWrapping="Wrap"
+                               Text="Regenerates the agent knowledge file in your workspace with your hardware, model, and any personal context you want the agent to always know."/>
+                    <Button x:Name="BtnRegenerateAgentFile"
+                            Content="🗡  Regenerate Agent File"
+                            Click="BtnRegenerateAgentFile_Click"
+                            Background="{StaticResource Br.Bg.Input}"
+                            Foreground="{StaticResource Br.Text.Primary}"
+                            FontSize="11" Padding="8,6"
+                            HorizontalAlignment="Left"/>
+                </StackPanel>
+
                 <!-- ── WORKSPACE ─────────────────────────────────────── -->
                 <TextBlock Text="WORKSPACE" Style="{StaticResource SectionHeader}" Margin="0,12,0,0"/>
 

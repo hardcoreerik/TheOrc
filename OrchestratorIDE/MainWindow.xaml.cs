@@ -167,9 +167,11 @@ public partial class MainWindow : Window
         // Build settings panel
         _settingsPanel = new SettingsPanel(_ollama);
         _settingsPanel.LoadSettings(_settings);
-        _settingsPanel.SettingsSaved         += OnSettingsSaved;
-        _settingsPanel.CheckUpdatesRequested += async () =>
+        _settingsPanel.SettingsSaved                += OnSettingsSaved;
+        _settingsPanel.CheckUpdatesRequested        += async () =>
             await Menu_CheckUpdatesAsync(force: true);
+        _settingsPanel.RegenerateAgentFileRequested += async () =>
+            await RegenerateAgentFileAsync();
 
         // Checkpoint browser
         _checkpointPanel = new CheckpointBrowserPanel(_git);
@@ -282,6 +284,37 @@ public partial class MainWindow : Window
                 $"Session from {saved.LastActivityAt:g}", DateTime.Now));
             _explorerPanel.LoadWorkspace(_session.WorkspaceRoot);
             Dispatcher.Invoke(UpdateStatusBar);
+        }
+
+        // ── First-run personalisation wizard ──────────────────────────────
+        if (!_settings.FirstRunComplete)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                var wizard = new UI.FirstRunWindow(_settings, _session.WorkspaceRoot);
+                wizard.Owner = this;
+                var saved2 = wizard.ShowDialog();
+                if (saved2 == true)
+                    AddActivity(new ActivityEvent(ActivityKind.Info, "Agent File",
+                        $"Personalised .agent.md written to {_session.WorkspaceRoot}", DateTime.Now));
+            });
+        }
+    }
+
+    // ── Agent file regeneration (called from Settings panel) ─────────────
+
+    public async Task RegenerateAgentFileAsync()
+    {
+        var wizard = new UI.FirstRunWindow(_settings, _session.WorkspaceRoot);
+        wizard.Owner = this;
+        var result = wizard.ShowDialog();
+        if (result == true)
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Info, "Agent File",
+                $"Agent file regenerated in {_session.WorkspaceRoot}", DateTime.Now));
+
+            // Reload rules so the agent picks up the new file immediately
+            await _rules.LoadAsync(_session.WorkspaceRoot);
         }
     }
 

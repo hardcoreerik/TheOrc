@@ -18,6 +18,12 @@ public partial class SettingsPanel : UserControl
     /// </summary>
     public event Func<Task>? CheckUpdatesRequested;
 
+    /// <summary>
+    /// Fired when the user clicks "Regenerate Agent File" — MainWindow opens
+    /// the FirstRunWindow wizard and handles the write + rules reload.
+    /// </summary>
+    public event Func<Task>? RegenerateAgentFileRequested;
+
     private readonly OllamaClient _ollama;
 
     public SettingsPanel(OllamaClient ollama)
@@ -121,6 +127,16 @@ public partial class SettingsPanel : UserControl
 
         BtnCheckNow.IsEnabled = true;
         SetStatus("", "#4EC9B0");
+    }
+
+    // ── Regenerate agent file ─────────────────────────────────────────────
+
+    private async void BtnRegenerateAgentFile_Click(object sender, RoutedEventArgs e)
+    {
+        BtnRegenerateAgentFile.IsEnabled = false;
+        if (RegenerateAgentFileRequested != null)
+            await RegenerateAgentFileRequested.Invoke();
+        BtnRegenerateAgentFile.IsEnabled = true;
     }
 
     // ── Browse workspace ─────────────────────────────────────────────────

@@ -1,0 +1,126 @@
+<Window x:Class="OrchestratorIDE.UI.FirstRunWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="TheOrc — Personalize Your Agent"
+        Width="560" Height="620"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        Background="#1E1E1E"
+        Foreground="#CCCCCC"
+        FontFamily="Consolas, 'Cascadia Code', monospace">
+
+    <Window.Resources>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#CCCCCC"/>
+            <Setter Property="FontFamily" Value="Consolas, 'Cascadia Code', monospace"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Background"  Value="#3C3C3C"/>
+            <Setter Property="Foreground"  Value="#CCCCCC"/>
+            <Setter Property="BorderBrush" Value="#474747"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding"     Value="6,5"/>
+            <Setter Property="FontFamily"  Value="Consolas, 'Cascadia Code', monospace"/>
+            <Setter Property="FontSize"    Value="12"/>
+            <Setter Property="CaretBrush" Value="#CCCCCC"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Background"  Value="#3C3C3C"/>
+            <Setter Property="Foreground"  Value="#CCCCCC"/>
+            <Setter Property="BorderBrush" Value="#474747"/>
+            <Setter Property="Padding"     Value="14,7"/>
+            <Setter Property="Cursor"      Value="Hand"/>
+            <Setter Property="FontFamily"  Value="Consolas, 'Cascadia Code', monospace"/>
+            <Setter Property="FontSize"    Value="12"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+
+        <!-- Header -->
+        <Border DockPanel.Dock="Top" Background="#252526"
+                BorderBrush="#474747" BorderThickness="0,0,0,1"
+                Padding="20,16">
+            <StackPanel>
+                <TextBlock Text="🗡  Personalize Your Agent"
+                           FontSize="16" FontWeight="Bold" Foreground="#FFFFFF"/>
+                <TextBlock Margin="0,4,0,0" FontSize="11" Foreground="#858585"
+                           Text="Your hardware and profile have been pre-filled. Add your name and any extra context the agent should always know — then save."/>
+            </StackPanel>
+        </Border>
+
+        <!-- Footer buttons -->
+        <Border DockPanel.Dock="Bottom" Background="#252526"
+                BorderBrush="#474747" BorderThickness="0,1,0,0"
+                Padding="20,12">
+            <DockPanel>
+                <Button x:Name="BtnSkip" DockPanel.Dock="Left"
+                        Content="Skip for now"
+                        Background="Transparent" BorderBrush="#474747"
+                        Foreground="#858585" Click="BtnSkip_Click"/>
+                <Button x:Name="BtnSave" DockPanel.Dock="Right"
+                        Content="✓  Save &amp; Start"
+                        Background="#094771" BorderBrush="#094771"
+                        Foreground="#FFFFFF" FontWeight="Bold"
+                        Click="BtnSave_Click"/>
+            </DockPanel>
+        </Border>
+
+        <!-- Body -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="20,16,20,16">
+
+                <!-- Name / Handle -->
+                <TextBlock Text="Your name or handle" FontSize="11"
+                           Foreground="#858585" Margin="0,0,0,4"/>
+                <TextBox x:Name="TbName" FontSize="13"
+                         AutomationProperties.AutomationId="FirstRun.Name"/>
+
+                <!-- Detected hardware (read-only display) -->
+                <Border Background="#252526" CornerRadius="4"
+                        BorderBrush="#474747" BorderThickness="1"
+                        Padding="12,10" Margin="0,16,0,0">
+                    <StackPanel>
+                        <TextBlock Text="DETECTED SYSTEM" FontSize="10" FontWeight="Bold"
+                                   Foreground="#569CD6" Margin="0,0,0,8"/>
+                        <TextBlock x:Name="TbHardwareSummary"
+                                   FontSize="11" Foreground="#CCCCCC"
+                                   TextWrapping="Wrap" LineHeight="18"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Extra context -->
+                <TextBlock Text="Additional context  (optional)" FontSize="11"
+                           Foreground="#858585" Margin="0,16,0,4"/>
+                <TextBlock FontSize="10" Foreground="#585858" TextWrapping="Wrap"
+                           Margin="0,0,0,6"
+                           Text="Anything the agent should always know: your tools, your environment, your preferred workflows, cleared scope for security work, etc."/>
+                <TextBox x:Name="TbExtra"
+                         Height="90" AcceptsReturn="True" TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto"
+                         AutomationProperties.AutomationId="FirstRun.Extra"
+                         TextChanged="TbExtra_TextChanged"/>
+
+                <!-- Preview -->
+                <TextBlock Text="PREVIEW — .agent.md header" FontSize="10" FontWeight="Bold"
+                           Foreground="#569CD6" Margin="0,20,0,6"/>
+                <Border Background="#0D0D0D" CornerRadius="4"
+                        BorderBrush="#474747" BorderThickness="1"
+                        Padding="10,8">
+                    <TextBox x:Name="TbPreview"
+                             IsReadOnly="True" Background="Transparent"
+                             BorderThickness="0"
+                             Foreground="#4EC9B0" FontSize="11"
+                             TextWrapping="Wrap"
+                             AcceptsReturn="True"
+                             VerticalScrollBarVisibility="Auto"
+                             Height="160"
+                             AutomationProperties.AutomationId="FirstRun.Preview"/>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+    </DockPanel>
+</Window>

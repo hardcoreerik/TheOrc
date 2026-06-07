@@ -67,6 +67,29 @@ public class AppSettings
     public bool   ShowActivityLog  { get; set; } = true;
     public double ActivityLogHeight { get; set; } = 180;
 
+    // ── Detected hardware (written by installer, read by app) ────────────
+    /// <summary>GPU display name, e.g. "NVIDIA GeForce RTX 2070 SUPER".</summary>
+    public string DetectedGpuName     { get; set; } = "";
+
+    /// <summary>VRAM in GB as detected at install time.</summary>
+    public double DetectedVramGb      { get; set; } = 0;
+
+    /// <summary>Runtime variant chosen by the installer: cuda12, cuda11, vulkan, avx2, cpu.</summary>
+    public string DetectedRuntime     { get; set; } = "";
+
+    /// <summary>CUDA version string, e.g. "12.4". Empty if not NVIDIA.</summary>
+    public string DetectedCudaVersion { get; set; } = "";
+
+    // ── Personalisation (set by first-run wizard, editable in Settings) ──
+    /// <summary>User's preferred name or handle shown to the agent.</summary>
+    public string AgentUserName       { get; set; } = "";
+
+    /// <summary>Any extra context the user wants the agent to always know.</summary>
+    public string AgentExtraContext   { get; set; } = "";
+
+    /// <summary>Set to true once the first-run personalisation wizard has completed.</summary>
+    public bool   FirstRunComplete    { get; set; } = false;
+
     // ── Updates ───────────────────────────────────────────────────────────
     /// <summary>Whether to silently check GitHub for newer releases on startup.</summary>
     public bool      CheckForUpdates        { get; set; } = true;
