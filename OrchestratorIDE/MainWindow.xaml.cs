@@ -228,7 +228,8 @@ public partial class MainWindow : Window
             ActiveModel   = _session.ActiveModel,
             WorkspaceRoot = _session.WorkspaceRoot,
         };
-        _swarmPanel.StatusChanged += msg => Dispatcher.Invoke(() => SetStatus(msg));
+        _swarmPanel.StatusChanged         += msg => Dispatcher.Invoke(() => SetStatus(msg));
+        _swarmPanel.WorkspaceChangeRequested += () => Dispatcher.Invoke(_explorerPanel.OpenFolderDialog);
 
         // Default sidebar = explorer
         SidebarContent.Content = _explorerPanel;
@@ -1292,7 +1293,9 @@ public partial class MainWindow : Window
         _explorerPanel.LoadWorkspace(path);
         _agentPanel.SetWorkspace(path, confirmed: true);
         _checkpointPanel.SetWorkspace(path);   // keep checkpoint list in sync
-        _toolEditorPanel.WorkspaceRoot = path; // keep tool editor in sync
+        _toolEditorPanel.WorkspaceRoot  = path; // keep tool editor in sync
+        _swarmPanel.WorkspaceRoot       = path; // dismiss workspace warning in swarm mode
+        _swarmPanel.Refresh();
         UpdateStatusBar();
 
         // Auto-load any tools saved in .orc/tools/ for this workspace

@@ -334,7 +334,57 @@
                         running concurrently and checking in via a shared task board.
                     </TextBlock>
 
-                    <!-- Gate warning (shown if not capable) -->
+                    <!-- ── Workspace guard (shown when no folder is open) ──── -->
+                    <Border x:Name="BdrWorkspaceWarn"
+                            Background="#1E1400" BorderBrush="#4A3A00" BorderThickness="1"
+                            CornerRadius="6" Padding="12,10" Margin="0,0,0,14"
+                            Visibility="Collapsed">
+                        <DockPanel>
+                            <Button x:Name="BtnOpenWorkspace"
+                                    DockPanel.Dock="Right"
+                                    Content="📂  Open Folder"
+                                    Margin="12,0,0,0"
+                                    Padding="10,5"
+                                    FontSize="11" FontWeight="SemiBold"
+                                    Cursor="Hand"
+                                    Click="BtnOpenWorkspace_Click">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Bd"
+                                                Background="#2A2200"
+                                                BorderBrush="#CCA700"
+                                                BorderThickness="1"
+                                                CornerRadius="4"
+                                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter HorizontalAlignment="Center"
+                                                              VerticalAlignment="Center"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="#3A3000"/>
+                                                <Setter TargetName="Bd" Property="BorderBrush"  Value="#FFD700"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                                <Button.Style>
+                                    <Style TargetType="Button">
+                                        <Setter Property="Foreground" Value="#CCA700"/>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="⚠  No workspace folder open"
+                                           Foreground="#CCA700" FontSize="12"
+                                           FontWeight="SemiBold" Margin="0,0,0,3"/>
+                                <TextBlock TextWrapping="Wrap"
+                                           Foreground="#887744" FontSize="11"
+                                           Text="Swarm writes code directly into your project. Open a folder before launching so the minions know where to work."/>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Gate warning (shown if model / slots not capable) -->
                     <Border x:Name="BdrGateWarn"
                             Background="#2A1A00" BorderBrush="#4A3A00" BorderThickness="1"
                             CornerRadius="6" Padding="12,8" Margin="0,0,0,14"
@@ -441,7 +491,59 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Goal input -->
+                    <!-- ── Goal guidance ──────────────────────────────────── -->
+                    <Border Background="#0A0E0A" BorderBrush="#1A2A1A"
+                            BorderThickness="1" CornerRadius="6"
+                            Padding="12,10" Margin="0,0,0,10">
+                        <StackPanel>
+                            <TextBlock Text="💡  How to get the best results from your swarm"
+                                       Foreground="#76B900" FontSize="11" FontWeight="SemiBold"
+                                       Margin="0,0,0,8"/>
+                            <StackPanel>
+                                <!-- Tip 1 -->
+                                <DockPanel Margin="0,0,0,5">
+                                    <TextBlock DockPanel.Dock="Left" Text="①"
+                                               Foreground="#4A8A2A" FontSize="11"
+                                               Width="20" VerticalAlignment="Top"/>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11"
+                                               Foreground="#A8CC80"
+                                               Text="Open a project folder first. Swarm writes files directly into your workspace — set it in single mode first (File → Open Folder), then switch here."/>
+                                </DockPanel>
+                                <!-- Tip 2 -->
+                                <DockPanel Margin="0,0,0,5">
+                                    <TextBlock DockPanel.Dock="Left" Text="②"
+                                               Foreground="#4A8A2A" FontSize="11"
+                                               Width="20" VerticalAlignment="Top"/>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11"
+                                               Foreground="#A8CC80"
+                                               Text="Describe the outcome, not the steps. TheOrc decomposes the goal and dispatches specialist minions — Researcher, Coder, UI Dev — automatically."/>
+                                </DockPanel>
+                                <!-- Tip 3 -->
+                                <DockPanel Margin="0,0,0,5">
+                                    <TextBlock DockPanel.Dock="Left" Text="③"
+                                               Foreground="#4A8A2A" FontSize="11"
+                                               Width="20" VerticalAlignment="Top"/>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11"
+                                               Foreground="#A8CC80"
+                                               Text="Mention your stack if it matters: language, framework, or any constraints. The more context, the less back-and-forth."/>
+                                </DockPanel>
+                                <!-- Tip 4 -->
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Text="④"
+                                               Foreground="#4A8A2A" FontSize="11"
+                                               Width="20" VerticalAlignment="Top"/>
+                                    <TextBlock TextWrapping="Wrap" FontSize="11"
+                                               Foreground="#A8CC80"
+                                               Text="Swarm shines on multi-file, multi-component work. For quick one-file edits, Single mode is faster."/>
+                                </DockPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Goal input (empty — no placeholder command) -->
+                    <TextBlock Text="What do you want to build?"
+                               Foreground="#7A8A6A" FontSize="11"
+                               Margin="0,0,0,5"/>
                     <Border Background="#141E14" BorderBrush="#2A4A2A"
                             BorderThickness="1" CornerRadius="8" Padding="2">
                         <TextBox x:Name="TbGoal"
@@ -455,7 +557,6 @@
                                  TextWrapping="Wrap"
                                  AcceptsReturn="True"
                                  VerticalScrollBarVisibility="Auto"
-                                 Text="Build a Reddit front page news scraper that pulls top posts, scores, and links."
                                  AutomationProperties.AutomationId="Swarm.GoalInput"/>
                     </Border>
 

@@ -65,6 +65,12 @@ public partial class SwarmBoardPanel : UserControl
     // ── Events ────────────────────────────────────────────────────────────────
     public event Action<string>? StatusChanged;
 
+    /// <summary>
+    /// Fired when the user clicks "Open Folder" on the workspace warning banner.
+    /// MainWindow handles it by opening the folder picker (same as single mode).
+    /// </summary>
+    public event Action? WorkspaceChangeRequested;
+
     // ── Construction ──────────────────────────────────────────────────────────
 
     public SwarmBoardPanel()
@@ -103,26 +109,36 @@ public partial class SwarmBoardPanel : UserControl
     {
         if (!ActiveModel.Contains("nemotron", StringComparison.OrdinalIgnoreCase))
         {
-            reason = "Swarm requires NVIDIA Nemotron Mini.\nSwitch model in Settings → Model.";
+            reason = "Swarm requires NVIDIA Nemotron Mini.\nSwitch model in the toolbar model picker.";
             return false;
         }
         var slots = OllamaParallelHelper.DetectCurrentSlots();
         if (slots < 3)
         {
-            reason = $"Swarm requires OLLAMA_NUM_PARALLEL ≥ 3 (currently {slots}).\nConfigure in Settings → Ollama.";
+            reason = $"Swarm requires OLLAMA_NUM_PARALLEL ≥ 3 (currently {slots}).\nUse the slot picker below to set it, then restart Ollama.";
             return false;
         }
         reason = "";
         return true;
     }
 
+    private bool HasWorkspace()
+        => !string.IsNullOrWhiteSpace(WorkspaceRoot);
+
     private void RefreshGate()
     {
+        // Workspace banner — independent of model/slot gate
+        BdrWorkspaceWarn.Visibility = HasWorkspace()
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
         var capable = IsCapable(out var reason);
-        BtnLaunch.IsEnabled      = capable;
-        BdrGateWarn.Visibility   = capable ? Visibility.Collapsed : Visibility.Visible;
-        TbGateWarn.Text          = reason;
-        TbModelName.Text         = string.IsNullOrEmpty(ActiveModel) ? "—" : ActiveModel;
+        BdrGateWarn.Visibility = capable ? Visibility.Collapsed : Visibility.Visible;
+        TbGateWarn.Text        = reason;
+        TbModelName.Text       = string.IsNullOrEmpty(ActiveModel) ? "—" : ActiveModel;
+
+        // Launch requires BOTH workspace AND model/slot capability
+        BtnLaunch.IsEnabled = HasWorkspace() && capable;
     }
 
     private void RefreshSlotLabel()
@@ -232,10 +248,21 @@ public partial class SwarmBoardPanel : UserControl
         PnlSlotRestart.Visibility = Visibility.Collapsed;
     }
 
+    // ── Workspace banner ──────────────────────────────────────────────────────
+
+    private void BtnOpenWorkspace_Click(object sender, RoutedEventArgs e)
+        => WorkspaceChangeRequested?.Invoke();
+
     // ── Launch ────────────────────────────────────────────────────────────────
 
     private void BtnLaunch_Click(object sender, RoutedEventArgs e)
     {
+        // Guard: workspace must be set before the swarm can write any files
+        if (!HasWorkspace())
+        {
+            BdrWorkspaceWarn.Visibility = Visibility.Visible;
+            return;
+        }
         if (Ollama is null || !IsCapable(out _)) return;
         var goal = TbGoal.Text.Trim();
         if (string.IsNullOrWhiteSpace(goal)) return;
