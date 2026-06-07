@@ -183,6 +183,104 @@
             </DockPanel>
         </Border>
 
+        <!-- ── Steering directive bar (above task strip, active state only) ── -->
+        <Border x:Name="BdrDirective"
+                DockPanel.Dock="Bottom"
+                Background="#0A0F0A"
+                BorderBrush="{StaticResource Br.Border}"
+                BorderThickness="0,1,0,0"
+                Padding="8,5"
+                Visibility="Collapsed">
+            <DockPanel>
+                <!-- Send button -->
+                <Button x:Name="BtnSendDirective"
+                        DockPanel.Dock="Right"
+                        Content="⬆ Steer"
+                        Margin="6,0,0,0"
+                        Padding="10,5"
+                        FontSize="11" FontWeight="SemiBold"
+                        Cursor="Hand"
+                        Click="BtnSendDirective_Click">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Bd"
+                                    Background="#1F3D00"
+                                    BorderBrush="#2A5A00"
+                                    BorderThickness="1"
+                                    CornerRadius="4"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="#2A5A00"/>
+                                    <Setter TargetName="Bd" Property="BorderBrush" Value="#76B900"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="Bd" Property="Background" Value="#1A1A1A"/>
+                                    <Setter TargetName="Bd" Property="BorderBrush" Value="#333333"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Foreground" Value="#76B900"/>
+                            <Style.Triggers>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Foreground" Value="#444444"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+
+                <!-- Directive label -->
+                <TextBlock DockPanel.Dock="Left"
+                           Text="📌"
+                           VerticalAlignment="Center"
+                           Margin="0,0,6,0"
+                           FontSize="13"/>
+
+                <!-- Directive input -->
+                <TextBox x:Name="TbDirective"
+                         Background="#141414"
+                         Foreground="#D4D4D4"
+                         CaretBrush="#76B900"
+                         BorderBrush="#2A3A2A"
+                         BorderThickness="1"
+                         Padding="8,5"
+                         FontSize="12"
+                         VerticalContentAlignment="Center"
+                         VerticalAlignment="Center"
+                         KeyDown="TbDirective_KeyDown"
+                         AutomationProperties.AutomationId="Swarm.Directive">
+                    <TextBox.Style>
+                        <Style TargetType="TextBox">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="TextBox">
+                                        <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                CornerRadius="4"
+                                                Padding="{TemplateBinding Padding}">
+                                            <ScrollViewer x:Name="PART_ContentHost"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsFocused" Value="True">
+                                                <Setter Property="BorderBrush" Value="#76B900"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </TextBox.Style>
+                </TextBox>
+            </DockPanel>
+        </Border>
+
         <!-- ── Task board — bottom strip ──────────────────────────────────── -->
         <Border DockPanel.Dock="Bottom"
                 Background="#0E120E"
@@ -426,7 +524,7 @@
                             <RowDefinition Height="*"/>     <!-- padding -->
                         </Grid.RowDefinitions>
 
-                        <!-- Boss node -->
+                        <!-- TheOrc node (Boss) -->
                         <Border x:Name="NodeBoss"
                                 Grid.Row="0"
                                 Style="{StaticResource BossNodeBorder}"
@@ -434,15 +532,16 @@
                                 MinWidth="130">
                             <StackPanel HorizontalAlignment="Center">
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                    <TextBlock Text="👑" FontSize="18" Margin="0,0,6,0"
-                                               VerticalAlignment="Center"/>
-                                    <TextBlock Text="BOSS" FontSize="13" FontWeight="Bold"
+                                    <TextBlock Text="⬡" FontSize="18" Margin="0,0,6,0"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource Br.Accent.Green}"/>
+                                    <TextBlock Text="TheOrc" FontSize="13" FontWeight="Bold"
                                                FontFamily="Consolas"
                                                Foreground="{StaticResource Br.Accent.Green}"
                                                VerticalAlignment="Center"/>
                                 </StackPanel>
                                 <TextBlock x:Name="TbBossStatus"
-                                           Text="Planning…"
+                                           Text="Orchestrating…"
                                            Foreground="{StaticResource Br.Text.Muted}"
                                            FontSize="10" HorizontalAlignment="Center"
                                            Margin="0,3,0,0"/>
@@ -538,27 +637,104 @@
                             Background="#0E120E"
                             BorderBrush="{StaticResource Br.Border}"
                             BorderThickness="0,0,0,1">
-                        <StackPanel Orientation="Horizontal">
-                            <Button x:Name="TabBoss"
-                                    Content="👑 Boss"
-                                    Style="{StaticResource StreamTab}"
-                                    Click="Tab_Click" Tag="boss"/>
-                            <Button x:Name="TabResearcher"
-                                    Content="🔍 Researcher"
-                                    Style="{StaticResource StreamTab}"
-                                    Click="Tab_Click" Tag="researcher"
-                                    Visibility="Collapsed"/>
-                            <Button x:Name="TabCoder"
-                                    Content="💻 Coder"
-                                    Style="{StaticResource StreamTab}"
-                                    Click="Tab_Click" Tag="coder"
-                                    Visibility="Collapsed"/>
-                            <Button x:Name="TabUIDev"
-                                    Content="🎨 UI Dev"
-                                    Style="{StaticResource StreamTab}"
-                                    Click="Tab_Click" Tag="uidev"
-                                    Visibility="Collapsed"/>
-                        </StackPanel>
+                        <DockPanel>
+                            <!-- Agent tabs (left) -->
+                            <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                                <Button x:Name="TabBoss"
+                                        Content="⬡ TheOrc"
+                                        Style="{StaticResource StreamTab}"
+                                        Click="Tab_Click" Tag="boss"/>
+                                <Button x:Name="TabResearcher"
+                                        Content="🔍 Researcher"
+                                        Style="{StaticResource StreamTab}"
+                                        Click="Tab_Click" Tag="researcher"
+                                        Visibility="Collapsed"/>
+                                <Button x:Name="TabCoder"
+                                        Content="💻 Coder"
+                                        Style="{StaticResource StreamTab}"
+                                        Click="Tab_Click" Tag="coder"
+                                        Visibility="Collapsed"/>
+                                <Button x:Name="TabUIDev"
+                                        Content="🎨 UI Dev"
+                                        Style="{StaticResource StreamTab}"
+                                        Click="Tab_Click" Tag="uidev"
+                                        Visibility="Collapsed"/>
+                            </StackPanel>
+
+                            <!-- Thinking toggle (right) -->
+                            <Button x:Name="BtnThinkToggle"
+                                    DockPanel.Dock="Right"
+                                    Click="BtnThinkToggle_Click"
+                                    Padding="8,4"
+                                    Margin="4,2"
+                                    Cursor="Hand"
+                                    ToolTip="Toggle model thinking layer">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Bd"
+                                                Background="Transparent"
+                                                BorderBrush="Transparent"
+                                                BorderThickness="1"
+                                                CornerRadius="3"
+                                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter HorizontalAlignment="Center"
+                                                              VerticalAlignment="Center"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="#1A2A1A"/>
+                                                <Setter TargetName="Bd" Property="BorderBrush"  Value="#2A4A2A"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="💭" FontSize="11" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="TbThinkLabel"
+                                               Text=" Thinking"
+                                               FontSize="10"
+                                               Foreground="#666666"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="TbThinkCount"
+                                               Text=""
+                                               FontSize="10"
+                                               Foreground="#444444"
+                                               VerticalAlignment="Center"
+                                               Margin="4,0,0,0"/>
+                                </StackPanel>
+                            </Button>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Thinking layer (hidden by default; toggled by BtnThinkToggle) -->
+                    <Border DockPanel.Dock="Top"
+                            x:Name="BdrThinking"
+                            Visibility="Collapsed"
+                            Background="#0A0A0A"
+                            BorderBrush="#1A2A1A"
+                            BorderThickness="0,0,0,1"
+                            MaxHeight="180">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Top"
+                                       Text="  ─── model thinking ───"
+                                       Foreground="#333333"
+                                       FontSize="10" FontFamily="Consolas"
+                                       Padding="12,4,0,2"/>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <TextBox x:Name="TbThinking"
+                                         Background="Transparent"
+                                         Foreground="#3A5A3A"
+                                         FontFamily="Cascadia Code, Consolas, monospace"
+                                         FontSize="11"
+                                         FontStyle="Italic"
+                                         BorderThickness="0"
+                                         IsReadOnly="True"
+                                         TextWrapping="Wrap"
+                                         Padding="12,4"
+                                         AcceptsReturn="True"
+                                         VerticalScrollBarVisibility="Disabled"/>
+                            </ScrollViewer>
+                        </DockPanel>
                     </Border>
 
                     <!-- Stream output -->

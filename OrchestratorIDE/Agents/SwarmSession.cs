@@ -46,6 +46,20 @@ public class SwarmSession
         _workspaceRoot = workspaceRoot;
     }
 
+    // ── Directive injection (mid-swarm steering from the user) ───────────────
+    private readonly List<string> _directives = [];
+
+    /// <summary>
+    /// Injects a user directive mid-swarm. It is echoed to the Boss stream immediately
+    /// and folded into the merge phase context so the Boss can reflect on it.
+    /// Workers already running are not interrupted — directive takes effect at merge.
+    /// </summary>
+    public void InjectDirective(string directive)
+    {
+        _directives.Add(directive);
+        OnBossToken?.Invoke($"\n\n📌 **USER DIRECTIVE:** {directive}\n\n");
+    }
+
     // ── Public API ────────────────────────────────────────────────────────────
 
     public void Stop()
@@ -118,23 +132,101 @@ public class SwarmSession
         }
     }
 
+    // ── Per-role agent files (.orc/agents/{role}.md) ─────────────────────────
+
+    /// <summary>
+    /// Directory that holds one Markdown file per agent role.
+    /// Users edit these to customise each worker's behaviour.
+    /// Files are auto-created with opinionated defaults on first run.
+    /// </summary>
+    private string AgentsDir =>
+        Path.Combine(_workspaceRoot ?? Path.GetTempPath(), ".orc", "agents");
+
+    private string AgentFilePath(string role) =>
+        Path.Combine(AgentsDir, $"{role.ToLower()}.md");
+
+    /// <summary>
+    /// Reads the agent file for <paramref name="role"/>.
+    /// Creates it with defaults when it does not yet exist.
+    /// Returns an empty string on any read error so the swarm can continue.
+    /// </summary>
+    private async Task<string> LoadAgentFileAsync(string role)
+    {
+        var path = AgentFilePath(role);
+        try
+        {
+            if (!File.Exists(path))
+            {
+                Directory.CreateDirectory(AgentsDir);
+                await File.WriteAllTextAsync(path, DefaultAgentContent(role));
+            }
+            return await File.ReadAllTextAsync(path);
+        }
+        catch { return ""; }
+    }
+
+    private static string DefaultAgentContent(string role) => role.ToLower() switch
+    {
+        "boss" => """
+            # TheOrc — Custom Instructions
+            You are TheOrc, the Orchestrator. You direct the swarm.
+            Be decisive — keep plans tight, minions focused.
+            Prefer 2–3 well-scoped tasks over many small ones.
+            When merging, produce one cohesive deliverable — never just concatenate.
+            """,
+
+        "researcher" => """
+            # Researcher Agent — Custom Instructions
+            Focus on practical, actionable findings. Always include:
+            - Specific library names and versions to use
+            - Key API endpoints or methods with example payloads
+            - Known gotchas, rate limits, or auth requirements
+            - A concrete recommendation for the coder on what to use and why
+            Do NOT write final production code — document and recommend only.
+            """,
+
+        "coder" => """
+            # Coder Agent — Custom Instructions
+            Write production-ready code. Always:
+            - Include proper error handling (try/catch, null checks)
+            - Add comments on non-obvious logic
+            - Use the exact libraries and approaches the researcher recommended
+            - Output complete, runnable files — not snippets or pseudocode
+            - Default language: C# unless the task specifies otherwise
+            """,
+
+        "uideveloper" => """
+            # UI Developer Agent — Custom Instructions
+            Follow TheOrc's visual design system:
+            - Backgrounds: #161616 app / #1E1E1E panels / #0E120E sidebar
+            - Accent green: #76B900 (hover: #8FD120)
+            - Text: #D4D4D4 normal / #888888 muted / #FFFFFF heading
+            - Borders: #2E3A2E / #333333
+            - CornerRadius: 6px cards, 4px buttons, 3px chips
+            For WPF: output complete XAML + code-behind. No code-behind logic in XAML.
+            For web: semantic HTML5 + scoped CSS. No frameworks unless specified.
+            """,
+
+        _ => $"# {role} Agent — Custom Instructions\nComplete the assigned task thoroughly."
+    };
+
     // ── Boss: Decompose ───────────────────────────────────────────────────────
 
     private const string BossDecomposeSystemPrompt = """
-        You are the Orchestrator (Boss) of a multi-agent AI coding system.
-        You coordinate three specialist worker types:
+        You are TheOrc — the Orchestrator of a multi-agent AI coding swarm.
+        You direct three specialist minions:
           • RESEARCHER  — investigates APIs, libraries, docs; does NOT write production code
           • CODER       — writes full implementation code using the researcher's findings
           • UIDEVELOPER — writes UI code (XAML, WPF, HTML/CSS) and styling
 
         Given a user's coding goal, break it into 1–3 concurrent subtasks.
-        Assign each subtask to the best-fit worker role.
+        Assign each subtask to the best-fit minion role.
 
         Rules:
         - RESEARCHER tasks always get priority 1 (they run first)
         - CODER and UIDEVELOPER tasks get priority 2 (run after research completes)
         - If no research is needed, assign a single CODER task with priority 1
-        - Descriptions must be self-contained — workers cannot ask follow-up questions
+        - Descriptions must be self-contained — minions cannot ask follow-up questions
         - Maximum 3 tasks total
 
         Respond with ONLY valid JSON — no markdown fences, no preamble:
@@ -145,7 +237,7 @@ public class SwarmSession
               "role": "RESEARCHER",
               "priority": 1,
               "title": "Short descriptive title",
-              "description": "Detailed, self-contained instructions for this worker."
+              "description": "Detailed, self-contained instructions for this minion."
             }
           ]
         }
@@ -153,13 +245,19 @@ public class SwarmSession
 
     private async Task<string> RunBossDecomposeAsync(string userGoal, CancellationToken ct)
     {
+        // Load any user customisations from .orc/agents/boss.md
+        var bossFile = await LoadAgentFileAsync("boss");
+        var sysPrompt = string.IsNullOrWhiteSpace(bossFile)
+            ? BossDecomposeSystemPrompt
+            : BossDecomposeSystemPrompt + "\n\n## Custom boss instructions:\n" + bossFile;
+
         var history = new List<AgentMessage>
         {
-            new() { Role = MessageRole.System, Content = BossDecomposeSystemPrompt },
+            new() { Role = MessageRole.System, Content = sysPrompt },
             new() { Role = MessageRole.User,   Content = $"Goal: {userGoal}" }
         };
 
-        OnBossToken?.Invoke("▶ Boss is planning tasks…\n\n");
+        OnBossToken?.Invoke("⬡ TheOrc is planning the swarm…\n\n");
 
         var sb = new StringBuilder();
         await foreach (var token in _ollama.StreamCompletionAsync(
@@ -186,15 +284,26 @@ public class SwarmSession
             ctx.AppendLine();
         }
         ctx.AppendLine($"Original goal: {userGoal}");
+
+        // Include any mid-swarm directives from the user
+        if (_directives.Count > 0)
+        {
+            ctx.AppendLine();
+            ctx.AppendLine("## User directives received during this swarm run:");
+            foreach (var d in _directives)
+                ctx.AppendLine($"- {d}");
+            ctx.AppendLine("Incorporate these directives into your final deliverable.");
+        }
+
         ctx.AppendLine("Output the final complete result. For code, output full working files.");
 
         var history = new List<AgentMessage>
         {
-            new() { Role = MessageRole.System, Content = "You are the Boss agent. Merge your workers' outputs into the final deliverable." },
+            new() { Role = MessageRole.System, Content = "You are TheOrc, the Orchestrator. Merge your minions' outputs into a single final deliverable." },
             new() { Role = MessageRole.User,   Content = ctx.ToString() }
         };
 
-        OnBossToken?.Invoke("\n\n──── BOSS MERGING RESULTS ────\n\n");
+        OnBossToken?.Invoke("\n\n──── ⬡ TheOrc is merging results ────\n\n");
 
         var result = new StringBuilder();
         await foreach (var token in _ollama.StreamCompletionAsync(
@@ -250,11 +359,17 @@ public class SwarmSession
 
         try
         {
-            var userMsg = BuildWorkerUserMessage(task, researchContext);
+            var userMsg     = BuildWorkerUserMessage(task, researchContext);
+            var roleKey     = task.Role.ToString();  // "Researcher" / "Coder" / "UIDeveloper"
+            var agentFile   = await LoadAgentFileAsync(roleKey);
+            var basePrompt  = WorkerSystemPrompt(task.Role);
+            var sysPrompt   = string.IsNullOrWhiteSpace(agentFile)
+                ? basePrompt
+                : basePrompt + "\n\n## Custom agent instructions:\n" + agentFile;
 
             var history = new List<AgentMessage>
             {
-                new() { Role = MessageRole.System, Content = WorkerSystemPrompt(task.Role) },
+                new() { Role = MessageRole.System, Content = sysPrompt },
                 new() { Role = MessageRole.User,   Content = userMsg }
             };
 

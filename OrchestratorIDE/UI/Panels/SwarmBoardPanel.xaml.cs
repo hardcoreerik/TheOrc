@@ -32,14 +32,32 @@ public partial class SwarmBoardPanel : UserControl
     private readonly DispatcherTimer  _pulseTimer = new() { Interval = TimeSpan.FromMilliseconds(800) };
     private bool                      _pulseOn;
 
-    // Per-tab stream buffers (tab key → text)
+    // Per-tab output buffers (thinking stripped out)
     private readonly Dictionary<string, string> _streams = new()
     {
-        ["boss"]       = "",
-        ["researcher"] = "",
-        ["coder"]      = "",
-        ["uidev"]      = "",
+        ["boss"] = "", ["researcher"] = "", ["coder"] = "", ["uidev"] = "",
     };
+
+    // Per-tab thinking buffers (<think>…</think> content)
+    private readonly Dictionary<string, string> _thinkStreams = new()
+    {
+        ["boss"] = "", ["researcher"] = "", ["coder"] = "", ["uidev"] = "",
+    };
+
+    // Per-tab raw remainder for incremental <think> tag parsing
+    private readonly Dictionary<string, string> _rawPending = new()
+    {
+        ["boss"] = "", ["researcher"] = "", ["coder"] = "", ["uidev"] = "",
+    };
+
+    // Per-tab: are we currently inside a <think> block?
+    private readonly Dictionary<string, bool> _inThink = new()
+    {
+        ["boss"] = false, ["researcher"] = false, ["coder"] = false, ["uidev"] = false,
+    };
+
+    // Whether the thinking pane is currently visible
+    private bool _thinkVisible;
 
     // Task-id → tab key mapping (populated when tasks are planned)
     private readonly Dictionary<string, string> _taskTabMap = [];
@@ -227,9 +245,23 @@ public partial class SwarmBoardPanel : UserControl
 
     private void StartSwarm(string goal)
     {
-        // Reset streams
-        foreach (var key in _streams.Keys.ToList()) _streams[key] = "";
+        // Reset all stream / thinking buffers
+        foreach (var key in _streams.Keys.ToList())
+        {
+            _streams[key]      = "";
+            _thinkStreams[key] = "";
+            _rawPending[key]   = "";
+            _inThink[key]      = false;
+        }
         _taskTabMap.Clear();
+
+        // Reset thinking pane
+        TbThinking.Text           = "";
+        TbStream.Text             = "";
+        TbThinkCount.Text         = "";
+        _thinkVisible             = false;
+        BdrThinking.Visibility    = Visibility.Collapsed;
+        BdrDirective.Visibility   = Visibility.Collapsed;
         TaskCardPanel.Children.Clear();
 
         // Reset node states
@@ -237,7 +269,7 @@ public partial class SwarmBoardPanel : UserControl
         SetNodeIdle(NodeResearcher);
         SetNodeIdle(NodeCoder);
         SetNodeUIDev(NodeUIDev);
-        TbBossStatus.Text       = "Planning…";
+        TbBossStatus.Text       = "Orchestrating…";
         TbResearcherStatus.Text = "idle";
         TbCoderStatus.Text      = "idle";
         TbUIDevStatus.Text      = "idle";
@@ -249,10 +281,12 @@ public partial class SwarmBoardPanel : UserControl
         SelectTab("boss");
 
         // Show active board
-        PnlIdle.Visibility   = Visibility.Collapsed;
-        PnlActive.Visibility = Visibility.Visible;
+        PnlIdle.Visibility      = Visibility.Collapsed;
+        PnlActive.Visibility    = Visibility.Visible;
         BtnStopSwarm.Visibility = Visibility.Visible;
-        TbActiveGoal.Text    = $"Goal: {goal}";
+        BdrDirective.Visibility = Visibility.Visible;
+        TbDirective.Text        = "";
+        TbActiveGoal.Text       = $"Goal: {goal}";
 
         // Header: ACTIVE state
         SetHeaderActive(true);
@@ -280,24 +314,131 @@ public partial class SwarmBoardPanel : UserControl
         _session?.Stop();
     }
 
+    // ── Directive steering ────────────────────────────────────────────────────
+
+    private void BtnSendDirective_Click(object sender, RoutedEventArgs e) => SendDirective();
+
+    private void TbDirective_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Enter &&
+            (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) == 0)
+        {
+            e.Handled = true;
+            SendDirective();
+        }
+    }
+
+    private void SendDirective()
+    {
+        var text = TbDirective.Text.Trim();
+        if (string.IsNullOrWhiteSpace(text) || _session is null) return;
+        _session.InjectDirective(text);
+        TbDirective.Clear();
+        // Switch to Boss tab so the user can see the directive echoed
+        SelectTab("boss");
+    }
+
+    // ── Thinking toggle ───────────────────────────────────────────────────────
+
+    private void BtnThinkToggle_Click(object sender, RoutedEventArgs e)
+    {
+        _thinkVisible = !_thinkVisible;
+        BdrThinking.Visibility = _thinkVisible ? Visibility.Visible : Visibility.Collapsed;
+        TbThinkLabel.Foreground = new SolidColorBrush(_thinkVisible
+            ? Color.FromRgb(0x76, 0xB9, 0x00)
+            : Color.FromRgb(0x44, 0x44, 0x44));
+    }
+
     private void OnSwarmStopped()
     {
         _pulseTimer.Stop();
         SetHeaderActive(false);
         BtnStopSwarm.Visibility = Visibility.Collapsed;
         SetNodeIdle(NodeBoss);
-        TbBossStatus.Text = "Done";
+        TbBossStatus.Text = "Done ⬡";
     }
 
     // ── SwarmSession event handlers ───────────────────────────────────────────
+
+    // ── Thinking tag parser ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// Incrementally parses tokens into thinking vs. output buckets.
+    /// Handles &lt;think&gt;…&lt;/think&gt; blocks split across multiple tokens.
+    /// </summary>
+    private void ParseToken(string tabKey, string newToken)
+    {
+        _rawPending[tabKey] += newToken;
+        var raw = _rawPending[tabKey];
+
+        while (true)
+        {
+            if (_inThink[tabKey])
+            {
+                var closeIdx = raw.IndexOf("</think>", StringComparison.OrdinalIgnoreCase);
+                if (closeIdx >= 0)
+                {
+                    _thinkStreams[tabKey] += raw[..closeIdx];
+                    raw = raw[(closeIdx + 8)..];  // len("</think>") == 8
+                    _inThink[tabKey] = false;
+                }
+                else
+                {
+                    // Keep the last 8 chars in the pending buffer in case
+                    // the close tag is split across the next token.
+                    if (raw.Length > 8)
+                    {
+                        _thinkStreams[tabKey] += raw[..^8];
+                        raw = raw[^8..];
+                    }
+                    break;
+                }
+            }
+            else
+            {
+                var openIdx = raw.IndexOf("<think>", StringComparison.OrdinalIgnoreCase);
+                if (openIdx >= 0)
+                {
+                    _streams[tabKey] += raw[..openIdx];
+                    raw = raw[(openIdx + 7)..];  // len("<think>") == 7
+                    _inThink[tabKey] = true;
+                }
+                else
+                {
+                    // Keep the last 7 chars pending in case the open tag is split.
+                    if (raw.Length > 7)
+                    {
+                        _streams[tabKey] += raw[..^7];
+                        raw = raw[^7..];
+                    }
+                    break;
+                }
+            }
+        }
+        _rawPending[tabKey] = raw;
+    }
+
+    private void RefreshStreamDisplay(string tabKey)
+    {
+        TbStream.Text   = _streams[tabKey];
+        TbThinking.Text = _thinkStreams[tabKey];
+
+        var thinkLen = _thinkStreams[tabKey].Length;
+        TbThinkCount.Text = thinkLen > 0 ? $"({thinkLen / 4:N0} tok)" : "";
+        TbThinkLabel.Foreground = new SolidColorBrush(
+            thinkLen > 0 ? Color.FromRgb(0x55, 0x88, 0x55) : Color.FromRgb(0x44, 0x44, 0x44));
+
+        StreamScroll.ScrollToBottom();
+    }
+
+    // ── Token events ──────────────────────────────────────────────────────────
 
     private void OnBossToken(string token)
     {
         Dispatcher.InvokeAsync(() =>
         {
-            _streams["boss"] += token;
-            if (_activeTab == "boss") TbStream.Text = _streams["boss"];
-            StreamScroll.ScrollToBottom();
+            ParseToken("boss", token);
+            if (_activeTab == "boss") RefreshStreamDisplay("boss");
         });
     }
 
@@ -306,9 +447,8 @@ public partial class SwarmBoardPanel : UserControl
         Dispatcher.InvokeAsync(() =>
         {
             if (!_taskTabMap.TryGetValue(taskId, out var tabKey)) return;
-            _streams[tabKey] += token;
-            if (_activeTab == tabKey) TbStream.Text = _streams[tabKey];
-            StreamScroll.ScrollToBottom();
+            ParseToken(tabKey, token);
+            if (_activeTab == tabKey) RefreshStreamDisplay(tabKey);
         });
     }
 
@@ -316,7 +456,7 @@ public partial class SwarmBoardPanel : UserControl
     {
         Dispatcher.InvokeAsync(() =>
         {
-            TbBossStatus.Text = $"{tasks.Count} tasks";
+            TbBossStatus.Text = $"Dispatched {tasks.Count}";
 
             foreach (var task in tasks)
             {
@@ -382,7 +522,7 @@ public partial class SwarmBoardPanel : UserControl
         {
             _streams["boss"] += "\n\n──── SWARM COMPLETE ────\n\n" + merged;
             if (_activeTab == "boss") TbStream.Text = _streams["boss"];
-            TbBossStatus.Text = "Complete ✓";
+            TbBossStatus.Text = "Delivered ✓";
             SetNodeDone(NodeBoss);
             StatusChanged?.Invoke("Swarm complete");
         });
@@ -408,9 +548,8 @@ public partial class SwarmBoardPanel : UserControl
 
     private void SelectTab(string key)
     {
-        _activeTab   = key;
-        TbStream.Text = _streams.TryGetValue(key, out var txt) ? txt : "";
-        StreamScroll.ScrollToBottom();
+        _activeTab = key;
+        RefreshStreamDisplay(key);
 
         // Highlight active tab button
         foreach (var btn in new[] { TabBoss, TabResearcher, TabCoder, TabUIDev })
