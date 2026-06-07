@@ -261,6 +261,13 @@ public partial class MainWindow : Window
                 ? "No models found — check LlamaCppRuntimePath and LlamaCppModelPath in Settings."
                 : "No models found — check Ollama host connection in Settings.";
             AddActivity(new ActivityEvent(ActivityKind.Warning, backendLabel, hint, DateTime.Now));
+
+            // ── Portable-zip bootstrap: offer to run the bundled setup wizard ──
+            // When the user extracted the portable zip, OrchestratorSetup.exe sits
+            // next to OrchestratorIDE.exe.  If we find it and have no working
+            // backend, offer to launch it so a completely fresh machine can be
+            // configured without any manual steps.
+            TryLaunchBundledSetup();
         }
 
         // ── Auto-update check (silent, background) ────────────────────────
@@ -316,6 +323,48 @@ public partial class MainWindow : Window
             // Reload rules so the agent picks up the new file immediately
             await _rules.LoadAsync(_session.WorkspaceRoot);
         }
+    }
+
+    // ── Portable-zip bootstrap ────────────────────────────────────────────
+
+    /// <summary>
+    /// If OrchestratorSetup.exe is found next to this exe (portable-zip layout)
+    /// and no AI backend is reachable, prompt the user and optionally launch it.
+    /// The app exits after handing off to the installer so both can't run at once.
+    /// </summary>
+    private void TryLaunchBundledSetup()
+    {
+        var setupExe = Path.Combine(AppContext.BaseDirectory, "OrchestratorSetup.exe");
+        if (!File.Exists(setupExe)) return;
+
+        AddActivity(new ActivityEvent(ActivityKind.Info, "Setup",
+            "OrchestratorSetup.exe found — no runtime detected on this machine.", DateTime.Now));
+
+        Dispatcher.Invoke(() =>
+        {
+            var result = MessageBox.Show(
+                "No AI runtime was detected on this machine.\n\n" +
+                "OrchestratorSetup.exe is included in this package and will automatically " +
+                "install the llama.cpp runtime and download a model sized for your GPU — " +
+                "no prior AI tools required.\n\n" +
+                "Run the setup wizard now?",
+                "Welcome to TheOrc — First-Time Setup",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.Yes);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName        = setupExe,
+                    UseShellExecute = true,   // run as normal user launch (respects UAC)
+                });
+
+                // Hand off to the installer — close so both don't run simultaneously.
+                Application.Current.Shutdown();
+            }
+        });
     }
 
     // ── Tool registration ─────────────────────────────────────────────────

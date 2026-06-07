@@ -109,15 +109,19 @@ jobs:
             -p:FileVersion=$ver `
             --output publish/setup
 
-      # ── Bundle portable zip (exe only — first-run wizard handles .agent.md) ──
+      # ── Bundle portable zip (both exes — setup wizard works on fresh machines) ─
       - name: Create portable zip
         shell: pwsh
         run: |
           $ver = '${{ steps.ver.outputs.VERSION }}'
           $zip = "publish/TheOrc-$ver-win-x64-portable.zip"
 
-          Compress-Archive -Path "publish/app/OrchestratorIDE.exe" `
-                           -DestinationPath $zip -CompressionLevel Optimal
+          # Bundle the main app + installer so the portable zip is self-sufficient
+          # on a fresh machine with no llama.cpp / Ollama pre-installed.
+          Compress-Archive -Path @(
+            "publish/app/OrchestratorIDE.exe",
+            "publish/setup/OrchestratorSetup.exe"
+          ) -DestinationPath $zip -CompressionLevel Optimal
           $mb = [math]::Round((Get-Item $zip).Length / 1MB, 1)
           Write-Host "Created $zip ($mb MB)"
 
@@ -162,8 +166,9 @@ jobs:
             3. Launch from the Desktop shortcut
 
             ### Portable / manual install
-            Download **TheOrc-${{ steps.ver.outputs.VERSION }}-win-x64-portable.zip** for a pre-built exe you can drop anywhere.
-            Requires an existing llama.cpp runtime or Ollama configured in Settings.
+            Download **TheOrc-${{ steps.ver.outputs.VERSION }}-win-x64-portable.zip** — contains both `OrchestratorIDE.exe` and `OrchestratorSetup.exe`.
+            Extract both files to the same folder, then run `OrchestratorIDE.exe`.
+            If no AI runtime is detected on first launch, the app will offer to run the setup wizard automatically — works on completely fresh machines.
 
             ### System requirements
             - Windows 10 / 11 (x64)

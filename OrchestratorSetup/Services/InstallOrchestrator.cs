@@ -81,7 +81,13 @@ public sealed class InstallOrchestrator : IDisposable
             }, ct), ct);
 
             // ── Step 1: Download OrchestratorIDE.exe ───────────────────────
-            if (!string.IsNullOrEmpty(_state.AppDownloadUrl))
+            // Skip download if the exe was already placed next to OrchestratorSetup.exe
+            // (portable-zip layout: the user extracted both files together).
+            if (File.Exists(_state.AppExePath))
+            {
+                Log($"✓ OrchestratorIDE.exe already present at {_state.AppExePath} — skipping download.");
+            }
+            else if (!string.IsNullOrEmpty(_state.AppDownloadUrl))
             {
                 await Step("Downloading OrchestratorIDE", async () =>
                 {
@@ -229,7 +235,8 @@ public sealed class InstallOrchestrator : IDisposable
     private int ComputeTotalSteps()
     {
         int n = 3; // directories + write config + shortcuts
-        if (!string.IsNullOrEmpty(_state.AppDownloadUrl)) n += 1; // download app exe
+        // Count the app download step only when it will actually run
+        if (!File.Exists(_state.AppExePath) && !string.IsNullOrEmpty(_state.AppDownloadUrl)) n += 1;
         if (!_state.UseExistingOllama) n += 2;  // download runtime + extract
         n += 1; // download model
         return n;
