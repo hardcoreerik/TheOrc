@@ -47,4 +47,42 @@ public class ModelEntry
 
     public bool FitsInVram(int availableVramGb) =>
         CpuOk || availableVramGb >= VramMinGb;
+
+    // ── Partner badge ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Short partner label shown as a coloured chip in the model list.
+    /// Returns null for generic / community models.
+    /// </summary>
+    public string? PartnerBadge => Publisher.ToUpperInvariant() switch
+    {
+        var p when p.StartsWith("NVIDIA") => "NVIDIA",
+        var p when p.StartsWith("GOOGLE") => "GOOGLE",
+        _ => null
+    };
+
+    /// <summary>Badge background hex colour.</summary>
+    public string PartnerBadgeBg => Publisher.ToUpperInvariant() switch
+    {
+        var p when p.StartsWith("NVIDIA") => "#182800",
+        var p when p.StartsWith("GOOGLE") => "#001828",
+        _ => "#1A1A1A"
+    };
+
+    /// <summary>Badge foreground hex colour.</summary>
+    public string PartnerBadgeFg => Publisher.ToUpperInvariant() switch
+    {
+        var p when p.StartsWith("NVIDIA") => "#76B900",
+        var p when p.StartsWith("GOOGLE") => "#4A9FD9",
+        _ => "#888888"
+    };
+
+    /// <summary>Whether this model has a partner badge to display.</summary>
+    public bool HasPartnerBadge => PartnerBadge is not null;
+
+    /// <summary>
+    /// True when this model can only be installed via <c>ollama pull</c>
+    /// (no direct GGUF download URL is available).
+    /// </summary>
+    public bool OllamaOnly => string.IsNullOrWhiteSpace(Url);
 }

@@ -51,6 +51,48 @@
   "models": [
 
     {
+      "_comment": "NVIDIA's official recommended model for TheOrc. Optimised for NVIDIA GPUs, strong agentic tool use, natively available on Ollama. Highlighted as NVIDIA partner pick. Recommended for NVIDIA systems with 4–8 GB VRAM.",
+      "id": "nemotron-mini-4b-q5",
+      "name": "NVIDIA Nemotron Mini 4B",
+      "description": "NVIDIA's own recommended agent model. Built for agentic tool use and instruction following. Runs efficiently on NVIDIA GPUs from 4 GB VRAM up. Pull via Ollama or download GGUF.",
+      "publisher": "NVIDIA",
+      "quantization": "Q5_K_M",
+      "parameters_b": 4,
+      "vram_min_gb": 4,
+      "vram_recommended_gb": 5,
+      "size_bytes": 2880000000,
+      "url": "https://huggingface.co/bartowski/Nemotron-Mini-4B-Instruct-GGUF/resolve/main/Nemotron-Mini-4B-Instruct-Q5_K_M.gguf",
+      "ollama_name": "nemotron-mini",
+      "sha256": null,
+      "quality_stars": 4,
+      "cpu_ok": false,
+      "context_k": 128,
+      "profiles": ["web", "systems", "data", "uiux", "mobile", "finance", "game", "security"],
+      "tags": ["nvidia-recommended", "agentic", "fast", "128k", "ollama-featured"]
+    },
+
+    {
+      "_comment": "Google Gemma 4 — latest generation flagship model from Google DeepMind. Excellent instruction following, coding, and reasoning. Highlighted as Google partner pick. Best for NVIDIA 8–12 GB VRAM systems. Ollama is the preferred install path.",
+      "id": "gemma4-12b-q4",
+      "name": "Google Gemma 4 12B",
+      "description": "Google DeepMind's latest Gemma 4 generation. Outstanding at instruction following, coding tasks, and multi-step reasoning. Pull via Ollama (recommended) or download GGUF.",
+      "publisher": "Google",
+      "quantization": "Q4_K_M",
+      "parameters_b": 12,
+      "vram_min_gb": 7,
+      "vram_recommended_gb": 10,
+      "size_bytes": 7700000000,
+      "url": "https://huggingface.co/bartowski/google_gemma-4-12b-it-GGUF/resolve/main/google_gemma-4-12b-it-Q4_K_M.gguf",
+      "ollama_name": "gemma4:12b",
+      "sha256": null,
+      "quality_stars": 5,
+      "cpu_ok": false,
+      "context_k": 128,
+      "profiles": ["web", "systems", "data", "uiux", "mobile", "finance", "game", "security"],
+      "tags": ["google-recommended", "flagship", "128k", "ollama-featured"]
+    },
+
+    {
       "id": "qwen25-coder-1-5b-q8",
       "name": "Qwen 2.5 Coder 1.5B",
       "description": "Ultra-light coder. Best choice for CPU-only machines or GPUs below 4 GB. Handles simple edits and single-file tasks well.",
@@ -256,13 +298,23 @@
   ],
 
   "vram_to_model_id": {
-    "_comment": "The installer uses this map to pre-select a recommended model based on detected VRAM. Key is the VRAM tier ceiling in GB. 8GB cards (e.g. RTX 4050/3070) get the Q5 7B — Q8 7B needs 10GB+ to avoid OOM on laptops.",
+    "_comment": "Generic (non-NVIDIA) VRAM tier map. NVIDIA hardware uses nvidia_vram_to_model_id instead, which prefers NVIDIA Nemotron + Google Gemma 4.",
     "2":  "qwen25-coder-1-5b-q8",
     "4":  "qwen25-coder-3b-q8",
     "6":  "qwen25-coder-7b-q5",
     "8":  "qwen25-coder-7b-q5",
     "10": "qwen25-coder-7b-q8",
     "14": "qwen25-coder-14b-q4",
+    "20": "qwen25-coder-32b-q3",
+    "99": "qwen25-coder-32b-q4"
+  },
+
+  "nvidia_vram_to_model_id": {
+    "_comment": "NVIDIA-specific tier map. Prefers NVIDIA Nemotron Mini (4–7 GB) and Google Gemma 4 12B (8–11 GB) on NVIDIA hardware. Evaluated by the installer when vendor == 'nvidia'.",
+    "3":  "qwen25-coder-1-5b-q8",
+    "7":  "nemotron-mini-4b-q5",
+    "11": "gemma4-12b-q4",
+    "16": "qwen25-coder-14b-q4",
     "20": "qwen25-coder-32b-q3",
     "99": "qwen25-coder-32b-q4"
   },

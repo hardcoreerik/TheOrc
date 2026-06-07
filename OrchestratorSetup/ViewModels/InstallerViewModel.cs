@@ -107,15 +107,22 @@ public class InstallerViewModel : INotifyPropertyChanged
     /// <summary>
     /// Called after hardware detection (Phase F) and profile selection to
     /// pick the best model for the user's hardware and coding style.
-    /// Falls back to the 7B Q5 balanced model if nothing matches.
+    ///
+    /// Priority order:
+    ///   1. Profile override (security → Hermes, game → DeepSeek, etc.)
+    ///   2. NVIDIA hardware → NVIDIA Nemotron Mini (4–7 GB) or Google Gemma 4 (8–11 GB)
+    ///   3. Generic VRAM tier (non-NVIDIA or partner model not in manifest)
+    ///   4. Ultimate fallback — qwen25-coder-7b-q5
     /// </summary>
     public void UpdateRecommendedModel()
     {
         var vram    = State.DetectedVramGb;
         var profile = State.SelectedProfileId;
+        var vendor  = State.DetectedGpuVendor; // "nvidia", "amd", "intel", "none"
 
-        // 1. Check profile override table
         ModelEntry? pick = null;
+
+        // ── 1. Profile override ──────────────────────────────────────────────
         var overrideMap = new Dictionary<string, (int minVram, string modelId)>
         {
             ["security"] = (10, "hermes4-14b-q5"),
@@ -124,18 +131,49 @@ public class InstallerViewModel : INotifyPropertyChanged
             ["uiux"]     = (4,  "phi4-mini-q8"),
             ["mobile"]   = (4,  "phi4-mini-q8"),
         };
-
         if (overrideMap.TryGetValue(profile, out var ov) && vram >= ov.minVram)
             pick = AllModels.FirstOrDefault(m => m.Id == ov.modelId);
 
-        // 2. VRAM tier fallback
-        // NOTE: 8 GB tier → Q5 7B (not Q8) — Q8 7B needs 10 GB+, would OOM on 8 GB laptops
+        // ── 2. NVIDIA hardware — prefer NVIDIA + Google partner models ───────
+        // NVIDIA Nemotron Mini runs best on NVIDIA hardware (4–7 GB).
+        // Google Gemma 4 12B is excellent for NVIDIA users with 8–11 GB VRAM.
+        // For higher VRAM, fall through to the Qwen flagship tiers.
+        if (pick is null && vendor == "nvidia")
+        {
+            (int ceiling, string id)[] nvidiaTiers =
+            [
+                (3,  "qwen25-coder-1-5b-q8"),   // < 4 GB → tiny; Nemotron needs 4+ GB
+                (7,  "nemotron-mini-4b-q5"),     // 4–7 GB  → NVIDIA Nemotron Mini  ★
+                (11, "gemma4-12b-q4"),            // 8–11 GB → Google Gemma 4 12B    ★
+                (16, "qwen25-coder-14b-q4"),      // 12–16 GB → Qwen 14B
+                (20, "qwen25-coder-32b-q3"),      // 16–20 GB → Qwen 32B Q3
+                (99, "qwen25-coder-32b-q4"),      // 20+ GB  → Qwen 32B Q4
+            ];
+            foreach (var (ceiling, id) in nvidiaTiers)
+            {
+                if (vram <= ceiling)
+                {
+                    pick = AllModels.FirstOrDefault(m => m.Id == id);
+                    if (pick is not null) break;
+                }
+            }
+        }
+
+        // ── 3. Generic VRAM tier (non-NVIDIA, or partner model missing) ──────
+        // NOTE: 8 GB tier → Q5 7B (not Q8) — Q8 7B needs 10 GB+; would OOM on 8 GB laptops
         if (pick is null)
         {
-            var tiers = new[] { (2, "qwen25-coder-1-5b-q8"), (4, "qwen25-coder-3b-q8"),
-                                (6, "qwen25-coder-7b-q5"),   (8, "qwen25-coder-7b-q5"),
-                                (10,"qwen25-coder-7b-q8"),   (14,"qwen25-coder-14b-q4"),
-                                (20,"qwen25-coder-32b-q3"),  (99,"qwen25-coder-32b-q4") };
+            (int ceiling, string id)[] tiers =
+            [
+                (2,  "qwen25-coder-1-5b-q8"),
+                (4,  "qwen25-coder-3b-q8"),
+                (6,  "qwen25-coder-7b-q5"),
+                (8,  "qwen25-coder-7b-q5"),
+                (10, "qwen25-coder-7b-q8"),
+                (14, "qwen25-coder-14b-q4"),
+                (20, "qwen25-coder-32b-q3"),
+                (99, "qwen25-coder-32b-q4"),
+            ];
             foreach (var (ceiling, id) in tiers)
             {
                 if (vram <= ceiling)
@@ -146,7 +184,7 @@ public class InstallerViewModel : INotifyPropertyChanged
             }
         }
 
-        // 3. Ultimate fallback
+        // ── 4. Ultimate fallback ─────────────────────────────────────────────
         pick ??= AllModels.FirstOrDefault(m => m.Id == "qwen25-coder-7b-q5")
               ?? AllModels.FirstOrDefault();
 

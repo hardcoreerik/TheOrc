@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using OrchestratorSetup.Models;
 using OrchestratorSetup.ViewModels;
 
@@ -31,6 +32,24 @@ public partial class ModelPage : UserControl, IInstallerPage
             TxtRecSize.Text    = rec.SizeDisplay;
             TxtRecContext.Text = rec.ContextDisplay;
             TxtRecStars.Text   = rec.StarsDisplay;
+
+            // Partner badge (NVIDIA / GOOGLE) on recommended card
+            if (rec.HasPartnerBadge)
+            {
+                BdrPartnerBadge.Visibility  = Visibility.Visible;
+                TxtPartnerBadge.Text        = rec.PartnerBadge;
+                BdrPartnerBadge.Background  = new SolidColorBrush(
+                    (Color)ColorConverter.ConvertFromString(rec.PartnerBadgeBg));
+                TxtPartnerBadge.Foreground  = new SolidColorBrush(
+                    (Color)ColorConverter.ConvertFromString(rec.PartnerBadgeFg));
+            }
+            else
+            {
+                BdrPartnerBadge.Visibility  = Visibility.Collapsed;
+            }
+
+            // "Ollama recommended" chip for models with no direct GGUF URL
+            BdrRecOllamaOnly.Visibility = rec.OllamaOnly ? Visibility.Visible : Visibility.Collapsed;
         }
 
         // Populate the full list
