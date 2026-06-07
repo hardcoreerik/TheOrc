@@ -96,7 +96,7 @@ public class T06_BuildResearchTool : RecordingTestBase
         TestContext.WriteLine($"[T06] Executable: {exe}");
 
         _automation = new UIA3Automation();
-        _app        = Application.Launch(exe, $"--workspace \"{_workspace}\"");
+        _app        = Application.Launch(exe, $"--workspace \"{_workspace}\" --autotest");
         _win        = _app.GetMainWindow(_automation, TimeSpan.FromSeconds(20));
 
         Assert.That(_win, Is.Not.Null, "Main window did not appear within 20s.");
