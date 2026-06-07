@@ -111,6 +111,26 @@ public class OllamaClient
         catch { return false; }
     }
 
+    // ── Model lifecycle ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Tells Ollama to immediately evict <paramref name="model"/> from VRAM.
+    /// No-ops silently on non-Ollama backends or if the request fails.
+    /// Call this after a researcher phase completes when the researcher model
+    /// differs from the coder model, to free VRAM before the larger coder phase loads.
+    /// </summary>
+    public async Task EvictModelAsync(string model, CancellationToken ct = default)
+    {
+        if (Backend != InferenceBackend.Ollama) return;
+        try
+        {
+            var payload = JsonSerializer.Serialize(new { model, keep_alive = 0 });
+            var content = new StringContent(payload, Encoding.UTF8, "application/json");
+            await _http.PostAsync($"{_baseUrl}/api/generate", content, ct);
+        }
+        catch { /* non-fatal — VRAM pressure will evict naturally */ }
+    }
+
     // ── Streaming completion ─────────────────────────────────────────────────
 
     /// <summary>

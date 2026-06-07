@@ -42,9 +42,10 @@ public partial class SettingsPanel : UserControl
         TbOllamaHost.Text            = s.OllamaHost;
         TbDefaultModel.Text          = s.DefaultModel;
         TbMaxSteps.Text              = s.MaxStepsOverride.ToString();
-        TglAutoVerify.IsChecked      = s.AutoVerify;
-        TglAutoCheckpoint.IsChecked  = s.AutoCheckpoint;
-        TglAutoModelSwitch.IsChecked = s.AutoModelSwitch;
+        TglAutoVerify.IsChecked        = s.AutoVerify;
+        TglAutoCheckpoint.IsChecked    = s.AutoCheckpoint;
+        TglRestoreLastModel.IsChecked  = s.RestoreLastModel;
+        TglAutoModelSwitch.IsChecked   = s.AutoModelSwitch;
         TglCheckUpdates.IsChecked    = s.CheckForUpdates;
         TbDefaultWorkspace.Text      = s.DefaultWorkspace;
         TbStatus.Text                = "";
@@ -108,9 +109,10 @@ public partial class SettingsPanel : UserControl
         s.OllamaHost          = TbOllamaHost.Text.Trim().TrimEnd('/');
         s.DefaultModel        = TbDefaultModel.Text.Trim();
         s.MaxStepsOverride    = int.TryParse(TbMaxSteps.Text, out var n) ? Math.Max(0, n) : 0;
-        s.AutoVerify          = TglAutoVerify.IsChecked       == true;
-        s.AutoCheckpoint      = TglAutoCheckpoint.IsChecked   == true;
-        s.AutoModelSwitch     = TglAutoModelSwitch.IsChecked  == true;
+        s.AutoVerify          = TglAutoVerify.IsChecked         == true;
+        s.AutoCheckpoint      = TglAutoCheckpoint.IsChecked     == true;
+        s.RestoreLastModel    = TglRestoreLastModel.IsChecked   == true;
+        s.AutoModelSwitch     = TglAutoModelSwitch.IsChecked    == true;
         s.CheckForUpdates     = TglCheckUpdates.IsChecked     == true;
         s.DefaultWorkspace    = TbDefaultWorkspace.Text.Trim();
         s.OllamaParallelSlots = SelectedSlots();

@@ -1,0 +1,46 @@
+<Window x:Class="BenchmarkRunner.PromptViewer"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Benchmark Prompt"
+        Width="700" Height="520"
+        Background="#161616"
+        WindowStartupLocation="CenterOwner">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="TbTitle"
+                   Grid.Row="0"
+                   Foreground="#76B900" FontSize="13" FontWeight="Bold"
+                   FontFamily="Segoe UI" Margin="0,0,0,10"/>
+
+        <TextBox x:Name="TbPrompt"
+                 Grid.Row="1"
+                 Background="#111411" Foreground="#D4D4D4"
+                 BorderBrush="#2E3A2E" BorderThickness="1"
+                 FontFamily="Consolas" FontSize="12"
+                 Padding="10" TextWrapping="Wrap"
+                 AcceptsReturn="True" IsReadOnly="True"
+                 VerticalScrollBarVisibility="Auto"
+                 Margin="0,0,0,10"/>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="📋  Copy to Clipboard"
+                    Width="160" Height="30"
+                    Background="#1F3D00" Foreground="#76B900"
+                    BorderBrush="#2A5A00" BorderThickness="1"
+                    FontSize="12" Cursor="Hand"
+                    Click="BtnCopy_Click" Margin="0,0,8,0"/>
+            <Button Content="Close"
+                    Width="80" Height="30"
+                    Background="#1A1A1A" Foreground="#888888"
+                    BorderBrush="#333333" BorderThickness="1"
+                    FontSize="12" Cursor="Hand"
+                    Click="BtnClose_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

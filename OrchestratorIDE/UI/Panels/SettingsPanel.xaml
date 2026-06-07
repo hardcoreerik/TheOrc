@@ -112,9 +112,24 @@
                 <Border Style="{StaticResource SettingRowBorder}">
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Left">
-                            <TextBlock Text="Auto-switch model"
+                            <TextBlock Text="Restore last model on startup"
                                        Style="{StaticResource SettingLabel}"/>
-                            <TextBlock Text="Selects best model on startup; switches to security model for pentest workspaces"
+                            <TextBlock Text="On — reopens with the model you had last time. Off — always picks best available."
+                                       Style="{StaticResource SettingHint}"/>
+                        </StackPanel>
+                        <ToggleButton x:Name="TglRestoreLastModel"
+                                      DockPanel.Dock="Right"
+                                      Style="{StaticResource ToggleStyle}"
+                                      IsChecked="True"/>
+                    </DockPanel>
+                </Border>
+
+                <Border Style="{StaticResource SettingRowBorder}">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Left">
+                            <TextBlock Text="Auto-switch for security workspaces"
+                                       Style="{StaticResource SettingLabel}"/>
+                            <TextBlock Text="Switches to a security-focused model when a pentest workspace is detected"
                                        Style="{StaticResource SettingHint}"/>
                         </StackPanel>
                         <ToggleButton x:Name="TglAutoModelSwitch"

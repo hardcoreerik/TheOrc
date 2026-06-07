@@ -229,8 +229,26 @@ public partial class MainWindow : Window
             ActiveModel   = _session.ActiveModel,
             WorkspaceRoot = _session.WorkspaceRoot,
         };
-        _swarmPanel.StatusChanged            += msg => Dispatcher.Invoke(() => SetStatus(msg));
-        _swarmPanel.WorkspaceChangeRequested += () => Dispatcher.Invoke(_explorerPanel.OpenFolderDialog);
+        _swarmPanel.StatusChanged            += msg  => Dispatcher.Invoke(() => SetStatus(msg));
+        _swarmPanel.WorkspaceChangeRequested += ()   => Dispatcher.Invoke(_explorerPanel.OpenFolderDialog);
+        _swarmPanel.BossModelChanged         += model => Dispatcher.Invoke(() =>
+        {
+            _session.ActiveModel     = model;
+            _swarmPanel.ActiveModel  = model;
+            _settings.LastSwarmModel = model;
+            _settings.Save();
+            UpdateStatusBar();
+        });
+        _swarmPanel.WorkerModelChanged       += model => Dispatcher.Invoke(() =>
+        {
+            _settings.LastWorkerModel = model;
+            _settings.Save();
+        });
+        _swarmPanel.ResearcherModelChanged   += model => Dispatcher.Invoke(() =>
+        {
+            _settings.LastResearcherModel = model;
+            _settings.Save();
+        });
 
         // Chat panel — research-focused chat with web search tools
         _chatPanel = new UI.Panels.ChatPanel
@@ -287,14 +305,18 @@ public partial class MainWindow : Window
             _installedModels = models;
 
             // ── Model selection priority ──────────────────────────────────
-            // 1. LastUsedModel (DefaultModel) — if still installed, always restore it.
-            //    This ensures "the app opens with the model you left it on."
+            // 1. Per-mode last-used model — only when RestoreLastModel is enabled.
+            //    Falls back to DefaultModel for backwards compatibility.
             // 2. Quality-ordered preferred list (AutoModelSwitch fallback).
             // 3. Whatever is first in the installed list.
-            var lastUsed = _settings.DefaultModel;
+            var isSwarmMode = _settings.LastMode == "swarm";
+            var lastUsed = isSwarmMode
+                ? (_settings.LastSwarmModel.Length  > 0 ? _settings.LastSwarmModel  : _settings.DefaultModel)
+                : (_settings.LastSingleModel.Length > 0 ? _settings.LastSingleModel : _settings.DefaultModel);
             string best;
 
-            if (!string.IsNullOrEmpty(lastUsed) &&
+            if (_settings.RestoreLastModel &&
+                !string.IsNullOrEmpty(lastUsed) &&
                 models.Contains(lastUsed, StringComparer.OrdinalIgnoreCase))
             {
                 best = lastUsed;
@@ -1175,6 +1197,7 @@ public partial class MainWindow : Window
 
             _swarmPanel.ActiveModel   = _session.ActiveModel;
             _swarmPanel.WorkspaceRoot = _session.WorkspaceRoot;
+            _swarmPanel.SetModels(_installedModels, _session.ActiveModel, _settings.LastWorkerModel, _settings.LastResearcherModel);
             _swarmPanel.Refresh();
 
             MainContent.Content    = _swarmPanel;
@@ -1515,15 +1538,21 @@ public partial class MainWindow : Window
         _swarmPanel.Refresh();
         _chatPanel.SetActiveModel(modelId);
 
-        // Save to the correct per-mode bucket so switching modes doesn't
-        // clobber the other mode's last-used model.
-        if (saveToSingleSlot)
-            _settings.LastSingleModel = modelId;
-        else
-            _settings.LastSwarmModel  = modelId;
+        // Specialty/security models (hermes, heretic, uncensored) are session-only —
+        // don't persist them to any saved-model slot so they never become the default.
+        var isSpecialty = modelId.Contains("hermes",     StringComparison.OrdinalIgnoreCase)
+                       || modelId.Contains("heretic",    StringComparison.OrdinalIgnoreCase)
+                       || modelId.Contains("uncensored", StringComparison.OrdinalIgnoreCase);
 
-        // Keep DefaultModel in sync for backwards compatibility (installer etc.)
-        _settings.DefaultModel = modelId;
+        if (!isSpecialty)
+        {
+            if (saveToSingleSlot)
+                _settings.LastSingleModel = modelId;
+            else
+                _settings.LastSwarmModel  = modelId;
+
+            _settings.DefaultModel = modelId;
+        }
         _settings.Save();
 
         RegisterAllTools();

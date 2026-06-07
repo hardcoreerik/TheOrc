@@ -32,3 +32,8 @@ appsettings.local.json
 *.key
 *.pem
 *.pfx
+
+# Tools/ is tracked — BenchmarkRunner included for community use
+# Exclude only build artifacts within Tools/
+Tools/**/bin/
+Tools/**/obj/

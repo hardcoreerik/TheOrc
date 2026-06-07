@@ -1,21 +1,74 @@
-# TheOrc — Mac Port Roadmap
+# TheOrc — Cross-Platform Roadmap (Mac / Linux)
 
 > **Status:** Parked / Planning
 > **Last updated:** 2026-06-07
-> **Decision:** Proceed with Avalonia UI (single codebase, Windows + Mac + Linux from one repo).
-> **Constraint:** No Mac hardware available — use Windows dev machines + GitHub Actions macOS runners for validation.
+> **Decision (revised):** Docker + ASP.NET Core API backend + Blazor Server UI — replaces earlier Avalonia plan.
+> **Constraint:** No Mac hardware available. Docker approach removes this constraint — any OS with Docker can run TheOrc.
 
 ---
 
-## Why Avalonia (not a separate Mac app)
+## Architecture Decision: Docker + Blazor Server
 
-| Option | Decision |
-|--------|----------|
-| Avalonia UI (one codebase) | ✅ **Chosen** |
-| WPF stays + separate Swift/AppKit Mac app | ❌ Two codebases diverge forever |
-| Electron / Tauri | ❌ Rewrite entire UI in HTML/JS — too costly |
+| Option | Decision | Reason |
+|--------|----------|--------|
+| **Docker + Blazor Server** | ✅ **Chosen** | Backend already mostly platform-agnostic; Blazor keeps C#; browser UI is free cross-platform |
+| Avalonia UI migration | ❌ Superseded | Heavy XAML port; `FlowDocument` has no Avalonia equivalent; still Windows-first dev |
+| WPF stays + Swift/AppKit Mac app | ❌ | Two codebases diverge forever |
+| Electron / Tauri | ❌ | Full JS rewrite of UI |
 
-**Rationale:** TheOrc uses a fully custom dark theme — it doesn't rely on native WPF widgets. Avalonia's XAML dialect is ~90% compatible with WPF. The same dark theme, same step wizard, same card layout all translate with minor namespace changes. Linux support comes for free.
+**Rationale:** The agent loop, chat engine, web search tools, and Ollama client are already pure .NET with no WPF dependency. Extracting them into an ASP.NET Core API service is lower effort than porting 15+ WPF panels to Avalonia. Mac (and Linux) users run `docker compose up` and access TheOrc in a browser tab. The WPF Windows app continues shipping unchanged.
+
+---
+
+## Target Architecture
+
+```
+┌─────────────────────────────────┐
+│  Docker Container (Linux)       │
+│  ASP.NET Core API + SignalR     │
+│  - AgentLoop                    │
+│  - ChatEngine + tools           │
+│  - OllamaClient proxy           │
+│  - File system / workspace      │
+│  - Streaming via WebSocket      │
+└────────────┬────────────────────┘
+             │ HTTP / WebSocket (localhost)
+┌────────────▼────────────────────┐
+│  Blazor Server UI  (browser)    │
+│  - Swarm board                  │
+│  - Chat panel                   │
+│  - File explorer                │
+│  - Settings / first-run         │
+└─────────────────────────────────┘
+```
+
+Mac/Linux user experience: `docker compose up`, open `http://localhost:5000`. Done.
+Windows users continue using the native WPF app — no change.
+
+---
+
+## What Moves Where
+
+| Current Component | Docker Fate |
+|---|---|
+| `Core/AgentLoop.cs` | ✅ Moves to API — zero changes |
+| `Research/ChatEngine.cs` | ✅ Moves to API — zero changes |
+| `Research/WebSearchTool.cs` | ✅ Moves to API — zero changes |
+| `Research/FetchPageTool.cs` | ✅ Moves to API — zero changes |
+| `Core/OllamaClient.cs` | ✅ Moves to API — zero changes |
+| `Core/AppSettings.cs` | ✅ Moves to API — minor path abstraction |
+| `UI/Panels/*.xaml` | 🔄 Replaced by Blazor components |
+| `Research/MarkdownFlowDocument.cs` | 🗑 Deleted — browser renders markdown natively |
+| WMI hardware detection | 🔄 Replace with `/proc` or `system_profiler` in container |
+| WScript.Shell shortcuts | 🗑 Not needed — no desktop shortcuts in a web app |
+
+---
+
+## Previous Avalonia Plan
+
+The detailed Avalonia migration plan (phases, XAML migration notes, CI runners) is preserved below for reference in case the Docker approach is ever reconsidered.
+
+---
 
 ---
 

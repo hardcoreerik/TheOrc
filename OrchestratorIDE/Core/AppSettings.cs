@@ -64,18 +64,37 @@ public class AppSettings
     public string LastSingleModel { get; set; } = "";
 
     /// <summary>
-    /// Last model used in Swarm mode. Restored when switching to Swarm.
-    /// Defaults to nemotron on first use because that is the only swarm-capable model in v1.
+    /// Last orchestrator (boss) model used in Swarm mode.
+    /// This is the planning + merging model — typically a larger, smarter model.
     /// </summary>
     public string LastSwarmModel  { get; set; } = "";
+
+    /// <summary>
+    /// Last coder/uidev worker model used in Swarm mode.
+    /// Defaults to the boss model when empty.
+    /// Typically a smaller, faster model (e.g. nemotron-3-nano:4b-q8_0).
+    /// </summary>
+    public string LastWorkerModel { get; set; } = "";
+
+    /// <summary>
+    /// Researcher role model. Can be a lower-quant variant of the worker model to save
+    /// VRAM during the research phase. Ollama evicts it before the coder phase loads.
+    /// Empty = use the same model as LastWorkerModel.
+    /// </summary>
+    public string LastResearcherModel { get; set; } = "";
     public int    MaxStepsOverride { get; set; } = 0;   // 0 = use model profile default
     public bool   AutoVerify    { get; set; } = true;
     public bool   AutoCheckpoint { get; set; } = true;  // git commit before every Execute run
 
     /// <summary>
-    /// When true, TheOrc automatically selects the best available model on startup
+    /// When true, restores the model you had last time on startup (per-mode: single or swarm).
+    /// When false, always auto-selects the best available model from the preferred list.
+    /// </summary>
+    public bool   RestoreLastModel { get; set; } = true;
+
+    /// <summary>
+    /// When true, auto-selects the best model from the preferred list on first run (no saved model),
     /// and switches to a security-focused model when a pentest workspace is detected.
-    /// Disable to always stay on the manually selected model.
     /// </summary>
     public bool   AutoModelSwitch { get; set; } = true;
 

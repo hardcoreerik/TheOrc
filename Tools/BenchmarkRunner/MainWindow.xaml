@@ -1,0 +1,527 @@
+<Window x:Class="BenchmarkRunner.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="⚡ TheOrc Benchmark Runner"
+        Width="1100" Height="720"
+        MinWidth="900" MinHeight="580"
+        Background="#161616"
+        WindowStartupLocation="CenterScreen">
+
+    <Window.Resources>
+        <!-- Section label -->
+        <Style x:Key="SectionLabel" TargetType="TextBlock">
+            <Setter Property="Foreground"  Value="#76B900"/>
+            <Setter Property="FontSize"    Value="10"/>
+            <Setter Property="FontWeight"  Value="Bold"/>
+            <Setter Property="FontFamily"  Value="Consolas"/>
+            <Setter Property="Margin"      Value="0,0,0,4"/>
+        </Style>
+
+        <!-- Field hint -->
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground"  Value="#555555"/>
+            <Setter Property="FontSize"    Value="10"/>
+            <Setter Property="Margin"      Value="0,2,0,8"/>
+        </Style>
+
+        <!-- Dark combobox -->
+        <Style x:Key="DarkCombo" TargetType="ComboBox">
+            <Setter Property="Background"     Value="#1A1A1A"/>
+            <Setter Property="Foreground"     Value="#D4D4D4"/>
+            <Setter Property="BorderBrush"    Value="#2E3A2E"/>
+            <Setter Property="FontSize"       Value="12"/>
+            <Setter Property="FontFamily"     Value="Segoe UI"/>
+            <Setter Property="Padding"        Value="6,4"/>
+            <Setter Property="Height"         Value="28"/>
+        </Style>
+
+        <!-- Dark textbox -->
+        <Style x:Key="DarkTextBox" TargetType="TextBox">
+            <Setter Property="Background"     Value="#1A1A1A"/>
+            <Setter Property="Foreground"     Value="#D4D4D4"/>
+            <Setter Property="BorderBrush"    Value="#2E3A2E"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize"       Value="12"/>
+            <Setter Property="FontFamily"     Value="Segoe UI"/>
+            <Setter Property="Padding"        Value="6,4"/>
+            <Setter Property="Height"         Value="28"/>
+            <Setter Property="CaretBrush"     Value="#76B900"/>
+        </Style>
+
+        <!-- Slot toggle button -->
+        <Style x:Key="SlotBtn" TargetType="ToggleButton">
+            <Setter Property="Width"          Value="32"/>
+            <Setter Property="Height"         Value="28"/>
+            <Setter Property="Margin"         Value="0,0,4,0"/>
+            <Setter Property="Background"     Value="#1A1A1A"/>
+            <Setter Property="Foreground"     Value="#888888"/>
+            <Setter Property="BorderBrush"    Value="#333333"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize"       Value="12"/>
+            <Setter Property="FontFamily"     Value="Consolas"/>
+            <Setter Property="FontWeight"     Value="SemiBold"/>
+            <Setter Property="Cursor"         Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background"  Value="#1F3D00"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#76B900"/>
+                                <Setter Property="Foreground" Value="#76B900"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#252525"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Trust pill button -->
+        <Style x:Key="TrustPill" TargetType="ToggleButton" BasedOn="{StaticResource SlotBtn}">
+            <Setter Property="Width"   Value="Auto"/>
+            <Setter Property="Padding" Value="10,0"/>
+        </Style>
+
+        <!-- Primary action button -->
+        <Style x:Key="ActionBtn" TargetType="Button">
+            <Setter Property="Background"     Value="#1F3D00"/>
+            <Setter Property="Foreground"     Value="#76B900"/>
+            <Setter Property="BorderBrush"    Value="#2A5A00"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize"       Value="12"/>
+            <Setter Property="FontWeight"     Value="SemiBold"/>
+            <Setter Property="Cursor"         Value="Hand"/>
+            <Setter Property="Height"         Value="32"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#2A5A00"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#76B900"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Background" Value="#1A1A1A"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#333333"/>
+                                <Setter Property="Foreground" Value="#444444"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Secondary button -->
+        <Style x:Key="SecondaryBtn" TargetType="Button" BasedOn="{StaticResource ActionBtn}">
+            <Setter Property="Background"  Value="#1A1A1A"/>
+            <Setter Property="Foreground"  Value="#888888"/>
+            <Setter Property="BorderBrush" Value="#333333"/>
+        </Style>
+
+        <!-- Check item row -->
+        <Style x:Key="CheckRow" TargetType="DockPanel">
+            <Setter Property="Margin" Value="0,2,0,2"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="44"/>   <!-- Header -->
+            <RowDefinition Height="*"/>    <!-- Content -->
+            <RowDefinition Height="28"/>   <!-- Status bar -->
+        </Grid.RowDefinitions>
+
+        <!-- ── Header ──────────────────────────────────────────────────────── -->
+        <Border Grid.Row="0" Background="#0E120E"
+                BorderBrush="#1E2E1E" BorderThickness="0,0,0,1">
+            <DockPanel Margin="16,0">
+                <TextBlock Text="⚡  TheOrc Benchmark Runner"
+                           Foreground="#76B900" FontSize="14" FontWeight="Bold"
+                           FontFamily="Segoe UI" VerticalAlignment="Center"/>
+                <TextBlock x:Name="TbHeaderStatus"
+                           DockPanel.Dock="Right"
+                           Foreground="#555555" FontSize="11"
+                           VerticalAlignment="Center"/>
+            </DockPanel>
+        </Border>
+
+        <!-- ── Main content ────────────────────────────────────────────────── -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="320"/>  <!-- Config panel -->
+                <ColumnDefinition Width="5"/>    <!-- Splitter -->
+                <ColumnDefinition Width="*"/>    <!-- Results + history -->
+            </Grid.ColumnDefinitions>
+
+            <!-- Config panel -->
+            <Border Grid.Column="0" Background="#111411"
+                    BorderBrush="#1E2A1E" BorderThickness="0,0,1,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="16,14,16,14">
+
+                        <!-- Benchmark -->
+                        <TextBlock Style="{StaticResource SectionLabel}" Text="BENCHMARK"/>
+                        <ComboBox x:Name="CbBenchmark"
+                                  Style="{StaticResource DarkCombo}"
+                                  SelectionChanged="CbBenchmark_SelectionChanged"/>
+                        <TextBlock x:Name="TbBenchmarkHint" Style="{StaticResource Hint}"/>
+
+                        <!-- Boss model -->
+                        <TextBlock Style="{StaticResource SectionLabel}" Text="BOSS MODEL  (orchestrator · planner · merger)"/>
+                        <ComboBox x:Name="CbBossModel"
+                                  Style="{StaticResource DarkCombo}"
+                                  IsEditable="True"
+                                  StaysOpenOnEdit="True"/>
+                        <TextBlock Style="{StaticResource Hint}" Text="Planning + merging — use a larger, smarter model here"/>
+
+                        <!-- Coder / UIDev model -->
+                        <TextBlock Style="{StaticResource SectionLabel}" Text="CODER MODEL  (coder · ui dev)"/>
+                        <ComboBox x:Name="CbWorkerModel"
+                                  Style="{StaticResource DarkCombo}"
+                                  IsEditable="True"
+                                  StaysOpenOnEdit="True"/>
+                        <TextBlock Style="{StaticResource Hint}" Text="Quality model — Q8 recommended, runs up to 3 concurrent"/>
+
+                        <!-- Researcher model -->
+                        <TextBlock Style="{StaticResource SectionLabel}" Text="RESEARCHER MODEL  (lower-quant OK)"/>
+                        <ComboBox x:Name="CbResearcherModel"
+                                  Style="{StaticResource DarkCombo}"
+                                  IsEditable="True"
+                                  StaysOpenOnEdit="True"/>
+                        <TextBlock Style="{StaticResource Hint}" Text="Evicted before coder phase — saves VRAM on 16 GB GPU"/>
+
+                        <!-- Slots -->
+                        <TextBlock Style="{StaticResource SectionLabel}" Text="OLLAMA_NUM_PARALLEL"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <ToggleButton x:Name="BtnSlot1" Content="1" Style="{StaticResource SlotBtn}" Tag="1" Click="BtnSlot_Click"/>
+                            <ToggleButton x:Name="BtnSlot2" Content="2" Style="{StaticResource SlotBtn}" Tag="2" Click="BtnSlot_Click"/>
+                            <ToggleButton x:Name="BtnSlot3" Content="3" Style="{StaticResource SlotBtn}" Tag="3" Click="BtnSlot_Click" IsChecked="True"/>
+                            <ToggleButton x:Name="BtnSlot4" Content="4" Style="{StaticResource SlotBtn}" Tag="4" Click="BtnSlot_Click"/>
+                            <TextBlock x:Name="TbSlotsHint" Text="Swarm needs ≥ 3"
+                                       Foreground="#555555" FontSize="10"
+                                       VerticalAlignment="Center" Margin="8,0,0,0"/>
+                        </StackPanel>
+
+                        <!-- Trust level -->
+                        <TextBlock Style="{StaticResource SectionLabel}" Text="TRUST LEVEL"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <ToggleButton x:Name="BtnTrustPlan"     Content="Plan"     Style="{StaticResource TrustPill}" Tag="Plan"     Click="BtnTrust_Click"/>
+                            <ToggleButton x:Name="BtnTrustGuarded"  Content="Guarded"  Style="{StaticResource TrustPill}" Tag="Guarded"  Click="BtnTrust_Click" Margin="4,0,0,0"/>
+                            <ToggleButton x:Name="BtnTrustStandard" Content="Standard" Style="{StaticResource TrustPill}" Tag="Standard" Click="BtnTrust_Click" IsChecked="True" Margin="4,0,0,0"/>
+                            <ToggleButton x:Name="BtnTrustFullAuto" Content="FullAuto" Style="{StaticResource TrustPill}" Tag="FullAuto" Click="BtnTrust_Click" Margin="4,0,0,0"/>
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource Hint}" Text="Standard = auto file-write, confirms shell commands"/>
+
+                        <!-- Workspace -->
+                        <TextBlock Style="{StaticResource SectionLabel}" Text="WORKSPACE FOLDER"/>
+                        <DockPanel Margin="0,0,0,4">
+                            <Button DockPanel.Dock="Right" Content="Browse"
+                                    Style="{StaticResource SecondaryBtn}"
+                                    Width="60" Margin="4,0,0,0"
+                                    Click="BtnBrowse_Click"/>
+                            <TextBox x:Name="TbWorkspace"
+                                     Style="{StaticResource DarkTextBox}"
+                                     ToolTip="Swarm writes .orc/swarm/runs/ here"/>
+                        </DockPanel>
+                        <TextBlock Style="{StaticResource Hint}" Text="Leave blank to use TheOrc's existing workspace setting"/>
+
+                        <Separator Background="#1E2A1E" Margin="0,8,0,12"/>
+
+                        <!-- Action buttons -->
+                        <Button x:Name="BtnConfigure"
+                                Content="⚙  Configure Settings"
+                                Style="{StaticResource SecondaryBtn}"
+                                Margin="0,0,0,6"
+                                Click="BtnConfigure_Click"/>
+
+                        <Button x:Name="BtnLaunch"
+                                Content="▶  Configure + Launch TheOrc"
+                                Style="{StaticResource ActionBtn}"
+                                Margin="0,0,0,6"
+                                Click="BtnLaunch_Click"/>
+
+                        <Button x:Name="BtnScan"
+                                Content="🔍  Scan Workspace Results"
+                                Style="{StaticResource SecondaryBtn}"
+                                Margin="0,0,0,6"
+                                Click="BtnScan_Click"/>
+
+                        <Button x:Name="BtnViewPrompt"
+                                Content="📋  View / Copy Benchmark Prompt"
+                                Style="{StaticResource SecondaryBtn}"
+                                Click="BtnViewPrompt_Click"/>
+
+                        <Separator Background="#1E2A1E" Margin="0,12,0,12"/>
+
+                        <!-- Auto-score display -->
+                        <TextBlock Style="{StaticResource SectionLabel}" Text="LAST SCAN SCORE"/>
+                        <Border x:Name="BdrScore" Background="#0A0E0A"
+                                BorderBrush="#1E2A1E" BorderThickness="1"
+                                CornerRadius="6" Padding="12,8" Margin="0,0,0,8">
+                            <StackPanel>
+                                <TextBlock x:Name="TbAutoScore"
+                                           Text="—  run scan after TheOrc completes"
+                                           Foreground="#555555" FontSize="12"
+                                           TextWrapping="Wrap"/>
+                                <StackPanel x:Name="SpScoreBreakdown" Visibility="Collapsed" Margin="0,8,0,0"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Manual override + notes -->
+                        <TextBlock Style="{StaticResource SectionLabel}" Text="MANUAL SCORE OVERRIDE  (optional)"/>
+                        <DockPanel Margin="0,0,0,8">
+                            <TextBlock DockPanel.Dock="Right" Text="/100"
+                                       Foreground="#555555" FontSize="12"
+                                       VerticalAlignment="Center" Margin="4,0,0,0"/>
+                            <TextBox x:Name="TbManualScore"
+                                     Style="{StaticResource DarkTextBox}"
+                                     Width="60" DockPanel.Dock="Right"
+                                     HorizontalAlignment="Right"
+                                     Margin="4,0,0,0"/>
+                        </DockPanel>
+
+                        <TextBlock Style="{StaticResource SectionLabel}" Text="NOTES"/>
+                        <TextBox x:Name="TbNotes"
+                                 Background="#1A1A1A" Foreground="#D4D4D4"
+                                 BorderBrush="#2E3A2E" BorderThickness="1"
+                                 FontSize="11" FontFamily="Segoe UI"
+                                 Padding="6,4" MinHeight="60"
+                                 TextWrapping="Wrap" AcceptsReturn="True"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Margin="0,0,0,8"/>
+
+                        <Button x:Name="BtnSaveRun"
+                                Content="💾  Save Run Result"
+                                Style="{StaticResource ActionBtn}"
+                                Click="BtnSaveRun_Click"/>
+
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <GridSplitter Grid.Column="1" Width="5"
+                          Background="#1E2A1E"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"/>
+
+            <!-- Right panel: tab control -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>     <!-- Tabs -->
+                    <RowDefinition Height="Auto"/>  <!-- Check list (collapsible) -->
+                </Grid.RowDefinitions>
+
+                <TabControl Grid.Row="0"
+                            Background="#111411"
+                            BorderBrush="#1E2A1E">
+                    <TabControl.Resources>
+                        <Style TargetType="TabItem">
+                            <Setter Property="Background"  Value="#0E120E"/>
+                            <Setter Property="Foreground"  Value="#888888"/>
+                            <Setter Property="FontSize"    Value="11"/>
+                            <Setter Property="Padding"     Value="12,6"/>
+                            <Setter Property="BorderBrush" Value="#1E2A1E"/>
+                        </Style>
+                    </TabControl.Resources>
+
+                    <!-- Run History tab -->
+                    <TabItem Header="📊  Run History">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- Toolbar -->
+                            <Border Grid.Row="0" Background="#0E120E"
+                                    BorderBrush="#1E2A1E" BorderThickness="0,0,0,1"
+                                    Padding="10,6">
+                                <DockPanel>
+                                    <TextBlock Text="All benchmark runs — click a row to reload its config"
+                                               Foreground="#555555" FontSize="10"
+                                               VerticalAlignment="Center"/>
+                                    <Button DockPanel.Dock="Right" Content="🗑  Clear History"
+                                            Style="{StaticResource SecondaryBtn}"
+                                            Padding="8,0" Height="24" FontSize="10"
+                                            Click="BtnClearHistory_Click"/>
+                                </DockPanel>
+                            </Border>
+
+                            <DataGrid x:Name="DgHistory"
+                                      Grid.Row="1"
+                                      Background="#111411"
+                                      Foreground="#D4D4D4"
+                                      BorderBrush="#1E2A1E" BorderThickness="0"
+                                      GridLinesVisibility="Horizontal"
+                                      HorizontalGridLinesBrush="#1A1A1A"
+                                      RowBackground="#111411"
+                                      AlternatingRowBackground="#141814"
+                                      HeadersVisibility="Column"
+                                      AutoGenerateColumns="False"
+                                      CanUserAddRows="False"
+                                      IsReadOnly="True"
+                                      FontSize="11"
+                                      SelectionMode="Single"
+                                      SelectionChanged="DgHistory_SelectionChanged">
+                                <DataGrid.ColumnHeaderStyle>
+                                    <Style TargetType="DataGridColumnHeader">
+                                        <Setter Property="Background"   Value="#0E120E"/>
+                                        <Setter Property="Foreground"   Value="#76B900"/>
+                                        <Setter Property="FontSize"     Value="10"/>
+                                        <Setter Property="FontWeight"   Value="Bold"/>
+                                        <Setter Property="FontFamily"   Value="Consolas"/>
+                                        <Setter Property="Padding"      Value="8,6"/>
+                                        <Setter Property="BorderBrush"  Value="#1E2A1E"/>
+                                        <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                    </Style>
+                                </DataGrid.ColumnHeaderStyle>
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="TIME"       Binding="{Binding StartedAt, StringFormat='{}{0:MM-dd HH:mm}'}" Width="90"/>
+                                    <DataGridTextColumn Header="BENCHMARK"  Binding="{Binding BenchmarkName}" Width="160"/>
+                                    <DataGridTextColumn Header="BOSS"       Binding="{Binding BossModel}"     Width="160"/>
+                                    <DataGridTextColumn Header="WORKERS"    Binding="{Binding WorkerModel}"   Width="160"/>
+                                    <DataGridTextColumn Header="SLOTS"      Binding="{Binding Slots}"         Width="50"/>
+                                    <DataGridTextColumn Header="SCORE"      Binding="{Binding DisplayScore}"  Width="55"/>
+                                    <DataGridTextColumn Header="STATUS"     Binding="{Binding Status}"        Width="70"/>
+                                    <DataGridTextColumn Header="NOTES"      Binding="{Binding Notes}"         Width="*"/>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+                    </TabItem>
+
+                    <!-- File Check tab -->
+                    <TabItem Header="📂  Result Checker">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <Border Grid.Row="0" Background="#0E120E"
+                                    BorderBrush="#1E2A1E" BorderThickness="0,0,0,1"
+                                    Padding="10,6">
+                                <TextBlock x:Name="TbScanPath"
+                                           Text="No scan yet — click 🔍 Scan Workspace Results after a run completes"
+                                           Foreground="#555555" FontSize="10"/>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="1"
+                                          VerticalScrollBarVisibility="Auto"
+                                          Padding="14,10">
+                                <StackPanel x:Name="SpChecklist"/>
+                            </ScrollViewer>
+                        </Grid>
+                    </TabItem>
+
+                    <!-- Quick Reference tab -->
+                    <TabItem Header="📋  Model Matrix">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,12">
+                            <StackPanel>
+                                <TextBlock Text="TEST MATRIX — RTX 5070 Ti 16GB   (Boss | Coder | Researcher)"
+                                           Foreground="#76B900" FontSize="11" FontWeight="Bold"
+                                           FontFamily="Consolas" Margin="0,0,0,10"/>
+
+                                <TextBlock Text="── Phase 1: Boss Quality ──────────────────────────────────────────"
+                                           Foreground="#444444" FontFamily="Consolas" FontSize="10" Margin="0,0,0,6"/>
+                                <TextBlock Text="R1  qwen2.5-coder:14b | nano Q8  | nano Q8    CleanCSV  ~14.1 GB"
+                                           Foreground="#A8CC80" FontFamily="Consolas" FontSize="11" Margin="0,0,0,4"/>
+                                <TextBlock Text="R2  gemma4:12b         | nano Q8  | nano Q8    CleanCSV  ~12.6 GB"
+                                           Foreground="#A8CC80" FontFamily="Consolas" FontSize="11" Margin="0,0,0,4"/>
+                                <TextBlock Text="R3  nano Q8 (boss)     | nano Q8  | nano Q8    CleanCSV  ~ 4.3 GB  (nano×nano)"
+                                           Foreground="#A8CC80" FontFamily="Consolas" FontSize="11" Margin="0,0,0,4"/>
+                                <TextBlock Text="R4  winner R1/R2       | nano Q8  | nano Q8    BugDex    harder bench"
+                                           Foreground="#A8CC80" FontFamily="Consolas" FontSize="11" Margin="0,0,0,14"/>
+
+                                <TextBlock Text="── Phase 2: Quant Floor (same boss as R1) ─────────────────────────"
+                                           Foreground="#444444" FontFamily="Consolas" FontSize="10" Margin="0,0,0,6"/>
+                                <TextBlock Text="R5  qwen2.5-coder:14b | nano Q8  | nano Q6_K  CleanCSV  ~13.5 GB"
+                                           Foreground="#88AACC" FontFamily="Consolas" FontSize="11" Margin="0,0,0,4"/>
+                                <TextBlock Text="R6  qwen2.5-coder:14b | nano Q8  | nano Q4_KM CleanCSV  ~13.1 GB"
+                                           Foreground="#88AACC" FontFamily="Consolas" FontSize="11" Margin="0,0,0,4"/>
+                                <TextBlock Text="   → compare R5/R6 scores to R1: if within 10pts, Q4 researcher = safe"
+                                           Foreground="#444444" FontFamily="Consolas" FontSize="10" Margin="0,0,0,14"/>
+
+                                <TextBlock Text="── Phase 3: Nemotron-Nano 8B as boss ──────────────────────────────"
+                                           Foreground="#444444" FontFamily="Consolas" FontSize="10" Margin="0,0,0,6"/>
+                                <TextBlock Text="R7  nano-8b Q4_KM      | nano Q8  | nano Q4_KM CleanCSV  ~9.3 GB  headroom!"
+                                           Foreground="#CC9933" FontFamily="Consolas" FontSize="11" Margin="0,0,0,4"/>
+                                <TextBlock Text="   → 8B Nemotron boss: smarter than nano but smaller than 14B"
+                                           Foreground="#444444" FontFamily="Consolas" FontSize="10" Margin="0,0,0,16"/>
+
+                                <TextBlock Text="BENCHMARK ORDER"
+                                           Foreground="#76B900" FontSize="11" FontWeight="Bold"
+                                           FontFamily="Consolas" Margin="0,0,0,8"/>
+                                <TextBlock Text="01  CleanCSV       — Start here. Small, fast, deterministic."
+                                           Foreground="#7A8A6A" FontFamily="Consolas" FontSize="11" Margin="0,0,0,4"/>
+                                <TextBlock Text="02  Log Analyzer   — Parser test. Verify counts against known log."
+                                           Foreground="#7A8A6A" FontFamily="Consolas" FontSize="11" Margin="0,0,0,4"/>
+                                <TextBlock Text="03  BugDex         — GUI + data model. Best overall benchmark."
+                                           Foreground="#7A8A6A" FontFamily="Consolas" FontSize="11" Margin="0,0,0,4"/>
+                                <TextBlock Text="04  GuardScan      — Defensive security. Use standard models."
+                                           Foreground="#7A8A6A" FontFamily="Consolas" FontSize="11" Margin="0,0,0,4"/>
+                                <TextBlock Text="05  MP3 Player     — Do not start here. Compatibility-heavy."
+                                           Foreground="#7A8A6A" FontFamily="Consolas" FontSize="11" Margin="0,0,0,16"/>
+
+                                <TextBlock Text="SCORING (100 points)"
+                                           Foreground="#76B900" FontSize="11" FontWeight="Bold"
+                                           FontFamily="Consolas" Margin="0,0,0,8"/>
+                                <TextBlock Text="25  Delegation quality (plan.json, agent files, distinct roles)"
+                                           Foreground="#7A8A6A" FontFamily="Consolas" FontSize="11" Margin="0,0,0,4"/>
+                                <TextBlock Text="30  Project completeness (README, TEST_PLAN, source files, samples)"
+                                           Foreground="#7A8A6A" FontFamily="Consolas" FontSize="11" Margin="0,0,0,4"/>
+                                <TextBlock Text="25  Reliability (JSON parses, no failed agents, no bypass)"
+                                           Foreground="#7A8A6A" FontFamily="Consolas" FontSize="11" Margin="0,0,0,4"/>
+                                <TextBlock Text="20  Usability and docs (run + test instructions clear)"
+                                           Foreground="#7A8A6A" FontFamily="Consolas" FontSize="11" Margin="0,0,0,16"/>
+
+                                <TextBlock Text="WHAT TO WATCH FOR"
+                                           Foreground="#76B900" FontSize="11" FontWeight="Bold"
+                                           FontFamily="Consolas" Margin="0,0,0,8"/>
+                                <TextBlock TextWrapping="Wrap" Foreground="#7A8A6A" FontFamily="Consolas" FontSize="11">
+Does plan.json exist? Agent count match task complexity? Files land in workspace?&#x0a;Swarm blocked without nemotron? No silent dependency install?&#x0a;For nano×nano: does 4B boss produce real delegation reasoning or template responses?
+                                </TextBlock>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </TabItem>
+                </TabControl>
+            </Grid>
+        </Grid>
+
+        <!-- ── Status bar ───────────────────────────────────────────────────── -->
+        <Border Grid.Row="2" Background="#0A0E0A"
+                BorderBrush="#1E2A1E" BorderThickness="0,1,0,0"
+                Padding="14,0">
+            <DockPanel>
+                <TextBlock x:Name="TbStatus"
+                           Foreground="#555555" FontSize="10"
+                           FontFamily="Segoe UI"
+                           VerticalAlignment="Center"
+                           Text="Ready — select a benchmark and model combination, then click Configure + Launch."/>
+                <TextBlock x:Name="TbSettingsPath"
+                           DockPanel.Dock="Right"
+                           Foreground="#333333" FontSize="9"
+                           FontFamily="Consolas"
+                           VerticalAlignment="Center"/>
+            </DockPanel>
+        </Border>
+
+    </Grid>
+</Window>

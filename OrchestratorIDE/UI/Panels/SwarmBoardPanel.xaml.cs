@@ -26,6 +26,34 @@ public partial class SwarmBoardPanel : UserControl
     public string        ActiveModel   { get; set; } = "";
     public string?       WorkspaceRoot { get; set; }
 
+    // ── Worker models (separate from boss/orchestrator model) ────────────────
+    private string _workerModel     = "";  // Coder + UIDev
+    private string _researcherModel = "";  // Researcher (may differ for VRAM savings)
+
+    /// <summary>
+    /// Populates the coder and researcher model dropdowns from the installed model list.
+    /// Call this whenever the installed models change.
+    /// </summary>
+    public void SetModels(IReadOnlyList<string> models, string activeModel,
+        string workerModel, string researcherModel = "")
+    {
+        void Populate(System.Windows.Controls.ComboBox cb, string saved)
+        {
+            cb.Items.Clear();
+            foreach (var m in models) cb.Items.Add(m);
+            var idx = Enumerable.Range(0, models.Count)
+                                .FirstOrDefault(i => models[i] == saved, -1);
+            cb.SelectedIndex = idx >= 0 ? idx : (models.Count > 0 ? 0 : -1);
+        }
+
+        Populate(CbBossModel,       activeModel);
+        Populate(CbWorkerModel,     workerModel);
+        Populate(CbResearcherModel, string.IsNullOrWhiteSpace(researcherModel) ? workerModel : researcherModel);
+
+        _workerModel     = workerModel;
+        _researcherModel = string.IsNullOrWhiteSpace(researcherModel) ? workerModel : researcherModel;
+    }
+
     // ── Runtime state ─────────────────────────────────────────────────────────
     private SwarmSession?             _session;
     private string                    _activeTab  = "boss";
@@ -64,6 +92,9 @@ public partial class SwarmBoardPanel : UserControl
 
     // ── Events ────────────────────────────────────────────────────────────────
     public event Action<string>? StatusChanged;
+    public event Action<string>? BossModelChanged;        // fired when user picks a different boss/orchestrator model
+    public event Action<string>? WorkerModelChanged;      // fired when user picks a different coder model
+    public event Action<string>? ResearcherModelChanged;  // fired when user picks a different researcher model
 
     /// <summary>
     /// Fired when the user clicks "Open Folder" on the workspace warning banner.
@@ -107,9 +138,11 @@ public partial class SwarmBoardPanel : UserControl
 
     private bool IsCapable(out string reason)
     {
-        if (!ActiveModel.Contains("nemotron", StringComparison.OrdinalIgnoreCase))
+        // Gate checks the worker (coder) model, not the boss — nemotron is the worker.
+        var workerToCheck = string.IsNullOrWhiteSpace(_workerModel) ? ActiveModel : _workerModel;
+        if (!workerToCheck.Contains("nemotron", StringComparison.OrdinalIgnoreCase))
         {
-            reason = "Swarm requires NVIDIA Nemotron Mini.\nSwitch model in the toolbar model picker.";
+            reason = "Swarm requires an NVIDIA Nemotron model as the Coder worker.\nSet the Coder Model picker to a nemotron variant.";
             return false;
         }
         var slots = OllamaParallelHelper.DetectCurrentSlots();
@@ -169,6 +202,38 @@ public partial class SwarmBoardPanel : UserControl
             btn.BorderBrush  = new SolidColorBrush(isActive
                 ? Color.FromRgb(0x76, 0xB9, 0x00)
                 : Color.FromRgb(0x33, 0x33, 0x33));
+        }
+    }
+
+    private void CbBossModel_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var model = CbBossModel.SelectedItem as string;
+        if (!string.IsNullOrEmpty(model))
+        {
+            ActiveModel = model;
+            BossModelChanged?.Invoke(model);
+            RefreshGate();
+        }
+    }
+
+    private void CbWorkerModel_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var model = CbWorkerModel.SelectedItem as string;
+        if (!string.IsNullOrEmpty(model))
+        {
+            _workerModel = model;
+            WorkerModelChanged?.Invoke(model);
+            RefreshGate();
+        }
+    }
+
+    private void CbResearcherModel_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var model = CbResearcherModel.SelectedItem as string;
+        if (!string.IsNullOrEmpty(model))
+        {
+            _researcherModel = model;
+            ResearcherModelChanged?.Invoke(model);
         }
     }
 
@@ -319,8 +384,10 @@ public partial class SwarmBoardPanel : UserControl
         SetHeaderActive(true);
         _pulseTimer.Start();
 
-        // Wire and launch session
-        _session = new SwarmSession(Ollama!, ActiveModel, WorkspaceRoot);
+        // Boss = ActiveModel, Coder/UIDev = _workerModel, Researcher = _researcherModel
+        var coderModel      = string.IsNullOrWhiteSpace(_workerModel)     ? ActiveModel    : _workerModel;
+        var researcherModel = string.IsNullOrWhiteSpace(_researcherModel) ? coderModel     : _researcherModel;
+        _session = new SwarmSession(Ollama!, ActiveModel, WorkspaceRoot, coderModel, researcherModel);
 
         _session.OnBossToken     += OnBossToken;
         _session.OnWorkerToken   += OnWorkerToken;

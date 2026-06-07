@@ -21,9 +21,12 @@ namespace OrchestratorIDE.Agents;
 public class SwarmSession
 {
     private readonly OllamaClient _ollama;
-    private readonly string       _model;
+    private readonly string       _bossModel;        // orchestrator — planning + merge
+    private readonly string       _coderModel;       // Coder + UIDeveloper roles
+    private readonly string       _researcherModel;  // Researcher role (may differ for VRAM savings)
     private readonly string?      _workspaceRoot;
     private CancellationTokenSource? _cts;
+    private SwarmTraceLogger?     _trace;
 
     // ── Events ────────────────────────────────────────────────────────────────
     public event Action?                         OnStarted;
@@ -39,11 +42,21 @@ public class SwarmSession
     public List<SwarmTask> Tasks   { get; private set; } = [];
     public bool            IsRunning => _cts is { IsCancellationRequested: false };
 
-    public SwarmSession(OllamaClient ollama, string model, string? workspaceRoot)
+    /// <param name="bossModel">Orchestrator model — used for planning and merging.</param>
+    /// <param name="workerModel">Coder + UIDeveloper model. Defaults to bossModel.</param>
+    /// <param name="researcherModel">
+    /// Researcher model. Can be a lower-quant or lighter model to save VRAM during
+    /// the research phase. Ollama evicts it before the coder phase loads when it
+    /// differs from <paramref name="workerModel"/>. Defaults to workerModel.
+    /// </param>
+    public SwarmSession(OllamaClient ollama, string bossModel, string? workspaceRoot,
+        string? workerModel = null, string? researcherModel = null)
     {
-        _ollama        = ollama;
-        _model         = model;
-        _workspaceRoot = workspaceRoot;
+        _ollama           = ollama;
+        _bossModel        = bossModel;
+        _coderModel       = workerModel      ?? bossModel;
+        _researcherModel  = researcherModel  ?? _coderModel;
+        _workspaceRoot    = workspaceRoot;
     }
 
     // ── Directive injection (mid-swarm steering from the user) ───────────────
@@ -81,9 +94,18 @@ public class SwarmSession
         Tasks  = [];
         OnStarted?.Invoke();
 
+        // Open trace logger — one file per run session
+        Directory.CreateDirectory(SwarmDir);
+        _trace = new SwarmTraceLogger(SwarmDir);
+        _trace.WriteSessionMeta(
+            _workspaceRoot ?? SwarmDir,
+            _bossModel, _coderModel, _researcherModel, userGoal);
+
         try
         {
             // ── Phase 1: Boss decomposes ──────────────────────────────────────
+            _trace.WriteEvent("phase_start", "Boss planning: decomposing goal into tasks");
+            _trace.WriteUserMessage(userGoal, context: "user_goal");
             var bossRaw = await RunBossDecomposeAsync(userGoal, ct);
             Tasks = ParseBossPlan(bossRaw);
 
@@ -92,6 +114,12 @@ public class SwarmSession
                 OnError?.Invoke("Boss returned no tasks — try rephrasing your goal.");
                 return;
             }
+
+            // Log boss plan output
+            _trace.WriteAssistantMessage(bossRaw, agent: "boss", model: _bossModel);
+            _trace.WriteEvent("tasks_planned", $"{Tasks.Count} task(s) planned: " +
+                string.Join(", ", Tasks.Select(t => $"{t.Role}:{t.Title}")));
+
             OnTasksPlanned?.Invoke(Tasks);
             await SaveSwarmStateAsync(userGoal);
 
@@ -100,7 +128,18 @@ public class SwarmSession
             var others      = Tasks.Where(t => t.Role != SwarmWorkerRole.Researcher).ToList();
 
             if (researchers.Count > 0)
+            {
+                _trace.WriteEvent("phase_start", $"Research phase: {researchers.Count} researcher(s) running");
                 await Task.WhenAll(researchers.Select(t => RunWorkerAsync(t, [], ct)));
+            }
+
+            // Evict researcher model from VRAM before coder phase when models differ —
+            // this frees headroom for 3 concurrent coder/uidev workers on 16 GB GPUs.
+            if (researchers.Count > 0 && _researcherModel != _coderModel)
+            {
+                _trace.WriteEvent("model_evict", $"Evicting {_researcherModel} to free VRAM before coder phase");
+                await _ollama.EvictModelAsync(_researcherModel, ct);
+            }
 
             // Collect all research that succeeded
             var findings = researchers
@@ -108,26 +147,37 @@ public class SwarmSession
                 .Select(t => (t.Title, t.Result!))
                 .ToList();
 
-            // ── Phase 2b: Remaining workers (with research context) ────────────
+            // ── Phase 2b: Coder + UIDev workers run concurrently (up to 3) ────
             if (others.Count > 0)
+            {
+                _trace.WriteEvent("phase_start", $"Coder/UIDev phase: {others.Count} worker(s) running concurrently");
                 await Task.WhenAll(others.Select(t => RunWorkerAsync(t, findings, ct)));
+            }
 
             // ── Phase 3: Boss merges ──────────────────────────────────────────
+            _trace.WriteEvent("phase_start", "Boss merge: synthesising all worker results");
             var merged = await RunBossMergeAsync(userGoal, Tasks, ct);
             await SaveMergedResultAsync(merged);
+
+            _trace.WriteAssistantMessage(merged, agent: "boss_merge", model: _bossModel);
+            _trace.WriteEvent("swarm_complete", "All phases done — final deliverable produced");
 
             OnSwarmComplete?.Invoke(merged);
         }
         catch (OperationCanceledException)
         {
+            _trace?.WriteEvent("swarm_cancelled", "Run was stopped by user");
             OnError?.Invoke("Swarm stopped.");
         }
         catch (Exception ex)
         {
+            _trace?.WriteEvent("swarm_error", ex.Message);
             OnError?.Invoke($"Swarm error: {ex.Message}");
         }
         finally
         {
+            _trace?.Dispose();
+            _trace = null;
             OnStopped?.Invoke();
         }
     }
@@ -223,11 +273,12 @@ public class SwarmSession
         Assign each subtask to the best-fit minion role.
 
         Rules:
-        - RESEARCHER tasks always get priority 1 (they run first)
-        - CODER and UIDEVELOPER tasks get priority 2 (run after research completes)
-        - If no research is needed, assign a single CODER task with priority 1
+        - RESEARCHER tasks always get priority 1 (they run first, alone)
+        - CODER and UIDEVELOPER tasks get priority 2 (run concurrently after research)
+        - If no research is needed, skip RESEARCHER and assign CODER/UIDEVELOPER tasks directly
         - Descriptions must be self-contained — minions cannot ask follow-up questions
-        - Maximum 3 tasks total
+        - Maximum 4 tasks total: up to 1 RESEARCHER + up to 3 CODER/UIDEVELOPER
+        - Prefer 3 priority-2 tasks when the goal has distinct implementation concerns
 
         Respond with ONLY valid JSON — no markdown fences, no preamble:
         {
@@ -261,7 +312,7 @@ public class SwarmSession
 
         var sb = new StringBuilder();
         await foreach (var token in _ollama.StreamCompletionAsync(
-            _model, history, temperature: 0.15, maxTokens: 2048, ct: ct))
+            _bossModel, history, temperature: 0.15, maxTokens: 2048, ct: ct))
         {
             sb.Append(token);
             OnBossToken?.Invoke(token);
@@ -307,7 +358,7 @@ public class SwarmSession
 
         var result = new StringBuilder();
         await foreach (var token in _ollama.StreamCompletionAsync(
-            _model, history, temperature: 0.2, maxTokens: 6144, ct: ct))
+            _bossModel, history, temperature: 0.2, maxTokens: 6144, ct: ct))
         {
             result.Append(token);
             OnBossToken?.Invoke(token);
@@ -360,6 +411,9 @@ public class SwarmSession
         try
         {
             var userMsg     = BuildWorkerUserMessage(task, researchContext);
+
+            // Trace: log the task assignment as a user-side message
+            _trace?.WriteUserMessage(userMsg, context: $"{task.Role}:{task.Title}");
             var roleKey     = task.Role.ToString();  // "Researcher" / "Coder" / "UIDeveloper"
             var agentFile   = await LoadAgentFileAsync(roleKey);
             var basePrompt  = WorkerSystemPrompt(task.Role);
@@ -373,9 +427,14 @@ public class SwarmSession
                 new() { Role = MessageRole.User,   Content = userMsg }
             };
 
+            // Route to the model registered for this role
+            var modelForRole = task.Role == SwarmWorkerRole.Researcher
+                ? _researcherModel
+                : _coderModel;
+
             var sb = new StringBuilder();
             await foreach (var token in _ollama.StreamCompletionAsync(
-                _model, history, temperature: 0.3, maxTokens: 5120, ct: ct))
+                modelForRole, history, temperature: 0.3, maxTokens: 5120, ct: ct))
             {
                 sb.Append(token);
                 task.StreamBuffer = sb.ToString();
@@ -386,6 +445,9 @@ public class SwarmSession
             task.Status      = SwarmTaskStatus.Done;
             task.CompletedAt = DateTime.UtcNow;
 
+            // Trace: log the worker's completed output
+            _trace?.WriteAssistantMessage(task.Result, agent: task.Role.ToString().ToLower(), model: modelForRole);
+
             await SaveTaskResultAsync(task);
         }
         catch (OperationCanceledException) { throw; }
@@ -393,6 +455,7 @@ public class SwarmSession
         {
             task.Status       = SwarmTaskStatus.Error;
             task.ErrorMessage = ex.Message;
+            _trace?.WriteEvent("worker_error", $"{task.Role}:{task.Title} — {ex.Message}");
         }
 
         OnTaskChanged?.Invoke(task);
@@ -491,7 +554,9 @@ public class SwarmSession
             var state = new
             {
                 goal,
-                model       = _model,
+                boss_model        = _bossModel,
+                worker_model      = _coderModel,
+                researcher_model  = _researcherModel,
                 started_at  = DateTime.UtcNow,
                 tasks = Tasks.Select(t => new
                 {

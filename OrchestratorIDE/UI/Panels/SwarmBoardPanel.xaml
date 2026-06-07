@@ -312,6 +312,8 @@
 
             <!-- ── IDLE STATE ─────────────────────────────────────────────── -->
             <Grid x:Name="PnlIdle" Background="{StaticResource Br.Bg.App}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
                             MaxWidth="480" Margin="24">
 
@@ -491,6 +493,101 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- ── Boss / Orchestrator model picker ──────────────── -->
+                    <Border Background="#0E120E" BorderBrush="#252525" BorderThickness="1"
+                            CornerRadius="6" Padding="12,8" Margin="0,0,0,6">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                                <TextBlock Text="BOSS MODEL"
+                                           Foreground="#76B900" FontSize="10"
+                                           FontWeight="Bold" FontFamily="Consolas"/>
+                                <TextBlock Text="Orchestrator · planner · merger"
+                                           Foreground="#666666" FontSize="10"
+                                           Margin="0,2,0,0"/>
+                            </StackPanel>
+                            <ComboBox x:Name="CbBossModel"
+                                      DockPanel.Dock="Right"
+                                      MinWidth="200"
+                                      BorderBrush="#2E3A2E"
+                                      Padding="6,3"
+                                      VerticalAlignment="Center"
+                                      SelectionChanged="CbBossModel_SelectionChanged"
+                                      AutomationProperties.AutomationId="Swarm.BossModel">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" Foreground="#1A1A1A"
+                                                   FontSize="11" FontFamily="Segoe UI"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- ── Coder / UIDev model picker ───────────────────── -->
+                    <Border Background="#0E120E" BorderBrush="#252525" BorderThickness="1"
+                            CornerRadius="6" Padding="12,8" Margin="0,0,0,6">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                                <TextBlock Text="CODER MODEL"
+                                           Foreground="#76B900" FontSize="10"
+                                           FontWeight="Bold" FontFamily="Consolas"/>
+                                <TextBlock Text="Coder · UI Dev  (quality model)"
+                                           Foreground="#666666" FontSize="10"
+                                           Margin="0,2,0,0"/>
+                            </StackPanel>
+                            <ComboBox x:Name="CbWorkerModel"
+                                      DockPanel.Dock="Right"
+                                      MinWidth="200"
+                                      BorderBrush="#2E3A2E"
+                                      Padding="6,3"
+                                      VerticalAlignment="Center"
+                                      SelectionChanged="CbWorkerModel_SelectionChanged"
+                                      AutomationProperties.AutomationId="Swarm.WorkerModel">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" Foreground="#1A1A1A"
+                                                   FontSize="11" FontFamily="Segoe UI"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- ── Researcher model picker (lower-quant OK) ──────── -->
+                    <Border Background="#0E120E" BorderBrush="#252525" BorderThickness="1"
+                            CornerRadius="6" Padding="12,8" Margin="0,0,0,14">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                                <TextBlock Text="RESEARCHER MODEL"
+                                           Foreground="#76B900" FontSize="10"
+                                           FontWeight="Bold" FontFamily="Consolas"/>
+                                <TextBlock Text="Research phase — evicted before coder loads"
+                                           Foreground="#666666" FontSize="10"
+                                           Margin="0,2,0,0"/>
+                            </StackPanel>
+                            <ComboBox x:Name="CbResearcherModel"
+                                      DockPanel.Dock="Right"
+                                      MinWidth="200"
+                                      BorderBrush="#2E3A2E"
+                                      Padding="6,3"
+                                      VerticalAlignment="Center"
+                                      SelectionChanged="CbResearcherModel_SelectionChanged"
+                                      AutomationProperties.AutomationId="Swarm.ResearcherModel">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" Foreground="#1A1A1A"
+                                                   FontSize="11" FontFamily="Segoe UI"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                                <ComboBox.ItemContainerStyle>
+                                    <Style TargetType="ComboBoxItem">
+                                        <Setter Property="Foreground" Value="Black"/>
+                                    </Style>
+                                </ComboBox.ItemContainerStyle>
+                            </ComboBox>
+                        </DockPanel>
+                    </Border>
+
                     <!-- ── Goal guidance ──────────────────────────────────── -->
                     <Border Background="#0A0E0A" BorderBrush="#1A2A1A"
                             BorderThickness="1" CornerRadius="6"
@@ -554,6 +651,7 @@
                                  FontSize="13" FontFamily="Segoe UI"
                                  Padding="10,8"
                                  MinHeight="80"
+                                 MaxHeight="240"
                                  TextWrapping="Wrap"
                                  AcceptsReturn="True"
                                  VerticalScrollBarVisibility="Auto"
@@ -599,6 +697,7 @@
                         </Button.Style>
                     </Button>
                 </StackPanel>
+                </ScrollViewer>
             </Grid>
 
             <!-- ── ACTIVE STATE ────────────────────────────────────────────── -->
