@@ -81,7 +81,7 @@
                             <!-- Single agent button -->
                             <Button x:Name="BtnModeSingle"
                                     Content="⚡ Single"
-                                    ToolTip="Single Agent mode"
+                                    ToolTip="Single Agent mode — focused coding session"
                                     Padding="10,4"
                                     FontSize="11" FontFamily="Segoe UI"
                                     BorderThickness="0"
@@ -117,6 +117,35 @@
                                     Cursor="Hand"
                                     Click="BtnModeSwarm_Click"
                                     AutomationProperties.AutomationId="Mode.Swarm">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Bd"
+                                                Background="{TemplateBinding Background}"
+                                                CornerRadius="0,0,0,0"
+                                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter HorizontalAlignment="Center"
+                                                              VerticalAlignment="Center"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Opacity" Value="0.8"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                            <!-- Divider -->
+                            <Rectangle Width="1" Fill="#2A3A2A"/>
+                            <!-- Chat button -->
+                            <Button x:Name="BtnModeChat"
+                                    Content="💬 Chat"
+                                    ToolTip="Just Chat — research with web search"
+                                    Padding="10,4"
+                                    FontSize="11" FontFamily="Segoe UI"
+                                    BorderThickness="0"
+                                    Cursor="Hand"
+                                    Click="BtnModeChat_Click"
+                                    AutomationProperties.AutomationId="Mode.Chat">
                                 <Button.Template>
                                     <ControlTemplate TargetType="Button">
                                         <Border x:Name="Bd"

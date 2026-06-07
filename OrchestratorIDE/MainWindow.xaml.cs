@@ -44,6 +44,7 @@ public partial class MainWindow : Window
     private readonly ToolEditorPanel         _toolEditorPanel;
     private readonly ToolCompiler            _toolCompiler;
     private readonly SwarmBoardPanel         _swarmPanel;
+    private readonly UI.Panels.ChatPanel     _chatPanel;
 
     // ── Screen recorder ───────────────────────────────────────────────────
     private readonly ScreenRecorder _recorder = new();
@@ -228,8 +229,14 @@ public partial class MainWindow : Window
             ActiveModel   = _session.ActiveModel,
             WorkspaceRoot = _session.WorkspaceRoot,
         };
-        _swarmPanel.StatusChanged         += msg => Dispatcher.Invoke(() => SetStatus(msg));
+        _swarmPanel.StatusChanged            += msg => Dispatcher.Invoke(() => SetStatus(msg));
         _swarmPanel.WorkspaceChangeRequested += () => Dispatcher.Invoke(_explorerPanel.OpenFolderDialog);
+
+        // Chat panel — research-focused chat with web search tools
+        _chatPanel = new UI.Panels.ChatPanel
+        {
+            OllamaClient = _ollama,
+        };
 
         // Default sidebar = explorer
         SidebarContent.Content = _explorerPanel;
@@ -327,6 +334,8 @@ public partial class MainWindow : Window
             _swarmPanel.ActiveModel = best;
             Dispatcher.Invoke(() =>
             {
+                // Populate chat panel model picker with all installed models
+                _chatPanel.SetModels(_installedModels, best);
                 UpdateStatusBar();
                 // Restore last mode — demote swarm silently if gate not satisfied
                 RestoreLastMode();
@@ -1142,6 +1151,7 @@ public partial class MainWindow : Window
 
     private void BtnModeSingle_Click(object sender, RoutedEventArgs e) => SetMode("single");
     private void BtnModeSwarm_Click(object sender, RoutedEventArgs e)  => SetMode("swarm");
+    private void BtnModeChat_Click(object sender, RoutedEventArgs e)   => SetMode("chat");
 
     /// <summary>
     /// Switches between Single Agent and Swarm modes.
@@ -1169,6 +1179,15 @@ public partial class MainWindow : Window
 
             MainContent.Content    = _swarmPanel;
             SidebarContent.Content = _explorerPanel;
+        }
+        else if (mode == "chat")
+        {
+            // ── Chat mode: populate model picker, show panel ───────────────────
+            _chatPanel.OllamaClient = _ollama;
+            _chatPanel.SetModels(_installedModels, _session.ActiveModel);
+
+            MainContent.Content    = _chatPanel;
+            SidebarContent.Content = _explorerPanel;  // explorer still useful for context
         }
         else
         {
@@ -1240,6 +1259,8 @@ public partial class MainWindow : Window
         BtnModeSingle.Foreground = mode == "single" ? activeFg     : inactiveFg;
         BtnModeSwarm.Background  = mode == "swarm"  ? activeGreen  : inactiveBg;
         BtnModeSwarm.Foreground  = mode == "swarm"  ? activeFg     : inactiveFg;
+        BtnModeChat.Background   = mode == "chat"   ? activeGreen  : inactiveBg;
+        BtnModeChat.Foreground   = mode == "chat"   ? activeFg     : inactiveFg;
     }
 
     /// <summary>
@@ -1248,6 +1269,8 @@ public partial class MainWindow : Window
     /// </summary>
     private void RestoreLastMode()
     {
+        // Chat mode is not persisted — it opens fresh each session.
+        // Swarm is restored only if its gate is satisfied; otherwise single.
         var mode = _settings.LastMode == "swarm" ? "swarm" : "single";
         SetMode(mode);
     }
@@ -1490,6 +1513,7 @@ public partial class MainWindow : Window
         _session.ActiveModel    = modelId;
         _swarmPanel.ActiveModel = modelId;
         _swarmPanel.Refresh();
+        _chatPanel.SetActiveModel(modelId);
 
         // Save to the correct per-mode bucket so switching modes doesn't
         // clobber the other mode's last-used model.
