@@ -22,24 +22,30 @@ public static class ProfileMerger
         var profile = CodingProfile.All.FirstOrDefault(p => p.Id == state.SelectedProfileId)
                       ?? CodingProfile.All[0];
 
-        // Source: Resources/Profiles/ next to the setup exe
-        var srcPath = FindProfileTemplate(profile.AgentMdFile);
-        if (srcPath is null) return; // not bundled — skip silently
+        // Read from embedded resource (production) or disk (dev mode)
+        var content = ReadProfileTemplate(profile.AgentMdFile);
+        if (content is null) return; // not bundled — skip silently
 
-        // Destination: next to the installed app exe
+        // Write to the app install directory
         var destDir = state.AppInstallPath;
         Directory.CreateDirectory(destDir);
-        File.Copy(srcPath, Path.Combine(destDir, ".agent.md"), overwrite: true);
+        File.WriteAllText(Path.Combine(destDir, ".agent.md"), content);
     }
 
-    private static string? FindProfileTemplate(string fileName)
+    private static string? ReadProfileTemplate(string fileName)
     {
+        // Dev mode: file next to exe
         var candidates = new[]
         {
             Path.Combine(AppContext.BaseDirectory, "Resources", "Profiles", fileName),
-            Path.Combine(AppContext.BaseDirectory, "Profiles",             fileName),
+            Path.Combine(AppContext.BaseDirectory, "Profiles", fileName),
         };
-        return candidates.FirstOrDefault(File.Exists);
+        foreach (var c in candidates)
+            if (File.Exists(c)) return File.ReadAllText(c);
+
+        // Production single-file: embedded resource
+        // Resource suffix: "Profiles.{fileName}" e.g. "Profiles.general.agent.md"
+        return EmbeddedResources.ReadText($"Profiles.{fileName}");
     }
 
     // ── settings.json ─────────────────────────────────────────────────────────

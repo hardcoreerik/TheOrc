@@ -30,15 +30,14 @@
     <PackageReference Include="System.Management"  Version="9.0.0" />
   </ItemGroup>
 
-  <!-- Bundle the model manifest and profile templates so the installer
-       can work offline after download, and so we can read them at runtime. -->
+  <!-- Embed the model manifest and profile templates INSIDE the exe assembly
+       so the standalone single-file installer works without a Resources/ folder
+       next to it. Read via Assembly.GetManifestResourceStream() at runtime. -->
   <ItemGroup>
-    <Content Include="..\Setup\model-manifest.json" Link="Resources\model-manifest.json">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
-    <Content Include="..\Setup\Profiles\*.agent.md" Link="Resources\Profiles\%(Filename)%(Extension)">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
+    <EmbeddedResource Include="..\Setup\model-manifest.json"
+                      Link="Resources\model-manifest.json"/>
+    <EmbeddedResource Include="..\Setup\Profiles\*.agent.md"
+                      Link="Resources\Profiles\%(Filename)%(Extension)"/>
   </ItemGroup>
 
 </Project>

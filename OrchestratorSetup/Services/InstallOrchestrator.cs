@@ -313,17 +313,7 @@ public sealed class InstallOrchestrator : IDisposable
     }
 
     private static string? ReadManifest()
-    {
-        foreach (var p in new[]
-        {
-            Path.Combine(AppContext.BaseDirectory, "Resources", "model-manifest.json"),
-            Path.Combine(AppContext.BaseDirectory, "model-manifest.json"),
-        })
-        {
-            if (File.Exists(p)) return File.ReadAllText(p);
-        }
-        return null;
-    }
+        => EmbeddedResources.ReadManifestJson();
 
     private static string FallbackRuntimeUrl()
         => "https://github.com/ggml-org/llama.cpp/releases/download/b5200/" +

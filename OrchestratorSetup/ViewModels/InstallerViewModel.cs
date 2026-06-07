@@ -129,12 +129,13 @@ public class InstallerViewModel : INotifyPropertyChanged
             pick = AllModels.FirstOrDefault(m => m.Id == ov.modelId);
 
         // 2. VRAM tier fallback
+        // NOTE: 8 GB tier → Q5 7B (not Q8) — Q8 7B needs 10 GB+, would OOM on 8 GB laptops
         if (pick is null)
         {
             var tiers = new[] { (2, "qwen25-coder-1-5b-q8"), (4, "qwen25-coder-3b-q8"),
-                                (6, "qwen25-coder-7b-q5"),   (10,"qwen25-coder-7b-q8"),
-                                (14,"qwen25-coder-14b-q4"),  (20,"qwen25-coder-32b-q3"),
-                                (99,"qwen25-coder-32b-q4") };
+                                (6, "qwen25-coder-7b-q5"),   (8, "qwen25-coder-7b-q5"),
+                                (10,"qwen25-coder-7b-q8"),   (14,"qwen25-coder-14b-q4"),
+                                (20,"qwen25-coder-32b-q3"),  (99,"qwen25-coder-32b-q4") };
             foreach (var (ceiling, id) in tiers)
             {
                 if (vram <= ceiling)
@@ -176,17 +177,8 @@ public class InstallerViewModel : INotifyPropertyChanged
     {
         try
         {
-            // Look next to the exe first, then fall back to development path
-            var candidates = new[]
-            {
-                Path.Combine(AppContext.BaseDirectory, "Resources", "model-manifest.json"),
-                Path.Combine(AppContext.BaseDirectory, "model-manifest.json"),
-            };
-
-            string? json = null;
-            foreach (var c in candidates)
-                if (File.Exists(c)) { json = File.ReadAllText(c); break; }
-
+            // Reads from disk (dev mode) or embedded resource (production single-file)
+            var json = Services.EmbeddedResources.ReadManifestJson();
             if (json is null) return;
 
             var root = JsonNode.Parse(json);
