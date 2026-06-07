@@ -42,6 +42,9 @@ public partial class MainWindow : Window
     private readonly ToolEditorPanel         _toolEditorPanel;
     private readonly ToolCompiler            _toolCompiler;
 
+    // ── Screen recorder ───────────────────────────────────────────────────
+    private readonly ScreenRecorder _recorder = new();
+
     // Editor font size (shared across sessions, adjustable via View menu)
     private double _editorFontSize = 13.0;
 
@@ -53,8 +56,21 @@ public partial class MainWindow : Window
         _ollama    = new OllamaClient(_settings.InferenceBaseUrl, _settings.Backend);
         _llamaServer = BuildServerManager(_settings);
 
-        // Stop llama-server on window close (before process exits)
-        Closed += (_, _) => _llamaServer?.Stop();
+        // Stop llama-server and recorder on window close
+        Closed += (_, _) =>
+        {
+            _llamaServer?.Stop();
+            _recorder.Stop();
+        };
+
+        // Recorder events → status bar
+        _recorder.OnTick    += t => Dispatcher.Invoke(() => TbRecordingTime.Text = $"REC {t}");
+        _recorder.OnStopped += path => Dispatcher.Invoke(() =>
+        {
+            BdrRecording.Visibility = Visibility.Collapsed;
+            AddActivity(new ActivityEvent(ActivityKind.Info, "Recording saved", System.IO.Path.GetFileName(path), DateTime.Now));
+            SetStatus("Recording saved — F12 to record again");
+        });
         _approvals = new ApprovalQueue();
         _registry  = new ToolRegistry(_approvals);
         _context   = new ContextManager(32_768);
@@ -529,10 +545,51 @@ public partial class MainWindow : Window
 
     private void SetStatus(string msg) => SbStatus.Text = msg;
 
+    // ── Screen recording ──────────────────────────────────────────────────
+
+    private void ToggleRecording()
+    {
+        if (_recorder.IsRecording)
+        {
+            _recorder.Stop();   // OnStopped event updates UI
+        }
+        else
+        {
+            try
+            {
+                _recorder.Start(this);
+                BdrRecording.Visibility = Visibility.Visible;
+                TbRecordingTime.Text    = "REC 00:00";
+                AddActivity(new ActivityEvent(ActivityKind.Info, "Recording", "Screen recording started — F12 to stop", DateTime.Now));
+                SetStatus("Recording… press F12 to stop");
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"Recording failed: {ex.Message}");
+            }
+        }
+    }
+
+    private void BdrRecording_Click(object sender, MouseButtonEventArgs e)
+        => ToggleRecording();
+
+    private void Menu_OpenRecordings(object sender, RoutedEventArgs e)
+        => ScreenRecorder.OpenRecordingsFolder();
+
+    private void Menu_ToggleRecording(object sender, RoutedEventArgs e)
+        => ToggleRecording();
+
     // ── Keyboard shortcuts ────────────────────────────────────────────────
 
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {
+        // F12 — toggle screen recording
+        if (e.Key == Key.F12 && Keyboard.Modifiers == ModifierKeys.None)
+        {
+            e.Handled = true;
+            ToggleRecording();
+        }
+
         if (e.Key == Key.K && Keyboard.Modifiers == ModifierKeys.Control)
         {
             e.Handled = true;

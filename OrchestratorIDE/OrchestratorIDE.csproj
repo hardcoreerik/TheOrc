@@ -17,11 +17,11 @@
 
   <!-- Global usings for the whole project -->
   <ItemGroup>
-    <Using Include="System.IO"/>
-    <Using Include="System.Collections.Generic"/>
-    <Using Include="System.Linq"/>
-    <Using Include="System.Threading"/>
-    <Using Include="System.Threading.Tasks"/>
+    <Using Include="System.IO" />
+    <Using Include="System.Collections.Generic" />
+    <Using Include="System.Linq" />
+    <Using Include="System.Threading" />
+    <Using Include="System.Threading.Tasks" />
   </ItemGroup>
 
   <ItemGroup>
@@ -29,6 +29,7 @@
     <PackageReference Include="DiffPlex" Version="1.9.0" />
     <PackageReference Include="LibGit2Sharp" Version="0.31.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.13.0" />
+    <PackageReference Include="SharpAvi" Version="2.2.1" />
     <PackageReference Include="System.Text.Json" Version="10.0.8" />
   </ItemGroup>
 
