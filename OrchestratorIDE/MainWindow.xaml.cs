@@ -146,7 +146,8 @@ public partial class MainWindow : Window
         _context.UsageChanged += () => Dispatcher.Invoke(UpdateContextDisplay);
 
         // Approval gate — use diff viewer in AgentPanel for write_file, dialog for shell
-        _approvals.ApprovalRequested += OnApprovalRequested;
+        _approvals.ApprovalRequested  += OnApprovalRequested;
+        _approvals.PendingCountChanged += OnApprovalPendingCountChanged;
 
         // Layer 2: unknown tool card — shown in the diff panel slot
         _registry.OnUnknownTool = async call =>
@@ -325,6 +326,8 @@ public partial class MainWindow : Window
                 UpdateStatusBar();
                 // Restore last mode — demote swarm silently if gate not satisfied
                 RestoreLastMode();
+                // Restore saved trust level
+                ApplyTrustLevel(_settings.TrustLevel);
             });
         }
         else
@@ -654,6 +657,87 @@ public partial class MainWindow : Window
                 else          _approvals.Reject(pending);
             });
         }
+    }
+
+    // ── Trust level ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Applies a trust level: updates ApprovalQueue, highlights the active pill,
+    /// forces Plan-mode in AgentPanel when Plan is selected, and persists the choice.
+    /// </summary>
+    private void ApplyTrustLevel(Trust.TrustLevel level)
+    {
+        _approvals.Level     = level;
+        _settings.TrustLevel = level;
+        _settings.Save();
+
+        // Highlight active pill — reset all then light the selected one
+        var allPills = new[] { BtnTrustPlan, BtnTrustGuarded, BtnTrustStandard, BtnTrustFullAuto };
+        var tags     = new[] { "Plan", "Guarded", "Standard", "FullAuto" };
+        var colors   = new[] { "#4A9FD9", "#76B900", "#CCA700", "#F44747" };
+
+        for (int i = 0; i < allPills.Length; i++)
+        {
+            bool active = tags[i] == level.ToString();
+            allPills[i].Background = active
+                ? (System.Windows.Media.Brush)new System.Windows.Media.SolidColorBrush(
+                    (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(colors[i]))
+                : System.Windows.Media.Brushes.Transparent;
+            allPills[i].Foreground = active
+                ? System.Windows.Media.Brushes.Black
+                : new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(0x66, 0x66, 0x66));
+        }
+
+        // Plan mode forces the agent panel into plan-only mode
+        if (level == Trust.TrustLevel.Plan)
+            _agentPanel.SetMode(isPlan: true);
+
+        // Full Auto gets a brief warning flash on the status text
+        if (level == Trust.TrustLevel.FullAuto)
+            SetStatus("⚡ Full Auto — all tools run without prompts");
+        else
+            SetStatus($"{Trust.TrustLevelInfo.Icon(level)} {Trust.TrustLevelInfo.Label(level)} mode active");
+    }
+
+    private void BtnTrust_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string tag }) return;
+        if (Enum.TryParse<Trust.TrustLevel>(tag, out var level))
+            ApplyTrustLevel(level);
+    }
+
+    // ── Status-bar approval chips ─────────────────────────────────────────────
+
+    private void OnApprovalPendingCountChanged()
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            var pending = _approvals.Pending;
+            if (pending.Count == 0)
+            {
+                BdrApprovalChip.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                var first = pending[0];
+                TbApprovalChipLabel.Text = first.Call.Name == "write_file"
+                    ? $"⏳  Diff pending  ·  {Path.GetFileName(first.Call.Arguments.TryGetValue("path", out var p) ? p?.ToString() ?? "" : "")}"
+                    : $"⏳  {first.Call.Name} needs approval";
+                BdrApprovalChip.Visibility = Visibility.Visible;
+            }
+        });
+    }
+
+    private void BtnStatusApprove_Click(object sender, RoutedEventArgs e)
+    {
+        _approvals.ApproveFirst();
+        // The DiffPanel in AgentPanel will clean itself up via its own Approved event
+    }
+
+    private void BtnStatusReject_Click(object sender, RoutedEventArgs e)
+    {
+        _approvals.RejectFirst();
     }
 
     // ── Activity log helpers ──────────────────────────────────────────────

@@ -468,6 +468,135 @@
                            ToolTip="Click to change model"
                            AutomationProperties.AutomationId="StatusBar.Model"/>
 
+                <!-- ── Trust level selector ────────────────────────────── -->
+                <Border DockPanel.Dock="Right"
+                        Background="#111111"
+                        BorderBrush="#2A2A2A" BorderThickness="1"
+                        CornerRadius="3" Margin="0,2,8,2" Padding="1">
+                    <StackPanel Orientation="Horizontal">
+
+                        <Button x:Name="BtnTrustPlan"
+                                Content="📋 Plan"
+                                Tag="Plan"
+                                Click="BtnTrust_Click"
+                                ToolTip="Plan mode — agent reads and reasons only. No files written, no shell commands run."
+                                AutomationProperties.AutomationId="Trust.Plan">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource TrustPillStyle}"/>
+                            </Button.Style>
+                        </Button>
+
+                        <Rectangle Width="1" Fill="#2A2A2A" Margin="1,3"/>
+
+                        <Button x:Name="BtnTrustGuarded"
+                                Content="🛡 Guarded"
+                                Tag="Guarded"
+                                Click="BtnTrust_Click"
+                                ToolTip="Guarded — every file write and shell command requires your explicit approval."
+                                AutomationProperties.AutomationId="Trust.Guarded">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource TrustPillStyle}"/>
+                            </Button.Style>
+                        </Button>
+
+                        <Rectangle Width="1" Fill="#2A2A2A" Margin="1,3"/>
+
+                        <Button x:Name="BtnTrustStandard"
+                                Content="✅ Standard"
+                                Tag="Standard"
+                                Click="BtnTrust_Click"
+                                ToolTip="Standard — file writes are auto-approved; shell commands still require approval."
+                                AutomationProperties.AutomationId="Trust.Standard">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource TrustPillStyle}"/>
+                            </Button.Style>
+                        </Button>
+
+                        <Rectangle Width="1" Fill="#2A2A2A" Margin="1,3"/>
+
+                        <Button x:Name="BtnTrustFullAuto"
+                                Content="⚡ Full Auto"
+                                Tag="FullAuto"
+                                Click="BtnTrust_Click"
+                                ToolTip="Full Auto — all tools run without prompts. Use with care."
+                                AutomationProperties.AutomationId="Trust.FullAuto">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource TrustPillStyle}"/>
+                            </Button.Style>
+                        </Button>
+
+                    </StackPanel>
+                </Border>
+
+                <!-- ── Pending approval chips (hidden until diff/shell is waiting) ── -->
+                <Border x:Name="BdrApprovalChip"
+                        DockPanel.Dock="Right"
+                        Visibility="Collapsed"
+                        Background="#1A2A00"
+                        BorderBrush="#76B900" BorderThickness="1"
+                        CornerRadius="3" Margin="0,2,6,2" Padding="4,0">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+
+                        <TextBlock x:Name="TbApprovalChipLabel"
+                                   Text="⏳ Approval needed"
+                                   Foreground="#CCA700"
+                                   FontSize="11" FontWeight="SemiBold"
+                                   VerticalAlignment="Center"
+                                   Margin="4,0,8,0"/>
+
+                        <!-- Apply button -->
+                        <Button x:Name="BtnStatusApprove"
+                                Click="BtnStatusApprove_Click"
+                                ToolTip="Approve this action"
+                                Cursor="Hand"
+                                Margin="0,0,4,0">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="Bd"
+                                            Background="#1F3D00" BorderBrush="#2A5A00"
+                                            BorderThickness="1" CornerRadius="3" Padding="7,3">
+                                        <TextBlock Text="✓  Apply"
+                                                   Foreground="#76B900"
+                                                   FontSize="11" FontWeight="SemiBold"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Bd" Property="Background" Value="#2A5A00"/>
+                                            <Setter TargetName="Bd" Property="BorderBrush"  Value="#76B900"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+
+                        <!-- Reject button -->
+                        <Button x:Name="BtnStatusReject"
+                                Click="BtnStatusReject_Click"
+                                ToolTip="Reject this action"
+                                Cursor="Hand"
+                                Margin="0,0,2,0">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="Bd"
+                                            Background="#2A0A0A" BorderBrush="#4A1A1A"
+                                            BorderThickness="1" CornerRadius="3" Padding="7,3">
+                                        <TextBlock Text="✗  Reject"
+                                                   Foreground="#F44747"
+                                                   FontSize="11" FontWeight="SemiBold"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Bd" Property="Background" Value="#3A1414"/>
+                                            <Setter TargetName="Bd" Property="BorderBrush"  Value="#F44747"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+
+                    </StackPanel>
+                </Border>
+
                 <!-- Recording indicator — visible only while screen recording is active -->
                 <Border x:Name="BdrRecording"
                         DockPanel.Dock="Right"

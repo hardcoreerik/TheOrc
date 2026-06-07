@@ -88,6 +88,13 @@ public class AppSettings
     /// </summary>
     public string LastMode { get; set; } = "single";
 
+    /// <summary>
+    /// Active trust level for the approval gate.
+    /// Persisted so the user's preferred level survives restarts.
+    /// Default: Guarded (every write/shell needs explicit approval).
+    /// </summary>
+    public Trust.TrustLevel TrustLevel { get; set; } = Trust.TrustLevel.Guarded;
+
     // ── Workspace ────────────────────────────────────────────────────────
     public string DefaultWorkspace { get; set; } = "";
 
