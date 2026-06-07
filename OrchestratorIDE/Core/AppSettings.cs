@@ -73,6 +73,14 @@ public class AppSettings
     /// </summary>
     public int    ActivityVerbosity { get; set; } = 2;
 
+    // ── Multi-agent / parallel inference ────────────────────────────────
+    /// <summary>
+    /// Desired OLLAMA_NUM_PARALLEL value. 1 = default (single slot).
+    /// TheOrc stores this so the Settings panel can show the current preference
+    /// and offer to apply it permanently to the Windows user environment.
+    /// </summary>
+    public int OllamaParallelSlots { get; set; } = 1;
+
     // ── Workspace ────────────────────────────────────────────────────────
     public string DefaultWorkspace { get; set; } = "";
 

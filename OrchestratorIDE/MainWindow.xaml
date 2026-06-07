@@ -77,7 +77,8 @@
                             Margin="0,0,10,0">
                         <TextBlock x:Name="TbModelBadge" Text="no model"
                                    Foreground="{StaticResource Br.Accent.Green}"
-                                   FontSize="10" VerticalAlignment="Center"/>
+                                   FontSize="10" VerticalAlignment="Center"
+                                   MaxWidth="220" TextTrimming="CharacterEllipsis"/>
                     </Border>
                     <!-- Context % -->
                     <TextBlock x:Name="TbContextPct" Text="0%"

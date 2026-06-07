@@ -55,6 +55,46 @@ public partial class SettingsPanel : UserControl
         TbVersionInfo.Text = string.IsNullOrEmpty(known)
             ? $"v{current} installed"
             : $"v{current} installed  •  latest: v{known}";
+
+        // ── Multi-agent / parallel ─────────────────────────────────────
+        RefreshParallelStatus();
+        SetComboToSlots(s.OllamaParallelSlots > 1 ? s.OllamaParallelSlots
+                        : OllamaParallelHelper.DetectCurrentSlots());
+        // Show VRAM-based recommendation hint
+        var recommended = OllamaParallelHelper.RecommendedSlots(s.DetectedVramGb);
+        TbSlotHint.Text = s.DetectedVramGb > 0
+            ? $"← recommended for your GPU ({s.DetectedVramGb:F0} GB VRAM): {recommended}"
+            : "(select based on available VRAM)";
+    }
+
+    private void RefreshParallelStatus()
+    {
+        var slots = OllamaParallelHelper.DetectCurrentSlots();
+        TbParallelStatus.Text = OllamaParallelHelper.StatusText(slots);
+        TbParallelStatus.Foreground = new SolidColorBrush(
+            (Color)ColorConverter.ConvertFromString(OllamaParallelHelper.StatusColor(slots)));
+        TbParallelExplain.Text = OllamaParallelHelper.GetExplanation(slots);
+    }
+
+    private void SetComboToSlots(int slots)
+    {
+        foreach (ComboBoxItem item in CbParallelSlots.Items)
+        {
+            if (item.Tag?.ToString() == slots.ToString())
+            {
+                CbParallelSlots.SelectedItem = item;
+                return;
+            }
+        }
+        CbParallelSlots.SelectedIndex = 0; // fallback to 1
+    }
+
+    private int SelectedSlots()
+    {
+        if (CbParallelSlots.SelectedItem is ComboBoxItem item
+            && int.TryParse(item.Tag?.ToString(), out var n))
+            return n;
+        return 1;
     }
 
     // ── Read controls → AppSettings ──────────────────────────────────────
@@ -65,14 +105,15 @@ public partial class SettingsPanel : UserControl
         // Clone current settings to preserve fields we don't surface in the UI
         // (ActivityVerbosity, FirstRunComplete, RecentWorkspaces, detected hardware, etc.)
         var s = _current;
-        s.OllamaHost        = TbOllamaHost.Text.Trim().TrimEnd('/');
-        s.DefaultModel      = TbDefaultModel.Text.Trim();
-        s.MaxStepsOverride  = int.TryParse(TbMaxSteps.Text, out var n) ? Math.Max(0, n) : 0;
-        s.AutoVerify        = TglAutoVerify.IsChecked       == true;
-        s.AutoCheckpoint    = TglAutoCheckpoint.IsChecked   == true;
-        s.AutoModelSwitch   = TglAutoModelSwitch.IsChecked  == true;
-        s.CheckForUpdates   = TglCheckUpdates.IsChecked     == true;
-        s.DefaultWorkspace  = TbDefaultWorkspace.Text.Trim();
+        s.OllamaHost          = TbOllamaHost.Text.Trim().TrimEnd('/');
+        s.DefaultModel        = TbDefaultModel.Text.Trim();
+        s.MaxStepsOverride    = int.TryParse(TbMaxSteps.Text, out var n) ? Math.Max(0, n) : 0;
+        s.AutoVerify          = TglAutoVerify.IsChecked       == true;
+        s.AutoCheckpoint      = TglAutoCheckpoint.IsChecked   == true;
+        s.AutoModelSwitch     = TglAutoModelSwitch.IsChecked  == true;
+        s.CheckForUpdates     = TglCheckUpdates.IsChecked     == true;
+        s.DefaultWorkspace    = TbDefaultWorkspace.Text.Trim();
+        s.OllamaParallelSlots = SelectedSlots();
         return s;
     }
 
@@ -93,7 +134,7 @@ public partial class SettingsPanel : UserControl
         {
             var models = await _ollama.GetInstalledModelsAsync();
             if (models.Count > 0)
-                SetStatus($"✓  Connected — {models.Count} models found", "#4EC9B0");
+                SetStatus($"✓  Connected — {models.Count} models found", "#76B900");
             else
                 SetStatus("⚠  Connected but no models returned", "#CCA700");
         }
@@ -121,7 +162,7 @@ public partial class SettingsPanel : UserControl
         }
 
         settings.Save();
-        SetStatus("✓  Saved", "#4EC9B0");
+        SetStatus("✓  Saved", "#76B900");
         SettingsSaved?.Invoke(settings);
     }
 
@@ -136,7 +177,7 @@ public partial class SettingsPanel : UserControl
             await CheckUpdatesRequested.Invoke();
 
         BtnCheckNow.IsEnabled = true;
-        SetStatus("", "#4EC9B0");
+        SetStatus("", "#76B900");
     }
 
     // ── Regenerate agent file ─────────────────────────────────────────────
@@ -147,6 +188,43 @@ public partial class SettingsPanel : UserControl
         if (RegenerateAgentFileRequested != null)
             await RegenerateAgentFileRequested.Invoke();
         BtnRegenerateAgentFile.IsEnabled = true;
+    }
+
+    // ── Multi-agent parallel slots ───────────────────────────────────────
+
+    private void BtnSetPermanent_Click(object sender, RoutedEventArgs e)
+    {
+        var slots = SelectedSlots();
+        try
+        {
+            OllamaParallelHelper.SetPermanently(slots);
+            SetStatus(
+                $"✓  OLLAMA_NUM_PARALLEL={slots} written to Windows user environment. " +
+                "Restart Ollama for it to take effect.",
+                "#76B900");
+            RefreshParallelStatus();
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"✗  Failed to write env var: {ex.Message}", "#F44747");
+        }
+    }
+
+    private void BtnCopyRestartCmd_Click(object sender, RoutedEventArgs e)
+    {
+        var slots = SelectedSlots();
+        var cmd   = OllamaParallelHelper.GetRestartCommand(slots);
+        try
+        {
+            System.Windows.Clipboard.SetText(cmd);
+            SetStatus(
+                "✓  Restart command copied — paste into a PowerShell window to apply immediately.",
+                "#76B900");
+        }
+        catch
+        {
+            SetStatus($"Command: {cmd}", "#CCA700");
+        }
     }
 
     // ── Browse workspace ─────────────────────────────────────────────────

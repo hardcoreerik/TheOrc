@@ -790,7 +790,9 @@ public partial class MainWindow : Window
         var profile = ModelProfiles.Get(_session.ActiveModel);
         SbModel.Text      = $"⚙ {profile.Name} · {profile.ToolSet.ToString().ToLower()}";
         SbWorkspace.Text  = $"📁 {Path.GetFileName(_session.WorkspaceRoot)}";
-        TbModelBadge.Text = $"{_session.ActiveModel} · {profile.ToolSet.ToString().ToLower()}";
+        // Title bar chip: use friendly name so long HF model IDs don't overflow
+        TbModelBadge.Text    = $"{profile.Name} · {profile.ToolSet.ToString().ToLower()}";
+        TbModelBadge.ToolTip = _session.ActiveModel; // full ID on hover
 
         // Update git branch (async, non-blocking)
         Task.Run(async () =>
