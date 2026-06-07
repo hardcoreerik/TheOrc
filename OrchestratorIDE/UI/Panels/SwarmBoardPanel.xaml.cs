@@ -63,7 +63,9 @@ public partial class SwarmBoardPanel : UserControl
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        RefreshSlotLabel();
+        var slots = OllamaParallelHelper.DetectCurrentSlots();
+        TbSlots.Text = $"{slots} slot{(slots == 1 ? "" : "s")}";
+        UpdateSlotButtons(slots);
         RefreshGate();
         DiagramGrid.SizeChanged += (_, _) => DrawConnectionLines();
     }
@@ -109,6 +111,48 @@ public partial class SwarmBoardPanel : UserControl
     {
         var slots    = OllamaParallelHelper.DetectCurrentSlots();
         TbSlots.Text = $"{slots} slot{(slots == 1 ? "" : "s")}";
+        if (IsLoaded) UpdateSlotButtons(slots);
+    }
+
+    // ── Slot selector (idle page) ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Highlights the button matching <paramref name="activeSlots"/> and dims the rest.
+    /// Called on load and after every slot change.
+    /// </summary>
+    private void UpdateSlotButtons(int activeSlots)
+    {
+        var buttons = new[] { (BtnSlot1, 1), (BtnSlot2, 2), (BtnSlot3, 3), (BtnSlot4, 4) };
+        foreach (var (btn, n) in buttons)
+        {
+            bool isActive = n == activeSlots;
+            btn.Background   = new SolidColorBrush(isActive
+                ? Color.FromRgb(0x1F, 0x3D, 0x00)   // active: dark green
+                : Color.FromRgb(0x1A, 0x1A, 0x1A));  // inactive: near-black
+            btn.Foreground   = new SolidColorBrush(isActive
+                ? Color.FromRgb(0x76, 0xB9, 0x00)   // active: NVIDIA green
+                : Color.FromRgb(0x88, 0x88, 0x88));  // inactive: muted grey
+            btn.BorderBrush  = new SolidColorBrush(isActive
+                ? Color.FromRgb(0x76, 0xB9, 0x00)
+                : Color.FromRgb(0x33, 0x33, 0x33));
+        }
+    }
+
+    private void BtnSlot_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tag }) return;
+        if (!int.TryParse(tag, out var n) || n < 1 || n > 4) return;
+
+        OllamaParallelHelper.SetPermanently(n);
+
+        // Refresh slot label in the header and selection highlight
+        RefreshSlotLabel();
+
+        // Refresh gate (may now be satisfied if user picked ≥ 3)
+        RefreshGate();
+
+        // Show the restart note so the user knows Ollama needs a restart
+        TbSlotRestartNote.Visibility = Visibility.Visible;
     }
 
     // ── Launch ────────────────────────────────────────────────────────────────

@@ -43,6 +43,41 @@
             <Setter Property="Margin"         Value="0,0,8,0"/>
         </Style>
 
+        <!-- Slot selector button style: inactive state -->
+        <Style x:Key="SlotBtn" TargetType="Button">
+            <Setter Property="Width"          Value="32"/>
+            <Setter Property="Height"         Value="26"/>
+            <Setter Property="Margin"         Value="3,0,0,0"/>
+            <Setter Property="FontSize"       Value="12"/>
+            <Setter Property="FontWeight"     Value="SemiBold"/>
+            <Setter Property="FontFamily"     Value="Consolas"/>
+            <Setter Property="Cursor"         Value="Hand"/>
+            <Setter Property="Background"     Value="#1A1A1A"/>
+            <Setter Property="Foreground"     Value="#888888"/>
+            <Setter Property="BorderBrush"    Value="#333333"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background"  Value="#2A2A2A"/>
+                                <Setter Property="Foreground"  Value="#D4D4D4"/>
+                                <Setter Property="BorderBrush" Value="#555555"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Stream tab button style -->
         <Style x:Key="StreamTab" TargetType="Button">
             <Setter Property="Background"   Value="Transparent"/>
@@ -208,6 +243,55 @@
                             Visibility="Collapsed">
                         <TextBlock x:Name="TbGateWarn" TextWrapping="Wrap"
                                    Foreground="#CCA700" FontSize="12" TextAlignment="Center"/>
+                    </Border>
+
+                    <!-- ── Ollama parallel slots selector ──────────────────── -->
+                    <Border Background="#0E120E" BorderBrush="#252525" BorderThickness="1"
+                            CornerRadius="6" Padding="12,8" Margin="0,0,0,14">
+                        <StackPanel>
+                            <DockPanel>
+                                <!-- Label + hint -->
+                                <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                                    <TextBlock Text="OLLAMA_NUM_PARALLEL"
+                                               Foreground="#76B900" FontSize="10"
+                                               FontWeight="Bold" FontFamily="Consolas"/>
+                                    <TextBlock Text="Concurrent model slots · Swarm needs ≥ 3"
+                                               Foreground="#666666" FontSize="10"
+                                               Margin="0,2,0,0"/>
+                                </StackPanel>
+
+                                <!-- Slot picker buttons: 1 · 2 · 3 · 4 -->
+                                <StackPanel DockPanel.Dock="Right"
+                                            Orientation="Horizontal"
+                                            VerticalAlignment="Center">
+                                    <Button x:Name="BtnSlot1" Content="1" Tag="1"
+                                            Style="{StaticResource SlotBtn}"
+                                            Click="BtnSlot_Click"
+                                            AutomationProperties.AutomationId="Swarm.Slot1"/>
+                                    <Button x:Name="BtnSlot2" Content="2" Tag="2"
+                                            Style="{StaticResource SlotBtn}"
+                                            Click="BtnSlot_Click"
+                                            AutomationProperties.AutomationId="Swarm.Slot2"/>
+                                    <Button x:Name="BtnSlot3" Content="3" Tag="3"
+                                            Style="{StaticResource SlotBtn}"
+                                            Click="BtnSlot_Click"
+                                            AutomationProperties.AutomationId="Swarm.Slot3"/>
+                                    <Button x:Name="BtnSlot4" Content="4" Tag="4"
+                                            Style="{StaticResource SlotBtn}"
+                                            Click="BtnSlot_Click"
+                                            AutomationProperties.AutomationId="Swarm.Slot4"/>
+                                </StackPanel>
+                            </DockPanel>
+
+                            <!-- Restart note — hidden until user changes a value -->
+                            <TextBlock x:Name="TbSlotRestartNote"
+                                       Visibility="Collapsed"
+                                       Text="⟳  Restart Ollama for the new slot count to take effect."
+                                       Foreground="#CCA700"
+                                       FontSize="10"
+                                       Margin="0,6,0,0"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
                     </Border>
 
                     <!-- Goal input -->

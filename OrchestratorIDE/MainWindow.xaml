@@ -158,7 +158,8 @@
         <Menu Grid.Row="1"
               Background="#141814" Foreground="#D4D4D4"
               BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1"
-              FontSize="12">
+              FontSize="12"
+              ItemContainerStyle="{StaticResource MenuBarItemStyle}">
 
             <!-- ── File ─────────────────────────────────────────── -->
             <MenuItem Header="_File">
@@ -425,7 +426,10 @@
                                             <TextBlock Grid.Column="2" Text="{Binding Detail}"
                                                        FontSize="11" TextWrapping="Wrap">
                                                 <TextBlock.Style>
-                                                    <Style TargetType="TextBlock">
+                                                    <!-- BasedOn inherits #D4D4D4 foreground from the global TextBlock style.
+                                                         Without this, WPF falls back to its default Black. -->
+                                                    <Style TargetType="TextBlock"
+                                                           BasedOn="{StaticResource {x:Type TextBlock}}">
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding HasFilePath}" Value="True">
                                                                 <Setter Property="Cursor"  Value="Hand"/>

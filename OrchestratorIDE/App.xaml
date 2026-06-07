@@ -356,6 +356,77 @@
             </Setter>
         </Style>
 
+        <!-- ── Menu bar item style ────────────────────────────────────────────
+             Applied via Menu.ItemContainerStyle so it only affects the
+             horizontal top-bar entries, not context-menu popup items.
+             Popup items inside the dropdown still use the global MenuItem style.
+        ─────────────────────────────────────────────────────────────────── -->
+        <Style x:Key="MenuBarItemStyle" TargetType="MenuItem">
+            <Setter Property="Background"     Value="Transparent"/>
+            <Setter Property="Foreground"     Value="#D4D4D4"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontFamily"     Value="Segoe UI"/>
+            <Setter Property="FontSize"       Value="12"/>
+            <Setter Property="Padding"        Value="8,4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <!-- Grid is the single required root for a ControlTemplate.
+                             Border provides the hit-test/hover area; Popup floats below. -->
+                        <Grid>
+                            <Border x:Name="Bg"
+                                    Background="{TemplateBinding Background}"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter ContentSource="Header"
+                                                  RecognizesAccessKey="True"
+                                                  VerticalAlignment="Center"/>
+                            </Border>
+
+                            <!-- Dropdown popup — items inside use the global MenuItem style -->
+                            <Popup x:Name="PART_Popup"
+                                   Placement="Bottom"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   IsOpen="{Binding IsSubmenuOpen,
+                                            RelativeSource={RelativeSource TemplatedParent}}"
+                                   PopupAnimation="None"
+                                   Grid.IsSharedSizeScope="True">
+                                <Border Background="#1C1C1C"
+                                        BorderBrush="#383838"
+                                        BorderThickness="1"
+                                        Padding="0,3"
+                                        MinWidth="200"
+                                        SnapsToDevicePixels="True">
+                                    <Border.Effect>
+                                        <DropShadowEffect Color="Black" Opacity="0.60"
+                                                          BlurRadius="16" ShadowDepth="5"
+                                                          Direction="270"/>
+                                    </Border.Effect>
+                                    <ScrollViewer CanContentScroll="True">
+                                        <ItemsPresenter SnapsToDevicePixels="True"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#1F3D00"/>
+                                <Setter Property="Foreground" Value="#76B900"/>
+                            </Trigger>
+                            <Trigger Property="IsSubmenuOpen" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#1F3D00"/>
+                                <Setter Property="Foreground" Value="#76B900"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="#4A4A4A"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Activity bar icon buttons -->
         <Style x:Key="ActivityBtnStyle" TargetType="Button">
             <Setter Property="Background"  Value="Transparent"/>
