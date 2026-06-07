@@ -5,13 +5,13 @@
         Width="720" Height="540"
         MinWidth="540" MinHeight="380"
         WindowStartupLocation="CenterOwner"
-        Background="#1E1E1E"
-        Foreground="#CCCCCC"
+        Background="#161616"
+        Foreground="#D4D4D4"
         FontFamily="Consolas, 'Cascadia Code', monospace">
 
     <Window.Resources>
         <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#CCCCCC"/>
+            <Setter Property="Foreground" Value="#D4D4D4"/>
             <Setter Property="FontFamily" Value="Consolas, 'Cascadia Code', monospace"/>
         </Style>
         <Style TargetType="Button">
@@ -43,7 +43,7 @@
     <DockPanel>
 
         <!-- Header -->
-        <Border DockPanel.Dock="Top" Background="#252526"
+        <Border DockPanel.Dock="Top" Background="#141814"
                 BorderBrush="#474747" BorderThickness="0,0,0,1"
                 Padding="18,14">
             <StackPanel>
@@ -56,7 +56,7 @@
         </Border>
 
         <!-- Footer buttons -->
-        <Border DockPanel.Dock="Bottom" Background="#252526"
+        <Border DockPanel.Dock="Bottom" Background="#141814"
                 BorderBrush="#474747" BorderThickness="0,1,0,0"
                 Padding="12,10">
             <DockPanel>
@@ -67,12 +67,12 @@
                         Click="BtnEditExisting_Click"/>
                 <Button x:Name="BtnOpenBlank" Content="+ Blank .agent.md"
                         DockPanel.Dock="Left"
-                        Background="#252526" Foreground="#888"
+                        Background="#141814" Foreground="#888"
                         Click="BtnOpenBlank_Click"/>
                 <Button x:Name="BtnApply" Content="Apply preset →"
                         DockPanel.Dock="Right"
-                        Background="#264F78" Foreground="White" BorderBrush="#3A7AB8"
-                        IsEnabled="False"
+                        Background="#2A5200" Foreground="#76B900" BorderBrush="#3A7000"
+                        FontWeight="SemiBold" IsEnabled="False"
                         Click="BtnApply_Click"/>
                 <Button Content="Cancel" DockPanel.Dock="Right"
                         Margin="0,0,8,0"
@@ -94,7 +94,7 @@
                            FontSize="10" Foreground="#888" FontWeight="Bold"
                            Margin="12,10,0,6"/>
                 <ListBox x:Name="PresetList"
-                         Background="#252526"
+                         Background="#141814"
                          BorderThickness="0"
                          SelectionChanged="PresetList_SelectionChanged">
                     <!-- Items bound in code-behind -->

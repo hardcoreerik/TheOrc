@@ -29,7 +29,7 @@
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <Border Grid.Row="0" Background="#2D2D2D"
+        <Border Grid.Row="0" Background="#141814"
                 BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1">
             <DockPanel Margin="10,0">
                 <Button x:Name="BtnRefresh" DockPanel.Dock="Right"
@@ -94,8 +94,8 @@
                                                 Content="↩ Restore"
                                                 Tag="{Binding Sha}"
                                                 Height="20" Padding="8,0"
-                                                Background="#1A2A3A" Foreground="#569CD6"
-                                                BorderBrush="#2A4A6A" FontSize="10"
+                                                Background="#1A2A0A" Foreground="#76B900"
+                                                BorderBrush="#2A4A0A" FontSize="10"
                                                 Click="BtnRestore_Click"
                                                 ToolTip="{Binding RestoreTooltip}"/>
                                         <TextBlock Text="{Binding ShortSha}"
@@ -113,7 +113,7 @@
         </ScrollViewer>
 
         <!-- Footer -->
-        <Border Grid.Row="2" Background="#2D2D2D"
+        <Border Grid.Row="2" Background="#141814"
                 BorderBrush="{StaticResource Br.Border}" BorderThickness="0,1,0,0"
                 Padding="10,6">
             <TextBlock x:Name="TbStatus"

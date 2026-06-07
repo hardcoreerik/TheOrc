@@ -6,7 +6,7 @@
     <DockPanel>
 
         <!-- Header -->
-        <Border DockPanel.Dock="Top" Background="#2D2D2D"
+        <Border DockPanel.Dock="Top" Background="#141814"
                 BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1"
                 Padding="8,5">
             <TextBlock Text="SETTINGS" Foreground="{StaticResource Br.Text.Muted}"

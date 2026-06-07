@@ -41,49 +41,77 @@
         </Grid.RowDefinitions>
 
         <!-- ── Title bar ──────────────────────────────────────────── -->
-        <Border Grid.Row="0" Background="#323233" BorderBrush="{StaticResource Br.Border}"
+        <Border Grid.Row="0" Background="#0E0E0E" BorderBrush="#2A3A2A"
                 BorderThickness="0,0,0,1">
             <DockPanel LastChildFill="True">
-                <TextBlock Text="⬡" Foreground="{StaticResource Br.Accent.Blue}"
-                           Margin="10,0,6,0" VerticalAlignment="Center" FontSize="14"/>
-                <TextBlock Text="Orchestrator IDE" VerticalAlignment="Center"
-                           FontSize="12" FontWeight="SemiBold"/>
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
-                            HorizontalAlignment="Right" Margin="0,0,10,0">
-                    <TextBlock x:Name="TbModelBadge" Text="gemma4:e4b · minimal"
+
+                <!-- NVIDIA-green left brand stripe -->
+                <Border DockPanel.Dock="Left" Width="4"
+                        Background="{StaticResource Br.Accent.Green}"/>
+
+                <!-- TheOrc wordmark -->
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal"
+                            VerticalAlignment="Center" Margin="10,0,0,0">
+                    <!-- Hex logo glyph -->
+                    <TextBlock Text="⬡" Foreground="{StaticResource Br.Accent.Green}"
+                               FontSize="18" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <!-- Brand name -->
+                    <TextBlock Text="TheOrc"
+                               Foreground="{StaticResource Br.Text.White}"
+                               FontSize="14" FontWeight="Bold" VerticalAlignment="Center"
+                               FontFamily="Consolas, 'Cascadia Code', monospace"/>
+                    <!-- Divider + subtitle -->
+                    <TextBlock Text=" · " Foreground="{StaticResource Br.Text.Muted}"
+                               FontSize="12" VerticalAlignment="Center"/>
+                    <TextBlock Text="Orchestrator IDE"
                                Foreground="{StaticResource Br.Text.Muted}"
-                               VerticalAlignment="Center" FontSize="11" Margin="0,0,16,0"/>
+                               FontSize="11" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Right: model badge + context % -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                            HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Margin="0,0,12,0">
+                    <!-- Active model chip -->
+                    <Border Background="#1A2A0A" CornerRadius="3" Padding="7,2"
+                            Margin="0,0,10,0">
+                        <TextBlock x:Name="TbModelBadge" Text="no model"
+                                   Foreground="{StaticResource Br.Accent.Green}"
+                                   FontSize="10" VerticalAlignment="Center"/>
+                    </Border>
+                    <!-- Context % -->
                     <TextBlock x:Name="TbContextPct" Text="0%"
                                Foreground="{StaticResource Br.Text.Muted}"
-                               VerticalAlignment="Center" FontSize="11"/>
+                               FontSize="11" VerticalAlignment="Center"/>
                 </StackPanel>
+
             </DockPanel>
         </Border>
 
         <!-- ── Menu bar ───────────────────────────────────────────── -->
         <Menu Grid.Row="1"
-              Background="#2D2D2D" Foreground="#CCCCCC"
+              Background="#141814" Foreground="#D4D4D4"
               BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1"
               FontSize="12">
 
             <Menu.Resources>
-                <!-- Dark style for top-level and popup items -->
+                <!-- Orc-green dark style for top-level and popup items -->
                 <Style TargetType="MenuItem">
-                    <Setter Property="Background"   Value="#2D2D2D"/>
-                    <Setter Property="Foreground"   Value="#CCCCCC"/>
-                    <Setter Property="BorderBrush"  Value="#3C3C3C"/>
+                    <Setter Property="Background"   Value="#141814"/>
+                    <Setter Property="Foreground"   Value="#D4D4D4"/>
+                    <Setter Property="BorderBrush"  Value="#2E3A2E"/>
                     <Style.Triggers>
                         <Trigger Property="IsHighlighted" Value="True">
-                            <Setter Property="Background" Value="#094771"/>
-                            <Setter Property="Foreground" Value="White"/>
+                            <Setter Property="Background" Value="#1F3D00"/>
+                            <Setter Property="Foreground" Value="#76B900"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter Property="Foreground" Value="#666"/>
+                            <Setter Property="Foreground" Value="#555"/>
                         </Trigger>
                     </Style.Triggers>
                 </Style>
                 <Style TargetType="Separator">
-                    <Setter Property="Background" Value="#3C3C3C"/>
+                    <Setter Property="Background" Value="#2E3A2E"/>
                     <Setter Property="Margin"     Value="4,2"/>
                 </Style>
             </Menu.Resources>
@@ -157,29 +185,45 @@
             </Grid.ColumnDefinitions>
 
             <!-- Activity Bar -->
-            <Border Grid.Column="0" Background="#333333">
-                <StackPanel VerticalAlignment="Top" Margin="0,8,0,0">
-                    <Button x:Name="BtnExplorer" Content="📁" ToolTip="File Explorer (Ctrl+Shift+E)"
-                            Style="{StaticResource ActivityBtnStyle}"
-                            AutomationProperties.AutomationId="ActivityBar.Explorer"
-                            Click="BtnExplorer_Click"/>
-                    <Button x:Name="BtnAgent" Content="⚡" ToolTip="Code Agent (Ctrl+Shift+A)"
-                            Style="{StaticResource ActivityBtnStyle}"
-                            AutomationProperties.AutomationId="ActivityBar.Agent"
-                            Click="BtnAgent_Click"/>
-                    <Button x:Name="BtnCheckpoints" Content="⬡" ToolTip="Checkpoints"
-                            Style="{StaticResource ActivityBtnStyle}"
-                            AutomationProperties.AutomationId="ActivityBar.Checkpoints"
-                            Click="BtnCheckpoints_Click"/>
-                    <Button x:Name="BtnTools" Content="🔧" ToolTip="Tool Editor — write + hot-load custom tools (Phase 7)"
-                            Style="{StaticResource ActivityBtnStyle}"
-                            AutomationProperties.AutomationId="ActivityBar.Tools"
-                            Click="BtnTools_Click"/>
-                    <Button x:Name="BtnSettings" Content="⚙" ToolTip="Settings"
-                            Style="{StaticResource ActivityBtnStyle}"
-                            AutomationProperties.AutomationId="ActivityBar.Settings"
-                            Click="BtnSettings_Click"/>
-                </StackPanel>
+            <Border Grid.Column="0" Background="#101410">
+                <DockPanel>
+                    <!-- NVIDIA-green left accent stripe -->
+                    <Border DockPanel.Dock="Left" Width="2"
+                            Background="{StaticResource Br.Accent.Green}" Opacity="0.6"/>
+
+                    <StackPanel VerticalAlignment="Top" Margin="0,6,0,0">
+                        <!-- Orc brand glyph — top of bar -->
+                        <Border Margin="0,0,0,6" Padding="0,4">
+                            <TextBlock Text="⬡"
+                                       Foreground="{StaticResource Br.Accent.Green}"
+                                       FontSize="18" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Border>
+
+                        <Separator Background="{StaticResource Br.Border}" Margin="6,0,6,6" Height="1"/>
+
+                        <Button x:Name="BtnExplorer" Content="📁" ToolTip="File Explorer (Ctrl+Shift+E)"
+                                Style="{StaticResource ActivityBtnStyle}"
+                                AutomationProperties.AutomationId="ActivityBar.Explorer"
+                                Click="BtnExplorer_Click"/>
+                        <Button x:Name="BtnAgent" Content="⚡" ToolTip="Code Agent (Ctrl+Shift+A)"
+                                Style="{StaticResource ActivityBtnStyle}"
+                                AutomationProperties.AutomationId="ActivityBar.Agent"
+                                Click="BtnAgent_Click"/>
+                        <Button x:Name="BtnCheckpoints" Content="⬡" ToolTip="Checkpoints"
+                                Style="{StaticResource ActivityBtnStyle}"
+                                AutomationProperties.AutomationId="ActivityBar.Checkpoints"
+                                Click="BtnCheckpoints_Click"/>
+                        <Button x:Name="BtnTools" Content="🔧" ToolTip="Tool Editor — write + hot-load custom tools (Phase 7)"
+                                Style="{StaticResource ActivityBtnStyle}"
+                                AutomationProperties.AutomationId="ActivityBar.Tools"
+                                Click="BtnTools_Click"/>
+                        <Button x:Name="BtnSettings" Content="⚙" ToolTip="Settings"
+                                Style="{StaticResource ActivityBtnStyle}"
+                                AutomationProperties.AutomationId="ActivityBar.Settings"
+                                Click="BtnSettings_Click"/>
+                    </StackPanel>
+                </DockPanel>
             </Border>
 
             <!-- Sidebar -->
@@ -234,7 +278,7 @@
                         BorderBrush="{StaticResource Br.Border}" BorderThickness="0,1,0,0">
                     <DockPanel>
                         <!-- Header: title + verbosity selector -->
-                        <DockPanel DockPanel.Dock="Top" Background="#2D2D2D" LastChildFill="False">
+                        <DockPanel DockPanel.Dock="Top" Background="#141814" LastChildFill="False">
                             <TextBlock DockPanel.Dock="Left" Text="ACTIVITY"
                                        Foreground="{StaticResource Br.Text.Muted}"
                                        FontSize="10" FontWeight="Bold" Padding="8,4"/>
@@ -318,10 +362,10 @@
                                                                 <Setter Property="Foreground" Value="#C586C0"/>
                                                             </DataTrigger>
                                                             <DataTrigger Binding="{Binding Kind}" Value="Tool">
-                                                                <Setter Property="Foreground" Value="#4EC9B0"/>
+                                                                <Setter Property="Foreground" Value="#76B900"/>
                                                             </DataTrigger>
                                                             <DataTrigger Binding="{Binding Kind}" Value="ToolResult">
-                                                                <Setter Property="Foreground" Value="#4EC9B0"/>
+                                                                <Setter Property="Foreground" Value="#5A9A00"/>
                                                             </DataTrigger>
                                                             <DataTrigger Binding="{Binding Kind}" Value="Debug">
                                                                 <Setter Property="Foreground" Value="#606060"/>
@@ -362,15 +406,15 @@
         <Border Grid.Row="3" Background="{StaticResource Br.Bg.StatusBar}">
             <DockPanel>
                 <TextBlock x:Name="SbWorkspace" DockPanel.Dock="Left"
-                           Text="📁 No workspace" Foreground="{StaticResource Br.Text.White}"
+                           Text="📁 No workspace" Foreground="#A8CC80"
                            Margin="8,0" VerticalAlignment="Center" FontSize="11"
                            AutomationProperties.AutomationId="StatusBar.Workspace"/>
                 <TextBlock x:Name="SbBranch" DockPanel.Dock="Left"
-                           Text="" Foreground="#B0D0FF"
+                           Text="" Foreground="#76B900"
                            Margin="0,0,8,0" VerticalAlignment="Center" FontSize="11"
                            AutomationProperties.AutomationId="StatusBar.Branch"/>
                 <TextBlock x:Name="SbModel" DockPanel.Dock="Right"
-                           Foreground="{StaticResource Br.Text.White}"
+                           Foreground="#76B900"
                            Margin="8,0" VerticalAlignment="Center" FontSize="11"
                            Cursor="Hand" MouseDown="SbModel_Click"
                            ToolTip="Click to change model"

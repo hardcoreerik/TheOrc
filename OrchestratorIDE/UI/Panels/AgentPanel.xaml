@@ -13,18 +13,25 @@
         </Grid.RowDefinitions>
 
         <!-- Tab bar -->
-        <Border Grid.Row="0" Background="#2D2D2D"
+        <Border Grid.Row="0" Background="#141814"
                 BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1">
             <StackPanel Orientation="Horizontal">
+                <!-- Active tab — top green indicator line + label -->
                 <Border Background="{StaticResource Br.Bg.Active}"
-                        BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,1,0"
-                        Padding="12,0">
-                    <TextBlock Text="⚡ Code Agent" VerticalAlignment="Center"
-                               FontSize="12" Foreground="{StaticResource Br.Text.White}"/>
+                        BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,1,0">
+                    <StackPanel>
+                        <!-- NVIDIA-green top bar = active tab indicator -->
+                        <Border Height="2" Background="{StaticResource Br.Accent.Green}"/>
+                        <TextBlock Text="⚡  Code Agent" Margin="14,0,14,0"
+                                   VerticalAlignment="Center" Height="26"
+                                   FontSize="12" Foreground="{StaticResource Br.Text.White}"
+                                   Padding="0,6,0,0"/>
+                    </StackPanel>
                 </Border>
                 <!-- Mode indicator -->
                 <TextBlock x:Name="TbMode" Text="● PLAN"
-                           Foreground="#CCA700" FontSize="10" FontWeight="Bold"
+                           Foreground="{StaticResource Br.Accent.Green}"
+                           FontSize="10" FontWeight="Bold"
                            VerticalAlignment="Center" Margin="10,0"/>
             </StackPanel>
         </Border>
@@ -98,7 +105,7 @@
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Border Background="#2D2D2D" CornerRadius="3"
+                                                <Border Background="#1A241A" CornerRadius="3"
                                                         Padding="6,2" Margin="0,0,4,0">
                                                     <TextBlock Text="{Binding}"
                                                                Foreground="{StaticResource Br.Accent.Blue}"
@@ -253,9 +260,10 @@
                                     AutomationProperties.AutomationId="AgentPanel.Stop"
                                     Click="BtnStop_Click" IsEnabled="False"/>
                             <Button x:Name="BtnSend" Content="Send  ↵" Width="84"
-                                    Background="{StaticResource Br.Bg.Active}"
-                                    Foreground="{StaticResource Br.Text.White}"
-                                    FontSize="11" Margin="6,0,0,0"
+                                    Background="#2A5200"
+                                    Foreground="{StaticResource Br.Accent.Green}"
+                                    BorderBrush="#3A7000"
+                                    FontSize="11" FontWeight="SemiBold" Margin="6,0,0,0"
                                     AutomationProperties.AutomationId="AgentPanel.Send"
                                     Click="BtnSend_Click"/>
                         </StackPanel>

@@ -140,7 +140,7 @@
                 </Grid.RowDefinitions>
 
                 <!-- Primary tab bar -->
-                <Border Grid.Row="0" Background="#252526"
+                <Border Grid.Row="0" Background="#141814"
                         BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1">
                     <DockPanel>
                         <!-- Split right button -->
@@ -232,7 +232,7 @@
                 </Grid.RowDefinitions>
 
                 <!-- Secondary tab bar -->
-                <Border Grid.Row="0" Background="#252526"
+                <Border Grid.Row="0" Background="#141814"
                         BorderBrush="{StaticResource Br.Border}" BorderThickness="1,0,0,1">
                     <DockPanel>
                         <Button DockPanel.Dock="Right" Content="✕"
@@ -331,7 +331,7 @@
                StaysOpen="False"
                AllowsTransparency="True"
                PopupAnimation="Fade">
-            <Border Background="#252526"
+            <Border Background="#141814"
                     BorderBrush="#555555" BorderThickness="1"
                     Padding="16,12" MinWidth="340">
                 <StackPanel>

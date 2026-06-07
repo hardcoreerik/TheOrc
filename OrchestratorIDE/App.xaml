@@ -4,21 +4,37 @@
              xmlns:local="clr-namespace:OrchestratorIDE">
     <Application.Resources>
 
-        <!-- ── Colour palette (VS Code Dark+) ───────────────────────── -->
-        <SolidColorBrush x:Key="Br.Bg.App"       Color="#1E1E1E"/>
-        <SolidColorBrush x:Key="Br.Bg.Panel"     Color="#252526"/>
-        <SolidColorBrush x:Key="Br.Bg.Sidebar"   Color="#333333"/>
-        <SolidColorBrush x:Key="Br.Bg.StatusBar" Color="#007ACC"/>
-        <SolidColorBrush x:Key="Br.Bg.Input"     Color="#3C3C3C"/>
-        <SolidColorBrush x:Key="Br.Bg.Hover"     Color="#2A2D2E"/>
-        <SolidColorBrush x:Key="Br.Bg.Active"    Color="#094771"/>
-        <SolidColorBrush x:Key="Br.Border"       Color="#474747"/>
-        <SolidColorBrush x:Key="Br.Text.Primary" Color="#CCCCCC"/>
-        <SolidColorBrush x:Key="Br.Text.Default" Color="#CCCCCC"/>
-        <SolidColorBrush x:Key="Br.Text.Muted"   Color="#858585"/>
+        <!-- ══════════════════════════════════════════════════════════
+             TheOrc — NVIDIA/Orc colour palette
+             Primary accent : #76B900  (NVIDIA green)
+             Hero dark      : #161616  (near-black canvas)
+             Orc tint       : subtle green cast on chrome surfaces
+             ══════════════════════════════════════════════════════════ -->
+
+        <!-- Backgrounds -->
+        <SolidColorBrush x:Key="Br.Bg.App"       Color="#161616"/>
+        <SolidColorBrush x:Key="Br.Bg.Panel"     Color="#1C1C1C"/>
+        <SolidColorBrush x:Key="Br.Bg.Sidebar"   Color="#1A201A"/>
+        <SolidColorBrush x:Key="Br.Bg.StatusBar" Color="#1A3300"/>
+        <SolidColorBrush x:Key="Br.Bg.Input"     Color="#252525"/>
+        <SolidColorBrush x:Key="Br.Bg.Hover"     Color="#1C2A1C"/>
+        <SolidColorBrush x:Key="Br.Bg.Active"    Color="#1F3D00"/>
+
+        <!-- Chrome -->
+        <SolidColorBrush x:Key="Br.Border"       Color="#2E3A2E"/>
+
+        <!-- Text -->
+        <SolidColorBrush x:Key="Br.Text.Primary" Color="#D4D4D4"/>
+        <SolidColorBrush x:Key="Br.Text.Default" Color="#D4D4D4"/>
+        <SolidColorBrush x:Key="Br.Text.Muted"   Color="#7A8A6A"/>
         <SolidColorBrush x:Key="Br.Text.White"   Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="Br.Accent.Blue"  Color="#569CD6"/>
-        <SolidColorBrush x:Key="Br.Accent.Green" Color="#4EC9B0"/>
+
+        <!-- Accents -->
+        <SolidColorBrush x:Key="Br.Accent.Green" Color="#76B900"/>   <!-- NVIDIA green — primary -->
+        <SolidColorBrush x:Key="Br.Accent.Neon"  Color="#9DFF00"/>   <!-- electric highlight -->
+        <SolidColorBrush x:Key="Br.Accent.Blue"  Color="#569CD6"/>   <!-- kept for diff/data -->
+
+        <!-- State -->
         <SolidColorBrush x:Key="Br.Warning"      Color="#CCA700"/>
         <SolidColorBrush x:Key="Br.Error"        Color="#F44747"/>
 
@@ -121,7 +137,7 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="Track" Property="Background"
-                                        Value="{StaticResource Br.Bg.Active}"/>
+                                        Value="#2A5200"/>
                                 <Setter TargetName="Thumb" Property="Fill"
                                         Value="{StaticResource Br.Accent.Green}"/>
                                 <Setter TargetName="Thumb" Property="HorizontalAlignment"
@@ -155,7 +171,7 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter Property="Background" Value="{StaticResource Br.Bg.Hover}"/>
-                                <Setter Property="Foreground" Value="{StaticResource Br.Text.White}"/>
+                                <Setter Property="Foreground" Value="{StaticResource Br.Accent.Green}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

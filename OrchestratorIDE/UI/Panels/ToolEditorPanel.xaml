@@ -30,7 +30,7 @@
         </Grid.RowDefinitions>
 
         <!-- ══ Toolbar ═════════════════════════════════════════════════════ -->
-        <Border Grid.Row="0" Background="#252526"
+        <Border Grid.Row="0" Background="#141814"
                 BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1">
             <DockPanel Margin="6,0">
 
@@ -140,7 +140,7 @@
                 </Grid.RowDefinitions>
 
                 <!-- Header -->
-                <Border Grid.Row="0" Background="#252526"
+                <Border Grid.Row="0" Background="#141814"
                         BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1">
                     <TextBlock Text="DIAGNOSTICS"
                                Foreground="{StaticResource Br.Text.Muted}"
