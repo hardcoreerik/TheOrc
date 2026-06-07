@@ -158,25 +158,37 @@ jobs:
           prerelease: ${{ steps.ver.outputs.PRERELEASE == 'true' }}
           generate_release_notes: true
           body: |
+            <div align="center">
+            <img src="https://raw.githubusercontent.com/hardcoreerik/TheOrc/master/Assets/release.png" width="480" alt="TheOrc — Build Complete"/>
+            </div>
+
             ## TheOrc ${{ steps.ver.outputs.TAG }}
 
-            ### Quick start — one-click install (recommended)
-            1. Download **OrchestratorSetup.exe** below
-            2. Run it — the wizard detects your GPU, downloads the right runtime and model, configures everything
-            3. Launch from the Desktop shortcut
-
-            ### Portable / manual install
-            Download **TheOrc-${{ steps.ver.outputs.VERSION }}-win-x64-portable.zip** — contains both `OrchestratorIDE.exe` and `OrchestratorSetup.exe`.
-            Extract both files to the same folder, then run `OrchestratorIDE.exe`.
-            If no AI runtime is detected on first launch, the app will offer to run the setup wizard automatically — works on completely fresh machines.
-
-            ### System requirements
-            - Windows 10 / 11 (x64)
-            - No .NET installation required — fully self-contained
-            - GPU: NVIDIA RTX (CUDA 12), AMD (Vulkan), or CPU-only (AVX2 / baseline)
+            > 100% local AI coding assistant — no cloud, no subscriptions, no data leaving your machine.
 
             ---
-            *Built automatically from `${{ steps.ver.outputs.TAG }}` · .NET 10 · [Source](https://github.com/hardcoreerik/TheOrc)*
+
+            ### ⚡ Quick start — one-click install (recommended)
+            1. Download **OrchestratorSetup.exe** below
+            2. Run it — the wizard detects your GPU, downloads the right runtime and model, configures everything
+            3. Launch from the Desktop shortcut or Start Menu
+
+            ### 📦 Portable install — works on fresh machines
+            Download **TheOrc-${{ steps.ver.outputs.VERSION }}-win-x64-portable.zip** — contains both `OrchestratorIDE.exe` and `OrchestratorSetup.exe`.
+            1. Extract both files to the same folder
+            2. Run `OrchestratorIDE.exe`
+            3. If no AI runtime is detected, the app offers to launch the setup wizard automatically — no prior AI tools required
+
+            ### 🖥️ System requirements
+            | | |
+            |---|---|
+            | **OS** | Windows 10 / 11 (x64) |
+            | **.NET** | Not required — fully self-contained |
+            | **GPU** | NVIDIA RTX (CUDA 12) · AMD (Vulkan) · CPU-only (AVX2 / baseline) |
+            | **RAM** | 8 GB minimum · 16 GB recommended |
+
+            ---
+            *Built automatically from `${{ steps.ver.outputs.TAG }}` · .NET 10 · [Source](https://github.com/hardcoreerik/TheOrc) · [Support the Orc ☕](https://ko-fi.com/hardcoreerik)*
           files: |
             publish/setup/OrchestratorSetup.exe
             publish/app/OrchestratorIDE.exe

@@ -4,7 +4,7 @@
 
 <br/>
 
-[![Platform](https://img.shields.io/badge/platform-Windows-blue?style=for-the-badge&logo=windows)](https://github.com/hardcoreerik/The-Orchestrator/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows-blue?style=for-the-badge&logo=windows)](https://github.com/hardcoreerik/TheOrc/releases)
 [![.NET](https://img.shields.io/badge/.NET-10.0-purple?style=for-the-badge&logo=dotnet)](https://dotnet.microsoft.com/download/dotnet/10.0)
 [![License](https://img.shields.io/badge/license-MIT-brightgreen?style=for-the-badge)](LICENSE)
 [![Backend](https://img.shields.io/badge/inference-llama.cpp-orange?style=for-the-badge)](https://github.com/ggml-org/llama.cpp)
