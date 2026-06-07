@@ -14,6 +14,7 @@
         <SolidColorBrush x:Key="Br.Bg.Active"    Color="#094771"/>
         <SolidColorBrush x:Key="Br.Border"       Color="#474747"/>
         <SolidColorBrush x:Key="Br.Text.Primary" Color="#CCCCCC"/>
+        <SolidColorBrush x:Key="Br.Text.Default" Color="#CCCCCC"/>
         <SolidColorBrush x:Key="Br.Text.Muted"   Color="#858585"/>
         <SolidColorBrush x:Key="Br.Text.White"   Color="#FFFFFF"/>
         <SolidColorBrush x:Key="Br.Accent.Blue"  Color="#569CD6"/>

@@ -56,13 +56,17 @@ public class T02_ActivityBarTests
     {
         AppFixture.RequireById("ActivityBar.Tools").AsButton().Click();
 
+        // AvalonEdit enters the visual tree for the first time here; allow extra
+        // time for its initial render before querying the UIA accessibility tree.
         var appeared = AppFixture.WaitUntil(() =>
             AppFixture.FindById("ToolEditor.Compile") != null,
-            TimeSpan.FromSeconds(5));
+            TimeSpan.FromSeconds(15));
 
         Assert.That(appeared, Is.True, "ToolEditor.Compile should be visible after clicking Tools button.");
 
         // Return to Agent panel so subsequent tests start in a known state
         AppFixture.RequireById("ActivityBar.Agent").AsButton().Click();
+        AppFixture.WaitUntil(() => AppFixture.FindById("AgentPanel.Input") != null,
+            TimeSpan.FromSeconds(5));
     }
 }

@@ -589,6 +589,9 @@ public partial class MainWindow : Window
 
     private void BtnAgent_Click(object sender, RoutedEventArgs e)
     {
+        // Restore agent panel to the main content area in case the tool editor
+        // was shown there (BtnTools_Click puts _toolEditorPanel into MainContent).
+        MainContent.Content = _agentPanel;
         _sessionPanel.Refresh();
         SidebarContent.Content = _sessionPanel;
     }

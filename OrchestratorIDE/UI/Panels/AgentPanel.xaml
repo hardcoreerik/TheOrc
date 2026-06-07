@@ -142,15 +142,18 @@
                             Margin="0,0,8,0" DockPanel.Dock="Left"
                             Background="#3A3010" Cursor="Hand"
                             ToolTip="Click to open a project folder"
-                            AutomationProperties.AutomationId="AgentPanel.WorkspaceBadge"
                             MouseLeftButtonUp="WsBadge_Click">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="📁" FontSize="10" Margin="0,0,5,0"
                                        VerticalAlignment="Center"/>
+                            <!-- AutomationId on TextBlock (not Border) — WPF's UIA3
+                                 provider exposes TextBlock in the accessibility tree
+                                 whereas Border is typically opaque to UIA traversal. -->
                             <TextBlock x:Name="WsLabel" Text="no folder open"
                                        Foreground="#CCA700" FontSize="10"
                                        VerticalAlignment="Center" MaxWidth="180"
-                                       TextTrimming="CharacterEllipsis"/>
+                                       TextTrimming="CharacterEllipsis"
+                                       AutomationProperties.AutomationId="AgentPanel.WorkspaceBadge"/>
                         </StackPanel>
                     </Border>
 

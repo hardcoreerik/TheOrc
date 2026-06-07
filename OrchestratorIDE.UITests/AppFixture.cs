@@ -32,19 +32,44 @@ public class AppFixture
         if (!string.IsNullOrWhiteSpace(envPath) && File.Exists(envPath))
             return envPath;
 
-        // 2. Relative to test output: navigate up to solution root then into OrchestratorIDE output
+        // 2. Walk up from the test output directory to the solution root.
+        //
+        //    Debug output:   bin/Debug/net10.0-windows/          (3 levels)
+        //    Release output: bin/Release/net10.0-windows/win-x64 (4 levels)
+        //
+        //    Either way we need to reach <SolutionRoot>/OrchestratorIDE/bin/<cfg>/net10.0-windows/.
+        //    We try Debug first (developer local run), then Release (post-publish run).
         var testDir = AppDomain.CurrentDomain.BaseDirectory;
-        var exeRelative = Path.GetFullPath(
-            Path.Combine(testDir,
-                @"..\..\..\..\OrchestratorIDE\bin\Debug\net10.0-windows\OrchestratorIDE.exe"));
 
-        if (File.Exists(exeRelative))
-            return exeRelative;
+        // Navigate up until we find the .slnx file (solution root), max 8 levels.
+        var dir = new DirectoryInfo(testDir);
+        for (int i = 0; i < 8; i++)
+        {
+            if (dir?.GetFiles("*.slnx").Length > 0) break;
+            dir = dir?.Parent;
+        }
+
+        if (dir is null)
+            throw new FileNotFoundException(
+                "Could not locate solution root (.slnx) while searching upward from: " + testDir);
+
+        var solutionRoot = dir.FullName;
+
+        // Try Debug then Release build outputs
+        string[] candidates =
+        [
+            Path.Combine(solutionRoot, "OrchestratorIDE", "bin", "Debug",   "net10.0-windows", "OrchestratorIDE.exe"),
+            Path.Combine(solutionRoot, "OrchestratorIDE", "bin", "Release",  "net10.0-windows", "OrchestratorIDE.exe"),
+            Path.Combine(solutionRoot, "OrchestratorIDE", "bin", "Release",  "net10.0-windows", "win-x64", "OrchestratorIDE.exe"),
+        ];
+
+        foreach (var candidate in candidates)
+            if (File.Exists(candidate)) return candidate;
 
         throw new FileNotFoundException(
-            $"OrchestratorIDE.exe not found. " +
-            $"Build the main project first, or set ORCHESTRATOR_EXE env var. " +
-            $"Tried: {exeRelative}");
+            $"OrchestratorIDE.exe not found under solution root '{solutionRoot}'. " +
+            $"Build the main project first, or set ORCHESTRATOR_EXE env var.\n" +
+            $"Tried:\n  " + string.Join("\n  ", candidates));
     }
 
     // ── One-time setup ────────────────────────────────────────────────────
