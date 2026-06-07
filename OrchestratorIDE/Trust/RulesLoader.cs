@@ -1,3 +1,5 @@
+using OrchestratorIDE.Core;
+
 namespace OrchestratorIDE.Trust;
 
 /// <summary>
@@ -11,24 +13,50 @@ public class RulesLoader
         ".agent.md", "AGENT.md", ".clinerules", "CLAUDE.md", ".rules.md"
     ];
 
+    /// <summary>
+    /// Loads and composes rules for the current agent run:
+    ///   1. Global agent file (~AppData/OrchestratorIDE/global_agent.md) — always applied
+    ///   2. Workspace-specific file (.agent.md / AGENT.md / …)           — overrides / extends global
+    /// Returns the merged text, or empty string if neither file exists.
+    /// </summary>
     public async Task<string> LoadAsync(string workspaceRoot)
     {
-        if (string.IsNullOrEmpty(workspaceRoot)) return "";
+        var parts = new System.Text.StringBuilder();
 
-        foreach (var name in _candidates)
+        // ── 1. Global agent ──────────────────────────────────────────────────
+        var globalPath = Core.AgentPresets.GlobalAgentPath;
+        if (File.Exists(globalPath))
         {
-            var path = Path.Combine(workspaceRoot, name);
-            if (File.Exists(path))
+            try
             {
-                try
+                var globalContent = await File.ReadAllTextAsync(globalPath);
+                if (!string.IsNullOrWhiteSpace(globalContent))
+                    parts.AppendLine($"[Global agent rules]\n{globalContent.Trim()}");
+            }
+            catch { /* skip unreadable */ }
+        }
+
+        // ── 2. Workspace rules ───────────────────────────────────────────────
+        if (!string.IsNullOrEmpty(workspaceRoot))
+        {
+            foreach (var name in _candidates)
+            {
+                var path = Path.Combine(workspaceRoot, name);
+                if (File.Exists(path))
                 {
-                    var content = await File.ReadAllTextAsync(path);
-                    return $"[Rules from {name}]\n{content.Trim()}";
+                    try
+                    {
+                        var content = await File.ReadAllTextAsync(path);
+                        if (!string.IsNullOrWhiteSpace(content))
+                            parts.AppendLine($"[Workspace rules from {name}]\n{content.Trim()}");
+                    }
+                    catch { /* skip unreadable */ }
+                    break; // first match wins
                 }
-                catch { /* skip unreadable files */ }
             }
         }
-        return "";
+
+        return parts.ToString().Trim();
     }
 
     public string? FindRulesFile(string workspaceRoot)

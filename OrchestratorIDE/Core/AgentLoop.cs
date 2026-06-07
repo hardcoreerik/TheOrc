@@ -132,18 +132,25 @@ public class AgentLoop
         var profile = ModelProfiles.Get(session.ActiveModel);
         var tools = _registry.GetForProfile(profile);
 
-        // Load project rules
-        var rulesText = await _rules.LoadAsync(session.WorkspaceRoot);
+        // Load project rules (global agent + workspace rules merged)
+        var rulesText  = await _rules.LoadAsync(session.WorkspaceRoot);
+        var globalPath = AgentPresets.GlobalAgentPath;
+        var hasGlobal  = File.Exists(globalPath);
         if (!string.IsNullOrEmpty(rulesText))
         {
-            var rulesFile = _rules.FindRulesFile(session.WorkspaceRoot);
-            Emit(ActivityKind.Info, "Rules loaded", $"{rulesText.Length} chars from {Path.GetFileName(rulesFile ?? ".agent.md")}");
-            // V3: show rules content preview
+            var rulesFile  = _rules.FindRulesFile(session.WorkspaceRoot);
+            var sourceDesc = hasGlobal && rulesFile != null
+                ? $"global_agent.md + {Path.GetFileName(rulesFile)}"
+                : hasGlobal ? "global_agent.md" : Path.GetFileName(rulesFile ?? ".agent.md");
+            Emit(ActivityKind.Info, "Rules loaded", $"{rulesText.Length} chars ({sourceDesc})");
+            // V3: rules content preview
             var preview = rulesText.Length > 600 ? rulesText[..600] + "\n…(truncated)" : rulesText;
             Emit(ActivityKind.Rules, "Rules content", preview, 3);
-            // V5: show full rules file path
+            // V5: full paths
+            if (hasGlobal)
+                Emit(ActivityKind.Debug, "Global agent path", globalPath, 5);
             if (rulesFile != null)
-                Emit(ActivityKind.Debug, "Rules path", rulesFile, 5);
+                Emit(ActivityKind.Debug, "Workspace rules path", rulesFile, 5);
             OnRulesLoaded?.Invoke(rulesFile);
         }
         else

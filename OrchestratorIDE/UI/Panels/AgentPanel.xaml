@@ -131,125 +131,139 @@
                 BorderBrush="{StaticResource Br.Border}" BorderThickness="0,1,0,0">
             <DockPanel Margin="8,6">
 
-                <!-- Bottom toolbar -->
-                <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
-                    <!-- Mode toggle -->
-                    <Border Background="{StaticResource Br.Bg.Input}" CornerRadius="3"
-                            Padding="2" Margin="0,0,8,0" DockPanel.Dock="Left">
-                        <StackPanel Orientation="Horizontal">
-                            <RadioButton x:Name="RbPlan" Content=" Plan "
-                                         GroupName="Mode" IsChecked="True"
-                                         Foreground="{StaticResource Br.Text.Primary}"
-                                         FontSize="11" VerticalAlignment="Center"
-                                         AutomationProperties.AutomationId="AgentPanel.ModePlan"
-                                         Checked="ModeChanged"/>
-                            <RadioButton x:Name="RbExec" Content=" Execute "
-                                         GroupName="Mode" Margin="4,0,0,0"
-                                         Foreground="{StaticResource Br.Text.Primary}"
-                                         FontSize="11" VerticalAlignment="Center"
-                                         AutomationProperties.AutomationId="AgentPanel.ModeExecute"
-                                         Checked="ModeChanged"/>
-                        </StackPanel>
-                    </Border>
+                <!-- Bottom toolbar — two rows to avoid overflow -->
+                <Grid DockPanel.Dock="Bottom" Margin="0,4,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="24"/>  <!-- Context row: workspace / rules / agent badges -->
+                        <RowDefinition Height="6"/>   <!-- gap -->
+                        <RowDefinition Height="26"/>  <!-- Action row: mode toggle + token + send -->
+                    </Grid.RowDefinitions>
 
-                    <!-- Workspace badge — click to open folder picker -->
-                    <Border x:Name="WsBadge" CornerRadius="3" Padding="7,3"
-                            Margin="0,0,8,0" DockPanel.Dock="Left"
-                            Background="#3A3010" Cursor="Hand"
-                            ToolTip="Click to open a project folder"
-                            MouseLeftButtonUp="WsBadge_Click">
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="📁" FontSize="10" Margin="0,0,5,0"
-                                       VerticalAlignment="Center"/>
-                            <!-- AutomationId on TextBlock (not Border) — WPF's UIA3
-                                 provider exposes TextBlock in the accessibility tree
-                                 whereas Border is typically opaque to UIA traversal. -->
-                            <TextBlock x:Name="WsLabel" Text="no folder open"
-                                       Foreground="#CCA700" FontSize="10"
-                                       VerticalAlignment="Center" MaxWidth="180"
-                                       TextTrimming="CharacterEllipsis"
-                                       AutomationProperties.AutomationId="AgentPanel.WorkspaceBadge"/>
-                        </StackPanel>
-                    </Border>
+                    <!-- ── Context row ─────────────────────────────────────────── -->
+                    <DockPanel Grid.Row="0">
 
-                    <!-- Rules badge — shown when .agent.md is active -->
-                    <Border x:Name="RulesBadge" CornerRadius="3" Padding="7,3"
-                            Margin="0,0,8,0" DockPanel.Dock="Left"
-                            Background="#102A20" Visibility="Collapsed"
-                            AutomationProperties.AutomationId="AgentPanel.RulesBadge"
-                            Cursor="Hand" MouseLeftButtonUp="RulesBadge_Click">
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="📋" FontSize="10" Margin="0,0,4,0"
-                                       VerticalAlignment="Center"/>
-                            <TextBlock x:Name="RulesLabel" Text=".agent.md"
-                                       Foreground="#4EC9B0" FontSize="10"
-                                       VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Global Agent badge — shows active global agent preset -->
-                    <Border x:Name="GlobalAgentBadge" CornerRadius="3" Padding="7,3"
-                            Margin="0,0,8,0" DockPanel.Dock="Left"
-                            Background="#1A2A1A" Cursor="Hand"
-                            ToolTip="Global Agent — applies to all workspaces. Click to change."
-                            AutomationProperties.AutomationId="AgentPanel.GlobalAgentBadge"
-                            MouseLeftButtonUp="GlobalAgentBadge_Click">
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="⚙" FontSize="10" Margin="0,0,4,0"
-                                       Foreground="#6A9955" VerticalAlignment="Center"/>
-                            <TextBlock x:Name="GlobalAgentLabel" Text="Global Agent"
-                                       Foreground="#6A9955" FontSize="10"
-                                       VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Workspace Rules button — fine-tune rules for this project -->
-                    <Border x:Name="WorkspaceRulesBtn" CornerRadius="3" Padding="7,3"
-                            Margin="0,0,8,0" DockPanel.Dock="Left"
-                            Background="#1A1A2A" Cursor="Hand"
-                            ToolTip="Project/Workspace Rules — fine-tune agent rules for this workspace"
-                            AutomationProperties.AutomationId="AgentPanel.WorkspaceRules"
-                            MouseLeftButtonUp="WorkspaceRulesBtn_Click">
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="📝" FontSize="10" Margin="0,0,4,0"
-                                       VerticalAlignment="Center"/>
-                            <TextBlock x:Name="WorkspaceRulesLabel" Text="Workspace Rules"
-                                       Foreground="#7A7ACC" FontSize="10"
-                                       VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Token counter + mini progress bar -->
-                    <StackPanel DockPanel.Dock="Left" Orientation="Vertical"
-                                VerticalAlignment="Center" Margin="0,0,10,0" Width="100">
-                        <TextBlock x:Name="TbTokens" Text="0 tokens"
-                                   Foreground="{StaticResource Br.Text.Muted}"
-                                   FontSize="9" HorizontalAlignment="Center"/>
-                        <Border Height="3" CornerRadius="2"
-                                Background="{StaticResource Br.Bg.App}" Margin="0,2,0,0">
-                            <Border x:Name="CtxBar" Height="3" CornerRadius="2"
-                                    HorizontalAlignment="Left" Width="0"
-                                    Background="{StaticResource Br.Accent.Blue}"/>
+                        <!-- Workspace badge — click to open folder picker -->
+                        <Border x:Name="WsBadge" CornerRadius="3" Padding="6,2"
+                                Margin="0,0,6,0" DockPanel.Dock="Left"
+                                Background="#3A3010" Cursor="Hand"
+                                ToolTip="Click to open a project folder"
+                                MouseLeftButtonUp="WsBadge_Click">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="📁" FontSize="10" Margin="0,0,4,0"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock x:Name="WsLabel" Text="no folder open"
+                                           Foreground="#CCA700" FontSize="10"
+                                           VerticalAlignment="Center" MaxWidth="140"
+                                           TextTrimming="CharacterEllipsis"
+                                           AutomationProperties.AutomationId="AgentPanel.WorkspaceBadge"/>
+                            </StackPanel>
                         </Border>
-                    </StackPanel>
 
-                    <!-- Buttons -->
-                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                        <Button x:Name="BtnStop" Content="■ Stop" Width="70"
-                                Background="#3A1A1A" Foreground="{StaticResource Br.Error}"
-                                BorderBrush="#5A2A2A" FontSize="11"
-                                AutomationProperties.AutomationId="AgentPanel.Stop"
-                                Click="BtnStop_Click" IsEnabled="False"/>
-                        <Button x:Name="BtnSend" Content="Send  ↵" Width="84"
-                                Background="{StaticResource Br.Bg.Active}"
-                                Foreground="{StaticResource Br.Text.White}"
-                                FontSize="11" Margin="6,0,0,0"
-                                AutomationProperties.AutomationId="AgentPanel.Send"
-                                Click="BtnSend_Click"/>
-                    </StackPanel>
+                        <!-- Rules badge — shown when .agent.md is active -->
+                        <Border x:Name="RulesBadge" CornerRadius="3" Padding="6,2"
+                                Margin="0,0,6,0" DockPanel.Dock="Left"
+                                Background="#102A20" Visibility="Collapsed"
+                                AutomationProperties.AutomationId="AgentPanel.RulesBadge"
+                                Cursor="Hand" MouseLeftButtonUp="RulesBadge_Click">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="📋" FontSize="10" Margin="0,0,3,0"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock x:Name="RulesLabel" Text=".agent.md"
+                                           Foreground="#4EC9B0" FontSize="10"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
 
-                    <Border/><!-- spacer -->
-                </DockPanel>
+                        <!-- Global Agent badge -->
+                        <Border x:Name="GlobalAgentBadge" CornerRadius="3" Padding="6,2"
+                                Margin="0,0,6,0" DockPanel.Dock="Left"
+                                Background="#1A2A1A" Cursor="Hand"
+                                ToolTip="Global Agent — applies to all workspaces. Click to change."
+                                AutomationProperties.AutomationId="AgentPanel.GlobalAgentBadge"
+                                MouseLeftButtonUp="GlobalAgentBadge_Click">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="⚙" FontSize="10" Margin="0,0,3,0"
+                                           Foreground="#6A9955" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="GlobalAgentLabel" Text="No global agent"
+                                           Foreground="#6A9955" FontSize="10"
+                                           VerticalAlignment="Center" MaxWidth="100"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Workspace Rules button -->
+                        <Border x:Name="WorkspaceRulesBtn" CornerRadius="3" Padding="6,2"
+                                Margin="0,0,6,0" DockPanel.Dock="Left"
+                                Background="#1A1A2A" Cursor="Hand"
+                                ToolTip="Project/Workspace Rules — fine-tune agent rules for this workspace"
+                                AutomationProperties.AutomationId="AgentPanel.WorkspaceRules"
+                                MouseLeftButtonUp="WorkspaceRulesBtn_Click">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="📝" FontSize="10" Margin="0,0,3,0"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Foreground="#7A7ACC" FontSize="10"
+                                           VerticalAlignment="Center">Workspace Rules</TextBlock>
+                            </StackPanel>
+                        </Border>
+
+                        <Border/><!-- flex spacer -->
+                    </DockPanel>
+
+                    <!-- ── Action row ───────────────────────────────────────────── -->
+                    <DockPanel Grid.Row="2">
+
+                        <!-- Mode toggle -->
+                        <Border Background="{StaticResource Br.Bg.Input}" CornerRadius="3"
+                                Padding="2" Margin="0,0,8,0" DockPanel.Dock="Left">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="RbPlan" Content=" Plan "
+                                             GroupName="Mode" IsChecked="True"
+                                             Foreground="{StaticResource Br.Text.Primary}"
+                                             FontSize="11" VerticalAlignment="Center"
+                                             AutomationProperties.AutomationId="AgentPanel.ModePlan"
+                                             Checked="ModeChanged"/>
+                                <RadioButton x:Name="RbExec" Content=" Execute "
+                                             GroupName="Mode" Margin="4,0,0,0"
+                                             Foreground="{StaticResource Br.Text.Primary}"
+                                             FontSize="11" VerticalAlignment="Center"
+                                             AutomationProperties.AutomationId="AgentPanel.ModeExecute"
+                                             Checked="ModeChanged"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Token counter + mini progress bar -->
+                        <StackPanel DockPanel.Dock="Left" Orientation="Vertical"
+                                    VerticalAlignment="Center" Margin="0,0,8,0" Width="90">
+                            <TextBlock x:Name="TbTokens" Text="0 tokens"
+                                       Foreground="{StaticResource Br.Text.Muted}"
+                                       FontSize="9" HorizontalAlignment="Center"/>
+                            <Border Height="3" CornerRadius="2"
+                                    Background="{StaticResource Br.Bg.App}" Margin="0,2,0,0">
+                                <Border x:Name="CtxBar" Height="3" CornerRadius="2"
+                                        HorizontalAlignment="Left" Width="0"
+                                        Background="{StaticResource Br.Accent.Blue}"/>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Stop + Send buttons -->
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button x:Name="BtnStop" Content="■ Stop" Width="70"
+                                    Background="#3A1A1A" Foreground="{StaticResource Br.Error}"
+                                    BorderBrush="#5A2A2A" FontSize="11"
+                                    AutomationProperties.AutomationId="AgentPanel.Stop"
+                                    Click="BtnStop_Click" IsEnabled="False"/>
+                            <Button x:Name="BtnSend" Content="Send  ↵" Width="84"
+                                    Background="{StaticResource Br.Bg.Active}"
+                                    Foreground="{StaticResource Br.Text.White}"
+                                    FontSize="11" Margin="6,0,0,0"
+                                    AutomationProperties.AutomationId="AgentPanel.Send"
+                                    Click="BtnSend_Click"/>
+                        </StackPanel>
+
+                        <Border/><!-- flex spacer -->
+                    </DockPanel>
+
+                </Grid>
 
                 <!-- Text input with placeholder -->
                 <Grid>
