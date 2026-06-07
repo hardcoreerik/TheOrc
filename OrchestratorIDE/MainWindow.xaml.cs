@@ -233,11 +233,14 @@ public partial class MainWindow : Window
         SidebarContent.Content = _explorerPanel;
         _explorerPanel.LoadWorkspace(_session.WorkspaceRoot);
 
-        // Main area = agent panel
+        // Main area = agent panel (single mode until OnLoadedAsync restores last mode)
         MainContent.Content = _agentPanel;
 
         // Show unconfirmed badge on startup (default workspace, not explicitly opened)
         _agentPanel.SetWorkspace(_session.WorkspaceRoot, confirmed: false);
+
+        // Set initial toggle state — always starts "single"; RestoreLastMode() updates it
+        UpdateModeToggle("single");
 
         UpdateStatusBar();
         Loaded += async (_, _) => await OnLoadedAsync();
@@ -274,9 +277,22 @@ public partial class MainWindow : Window
 
             _installedModels = models;
 
-            // Auto-select best available model — skipped if AutoModelSwitch is off
-            // (in that case we keep whatever DefaultModel is set in settings).
-            if (_settings.AutoModelSwitch)
+            // ── Model selection priority ──────────────────────────────────
+            // 1. LastUsedModel (DefaultModel) — if still installed, always restore it.
+            //    This ensures "the app opens with the model you left it on."
+            // 2. Quality-ordered preferred list (AutoModelSwitch fallback).
+            // 3. Whatever is first in the installed list.
+            var lastUsed = _settings.DefaultModel;
+            string best;
+
+            if (!string.IsNullOrEmpty(lastUsed) &&
+                models.Contains(lastUsed, StringComparer.OrdinalIgnoreCase))
+            {
+                best = lastUsed;
+                AddActivity(new ActivityEvent(ActivityKind.Info, "Model",
+                    $"Restored: {best}", DateTime.Now));
+            }
+            else if (_settings.AutoModelSwitch)
             {
                 var preferred = new[] {
                     "qwen2.5-coder:14b",
@@ -290,23 +306,26 @@ public partial class MainWindow : Window
                     "gemma4:e4b",
                     "llama3.1:8b",
                 };
-                var best = preferred.FirstOrDefault(p => models.Contains(p, StringComparer.OrdinalIgnoreCase))
-                        ?? models.First();
-                _session.ActiveModel = best;
+                best = preferred.FirstOrDefault(p => models.Contains(p, StringComparer.OrdinalIgnoreCase))
+                    ?? models.First();
                 AddActivity(new ActivityEvent(ActivityKind.Info, "Model",
                     $"Auto-selected: {best}", DateTime.Now));
             }
             else
             {
-                // Respect the DefaultModel setting; fall back to first available if not installed
-                var pinned = _settings.DefaultModel;
-                _session.ActiveModel = models.Contains(pinned, StringComparer.OrdinalIgnoreCase)
-                    ? pinned
-                    : models.First();
+                best = models.First();
                 AddActivity(new ActivityEvent(ActivityKind.Info, "Model",
-                    $"Active: {_session.ActiveModel}", DateTime.Now));
+                    $"Active: {best}", DateTime.Now));
             }
-            Dispatcher.Invoke(UpdateStatusBar);
+
+            _session.ActiveModel    = best;
+            _swarmPanel.ActiveModel = best;
+            Dispatcher.Invoke(() =>
+            {
+                UpdateStatusBar();
+                // Restore last mode — demote swarm silently if gate not satisfied
+                RestoreLastMode();
+            });
         }
         else
         {
@@ -1031,15 +1050,74 @@ public partial class MainWindow : Window
         SidebarContent.Content = _explorerPanel;  // keep explorer in sidebar
     }
 
-    private void BtnSwarm_Click(object sender, RoutedEventArgs e)
-    {
-        // Keep swarm panel in sync with current model + workspace
-        _swarmPanel.ActiveModel   = _session.ActiveModel;
-        _swarmPanel.WorkspaceRoot = _session.WorkspaceRoot;
-        _swarmPanel.Refresh();
+    // ── Mode toggle ───────────────────────────────────────────────────────
 
-        MainContent.Content    = _swarmPanel;
-        SidebarContent.Content = _explorerPanel;
+    private void BtnModeSingle_Click(object sender, RoutedEventArgs e) => SetMode("single");
+    private void BtnModeSwarm_Click(object sender, RoutedEventArgs e)  => SetMode("swarm");
+
+    /// <summary>
+    /// Switches between Single Agent and Swarm modes.
+    /// Swarm is silently refused (with a status message) if the gate is not satisfied.
+    /// Persists the chosen mode to settings.
+    /// </summary>
+    private void SetMode(string mode)
+    {
+        if (mode == "swarm")
+        {
+            _swarmPanel.ActiveModel   = _session.ActiveModel;
+            _swarmPanel.WorkspaceRoot = _session.WorkspaceRoot;
+            _swarmPanel.Refresh();
+
+            // Gate check — swarm panel shows its own warning, but refuse to switch
+            // the title bar to "swarm" if completely blocked (no nemotron model).
+            var isNemotron = _session.ActiveModel.Contains("nemotron", StringComparison.OrdinalIgnoreCase);
+            if (!isNemotron)
+            {
+                SetStatus("Swarm requires NVIDIA Nemotron Mini — switch model first");
+                // Still show the swarm panel so the user sees the gate warning
+            }
+
+            MainContent.Content    = _swarmPanel;
+            SidebarContent.Content = _explorerPanel;
+        }
+        else
+        {
+            MainContent.Content    = _agentPanel;
+            SidebarContent.Content = _sessionPanel;
+            _sessionPanel.Refresh();
+        }
+
+        UpdateModeToggle(mode);
+
+        _settings.LastMode = mode;
+        _settings.Save();
+    }
+
+    /// <summary>
+    /// Updates the title-bar mode pill to reflect the active mode.
+    /// Active = NVIDIA green. Inactive = muted grey.
+    /// </summary>
+    private void UpdateModeToggle(string mode)
+    {
+        var activeGreen  = new SolidColorBrush(Color.FromRgb(0x1F, 0x3D, 0x00));
+        var activeFg     = new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00));
+        var inactiveBg   = new SolidColorBrush(Colors.Transparent);
+        var inactiveFg   = new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66));
+
+        BtnModeSingle.Background = mode == "single" ? activeGreen  : inactiveBg;
+        BtnModeSingle.Foreground = mode == "single" ? activeFg     : inactiveFg;
+        BtnModeSwarm.Background  = mode == "swarm"  ? activeGreen  : inactiveBg;
+        BtnModeSwarm.Foreground  = mode == "swarm"  ? activeFg     : inactiveFg;
+    }
+
+    /// <summary>
+    /// Called after startup model selection. Restores the last-used mode.
+    /// Silently falls back to single if swarm gate is not satisfied.
+    /// </summary>
+    private void RestoreLastMode()
+    {
+        var mode = _settings.LastMode == "swarm" ? "swarm" : "single";
+        SetMode(mode);
     }
 
     private void BtnSettings_Click(object sender, RoutedEventArgs e)
@@ -1269,6 +1347,11 @@ public partial class MainWindow : Window
         _session.ActiveModel       = modelId;
         _swarmPanel.ActiveModel    = modelId;   // keep swarm gate in sync
         _swarmPanel.Refresh();
+
+        // Persist so the app restores this model on next launch
+        _settings.DefaultModel = modelId;
+        _settings.Save();
+
         RegisterAllTools();   // Re-register with new toolset
         UpdateStatusBar();
         AddActivity(new ActivityEvent(ActivityKind.Info, "Model", $"Switched to: {modelId}", DateTime.Now));

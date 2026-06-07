@@ -81,6 +81,13 @@ public class AppSettings
     /// </summary>
     public int OllamaParallelSlots { get; set; } = 1;
 
+    /// <summary>
+    /// Last active agent mode — "single" (default) or "swarm".
+    /// Restored on next launch so the app opens in the same mode the user left it.
+    /// Swarm mode is silently demoted to single if the gate is not satisfied at startup.
+    /// </summary>
+    public string LastMode { get; set; } = "single";
+
     // ── Workspace ────────────────────────────────────────────────────────
     public string DefaultWorkspace { get; set; } = "";
 
