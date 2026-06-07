@@ -20,7 +20,8 @@ public class T06_BuildResearchTool : RecordingTestBase
 {
     // ── Config ────────────────────────────────────────────────────────────────
 
-    private const int StartupWaitSec     = 12;   // time for OnLoadedAsync + Ollama ping
+    private const int StartupWaitSec     = 8;    // initial sleep before polling starts
+    private const int StartupReadySec    = 40;   // max time to wait for app to be ready
     private const int ExecuteTimeoutMin  = 25;   // total build window
     private const int StallDetectMin     = 6;    // no progress → stall
     private const int AgentStartWaitSec  = 45;   // wait for Stop to go enabled after Send
@@ -102,9 +103,22 @@ public class T06_BuildResearchTool : RecordingTestBase
         Assert.That(_win, Is.Not.Null, "Main window did not appear within 20s.");
         TestContext.WriteLine($"[T06] Window    : {_win!.Title}");
 
-        // Wait for OnLoadedAsync to finish (Ollama ping + session restore + workspace confirm)
-        TestContext.WriteLine($"[T06] Waiting {StartupWaitSec}s for startup…");
+        // Short fixed sleep, then poll for the status bar to confirm app is ready.
+        // This is safer than a fixed 12s sleep — app may be faster or slower depending on cold start.
+        TestContext.WriteLine($"[T06] Waiting for app ready (up to {StartupReadySec}s)…");
         Thread.Sleep(StartupWaitSec * 1_000);
+
+        // Dismiss any FirstRun/modal windows that might be blocking the main window
+        DismissBlockingDialogs();
+
+        // Poll until the StatusBar appears — confirms OnLoadedAsync has finished
+        var ready = WaitUntil(() => FindById("StatusBar.Workspace") != null ||
+                                    FindById("AgentPanel.Input")     != null ||
+                                    FindById("ActivityBar.Agent")    != null,
+                              TimeSpan.FromSeconds(StartupReadySec - StartupWaitSec));
+        TestContext.WriteLine(ready
+            ? $"[T06] App ready ✓ (StatusBar={FindById("StatusBar.Workspace") != null})"
+            : $"[T06] App ready timeout — proceeding anyway");
     }
 
     [OneTimeTearDown]
@@ -142,9 +156,21 @@ public class T06_BuildResearchTool : RecordingTestBase
 
         // ── 2. Navigate to Agent panel ────────────────────────────────────────
         TestContext.WriteLine("[T06] ── 2. Agent panel");
-        FindById("ActivityBar.Agent")?.AsButton().Click();
+        // Retry the click up to 3 times in case the panel isn't visible yet
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            var btn = FindById("ActivityBar.Agent");
+            if (btn != null) { btn.AsButton().Click(); Thread.Sleep(800); }
+            if (FindById("AgentPanel.Input") != null) break;
+            if (attempt < 2)
+            {
+                TestContext.WriteLine($"[T06]    Retry {attempt + 1}: waiting for AgentPanel.Input…");
+                Thread.Sleep(3_000);
+            }
+        }
         Assert.That(WaitUntil(() => FindById("AgentPanel.Input") != null, TimeSpan.FromSeconds(15)),
-            Is.True, "Agent panel did not appear.");
+            Is.True, $"Agent panel did not appear. Window={_win?.Title}, " +
+                     $"ActivityBar.Agent found={FindById("ActivityBar.Agent") != null}");
 
         // ── 3. Wait for any previous agent run to finish ──────────────────────
         TestContext.WriteLine("[T06] ── 3. Waiting for idle agent…");
@@ -309,6 +335,38 @@ public class T06_BuildResearchTool : RecordingTestBase
     }
 
     // ── Polling helpers ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Closes any modal child windows (FirstRun wizard, error dialogs) that
+    /// could block access to the main window's UI elements.
+    /// </summary>
+    private void DismissBlockingDialogs()
+    {
+        try
+        {
+            // FlaUI: iterate all windows belonging to the app process
+            if (_app is null) return;
+            var allWindows = _automation!.GetDesktop()
+                .FindAllChildren(cf => cf.ByProcessId(_app.ProcessId));
+
+            foreach (var w in allWindows)
+            {
+                try
+                {
+                    // Skip the main window (has StatusBar or ActivityBar children)
+                    if (w.FindFirstDescendant(cf => cf.ByAutomationId("StatusBar.Workspace")) != null) continue;
+
+                    // It's a secondary window — try pressing Escape or closing it
+                    TestContext.WriteLine($"[T06]    Closing blocking window: '{w.Name}'");
+                    var closeBtn = w.FindFirstDescendant(cf => cf.ByAutomationId("Close"));
+                    if (closeBtn != null) { closeBtn.AsButton().Click(); Thread.Sleep(500); }
+                    else { FlaUI.Core.Input.Keyboard.Press(FlaUI.Core.WindowsAPI.VirtualKeyShort.ESCAPE); Thread.Sleep(300); }
+                }
+                catch { /* best effort */ }
+            }
+        }
+        catch { /* best effort — never fail startup over dialog detection */ }
+    }
 
     private bool WaitForAgentIdle(TimeSpan timeout)
     {
