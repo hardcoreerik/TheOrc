@@ -4,7 +4,7 @@
              Background="{StaticResource BgPanel}"
              AutomationProperties.AutomationId="Page.Download">
 
-    <Grid Margin="40,32">
+    <Grid Margin="40,28">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -12,20 +12,33 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <StackPanel Grid.Row="0" Margin="0,0,0,24">
-            <TextBlock x:Name="TxtPageTitle"
-                       Text="Downloading &amp; Installing…"
-                       Style="{StaticResource TextPageTitle}"/>
-            <TextBlock x:Name="TxtPageSubtitle"
-                       Style="{StaticResource TextSubtitle}">
-                Please wait while The Orc downloads and installs all components.
-                Large models may take several minutes.
-            </TextBlock>
-        </StackPanel>
+        <!-- Header with orc mascot -->
+        <Grid Grid.Row="0" Margin="0,0,0,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                <TextBlock x:Name="TxtPageTitle"
+                           Text="Downloading &amp; Installing…"
+                           Style="{StaticResource TextPageTitle}"/>
+                <TextBlock x:Name="TxtPageSubtitle"
+                           Style="{StaticResource TextSubtitle}">
+                    Please wait while TheOrc downloads and installs all components.
+                    Large models may take several minutes.
+                </TextBlock>
+            </StackPanel>
+            <Image Grid.Column="1"
+                   Source="pack://application:,,,/Assets/badge1.png"
+                   Width="88" Height="88"
+                   Stretch="Uniform"
+                   VerticalAlignment="Top"
+                   RenderOptions.BitmapScalingMode="HighQuality"
+                   Margin="16,0,0,0"/>
+        </Grid>
 
         <!-- Overall progress -->
-        <Border Grid.Row="1" Style="{StaticResource CardBorder}" Margin="0,0,0,16">
+        <Border Grid.Row="1" Style="{StaticResource CardBorder}" Margin="0,0,0,14">
             <StackPanel>
                 <Grid Margin="0,0,0,8">
                     <TextBlock Text="OVERALL PROGRESS"

@@ -5,65 +5,88 @@
              AutomationProperties.AutomationId="Page.Welcome">
 
     <Grid>
-        <StackPanel VerticalAlignment="Center" Margin="48,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
 
-            <!-- Hero -->
-            <TextBlock Text="🐉" FontSize="64" Margin="0,0,0,16"/>
+        <!-- ── Hero banner ────────────────────────────────────────────────── -->
+        <Border Grid.Row="0"
+                Background="#0A0A0A"
+                BorderBrush="{StaticResource BorderSubtle}"
+                BorderThickness="0,0,0,1">
+            <Image Source="pack://application:,,,/Assets/banner.png"
+                   Height="140"
+                   Stretch="UniformToFill"
+                   StretchDirection="DownOnly"
+                   HorizontalAlignment="Stretch"
+                   VerticalAlignment="Center"
+                   RenderOptions.BitmapScalingMode="HighQuality"/>
+        </Border>
 
-            <TextBlock Text="Welcome to The Orc"
-                       Style="{StaticResource TextHero}"
-                       Margin="0,0,0,12"/>
+        <!-- ── Content ───────────────────────────────────────────────────── -->
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="48,28,48,24">
 
-            <TextBlock Style="{StaticResource TextSubtitle}" FontSize="14"
-                       Margin="0,0,0,32">
-                The Orc is an AI coding assistant that runs <Run FontWeight="SemiBold"
-                Foreground="{StaticResource Accent}">entirely on your machine</Run> —
-                no cloud, no subscriptions, no telemetry.
-                <LineBreak/><LineBreak/>
-                This wizard will detect your GPU, let you choose a coding profile,
-                download the best model for your hardware, and have you up and running
-                in a few minutes.
-            </TextBlock>
+                <TextBlock Text="Welcome to TheOrc"
+                           Style="{StaticResource TextHero}"
+                           Margin="0,0,0,10"/>
 
-            <Separator Style="{StaticResource HRule}"/>
+                <TextBlock Style="{StaticResource TextSubtitle}" FontSize="14"
+                           Margin="0,0,0,24">
+                    TheOrc is an AI coding assistant that runs
+                    <Run FontWeight="SemiBold"
+                         Foreground="{StaticResource Accent}">entirely on your machine</Run> —
+                    no cloud, no subscriptions, no telemetry.
+                    <LineBreak/><LineBreak/>
+                    This wizard detects your GPU, lets you choose a coding profile,
+                    downloads the best model for your hardware, and has you up and
+                    running in a few minutes.
+                </TextBlock>
 
-            <!-- What will be installed -->
-            <TextBlock Text="WHAT GETS INSTALLED"
-                       Style="{StaticResource TextLabel}"
-                       Margin="0,12,0,10"/>
+                <Separator Style="{StaticResource HRule}"/>
 
-            <ItemsControl>
-                <ItemsControl.Items>
-                    <StackPanel Orientation="Horizontal" Margin="0,4">
-                        <TextBlock Text="✅" Margin="0,0,10,0"/>
-                        <TextBlock Text="OrchestratorIDE — the AI coding workspace"
-                                   Style="{StaticResource TextBody}"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,4">
-                        <TextBlock Text="✅" Margin="0,0,10,0"/>
-                        <TextBlock Text="llama.cpp runtime — local inference engine"
-                                   Style="{StaticResource TextBody}"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,4">
-                        <TextBlock Text="✅" Margin="0,0,10,0"/>
-                        <TextBlock Text="A GGUF coding model matched to your GPU"
-                                   Style="{StaticResource TextBody}"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,4">
-                        <TextBlock Text="✅" Margin="0,0,10,0"/>
-                        <TextBlock Text="A tailored .agent.md for your coding discipline"
-                                   Style="{StaticResource TextBody}"/>
-                    </StackPanel>
-                </ItemsControl.Items>
-            </ItemsControl>
+                <!-- What gets installed -->
+                <TextBlock Text="WHAT GETS INSTALLED"
+                           Style="{StaticResource TextLabel}"
+                           Margin="0,14,0,10"/>
 
-            <TextBlock Margin="0,24,0,0"
-                       Style="{StaticResource TextSubtitle}"
-                       FontSize="11">
-                Click <Run FontWeight="SemiBold">Next</Run> to begin.
-                Installation typically takes 5–15 minutes depending on your
-                internet speed and model size.
-            </TextBlock>
-        </StackPanel>
+                <ItemsControl>
+                    <ItemsControl.Items>
+                        <StackPanel Orientation="Horizontal" Margin="0,5">
+                            <TextBlock Text="✅" Margin="0,0,10,0"/>
+                            <TextBlock Text="OrchestratorIDE — the AI coding workspace"
+                                       Style="{StaticResource TextBody}"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,5">
+                            <TextBlock Text="✅" Margin="0,0,10,0"/>
+                            <TextBlock Text="Local AI runtime (llama.cpp or Ollama)"
+                                       Style="{StaticResource TextBody}"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,5">
+                            <TextBlock Text="✅" Margin="0,0,10,0"/>
+                            <TextBlock Text="A coding model matched to your GPU"
+                                       Style="{StaticResource TextBody}"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,5">
+                            <TextBlock Text="✅" Margin="0,0,10,0"/>
+                            <TextBlock Text="A tailored .agent.md for your coding discipline"
+                                       Style="{StaticResource TextBody}"/>
+                        </StackPanel>
+                    </ItemsControl.Items>
+                </ItemsControl>
+
+                <TextBlock Margin="0,20,0,0"
+                           Style="{StaticResource TextSubtitle}"
+                           FontSize="11">
+                    Click <Run FontWeight="SemiBold">Next →</Run> to begin.
+                    Installation typically takes 5–15 minutes depending on your
+                    internet speed and model size.
+                </TextBlock>
+
+            </StackPanel>
+        </ScrollViewer>
     </Grid>
 </UserControl>

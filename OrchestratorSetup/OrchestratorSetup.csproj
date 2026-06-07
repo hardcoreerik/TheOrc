@@ -30,6 +30,16 @@
     <PackageReference Include="System.Management"  Version="9.0.0" />
   </ItemGroup>
 
+  <!-- Branding images — embedded as WPF Resource so they are accessible
+       via pack://application:,,,/ URIs even in single-file publish mode.
+       Linked from the shared Assets folder at the repo root. -->
+  <ItemGroup>
+    <Resource Include="..\Assets\icon.png"    Link="Assets\icon.png"/>
+    <Resource Include="..\Assets\banner.png"  Link="Assets\banner.png"/>
+    <Resource Include="..\Assets\release.png" Link="Assets\release.png"/>
+    <Resource Include="..\Assets\badge1.png"  Link="Assets\badge1.png"/>
+  </ItemGroup>
+
   <!-- Embed the model manifest and profile templates INSIDE the exe assembly
        so the standalone single-file installer works without a Resources/ folder
        next to it. Read via Assembly.GetManifestResourceStream() at runtime. -->

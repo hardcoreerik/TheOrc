@@ -5,107 +5,130 @@
              AutomationProperties.AutomationId="Page.Complete">
 
     <Grid>
-        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
-                    MaxWidth="480" Margin="48,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
 
-            <!-- Success icon -->
-            <TextBlock Text="✅" FontSize="64"
-                       HorizontalAlignment="Center"
-                       Margin="0,0,0,24"/>
+        <!-- ── Orc mascot hero ────────────────────────────────────────────── -->
+        <Border Grid.Row="0"
+                Background="#080808"
+                BorderBrush="{StaticResource BorderSubtle}"
+                BorderThickness="0,0,0,1">
+            <Image Source="pack://application:,,,/Assets/release.png"
+                   Height="200"
+                   Stretch="Uniform"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   RenderOptions.BitmapScalingMode="HighQuality"
+                   Margin="0,8,0,0"/>
+        </Border>
 
-            <TextBlock Text="The Orc is Ready!"
-                       Style="{StaticResource TextHero}"
-                       FontSize="30"
-                       HorizontalAlignment="Center"
-                       Margin="0,0,0,12"/>
+        <!-- ── Content ───────────────────────────────────────────────────── -->
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel HorizontalAlignment="Center"
+                        MaxWidth="500"
+                        Margin="48,24,48,24">
 
-            <TextBlock HorizontalAlignment="Center"
-                       TextAlignment="Center"
-                       Style="{StaticResource TextSubtitle}"
-                       FontSize="13"
-                       Margin="0,0,0,32">
-                Everything is installed and configured.
-                Your AI coding assistant is ready to use — offline, private, yours.
-            </TextBlock>
+                <TextBlock Text="TheOrc is Ready!"
+                           Style="{StaticResource TextHero}"
+                           FontSize="28"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,8"/>
 
-            <Separator Style="{StaticResource HRule}"/>
+                <TextBlock HorizontalAlignment="Center"
+                           TextAlignment="Center"
+                           Style="{StaticResource TextSubtitle}"
+                           FontSize="13"
+                           Margin="0,0,0,20">
+                    Everything is installed and configured.
+                    Your AI coding assistant is ready — offline, private, yours.
+                </TextBlock>
 
-            <!-- Summary -->
-            <Grid Margin="0,16,0,24">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="140"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
+                <Separator Style="{StaticResource HRule}"/>
 
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="Profile"
-                           Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
-                <TextBlock Grid.Row="0" Grid.Column="1"
-                           x:Name="TxtSummaryProfile"
-                           Style="{StaticResource TextBody}"
-                           VerticalAlignment="Center" Margin="0,0,0,8"/>
+                <!-- Summary -->
+                <Grid Margin="0,14,0,20">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="120"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Model"
-                           Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
-                <TextBlock Grid.Row="1" Grid.Column="1"
-                           x:Name="TxtSummaryModel"
-                           Style="{StaticResource TextBody}"
-                           VerticalAlignment="Center" Margin="0,0,0,8"/>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Profile"
+                               Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1"
+                               x:Name="TxtSummaryProfile"
+                               Style="{StaticResource TextBody}"
+                               VerticalAlignment="Center" Margin="0,0,0,8"/>
 
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="Installed to"
-                           Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
-                <TextBlock Grid.Row="2" Grid.Column="1"
-                           x:Name="TxtSummaryPath"
-                           Style="{StaticResource TextBody}"
-                           FontFamily="Consolas" FontSize="11"
-                           TextWrapping="Wrap"/>
-            </Grid>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Model"
+                               Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1"
+                               x:Name="TxtSummaryModel"
+                               Style="{StaticResource TextBody}"
+                               VerticalAlignment="Center" Margin="0,0,0,8"/>
 
-            <!-- Options -->
-            <StackPanel Margin="0,0,0,28">
-                <CheckBox x:Name="ChkLaunch"
-                          IsChecked="True"
-                          Style="{StaticResource ThemedCheckBox}"
-                          Content="Launch The Orc now"
-                          AutomationProperties.AutomationId="Complete.Launch"
-                          Checked="ChkLaunch_Changed"
-                          Unchecked="ChkLaunch_Changed"/>
-                <CheckBox x:Name="ChkDesktopShortcut"
-                          IsChecked="True"
-                          Style="{StaticResource ThemedCheckBox}"
-                          Content="Create desktop shortcut"
-                          AutomationProperties.AutomationId="Complete.Desktop"
-                          Checked="ChkDesktop_Changed"
-                          Unchecked="ChkDesktop_Changed"/>
-                <CheckBox x:Name="ChkStartMenu"
-                          IsChecked="True"
-                          Style="{StaticResource ThemedCheckBox}"
-                          Content="Create Start Menu shortcut"
-                          AutomationProperties.AutomationId="Complete.StartMenu"
-                          Checked="ChkStartMenu_Changed"
-                          Unchecked="ChkStartMenu_Changed"/>
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Installed to"
+                               Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1"
+                               x:Name="TxtSummaryPath"
+                               Style="{StaticResource TextBody}"
+                               FontFamily="Consolas" FontSize="11"
+                               TextWrapping="Wrap"/>
+                </Grid>
+
+                <!-- Options -->
+                <StackPanel Margin="0,0,0,24">
+                    <CheckBox x:Name="ChkLaunch"
+                              IsChecked="True"
+                              Style="{StaticResource ThemedCheckBox}"
+                              Content="Launch TheOrc now"
+                              AutomationProperties.AutomationId="Complete.Launch"
+                              Checked="ChkLaunch_Changed"
+                              Unchecked="ChkLaunch_Changed"/>
+                    <CheckBox x:Name="ChkDesktopShortcut"
+                              IsChecked="True"
+                              Style="{StaticResource ThemedCheckBox}"
+                              Content="Create desktop shortcut"
+                              AutomationProperties.AutomationId="Complete.Desktop"
+                              Checked="ChkDesktop_Changed"
+                              Unchecked="ChkDesktop_Changed"/>
+                    <CheckBox x:Name="ChkStartMenu"
+                              IsChecked="True"
+                              Style="{StaticResource ThemedCheckBox}"
+                              Content="Create Start Menu shortcut"
+                              AutomationProperties.AutomationId="Complete.StartMenu"
+                              Checked="ChkStartMenu_Changed"
+                              Unchecked="ChkStartMenu_Changed"/>
+                </StackPanel>
+
+                <!-- Finish button -->
+                <Button x:Name="BtnFinish"
+                        Content="Launch TheOrc →"
+                        Style="{StaticResource PrimaryButton}"
+                        HorizontalAlignment="Center"
+                        Padding="32,10"
+                        FontSize="14"
+                        Click="BtnFinish_Click"
+                        AutomationProperties.AutomationId="Complete.Finish"/>
+
+                <TextBlock Margin="0,14,0,0"
+                           HorizontalAlignment="Center"
+                           TextAlignment="Center"
+                           Style="{StaticResource TextSubtitle}"
+                           FontSize="11">
+                    Tip: edit <Run FontFamily="Consolas">.agent.md</Run> in your
+                    workspace to customise how the agent thinks about your code.
+                </TextBlock>
+
             </StackPanel>
-
-            <!-- Finish button -->
-            <Button x:Name="BtnFinish"
-                    Content="Finish →"
-                    Style="{StaticResource PrimaryButton}"
-                    HorizontalAlignment="Center"
-                    Padding="32,10"
-                    FontSize="14"
-                    Click="BtnFinish_Click"
-                    AutomationProperties.AutomationId="Complete.Finish"/>
-
-            <TextBlock Margin="0,16,0,0"
-                       HorizontalAlignment="Center"
-                       Style="{StaticResource TextSubtitle}"
-                       FontSize="11">
-                Tip: edit <Run FontFamily="Consolas">.agent.md</Run> in your workspace to customise agent behaviour.
-            </TextBlock>
-        </StackPanel>
+        </ScrollViewer>
     </Grid>
 </UserControl>

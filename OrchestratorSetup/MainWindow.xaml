@@ -29,11 +29,17 @@
             <DockPanel>
 
                 <!-- Logo / product name -->
-                <StackPanel DockPanel.Dock="Top" Margin="24,32,24,32">
-                    <TextBlock Text="🐉" FontSize="42" HorizontalAlignment="Left"/>
-                    <TextBlock Text="The Orc" Style="{StaticResource TextPageTitle}"
-                               FontSize="20" Margin="0,6,0,2"/>
-                    <TextBlock Text="Setup Wizard" Style="{StaticResource TextSubtitle}"
+                <StackPanel DockPanel.Dock="Top" Margin="24,28,24,28">
+                    <Image Source="pack://application:,,,/Assets/icon.png"
+                           Width="64" Height="64"
+                           HorizontalAlignment="Left"
+                           RenderOptions.BitmapScalingMode="HighQuality"
+                           Margin="0,0,0,10"/>
+                    <TextBlock Text="TheOrc"
+                               Style="{StaticResource TextPageTitle}"
+                               FontSize="18" Margin="0,0,0,2"/>
+                    <TextBlock Text="Setup Wizard"
+                               Style="{StaticResource TextSubtitle}"
                                FontSize="11"/>
                 </StackPanel>
 
