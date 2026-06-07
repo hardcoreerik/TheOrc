@@ -109,21 +109,15 @@ jobs:
             -p:FileVersion=$ver `
             --output publish/setup
 
-      # ── Bundle portable zip (exe + PENTEST template for users skipping setup) ──
+      # ── Bundle portable zip (exe only — first-run wizard handles .agent.md) ──
       - name: Create portable zip
         shell: pwsh
         run: |
           $ver = '${{ steps.ver.outputs.VERSION }}'
           $zip = "publish/TheOrc-$ver-win-x64-portable.zip"
 
-          # PENTEST.agent.md is a Content file — CopyToOutputDirectory=Always puts
-          # it next to the exe in the publish folder.
-          $files = @("publish/app/OrchestratorIDE.exe")
-          if (Test-Path "publish/app/PENTEST.agent.md") {
-            $files += "publish/app/PENTEST.agent.md"
-          }
-
-          Compress-Archive -Path $files -DestinationPath $zip -CompressionLevel Optimal
+          Compress-Archive -Path "publish/app/OrchestratorIDE.exe" `
+                           -DestinationPath $zip -CompressionLevel Optimal
           $mb = [math]::Round((Get-Item $zip).Length / 1MB, 1)
           Write-Host "Created $zip ($mb MB)"
 
@@ -177,7 +171,7 @@ jobs:
             - GPU: NVIDIA RTX (CUDA 12), AMD (Vulkan), or CPU-only (AVX2 / baseline)
 
             ---
-            *Built automatically from `${{ steps.ver.outputs.TAG }}` · .NET 10 · [Source](https://github.com/hardcoreerik/The-Orchestrator)*
+            *Built automatically from `${{ steps.ver.outputs.TAG }}` · .NET 10 · [Source](https://github.com/hardcoreerik/TheOrc)*
           files: |
             publish/setup/OrchestratorSetup.exe
             publish/app/OrchestratorIDE.exe
