@@ -18,8 +18,9 @@ nuget.config
 Thumbs.db
 .DS_Store
 
-# Session data (local only)
-%APPDATA%/OrchestratorIDE/
+# Developer session / knowledge files (contain local paths, internal IPs)
+.agent.md
+PROJECT_LOG.md
 
 # Publish output (large binary artifacts — run dotnet publish locally)
 publish/
@@ -27,3 +28,6 @@ publish/
 # Secrets / local config
 appsettings.local.json
 *.env
+*.key
+*.pem
+*.pfx
