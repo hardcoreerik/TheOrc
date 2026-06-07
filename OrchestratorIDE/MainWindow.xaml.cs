@@ -309,6 +309,20 @@ public partial class MainWindow : Window
             Dispatcher.Invoke(UpdateStatusBar);
         }
 
+        // ── CLI workspace override (--workspace <path>) ───────────────────
+        // Used by FlaUI / CI tests to auto-confirm a workspace without a dialog.
+        // Example: OrchestratorIDE.exe --workspace C:\Temp\MyProject
+        var cliArgs  = Environment.GetCommandLineArgs();
+        var wsArgIdx = Array.IndexOf(cliArgs, "--workspace");
+        if (wsArgIdx >= 0 && wsArgIdx + 1 < cliArgs.Length)
+        {
+            var wsPath = cliArgs[wsArgIdx + 1];
+            Directory.CreateDirectory(wsPath);
+            ConfirmWorkspace(wsPath);
+            AddActivity(new ActivityEvent(ActivityKind.Info, "Workspace",
+                $"CLI workspace: {wsPath}", DateTime.Now));
+        }
+
         // ── First-run personalisation wizard ──────────────────────────────
         if (!_settings.FirstRunComplete)
         {
