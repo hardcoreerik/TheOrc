@@ -711,12 +711,12 @@
                 <!-- ── Left: Hub-and-spoke diagram ──────────────────────────── -->
                 <Grid Grid.Column="0" Background="#0A0F0A">
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="*" MinHeight="220"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
                     <!-- Node diagram area -->
-                    <Grid x:Name="DiagramGrid" Grid.Row="0" Margin="12">
+                    <Grid x:Name="DiagramGrid" Grid.Row="0" Margin="12" MinHeight="220">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>  <!-- Boss -->
                             <RowDefinition Height="32"/>    <!-- connector space -->
@@ -764,8 +764,12 @@
                                     Style="{StaticResource NodeBorder}"
                                     Margin="4,0">
                                 <StackPanel HorizontalAlignment="Center">
-                                    <TextBlock Text="🔍" FontSize="20"
-                                               HorizontalAlignment="Center" Margin="0,0,0,4"/>
+                                    <Grid HorizontalAlignment="Center" Margin="0,0,0,4">
+                                        <TextBlock x:Name="IcoResearcher" Text="🔍" FontSize="20"/>
+                                        <TextBlock x:Name="IcoResearcherThink" Text="💭" FontSize="14"
+                                                   HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                   Margin="0,0,-4,-2" Visibility="Collapsed"/>
+                                    </Grid>
                                     <TextBlock Text="RESEARCHER" FontSize="9" FontWeight="Bold"
                                                Foreground="#4A9FD9" HorizontalAlignment="Center"
                                                FontFamily="Segoe UI"/>
@@ -781,8 +785,12 @@
                                     Style="{StaticResource NodeBorder}"
                                     Margin="4,0">
                                 <StackPanel HorizontalAlignment="Center">
-                                    <TextBlock Text="💻" FontSize="20"
-                                               HorizontalAlignment="Center" Margin="0,0,0,4"/>
+                                    <Grid HorizontalAlignment="Center" Margin="0,0,0,4">
+                                        <TextBlock x:Name="IcoCoder" Text="💻" FontSize="20"/>
+                                        <TextBlock x:Name="IcoCoderThink" Text="💭" FontSize="14"
+                                                   HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                   Margin="0,0,-4,-2" Visibility="Collapsed"/>
+                                    </Grid>
                                     <TextBlock Text="CODER" FontSize="9" FontWeight="Bold"
                                                Foreground="#76B900" HorizontalAlignment="Center"
                                                FontFamily="Segoe UI"/>
@@ -798,8 +806,12 @@
                                     Style="{StaticResource NodeBorder}"
                                     Margin="4,0">
                                 <StackPanel HorizontalAlignment="Center">
-                                    <TextBlock Text="🎨" FontSize="20"
-                                               HorizontalAlignment="Center" Margin="0,0,0,4"/>
+                                    <Grid HorizontalAlignment="Center" Margin="0,0,0,4">
+                                        <TextBlock x:Name="IcoUIDev" Text="🎨" FontSize="20"/>
+                                        <TextBlock x:Name="IcoUIDevThink" Text="💭" FontSize="14"
+                                                   HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                   Margin="0,0,-4,-2" Visibility="Collapsed"/>
+                                    </Grid>
                                     <TextBlock Text="UI DEV" FontSize="9" FontWeight="Bold"
                                                Foreground="#C586C0" HorizontalAlignment="Center"
                                                FontFamily="Segoe UI"/>

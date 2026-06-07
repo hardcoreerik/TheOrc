@@ -92,6 +92,7 @@ public partial class SwarmBoardPanel : UserControl
 
     // ── Events ────────────────────────────────────────────────────────────────
     public event Action<string>? StatusChanged;
+    public event Action<string>? OnActivity;              // swarm activity log entries → MainWindow
     public event Action<string>? BossModelChanged;        // fired when user picks a different boss/orchestrator model
     public event Action<string>? WorkerModelChanged;      // fired when user picks a different coder model
     public event Action<string>? ResearcherModelChanged;  // fired when user picks a different researcher model
@@ -365,6 +366,9 @@ public partial class SwarmBoardPanel : UserControl
         TbResearcherStatus.Text = "idle";
         TbCoderStatus.Text      = "idle";
         TbUIDevStatus.Text      = "idle";
+        IcoResearcherThink.Visibility = Visibility.Collapsed;
+        IcoCoderThink.Visibility      = Visibility.Collapsed;
+        IcoUIDevThink.Visibility      = Visibility.Collapsed;
 
         // Reset tabs
         TabResearcher.Visibility = Visibility.Collapsed;
@@ -396,6 +400,7 @@ public partial class SwarmBoardPanel : UserControl
         _session.OnSwarmComplete += OnSwarmComplete;
         _session.OnError         += OnError;
         _session.OnStopped       += () => Dispatcher.InvokeAsync(OnSwarmStopped);
+        _session.OnActivity      += msg => Dispatcher.InvokeAsync(() => OnActivity?.Invoke(msg));
 
         _ = _session.RunAsync(goal);
         StatusChanged?.Invoke("Swarm active");
@@ -588,13 +593,13 @@ public partial class SwarmBoardPanel : UserControl
             switch (task.Role)
             {
                 case SwarmWorkerRole.Researcher:
-                    UpdateWorkerNode(NodeResearcher, TbResearcherStatus, task);
+                    UpdateWorkerNode(NodeResearcher, TbResearcherStatus, IcoResearcherThink, task);
                     break;
                 case SwarmWorkerRole.Coder:
-                    UpdateWorkerNode(NodeCoder, TbCoderStatus, task);
+                    UpdateWorkerNode(NodeCoder, TbCoderStatus, IcoCoderThink, task);
                     break;
                 case SwarmWorkerRole.UIDeveloper:
-                    UpdateWorkerNode(NodeUIDev, TbUIDevStatus, task);
+                    UpdateWorkerNode(NodeUIDev, TbUIDevStatus, IcoUIDevThink, task);
                     break;
             }
 
@@ -686,29 +691,33 @@ public partial class SwarmBoardPanel : UserControl
         node.BorderBrush  = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
     }
 
-    private static void UpdateWorkerNode(Border node, TextBlock statusLabel, SwarmTask task)
+    private static void UpdateWorkerNode(Border node, TextBlock statusLabel, TextBlock thinkIcon, SwarmTask task)
     {
         switch (task.Status)
         {
             case SwarmTaskStatus.InProgress:
                 SetNodeActive(node);
-                statusLabel.Text       = task.Title.Length > 18 ? task.Title[..15] + "…" : task.Title;
-                statusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00));
+                statusLabel.Text          = "thinking…";
+                statusLabel.Foreground    = new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00));
+                thinkIcon.Visibility      = Visibility.Visible;
                 break;
             case SwarmTaskStatus.Done:
                 SetNodeDone(node);
-                statusLabel.Text       = "done ✓";
-                statusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0x4E, 0xC9, 0x4E));
+                statusLabel.Text          = "done ✓";
+                statusLabel.Foreground    = new SolidColorBrush(Color.FromRgb(0x4E, 0xC9, 0x4E));
+                thinkIcon.Visibility      = Visibility.Collapsed;
                 break;
             case SwarmTaskStatus.Error:
                 SetNodeError(node);
-                statusLabel.Text       = "error ✗";
-                statusLabel.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
+                statusLabel.Text          = "error ✗";
+                statusLabel.Foreground    = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
+                thinkIcon.Visibility      = Visibility.Collapsed;
                 break;
             default:
                 SetNodeIdle(node);
-                statusLabel.Text       = "idle";
-                statusLabel.Foreground = (Brush)node.FindResource("Br.Text.Muted");
+                statusLabel.Text          = "idle";
+                statusLabel.Foreground    = (Brush)node.FindResource("Br.Text.Muted");
+                thinkIcon.Visibility      = Visibility.Collapsed;
                 break;
         }
     }

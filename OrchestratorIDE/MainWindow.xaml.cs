@@ -230,6 +230,8 @@ public partial class MainWindow : Window
             WorkspaceRoot = _session.WorkspaceRoot,
         };
         _swarmPanel.StatusChanged            += msg  => Dispatcher.Invoke(() => SetStatus(msg));
+        _swarmPanel.OnActivity               += msg  => Dispatcher.Invoke(() =>
+            AddActivity(new ActivityEvent(ActivityKind.Info, "Swarm", msg, DateTime.Now)));
         _swarmPanel.WorkspaceChangeRequested += ()   => Dispatcher.Invoke(_explorerPanel.OpenFolderDialog);
         _swarmPanel.BossModelChanged         += model => Dispatcher.Invoke(() =>
         {
