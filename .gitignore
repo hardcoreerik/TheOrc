@@ -20,6 +20,7 @@ Thumbs.db
 
 # Developer session / knowledge files (contain local paths, internal IPs)
 .agent.md
+PENTEST.agent.md
 PROJECT_LOG.md
 
 # Publish output (large binary artifacts — run dotnet publish locally)
