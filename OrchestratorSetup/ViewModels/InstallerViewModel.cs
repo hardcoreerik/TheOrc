@@ -154,9 +154,10 @@ public class InstallerViewModel : INotifyPropertyChanged
 
         if (pick is not null && string.IsNullOrEmpty(State.SelectedModelId))
         {
-            State.SelectedModelId   = pick.Id;
-            State.SelectedModelUrl  = pick.Url;
+            State.SelectedModelId        = pick.Id;
+            State.SelectedModelUrl       = pick.Url;
             State.SelectedModelSizeBytes = pick.SizeBytes;
+            State.SelectedOllamaModel    = pick.OllamaName ?? "qwen2.5-coder:7b";
         }
 
         OnPropertyChanged(nameof(RecommendedModel));
@@ -168,6 +169,10 @@ public class InstallerViewModel : INotifyPropertyChanged
         State.SelectedModelId        = model.Id;
         State.SelectedModelUrl       = model.Url;
         State.SelectedModelSizeBytes = model.SizeBytes;
+
+        // Keep the Ollama pull tag in sync so the Install Ollama path uses the right model.
+        State.SelectedOllamaModel    = model.OllamaName ?? "qwen2.5-coder:7b";
+
         OnPropertyChanged(nameof(RecommendedModel));
     }
 
@@ -211,6 +216,7 @@ public class InstallerViewModel : INotifyPropertyChanged
                     ContextK          = node["context_k"]?.GetValue<int>()      ?? 4,
                     Profiles          = node["profiles"]?.AsArray().Select(p => p?.GetValue<string>() ?? "").ToArray() ?? [],
                     Tags              = node["tags"]?.AsArray().Select(t => t?.GetValue<string>() ?? "").ToArray() ?? [],
+                    OllamaName        = node["ollama_name"]?.GetValue<string?>(),
                 });
             }
         }

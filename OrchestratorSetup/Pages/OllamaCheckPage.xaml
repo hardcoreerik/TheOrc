@@ -8,42 +8,39 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
         <!-- Header -->
         <StackPanel Grid.Row="0" Margin="0,0,0,20">
-            <TextBlock Text="Ollama Detection" Style="{StaticResource TextPageTitle}"/>
+            <TextBlock Text="Choose Your AI Backend" Style="{StaticResource TextPageTitle}"/>
             <TextBlock Style="{StaticResource TextSubtitle}">
-                The Orc can use llama.cpp (bundled) or an existing Ollama service.
-                We checked for Ollama on this machine.
+                The Orc needs a local AI engine. Pick the option that fits your setup.
             </TextBlock>
         </StackPanel>
 
-        <!-- Detection result card -->
+        <!-- Detection result banner -->
         <Border Grid.Row="1" Style="{StaticResource CardBorder}" Margin="0,0,0,16">
-            <StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                    <TextBlock x:Name="TxtOllamaIcon" Text="⬜" FontSize="20"
-                               Margin="0,0,10,0" VerticalAlignment="Center"/>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock x:Name="TxtOllamaIcon" Text="⬜" FontSize="18"
+                           Margin="0,0,10,0" VerticalAlignment="Center"/>
+                <StackPanel VerticalAlignment="Center">
                     <TextBlock x:Name="TxtOllamaStatus"
                                Style="{StaticResource TextBody}"
-                               FontSize="14" FontWeight="SemiBold"
-                               VerticalAlignment="Center"/>
+                               FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="TxtOllamaDetail"
+                               Style="{StaticResource TextSubtitle}"
+                               FontSize="11"/>
                 </StackPanel>
-                <TextBlock x:Name="TxtOllamaDetail"
-                           Style="{StaticResource TextSubtitle}"
-                           FontSize="12"/>
             </StackPanel>
         </Border>
 
         <!-- Choice cards -->
         <StackPanel Grid.Row="2">
 
-            <!-- Option A: llama.cpp -->
+            <!-- Option A: llama.cpp (default) -->
             <Border x:Name="CardLlamaCpp"
-                    Margin="0,0,0,12"
+                    Margin="0,0,0,10"
                     Style="{StaticResource CardBorder}"
                     BorderBrush="{StaticResource BorderAccent}"
                     Cursor="Hand"
@@ -59,22 +56,61 @@
                              Stroke="{StaticResource Accent}"
                              StrokeThickness="2"
                              Fill="{StaticResource Accent}"
-                             Margin="0,0,12,0" VerticalAlignment="Top"/>
+                             Margin="0,2,12,0" VerticalAlignment="Top"/>
                     <StackPanel Grid.Column="1">
-                        <TextBlock Text="Use llama.cpp (bundled with The Orc)"
+                        <TextBlock Text="Use llama.cpp  (bundled runtime)"
                                    FontFamily="Segoe UI" FontSize="13" FontWeight="SemiBold"
                                    Foreground="{StaticResource TextPrimary}"
                                    Margin="0,0,0,4"/>
                         <TextBlock Style="{StaticResource TextSubtitle}" FontSize="12">
-                            Download and manage llama-server.exe alongside The Orc.
+                            Downloads llama-server.exe alongside The Orc.
                             The Orc starts and stops the server automatically.
+                            Works with any GGUF model.
                             <Run FontWeight="SemiBold" Foreground="{StaticResource Accent}">Recommended.</Run>
                         </TextBlock>
                     </StackPanel>
                 </Grid>
             </Border>
 
-            <!-- Option B: existing Ollama -->
+            <!-- Option B: Install Ollama automatically -->
+            <Border x:Name="CardInstallOllama"
+                    Margin="0,0,0,10"
+                    Style="{StaticResource CardBorder}"
+                    Cursor="Hand"
+                    MouseLeftButtonUp="CardInstallOllama_Click"
+                    AutomationProperties.AutomationId="Ollama.InstallOllama">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Ellipse x:Name="RadioInstallOllama"
+                             Width="16" Height="16"
+                             Stroke="{StaticResource TextMuted}"
+                             StrokeThickness="2"
+                             Fill="Transparent"
+                             Margin="0,2,12,0" VerticalAlignment="Top"/>
+                    <StackPanel Grid.Column="1">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <TextBlock Text="Install Ollama for me"
+                                       FontFamily="Segoe UI" FontSize="13" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimary}"/>
+                            <Border Background="#1A4A8A" CornerRadius="3"
+                                    Padding="5,1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="BEGINNER FRIENDLY" FontSize="9" FontWeight="Bold"
+                                           Foreground="#60A0FF"/>
+                            </Border>
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource TextSubtitle}" FontSize="12">
+                            The Orc downloads and silently installs Ollama, then pulls your
+                            selected model automatically. No command line needed.
+                            Requires an internet connection and ~60 MB for the installer.
+                        </TextBlock>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Option C: Use existing Ollama (only enabled if detected) -->
             <Border x:Name="CardOllama"
                     Style="{StaticResource CardBorder}"
                     Cursor="Hand"
@@ -90,7 +126,7 @@
                              Stroke="{StaticResource TextMuted}"
                              StrokeThickness="2"
                              Fill="Transparent"
-                             Margin="0,0,12,0" VerticalAlignment="Top"/>
+                             Margin="0,2,12,0" VerticalAlignment="Top"/>
                     <StackPanel Grid.Column="1">
                         <TextBlock x:Name="TxtOllamaOptionName"
                                    Text="Use existing Ollama service"
@@ -99,8 +135,8 @@
                                    Margin="0,0,0,4"/>
                         <TextBlock x:Name="TxtOllamaOptionDetail"
                                    Style="{StaticResource TextSubtitle}" FontSize="12">
-                            Skip the llama.cpp download. The Orc will connect to Ollama
-                            at http://localhost:11434. You manage Ollama separately.
+                            Skip all downloads. The Orc connects to your running Ollama
+                            at http://localhost:11434. You manage Ollama and models separately.
                         </TextBlock>
                     </StackPanel>
                 </Grid>

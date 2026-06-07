@@ -43,16 +43,28 @@ public class InstallerState
     /// <summary>Expected file size in bytes (for progress display).</summary>
     public long SelectedModelSizeBytes { get; set; } = 0;
 
-    // ── Ollama conflict handling ──────────────────────────────────────────────
+    // ── Ollama handling ───────────────────────────────────────────────────────
 
     public bool OllamaDetected       { get; set; } = false;
     public bool OllamaRunning        { get; set; } = false;
 
     /// <summary>
-    /// true  → use the existing Ollama service (skip llama.cpp download).
-    /// false → install llama.cpp and ignore / stop Ollama.
+    /// true  → use Ollama as the backend (existing OR freshly installed).
+    /// false → install llama.cpp and ignore Ollama.
     /// </summary>
     public bool UseExistingOllama    { get; set; } = false;
+
+    /// <summary>
+    /// true  → installer should download OllamaSetup.exe and run it silently,
+    ///          then pull the selected model via <c>ollama pull</c>.
+    /// </summary>
+    public bool InstallOllama        { get; set; } = false;
+
+    /// <summary>
+    /// The Ollama model tag to pull after installation, e.g. "qwen2.5-coder:7b".
+    /// Populated from <see cref="ModelEntry.OllamaName"/> when the user picks a model.
+    /// </summary>
+    public string SelectedOllamaModel { get; set; } = "qwen2.5-coder:7b";
 
     // ── Shortcuts & launch ────────────────────────────────────────────────────
 

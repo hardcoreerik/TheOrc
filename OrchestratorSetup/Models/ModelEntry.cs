@@ -23,6 +23,12 @@ public class ModelEntry
     public string[] Profiles            { get; set; } = [];
     public string[] Tags                { get; set; } = [];
 
+    /// <summary>
+    /// Ollama model tag used for <c>ollama pull</c>, e.g. "qwen2.5-coder:7b".
+    /// Null if this model is not available in the Ollama library.
+    /// </summary>
+    public string?  OllamaName          { get; set; }
+
     // ── Computed display helpers ──────────────────────────────────────────────
 
     public string SizeDisplay =>

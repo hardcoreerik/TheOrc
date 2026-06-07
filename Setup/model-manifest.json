@@ -1,7 +1,7 @@
 {
   "_comment": "The Orc model manifest v1. The installer fetches this file at runtime so models and runtime URLs can be updated without releasing a new setup.exe. Update this file and push to master — users get the new list on their next install.",
   "manifest_url": "https://raw.githubusercontent.com/hardcoreerik/TheOrc/master/Setup/model-manifest.json",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "updated": "2026-06-06",
 
   "app": {
@@ -12,22 +12,22 @@
 
   "runtimes": {
     "llama_cpp": {
-      "_comment": "Update 'version' and 'release_base' when a new llama.cpp build is tested. The installer builds the full URL as: release_base + '/' + variants[selected]",
-      "version": "b5200",
-      "release_base": "https://github.com/ggml-org/llama.cpp/releases/download/b5200",
+      "_comment": "Static fallback URLs only. The installer calls the GitHub releases API first to get the actual latest asset URLs dynamically — these values are only used if the API call fails. The 'cudart-' prefix means CUDA runtime DLLs are bundled so no separate CUDA install is needed.",
+      "version": "latest",
+      "release_base": "https://github.com/ggml-org/llama.cpp/releases/latest/download",
       "variants": {
-        "cuda12":  "llama-b5200-bin-win-cuda-cu12.2.0-x64.zip",
-        "cuda11":  "llama-b5200-bin-win-cuda-cu11.7.1-x64.zip",
-        "vulkan":  "llama-b5200-bin-win-vulkan-x64.zip",
-        "avx2":    "llama-b5200-bin-win-avx2-x64.zip",
-        "cpu":     "llama-b5200-bin-win-x64.zip"
+        "cuda12":  "cudart-llama-bin-win-cuda-12.4-x64.zip",
+        "cuda11":  "cudart-llama-bin-win-cuda-11.7-x64.zip",
+        "vulkan":  "llama-bin-win-vulkan-x64.zip",
+        "avx2":    "llama-bin-win-avx2-x64.zip",
+        "cpu":     "llama-bin-win-x64.zip"
       },
       "size_mb": {
-        "cuda12": 125,
-        "cuda11": 120,
-        "vulkan":  48,
-        "avx2":    22,
-        "cpu":     16
+        "cuda12": 220,
+        "cuda11": 180,
+        "vulkan":  55,
+        "avx2":    25,
+        "cpu":     18
       },
       "hardware_selection": {
         "_comment": "Hardware detection logic maps detected GPU to a variant key above.",
@@ -40,6 +40,12 @@
         "cpu_baseline":  "cpu"
       }
     }
+  },
+
+  "ollama": {
+    "_comment": "Ollama installer download. Runs silently by default on Windows.",
+    "download_url": "https://ollama.com/download/OllamaSetup.exe",
+    "size_mb": 60
   },
 
   "models": [
@@ -55,6 +61,7 @@
       "vram_recommended_gb": 2,
       "size_bytes": 1880000000,
       "url": "https://huggingface.co/bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-1.5B-Instruct-Q8_0.gguf",
+      "ollama_name": "qwen2.5-coder:1.5b",
       "sha256": null,
       "quality_stars": 2,
       "cpu_ok": true,
@@ -74,6 +81,7 @@
       "vram_recommended_gb": 4,
       "size_bytes": 3420000000,
       "url": "https://huggingface.co/bartowski/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-3B-Instruct-Q8_0.gguf",
+      "ollama_name": "qwen2.5-coder:3b",
       "sha256": null,
       "quality_stars": 3,
       "cpu_ok": true,
@@ -93,6 +101,7 @@
       "vram_recommended_gb": 6,
       "size_bytes": 5130000000,
       "url": "https://huggingface.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-7B-Instruct-Q5_K_M.gguf",
+      "ollama_name": "qwen2.5-coder:7b",
       "sha256": null,
       "quality_stars": 4,
       "cpu_ok": false,
@@ -112,6 +121,7 @@
       "vram_recommended_gb": 10,
       "size_bytes": 7700000000,
       "url": "https://huggingface.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-7B-Instruct-Q8_0.gguf",
+      "ollama_name": "qwen2.5-coder:7b-instruct-q8_0",
       "sha256": null,
       "quality_stars": 4,
       "cpu_ok": false,
@@ -131,6 +141,7 @@
       "vram_recommended_gb": 12,
       "size_bytes": 8960000000,
       "url": "https://huggingface.co/bartowski/Qwen2.5-Coder-14B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-14B-Instruct-Q4_K_M.gguf",
+      "ollama_name": "qwen2.5-coder:14b",
       "sha256": null,
       "quality_stars": 5,
       "cpu_ok": false,
@@ -150,6 +161,7 @@
       "vram_recommended_gb": 18,
       "size_bytes": 14500000000,
       "url": "https://huggingface.co/bartowski/Qwen2.5-Coder-32B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-32B-Instruct-Q3_K_M.gguf",
+      "ollama_name": "qwen2.5-coder:32b",
       "sha256": null,
       "quality_stars": 5,
       "cpu_ok": false,
@@ -169,6 +181,7 @@
       "vram_recommended_gb": 24,
       "size_bytes": 19600000000,
       "url": "https://huggingface.co/bartowski/Qwen2.5-Coder-32B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-32B-Instruct-Q4_K_M.gguf",
+      "ollama_name": "qwen2.5-coder:32b-instruct-q4_K_M",
       "sha256": null,
       "quality_stars": 5,
       "cpu_ok": false,
@@ -189,6 +202,7 @@
       "vram_recommended_gb": 12,
       "size_bytes": 9800000000,
       "url": "https://huggingface.co/bartowski/NousResearch_Hermes-4-14B-GGUF/resolve/main/NousResearch_Hermes-4-14B-Q5_K_M.gguf",
+      "ollama_name": null,
       "sha256": null,
       "quality_stars": 5,
       "cpu_ok": false,
@@ -209,6 +223,7 @@
       "vram_recommended_gb": 12,
       "size_bytes": 11200000000,
       "url": "https://huggingface.co/bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF/resolve/main/DeepSeek-Coder-V2-Lite-Instruct-Q5_K_M.gguf",
+      "ollama_name": "deepseek-coder-v2:16b-lite-instruct-q5_k_m",
       "sha256": null,
       "quality_stars": 4,
       "cpu_ok": false,
@@ -229,6 +244,7 @@
       "vram_recommended_gb": 6,
       "size_bytes": 4000000000,
       "url": "https://huggingface.co/bartowski/phi-4-mini-instruct-GGUF/resolve/main/phi-4-mini-instruct-Q8_0.gguf",
+      "ollama_name": "phi4-mini",
       "sha256": null,
       "quality_stars": 4,
       "cpu_ok": false,

@@ -8,12 +8,12 @@ namespace OrchestratorSetup.Services;
 /// Top-level coordinator that sequences all installation steps:
 ///   0. Create directories
 ///   1. Download OrchestratorIDE.exe     (GitHub Releases latest asset)
-///   2. Download llama.cpp runtime zip   (if UseExistingOllama == false)
-///   3. Extract runtime zip              (if UseExistingOllama == false)
-///   4. Download GGUF model file
-///   5. SHA-256 verify model             (if manifest sha256 != null)
-///   6. Write settings.json + .agent.md
-///   7. Create shortcuts
+///   2a. [llama.cpp path]  Download runtime zip + extract it
+///   2b. [Ollama install]  Download OllamaSetup.exe, run silently, wait, pull model
+///   3. Download GGUF model file          (skipped on Ollama install path — pull handles it)
+///   4. SHA-256 verify model             (if manifest sha256 != null)
+///   5. Write settings.json + .agent.md
+///   6. Create shortcuts
 /// </summary>
 public sealed class InstallOrchestrator : IDisposable
 {
@@ -32,10 +32,10 @@ public sealed class InstallOrchestrator : IDisposable
 
     // ── State ─────────────────────────────────────────────────────────────────
 
-    private readonly InstallerState    _state;
+    private readonly InstallerState     _state;
     private readonly InstallerViewModel _vm;
-    private readonly DownloadService   _dl;
-    private readonly ZipExtractService _zip;
+    private readonly DownloadService    _dl;
+    private readonly ZipExtractService  _zip;
 
     private int    _totalSteps;
     private int    _stepsDone;
@@ -73,15 +73,19 @@ public sealed class InstallOrchestrator : IDisposable
             await Step("Creating directories", () => Task.Run(() =>
             {
                 Directory.CreateDirectory(_state.AppInstallPath);
-                Directory.CreateDirectory(_state.ModelStoragePath);
                 if (!_state.UseExistingOllama)
-                    Directory.CreateDirectory(_state.LlamaRuntimeExtractPath);
+                {
+                    Directory.CreateDirectory(_state.ModelStoragePath);
+                    if (!_state.InstallOllama)
+                        Directory.CreateDirectory(_state.LlamaRuntimeExtractPath);
+                }
                 Log($"  App path  : {_state.AppInstallPath}");
-                Log($"  Model path: {_state.ModelStoragePath}");
+                if (!_state.UseExistingOllama)
+                    Log($"  Model path: {_state.ModelStoragePath}");
             }, ct), ct);
 
             // ── Step 1: Download OrchestratorIDE.exe ───────────────────────
-            // Skip download if the exe was already placed next to OrchestratorSetup.exe
+            // Skip if the exe was already placed next to OrchestratorSetup.exe
             // (portable-zip layout: the user extracted both files together).
             if (File.Exists(_state.AppExePath))
             {
@@ -99,7 +103,7 @@ public sealed class InstallOrchestrator : IDisposable
                         _state.AppExePath,
                         "OrchestratorIDE",
                         _state.AppSizeBytes > 0 ? _state.AppSizeBytes : null,
-                        null,   // no SHA-256 for the exe (GitHub delivers it over HTTPS)
+                        null,
                         ct);
                 }, ct);
             }
@@ -108,10 +112,25 @@ public sealed class InstallOrchestrator : IDisposable
                 Log("⚠ App download URL not found in manifest — exe must be placed manually.");
             }
 
-            // ── Step 2: Download runtime (optional) ─────────────────────────
-            if (!_state.UseExistingOllama)
+            // ── Backend-specific steps ─────────────────────────────────────
+
+            if (_state.InstallOllama)
             {
-                var runtimeUrl  = BuildRuntimeUrl();
+                // ── Path B: Install Ollama + pull model ─────────────────────
+                await Step("Installing Ollama", async () =>
+                {
+                    using var ollInst = new OllamaInstaller();
+                    ollInst.OnLog      += msg => Log(msg);
+                    ollInst.OnProgress += p   => OnItemProgress?.Invoke(p);
+                    await ollInst.InstallAsync(_state.SelectedOllamaModel, ct);
+                }, ct);
+            }
+            else if (!_state.UseExistingOllama)
+            {
+                // ── Path A: llama.cpp runtime + GGUF model ──────────────────
+
+                // Step 2: Resolve runtime URL (prefer live GitHub API, fall back to manifest)
+                var runtimeUrl  = await ResolveRuntimeUrlAsync(ct);
                 var runtimeZip  = Path.Combine(_state.AppInstallPath, "llama-runtime.zip");
                 var runtimeSize = GetRuntimeSizeBytes();
                 _state.RuntimeDownloadUrl = runtimeUrl;
@@ -126,7 +145,7 @@ public sealed class InstallOrchestrator : IDisposable
                         null, ct);
                 }, ct);
 
-                // ── Step 2: Extract runtime ─────────────────────────────────
+                // Step 3: Extract runtime
                 await Step("Extracting llama.cpp runtime", async () =>
                 {
                     Log($"  Extracting to {_state.LlamaRuntimeExtractPath}");
@@ -134,7 +153,7 @@ public sealed class InstallOrchestrator : IDisposable
                     _zip.OnEntryExtracted += (cur, total, name) =>
                     {
                         int pct = (int)((double)cur / total * 100);
-                        if (pct / 10 != lastPct / 10) // log every 10%
+                        if (pct / 10 != lastPct / 10)
                         {
                             lastPct = pct;
                             Log($"  Extracting [{pct,3}%] {name}");
@@ -145,47 +164,46 @@ public sealed class InstallOrchestrator : IDisposable
 
                     await _zip.ExtractAsync(runtimeZip, _state.LlamaRuntimeExtractPath, ct);
 
-                    // Confirm server exe exists
                     var serverExe = ZipExtractService.FindServerExe(_state.LlamaRuntimeExtractPath);
                     if (serverExe is null)
                         Log("  ⚠ llama-server.exe not found in extracted archive.");
                     else
                         Log($"  ✓ Found: {serverExe}");
 
-                    // Clean up zip to save disk space
                     try { File.Delete(runtimeZip); } catch { }
                 }, ct);
-            }
-            else
-            {
-                Log("Skipping llama.cpp download — using existing Ollama.");
-            }
 
-            // ── Step 3: Download model ──────────────────────────────────────
-            var modelEntry = _vm.AllModels.FirstOrDefault(m => m.Id == _state.SelectedModelId);
-            if (modelEntry is not null)
-            {
-                await Step($"Downloading model: {modelEntry.Name}", async () =>
+                // Step 4: Download GGUF model
+                var modelEntry = _vm.AllModels.FirstOrDefault(m => m.Id == _state.SelectedModelId);
+                if (modelEntry is not null)
                 {
-                    Log($"  URL : {_state.SelectedModelUrl}");
-                    Log($"  Dest: {_state.ModelFilePath}");
-                    Log($"  Size: {modelEntry.SizeDisplay}");
+                    await Step($"Downloading model: {modelEntry.Name}", async () =>
+                    {
+                        Log($"  URL : {_state.SelectedModelUrl}");
+                        Log($"  Dest: {_state.ModelFilePath}");
+                        Log($"  Size: {modelEntry.SizeDisplay}");
 
-                    await _dl.DownloadFileAsync(
-                        _state.SelectedModelUrl,
-                        _state.ModelFilePath,
-                        modelEntry.Name,
-                        _state.SelectedModelSizeBytes > 0 ? _state.SelectedModelSizeBytes : null,
-                        modelEntry.Sha256,
-                        ct);
-                }, ct);
+                        await _dl.DownloadFileAsync(
+                            _state.SelectedModelUrl,
+                            _state.ModelFilePath,
+                            modelEntry.Name,
+                            _state.SelectedModelSizeBytes > 0 ? _state.SelectedModelSizeBytes : null,
+                            modelEntry.Sha256,
+                            ct);
+                    }, ct);
+                }
+                else
+                {
+                    Log($"⚠ Model entry not found for id '{_state.SelectedModelId}' — skipping download.");
+                }
             }
             else
             {
-                Log($"⚠ Model entry not found for id '{_state.SelectedModelId}' — skipping download.");
+                // ── Path C: Existing Ollama — nothing extra to download ─────
+                Log("Using existing Ollama service — skipping runtime and model download.");
             }
 
-            // ── Step 4: Write settings.json + .agent.md ─────────────────────
+            // ── Step N-1: Write settings.json + .agent.md ──────────────────
             await Step("Writing configuration", () => Task.Run(() =>
             {
                 Log("  Writing settings.json…");
@@ -195,7 +213,7 @@ public sealed class InstallOrchestrator : IDisposable
                 ProfileMerger.WriteAgentMd(_state);
             }, ct), ct);
 
-            // ── Step 5: Create shortcuts ────────────────────────────────────
+            // ── Step N: Create shortcuts ────────────────────────────────────
             await Step("Creating shortcuts", () => Task.Run(() =>
             {
                 ProfileMerger.CreateShortcuts(_state);
@@ -234,18 +252,30 @@ public sealed class InstallOrchestrator : IDisposable
 
     private int ComputeTotalSteps()
     {
-        int n = 3; // directories + write config + shortcuts
-        // Count the app download step only when it will actually run
-        if (!File.Exists(_state.AppExePath) && !string.IsNullOrEmpty(_state.AppDownloadUrl)) n += 1;
-        if (!_state.UseExistingOllama) n += 2;  // download runtime + extract
-        n += 1; // download model
+        // Base: create dirs + write config + shortcuts
+        int n = 3;
+
+        // App exe download (only when it will actually run)
+        if (!File.Exists(_state.AppExePath) && !string.IsNullOrEmpty(_state.AppDownloadUrl))
+            n += 1;
+
+        if (_state.InstallOllama)
+        {
+            n += 1;  // Install Ollama (includes model pull)
+        }
+        else if (!_state.UseExistingOllama)
+        {
+            n += 2;  // download runtime + extract
+            n += 1;  // download model
+        }
+        // ExistingOllama path: no extra steps
+
         return n;
     }
 
     /// <summary>
     /// Reads the "app" section from the bundled manifest and populates
     /// <see cref="InstallerState.AppDownloadUrl"/> and <see cref="InstallerState.AppSizeBytes"/>.
-    /// Called once before RunAsync begins so ComputeTotalSteps can see the value.
     /// </summary>
     private void ResolveAppUrl()
     {
@@ -263,27 +293,38 @@ public sealed class InstallOrchestrator : IDisposable
             if (app.TryGetProperty("size_mb", out var sizeProp))
                 _state.AppSizeBytes = (long)sizeProp.GetInt32() * 1_048_576;
         }
-        catch { /* non-fatal — app section is optional */ }
+        catch { /* non-fatal */ }
     }
 
-    private double OverallPercent(double stepFraction = 0)
-        => (_stepsDone + stepFraction) / _totalSteps * 100.0;
+    // ── llama.cpp URL resolution ──────────────────────────────────────────────
 
-    private void FireOverall(double stepFraction)
-        => OnOverallProgress?.Invoke(_stepsDone, _totalSteps,
-                                     _currentStep, OverallPercent(stepFraction));
-
-    private void Log(string msg) => OnLog?.Invoke(msg);
-
-    // ── Manifest helpers ──────────────────────────────────────────────────────
-
-    private string BuildRuntimeUrl()
+    /// <summary>
+    /// Resolves the runtime URL for the selected variant.
+    /// Tries the GitHub API first (always current) and falls back to the manifest.
+    /// </summary>
+    private async Task<string> ResolveRuntimeUrlAsync(CancellationToken ct)
     {
-        // Read the bundled manifest to get release_base and variant filename
+        var variant = _state.SelectedRuntimeVariant;
+
+        Log($"  Resolving llama.cpp URL for variant '{variant}' via GitHub API…");
+        var apiUrl = await LlamaCppResolver.TryResolveLatestAsync(variant, ct);
+
+        if (!string.IsNullOrEmpty(apiUrl))
+        {
+            Log($"  ✓ Resolved: {apiUrl}");
+            return apiUrl;
+        }
+
+        Log("  ⚠ GitHub API unavailable — using manifest fallback URL.");
+        return BuildRuntimeFallbackUrl();
+    }
+
+    private string BuildRuntimeFallbackUrl()
+    {
         try
         {
             var json = ReadManifest();
-            if (json is null) return FallbackRuntimeUrl();
+            if (json is null) return DefaultFallbackRuntimeUrl();
 
             var root        = System.Text.Json.JsonDocument.Parse(json).RootElement;
             var releaseBase = root.GetProperty("runtimes").GetProperty("llama_cpp")
@@ -293,7 +334,7 @@ public sealed class InstallOrchestrator : IDisposable
                                   .GetProperty("variants").GetProperty(variant).GetString() ?? "";
             return $"{releaseBase}/{filename}";
         }
-        catch { return FallbackRuntimeUrl(); }
+        catch { return DefaultFallbackRuntimeUrl(); }
     }
 
     private long GetRuntimeSizeBytes()
@@ -315,9 +356,20 @@ public sealed class InstallOrchestrator : IDisposable
     private static string? ReadManifest()
         => EmbeddedResources.ReadManifestJson();
 
-    private static string FallbackRuntimeUrl()
-        => "https://github.com/ggml-org/llama.cpp/releases/download/b5200/" +
-           "llama-b5200-bin-win-avx2-x64.zip";
+    private static string DefaultFallbackRuntimeUrl()
+        => "https://github.com/ggml-org/llama.cpp/releases/latest/download/" +
+           "cudart-llama-bin-win-cuda-12.4-x64.zip";
+
+    // ── Progress helpers ──────────────────────────────────────────────────────
+
+    private double OverallPercent(double stepFraction = 0)
+        => (_stepsDone + stepFraction) / _totalSteps * 100.0;
+
+    private void FireOverall(double stepFraction)
+        => OnOverallProgress?.Invoke(_stepsDone, _totalSteps,
+                                     _currentStep, OverallPercent(stepFraction));
+
+    private void Log(string msg) => OnLog?.Invoke(msg);
 
     // ── IDisposable ───────────────────────────────────────────────────────────
 
