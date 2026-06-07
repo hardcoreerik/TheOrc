@@ -134,11 +134,7 @@
                            Margin="0,0,0,10"/>
                 <ComboBox x:Name="CmbVariant"
                           SelectionChanged="CmbVariant_SelectionChanged"
-                          Background="#1A1A1A"
-                          Foreground="{StaticResource TextPrimary}"
-                          BorderBrush="{StaticResource BorderSubtle}"
-                          FontFamily="Segoe UI"
-                          FontSize="12"
+                          Style="{StaticResource ThemedComboBox}"
                           AutomationProperties.AutomationId="Hardware.VariantOverride">
                     <ComboBoxItem Tag="cuda12" Content="CUDA 12.x  —  NVIDIA RTX 20-series and newer"/>
                     <ComboBoxItem Tag="cuda11" Content="CUDA 11.x  —  older NVIDIA GPUs"/>
