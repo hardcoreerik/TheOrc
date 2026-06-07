@@ -6,13 +6,14 @@ namespace OrchestratorSetup.Services;
 
 /// <summary>
 /// Top-level coordinator that sequences all installation steps:
-///   1. Create directories
+///   0. Create directories
+///   1. Download OrchestratorIDE.exe     (GitHub Releases latest asset)
 ///   2. Download llama.cpp runtime zip   (if UseExistingOllama == false)
-///   3. Extract runtime zip
+///   3. Extract runtime zip              (if UseExistingOllama == false)
 ///   4. Download GGUF model file
-///   5. SHA-256 verify model              (if manifest sha256 != null)
+///   5. SHA-256 verify model             (if manifest sha256 != null)
 ///   6. Write settings.json + .agent.md
-///   7. Create shortcuts                  (Phase G stub)
+///   7. Create shortcuts
 /// </summary>
 public sealed class InstallOrchestrator : IDisposable
 {
@@ -63,6 +64,9 @@ public sealed class InstallOrchestrator : IDisposable
         _totalSteps = ComputeTotalSteps();
         _stepsDone  = 0;
 
+        // Resolve app download URL from manifest before starting
+        ResolveAppUrl();
+
         try
         {
             // ── Step 0: Create directories ──────────────────────────────────
@@ -76,7 +80,29 @@ public sealed class InstallOrchestrator : IDisposable
                 Log($"  Model path: {_state.ModelStoragePath}");
             }, ct), ct);
 
-            // ── Step 1: Download runtime (optional) ─────────────────────────
+            // ── Step 1: Download OrchestratorIDE.exe ───────────────────────
+            if (!string.IsNullOrEmpty(_state.AppDownloadUrl))
+            {
+                await Step("Downloading OrchestratorIDE", async () =>
+                {
+                    Log($"  URL : {_state.AppDownloadUrl}");
+                    Log($"  Dest: {_state.AppExePath}");
+
+                    await _dl.DownloadFileAsync(
+                        _state.AppDownloadUrl,
+                        _state.AppExePath,
+                        "OrchestratorIDE",
+                        _state.AppSizeBytes > 0 ? _state.AppSizeBytes : null,
+                        null,   // no SHA-256 for the exe (GitHub delivers it over HTTPS)
+                        ct);
+                }, ct);
+            }
+            else
+            {
+                Log("⚠ App download URL not found in manifest — exe must be placed manually.");
+            }
+
+            // ── Step 2: Download runtime (optional) ─────────────────────────
             if (!_state.UseExistingOllama)
             {
                 var runtimeUrl  = BuildRuntimeUrl();
@@ -203,9 +229,34 @@ public sealed class InstallOrchestrator : IDisposable
     private int ComputeTotalSteps()
     {
         int n = 3; // directories + write config + shortcuts
-        if (!_state.UseExistingOllama) n += 2; // download runtime + extract
+        if (!string.IsNullOrEmpty(_state.AppDownloadUrl)) n += 1; // download app exe
+        if (!_state.UseExistingOllama) n += 2;  // download runtime + extract
         n += 1; // download model
         return n;
+    }
+
+    /// <summary>
+    /// Reads the "app" section from the bundled manifest and populates
+    /// <see cref="InstallerState.AppDownloadUrl"/> and <see cref="InstallerState.AppSizeBytes"/>.
+    /// Called once before RunAsync begins so ComputeTotalSteps can see the value.
+    /// </summary>
+    private void ResolveAppUrl()
+    {
+        try
+        {
+            var json = ReadManifest();
+            if (json is null) return;
+
+            var root = System.Text.Json.JsonDocument.Parse(json).RootElement;
+            if (!root.TryGetProperty("app", out var app)) return;
+
+            if (app.TryGetProperty("download_url", out var urlProp))
+                _state.AppDownloadUrl = urlProp.GetString() ?? "";
+
+            if (app.TryGetProperty("size_mb", out var sizeProp))
+                _state.AppSizeBytes = (long)sizeProp.GetInt32() * 1_048_576;
+        }
+        catch { /* non-fatal — app section is optional */ }
     }
 
     private double OverallPercent(double stepFraction = 0)

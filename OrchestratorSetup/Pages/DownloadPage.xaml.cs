@@ -55,6 +55,13 @@ public partial class DownloadPage : UserControl, IInstallerPage
         DownloadItems.Children.Clear();
         _rows.Clear();
 
+        // App exe always first (unless the manifest had no URL — unlikely in prod)
+        if (!string.IsNullOrEmpty(_vm.State.AppDownloadUrl))
+        {
+            _rows.Add(AddRow("OrchestratorIDE", "OrchestratorIDE",
+                             "The Orc application (self-contained, no .NET install required)"));
+        }
+
         if (!_vm.State.UseExistingOllama)
         {
             _rows.Add(AddRow("runtime", "llama.cpp runtime",

@@ -350,7 +350,13 @@ public class __CLASSNAME__ : ICustomTool
         }
 
         // Our own assembly — exposes ICustomTool, ToolParameter, etc.
+        // In a single-file publish Assembly.Location returns ""; fall back to BaseDirectory.
+        // IL3000 is suppressed: the call is intentional and guarded by the fallback.
+#pragma warning disable IL3000
         var ourPath = typeof(ToolCompiler).Assembly.Location;
+#pragma warning restore IL3000
+        if (string.IsNullOrEmpty(ourPath))
+            ourPath = Path.Combine(AppContext.BaseDirectory, "OrchestratorIDE.dll");
         if (!string.IsNullOrEmpty(ourPath) && File.Exists(ourPath))
         {
             // Only add if not already in the trusted list

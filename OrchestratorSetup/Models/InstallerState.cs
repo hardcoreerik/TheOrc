@@ -60,6 +60,21 @@ public class InstallerState
     public bool CreateStartMenuShortcut { get; set; } = true;
     public bool LaunchAfterInstall     { get; set; } = true;
 
+    // ── App exe delivery ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Download URL for OrchestratorIDE.exe (resolved from manifest at install time).
+    /// Points at the GitHub Releases "latest" asset so old installers always pull
+    /// the current app version.
+    /// </summary>
+    public string AppDownloadUrl  { get; set; } = "";
+
+    /// <summary>Expected app exe size in bytes (for progress display).</summary>
+    public long   AppSizeBytes    { get; set; } = 0;
+
+    /// <summary>Full path where OrchestratorIDE.exe is placed after download.</summary>
+    public string AppExePath      => Path.Combine(AppInstallPath, "OrchestratorIDE.exe");
+
     // ── Download state (Phase E) ──────────────────────────────────────────────
 
     /// <summary>Overall bytes downloaded so far across all artefacts.</summary>

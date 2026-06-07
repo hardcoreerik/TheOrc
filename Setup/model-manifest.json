@@ -4,6 +4,12 @@
   "version": "1.0.0",
   "updated": "2026-06-06",
 
+  "app": {
+    "_comment": "The main OrchestratorIDE.exe published as a self-contained single-file win-x64 binary. The installer downloads this before anything else. URL points at the 'latest' release asset so old installers always pull the newest app.",
+    "download_url": "https://github.com/hardcoreerik/The-Orchestrator/releases/latest/download/OrchestratorIDE.exe",
+    "size_mb": 190
+  },
+
   "runtimes": {
     "llama_cpp": {
       "_comment": "Update 'version' and 'release_base' when a new llama.cpp build is tested. The installer builds the full URL as: release_base + '/' + variants[selected]",
