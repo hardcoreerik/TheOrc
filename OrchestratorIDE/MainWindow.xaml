@@ -211,6 +211,10 @@
                                 Style="{StaticResource ActivityBtnStyle}"
                                 AutomationProperties.AutomationId="ActivityBar.Agent"
                                 Click="BtnAgent_Click"/>
+                        <Button x:Name="BtnSwarm" Content="🐝" ToolTip="Swarm Mode — multi-agent (NVIDIA Nemotron)"
+                                Style="{StaticResource ActivityBtnStyle}"
+                                AutomationProperties.AutomationId="ActivityBar.Swarm"
+                                Click="BtnSwarm_Click"/>
                         <Button x:Name="BtnCheckpoints" Content="⬡" ToolTip="Checkpoints"
                                 Style="{StaticResource ActivityBtnStyle}"
                                 AutomationProperties.AutomationId="ActivityBar.Checkpoints"

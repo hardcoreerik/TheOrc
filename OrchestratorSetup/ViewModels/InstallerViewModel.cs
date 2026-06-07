@@ -255,6 +255,7 @@ public class InstallerViewModel : INotifyPropertyChanged
                     Profiles          = node["profiles"]?.AsArray().Select(p => p?.GetValue<string>() ?? "").ToArray() ?? [],
                     Tags              = node["tags"]?.AsArray().Select(t => t?.GetValue<string>() ?? "").ToArray() ?? [],
                     OllamaName        = node["ollama_name"]?.GetValue<string?>(),
+                    SwarmCapable      = node["swarm_capable"]?.GetValue<bool>() ?? false,
                 });
             }
         }

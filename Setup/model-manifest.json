@@ -68,7 +68,8 @@
       "cpu_ok": false,
       "context_k": 128,
       "profiles": ["web", "systems", "data", "uiux", "mobile", "finance", "game", "security"],
-      "tags": ["nvidia-recommended", "agentic", "fast", "128k", "ollama-featured"]
+      "tags": ["nvidia-recommended", "agentic", "fast", "128k", "ollama-featured"],
+      "swarm_capable": true
     },
 
     {

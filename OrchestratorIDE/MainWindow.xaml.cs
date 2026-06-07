@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using OrchestratorIDE.Agents;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Models;
 using OrchestratorIDE.Tools;
@@ -42,6 +43,7 @@ public partial class MainWindow : Window
     private readonly SessionBrowserPanel     _sessionPanel;
     private readonly ToolEditorPanel         _toolEditorPanel;
     private readonly ToolCompiler            _toolCompiler;
+    private readonly SwarmBoardPanel         _swarmPanel;
 
     // ── Screen recorder ───────────────────────────────────────────────────
     private readonly ScreenRecorder _recorder = new();
@@ -217,6 +219,15 @@ public partial class MainWindow : Window
             Compiler      = _toolCompiler,
             WorkspaceRoot = _session.WorkspaceRoot,
         };
+
+        // Swarm board panel — multi-agent hub-and-spoke (Phase 8)
+        _swarmPanel = new SwarmBoardPanel
+        {
+            Ollama        = _ollama,
+            ActiveModel   = _session.ActiveModel,
+            WorkspaceRoot = _session.WorkspaceRoot,
+        };
+        _swarmPanel.StatusChanged += msg => Dispatcher.Invoke(() => SetStatus(msg));
 
         // Default sidebar = explorer
         SidebarContent.Content = _explorerPanel;
@@ -1020,6 +1031,17 @@ public partial class MainWindow : Window
         SidebarContent.Content = _explorerPanel;  // keep explorer in sidebar
     }
 
+    private void BtnSwarm_Click(object sender, RoutedEventArgs e)
+    {
+        // Keep swarm panel in sync with current model + workspace
+        _swarmPanel.ActiveModel   = _session.ActiveModel;
+        _swarmPanel.WorkspaceRoot = _session.WorkspaceRoot;
+        _swarmPanel.Refresh();
+
+        MainContent.Content    = _swarmPanel;
+        SidebarContent.Content = _explorerPanel;
+    }
+
     private void BtnSettings_Click(object sender, RoutedEventArgs e)
     {
         _settingsPanel.LoadSettings(_settings);   // Refresh before showing
@@ -1244,7 +1266,9 @@ public partial class MainWindow : Window
     private void OnModelSelected(string modelId)
     {
         CloseModelPicker();
-        _session.ActiveModel = modelId;
+        _session.ActiveModel       = modelId;
+        _swarmPanel.ActiveModel    = modelId;   // keep swarm gate in sync
+        _swarmPanel.Refresh();
         RegisterAllTools();   // Re-register with new toolset
         UpdateStatusBar();
         AddActivity(new ActivityEvent(ActivityKind.Info, "Model", $"Switched to: {modelId}", DateTime.Now));

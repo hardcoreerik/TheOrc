@@ -85,4 +85,10 @@ public class ModelEntry
     /// (no direct GGUF download URL is available).
     /// </summary>
     public bool OllamaOnly => string.IsNullOrWhiteSpace(Url);
+
+    /// <summary>
+    /// True when this model has been validated for Swarm multi-agent mode.
+    /// Phase 1: NVIDIA Nemotron Mini only. Expand as more models are validated.
+    /// </summary>
+    public bool SwarmCapable { get; set; }
 }
