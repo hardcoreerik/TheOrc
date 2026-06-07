@@ -160,28 +160,6 @@
               BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1"
               FontSize="12">
 
-            <Menu.Resources>
-                <!-- Orc-green dark style for top-level and popup items -->
-                <Style TargetType="MenuItem">
-                    <Setter Property="Background"   Value="#141814"/>
-                    <Setter Property="Foreground"   Value="#D4D4D4"/>
-                    <Setter Property="BorderBrush"  Value="#2E3A2E"/>
-                    <Style.Triggers>
-                        <Trigger Property="IsHighlighted" Value="True">
-                            <Setter Property="Background" Value="#1F3D00"/>
-                            <Setter Property="Foreground" Value="#76B900"/>
-                        </Trigger>
-                        <Trigger Property="IsEnabled" Value="False">
-                            <Setter Property="Foreground" Value="#555"/>
-                        </Trigger>
-                    </Style.Triggers>
-                </Style>
-                <Style TargetType="Separator">
-                    <Setter Property="Background" Value="#2E3A2E"/>
-                    <Setter Property="Margin"     Value="4,2"/>
-                </Style>
-            </Menu.Resources>
-
             <!-- ── File ─────────────────────────────────────────── -->
             <MenuItem Header="_File">
                 <MenuItem Header="Open Folder…"    InputGestureText="Ctrl+O"   Click="Menu_OpenFolder"/>

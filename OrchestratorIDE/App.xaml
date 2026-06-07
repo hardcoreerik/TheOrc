@@ -151,6 +151,211 @@
             </Setter>
         </Style>
 
+        <!-- ── ContextMenu ────────────────────────────────────────────────────
+             Dark popup with drop-shadow. Grid.IsSharedSizeScope aligns icon,
+             label, gesture, and arrow columns across all sibling items.
+        ─────────────────────────────────────────────────────────────────── -->
+        <Style TargetType="ContextMenu">
+            <Setter Property="Background"            Value="#1C1C1C"/>
+            <Setter Property="BorderBrush"           Value="#383838"/>
+            <Setter Property="BorderThickness"       Value="1"/>
+            <Setter Property="Padding"               Value="0,3"/>
+            <Setter Property="SnapsToDevicePixels"   Value="True"/>
+            <Setter Property="Grid.IsSharedSizeScope" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}"
+                                MinWidth="180"
+                                SnapsToDevicePixels="True">
+                            <Border.Effect>
+                                <DropShadowEffect Color="Black" Opacity="0.60"
+                                                  BlurRadius="16" ShadowDepth="5"
+                                                  Direction="270"/>
+                            </Border.Effect>
+                            <ScrollViewer CanContentScroll="True"
+                                          VerticalScrollBarVisibility="Auto">
+                                <ItemsPresenter SnapsToDevicePixels="True"/>
+                            </ScrollViewer>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ── Separator ─────────────────────────────────────────────────────
+             Thin dark-grey rule with vertical breathing room.
+        ─────────────────────────────────────────────────────────────────── -->
+        <Style TargetType="Separator">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Separator">
+                        <Rectangle Height="1" Fill="#333333" Margin="8,3,8,3"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ── MenuItem ──────────────────────────────────────────────────────
+             Handles all four WPF roles:
+               TopLevelHeader / TopLevelItem  — horizontal menu-bar entries
+               SubmenuHeader / SubmenuItem    — context-menu / popup entries
+             Layout: [28px icon] [label *] [shortcut auto] [16px arrow]
+             Hover:  #1F3D00 bg, #76B900 text (NVIDIA-green brand).
+        ─────────────────────────────────────────────────────────────────── -->
+        <Style TargetType="MenuItem">
+            <Setter Property="Background"     Value="Transparent"/>
+            <Setter Property="Foreground"     Value="#D4D4D4"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontFamily"     Value="Segoe UI"/>
+            <Setter Property="FontSize"       Value="12"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="VerticalContentAlignment"   Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Grid SnapsToDevicePixels="True">
+
+                            <!-- Hover / active fill -->
+                            <Border x:Name="HoverBg"
+                                    Background="Transparent"
+                                    Margin="4,1"/>
+
+                            <!-- Four-column content row -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <!-- Icon: hidden for TopLevel roles -->
+                                    <ColumnDefinition x:Name="ColIcon"
+                                                      Width="28"
+                                                      SharedSizeGroup="MenuIcon"/>
+                                    <!-- Label -->
+                                    <ColumnDefinition Width="*"/>
+                                    <!-- Keyboard shortcut -->
+                                    <ColumnDefinition Width="Auto"
+                                                      SharedSizeGroup="MenuGesture"/>
+                                    <!-- Submenu arrow -->
+                                    <ColumnDefinition Width="20"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Icon (or check mark) -->
+                                <ContentPresenter x:Name="Icon"
+                                                  Grid.Column="0"
+                                                  ContentSource="Icon"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"
+                                                  Margin="6,4"/>
+
+                                <!-- Header label -->
+                                <ContentPresenter Grid.Column="1"
+                                                  ContentSource="Header"
+                                                  RecognizesAccessKey="True"
+                                                  VerticalAlignment="Center"
+                                                  Margin="2,6,0,6"/>
+
+                                <!-- Keyboard gesture (right-justified, muted) -->
+                                <TextBlock x:Name="GestureText"
+                                           Grid.Column="2"
+                                           Text="{TemplateBinding InputGestureText}"
+                                           Foreground="#606060"
+                                           VerticalAlignment="Center"
+                                           Margin="24,0,8,0"
+                                           FontSize="11"
+                                           FontFamily="Segoe UI"/>
+
+                                <!-- › arrow for submenus -->
+                                <TextBlock x:Name="Arrow"
+                                           Grid.Column="3"
+                                           Text="›"
+                                           FontSize="15"
+                                           Foreground="#606060"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,3,0"
+                                           Visibility="Collapsed"/>
+                            </Grid>
+
+                            <!-- Submenu popup — used for both TopLevel (Below) and Submenu (Right) -->
+                            <Popup x:Name="PART_Popup"
+                                   Placement="Bottom"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   IsOpen="{Binding IsSubmenuOpen,
+                                            RelativeSource={RelativeSource TemplatedParent}}"
+                                   PopupAnimation="None"
+                                   Grid.IsSharedSizeScope="True">
+                                <Border Background="#1C1C1C"
+                                        BorderBrush="#383838"
+                                        BorderThickness="1"
+                                        Padding="0,3"
+                                        MinWidth="180"
+                                        SnapsToDevicePixels="True">
+                                    <Border.Effect>
+                                        <DropShadowEffect Color="Black" Opacity="0.60"
+                                                          BlurRadius="16" ShadowDepth="5"
+                                                          Direction="270"/>
+                                    </Border.Effect>
+                                    <ScrollViewer CanContentScroll="True">
+                                        <ItemsPresenter SnapsToDevicePixels="True"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+
+                        <ControlTemplate.Triggers>
+
+                            <!-- ── Hover ────────────────────────────────── -->
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="HoverBg"   Property="Background" Value="#1F3D00"/>
+                                <Setter Property="Foreground"  Value="#76B900"/>
+                                <Setter TargetName="GestureText" Property="Foreground" Value="#4A7A00"/>
+                                <Setter TargetName="Arrow"     Property="Foreground" Value="#76B900"/>
+                            </Trigger>
+
+                            <!-- Submenu open (keep highlight while popup is visible) -->
+                            <Trigger Property="IsSubmenuOpen" Value="True">
+                                <Setter TargetName="HoverBg"  Property="Background" Value="#1F3D00"/>
+                                <Setter Property="Foreground" Value="#76B900"/>
+                            </Trigger>
+
+                            <!-- ── Disabled ─────────────────────────────── -->
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground"              Value="#4A4A4A"/>
+                                <Setter TargetName="GestureText" Property="Foreground" Value="#3C3C3C"/>
+                                <Setter TargetName="Icon"        Property="Opacity"    Value="0.35"/>
+                            </Trigger>
+
+                            <!-- ── Submenu items (context menu / flyout) ── -->
+                            <!-- Show arrow when this item has children -->
+                            <Trigger Property="Role" Value="SubmenuHeader">
+                                <Setter TargetName="Arrow"       Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="PART_Popup"  Property="Placement"  Value="Right"/>
+                                <Setter TargetName="PART_Popup"  Property="HorizontalOffset" Value="-4"/>
+                            </Trigger>
+
+                            <!-- ── TopLevel items (menu bar) ────────────── -->
+                            <!-- Compact presentation: no icon, no gesture, no arrow -->
+                            <Trigger Property="Role" Value="TopLevelHeader">
+                                <Setter TargetName="Icon"        Property="Visibility" Value="Collapsed"/>
+                                <Setter TargetName="GestureText" Property="Visibility" Value="Collapsed"/>
+                                <Setter TargetName="Arrow"       Property="Visibility" Value="Collapsed"/>
+                                <Setter TargetName="ColIcon"     Property="Width"      Value="0"/>
+                            </Trigger>
+                            <Trigger Property="Role" Value="TopLevelItem">
+                                <Setter TargetName="Icon"        Property="Visibility" Value="Collapsed"/>
+                                <Setter TargetName="GestureText" Property="Visibility" Value="Collapsed"/>
+                                <Setter TargetName="Arrow"       Property="Visibility" Value="Collapsed"/>
+                                <Setter TargetName="ColIcon"     Property="Width"      Value="0"/>
+                            </Trigger>
+
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Activity bar icon buttons -->
         <Style x:Key="ActivityBtnStyle" TargetType="Button">
             <Setter Property="Background"  Value="Transparent"/>
