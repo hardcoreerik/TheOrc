@@ -151,8 +151,67 @@ public partial class SwarmBoardPanel : UserControl
         // Refresh gate (may now be satisfied if user picked ≥ 3)
         RefreshGate();
 
-        // Show the restart note so the user knows Ollama needs a restart
-        TbSlotRestartNote.Visibility = Visibility.Visible;
+        // Show the restart bar with the Restart Ollama button
+        BtnRestartOllama.IsEnabled = true;
+        BtnRestartOllama.Content   = "↻  Restart Ollama";
+        PnlSlotRestart.Visibility  = Visibility.Visible;
+    }
+
+    private async void BtnRestartOllama_Click(object sender, RoutedEventArgs e)
+    {
+        BtnRestartOllama.IsEnabled = false;
+        BtnRestartOllama.Content   = "Restarting…";
+
+        await Task.Run(() =>
+        {
+            // Kill any running ollama processes
+            foreach (var proc in System.Diagnostics.Process.GetProcessesByName("ollama"))
+            {
+                try { proc.Kill(); proc.WaitForExit(2000); } catch { /* ignore */ }
+            }
+
+            System.Threading.Thread.Sleep(1200);
+
+            // Relaunch ollama serve in the background (inherits the updated user env var)
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName               = "ollama",
+                    Arguments              = "serve",
+                    UseShellExecute        = false,
+                    CreateNoWindow         = true,
+                    RedirectStandardOutput = false,
+                    RedirectStandardError  = false,
+                });
+            }
+            catch
+            {
+                // ollama not in PATH — fall back to shell execution so Windows can find it
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName        = "ollama",
+                        Arguments       = "serve",
+                        UseShellExecute = true,
+                    });
+                }
+                catch { /* give up gracefully */ }
+            }
+        });
+
+        // Give the server ~2 s to come up before refreshing the gate
+        await Task.Delay(2000);
+
+        BtnRestartOllama.Content = "✓  Done";
+
+        RefreshSlotLabel();
+        RefreshGate();
+
+        // Auto-hide the bar after a short confirmation delay
+        await Task.Delay(1800);
+        PnlSlotRestart.Visibility = Visibility.Collapsed;
     }
 
     // ── Launch ────────────────────────────────────────────────────────────────

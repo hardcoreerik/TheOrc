@@ -283,14 +283,63 @@
                                 </StackPanel>
                             </DockPanel>
 
-                            <!-- Restart note — hidden until user changes a value -->
-                            <TextBlock x:Name="TbSlotRestartNote"
+                            <!-- Restart bar — hidden until user changes slot count -->
+                            <DockPanel x:Name="PnlSlotRestart"
                                        Visibility="Collapsed"
-                                       Text="⟳  Restart Ollama for the new slot count to take effect."
-                                       Foreground="#CCA700"
-                                       FontSize="10"
-                                       Margin="0,6,0,0"
-                                       TextWrapping="Wrap"/>
+                                       Margin="0,8,0,0"
+                                       LastChildFill="True">
+
+                                <!-- Restart button -->
+                                <Button x:Name="BtnRestartOllama"
+                                        DockPanel.Dock="Right"
+                                        Content="↻  Restart Ollama"
+                                        Margin="10,0,0,0"
+                                        Padding="10,4"
+                                        FontSize="11" FontWeight="SemiBold"
+                                        Cursor="Hand"
+                                        Click="BtnRestartOllama_Click">
+                                    <Button.Template>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border x:Name="Bd"
+                                                    Background="#2A1F00"
+                                                    BorderBrush="#4A3A00"
+                                                    BorderThickness="1"
+                                                    CornerRadius="4"
+                                                    Padding="{TemplateBinding Padding}">
+                                                <ContentPresenter HorizontalAlignment="Center"
+                                                                  VerticalAlignment="Center"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Bd" Property="Background" Value="#3A2A00"/>
+                                                    <Setter TargetName="Bd" Property="BorderBrush"  Value="#76B900"/>
+                                                </Trigger>
+                                                <Trigger Property="IsEnabled" Value="False">
+                                                    <Setter TargetName="Bd" Property="Background" Value="#1A1A1A"/>
+                                                    <Setter TargetName="Bd" Property="BorderBrush"  Value="#333333"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Button.Template>
+                                    <Button.Style>
+                                        <Style TargetType="Button">
+                                            <Setter Property="Foreground" Value="#CCA700"/>
+                                            <Style.Triggers>
+                                                <Trigger Property="IsEnabled" Value="False">
+                                                    <Setter Property="Foreground" Value="#555555"/>
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+
+                                <!-- Hint text -->
+                                <TextBlock Text="Slot count changed · Ollama needs a restart to apply."
+                                           Foreground="#888888"
+                                           FontSize="10"
+                                           VerticalAlignment="Center"
+                                           TextWrapping="Wrap"/>
+                            </DockPanel>
                         </StackPanel>
                     </Border>
 
