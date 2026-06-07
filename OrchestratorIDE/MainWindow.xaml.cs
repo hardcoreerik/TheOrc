@@ -333,6 +333,27 @@ public partial class MainWindow : Window
                 "Auto-approve enabled — write_file approved without UI (FlaUI test mode)", DateTime.Now));
         }
 
+        // ── Auto-open last workspace on startup ───────────────────────────
+        // If no --workspace CLI arg was given, auto-confirm the most recent
+        // workspace so Execute mode is unlocked immediately on startup.
+        if (wsArgIdx < 0)
+        {
+            var lastWs = _settings.RecentWorkspaces.FirstOrDefault(Directory.Exists);
+            if (!string.IsNullOrEmpty(lastWs) && lastWs != _session.WorkspaceRoot)
+            {
+                // Already in the session — just confirm it
+                Dispatcher.Invoke(() => ConfirmWorkspace(lastWs));
+            }
+            else if (!string.IsNullOrEmpty(_session.WorkspaceRoot)
+                     && Directory.Exists(_session.WorkspaceRoot)
+                     && !_session.IsWorkspaceConfirmed)
+            {
+                // No explicit recent list yet — confirm whatever the session has
+                Dispatcher.Invoke(() => ConfirmWorkspace(_session.WorkspaceRoot));
+            }
+            Dispatcher.Invoke(RebuildRecentMenu);
+        }
+
         // ── First-run personalisation wizard ──────────────────────────────
         if (!_settings.FirstRunComplete)
         {
@@ -819,12 +840,60 @@ public partial class MainWindow : Window
         // Auto-load any tools saved in .orc/tools/ for this workspace
         _ = AutoLoadWorkspaceToolsAsync(path);
 
-        // Persist as last-used workspace so next session pre-loads it
+        // Persist as default + add to recent workspaces list (max 10)
         _settings.DefaultWorkspace = path;
+        _settings.RecentWorkspaces.RemoveAll(p =>
+            p.Equals(path, StringComparison.OrdinalIgnoreCase));
+        _settings.RecentWorkspaces.Insert(0, path);
+        if (_settings.RecentWorkspaces.Count > 10)
+            _settings.RecentWorkspaces.RemoveRange(10, _settings.RecentWorkspaces.Count - 10);
         _settings.Save();
+
+        // Rebuild the File → Open Recent submenu
+        Dispatcher.InvokeAsync(RebuildRecentMenu);
 
         AddActivity(new ActivityEvent(ActivityKind.Info, "Workspace",
             $"Opened: {Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar))}", DateTime.Now));
+    }
+
+    /// <summary>
+    /// Switch to a recent workspace — same as ConfirmWorkspace but with
+    /// a friendly error if the folder has since been deleted.
+    /// </summary>
+    private void SwitchToRecentWorkspace(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            MessageBox.Show($"Folder not found:\n{path}\n\nIt will be removed from the recent list.",
+                "Open Recent", MessageBoxButton.OK, MessageBoxImage.Warning);
+            _settings.RecentWorkspaces.RemoveAll(p =>
+                p.Equals(path, StringComparison.OrdinalIgnoreCase));
+            _settings.Save();
+            RebuildRecentMenu();
+            return;
+        }
+        ConfirmWorkspace(path);
+    }
+
+    /// <summary>
+    /// Rebuilds the File → Open Recent submenu from <see cref="AppSettings.RecentWorkspaces"/>.
+    /// Must be called on the UI thread.
+    /// </summary>
+    private void RebuildRecentMenu()
+    {
+        MiOpenRecent.Items.Clear();
+        var valid = _settings.RecentWorkspaces.Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+        MiOpenRecent.IsEnabled = valid.Count > 0;
+        foreach (var p in valid)
+        {
+            var name = Path.GetFileName(p.TrimEnd(Path.DirectorySeparatorChar,
+                                                   Path.AltDirectorySeparatorChar));
+            if (string.IsNullOrEmpty(name)) name = p;
+            var item = new MenuItem { Header = name, ToolTip = p };
+            var captured = p;
+            item.Click += (_, _) => SwitchToRecentWorkspace(captured);
+            MiOpenRecent.Items.Add(item);
+        }
     }
 
     private async Task AutoLoadWorkspaceToolsAsync(string workspaceRoot)

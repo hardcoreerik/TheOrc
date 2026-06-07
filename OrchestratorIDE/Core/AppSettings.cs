@@ -63,6 +63,12 @@ public class AppSettings
     // ── Workspace ────────────────────────────────────────────────────────
     public string DefaultWorkspace { get; set; } = "";
 
+    /// <summary>
+    /// Most-recently-used workspace folders, newest first. Max 10 entries.
+    /// Used to auto-open the last workspace on startup and power the Open Recent menu.
+    /// </summary>
+    public List<string> RecentWorkspaces { get; set; } = [];
+
     // ── UI ────────────────────────────────────────────────────────────────
     public bool   ShowActivityLog  { get; set; } = true;
     public double ActivityLogHeight { get; set; } = 180;

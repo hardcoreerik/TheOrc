@@ -200,12 +200,15 @@ public class T06_BuildResearchTool : RecordingTestBase
             ? $"[T06]    ✓ Prompt set ({input.Text.Length} chars)"
             : "[T06]    ✗ Prompt empty — IValueProvider failed, falling back to Keyboard");
 
-        // ── 6. Send ───────────────────────────────────────────────────────────
-        TestContext.WriteLine("[T06] ── 6. Clicking Send");
-        var sendBtn = FindById("AgentPanel.Send")?.AsButton();
-        Assert.That(sendBtn?.IsEnabled, Is.True,
-            "Send button is not enabled — agent may still be running from a previous session.");
-        sendBtn!.Click();
+        // ── 6. Send — use keyboard Enter on the focused TextBox ──────────────
+        // Button.Click() via InvokePattern calls the handler but IValueProvider.SetValue
+        // may not fire WPF TextChanged, so TbInput.Text can appear empty to the handler.
+        // Keyboard Enter on a focused TextBox is the same path a real user takes and
+        // reliably reads the full WPF Text property.
+        TestContext.WriteLine("[T06] ── 6. Sending via keyboard Enter");
+        input!.Click();          // give TextBox keyboard focus
+        Thread.Sleep(300);
+        FlaUI.Core.Input.Keyboard.Press(FlaUI.Core.WindowsAPI.VirtualKeyShort.RETURN);
         Thread.Sleep(1_000);
 
         // ── 7. Verify agent started (Stop enabled = agent running) ────────────
@@ -216,13 +219,13 @@ public class T06_BuildResearchTool : RecordingTestBase
 
         if (!agentStarted)
         {
-            TestContext.WriteLine("[T06]    ⚠ Agent didn't start — retrying Send…");
+            TestContext.WriteLine("[T06]    ⚠ Agent didn't start — retrying via keyboard Enter…");
             input = FindById("AgentPanel.Input")?.AsTextBox();
-            input?.Click();
-            sendBtn = FindById("AgentPanel.Send")?.AsButton();
-            if (sendBtn?.IsEnabled == true)
+            if (input != null)
             {
-                sendBtn.Click();
+                input.Click();
+                Thread.Sleep(300);
+                FlaUI.Core.Input.Keyboard.Press(FlaUI.Core.WindowsAPI.VirtualKeyShort.RETURN);
                 Thread.Sleep(1_000);
                 agentStarted = WaitUntil(
                     () => FindById("AgentPanel.Stop")?.AsButton().IsEnabled == true,

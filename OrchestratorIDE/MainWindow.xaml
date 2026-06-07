@@ -91,6 +91,7 @@
             <!-- ── File ─────────────────────────────────────────── -->
             <MenuItem Header="_File">
                 <MenuItem Header="Open Folder…"    InputGestureText="Ctrl+O"   Click="Menu_OpenFolder"/>
+                <MenuItem x:Name="MiOpenRecent" Header="Open Recent" IsEnabled="False"/>
                 <MenuItem Header="Open in Explorer"                             Click="Menu_OpenExplorer"/>
                 <Separator/>
                 <MenuItem Header="New Session"      InputGestureText="Ctrl+N"   Click="Menu_NewSession"/>
