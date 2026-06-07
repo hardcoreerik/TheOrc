@@ -339,13 +339,18 @@ public class T06_BuildResearchTool : RecordingTestBase
     /// <summary>
     /// Closes any modal child windows (FirstRun wizard, error dialogs) that
     /// could block access to the main window's UI elements.
+    /// IMPORTANT: _win must be set before calling this. We never touch _win itself.
     /// </summary>
     private void DismissBlockingDialogs()
     {
         try
         {
-            // FlaUI: iterate all windows belonging to the app process
-            if (_app is null) return;
+            if (_app is null || _win is null) return;
+
+            // Get the RuntimeId of the main window so we never close it by accident
+            int[]? mainId = null;
+            try { mainId = _win.Properties.RuntimeId.Value; } catch { return; }
+
             var allWindows = _automation!.GetDesktop()
                 .FindAllChildren(cf => cf.ByProcessId(_app.ProcessId));
 
@@ -353,10 +358,11 @@ public class T06_BuildResearchTool : RecordingTestBase
             {
                 try
                 {
-                    // Skip the main window (has StatusBar or ActivityBar children)
-                    if (w.FindFirstDescendant(cf => cf.ByAutomationId("StatusBar.Workspace")) != null) continue;
+                    // Always skip the main window — compare RuntimeId arrays
+                    int[] wId = w.Properties.RuntimeId.Value;
+                    if (mainId != null && wId.SequenceEqual(mainId)) continue;
 
-                    // It's a secondary window — try pressing Escape or closing it
+                    // It's a secondary window — close it
                     TestContext.WriteLine($"[T06]    Closing blocking window: '{w.Name}'");
                     var closeBtn = w.FindFirstDescendant(cf => cf.ByAutomationId("Close"));
                     if (closeBtn != null) { closeBtn.AsButton().Click(); Thread.Sleep(500); }
