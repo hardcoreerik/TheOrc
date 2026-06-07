@@ -1364,46 +1364,64 @@ public partial class MainWindow : Window
     // ── Workspace Rules ───────────────────────────────────────────────────
 
     /// <summary>
-    /// Opens the Workspace Rules editor: shows a preset picker + current .agent.md.
-    /// If no .agent.md exists yet, prompts to create one from a preset.
+    /// Opens the unified Agent Builder dialog targeting workspace rules.
+    /// Supports AI-assisted generation, presets, and manual editing of .agent.md.
     /// </summary>
     private void OpenWorkspaceRules()
     {
-        var dlg = new OrchestratorIDE.UI.Dialogs.WorkspaceRulesDialog(
-            _session.WorkspaceRoot, _rules);
+        var dlg = new OrchestratorIDE.UI.Dialogs.AgentBuilderDialog(
+            _ollama, _session.ActiveModel, _session.WorkspaceRoot);
         dlg.Owner = this;
 
         if (dlg.ShowDialog() == true)
         {
-            _ = _loop.RefreshRulesAsync(_session.WorkspaceRoot);
-            _explorerPanel.LoadWorkspace(_session.WorkspaceRoot);
-            var rulesPath = _rules.FindRulesFile(_session.WorkspaceRoot);
-            if (rulesPath != null)
-            {
-                ShowEditorPane();
-                _editorPanel.OpenFile(rulesPath);
-            }
-            AddActivity(new ActivityEvent(ActivityKind.Info, "Workspace Rules",
-                $"Rules updated for {Path.GetFileName(_session.WorkspaceRoot)}", DateTime.Now));
+            HandleAgentBuilderResult(dlg.AppliedTarget);
         }
     }
 
     // ── Global Agent ──────────────────────────────────────────────────────
 
     /// <summary>
-    /// Opens the Global Agent picker: lets user choose a premade preset or edit
-    /// the global_agent.md directly.
+    /// Opens the unified Agent Builder dialog targeting the global agent.
+    /// The workspace Apply button is still available so the user can apply to both.
     /// </summary>
     private void OpenGlobalAgentPicker()
     {
-        var dlg = new OrchestratorIDE.UI.Dialogs.GlobalAgentDialog();
+        var dlg = new OrchestratorIDE.UI.Dialogs.AgentBuilderDialog(
+            _ollama, _session.ActiveModel, _session.WorkspaceRoot);
         dlg.Owner = this;
 
         if (dlg.ShowDialog() == true)
         {
-            RefreshGlobalAgentBadge();
-            AddActivity(new ActivityEvent(ActivityKind.Info, "Global Agent",
-                $"Set to: {dlg.SelectedPresetName}", DateTime.Now));
+            HandleAgentBuilderResult(dlg.AppliedTarget);
+        }
+    }
+
+    /// <summary>
+    /// Shared post-apply logic — refreshes rules, badge, and editor depending on what was written.
+    /// </summary>
+    private void HandleAgentBuilderResult(OrchestratorIDE.UI.Dialogs.AgentBuilderTarget target)
+    {
+        switch (target)
+        {
+            case OrchestratorIDE.UI.Dialogs.AgentBuilderTarget.WorkspaceRules:
+                _ = _loop.RefreshRulesAsync(_session.WorkspaceRoot);
+                _explorerPanel.LoadWorkspace(_session.WorkspaceRoot);
+                var rulesPath = _rules.FindRulesFile(_session.WorkspaceRoot);
+                if (rulesPath != null)
+                {
+                    ShowEditorPane();
+                    _editorPanel.OpenFile(rulesPath);
+                }
+                AddActivity(new ActivityEvent(ActivityKind.Info, "Workspace Rules",
+                    $"Rules updated for {Path.GetFileName(_session.WorkspaceRoot)}", DateTime.Now));
+                break;
+
+            case OrchestratorIDE.UI.Dialogs.AgentBuilderTarget.GlobalAgent:
+                RefreshGlobalAgentBadge();
+                AddActivity(new ActivityEvent(ActivityKind.Info, "Global Agent",
+                    "Global agent updated", DateTime.Now));
+                break;
         }
     }
 
