@@ -15,8 +15,8 @@ public static class UpdateChecker
 {
     // ── Constants ─────────────────────────────────────────────────────────────
 
-    private const string ApiUrl  = "https://api.github.com/repos/hardcoreerik/The-Orchestrator/releases/latest";
-    private const string HtmlUrl = "https://github.com/hardcoreerik/The-Orchestrator/releases";
+    private const string ApiUrl  = "https://api.github.com/repos/hardcoreerik/TheOrc/releases/latest";
+    private const string HtmlUrl = "https://github.com/hardcoreerik/TheOrc/releases";
 
     private static readonly TimeSpan CheckInterval = TimeSpan.FromHours(24);
 
@@ -130,7 +130,7 @@ public static class UpdateChecker
         client.DefaultRequestHeaders.UserAgent.Add(
             new ProductInfoHeaderValue("TheOrc", appVersion));
         client.DefaultRequestHeaders.UserAgent.Add(
-            new ProductInfoHeaderValue("(https://github.com/hardcoreerik/The-Orchestrator)"));
+            new ProductInfoHeaderValue("(https://github.com/hardcoreerik/TheOrc)"));
 
         // Ask for GitHub v3 JSON format
         client.DefaultRequestHeaders.Accept.Add(

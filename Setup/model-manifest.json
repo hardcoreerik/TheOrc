@@ -1,12 +1,12 @@
 {
   "_comment": "The Orc model manifest v1. The installer fetches this file at runtime so models and runtime URLs can be updated without releasing a new setup.exe. Update this file and push to master — users get the new list on their next install.",
-  "manifest_url": "https://raw.githubusercontent.com/hardcoreerik/The-Orchestrator/master/Setup/model-manifest.json",
+  "manifest_url": "https://raw.githubusercontent.com/hardcoreerik/TheOrc/master/Setup/model-manifest.json",
   "version": "1.0.0",
   "updated": "2026-06-06",
 
   "app": {
     "_comment": "The main OrchestratorIDE.exe published as a self-contained single-file win-x64 binary. The installer downloads this before anything else. URL points at the 'latest' release asset so old installers always pull the newest app.",
-    "download_url": "https://github.com/hardcoreerik/The-Orchestrator/releases/latest/download/OrchestratorIDE.exe",
+    "download_url": "https://github.com/hardcoreerik/TheOrc/releases/latest/download/OrchestratorIDE.exe",
     "size_mb": 190
   },
 
@@ -240,10 +240,11 @@
   ],
 
   "vram_to_model_id": {
-    "_comment": "The installer uses this map to pre-select a recommended model based on detected VRAM. Key is the VRAM tier ceiling in GB.",
+    "_comment": "The installer uses this map to pre-select a recommended model based on detected VRAM. Key is the VRAM tier ceiling in GB. 8GB cards (e.g. RTX 4050/3070) get the Q5 7B — Q8 7B needs 10GB+ to avoid OOM on laptops.",
     "2":  "qwen25-coder-1-5b-q8",
     "4":  "qwen25-coder-3b-q8",
     "6":  "qwen25-coder-7b-q5",
+    "8":  "qwen25-coder-7b-q5",
     "10": "qwen25-coder-7b-q8",
     "14": "qwen25-coder-14b-q4",
     "20": "qwen25-coder-32b-q3",

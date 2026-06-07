@@ -1146,7 +1146,7 @@ public partial class MainWindow : Window
         => UpdateChecker.OpenReleasePage(_pendingReleaseUrl);
 
     private void Menu_GitHub(object sender, RoutedEventArgs e)
-        => UpdateChecker.OpenReleasePage("https://github.com/hardcoreerik/The-Orchestrator");
+        => UpdateChecker.OpenReleasePage("https://github.com/hardcoreerik/TheOrc");
 
     // ── Keyboard shortcuts (extend existing handler) ───────────────────────
 
