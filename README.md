@@ -134,13 +134,25 @@ The installer tailors the agent's `.agent.md` rules to your discipline:
 
 ### Option 1 — One-Click Installer (recommended)
 
-1. Download **OrchestratorSetup.exe** from [Releases](https://github.com/hardcoreerik/The-Orchestrator/releases)
-2. Run it — the wizard detects your GPU, downloads the runtime and model, writes your config
-3. Launch TheOrc from the desktop shortcut
+1. Go to [**Releases**](https://github.com/hardcoreerik/The-Orchestrator/releases) and download **OrchestratorSetup.exe**
+2. Run it — Windows may show a SmartScreen warning; click **More info → Run anyway** (the app is unsigned but open source)
+3. The wizard auto-detects your GPU, VRAM, and CUDA version, then downloads the right llama.cpp runtime and model
+4. Pick your coding profile (Web, Systems, Security, etc.) and let the installer finish
+5. Launch **TheOrc** from the Desktop shortcut
 
-The installer handles everything: llama.cpp runtime, GGUF model, `.agent.md` profile, and `settings.json`.
+**First launch:**
+- Click the 📁 workspace badge (top of the chat bar) to open your project folder
+- Type your request — the agent proposes a plan first, you approve before anything runs
+- Hit **Execute** to let it write files and run commands (with approval gates)
 
-### Option 2 — Build from Source
+The installer handles everything: llama.cpp runtime, GGUF model download, `.agent.md` profile, and `settings.json`.
+
+### Option 2 — Portable (no installer)
+
+Download **TheOrc-x.x.x-win-x64-portable.zip** from [Releases](https://github.com/hardcoreerik/The-Orchestrator/releases), unzip anywhere, and run `OrchestratorIDE.exe`.  
+You'll need an existing [Ollama](https://ollama.ai) or llama-server instance — point Settings at it.
+
+### Option 3 — Build from Source
 
 ```powershell
 # Clone
@@ -157,13 +169,7 @@ dotnet publish OrchestratorIDE/OrchestratorIDE.csproj `
   -o publish/
 ```
 
-### Requirements (build from source)
-
-- Windows 10 / 11
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-- Either:
-  - [Ollama](https://ollama.ai) running locally, or
-  - llama-server.exe with a `.gguf` model (configured in Settings)
+**Requirements (build from source):** Windows 10/11 · [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) · Ollama or llama-server.exe
 
 ---
 
@@ -189,20 +195,16 @@ Alternatively, use the **Settings** panel in the app (gear icon in the activity 
 
 ## Support TheOrc
 
-TheOrc is free, open source, and always will be. If it saves you time or money, consider buying the orc a coffee:
+TheOrc is free, open source, and always will be.  
+If it saves you a subscription bill, consider buying the orc a coffee ☕
 
 <div align="center">
 
-[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?style=for-the-badge&logo=github-sponsors&logoColor=white)](https://github.com/sponsors/hardcoreerik)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support_the_Orc-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/hardcoreerik)
 [![PayPal](https://img.shields.io/badge/PayPal-Donate-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/hardcoreerik)
+[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?style=for-the-badge&logo=github-sponsors&logoColor=white)](https://github.com/sponsors/hardcoreerik)
 
 </div>
-
-Sponsorships go directly toward:
-- 🖥️ GPU time for testing models across hardware tiers
-- 📦 Hosting the live `model-manifest.json` update feed
-- ⚡ New features, profiles, and tool packs
 
 ---
 
@@ -250,7 +252,7 @@ Setup/
 - [x] HTTP range-resume model downloads
 - [x] **Phase F** — WMI hardware detection (real GPU/CUDA/VRAM query, registry fallback)
 - [x] **Phase G** — Auto-update checker (GitHub Releases API, 24-hr throttle, Settings toggle)
-- [ ] FlaUI UI automation test suite
+- [x] FlaUI UI automation test suite (26/26 passing)
 - [ ] Linux / macOS (Avalonia port, planned)
 
 ---
@@ -267,9 +269,39 @@ Copyright (c) 2025 hardcoreerik
 
 <div align="center">
 
+## ❤️ Like TheOrc? Support the Project
+
+TheOrc replaces a **$20–$40/month** subscription with a one-time setup and your own hardware.  
+If it's saving you money, a small contribution goes a long way.
+
+<br/>
+
+**Every coffee keeps the orc coding** — GPU testing, new model profiles, and faster updates.
+
+<br/>
+
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-%E2%98%95_Buy_Me_a_Coffee-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white&labelColor=FF5E5B)](https://ko-fi.com/hardcoreerik)
+
+[![PayPal](https://img.shields.io/badge/PayPal-Send_a_Tip-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/hardcoreerik)
+
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub_Sponsors-Monthly_Support-%23EA4AAA?style=for-the-badge&logo=github-sponsors&logoColor=white)](https://github.com/sponsors/hardcoreerik)
+
+<br/>
+
+| Your support funds | |
+|---|---|
+| 🖥️ GPU time | Testing across RTX, AMD, and CPU-only hardware |
+| 📦 Model updates | Keeping the manifest current as better models drop |
+| ⚡ New features | More profiles, tools, and quality-of-life improvements |
+| 🐛 Bug fixes | Fast turnaround on issues you report |
+
+<br/>
+
+---
+
 **CODE. BUILD. AUTONOMIZE. REPEAT.**
 
-*Built for developers. Made for freedom.*
+*Built for developers. Made for freedom. Free forever.*
 
 <img src="Assets/icon.png" width="80" alt="TheOrc"/>
 
