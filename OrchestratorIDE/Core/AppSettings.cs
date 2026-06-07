@@ -56,6 +56,18 @@ public class AppSettings
 
     // ── Agent behaviour ──────────────────────────────────────────────────
     public string DefaultModel  { get; set; } = "qwen2.5-coder:14b";
+
+    /// <summary>
+    /// Last model used in Single-agent mode. Restored when switching to Single.
+    /// Kept separate from swarm so switching modes doesn't clobber each other's pick.
+    /// </summary>
+    public string LastSingleModel { get; set; } = "";
+
+    /// <summary>
+    /// Last model used in Swarm mode. Restored when switching to Swarm.
+    /// Defaults to nemotron on first use because that is the only swarm-capable model in v1.
+    /// </summary>
+    public string LastSwarmModel  { get; set; } = "";
     public int    MaxStepsOverride { get; set; } = 0;   // 0 = use model profile default
     public bool   AutoVerify    { get; set; } = true;
     public bool   AutoCheckpoint { get; set; } = true;  // git commit before every Execute run

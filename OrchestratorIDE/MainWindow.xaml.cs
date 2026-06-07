@@ -295,14 +295,17 @@ public partial class MainWindow : Window
             }
             else if (_settings.AutoModelSwitch)
             {
+                // General-purpose coding models only — security/uncensored models
+                // (Hermes, Heretic, etc.) are NOT auto-selected; they must be
+                // chosen explicitly via the command palette or model picker.
                 var preferred = new[] {
                     "qwen2.5-coder:14b",
                     "qwen2.5-coder:7b",
                     "gemma4:12b",
+                    "nemotron-mini-4b-q5",
                     "nemotron-3-nano:4b-q8_0",
                     "nemotron-3-nano:4b",
-                    "hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF:Q5_K_M",
-                    "hf.co/bartowski/p-e-w_gpt-oss-20b-heretic-GGUF:Q4_K_M",
+                    "qwen2.5-coder:3b",
                     "qwen2.5:14b-instruct",
                     "gemma4:e4b",
                     "llama3.1:8b",
@@ -424,7 +427,7 @@ public partial class MainWindow : Window
         {
             Dispatcher.Invoke(() =>
             {
-                var wizard = new UI.FirstRunWindow(_settings, _session.WorkspaceRoot);
+                var wizard = new UI.FirstRunWindow(_settings, _session.WorkspaceRoot, _installedModels);
                 wizard.Owner = this;
                 var saved2 = wizard.ShowDialog();
                 if (saved2 == true)
@@ -482,7 +485,7 @@ public partial class MainWindow : Window
 
     public async Task RegenerateAgentFileAsync()
     {
-        var wizard = new UI.FirstRunWindow(_settings, _session.WorkspaceRoot);
+        var wizard = new UI.FirstRunWindow(_settings, _session.WorkspaceRoot, _installedModels);
         wizard.Owner = this;
         var result = wizard.ShowDialog();
         if (result == true)
@@ -1141,31 +1144,38 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Switches between Single Agent and Swarm modes.
-    /// Swarm is silently refused (with a status message) if the gate is not satisfied.
-    /// Persists the chosen mode to settings.
+    /// Each mode remembers its own last-used model independently.
+    /// Swarm gate warning is shown inside the panel; we still navigate there.
     /// </summary>
     private void SetMode(string mode)
     {
+        // ── Save current model to the bucket we're leaving ───────────────────
+        if (_settings.LastMode == "single")
+            _settings.LastSingleModel = _session.ActiveModel;
+        else if (_settings.LastMode == "swarm")
+            _settings.LastSwarmModel  = _session.ActiveModel;
+
         if (mode == "swarm")
         {
+            // ── Restore the last Swarm model (default: first nemotron found) ─
+            var swarmModel = BestSwarmModel(_settings.LastSwarmModel);
+            if (swarmModel != _session.ActiveModel)
+                ApplyModelSwitch(swarmModel, saveToSingleSlot: false);
+
             _swarmPanel.ActiveModel   = _session.ActiveModel;
             _swarmPanel.WorkspaceRoot = _session.WorkspaceRoot;
             _swarmPanel.Refresh();
-
-            // Gate check — swarm panel shows its own warning, but refuse to switch
-            // the title bar to "swarm" if completely blocked (no nemotron model).
-            var isNemotron = _session.ActiveModel.Contains("nemotron", StringComparison.OrdinalIgnoreCase);
-            if (!isNemotron)
-            {
-                SetStatus("Swarm requires NVIDIA Nemotron Mini — switch model first");
-                // Still show the swarm panel so the user sees the gate warning
-            }
 
             MainContent.Content    = _swarmPanel;
             SidebarContent.Content = _explorerPanel;
         }
         else
         {
+            // ── Restore the last Single model ─────────────────────────────────
+            var singleModel = BestSingleModel(_settings.LastSingleModel);
+            if (singleModel != _session.ActiveModel)
+                ApplyModelSwitch(singleModel, saveToSingleSlot: true);
+
             MainContent.Content    = _agentPanel;
             SidebarContent.Content = _sessionPanel;
             _sessionPanel.Refresh();
@@ -1175,6 +1185,43 @@ public partial class MainWindow : Window
 
         _settings.LastMode = mode;
         _settings.Save();
+    }
+
+    /// <summary>
+    /// Returns the best available model for Swarm mode.
+    /// Priority: last-used swarm model → first installed nemotron → current model.
+    /// </summary>
+    private string BestSwarmModel(string lastSwarm)
+    {
+        if (!string.IsNullOrEmpty(lastSwarm) &&
+            _installedModels.Contains(lastSwarm, StringComparer.OrdinalIgnoreCase))
+            return lastSwarm;
+
+        // Fall back to the first installed nemotron variant
+        var nemotron = _installedModels
+            .FirstOrDefault(m => m.Contains("nemotron", StringComparison.OrdinalIgnoreCase));
+        return nemotron ?? _session.ActiveModel;
+    }
+
+    /// <summary>
+    /// Returns the best available model for Single mode.
+    /// Priority: last-used single model → quality-ordered preferred list → current model.
+    /// </summary>
+    private string BestSingleModel(string lastSingle)
+    {
+        if (!string.IsNullOrEmpty(lastSingle) &&
+            _installedModels.Contains(lastSingle, StringComparer.OrdinalIgnoreCase))
+            return lastSingle;
+
+        // Quality-ordered fallback (non-swarm coding models first)
+        var preferred = new[]
+        {
+            "qwen2.5-coder:14b", "qwen2.5-coder:7b", "gemma4:12b",
+            "qwen2.5-coder:3b",  "gemma4:e4b",        "llama3.1:8b",
+        };
+        return preferred.FirstOrDefault(p =>
+                   _installedModels.Contains(p, StringComparer.OrdinalIgnoreCase))
+               ?? _session.ActiveModel;
     }
 
     /// <summary>
@@ -1428,15 +1475,31 @@ public partial class MainWindow : Window
     private void OnModelSelected(string modelId)
     {
         CloseModelPicker();
-        _session.ActiveModel       = modelId;
-        _swarmPanel.ActiveModel    = modelId;   // keep swarm gate in sync
+        ApplyModelSwitch(modelId, saveToSingleSlot: _settings.LastMode != "swarm");
+    }
+
+    /// <summary>
+    /// Core model-switch logic shared by OnModelSelected and SetMode.
+    /// Saves to the per-mode bucket (single or swarm) and the legacy DefaultModel field.
+    /// </summary>
+    private void ApplyModelSwitch(string modelId, bool saveToSingleSlot)
+    {
+        _session.ActiveModel    = modelId;
+        _swarmPanel.ActiveModel = modelId;
         _swarmPanel.Refresh();
 
-        // Persist so the app restores this model on next launch
+        // Save to the correct per-mode bucket so switching modes doesn't
+        // clobber the other mode's last-used model.
+        if (saveToSingleSlot)
+            _settings.LastSingleModel = modelId;
+        else
+            _settings.LastSwarmModel  = modelId;
+
+        // Keep DefaultModel in sync for backwards compatibility (installer etc.)
         _settings.DefaultModel = modelId;
         _settings.Save();
 
-        RegisterAllTools();   // Re-register with new toolset
+        RegisterAllTools();
         UpdateStatusBar();
         AddActivity(new ActivityEvent(ActivityKind.Info, "Model", $"Switched to: {modelId}", DateTime.Now));
     }
