@@ -580,13 +580,36 @@ public partial class MainWindow : Window
     {
         var ws = _session.WorkspaceRoot;
 
+        // ── Sandbox bypass delegate ───────────────────────────────────────
+        Func<string, string, string, CancellationToken, Task<bool>> sandboxBypass =
+            async (toolName, escapedPath, sandboxRoot, ct) =>
+            {
+                var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>(
+                              System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
+                ct.Register(() => tcs.TrySetResult(false));
+
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    var dlg = new OrchestratorIDE.UI.Dialogs.SandboxBypassDialog(
+                                  toolName, escapedPath, sandboxRoot, "Agent")
+                    {
+                        Owner = this
+                    };
+                    tcs.TrySetResult(dlg.ShowDialog() == true);
+                });
+
+                return await tcs.Task;
+            };
+
         // Pass diff preview hook so write_file shows the DiffViewer
-        FileTools.Register(_registry, ws, onDiffPreview: (path, diff, reason) =>
-        {
-            // DiffViewer is shown inside AgentPanel — but approval gate handles it
-            // Store on the pending ToolCall for the approval dialog to use
-        });
-        ShellTools.Register(_registry, ws);
+        FileTools.Register(_registry, ws,
+            onDiffPreview: (path, diff, reason) =>
+            {
+                // DiffViewer is shown inside AgentPanel — but approval gate handles it
+                // Store on the pending ToolCall for the approval dialog to use
+            },
+            onSandboxBypass: sandboxBypass);
+        ShellTools.Register(_registry, ws, onSandboxBypass: sandboxBypass);
         SearchTools.Register(_registry, ws);
         TestTools.Register(_registry, ws);
         WebTools.Register(_registry);
@@ -994,6 +1017,39 @@ public partial class MainWindow : Window
 
     private void BdrRecording_Click(object sender, MouseButtonEventArgs e)
         => ToggleRecording();
+
+    private void BdrScreenshot_Click(object sender, MouseButtonEventArgs e)
+    {
+        try
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "OrchestratorIDE", "Screenshots");
+            Directory.CreateDirectory(dir);
+
+            var fileName = $"TheOrc_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.png";
+            var filePath = Path.Combine(dir, fileName);
+
+            // Capture the window using the same RenderTargetBitmap approach as ScreenRecorder
+            static int SnapEven(double v) { int i = (int)v; return i % 2 == 0 ? i : i - 1; }
+            int w = SnapEven(ActualWidth);
+            int h = SnapEven(ActualHeight);
+            var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                w, h, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+            rtb.Render(this);
+
+            var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+            encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+            using var stream = System.IO.File.OpenWrite(filePath);
+            encoder.Save(stream);
+
+            SetStatus($"📷 Screenshot saved → {fileName}");
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Screenshot failed: {ex.Message}");
+        }
+    }
 
     private void Menu_OpenRecordings(object sender, RoutedEventArgs e)
         => ScreenRecorder.OpenRecordingsFolder();

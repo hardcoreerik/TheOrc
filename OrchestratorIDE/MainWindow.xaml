@@ -626,6 +626,22 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Screenshot button -->
+                <Border DockPanel.Dock="Right"
+                        Background="#111111"
+                        BorderBrush="#2A2A2A" BorderThickness="1"
+                        CornerRadius="3"
+                        Padding="6,0,6,0"
+                        Margin="4,2,4,2"
+                        Cursor="Hand"
+                        MouseDown="BdrScreenshot_Click"
+                        ToolTip="Take a screenshot of this window (saved to %APPDATA%\OrchestratorIDE\Screenshots)"
+                        AutomationProperties.AutomationId="StatusBar.Screenshot">
+                    <TextBlock Text="📷"
+                               FontSize="11"
+                               VerticalAlignment="Center"/>
+                </Border>
+
                 <!-- Recording indicator — visible only while screen recording is active -->
                 <Border x:Name="BdrRecording"
                         DockPanel.Dock="Right"

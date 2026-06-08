@@ -5,6 +5,8 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Models;
+using OrchestratorIDE.Tools;
+using OrchestratorIDE.Trust;
 
 namespace OrchestratorIDE.Agents;
 
@@ -16,9 +18,9 @@ namespace OrchestratorIDE.Agents;
 /// Phase 2b: CODER + UIDEVELOPER tasks run concurrently with research context injected.
 /// Phase 3:  Boss merges all worker results into final_report.md.
 ///
-/// Worker outputs are parsed for ### FILE: markers and written to
-///   <workspaceRoot>/.orc/swarm/runs/<runId>/output/project/
-/// after each phase completes.
+/// Worker output files are written directly to the workspace root so they appear
+/// alongside the project. Run metadata (plan.json, trace, final_report.md) stays
+/// in <workspaceRoot>/.orc/swarm/runs/<runId>/ for inspection without cluttering the workspace.
 /// </summary>
 public class SwarmSession
 {
@@ -30,6 +32,16 @@ public class SwarmSession
     private CancellationTokenSource? _cts;
     private SwarmTraceLogger?     _trace;
     private string                _runId = "";
+    private string                _targetLanguage = "";
+    private ToolRegistry?         _toolRegistry;    // initialized once output dir is known
+
+    // ── Co-Work state ─────────────────────────────────────────────────────────
+    // taskId → TCS that unblocks the ask_user handler when the user replies
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<string>>
+        _replyChannels = new();
+    // taskId → queue of steer messages to inject at the start of the next LLM step
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Generic.Queue<string>>
+        _steerQueues = new();
 
     // ── Events ────────────────────────────────────────────────────────────────
     public event Action?                         OnStarted;
@@ -40,7 +52,7 @@ public class SwarmSession
     public event Action<SwarmTask>?              OnTaskChanged;
     public event Action<string>?                 OnSwarmComplete;  // merged result
     public event Action<string>?                 OnError;
-    public event Action<string>?                 OnActivity;       // activity log entries
+    public event Action<string, string>?         OnActivity;       // agentKey, message
 
     // ── Public state ──────────────────────────────────────────────────────────
     public List<SwarmTask> Tasks   { get; private set; } = [];
@@ -58,10 +70,17 @@ public class SwarmSession
 
     // ── Paths ─────────────────────────────────────────────────────────────────
 
-    private string RunsRoot        => Path.Combine(_workspaceRoot ?? Path.GetTempPath(), ".orc", "swarm", "runs");
-    private string RunDir          => Path.Combine(RunsRoot, _runId);
-    private string OutputProjectDir => Path.Combine(RunDir, "output", "project");
-    private string AgentsTaskDir   => Path.Combine(RunDir, "agents");
+    private string RunsRoot         => Path.Combine(_workspaceRoot ?? Path.GetTempPath(), ".orc", "swarm", "runs");
+    private string RunDir           => Path.Combine(RunsRoot, _runId);
+    /// <summary>
+    /// Workers write output files directly into the workspace root so they are immediately
+    /// visible alongside the project — not buried inside .orc/swarm/runs/.../output/project/.
+    /// </summary>
+    private string OutputProjectDir => _workspaceRoot ?? Path.GetTempPath();
+    private string AgentsTaskDir    => Path.Combine(RunDir, "agents");
+
+    /// <summary>Returns the output/project dir for the last (or current) run. Empty if no run yet.</summary>
+    public string GetOutputProjectDir() => string.IsNullOrEmpty(_runId) ? "" : OutputProjectDir;
 
     // ── Directive injection ───────────────────────────────────────────────────
     private readonly List<string> _directives = [];
@@ -83,19 +102,81 @@ public class SwarmSession
 
     public Task RunAsync(string userGoal) => RunInternalAsync(userGoal);
 
+    // ── Co-Work API ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Provide the user's reply to a worker that called ask_user and is WaitingForUser.
+    /// Unblocks the worker so it can continue.
+    /// </summary>
+    public void ProvideWorkerReply(string taskId, string reply)
+    {
+        if (_replyChannels.TryRemove(taskId, out var tcs))
+            tcs.TrySetResult(reply);
+    }
+
+    /// <summary>
+    /// Inject a guidance message into a running worker's next LLM step.
+    /// The message is queued and consumed at the start of the next tool-calling iteration.
+    /// </summary>
+    public void SteerWorker(string taskId, string message)
+    {
+        var q = _steerQueues.GetOrAdd(taskId, _ => new System.Collections.Generic.Queue<string>());
+        lock (q) q.Enqueue(message);
+        Activity($"💬 User guidance queued for worker {taskId[..Math.Min(8, taskId.Length)]}", "boss");
+    }
+
+    /// <summary>
+    /// Continue chatting with a worker after its task is complete.
+    /// Resumes the worker's conversation history with a new user message.
+    /// </summary>
+    public async Task ContinueWorkerAsync(string taskId, string userMessage)
+    {
+        var task = Tasks.FirstOrDefault(t => t.Id == taskId);
+        if (task is null || task.ConversationHistory.Count == 0) return;
+
+        var ct       = _cts?.Token ?? CancellationToken.None;
+        var agentKey = AgentKey(task.Role);
+        var model    = task.Role == SwarmWorkerRole.Researcher ? _researcherModel : _coderModel;
+        var noThink  = ShouldDisableThinking(model);
+        var tools    = GetWorkerTools(task.Role);
+        var history  = task.ConversationHistory; // continue from saved history
+
+        // Append the follow-up
+        history.Add(new AgentMessage { Role = MessageRole.User, Content = userMessage, Status = MessageStatus.Complete });
+        task.Status = SwarmTaskStatus.InProgress;
+        OnTaskChanged?.Invoke(task);
+        Activity($"💬 Follow-up from user: {userMessage[..Math.Min(80, userMessage.Length)]}", agentKey);
+
+        try
+        {
+            await RunWorkerLoopAsync(task, history, tools, model, noThink, agentKey, ct);
+        }
+        finally
+        {
+            task.Status      = SwarmTaskStatus.Done;
+            task.CompletedAt = DateTime.UtcNow;
+            OnTaskChanged?.Invoke(task);
+        }
+    }
+
     // ── Orchestration ─────────────────────────────────────────────────────────
 
     private async Task RunInternalAsync(string userGoal)
     {
-        _cts   = new CancellationTokenSource();
-        var ct = _cts.Token;
-        Tasks  = [];
-        _runId = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
+        _cts            = new CancellationTokenSource();
+        var ct          = _cts.Token;
+        Tasks           = [];
+        _runId          = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
+        _targetLanguage = DetectTargetLanguage(userGoal);
         OnStarted?.Invoke();
 
         Directory.CreateDirectory(RunDir);
-        Directory.CreateDirectory(OutputProjectDir);
+        // OutputProjectDir is now the workspace root — already exists, no need to create
+        if (OutputProjectDir != _workspaceRoot) Directory.CreateDirectory(OutputProjectDir);
         Directory.CreateDirectory(AgentsTaskDir);
+
+        // Initialise the worker tool registry now that OutputProjectDir is known
+        InitWorkerTools();
 
         _trace = new SwarmTraceLogger(RunDir);
         _trace.WriteSessionMeta(_workspaceRoot ?? RunDir, _bossModel, _coderModel, _researcherModel, userGoal);
@@ -103,7 +184,7 @@ public class SwarmSession
         try
         {
             // ── Phase 1: Boss decomposes ──────────────────────────────────────
-            Activity("Boss decomposing goal into tasks…");
+            Activity("Boss decomposing goal into tasks…", "boss");
             _trace.WriteEvent("phase_start", "Boss planning");
             _trace.WriteUserMessage(userGoal, context: "user_goal");
 
@@ -120,7 +201,7 @@ public class SwarmSession
             _trace.WriteEvent("tasks_planned", $"{Tasks.Count} task(s): " +
                 string.Join(", ", Tasks.Select(t => $"{t.Role}:{t.Title}")));
 
-            Activity($"Planned {Tasks.Count} task(s): {string.Join(", ", Tasks.Select(t => t.Title))}");
+            Activity($"Planned {Tasks.Count} task(s): {string.Join(", ", Tasks.Select(t => t.Title))}", "boss");
             OnTasksPlanned?.Invoke(Tasks);
             await SavePlanJsonAsync(userGoal);
 
@@ -130,7 +211,7 @@ public class SwarmSession
 
             if (researchers.Count > 0)
             {
-                Activity($"Research phase — {researchers.Count} researcher(s) running");
+                Activity($"Research phase — {researchers.Count} researcher(s) running", "boss");
                 _trace.WriteEvent("phase_start", $"Research phase: {researchers.Count} researcher(s)");
                 await Task.WhenAll(researchers.Select(t => RunWorkerAsync(t, [], ct)));
 
@@ -138,7 +219,11 @@ public class SwarmSession
                 foreach (var t in researchers.Where(t => t.Status == SwarmTaskStatus.Done && t.Result is not null))
                 {
                     var n = ExtractAndWriteFiles(t.Result!, OutputProjectDir);
-                    if (n > 0) Activity($"Researcher wrote {n} file(s)");
+                    if (n > 0)
+                    {
+                        var names = ExtractFileNames(t.Result!);
+                        Activity($"→ {string.Join(", ", names)}", "researcher");
+                    }
                 }
             }
 
@@ -157,28 +242,68 @@ public class SwarmSession
             // ── Phase 2b: Coder + UIDev workers ──────────────────────────────
             if (others.Count > 0)
             {
-                Activity($"Coder phase — {others.Count} worker(s) running concurrently");
+                Activity($"Coder phase — {others.Count} worker(s) running concurrently", "boss");
                 _trace.WriteEvent("phase_start", $"Coder/UIDev phase: {others.Count} worker(s)");
                 await Task.WhenAll(others.Select(t => RunWorkerAsync(t, findings, ct)));
 
                 var totalFiles = 0;
                 foreach (var t in others.Where(t => t.Status == SwarmTaskStatus.Done && t.Result is not null))
                 {
+                    // Count files written via tools during execution
+                    totalFiles += t.ToolFilesWritten;
+
                     var n = ExtractAndWriteFiles(t.Result!, OutputProjectDir);
-                    totalFiles += n;
+                    if (n > 0 || t.ToolFilesWritten > 0)
+                    {
+                        // Log ### FILE: marker files that weren't already logged via write_file
+                        if (n > 0)
+                        {
+                            var names = ExtractFileNames(t.Result!);
+                            Activity($"→ {string.Join(", ", names)}", AgentKey(t.Role));
+                        }
+                        totalFiles += n;
+                        continue;
+                    }
+
+                    // ── Boss retry: worker wrote no files via tools OR markers ─
+                    for (int attempt = 1; attempt <= MaxRetries; attempt++)
+                    {
+                        Activity($"⚠ {t.Title} wrote no files — retrying ({attempt}/{MaxRetries})…", "boss");
+                        _trace?.WriteEvent("worker_retry", $"{t.Role}:{t.Title} attempt {attempt}");
+
+                        // Reset task state for re-run
+                        t.Status          = SwarmTaskStatus.Pending;
+                        t.Result          = null;
+                        t.ErrorMessage    = null;
+                        t.ToolFilesWritten = 0;
+
+                        var retryMsg = BuildRetryUserMessage(t, findings, _targetLanguage, attempt, Tasks);
+                        await RunWorkerAsync(t, findings, ct, retryMsg);
+
+                        if (t.Result is null) break;   // error / cancel — stop retrying
+                        var retryFiles = ExtractAndWriteFiles(t.Result, OutputProjectDir) + t.ToolFilesWritten;
+                        if (retryFiles > 0)
+                        {
+                            var names = ExtractFileNames(t.Result);
+                            if (names.Count > 0)
+                                Activity($"→ retry wrote {string.Join(", ", names)}", AgentKey(t.Role));
+                            Activity($"→ retry: {retryFiles} file(s) total", AgentKey(t.Role));
+                            totalFiles += retryFiles;
+                            break;
+                        }
+                    }
                 }
-                if (totalFiles > 0)
-                    Activity($"Workers wrote {totalFiles} file(s) to output/project/");
+
+                Activity($"Workers wrote {totalFiles} file(s) to workspace root", "boss");
             }
 
             // ── Phase 3: Boss merge → final_report.md ────────────────────────
-            Activity("Boss merging results → writing final_report.md");
+            Activity("Boss merging results → writing final_report.md", "boss");
             _trace.WriteEvent("phase_start", "Boss merge");
             var merged = await RunBossMergeAsync(userGoal, Tasks, ct);
 
-            // Extract final_report.md and any extra files the boss added
-            var mergeFiles = ExtractAndWriteFiles(merged, RunDir);       // final_report.md goes in RunDir
-            ExtractAndWriteFiles(merged, OutputProjectDir);               // any project files too
+            // Extract final_report.md — only write to RunDir (not workspace root)
+            ExtractAndWriteFiles(merged, RunDir);
 
             // Fallback: if boss didn't emit the FILE marker, write raw merge as final_report.md
             var finalReportPath = Path.Combine(RunDir, "final_report.md");
@@ -189,10 +314,9 @@ public class SwarmSession
             _trace.WriteAssistantMessage(merged, agent: "boss_merge", model: _bossModel);
             _trace.WriteEvent("swarm_complete", "All phases done");
 
-            var projectFiles = Directory.Exists(OutputProjectDir)
-                ? Directory.GetFiles(OutputProjectDir, "*", SearchOption.AllDirectories).Length
-                : 0;
-            Activity($"Swarm complete — {projectFiles} file(s) in output/project/");
+            // Count only files actually written by workers (tool calls + ### FILE: markers)
+            var projectFiles = Tasks.Sum(t => t.ToolFilesWritten);
+            Activity($"Swarm complete — {projectFiles} file(s) written to workspace", "boss");
 
             OnSwarmComplete?.Invoke(merged);
         }
@@ -214,7 +338,17 @@ public class SwarmSession
         }
     }
 
-    private void Activity(string msg) => OnActivity?.Invoke(msg);
+    private void Activity(string msg, string agentKey = "boss") => OnActivity?.Invoke(agentKey, msg);
+
+    private static string AgentKey(SwarmWorkerRole role) => role switch
+    {
+        SwarmWorkerRole.Researcher  => "researcher",
+        SwarmWorkerRole.Coder       => "coder",
+        SwarmWorkerRole.UIDeveloper => "uidev",
+        _                           => "boss"
+    };
+
+    private const int MaxRetries = 2;
 
     // ── File extraction ───────────────────────────────────────────────────────
 
@@ -249,6 +383,98 @@ public class SwarmSession
             catch { /* non-fatal */ }
         }
         return count;
+    }
+
+    /// <summary>Returns just the file names (leaf name, no path) extracted by the FILE marker regex.</summary>
+    private static IReadOnlyList<string> ExtractFileNames(string content)
+    {
+        var names = new List<string>();
+        foreach (Match m in FileMarker.Matches(content))
+        {
+            var relPath = m.Groups[1].Value.Trim();
+            if (!string.IsNullOrWhiteSpace(relPath))
+                names.Add(Path.GetFileName(relPath.Replace('/', Path.DirectorySeparatorChar)));
+        }
+        return names;
+    }
+
+    /// <summary>
+    /// Builds a user message for a retry attempt, prepending a strong reminder about the FILE format.
+    /// </summary>
+    private static string BuildRetryUserMessage(
+        SwarmTask task,
+        List<(string title, string result)> researchContext,
+        string targetLanguage,
+        int attempt,
+        IReadOnlyList<SwarmTask>? allTasks = null)
+    {
+        var baseMsg = BuildWorkerUserMessage(task, researchContext, targetLanguage, allTasks);
+        var header = attempt == 1
+            ? "⚠ RETRY — YOUR PREVIOUS RESPONSE HAD NO ### FILE: BLOCKS.\n" +
+              "You MUST output every file using this exact format:\n\n" +
+              "### FILE: filename.py\n```python\n[COMPLETE file contents here]\n```\n\n" +
+              "Do NOT describe the code. Do NOT use prose. Output ONLY ### FILE: blocks.\n\n"
+            : "⚠ FINAL RETRY — YOU MUST OUTPUT ### FILE: BLOCKS.\n" +
+              "Stop all prose. Your ENTIRE response must be ### FILE: blocks only.\n" +
+              "Format:\n\n" +
+              "### FILE: [filename]\n```[language]\n[complete code, no truncation]\n```\n\n";
+        return header + baseMsg;
+    }
+
+    // ── Text-format tool call parser ─────────────────────────────────────────
+    // Mirrors AgentLoop.TryParseTextToolCalls — models that don't use structured
+    // tool_calls sometimes emit raw JSON like {"name":"write_file","arguments":{…}}.
+
+    private static List<ToolCall> TryParseTextToolCalls(string content)
+    {
+        var result   = new List<ToolCall>();
+        var stripped = Regex.Replace(content, @"```(?:json)?", "", RegexOptions.IgnoreCase).Trim();
+
+        int i = 0;
+        while (i < stripped.Length)
+        {
+            var start = stripped.IndexOf('{', i);
+            if (start < 0) break;
+
+            int depth = 0, end = -1;
+            bool inStr = false;
+            for (int j = start; j < stripped.Length; j++)
+            {
+                var ch = stripped[j];
+                if (ch == '"' && (j == 0 || stripped[j - 1] != '\\')) inStr = !inStr;
+                if (inStr) continue;
+                if (ch == '{') depth++;
+                else if (ch == '}') { depth--; if (depth == 0) { end = j; break; } }
+            }
+            if (end < 0) break;
+
+            var json = stripped[start..(end + 1)];
+            try
+            {
+                var node = JsonNode.Parse(json);
+                var name = node?["name"]?.GetValue<string>();
+                if (!string.IsNullOrEmpty(name))
+                {
+                    var args = new Dictionary<string, object?>();
+                    if (node?["arguments"] is JsonObject argsObj)
+                        foreach (var kvp in argsObj)
+                            args[kvp.Key] = kvp.Value is JsonValue jv && jv.TryGetValue<string>(out var s)
+                                ? s : kvp.Value?.ToString();
+
+                    result.Add(new ToolCall
+                    {
+                        Id           = Guid.NewGuid().ToString("N")[..8],
+                        Name         = name,
+                        Arguments    = args,
+                        IsTextFormat = true,
+                    });
+                }
+            }
+            catch { /* malformed JSON — skip */ }
+
+            i = end + 1;
+        }
+        return result;
     }
 
     // ── Agent files (.orc/agents/{role}.md) ──────────────────────────────────
@@ -299,20 +525,73 @@ public class SwarmSession
             - Include proper error handling
             - Use the exact libraries the researcher recommended
             - Output complete, runnable files using the FILE format
-            - Default language: C# unless the task specifies otherwise
+            - Write in the language specified by the task — do NOT default to C# or any other language
             """,
 
         "uideveloper" => """
             # UI Developer Agent — Custom Instructions
-            Follow TheOrc's visual design system:
-            - Backgrounds: #161616 app / #1E1E1E panels
-            - Accent green: #76B900
-            - Text: #D4D4D4 / #888888 muted
-            Output complete XAML + code-behind using the FILE format.
+            Write complete UI code using whatever framework the task specifies:
+            - Python: tkinter, PyQt, or wxPython
+            - Web: HTML + CSS + JavaScript
+            - C#/.NET: WPF XAML + code-behind (only if task explicitly requires it)
+            Output complete files using the FILE format. Never assume a framework.
             """,
 
         _ => $"# {role} Agent — Custom Instructions\nComplete the assigned task thoroughly."
     };
+
+    // ── Language detection ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Inspects the user's goal for explicit language/stack keywords.
+    /// Returns the canonical language name, or empty string if undetected.
+    /// Workers will be locked to this language if non-empty.
+    /// </summary>
+    private static string DetectTargetLanguage(string goal)
+    {
+        var lower = goal.ToLowerInvariant();
+
+        // Python — most common swarm target; check early
+        if (lower.Contains("python") || lower.Contains("tkinter") || lower.Contains("pyqt") ||
+            lower.Contains("flask") || lower.Contains("django") || lower.Contains("fastapi") ||
+            lower.Contains(".py ") || lower.Contains(".py\n") || lower.EndsWith(".py"))
+            return "Python";
+
+        // Web
+        if (lower.Contains("typescript") || lower.Contains(" ts ")) return "TypeScript";
+        if (lower.Contains("javascript") || lower.Contains("node.js") || lower.Contains("nodejs") ||
+            lower.Contains("react") || lower.Contains("vue") || lower.Contains("angular"))
+            return "JavaScript";
+        if (lower.Contains("html") && lower.Contains("css")) return "HTML/CSS/JavaScript";
+
+        // Systems
+        if (lower.Contains(" rust ") || lower.Contains("cargo.toml")) return "Rust";
+        if (lower.Contains("golang") || lower.Contains("go module") ||
+            Regex.IsMatch(lower, @"\bgo\s+(program|app|tool|server|client)\b"))
+            return "Go";
+        if (lower.Contains("c++") || lower.Contains("cpp") || lower.Contains("cmake")) return "C++";
+
+        // JVM
+        if (lower.Contains("kotlin")) return "Kotlin";
+        if (lower.Contains("java") && !lower.Contains("javascript")) return "Java";
+
+        // .NET  — only if explicitly named; do NOT default here
+        if (lower.Contains(" c# ") || lower.Contains("c#\n") || lower.Contains("csharp") ||
+            lower.Contains("wpf") || lower.Contains("winforms") || lower.Contains(".net") ||
+            lower.Contains("dotnet") || lower.Contains("asp.net"))
+            return "C#";
+
+        // Mobile
+        if (lower.Contains("swift") || lower.Contains("swiftui") || lower.Contains("ios")) return "Swift";
+
+        // Scripting
+        if (lower.Contains("ruby") || lower.Contains("rails")) return "Ruby";
+        if (lower.Contains("php") || lower.Contains("laravel")) return "PHP";
+        if (lower.Contains("powershell") || lower.Contains(" ps1")) return "PowerShell";
+        if (lower.Contains("bash") || lower.Contains("shell script")) return "Bash";
+
+        return "";  // unknown — boss/task description will guide workers
+    }
 
     // ── Boss: Decompose ───────────────────────────────────────────────────────
 
@@ -334,7 +613,18 @@ public class SwarmSession
         - Maximum 4 tasks total: up to 1 RESEARCHER + up to 3 CODER/UIDEVELOPER
         - Prefer 3 priority-2 tasks when the goal has distinct implementation concerns
 
-        Respond with ONLY valid JSON — no markdown fences, no preamble:
+        FILENAME RULE — task titles MUST name the output file(s):
+        - Good title: "Write scraper.py and ollama_client.py"
+        - Good title: "Build main.py Tkinter UI"
+        - Bad title:  "Implement article fetcher" (no filename — workers won't know what to name the file)
+
+        API CONTRACT RULE — when worker A produces a module that worker B imports:
+        - Decide the EXACT function/class names ONCE and use the same names in BOTH task descriptions.
+        - Example: if CODER writes scraper.py with function fetch_article_text(url), then the UIDEVELOPER task MUST say "from scraper import fetch_article_text" — not a different name.
+        - This is non-negotiable: mismatched names cause import errors at runtime.
+
+        Respond with ONLY valid JSON — no markdown fences, no preamble, no trailing text.
+        String values MUST NOT contain literal newlines — use \\n inside strings if needed.
         {
           "plan": "one-sentence overall approach",
           "tasks": [
@@ -342,7 +632,7 @@ public class SwarmSession
               "role": "RESEARCHER",
               "priority": 1,
               "title": "Short descriptive title",
-              "description": "Detailed, self-contained instructions for this minion."
+              "description": "Detailed, self-contained instructions for this minion. Use \\n for line breaks inside this string."
             }
           ]
         }
@@ -355,10 +645,17 @@ public class SwarmSession
             ? BossDecomposeSystemPrompt
             : BossDecomposeSystemPrompt + "\n\n## Custom boss instructions:\n" + bossFile;
 
+        // Append language lock to the goal if we detected one
+        var goalWithLang = string.IsNullOrWhiteSpace(_targetLanguage)
+            ? userGoal
+            : $"{userGoal}\n\n⚠ LANGUAGE LOCK: This project MUST be implemented in {_targetLanguage}. " +
+              $"All task descriptions MUST specify {_targetLanguage} explicitly. " +
+              $"Minions must NOT use C#, XAML, WPF, or any other language.";
+
         var history = new List<AgentMessage>
         {
             new() { Role = MessageRole.System, Content = sysPrompt },
-            new() { Role = MessageRole.User,   Content = $"Goal: {userGoal}" }
+            new() { Role = MessageRole.User,   Content = $"Goal: {goalWithLang}" }
         };
 
         OnBossToken?.Invoke("⬡ TheOrc is planning the swarm…\n\n");
@@ -454,19 +751,30 @@ public class SwarmSession
 
     private const string FileOutputInstructions = """
 
-        CRITICAL — FILE OUTPUT FORMAT:
-        When writing any file (code, README, test plan, documentation, sample data), use this exact format:
+        CRITICAL — FILE OUTPUT:
+        You have access to tools. ALWAYS use write_file to write each file directly to disk.
+        Do NOT describe the code in prose — call write_file with the full file content.
 
+        If write_file is not available, fall back to this text format:
         ### FILE: relative/path/to/filename.ext
         ```language
         complete file content here — never truncated, never a snippet
         ```
 
         Rules:
-        - Use relative paths from the project root (e.g., README.md, src/main.py, sample_data/data.csv)
-        - Every required file must be output using this format — not described, actually written
+        - Prefer write_file tool over text markers when available
+        - Every required file must actually be written — not described
         - Each file must be complete and production-ready — no placeholders, no TODOs
-        - Multiple files: repeat the ### FILE: block for each one
+        - Multiple files: one write_file call per file
+        - Use fetch_url to look up documentation or source material when needed
+        - Use run_shell to install dependencies or verify the project builds
+
+        ⚠ FILENAME DISCIPLINE: Use the EXACT filename(s) specified in your task title or description.
+        NEVER substitute generic names like README.md, output.py, FileMap.txt, or main.txt.
+        If the task says write "ARCHITECTURE.md" → the file MUST be named "ARCHITECTURE.md".
+        If the task says write "scraper.py" → the file MUST be named "scraper.py".
+        The filename in the task description IS the filename. Do not invent alternatives.
+        Do NOT write files named ".agent.md", "_agentlog.txt", "output.txt", or "debug.txt".
         """;
 
     private static string WorkerSystemPrompt(SwarmWorkerRole role) => role switch
@@ -478,6 +786,10 @@ public class SwarmSession
             specific recommendations for the coder, known gotchas and constraints.
             Be thorough — the coder depends entirely on your findings.
             Format your output clearly with headers. You may include short example snippets.
+
+            You have access to `ask_user` — use it if you need a critical piece of information
+            you cannot find yourself (e.g., a private API key, a specific internal URL).
+            Use sparingly: ask at most once per task, only for genuinely blocking information.
             """,
 
         SwarmWorkerRole.Coder => $"""
@@ -485,43 +797,204 @@ public class SwarmSession
             Your job: write clean, complete, production-ready implementation code.
             Use the research findings provided to make informed technology choices.
             Output complete files — not snippets. Include error handling and comments.
-            Default language: C# unless the task specifies otherwise.
+
+            ⚠ CRITICAL LANGUAGE RULE: Write ONLY in the language explicitly stated in your task.
+            If the task says Python → write Python. If it says JavaScript → write JavaScript.
+            Do NOT default to C#, XAML, or WPF unless the task explicitly requires it.
+
+            ⚠ CRITICAL IMPORT RULE — THIS EXACT PATTERN IS FORBIDDEN:
+            ```python
+            # ❌ WRONG — NEVER DO THIS:
+            try:
+                scraper = None  # placeholder
+            except Exception as e:
+                raise RuntimeError(...) from e
+            ```
+            ALWAYS use real import statements:
+            ```python
+            # ✅ CORRECT:
+            import scraper
+            import ollama_client
+            import file_manager
+            ```
+            If a sibling module is needed, import it by name directly — never assign None.
+
+            ⚠ NO PLACEHOLDERS: Every file must be complete and self-contained.
+            Never write `# TODO`, `pass`, `raise NotImplementedError`, or stub bodies.
+            Every function must have a real, working implementation.
+
+            You have `ask_user` available. Use it only for genuinely ambiguous requirements
+            where the wrong choice would break the implementation (e.g., "should authentication
+            use JWT or sessions?"). Keep it rare — ask at most once per task.
             {FileOutputInstructions}
             """,
 
         SwarmWorkerRole.UIDeveloper => $"""
             You are a UIDEVELOPER in a multi-agent AI coding system.
-            Your job: write complete UI code — WPF XAML + code-behind, or HTML/CSS as appropriate.
-            Follow the project's existing visual style: dark theme, NVIDIA green accent (#76B900).
+            Your job: write complete UI code using the framework specified in your task.
+
+            Framework rules:
+            - If the task says Python/tkinter → write Python with tkinter
+            - If the task says HTML/web → write HTML + CSS + JavaScript
+            - If the task says WPF/C# → write XAML + C# code-behind
+            - If unspecified, match whatever language the Coder is using
+
+            ⚠ Do NOT default to WPF or XAML unless explicitly required by the task.
+
+            ⚠ CRITICAL IMPORT RULE — THIS EXACT PATTERN IS FORBIDDEN:
+            ```python
+            # ❌ WRONG — NEVER DO THIS:
+            try:
+                scraper = None  # placeholder
+            except Exception as e:
+                raise RuntimeError(...) from e
+            ```
+            ALWAYS use real import statements instead:
+            ```python
+            # ✅ CORRECT:
+            import scraper
+            import ollama_client
+            import file_manager
+            ```
+            If a sibling module may not exist yet, use a conditional import — never assign None.
+
+            ⚠ NO PLACEHOLDERS: Every file must be complete and runnable.
+            Every widget must be properly placed/packed/gridded. Every button must have
+            a working command. Every import must be real.
             Output complete, self-contained files.
+
+            You have `ask_user` available — use it if the layout or UX has a critical
+            ambiguity you cannot resolve from the task description. Ask at most once.
             {FileOutputInstructions}
             """,
 
         _ => $"You are a worker agent. Complete the assigned task thoroughly.{FileOutputInstructions}"
     };
 
+    // ── Worker tool suite ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Build the auto-approving tool registry for swarm workers, rooted at the
+    /// workspace root (OutputProjectDir). Call once output dir is known.
+    /// </summary>
+    private void InitWorkerTools()
+    {
+        var approvals = new ApprovalQueue { AutoApprove = true };
+        _toolRegistry = new ToolRegistry(approvals);
+
+        // ── Sandbox bypass delegate ───────────────────────────────────────
+        // Shows the SandboxBypassDialog on the UI thread and awaits the user's choice.
+        Func<string, string, string, CancellationToken, Task<bool>> sandboxBypass =
+            async (toolName, escapedPath, sandboxRoot, ct) =>
+            {
+                var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>(
+                              System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
+                ct.Register(() => tcs.TrySetResult(false));
+
+                // Fire on the UI thread; TCS carries the result back to this async context
+                _ = System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    var dlg = new OrchestratorIDE.UI.Dialogs.SandboxBypassDialog(
+                                  toolName, escapedPath, sandboxRoot,
+                                  "TheOrc Swarm Worker")
+                    {
+                        Owner = System.Windows.Application.Current.MainWindow
+                    };
+                    tcs.TrySetResult(dlg.ShowDialog() == true);
+                });
+
+                return await tcs.Task;
+            };
+
+        // File tools — workers write directly into the swarm output project dir
+        FileTools.Register(_toolRegistry, OutputProjectDir,
+            onDiffPreview: null, onSandboxBypass: sandboxBypass);
+        // Code search tools — search within the output dir or workspace
+        SearchTools.Register(_toolRegistry, OutputProjectDir);
+        // Web tools — fetch documentation, APIs, source URLs
+        WebTools.Register(_toolRegistry);
+        // Shell tools — run python, pip, node within the output dir
+        ShellTools.Register(_toolRegistry, OutputProjectDir, onSandboxBypass: sandboxBypass);
+
+        Activity("🛠 Worker tools initialised: write_file, read_file, list_files, run_shell, grep_code, fetch_url", "boss");
+    }
+
+    /// <summary>
+    /// Virtual tool that pauses the worker and waits for the user to reply.
+    /// Handled directly in RunWorkerAsync — never dispatched to _toolRegistry.
+    /// </summary>
+    private static readonly ToolDefinition AskUserTool = new()
+    {
+        Name        = "ask_user",
+        Description = "Pause your task and ask the user a question. Use when you genuinely need user input to proceed — e.g. ambiguous requirements, a critical design choice, or needing credentials/paths you can't infer. Keep it rare: ask at most once per task.",
+        Parameters  = new Dictionary<string, ToolParameter>
+        {
+            ["question"] = new("string",  "Clear, specific question to ask the user."),
+            ["options"]  = new("string",  "Optional JSON array of suggested answer strings, e.g. [\"Option A\",\"Option B\"]. Omit if open-ended."),
+        },
+        Required = ["question"],
+    };
+
+    /// <summary>
+    /// Returns the allowed tool set for a given worker role.
+    /// Researcher gets read + fetch; Coder/UIDev get the full write + run suite.
+    /// ask_user is available to all roles (handled in-process, not via registry).
+    /// </summary>
+    private IReadOnlyList<ToolDefinition> GetWorkerTools(SwarmWorkerRole role)
+    {
+        if (_toolRegistry == null) return [AskUserTool];
+
+        var names = role switch
+        {
+            SwarmWorkerRole.Researcher  => new[] { "fetch_url", "grep_code", "get_outline", "read_file", "list_files" },
+            SwarmWorkerRole.Coder       => new[] { "write_file", "read_file", "run_shell",
+                                                    "list_files", "grep_code", "fetch_url" },
+            SwarmWorkerRole.UIDeveloper => new[] { "write_file", "read_file", "run_shell",
+                                                    "list_files", "fetch_url" },
+            _                           => new[] { "read_file", "list_files" },
+        };
+
+        return names
+            .Select(n => { _toolRegistry.TryGet(n, out var t); return t; })
+            .Where(t => t is not null)
+            .Cast<ToolDefinition>()
+            .Append(AskUserTool)        // ask_user available to every role
+            .ToList();
+    }
+
+    /// <summary>
+    /// Returns true if the given model name benefits from disabling thinking tokens
+    /// (Nemotron models must have thinking disabled for reliable tool calling).
+    /// </summary>
+    private static bool ShouldDisableThinking(string model)
+    {
+        var m = model.ToLowerInvariant();
+        return m.Contains("nemotron") || m.Contains("qwen3") || m.Contains("deepseek-r");
+    }
+
     // ── Worker execution ──────────────────────────────────────────────────────
 
     private async Task RunWorkerAsync(
         SwarmTask task,
         List<(string title, string result)> researchContext,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? overrideUserMessage = null)
     {
         task.Status    = SwarmTaskStatus.InProgress;
         task.StartedAt = DateTime.UtcNow;
         OnTaskChanged?.Invoke(task);
-        Activity($"{task.RoleIcon} {task.Title} — starting");
+        Activity($"{task.RoleIcon} {task.Title} — starting", AgentKey(task.Role));
 
-        // Save agent task file
         await SaveAgentTaskFileAsync(task);
 
         try
         {
-            var userMsg   = BuildWorkerUserMessage(task, researchContext);
+            var userMsg    = overrideUserMessage
+                          ?? BuildWorkerUserMessage(task, researchContext, _targetLanguage, Tasks);
             _trace?.WriteUserMessage(userMsg, context: $"{task.Role}:{task.Title}");
 
-            var roleKey   = task.Role.ToString();
-            var agentFile = await LoadAgentFileAsync(roleKey);
+            var roleKey    = task.Role.ToString();
+            var agentFile  = await LoadAgentFileAsync(roleKey);
             var basePrompt = WorkerSystemPrompt(task.Role);
             var sysPrompt  = string.IsNullOrWhiteSpace(agentFile)
                 ? basePrompt
@@ -533,63 +1006,325 @@ public class SwarmSession
                 new() { Role = MessageRole.User,   Content = userMsg }
             };
 
-            var modelForRole = task.Role == SwarmWorkerRole.Researcher
-                ? _researcherModel
-                : _coderModel;
+            var modelForRole = task.Role == SwarmWorkerRole.Researcher ? _researcherModel : _coderModel;
+            var agentKey     = AgentKey(task.Role);
+            var tools        = GetWorkerTools(task.Role);
+            var noThink      = ShouldDisableThinking(modelForRole);
 
-            var sb = new StringBuilder();
-            await foreach (var token in _ollama.StreamCompletionAsync(
-                modelForRole, history, temperature: 0.3, maxTokens: 6144, ct: ct))
-            {
-                sb.Append(token);
-                task.StreamBuffer = sb.ToString();
-                OnWorkerToken?.Invoke(task.Id, token);
-            }
+            await RunWorkerLoopAsync(task, history, tools, modelForRole, noThink, agentKey, ct);
 
-            task.Result      = sb.ToString();
+            // Preserve history so ContinueWorkerAsync can resume the conversation
+            task.ConversationHistory = history;
             task.Status      = SwarmTaskStatus.Done;
             task.CompletedAt = DateTime.UtcNow;
 
-            _trace?.WriteAssistantMessage(task.Result, agent: task.Role.ToString().ToLower(), model: modelForRole);
-
+            _trace?.WriteAssistantMessage(task.Result ?? "", agent: task.Role.ToString().ToLower(), model: modelForRole);
             await SaveTaskResultAsync(task);
-            Activity($"{task.RoleIcon} {task.Title} — complete");
+            Activity($"{task.RoleIcon} {task.Title} — complete", AgentKey(task.Role));
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
             task.Status       = SwarmTaskStatus.Error;
             task.ErrorMessage = ex.Message;
-            Activity($"{task.RoleIcon} {task.Title} — ERROR: {ex.Message}");
+            Activity($"{task.RoleIcon} {task.Title} — ERROR: {ex.Message}", AgentKey(task.Role));
             _trace?.WriteEvent("worker_error", $"{task.Role}:{task.Title} — {ex.Message}");
         }
 
         OnTaskChanged?.Invoke(task);
     }
 
+    /// <summary>
+    /// Core agentic loop. Drives a worker through tool-calling steps until the model
+    /// stops emitting tool calls or the step limit is hit.
+    /// Handles: ask_user pause/resume, mid-run steer injection, file-write accounting.
+    /// </summary>
+    private async Task RunWorkerLoopAsync(
+        SwarmTask                    task,
+        List<AgentMessage>           history,
+        IReadOnlyList<ToolDefinition> tools,
+        string                       model,
+        bool                         noThink,
+        string                       agentKey,
+        CancellationToken            ct)
+    {
+        const int MaxWorkerSteps = 16;
+        var finalSb = new StringBuilder();
+
+        for (int step = 0; step < MaxWorkerSteps && !ct.IsCancellationRequested; step++)
+        {
+            // ── Inject any pending steer messages as user guidance ────────
+            if (_steerQueues.TryGetValue(task.Id, out var steerQ))
+            {
+                string? steerMsg = null;
+                lock (steerQ) { if (steerQ.Count > 0) steerMsg = steerQ.Dequeue(); }
+                if (steerMsg != null)
+                {
+                    history.Add(new AgentMessage
+                    {
+                        Role    = MessageRole.User,
+                        Content = $"[User guidance]: {steerMsg}\nIncorporate this into your next action.",
+                        Status  = MessageStatus.Complete,
+                    });
+                    Activity($"💬 Steer injected: {steerMsg[..Math.Min(60, steerMsg.Length)]}", agentKey);
+                }
+            }
+
+            // ── Call the LLM ──────────────────────────────────────────────
+            var pendingTcs = new List<ToolCall>();
+            var contentSb  = new StringBuilder();
+
+            await foreach (var token in _ollama.StreamCompletionAsync(
+                model, history,
+                tools:       tools.Count > 0 ? tools : null,
+                temperature: 0.25,
+                maxTokens:   8192,
+                onToolCall:  tc => pendingTcs.Add(tc),
+                ct:          ct))
+            {
+                contentSb.Append(token);
+                task.StreamBuffer = contentSb.ToString();
+                OnWorkerToken?.Invoke(task.Id, token);
+            }
+
+            var content = contentSb.ToString();
+
+            // Strip <think>…</think> blocks (Nemotron, Qwen3, DeepSeek-R)
+            if (noThink && content.Contains("<think>"))
+                content = Regex.Replace(content, @"<think>[\s\S]*?</think>", "", RegexOptions.IgnoreCase).Trim();
+
+            finalSb.Append(content);
+
+            // Fallback text-format tool call parsing
+            if (pendingTcs.Count == 0 && !string.IsNullOrWhiteSpace(content))
+            {
+                var textCalls = TryParseTextToolCalls(content);
+                if (textCalls.Count > 0)
+                {
+                    Activity($"🔍 Detected {textCalls.Count} text-format tool call(s)", agentKey);
+                    pendingTcs.AddRange(textCalls);
+                }
+            }
+
+            history.Add(new AgentMessage
+            {
+                Role      = MessageRole.Assistant,
+                Content   = content,
+                ToolCalls = pendingTcs,
+                Status    = MessageStatus.Complete,
+            });
+
+            if (pendingTcs.Count == 0)
+                break;
+
+            // ── Execute each tool call ────────────────────────────────────
+            foreach (var tc in pendingTcs)
+            {
+                var argSummary = string.Join(", ", tc.Arguments
+                    .Take(2).Select(kv =>
+                    {
+                        var v = kv.Value?.ToString() ?? "";
+                        return $"{kv.Key}={v[..Math.Min(30, v.Length)]}";
+                    }));
+                Activity($"🔧 {tc.Name}({argSummary})", agentKey);
+
+                string result;
+
+                // ── ask_user: pause worker and wait for user reply ────────
+                if (tc.Name == "ask_user")
+                {
+                    result = await HandleAskUserAsync(task, tc, agentKey, ct);
+                }
+                else
+                {
+                    result = _toolRegistry is not null
+                        ? await _toolRegistry.ExecuteAsync(tc, ct)
+                        : "[ERROR] No tool registry available";
+                }
+
+                // Log file writes specially
+                if (tc.Name == "write_file" && tc.Arguments.TryGetValue("path", out var pathObj))
+                {
+                    var fname = Path.GetFileName(pathObj?.ToString() ?? "");
+                    if (!string.IsNullOrWhiteSpace(fname))
+                        Activity($"→ {fname}", agentKey);
+                    task.ToolFilesWritten++;
+                }
+                else if (tc.Name != "ask_user")
+                {
+                    var snip = result.Length > 80 ? result[..80].Replace('\n', ' ') + "…" : result.Replace('\n', ' ');
+                    Activity($"  ↳ {snip}", agentKey);
+                }
+
+                var toolMsg = tc.IsTextFormat
+                    ? new AgentMessage
+                      {
+                          Role    = MessageRole.User,
+                          Content = $"[Tool result: {tc.Name}]\n{(string.IsNullOrWhiteSpace(result) ? "(no output)" : result)}",
+                          Status  = MessageStatus.Complete,
+                      }
+                    : new AgentMessage
+                      {
+                          Role       = MessageRole.Tool,
+                          Content    = result,
+                          ToolCallId = tc.Id,
+                          Status     = MessageStatus.Complete,
+                      };
+                history.Add(toolMsg);
+            }
+        }
+
+        task.Result = finalSb.ToString();
+    }
+
+    /// <summary>
+    /// Handles an ask_user tool call: sets task to WaitingForUser, fires OnTaskChanged so the UI
+    /// can render the question, then awaits the user reply via a TaskCompletionSource.
+    /// </summary>
+    private async Task<string> HandleAskUserAsync(SwarmTask task, ToolCall tc, string agentKey, CancellationToken ct)
+    {
+        var q       = tc.Arguments.GetValueOrDefault("question")?.ToString() ?? "The worker has a question.";
+        var rawOpts = tc.Arguments.GetValueOrDefault("options")?.ToString();
+        var opts    = new List<string>();
+        if (!string.IsNullOrWhiteSpace(rawOpts))
+        {
+            try { opts = JsonSerializer.Deserialize<List<string>>(rawOpts) ?? []; }
+            catch { /* ignore parse errors */ }
+        }
+
+        task.PendingQuestion = q;
+        task.PendingOptions  = opts;
+        task.Status          = SwarmTaskStatus.WaitingForUser;
+        OnTaskChanged?.Invoke(task);
+        Activity($"⏸ {task.RoleLabel} asks: {q[..Math.Min(80, q.Length)]}", agentKey);
+
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _replyChannels[task.Id] = tcs;
+
+        string reply;
+        try
+        {
+            reply = await tcs.Task.WaitAsync(ct);
+        }
+        finally
+        {
+            _replyChannels.TryRemove(task.Id, out _);
+            task.PendingQuestion = null;
+            task.PendingOptions  = [];
+            task.Status          = SwarmTaskStatus.InProgress;
+            OnTaskChanged?.Invoke(task);
+        }
+
+        Activity($"▶ User replied: {reply[..Math.Min(60, reply.Length)]}", agentKey);
+        return $"User replied: \"{reply}\"";
+    }
+
+    // Matches filenames like scraper.py, main.ts, index.html, .agent.md, ARCHITECTURE.md
+    private static readonly Regex FilenameInTitle = new(
+        @"(?:^|[\s""'`(])(\.[a-zA-Z0-9_\-]+\.[a-z]{1,6}|[a-zA-Z0-9_\-]+\.[a-z]{1,6})(?=$|[\s""'`),])",
+        RegexOptions.Compiled);
+
     private static string BuildWorkerUserMessage(
         SwarmTask task,
-        List<(string title, string result)> researchContext)
+        List<(string title, string result)> researchContext,
+        string targetLanguage = "",
+        IReadOnlyList<SwarmTask>? allTasks = null)
     {
-        if (researchContext.Count == 0)
-            return task.Description;
-
         var sb = new StringBuilder();
-        sb.AppendLine("## Research findings from the Researcher:");
-        foreach (var (title, result) in researchContext)
+
+        // ── Language lock ─────────────────────────────────────────────────────
+        if (!string.IsNullOrWhiteSpace(targetLanguage))
+            sb.AppendLine($"⚠ LANGUAGE LOCK: ALL code in this task MUST be written in {targetLanguage}. " +
+                          $"Do NOT use C#, XAML, WPF, or any other language unless this task explicitly requires it.\n");
+
+        // ── Filename enforcement (injected into user message for maximum model attention) ──
+        // Extract filenames from the task title so the model can't substitute generic names.
+        var titleFiles = FilenameInTitle.Matches(task.Title)
+            .Select(m => m.Groups[1].Value)
+            .Where(f => f.Length > 2)
+            .Distinct()
+            .ToList();
+
+        if (titleFiles.Count > 0 && task.Role != SwarmWorkerRole.Researcher)
         {
-            sb.AppendLine($"### {title}");
-            sb.AppendLine(result);
+            sb.AppendLine("⚡ REQUIRED OUTPUT FILE(S) — NON-NEGOTIABLE:");
+            foreach (var f in titleFiles)
+                sb.AppendLine($"  • You MUST call write_file(path=\"{f}\", content=...) — EXACTLY this filename.");
+            sb.AppendLine("  • Do NOT invent alternative names (utils.py, helpers.py, output.py, etc.).");
+            sb.AppendLine("  • Every required file above must exist on disk when you finish.\n");
+        }
+
+        // ── Sibling module awareness ───────────────────────────────────────────
+        // Collect filenames being produced by ALL other coder/uidev tasks in this run.
+        // This tells main.py's author that scraper.py, ollama_client.py etc. WILL exist
+        // at runtime — so it must use real `import X` statements, never `X = None`.
+        if (allTasks is { Count: > 0 } && task.Role != SwarmWorkerRole.Researcher)
+        {
+            var siblingModules = allTasks
+                .Where(t => t.Id != task.Id && t.Role != SwarmWorkerRole.Researcher)
+                .SelectMany(t => FilenameInTitle.Matches(t.Title)
+                    .Select(m => m.Groups[1].Value))
+                .Where(f => Regex.IsMatch(f, @"\.(py|js|ts|cs|rb|go|rs)$"))
+                .Select(f => Path.GetFileNameWithoutExtension(f))
+                .Distinct()
+                .ToList();
+
+            if (siblingModules.Count > 0)
+            {
+                sb.AppendLine("⚡ SIBLING MODULES — produced by other workers in this swarm run:");
+                sb.AppendLine("  These files WILL exist at runtime. Import them directly — NEVER assign None.\n");
+                sb.AppendLine("  CORRECT imports:");
+                foreach (var mod in siblingModules)
+                    sb.AppendLine($"    import {mod}");
+                sb.AppendLine();
+                sb.AppendLine("  FORBIDDEN pattern (this will be rejected):");
+                sb.AppendLine("    try:");
+                foreach (var mod in siblingModules)
+                    sb.AppendLine($"        {mod} = None  # ← FORBIDDEN");
+                sb.AppendLine();
+            }
+        }
+
+        // ── Research context ──────────────────────────────────────────────────
+        if (researchContext.Count > 0)
+        {
+            sb.AppendLine("## Research findings from the Researcher:");
+            foreach (var (title, result) in researchContext)
+            {
+                sb.AppendLine($"### {title}");
+                sb.AppendLine(result);
+                sb.AppendLine();
+            }
+            sb.AppendLine("---");
             sb.AppendLine();
         }
-        sb.AppendLine("---");
-        sb.AppendLine();
+
         sb.AppendLine("## Your task:");
         sb.AppendLine(task.Description);
         return sb.ToString();
     }
 
     // ── Boss plan parsing ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Escapes literal newlines/carriage-returns that appear inside JSON string values
+    /// (LLMs sometimes emit them, which makes JsonNode.Parse throw).
+    /// </summary>
+    private static string SanitizeJson(string json)
+    {
+        var result  = new System.Text.StringBuilder(json.Length);
+        bool inStr  = false, escaped = false;
+        foreach (char c in json)
+        {
+            if (escaped)  { result.Append(c); escaped = false; continue; }
+            if (c == '\\') { escaped = true;  result.Append(c); continue; }
+            if (c == '"')  { inStr = !inStr;  result.Append(c); continue; }
+            if (inStr && c == '\n') { result.Append("\\n"); continue; }
+            if (inStr && c == '\r') { result.Append("\\r"); continue; }
+            result.Append(c);
+        }
+        return result.ToString();
+    }
 
     private List<SwarmTask> ParseBossPlan(string raw)
     {
@@ -603,7 +1338,7 @@ public class SwarmSession
             }
             var end = json.LastIndexOf("```");
             if (end >= 0) json = json[..end];
-            json = json.Trim();
+            json = SanitizeJson(json.Trim());
 
             var node = JsonNode.Parse(json);
             var arr  = node?["tasks"]?.AsArray();

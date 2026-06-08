@@ -2,6 +2,7 @@ using DiffPlex;
 using DiffPlex.DiffBuilder;
 using DiffPlex.DiffBuilder.Model;
 using OrchestratorIDE.Core;
+using OrchestratorIDE.Trust;
 
 namespace OrchestratorIDE.Tools;
 
@@ -11,8 +12,18 @@ public static class FileTools
         ["node_modules", ".venv", "venv", "__pycache__", ".git",
          "dist", "build", ".next", "target", "bin", "obj"];
 
+    /// <param name="onDiffPreview">
+    ///   Called before writing so the UI can show a diff. May be null.
+    /// </param>
+    /// <param name="onSandboxBypass">
+    ///   Called when a resolved path is outside the workspace sandbox.
+    ///   Signature: <c>(toolName, escapedPath, sandboxRoot, ct) → Task&lt;bool&gt;</c>.
+    ///   Return <c>true</c> to allow the operation, <c>false</c> to block it.
+    ///   When null, all out-of-sandbox accesses are silently blocked.
+    /// </param>
     public static void Register(ToolRegistry registry, string workspaceRoot,
-        Action<string, string, string>? onDiffPreview = null)
+        Action<string, string, string>? onDiffPreview = null,
+        Func<string, string, string, CancellationToken, Task<bool>>? onSandboxBypass = null)
     {
         // ── read_file ──────────────────────────────────────────────────────
         registry.Register(new ToolDefinition
@@ -28,10 +39,20 @@ public static class FileTools
             Handler = async (args, ct) =>
             {
                 var path = Resolve(workspaceRoot, args);
+
+                // ── Sandbox guard ─────────────────────────────────────────
+                if (!PathSandbox.IsInsideSandbox(path, workspaceRoot))
+                {
+                    var allowed = onSandboxBypass is not null
+                        && await onSandboxBypass("read_file", path, workspaceRoot, ct);
+                    if (!allowed)
+                        return $"[SANDBOX BLOCKED] read_file: '{path}' is outside the workspace " +
+                               $"'{workspaceRoot}'. Use a path inside the workspace.";
+                }
+
                 if (!File.Exists(path)) return $"[ERROR] File not found: {path}";
                 var content = await File.ReadAllTextAsync(path, ct);
                 var lines = content.Split('\n');
-                // Return with line numbers (like cat -n)
                 return string.Join('\n', lines.Select((l, i) => $"{i + 1,4}\t{l}"));
             }
         });
@@ -54,6 +75,16 @@ public static class FileTools
                 var path    = Resolve(workspaceRoot, args);
                 var content = args.TryGetValue("content", out var c) ? c?.ToString() ?? "" : "";
                 var reason  = args.TryGetValue("reason",  out var r) ? r?.ToString() ?? "" : "";
+
+                // ── Sandbox guard ─────────────────────────────────────────
+                if (!PathSandbox.IsInsideSandbox(path, workspaceRoot))
+                {
+                    var allowed = onSandboxBypass is not null
+                        && await onSandboxBypass("write_file", path, workspaceRoot, ct);
+                    if (!allowed)
+                        return $"[SANDBOX BLOCKED] write_file: '{path}' is outside the workspace " +
+                               $"'{workspaceRoot}'. Write to a path inside the workspace instead.";
+                }
 
                 // Build diff for the approval UI
                 var existing = File.Exists(path) ? await File.ReadAllTextAsync(path, ct) : "";
@@ -79,18 +110,28 @@ public static class FileTools
             },
             Required = [],
             RequiresApproval = false,
-            Handler = (args, ct) =>
+            Handler = async (args, ct) =>
             {
-                var dir   = args.TryGetValue("path", out var p) && p != null
+                var dir = args.TryGetValue("path", out var p) && p != null
                     ? Resolve(workspaceRoot, new() { ["path"] = p }) : workspaceRoot;
                 var depth = args.TryGetValue("depth", out var d) ? int.Parse(d?.ToString() ?? "3") : 3;
+
+                // ── Sandbox guard ─────────────────────────────────────────
+                if (!PathSandbox.IsInsideSandbox(dir, workspaceRoot))
+                {
+                    var allowed = onSandboxBypass is not null
+                        && await onSandboxBypass("list_files", dir, workspaceRoot, ct);
+                    if (!allowed)
+                        return $"[SANDBOX BLOCKED] list_files: '{dir}' is outside the workspace " +
+                               $"'{workspaceRoot}'. List a directory inside the workspace instead.";
+                }
+
                 var lines = new List<string>();
                 WalkDir(dir, workspaceRoot, "", depth, lines);
                 var result = string.Join('\n', lines);
-                // Always return a non-empty string so the model knows the tool ran
-                return Task.FromResult(string.IsNullOrWhiteSpace(result)
+                return string.IsNullOrWhiteSpace(result)
                     ? $"(empty directory — no files found in {Path.GetRelativePath(workspaceRoot, dir)})"
-                    : result);
+                    : result;
             }
         });
     }

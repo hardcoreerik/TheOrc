@@ -1,9 +1,10 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using OrchestratorIDE.Models;
 
 namespace OrchestratorIDE.Agents;
 
-public enum SwarmTaskStatus { Pending, InProgress, Done, Error }
+public enum SwarmTaskStatus { Pending, InProgress, WaitingForUser, Done, Error }
 public enum SwarmWorkerRole  { Researcher, Coder, UIDeveloper }
 
 /// <summary>
@@ -42,30 +43,47 @@ public class SwarmTask : INotifyPropertyChanged
         set { _result = value; OnPropertyChanged(); }
     }
 
-    public string? ErrorMessage { get; set; }
+    public string? ErrorMessage      { get; set; }
+    /// <summary>Files written directly via write_file tool calls (vs ### FILE: markers).</summary>
+    public int     ToolFilesWritten  { get; set; }
     public DateTime  CreatedAt   { get; init; } = DateTime.UtcNow;
     public DateTime? StartedAt   { get; set; }
     public DateTime? CompletedAt { get; set; }
 
+    // ── Co-Work state ─────────────────────────────────────────────────────────
+    /// <summary>Question the worker is asking the user (set during WaitingForUser).</summary>
+    public string? PendingQuestion { get; set; }
+
+    /// <summary>Suggested reply options provided by the worker via ask_user.</summary>
+    public List<string> PendingOptions { get; set; } = [];
+
+    /// <summary>
+    /// Full conversation history from RunWorkerAsync, preserved after completion
+    /// so the user can continue chatting with this worker.
+    /// </summary>
+    public List<AgentMessage> ConversationHistory { get; set; } = [];
+
     // ── Display helpers ───────────────────────────────────────────────────────
-    public bool   IsActive    => Status == SwarmTaskStatus.InProgress;
+    public bool   IsActive    => Status is SwarmTaskStatus.InProgress or SwarmTaskStatus.WaitingForUser;
 
     public string StatusIcon  => Status switch
     {
-        SwarmTaskStatus.Pending    => "⏳",
-        SwarmTaskStatus.InProgress => "⚡",
-        SwarmTaskStatus.Done       => "✓",
-        SwarmTaskStatus.Error      => "✗",
-        _                          => "?"
+        SwarmTaskStatus.Pending        => "⏳",
+        SwarmTaskStatus.InProgress     => "⚡",
+        SwarmTaskStatus.WaitingForUser => "⏸",
+        SwarmTaskStatus.Done           => "✓",
+        SwarmTaskStatus.Error          => "✗",
+        _                              => "?"
     };
 
     public string StatusColor => Status switch
     {
-        SwarmTaskStatus.Pending    => "#666666",
-        SwarmTaskStatus.InProgress => "#76B900",
-        SwarmTaskStatus.Done       => "#4EC94E",
-        SwarmTaskStatus.Error      => "#F44747",
-        _                          => "#666666"
+        SwarmTaskStatus.Pending        => "#666666",
+        SwarmTaskStatus.InProgress     => "#76B900",
+        SwarmTaskStatus.WaitingForUser => "#F0C060",
+        SwarmTaskStatus.Done           => "#4EC94E",
+        SwarmTaskStatus.Error          => "#F44747",
+        _                              => "#666666"
     };
 
     public string RoleIcon => Role switch

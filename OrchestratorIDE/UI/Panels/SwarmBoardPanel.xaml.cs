@@ -59,6 +59,7 @@ public partial class SwarmBoardPanel : UserControl
     private string                    _activeTab  = "boss";
     private readonly DispatcherTimer  _pulseTimer = new() { Interval = TimeSpan.FromMilliseconds(800) };
     private bool                      _pulseOn;
+    private string                    _lastOutputProjectDir = "";
 
     // Per-tab output buffers (thinking stripped out)
     private readonly Dictionary<string, string> _streams = new()
@@ -86,6 +87,9 @@ public partial class SwarmBoardPanel : UserControl
 
     // Whether the thinking pane is currently visible
     private bool _thinkVisible;
+
+    // Stream font zoom (Ctrl+Wheel; Ctrl+0 resets)
+    private double _streamFontSize = 12;
 
     // Task-id → tab key mapping (populated when tasks are planned)
     private readonly Dictionary<string, string> _taskTabMap = [];
@@ -124,6 +128,42 @@ public partial class SwarmBoardPanel : UserControl
         UpdateSlotButtons(slots);
         RefreshGate();
         DiagramGrid.SizeChanged += (_, _) => DrawConnectionLines();
+
+        // Ctrl+0 → reset stream font size
+        KeyDown += (_, ke) =>
+        {
+            if (ke.Key == System.Windows.Input.Key.D0 &&
+                (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0)
+            {
+                _streamFontSize = 12;
+                ApplyStreamFontSize();
+                ke.Handled = true;
+            }
+        };
+    }
+
+    // ── Stream zoom ──────────────────────────────────────────────────────────
+
+    private void OnStreamWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+    {
+        if ((System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) == 0)
+            return; // let the ScrollViewer handle normal scroll
+
+        e.Handled = true; // prevent the ScrollViewer from scrolling
+
+        // Each wheel notch is ±120; step by 1pt per notch
+        var delta = e.Delta > 0 ? 1.0 : -1.0;
+        _streamFontSize = Math.Clamp(_streamFontSize + delta, 8, 28);
+        ApplyStreamFontSize();
+    }
+
+    private void ApplyStreamFontSize()
+    {
+        TbStream.FontSize          = _streamFontSize;
+        TbStreamFontSize.Text      = $"{_streamFontSize:0}pt";
+        TbStreamFontSize.Foreground = _streamFontSize == 12
+            ? new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44))  // default — dim
+            : new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00));  // non-default — green highlight
     }
 
     // ── Public API (called by MainWindow) ─────────────────────────────────────
@@ -357,6 +397,12 @@ public partial class SwarmBoardPanel : UserControl
         BdrDirective.Visibility   = Visibility.Collapsed;
         TaskCardPanel.Children.Clear();
 
+        // Clear agent activity columns
+        LogBoss.Children.Clear();
+        LogResearcher.Children.Clear();
+        LogCoder.Children.Clear();
+        LogUIDev.Children.Clear();
+
         // Reset node states
         SetNodeIdle(NodeBoss);
         SetNodeIdle(NodeResearcher);
@@ -377,10 +423,12 @@ public partial class SwarmBoardPanel : UserControl
         SelectTab("boss");
 
         // Show active board
-        PnlIdle.Visibility      = Visibility.Collapsed;
-        PnlActive.Visibility    = Visibility.Visible;
-        BtnStopSwarm.Visibility = Visibility.Visible;
-        BdrDirective.Visibility = Visibility.Visible;
+        PnlIdle.Visibility            = Visibility.Collapsed;
+        PnlActive.Visibility          = Visibility.Visible;
+        BtnStopSwarm.Visibility       = Visibility.Visible;
+        BtnLaunchProject.Visibility   = Visibility.Collapsed;
+        _lastOutputProjectDir         = "";
+        BdrDirective.Visibility       = Visibility.Visible;
         TbDirective.Text        = "";
         TbActiveGoal.Text       = $"Goal: {goal}";
 
@@ -400,7 +448,11 @@ public partial class SwarmBoardPanel : UserControl
         _session.OnSwarmComplete += OnSwarmComplete;
         _session.OnError         += OnError;
         _session.OnStopped       += () => Dispatcher.InvokeAsync(OnSwarmStopped);
-        _session.OnActivity      += msg => Dispatcher.InvokeAsync(() => OnActivity?.Invoke(msg));
+        _session.OnActivity      += (agentKey, msg) => Dispatcher.InvokeAsync(() =>
+        {
+            AddAgentLog(agentKey, msg);
+            OnActivity?.Invoke(msg);
+        });
 
         _ = _session.RunAsync(goal);
         StatusChanged?.Invoke("Swarm active");
@@ -590,18 +642,27 @@ public partial class SwarmBoardPanel : UserControl
         Dispatcher.InvokeAsync(() =>
         {
             // Update worker node visual
-            switch (task.Role)
+            var (node, tbStatus, icoThink, coWorkPanel, tbLabel, tbQuestion, wpOptions, txtInput, btnSend, btnSteer)
+                = task.Role switch
             {
-                case SwarmWorkerRole.Researcher:
-                    UpdateWorkerNode(NodeResearcher, TbResearcherStatus, IcoResearcherThink, task);
-                    break;
-                case SwarmWorkerRole.Coder:
-                    UpdateWorkerNode(NodeCoder, TbCoderStatus, IcoCoderThink, task);
-                    break;
-                case SwarmWorkerRole.UIDeveloper:
-                    UpdateWorkerNode(NodeUIDev, TbUIDevStatus, IcoUIDevThink, task);
-                    break;
-            }
+                SwarmWorkerRole.Researcher  => (NodeResearcher,  TbResearcherStatus,  IcoResearcherThink,
+                                                CoWorkResearcher, TbCoWorkLabelResearcher, TbQuestionResearcher,
+                                                WpOptionsResearcher, TxtCoWorkResearcher, BtnCoWorkSendResearcher,
+                                                BtnSteerResearcher),
+                SwarmWorkerRole.Coder       => (NodeCoder,  TbCoderStatus,  IcoCoderThink,
+                                                CoWorkCoder, TbCoWorkLabelCoder, TbQuestionCoder,
+                                                WpOptionsCoder, TxtCoWorkCoder, BtnCoWorkSendCoder,
+                                                BtnSteerCoder),
+                SwarmWorkerRole.UIDeveloper => (NodeUIDev,  TbUIDevStatus,  IcoUIDevThink,
+                                                CoWorkUIDev, TbCoWorkLabelUIDev, TbQuestionUIDev,
+                                                WpOptionsUIDev, TxtCoWorkUIDev, BtnCoWorkSendUIDev,
+                                                BtnSteerUIDev),
+                _ => default
+            };
+
+            if (node is null) return;
+            UpdateWorkerNode(node, tbStatus, icoThink, task);
+            UpdateCoWorkPanel(task, coWorkPanel, tbLabel, tbQuestion, wpOptions, txtInput, btnSend, btnSteer);
 
             // Refresh task card in bottom strip (find by tag)
             foreach (Border card in TaskCardPanel.Children)
@@ -615,6 +676,236 @@ public partial class SwarmBoardPanel : UserControl
         });
     }
 
+    // ── Co-Work UI helpers ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Updates the per-column co-work panel to reflect the current task state:
+    /// • WaitingForUser  → amber banner with question + option chips + reply input
+    /// • InProgress      → hidden panel + visible steer button
+    /// • Done            → blue "follow up" input
+    /// • Pending/Error   → hidden
+    /// </summary>
+    private void UpdateCoWorkPanel(
+        SwarmTask task,
+        Border coWorkPanel, TextBlock tbLabel, TextBlock tbQuestion,
+        WrapPanel wpOptions, TextBox txtInput, Button btnSend, Button btnSteer)
+    {
+        var roleColor = task.RoleColor; // hex string like "#4A9FD9"
+        var roleBrush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter()
+                            .ConvertFromString(roleColor)!;
+
+        switch (task.Status)
+        {
+            case SwarmTaskStatus.WaitingForUser:
+                // Amber ask-user banner
+                coWorkPanel.Visibility      = Visibility.Visible;
+                coWorkPanel.Background      = new System.Windows.Media.SolidColorBrush(
+                                                System.Windows.Media.Color.FromRgb(0x1A, 0x17, 0x00));
+                coWorkPanel.BorderBrush     = new System.Windows.Media.SolidColorBrush(
+                                                System.Windows.Media.Color.FromRgb(0xF0, 0xC0, 0x60));
+                tbLabel.Text                = $"⏸ {task.RoleLabel} IS ASKING:";
+                tbLabel.Foreground          = new System.Windows.Media.SolidColorBrush(
+                                                System.Windows.Media.Color.FromRgb(0xF0, 0xC0, 0x60));
+                btnSend.Background          = new System.Windows.Media.SolidColorBrush(
+                                                System.Windows.Media.Color.FromRgb(0x2A, 0x27, 0x00));
+                btnSend.Foreground          = new System.Windows.Media.SolidColorBrush(
+                                                System.Windows.Media.Color.FromRgb(0xF0, 0xC0, 0x60));
+                btnSend.BorderBrush         = new System.Windows.Media.SolidColorBrush(
+                                                System.Windows.Media.Color.FromRgb(0xF0, 0xC0, 0x60));
+                tbQuestion.Text             = task.PendingQuestion ?? "";
+                tbQuestion.Visibility       = Visibility.Visible;
+                tbQuestion.Foreground       = System.Windows.Media.Brushes.LightYellow;
+
+                // Build option chips
+                wpOptions.Children.Clear();
+                if (task.PendingOptions is { Count: > 0 } opts)
+                {
+                    foreach (var opt in opts)
+                    {
+                        var chip = new Button
+                        {
+                            Content         = opt,
+                            Margin          = new Thickness(0, 0, 6, 4),
+                            Padding         = new Thickness(8, 3, 8, 3),
+                            Background      = new System.Windows.Media.SolidColorBrush(
+                                                System.Windows.Media.Color.FromRgb(0x2A, 0x27, 0x00)),
+                            Foreground      = new System.Windows.Media.SolidColorBrush(
+                                                System.Windows.Media.Color.FromRgb(0xF0, 0xC0, 0x60)),
+                            BorderBrush     = new System.Windows.Media.SolidColorBrush(
+                                                System.Windows.Media.Color.FromRgb(0x80, 0x70, 0x00)),
+                            FontFamily      = new System.Windows.Media.FontFamily("Consolas"),
+                            FontSize        = 10,
+                            Cursor          = System.Windows.Input.Cursors.Hand,
+                            Tag             = txtInput, // so the chip can fill the text box
+                        };
+                        chip.Click += (_, _) => { if (chip.Tag is TextBox tb) tb.Text = opt; };
+                        wpOptions.Children.Add(chip);
+                    }
+                    wpOptions.Visibility = Visibility.Visible;
+                }
+                else
+                {
+                    wpOptions.Visibility = Visibility.Collapsed;
+                }
+
+                btnSteer.Visibility = Visibility.Collapsed;
+                txtInput.Clear();
+                txtInput.Focus();
+                break;
+
+            case SwarmTaskStatus.InProgress:
+                coWorkPanel.Visibility  = Visibility.Collapsed;
+                btnSteer.Visibility     = Visibility.Visible;
+                break;
+
+            case SwarmTaskStatus.Done:
+                // Restore to role color for follow-up chat
+                coWorkPanel.Visibility  = Visibility.Visible;
+                coWorkPanel.Background  = new System.Windows.Media.SolidColorBrush(
+                                            System.Windows.Media.Color.FromRgb(0x06, 0x08, 0x10));
+                coWorkPanel.BorderBrush = roleBrush;
+                tbLabel.Text            = $"💬 Ask {task.RoleLabel} a follow-up:";
+                tbLabel.Foreground      = roleBrush;
+                btnSend.Background      = new System.Windows.Media.SolidColorBrush(
+                                            System.Windows.Media.Color.FromRgb(0x0A, 0x12, 0x1A));
+                btnSend.Foreground      = roleBrush;
+                btnSend.BorderBrush     = roleBrush;
+                tbQuestion.Visibility   = Visibility.Collapsed;
+                wpOptions.Visibility    = Visibility.Collapsed;
+                btnSteer.Visibility     = Visibility.Collapsed;
+                txtInput.Clear();
+                break;
+
+            default:
+                coWorkPanel.Visibility  = Visibility.Collapsed;
+                btnSteer.Visibility     = Visibility.Collapsed;
+                break;
+        }
+    }
+
+    // ── Co-Work event handlers ────────────────────────────────────────────────
+
+    // Steer buttons (show while running)
+    private void BtnSteerResearcher_Click(object sender, RoutedEventArgs e) => OpenSteerInput(SwarmWorkerRole.Researcher, TxtCoWorkResearcher);
+    private void BtnSteerCoder_Click     (object sender, RoutedEventArgs e) => OpenSteerInput(SwarmWorkerRole.Coder,       TxtCoWorkCoder);
+    private void BtnSteerUIDev_Click     (object sender, RoutedEventArgs e) => OpenSteerInput(SwarmWorkerRole.UIDeveloper, TxtCoWorkUIDev);
+
+    private void OpenSteerInput(SwarmWorkerRole role, TextBox txtInput)
+    {
+        var (coWorkPanel, tbLabel, tbQuestion, wpOptions, btnSend, btnSteer, coWorkColor)
+            = role switch
+        {
+            SwarmWorkerRole.Researcher  => (CoWorkResearcher, TbCoWorkLabelResearcher, TbQuestionResearcher,
+                                            WpOptionsResearcher, BtnCoWorkSendResearcher, BtnSteerResearcher, "#4A9FD9"),
+            SwarmWorkerRole.Coder       => (CoWorkCoder,      TbCoWorkLabelCoder,      TbQuestionCoder,
+                                            WpOptionsCoder,      BtnCoWorkSendCoder,      BtnSteerCoder,      "#76B900"),
+            SwarmWorkerRole.UIDeveloper => (CoWorkUIDev,      TbCoWorkLabelUIDev,      TbQuestionUIDev,
+                                            WpOptionsUIDev,      BtnCoWorkSendUIDev,      BtnSteerUIDev,      "#C586C0"),
+            _ => default
+        };
+
+        if (coWorkPanel is null) return;
+        var brush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter()
+                        .ConvertFromString(coWorkColor)!;
+        coWorkPanel.Visibility  = Visibility.Visible;
+        coWorkPanel.Background  = new System.Windows.Media.SolidColorBrush(
+                                    System.Windows.Media.Color.FromRgb(0x06, 0x08, 0x10));
+        coWorkPanel.BorderBrush = brush;
+        tbLabel.Text            = $"📤 Steer {role} (injects on next step):";
+        tbLabel.Foreground      = brush;
+        btnSend.Foreground      = brush;
+        btnSend.BorderBrush     = brush;
+        tbQuestion.Visibility   = Visibility.Collapsed;
+        wpOptions.Visibility    = Visibility.Collapsed;
+        btnSteer.Visibility     = Visibility.Collapsed;
+        txtInput.Clear();
+        txtInput.Focus();
+    }
+
+    // Send buttons
+    private void BtnCoWorkSendResearcher_Click(object sender, RoutedEventArgs e) => HandleCoWorkSend(SwarmWorkerRole.Researcher,  TxtCoWorkResearcher);
+    private void BtnCoWorkSendCoder_Click     (object sender, RoutedEventArgs e) => HandleCoWorkSend(SwarmWorkerRole.Coder,       TxtCoWorkCoder);
+    private void BtnCoWorkSendUIDev_Click     (object sender, RoutedEventArgs e) => HandleCoWorkSend(SwarmWorkerRole.UIDeveloper, TxtCoWorkUIDev);
+
+    // Enter key in any co-work input → send
+    private void TxtCoWork_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != System.Windows.Input.Key.Enter) return;
+        if ((System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) != 0) return;
+        e.Handled = true;
+
+        var role = sender switch
+        {
+            TextBox tb when tb == TxtCoWorkResearcher => SwarmWorkerRole.Researcher,
+            TextBox tb when tb == TxtCoWorkCoder      => SwarmWorkerRole.Coder,
+            TextBox tb when tb == TxtCoWorkUIDev      => SwarmWorkerRole.UIDeveloper,
+            _ => (SwarmWorkerRole?)null
+        };
+        if (role.HasValue)
+            HandleCoWorkSend(role.Value, (TextBox)sender);
+    }
+
+    /// <summary>
+    /// Routes the co-work input depending on task state:
+    /// • WaitingForUser  → ProvideWorkerReply
+    /// • InProgress      → SteerWorker  (inject on next step)
+    /// • Done            → ContinueWorkerAsync  (follow-up conversation)
+    /// </summary>
+    private void HandleCoWorkSend(SwarmWorkerRole role, TextBox txtInput)
+    {
+        if (_session is null) return;
+        var text = txtInput.Text.Trim();
+        if (string.IsNullOrWhiteSpace(text)) return;
+
+        var task = _session.Tasks.FirstOrDefault(t => t.Role == role);
+        if (task is null) return;
+
+        txtInput.Clear();
+
+        switch (task.Status)
+        {
+            case SwarmTaskStatus.WaitingForUser:
+                _session.ProvideWorkerReply(task.Id, text);
+                AddAgentLog(AgentKeyForRole(role), $"💬 You replied: {text}");
+                break;
+
+            case SwarmTaskStatus.InProgress:
+                _session.SteerWorker(task.Id, text);
+                AddAgentLog(AgentKeyForRole(role), $"📤 Steer queued: {text}");
+                // Hide the steer input until next state change
+                var cwPanel = role switch
+                {
+                    SwarmWorkerRole.Researcher  => CoWorkResearcher,
+                    SwarmWorkerRole.Coder       => CoWorkCoder,
+                    SwarmWorkerRole.UIDeveloper => CoWorkUIDev,
+                    _                           => null
+                };
+                if (cwPanel is not null) cwPanel.Visibility = Visibility.Collapsed;
+                var steerBtn = role switch
+                {
+                    SwarmWorkerRole.Researcher  => BtnSteerResearcher,
+                    SwarmWorkerRole.Coder       => BtnSteerCoder,
+                    SwarmWorkerRole.UIDeveloper => BtnSteerUIDev,
+                    _                           => null
+                };
+                if (steerBtn is not null) steerBtn.Visibility = Visibility.Visible;
+                break;
+
+            case SwarmTaskStatus.Done:
+                AddAgentLog(AgentKeyForRole(role), $"💬 You: {text}");
+                _ = _session.ContinueWorkerAsync(task.Id, text);
+                break;
+        }
+    }
+
+    private static string AgentKeyForRole(SwarmWorkerRole role) => role switch
+    {
+        SwarmWorkerRole.Researcher  => "researcher",
+        SwarmWorkerRole.Coder       => "coder",
+        SwarmWorkerRole.UIDeveloper => "uidev",
+        _                           => "boss"
+    };
+
     private void OnSwarmComplete(string merged)
     {
         Dispatcher.InvokeAsync(() =>
@@ -624,6 +915,14 @@ public partial class SwarmBoardPanel : UserControl
             TbBossStatus.Text = "Delivered ✓";
             SetNodeDone(NodeBoss);
             StatusChanged?.Invoke("Swarm complete");
+
+            // Show launch button if there's a project directory to open
+            _lastOutputProjectDir = _session?.GetOutputProjectDir() ?? "";
+            if (!string.IsNullOrWhiteSpace(_lastOutputProjectDir) &&
+                System.IO.Directory.Exists(_lastOutputProjectDir))
+            {
+                BtnLaunchProject.Visibility = Visibility.Visible;
+            }
         });
     }
 
@@ -880,5 +1179,118 @@ public partial class SwarmBoardPanel : UserControl
             SwarmTaskStatus.Error      => new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47)),
             _                          => new SolidColorBrush(Color.FromRgb(0x2A, 0x3A, 0x2A)),
         };
+    }
+
+    // ── Agent activity columns ────────────────────────────────────────────────
+
+    private void AddAgentLog(string agentKey, string msg)
+    {
+        var (panel, scroll, fg) = agentKey switch
+        {
+            "researcher" => (LogResearcher, ScrollResearcher, Color.FromRgb(0x4A, 0x9F, 0xD9)),
+            "coder"      => (LogCoder,      ScrollCoder,      Color.FromRgb(0x76, 0xB9, 0x00)),
+            "uidev"      => (LogUIDev,      ScrollUIDev,      Color.FromRgb(0xC5, 0x86, 0xC0)),
+            _            => (LogBoss,       ScrollBoss,       Color.FromRgb(0x76, 0xB9, 0x00)),
+        };
+
+        // Warnings and errors get a distinct colour
+        Color textColor;
+        if (msg.StartsWith("⚠") || msg.StartsWith("ERROR"))
+            textColor = Color.FromRgb(0xCC, 0xA7, 0x00);
+        else if (msg.StartsWith("→"))
+            textColor = Color.FromRgb(0x4E, 0xC9, 0x4E);
+        else
+            textColor = Color.FromRgb(0x88, 0x99, 0x88);
+
+        var entry = new TextBlock
+        {
+            Text         = msg,
+            FontSize     = 10,
+            FontFamily   = new FontFamily("Segoe UI"),
+            Foreground   = new SolidColorBrush(textColor),
+            TextWrapping = TextWrapping.Wrap,
+            Margin       = new Thickness(0, 1, 0, 1),
+        };
+        panel.Children.Add(entry);
+        scroll.ScrollToBottom();
+    }
+
+    // ── Launch project (post-completion) ─────────────────────────────────────
+
+    private void BtnLaunchProject_Click(object sender, RoutedEventArgs e)
+        => LaunchOutputProject(_lastOutputProjectDir);
+
+    private static void LaunchOutputProject(string projectDir)
+    {
+        if (string.IsNullOrWhiteSpace(projectDir) ||
+            !System.IO.Directory.Exists(projectDir))
+            return;
+
+        // Detect entry point in priority order
+        var candidates = new[]
+        {
+            // Python
+            System.IO.Path.Combine(projectDir, "main.py"),
+            System.IO.Path.Combine(projectDir, "app.py"),
+            System.IO.Path.Combine(projectDir, "run.py"),
+            System.IO.Path.Combine(projectDir, "src", "main.py"),
+            System.IO.Path.Combine(projectDir, "src", "app.py"),
+            // JavaScript / Node
+            System.IO.Path.Combine(projectDir, "index.js"),
+            System.IO.Path.Combine(projectDir, "src", "index.js"),
+            System.IO.Path.Combine(projectDir, "app.js"),
+        };
+
+        // Check for Python files first
+        foreach (var candidate in candidates)
+        {
+            if (!System.IO.File.Exists(candidate)) continue;
+
+            var ext = System.IO.Path.GetExtension(candidate).ToLowerInvariant();
+            if (ext == ".py")
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName        = "python",
+                    Arguments       = $"\"{candidate}\"",
+                    WorkingDirectory = projectDir,
+                    UseShellExecute = true,
+                });
+                return;
+            }
+            if (ext == ".js")
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName        = "node",
+                    Arguments       = $"\"{candidate}\"",
+                    WorkingDirectory = projectDir,
+                    UseShellExecute = true,
+                });
+                return;
+            }
+        }
+
+        // Look for an .exe in the project dir
+        var exeFiles = System.IO.Directory.GetFiles(projectDir, "*.exe",
+                           System.IO.SearchOption.TopDirectoryOnly);
+        if (exeFiles.Length > 0)
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName        = exeFiles[0],
+                WorkingDirectory = projectDir,
+                UseShellExecute = true,
+            });
+            return;
+        }
+
+        // Fallback: open the folder in Explorer
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName        = "explorer",
+            Arguments       = $"\"{projectDir}\"",
+            UseShellExecute = true,
+        });
     }
 }

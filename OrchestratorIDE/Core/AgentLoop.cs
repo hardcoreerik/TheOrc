@@ -222,7 +222,9 @@ public class AgentLoop
             {
                 try
                 {
-                    var diagPath = Path.Combine(session.WorkspaceRoot, "_agentlog.txt");
+                    var diagDir  = Path.Combine(session.WorkspaceRoot, ".orc");
+                    Directory.CreateDirectory(diagDir);
+                    var diagPath = Path.Combine(diagDir, "_agentlog.txt");
                     var native   = pendingToolCalls.Count(t => !t.IsTextFormat);
                     var textFmt  = pendingToolCalls.Count(t =>  t.IsTextFormat);
                     var snippet  = content.Length > 400 ? content[..400] : content;

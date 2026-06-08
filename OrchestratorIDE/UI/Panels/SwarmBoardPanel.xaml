@@ -180,6 +180,38 @@
                         </ControlTemplate>
                     </Button.Template>
                 </Button>
+
+                <!-- Launch project button (shown on swarm complete) -->
+                <Button x:Name="BtnLaunchProject"
+                        DockPanel.Dock="Right"
+                        Content="▶  Launch Project"
+                        Visibility="Collapsed"
+                        Background="#1F3D00"
+                        Foreground="#76B900"
+                        BorderBrush="#2A5A00"
+                        BorderThickness="1"
+                        Padding="10,4"
+                        Margin="0,0,6,0"
+                        FontSize="11" FontWeight="SemiBold"
+                        Cursor="Hand"
+                        Click="BtnLaunchProject_Click">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#2A5A00"/>
+                                    <Setter Property="BorderBrush" Value="#76B900"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
             </DockPanel>
         </Border>
 
@@ -702,6 +734,10 @@
 
             <!-- ── ACTIVE STATE ────────────────────────────────────────────── -->
             <Grid x:Name="PnlActive" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="150" MinHeight="100"/>
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="300" MinWidth="220"/>
                     <ColumnDefinition Width="4"/>
@@ -709,7 +745,7 @@
                 </Grid.ColumnDefinitions>
 
                 <!-- ── Left: Hub-and-spoke diagram ──────────────────────────── -->
-                <Grid Grid.Column="0" Background="#0A0F0A">
+                <Grid Grid.Row="0" Grid.Column="0" Background="#0A0F0A">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*" MinHeight="220"/>
                         <RowDefinition Height="Auto"/>
@@ -838,11 +874,11 @@
                 </Grid>
 
                 <!-- ── Splitter ───────────────────────────────────────────── -->
-                <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch"
+                <GridSplitter Grid.Row="0" Grid.Column="1" Width="4" HorizontalAlignment="Stretch"
                               Background="{StaticResource Br.Border}" Cursor="SizeWE"/>
 
                 <!-- ── Right: Live stream ─────────────────────────────────── -->
-                <DockPanel Grid.Column="2" Background="{StaticResource Br.Bg.Panel}">
+                <DockPanel Grid.Row="0" Grid.Column="2" Background="{StaticResource Br.Bg.Panel}">
 
                     <!-- Stream tab bar -->
                     <Border DockPanel.Dock="Top"
@@ -872,6 +908,17 @@
                                         Click="Tab_Click" Tag="uidev"
                                         Visibility="Collapsed"/>
                             </StackPanel>
+
+                            <!-- Font-size badge (right, shows current zoom) -->
+                            <TextBlock x:Name="TbStreamFontSize"
+                                       DockPanel.Dock="Right"
+                                       Text="12pt"
+                                       FontSize="9"
+                                       FontFamily="Consolas"
+                                       Foreground="#444444"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,6,0"
+                                       ToolTip="Ctrl+Wheel to zoom · Ctrl+0 to reset"/>
 
                             <!-- Thinking toggle (right) -->
                             <Button x:Name="BtnThinkToggle"
@@ -952,7 +999,8 @@
                     <!-- Stream output -->
                     <ScrollViewer x:Name="StreamScroll"
                                   VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled">
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  PreviewMouseWheel="OnStreamWheel">
                         <TextBox x:Name="TbStream"
                                  Background="Transparent"
                                  Foreground="#C8D4C8"
@@ -968,6 +1016,204 @@
                                  AutomationProperties.AutomationId="Swarm.Stream"/>
                     </ScrollViewer>
                 </DockPanel>
+
+                <!-- ── Agent activity columns (Row 1 — spans all 3 columns) ─── -->
+                <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3"
+                        Background="#080C08"
+                        BorderBrush="{StaticResource Br.Border}"
+                        BorderThickness="0,1,0,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="1"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="1"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="1"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- ⬡ TheOrc column -->
+                        <DockPanel Grid.Column="0">
+                            <Border DockPanel.Dock="Top" Background="#0E120E"
+                                    BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1"
+                                    Padding="8,3">
+                                <TextBlock Text="⬡  TheOrc"
+                                           Foreground="#76B900"
+                                           FontSize="10" FontWeight="Bold" FontFamily="Consolas"/>
+                            </Border>
+                            <ScrollViewer x:Name="ScrollBoss"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="LogBoss" Margin="6,2"/>
+                            </ScrollViewer>
+                        </DockPanel>
+
+                        <!-- Column divider -->
+                        <Rectangle Grid.Column="1" Fill="{StaticResource Br.Border}"/>
+
+                        <!-- 🔍 Researcher column -->
+                        <DockPanel Grid.Column="2">
+                            <Border DockPanel.Dock="Top" Background="#0E120E"
+                                    BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1"
+                                    Padding="8,3">
+                                <DockPanel>
+                                    <Button x:Name="BtnSteerResearcher" DockPanel.Dock="Right"
+                                            Content="📤" Visibility="Collapsed"
+                                            Background="Transparent" Foreground="#4A9FD9"
+                                            BorderThickness="0" Padding="4,0" Cursor="Hand"
+                                            FontSize="11" ToolTip="Send a message to this worker"
+                                            Click="BtnSteerResearcher_Click"/>
+                                    <TextBlock Text="🔍  Researcher" Foreground="#4A9FD9"
+                                               FontSize="10" FontWeight="Bold" FontFamily="Consolas"
+                                               VerticalAlignment="Center"/>
+                                </DockPanel>
+                            </Border>
+                            <!-- Co-work panel: WaitingForUser (amber) or Follow-up (blue) -->
+                            <Border x:Name="CoWorkResearcher" DockPanel.Dock="Bottom"
+                                    Visibility="Collapsed" Padding="8,6"
+                                    BorderThickness="0,1,0,0">
+                                <StackPanel>
+                                    <TextBlock x:Name="TbCoWorkLabelResearcher"
+                                               FontSize="9" FontWeight="Bold" FontFamily="Consolas"
+                                               Margin="0,0,0,4"/>
+                                    <!-- Question text (WaitingForUser only) -->
+                                    <TextBlock x:Name="TbQuestionResearcher"
+                                               FontFamily="Consolas" FontSize="11"
+                                               TextWrapping="Wrap" Margin="0,0,0,6"
+                                               Visibility="Collapsed"/>
+                                    <!-- Option chips (WaitingForUser only) -->
+                                    <WrapPanel x:Name="WpOptionsResearcher" Margin="0,0,0,6"
+                                               Visibility="Collapsed"/>
+                                    <!-- Input row -->
+                                    <DockPanel>
+                                        <Button x:Name="BtnCoWorkSendResearcher" DockPanel.Dock="Right"
+                                                Content="Send" Padding="8,3" Margin="4,0,0,0"
+                                                FontFamily="Consolas" FontSize="11"
+                                                Click="BtnCoWorkSendResearcher_Click"/>
+                                        <TextBox x:Name="TxtCoWorkResearcher"
+                                                 Background="#111111" Foreground="White"
+                                                 FontFamily="Consolas" FontSize="11" Padding="4,3"
+                                                 BorderBrush="#333333"
+                                                 KeyDown="TxtCoWork_KeyDown"/>
+                                    </DockPanel>
+                                </StackPanel>
+                            </Border>
+                            <ScrollViewer x:Name="ScrollResearcher"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="LogResearcher" Margin="6,2"/>
+                            </ScrollViewer>
+                        </DockPanel>
+
+                        <!-- Column divider -->
+                        <Rectangle Grid.Column="3" Fill="{StaticResource Br.Border}"/>
+
+                        <!-- ⚙ Coder column -->
+                        <DockPanel Grid.Column="4">
+                            <Border DockPanel.Dock="Top" Background="#0E120E"
+                                    BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1"
+                                    Padding="8,3">
+                                <DockPanel>
+                                    <Button x:Name="BtnSteerCoder" DockPanel.Dock="Right"
+                                            Content="📤" Visibility="Collapsed"
+                                            Background="Transparent" Foreground="#76B900"
+                                            BorderThickness="0" Padding="4,0" Cursor="Hand"
+                                            FontSize="11" ToolTip="Send a message to this worker"
+                                            Click="BtnSteerCoder_Click"/>
+                                    <TextBlock Text="⚙  Coder" Foreground="#76B900"
+                                               FontSize="10" FontWeight="Bold" FontFamily="Consolas"
+                                               VerticalAlignment="Center"/>
+                                </DockPanel>
+                            </Border>
+                            <Border x:Name="CoWorkCoder" DockPanel.Dock="Bottom"
+                                    Visibility="Collapsed" Padding="8,6"
+                                    BorderThickness="0,1,0,0">
+                                <StackPanel>
+                                    <TextBlock x:Name="TbCoWorkLabelCoder"
+                                               FontSize="9" FontWeight="Bold" FontFamily="Consolas"
+                                               Margin="0,0,0,4"/>
+                                    <TextBlock x:Name="TbQuestionCoder"
+                                               FontFamily="Consolas" FontSize="11"
+                                               TextWrapping="Wrap" Margin="0,0,0,6"
+                                               Visibility="Collapsed"/>
+                                    <WrapPanel x:Name="WpOptionsCoder" Margin="0,0,0,6"
+                                               Visibility="Collapsed"/>
+                                    <DockPanel>
+                                        <Button x:Name="BtnCoWorkSendCoder" DockPanel.Dock="Right"
+                                                Content="Send" Padding="8,3" Margin="4,0,0,0"
+                                                FontFamily="Consolas" FontSize="11"
+                                                Click="BtnCoWorkSendCoder_Click"/>
+                                        <TextBox x:Name="TxtCoWorkCoder"
+                                                 Background="#111111" Foreground="White"
+                                                 FontFamily="Consolas" FontSize="11" Padding="4,3"
+                                                 BorderBrush="#333333"
+                                                 KeyDown="TxtCoWork_KeyDown"/>
+                                    </DockPanel>
+                                </StackPanel>
+                            </Border>
+                            <ScrollViewer x:Name="ScrollCoder"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="LogCoder" Margin="6,2"/>
+                            </ScrollViewer>
+                        </DockPanel>
+
+                        <!-- Column divider -->
+                        <Rectangle Grid.Column="5" Fill="{StaticResource Br.Border}"/>
+
+                        <!-- 🎨 UI Dev column -->
+                        <DockPanel Grid.Column="6">
+                            <Border DockPanel.Dock="Top" Background="#0E120E"
+                                    BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1"
+                                    Padding="8,3">
+                                <DockPanel>
+                                    <Button x:Name="BtnSteerUIDev" DockPanel.Dock="Right"
+                                            Content="📤" Visibility="Collapsed"
+                                            Background="Transparent" Foreground="#C586C0"
+                                            BorderThickness="0" Padding="4,0" Cursor="Hand"
+                                            FontSize="11" ToolTip="Send a message to this worker"
+                                            Click="BtnSteerUIDev_Click"/>
+                                    <TextBlock Text="🎨  UI Dev" Foreground="#C586C0"
+                                               FontSize="10" FontWeight="Bold" FontFamily="Consolas"
+                                               VerticalAlignment="Center"/>
+                                </DockPanel>
+                            </Border>
+                            <Border x:Name="CoWorkUIDev" DockPanel.Dock="Bottom"
+                                    Visibility="Collapsed" Padding="8,6"
+                                    BorderThickness="0,1,0,0">
+                                <StackPanel>
+                                    <TextBlock x:Name="TbCoWorkLabelUIDev"
+                                               FontSize="9" FontWeight="Bold" FontFamily="Consolas"
+                                               Margin="0,0,0,4"/>
+                                    <TextBlock x:Name="TbQuestionUIDev"
+                                               FontFamily="Consolas" FontSize="11"
+                                               TextWrapping="Wrap" Margin="0,0,0,6"
+                                               Visibility="Collapsed"/>
+                                    <WrapPanel x:Name="WpOptionsUIDev" Margin="0,0,0,6"
+                                               Visibility="Collapsed"/>
+                                    <DockPanel>
+                                        <Button x:Name="BtnCoWorkSendUIDev" DockPanel.Dock="Right"
+                                                Content="Send" Padding="8,3" Margin="4,0,0,0"
+                                                FontFamily="Consolas" FontSize="11"
+                                                Click="BtnCoWorkSendUIDev_Click"/>
+                                        <TextBox x:Name="TxtCoWorkUIDev"
+                                                 Background="#111111" Foreground="White"
+                                                 FontFamily="Consolas" FontSize="11" Padding="4,3"
+                                                 BorderBrush="#333333"
+                                                 KeyDown="TxtCoWork_KeyDown"/>
+                                    </DockPanel>
+                                </StackPanel>
+                            </Border>
+                            <ScrollViewer x:Name="ScrollUIDev"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="LogUIDev" Margin="6,2"/>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Grid>
+                </Border>
+
             </Grid>
 
         </Grid>

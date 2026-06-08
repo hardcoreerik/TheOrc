@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using OrchestratorIDE.Core;
+using OrchestratorIDE.Trust;
 
 namespace OrchestratorIDE.Tools;
 
@@ -9,7 +10,14 @@ public static class ShellTools
         ["rm ", "rmdir", "del ", "format", "shutdown", "reboot",
          "git reset --hard", "git checkout --", "taskkill", "Stop-Process"];
 
-    public static void Register(ToolRegistry registry, string workspaceRoot)
+    /// <param name="onSandboxBypass">
+    ///   Called when the requested working directory is outside the workspace sandbox.
+    ///   Signature: <c>(toolName, escapedPath, sandboxRoot, ct) → Task&lt;bool&gt;</c>.
+    ///   Note: shell commands themselves can still address arbitrary absolute paths;
+    ///   this guard covers the <c>cwd</c> argument only.
+    /// </param>
+    public static void Register(ToolRegistry registry, string workspaceRoot,
+        Func<string, string, string, CancellationToken, Task<bool>>? onSandboxBypass = null)
     {
         registry.Register(new ToolDefinition
         {
@@ -38,6 +46,27 @@ public static class ShellTools
                 var envSetup = args.TryGetValue("env_setup", out var e) ? e?.ToString() ?? "" : "";
                 var cwd      = args.TryGetValue("cwd",       out var d) ? d?.ToString() ?? "" : "";
                 if (string.IsNullOrEmpty(cwd)) cwd = workspaceRoot;
+
+                // ── Sandbox guard: cwd ────────────────────────────────────
+                // Resolve cwd relative to workspace if it's not absolute
+                var resolvedCwd = Path.IsPathRooted(cwd)
+                    ? Path.GetFullPath(cwd)
+                    : Path.GetFullPath(Path.Combine(workspaceRoot, cwd));
+
+                if (!PathSandbox.IsInsideSandbox(resolvedCwd, workspaceRoot))
+                {
+                    var allowed = onSandboxBypass is not null
+                        && await onSandboxBypass("run_shell (cwd)", resolvedCwd, workspaceRoot, ct);
+                    if (!allowed)
+                        return $"[SANDBOX BLOCKED] run_shell: working directory '{resolvedCwd}' is " +
+                               $"outside the workspace '{workspaceRoot}'. " +
+                               $"Use a cwd inside the workspace, or omit cwd to use the workspace root.";
+                    cwd = resolvedCwd; // use the resolved path after bypass
+                }
+                else
+                {
+                    cwd = resolvedCwd;
+                }
 
                 // Combine env_setup + command into a single invocation so the
                 // environment set by env_setup is visible to command.
