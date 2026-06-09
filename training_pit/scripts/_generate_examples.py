@@ -9,7 +9,7 @@ Run from repo root:
 Why this script exists:
     chat_sft_good_*.jsonl files were originally written with an abbreviated
     system prompt using wrong role names (RESEARCHER|CODER|TESTER|DOCS).
-    The production model uses RESEARCHER|CODER|UIDEVELOPER.
+    The production model uses RESEARCHER|CODER|UIDEVELOPER|TESTER.
     Training on the wrong system prompt would teach the model to respond to
     a prompt it never sees in production. This script regenerates them with
     the canonical BOSS_SYSTEM_PROMPT from convert_plan_captures.py.
@@ -17,8 +17,9 @@ Why this script exists:
 Writes:
     training_pit/examples/chat_sft_good_001.jsonl  — updated system prompt
     training_pit/examples/chat_sft_good_002.jsonl  — updated system prompt
-    training_pit/examples/chat_sft_good_003.jsonl  — new: UI/backend wiring
-    training_pit/examples/chat_sft_good_004.jsonl  — new: refactor planning
+    training_pit/examples/chat_sft_good_003.jsonl  — UI/backend wiring
+    training_pit/examples/chat_sft_good_004.jsonl  — refactor planning
+    training_pit/examples/chat_sft_good_005.jsonl  — TESTER: verify existing pipeline
     training_pit/examples/chat_sft_eval_collapse_001.jsonl  — collapse (eval only)
     training_pit/examples/chat_sft_synthetic_001.jsonl      — over-decompose (eval only)
 """
@@ -35,20 +36,22 @@ if sys.platform == "win32":
 # and training_pit/scripts/convert_plan_captures.py
 BOSS_SYSTEM_PROMPT = (
     "You are TheOrc — the Orchestrator of a multi-agent AI coding swarm.\n"
-    "You direct three specialist minions:\n"
+    "You direct four specialist minions:\n"
     "  • RESEARCHER  — investigates APIs, libraries, docs; does NOT write production code\n"
     "  • CODER       — writes full implementation code using the researcher's findings\n"
     "  • UIDEVELOPER — writes UI code (XAML, WPF, HTML/CSS) and styling\n"
+    "  • TESTER      — runs existing code, executes tests, checks syntax, reports results; does NOT write or modify files\n"
     "\n"
     "Given a user's coding goal, break it into 2–4 concurrent subtasks.\n"
     "Assign each subtask to the best-fit minion role.\n"
     "\n"
     "Rules:\n"
     "- RESEARCHER tasks always get priority 1 (they run first, alone)\n"
-    "- CODER and UIDEVELOPER tasks get priority 2 (run concurrently after research)\n"
-    "- If no research is needed, skip RESEARCHER and assign CODER/UIDEVELOPER tasks directly\n"
+    "- CODER, UIDEVELOPER, and TESTER tasks get priority 2 (run concurrently after research)\n"
+    "- If no research is needed, skip RESEARCHER and assign CODER/UIDEVELOPER/TESTER tasks directly\n"
+    "- TESTER tasks verify code that already exists in the workspace — they do NOT receive output from CODER tasks in the same run\n"
     "- Descriptions must be self-contained — minions cannot ask follow-up questions\n"
-    "- Maximum 4 tasks total: up to 1 RESEARCHER + up to 3 CODER/UIDEVELOPER\n"
+    "- Maximum 4 tasks total: up to 1 RESEARCHER + up to 3 CODER/UIDEVELOPER/TESTER\n"
     "- Prefer 3 priority-2 tasks when the goal has distinct implementation concerns\n"
     "\n"
     "FILENAME RULE — task titles MUST name the output file(s):\n"
@@ -384,6 +387,85 @@ EXAMPLES = {
                 "DPO rejected-output pairing with chat_sft_good_001.jsonl. "
                 "Observed in gemma4:12b base model at temp=1.0. Fixed by theorc-boss:gemma4 (temp=0.2 + system prompt). "
                 "Correct plan reference: chat_sft_good_001.jsonl (same goal, passing plan)."
+            )
+        }
+    ),
+
+    # ── chat_sft_good_005.jsonl ─────────────────────────────────────────────
+    # New: TESTER golden example — verify existing Training Pit pipeline health.
+    # Two-task plan: CODER adds pytest coverage, TESTER verifies existing pipeline.
+    # Demonstrates correct TESTER scheduling: runs concurrently with CODER,
+    # but verifies PRE-EXISTING fixtures/scripts (not CODER's new output).
+    "chat_sft_good_005.jsonl": make_example(
+        messages=[
+            sys_msg(),
+            {"role": "user", "content": (
+                "Goal: Add pytest smoke tests for the Training Pit scripts (validate_dataset.py "
+                "and sanitize_dataset.py) and verify that the existing example files and "
+                "end-to-end pipeline are currently healthy."
+            )},
+            {"role": "assistant", "content": json.dumps({
+                "plan": "CODER writes the pytest suite; TESTER runs the existing pipeline health check in parallel — both work on pre-existing files.",
+                "tasks": [
+                    {
+                        "role": "CODER",
+                        "priority": 2,
+                        "title": "Write tests/test_training_pit_scripts.py",
+                        "description": (
+                            "Create tests/test_training_pit_scripts.py using pytest. "
+                            "Test validate_dataset.py: (1) test_valid_example — call validate_file() on "
+                            "training_pit/examples/chat_sft_good_001.jsonl, assert return value is 0. "
+                            "(2) test_invalid_json — write a temp file with invalid JSON, assert return value is 1. "
+                            "(3) test_missing_messages — write a temp file missing the 'messages' key, assert return is 1. "
+                            "Test sanitize_dataset.py: (4) test_clean_file — call sanitize_file() on "
+                            "training_pit/examples/chat_sft_good_001.jsonl, assert 0 rejects and 0 reviews. "
+                            "(5) test_api_key_reject — write a temp file with 'sk-abc123' in content, assert rejects > 0. "
+                            "Import validate_file from training_pit.scripts.validate_dataset and "
+                            "sanitize_file from training_pit.scripts.sanitize_dataset. "
+                            "Add conftest.py in tests/ if needed for sys.path setup."
+                        )
+                    },
+                    {
+                        "role": "TESTER",
+                        "priority": 2,
+                        "title": "Verify pipeline health: all examples pass validate + sanitize",
+                        "description": (
+                            "Verify the existing Training Pit pipeline is healthy. "
+                            "These files already exist — do not wait for any other task in this run. "
+                            "Step 1: list_files in training_pit/examples/ — confirm all chat_sft_*.jsonl files are present. "
+                            "Step 2: for each chat_sft_*.jsonl file, run: "
+                            "python training_pit/scripts/validate_dataset.py <file> "
+                            "python training_pit/scripts/sanitize_dataset.py <file> "
+                            "Step 3: run the end-to-end test: "
+                            "python training_pit/scripts/_make_test_fixtures.py "
+                            "python training_pit/scripts/convert_plan_captures.py "
+                            "--staging-dir .orc/swarm/dataset-staging-test "
+                            "--output training_pit/datasets/staging/health_check.jsonl "
+                            "python training_pit/scripts/validate_dataset.py "
+                            "training_pit/datasets/staging/health_check.jsonl "
+                            "Report STATUS: PASS if all validations return 0 errors and 0 rejects. "
+                            "Report STATUS: FAIL with exact error output if any check fails."
+                        )
+                    }
+                ]
+            }, separators=(",", ":"), ensure_ascii=False)},
+        ],
+        metadata={
+            "category": "boss_planning",
+            "task_type": "feature_plan",
+            "source": "manual",
+            "quality": "gold",
+            "contains_sensitive_data": False,
+            "base_model_target": "gemma4:12b",
+            "created_by": "user",
+            "notes": (
+                "TESTER golden example. Key behaviors: "
+                "(1) TESTER runs concurrently with CODER but on pre-existing files — no sequential dependency. "
+                "(2) TESTER description explicitly states 'these files already exist — do not wait for any other task.' "
+                "(3) TESTER task title does NOT name an output file (correct — TESTER produces a report, not a file). "
+                "(4) CODER task names its output file (tests/test_training_pit_scripts.py). "
+                "(5) No hallucinated APIs — uses actual scripts from the training_pit/scripts/ directory. "
+                "System prompt: canonical BOSS_SYSTEM_PROMPT with TESTER advertised."
             )
         }
     ),

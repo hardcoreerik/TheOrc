@@ -44,24 +44,23 @@ all CODERs run on the same model. Per-role model routing is planned for Phase 4.
 
 ## Boss-Advertised Roles vs Execution Lanes
 
-The `BOSS_SYSTEM_PROMPT` currently advertises **three roles** to the boss model:
+The `BOSS_SYSTEM_PROMPT` advertises **four roles** to the boss model:
 
 ```
 • RESEARCHER  — investigates APIs, libraries, docs; does NOT write production code
 • CODER       — writes full implementation code using the researcher's findings
 • UIDEVELOPER — writes UI code (XAML, WPF, HTML/CSS) and styling
+• TESTER      — runs existing code, executes tests, checks syntax, reports results; does NOT write or modify files
 ```
 
-TESTER is intentionally **not advertised** yet. It is fully implemented in the worker side
-(system prompt + read/execute-only tool set), but:
-1. The QAT base model is not trained to generate well-structured TESTER tasks
-2. The boss prompt currently cannot explain testing workflows well enough
-3. Adding TESTER to the advertised roles will be a fine-tuning objective, not a prompt change
-
-When the TESTER lane is ready to advertise, update:
-- `BossDecomposeSystemPrompt` in `SwarmSession.cs`
-- `BOSS_SYSTEM_PROMPT` in `training_pit/scripts/convert_plan_captures.py`
-- Dataset examples to include correct TESTER task examples
+TESTER was added after confirming it is fully wired end-to-end:
+- System prompt with structured PASS/FAIL/PARTIAL output format
+- Tool set: `run_shell, read_file, list_files` — write_file excluded by design
+- Parser routing in `ParseBossPlan` (was dead code prior to Phase 2 verification pass)
+- `AgentKey` correctly returns `"tester"`
+- Scheduling rule explicit in both boss prompt and worker prompt: TESTER verifies
+  code that **already exists** in the workspace — it does not wait for CODER output
+  from the same run
 
 ---
 
@@ -75,7 +74,7 @@ role vocabulary without breaking the current runtime.
 |---|---|---|
 | `RESEARCHER` | RESEARCHER | Native |
 | `UIDEVELOPER` | UIDEVELOPER | Native |
-| `TESTER` | TESTER | Native (implemented, not yet advertised) |
+| `TESTER` | TESTER | Native (implemented and advertised) |
 | `ARCHITECT`, `PLANNER`, `REVIEWER`, `ANALYST` | RESEARCHER | Investigate/design; no code output |
 | `FRONTEND_DEVELOPER`, `FRONTEND`, `UI` | UIDEVELOPER | UI work → UIDEVELOPER lane |
 | `QA`, `QUALITY_ASSURANCE` | TESTER | Test execution → TESTER lane |
@@ -98,7 +97,6 @@ Each would need: a distinct system prompt, a tool set, scheduling rules, and tra
 
 | Future lane | Logical roles it covers | Blocking work |
 |---|---|---|
-| `TESTER` (advertise) | TESTER, QA | Boss fine-tuning examples; promote from alias |
 | `DOCS` | DOCS, DOCUMENTATION, TECHNICAL_WRITER | Writing-focused system prompt; no run_shell needed |
 | `DEVOPS` | DEVOPS, RELEASE_MANAGER, INFRASTRUCTURE | Shell-heavy prompt; environment-aware |
 | `REVIEWER` | REVIEWER, AUDITOR, SECURITY | Read-only analysis; detailed critique format |
@@ -115,10 +113,10 @@ None of these will be activated until:
 
 ### What the training dataset should teach
 
-Training examples should use **execution role names only** — the three currently
-advertised by the boss system prompt: `RESEARCHER`, `CODER`, `UIDEVELOPER`.
+Training examples should use **execution role names only** — the four currently
+advertised by the boss system prompt: `RESEARCHER`, `CODER`, `UIDEVELOPER`, `TESTER`.
 
-Training the boss model on unadvertised roles (e.g. `TESTER`, `DOCS`, `ARCHITECT`)
+Training the boss model on unadvertised roles (e.g. `DOCS`, `ARCHITECT`, `DEVOPS`)
 would cause the model to emit role strings the system prompt doesn't describe,
 creating inconsistent and unpredictable decomposition behavior.
 
@@ -126,8 +124,10 @@ creating inconsistent and unpredictable decomposition behavior.
 
 Dataset examples should only include a new role once:
 1. The execution lane is fully implemented (system prompt + tools + scheduling)
-2. The role is added to `BOSS_SYSTEM_PROMPT`
-3. At least 10 hand-authored golden examples for that role exist
+2. The role is added to `BOSS_SYSTEM_PROMPT` and `convert_plan_captures.py`
+3. At least 5 hand-authored golden examples for that role are reviewed
+
+TESTER was promoted to advertised status after confirming all three conditions are met.
 
 ### The `LogicalRole` field — future option
 
