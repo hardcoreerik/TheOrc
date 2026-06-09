@@ -1,5 +1,3 @@
-> **Moved** → [`dev-notes/GOBLIN_MIND_UPDATES.md`](dev-notes/GOBLIN_MIND_UPDATES.md)
-
 # 🧠 GOBLIN MIND — Project Updates Log
 
 > Milestone tracking for TheOrc v1.1 — Universal Model Capability Discovery

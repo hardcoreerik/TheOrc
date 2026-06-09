@@ -13,7 +13,9 @@ public static class FileTools
          "dist", "build", ".next", "target", "bin", "obj"];
 
     /// <param name="onDiffPreview">
-    ///   Called before writing so the UI can show a diff. May be null.
+    ///   Async gate called before writing. Receives (path, oldContent, newContent, reason, ct)
+    ///   and returns <c>true</c> to allow the write or <c>false</c> to reject it.
+    ///   When null the write proceeds immediately (used by swarm workers in auto-approve mode).
     /// </param>
     /// <param name="onSandboxBypass">
     ///   Called when a resolved path is outside the workspace sandbox.
@@ -22,7 +24,7 @@ public static class FileTools
     ///   When null, all out-of-sandbox accesses are silently blocked.
     /// </param>
     public static void Register(ToolRegistry registry, string workspaceRoot,
-        Action<string, string, string>? onDiffPreview = null,
+        Func<string, string, string, string, CancellationToken, Task<bool>>? onDiffPreview = null,
         Func<string, string, string, CancellationToken, Task<bool>>? onSandboxBypass = null)
     {
         // ── read_file ──────────────────────────────────────────────────────
@@ -69,7 +71,9 @@ public static class FileTools
                 ["reason"]  = new("string", "Why this change is being made."),
             },
             Required = ["path", "content"],
-            RequiresApproval = true,   // always goes through approval + diff
+            // RequiresApproval = false here — the onDiffPreview callback IS the gate.
+            // When onDiffPreview is null (swarm auto-mode) no gate is shown and writes proceed.
+            RequiresApproval = false,
             Handler = async (args, ct) =>
             {
                 var path    = Resolve(workspaceRoot, args);
@@ -86,10 +90,19 @@ public static class FileTools
                                $"'{workspaceRoot}'. Write to a path inside the workspace instead.";
                 }
 
-                // Build diff for the approval UI
+                // ── Diff approval gate ────────────────────────────────────
+                // Pass old and new content to the callback so the UI can render the diff
+                // itself (e.g. using DiffViewer). The callback returns true to allow the
+                // write or false to reject it. When null (swarm auto-approve mode) the
+                // write proceeds unconditionally.
                 var existing = File.Exists(path) ? await File.ReadAllTextAsync(path, ct) : "";
-                var diff = BuildInlineDiff(existing, content);
-                onDiffPreview?.Invoke(path, diff, reason);
+
+                if (onDiffPreview is not null)
+                {
+                    var approved = await onDiffPreview(path, existing, content, reason, ct);
+                    if (!approved)
+                        return $"[REJECTED] User rejected the write to '{Path.GetRelativePath(workspaceRoot, path)}'.";
+                }
 
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                 await File.WriteAllTextAsync(path, content, ct);

@@ -20,9 +20,10 @@ namespace OrchestratorIDE.Agents;
 /// Phase 2b: CODER + UIDEVELOPER tasks run concurrently with research context injected.
 /// Phase 3:  Boss merges all worker results into final_report.md.
 ///
-/// Worker output files are written directly to the workspace root so they appear
-/// alongside the project. Run metadata (plan.json, trace, final_report.md) stays
-/// in <workspaceRoot>/.orc/swarm/runs/<runId>/ for inspection without cluttering the workspace.
+/// Worker output files are written to a staging area at <runDir>/staging/ so they
+/// can be reviewed before being applied to the workspace. Run metadata (plan.json,
+/// trace, final_report.md) and the staged files both live under <runDir>/.
+/// The OnStagingReady event fires when files are ready for the user to review.
 /// </summary>
 public class SwarmSession
 {
@@ -75,14 +76,23 @@ public class SwarmSession
     private string RunsRoot         => Path.Combine(_workspaceRoot ?? Path.GetTempPath(), ".orc", "swarm", "runs");
     private string RunDir           => Path.Combine(RunsRoot, _runId);
     /// <summary>
-    /// Workers write output files directly into the workspace root so they are immediately
-    /// visible alongside the project — not buried inside .orc/swarm/runs/.../output/project/.
+    /// Workers write files into a staging area under the run directory.
+    /// Files stay here until the user reviews and applies them to the workspace,
+    /// preventing the workspace root from being silently overwritten mid-run.
     /// </summary>
-    private string OutputProjectDir => _workspaceRoot ?? Path.GetTempPath();
+    private string OutputProjectDir => Path.Combine(RunDir, "staging");
     private string AgentsTaskDir    => Path.Combine(RunDir, "agents");
 
-    /// <summary>Returns the output/project dir for the last (or current) run. Empty if no run yet.</summary>
+    /// <summary>Returns the staging dir for the last (or current) run. Empty if no run yet.</summary>
     public string GetOutputProjectDir() => string.IsNullOrEmpty(_runId) ? "" : OutputProjectDir;
+
+    // ── Staging ready event ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// Raised when the swarm run completes and files are ready for review in the staging dir.
+    /// Args: (runId, stagingDir, files[]).
+    /// </summary>
+    public event Action<string, string, IReadOnlyList<string>>? OnStagingReady;
 
     // ── Directive injection ───────────────────────────────────────────────────
     private readonly List<string> _directives = [];
@@ -272,7 +282,7 @@ public class SwarmSession
             if (others.Count > 0)
             {
                 Activity($"Coder phase — {others.Count} worker(s) running concurrently", "boss");
-                _trace.WriteEvent("phase_start", $"Coder/UIDev phase: {others.Count} worker(s)");
+                _trace?.WriteEvent("phase_start", $"Coder/UIDev phase: {others.Count} worker(s)");
                 await Task.WhenAll(others.Select(t => RunWorkerAsync(t, findings, ct)));
 
                 var totalFiles = 0;
@@ -338,7 +348,7 @@ public class SwarmSession
             if (workerFiles > 0 && !ct.IsCancellationRequested)
             {
                 Activity("🧪 Tester goblin — verifying output files…", "boss");
-                _trace.WriteEvent("phase_start", "Verification phase");
+                _trace?.WriteEvent("phase_start", "Verification phase");
 
                 var testerTask = BuildTesterTask(userGoal, Tasks, OutputProjectDir, _targetLanguage);
                 Tasks.Add(testerTask);
@@ -348,7 +358,7 @@ public class SwarmSession
                 if (testerTask.Status == SwarmTaskStatus.Done && !string.IsNullOrWhiteSpace(testerTask.Result))
                 {
                     testerVerdict = ExtractTesterSummary(testerTask.Result);
-                    _trace.WriteEvent("verification_complete", testerVerdict);
+                    _trace?.WriteEvent("verification_complete", testerVerdict);
                     Activity($"🧪 Tester: {testerVerdict}", "boss");
 
                     // ── Boss spawns targeted fix task on FAIL ─────────────────
@@ -356,7 +366,7 @@ public class SwarmSession
                     {
                         fixTaskSpawned = true;
                         Activity("⚠ Tester found failures — Boss spawning targeted fix task", "boss");
-                        _trace.WriteEvent("fix_task_spawned", "Tester failure triggered fix pass");
+                        _trace?.WriteEvent("fix_task_spawned", "Tester failure triggered fix pass");
 
                         var fixTask = BuildFixTask(testerTask.Result, Tasks, _targetLanguage);
                         Tasks.Add(fixTask);
@@ -379,7 +389,7 @@ public class SwarmSession
 
             // ── Phase 4: Boss merge → final_report.md ────────────────────────
             Activity("Boss merging results → writing final_report.md", "boss");
-            _trace.WriteEvent("phase_start", "Boss merge");
+            _trace?.WriteEvent("phase_start", "Boss merge");
             var merged = await RunBossMergeAsync(userGoal, Tasks, ct, testerVerdict);
 
             // Extract final_report.md — only write to RunDir (not workspace root)
@@ -391,12 +401,22 @@ public class SwarmSession
                 await File.WriteAllTextAsync(finalReportPath, merged, ct);
 
             await SaveSwarmRunJsonAsync(userGoal, Tasks);
-            _trace.WriteAssistantMessage(merged, agent: "boss_merge", model: _bossModel);
-            _trace.WriteEvent("swarm_complete", "All phases done");
+            _trace?.WriteAssistantMessage(merged, agent: "boss_merge", model: _bossModel);
+            _trace?.WriteEvent("swarm_complete", "All phases done");
 
             // Count only files actually written by workers (tool calls + ### FILE: markers)
             var projectFiles = Tasks.Sum(t => t.ToolFilesWritten);
-            Activity($"Swarm complete — {projectFiles} file(s) written to workspace", "boss");
+
+            // Collect staged files and notify the UI so the user can review before applying
+            var stagedFiles = Directory.Exists(OutputProjectDir)
+                ? Directory.GetFiles(OutputProjectDir, "*", SearchOption.AllDirectories)
+                           .Select(f => f.Replace(OutputProjectDir, "").TrimStart(Path.DirectorySeparatorChar))
+                           .ToArray()
+                : [];
+            if (stagedFiles.Length > 0)
+                OnStagingReady?.Invoke(_runId, OutputProjectDir, stagedFiles);
+
+            Activity($"Swarm complete — {stagedFiles.Length} file(s) staged for review in .orc/swarm/runs/{_runId}/staging", "boss");
 
             // ── Emit run metrics (non-blocking, non-fatal) ────────────────────
             var tvEnum = testerVerdict switch

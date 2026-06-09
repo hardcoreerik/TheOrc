@@ -1,5 +1,3 @@
-> **Moved** → [`dev-notes/THE_ORC_HANDOFF.md`](dev-notes/THE_ORC_HANDOFF.md)
-
 # 🗡 Give This to Your A.I.!
 ### TheOrc — Full Architecture & Context Document
 

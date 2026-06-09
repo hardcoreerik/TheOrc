@@ -1,5 +1,3 @@
-> **Moved** → [`dev-notes/RESEARCH_TOOL_TODO.md`](dev-notes/RESEARCH_TOOL_TODO.md)
-
 # OrcResearcher — Underground Research Tool
 ## TODO / Project Specification
 

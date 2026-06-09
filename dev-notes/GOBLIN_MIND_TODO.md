@@ -1,5 +1,3 @@
-> **Moved** → [`dev-notes/GOBLIN_MIND_TODO.md`](dev-notes/GOBLIN_MIND_TODO.md)
-
 # 🧠 GOBLIN MIND — Universal Model Capability Discovery
 ### TheOrc v1.1 Major Milestone
 

@@ -256,9 +256,11 @@ Five model combos × five benchmark prompts. Run in this order; use BenchmarkRun
 | File | Purpose |
 |---|---|
 | `ROADMAP.md` | This file — full roadmap and debug list |
-| `GOBLIN_MIND_TODO.md` | Detailed phase breakdown for v1.1 capability discovery |
-| `GOBLIN_MIND_UPDATES.md` | Research log and milestone tracking |
 | `PROJECT_LOG.md` | Session history, bugs fixed, design decisions |
+| `dev-notes/GOBLIN_MIND_TODO.md` | Detailed phase breakdown for v1.1 capability discovery |
+| `dev-notes/GOBLIN_MIND_UPDATES.md` | Research log and milestone tracking |
+| `dev-notes/THE_ORC_HANDOFF.md` | Handoff notes for multi-machine setup |
+| `dev-notes/RESEARCH_TOOL_TODO.md` | Research tool backlog |
 | `Assets/theorc_swarm_complete_benchmark_pack.md` | Full benchmark pack — prompts, scoring rubric, deliverable contracts |
 | `Assets/theorc_theswarm_repeatable_test_prompts.md` | Quick-start test prompts |
 | `Tools/ToolCallTester/Program.cs` | `tool-probe.exe` — GOBLIN MIND CLI backend |
@@ -266,4 +268,4 @@ Five model combos × five benchmark prompts. Run in this order; use BenchmarkRun
 
 ---
 
-*TheOrc Roadmap — Updated 2026-06-08*
+*TheOrc Roadmap — Updated 2026-06-09*

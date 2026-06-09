@@ -107,7 +107,7 @@ public partial class MainWindow : Window
         {
             AddActivity(new ActivityEvent(ActivityKind.Info, "Open", Path.GetFileName(path), DateTime.Now));
             ShowEditorPane();
-            _editorPanel.OpenFile(path);
+            _editorPanel?.OpenFile(path);
         };
 
         // Code editor — wires up close-pane button
@@ -627,12 +627,33 @@ public partial class MainWindow : Window
                 return await tcs.Task;
             };
 
-        // Pass diff preview hook so write_file shows the DiffViewer
+        // Async diff approval gate — write_file calls this and waits for the user's decision.
+        // Guarded: show DiffViewer and await Approve/Reject.
+        // Standard/FullAuto: auto-approve.
+        // Plan: reject without showing UI.
         FileTools.Register(_registry, ws,
-            onDiffPreview: (path, diff, reason) =>
+            onDiffPreview: async (path, oldContent, newContent, reason, ct) =>
             {
-                // DiffViewer is shown inside AgentPanel — but approval gate handles it
-                // Store on the pending ToolCall for the approval dialog to use
+                switch (_approvals.Level)
+                {
+                    case TrustLevel.FullAuto:
+                    case TrustLevel.Standard:
+                        return true;
+
+                    case TrustLevel.Plan:
+                        return false;
+
+                    default: // Guarded — show diff viewer, await user decision
+                        var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>(
+                                      System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
+                        ct.Register(() => tcs.TrySetResult(false));
+                        await Dispatcher.InvokeAsync(() =>
+                            _agentPanel.ShowDiff(
+                                path, oldContent, newContent, reason,
+                                onApproved: () => tcs.TrySetResult(true),
+                                onRejected: () => tcs.TrySetResult(false)));
+                        return await tcs.Task;
+                }
             },
             onSandboxBypass: sandboxBypass);
         ShellTools.Register(_registry, ws, onSandboxBypass: sandboxBypass);

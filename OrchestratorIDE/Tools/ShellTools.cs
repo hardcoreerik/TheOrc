@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Trust;
 
@@ -6,9 +7,6 @@ namespace OrchestratorIDE.Tools;
 
 public static class ShellTools
 {
-    private static readonly string[] _blocked =
-        ["rm ", "rmdir", "del ", "format", "shutdown", "reboot",
-         "git reset --hard", "git checkout --", "taskkill", "Stop-Process"];
 
     /// <param name="onSandboxBypass">
     ///   Called when the requested working directory is outside the workspace sandbox.
@@ -74,9 +72,10 @@ public static class ShellTools
                     ? cmd
                     : $"{envSetup.TrimEnd(';', ' ')}; {cmd}";
 
-                // Safety check (run on the combined string)
-                if (_blocked.Any(b => fullCmd.Contains(b, StringComparison.OrdinalIgnoreCase)))
-                    return "[BLOCKED] This command is not allowed for safety.";
+                // Policy check — replaces the old hard-coded string list
+                var policy = ToolPolicyEngine.Evaluate("run_shell", args, workspaceRoot);
+                if (policy.BlockReason is not null)
+                    return policy.BlockReason;
 
                 return await RunAsync(fullCmd, cwd, ct);
             }
@@ -85,10 +84,14 @@ public static class ShellTools
 
     public static async Task<string> RunAsync(string cmd, string cwd, CancellationToken ct, int maxBytes = 32_000)
     {
+        // Use -EncodedCommand to avoid all quote-escaping fragility.
+        // PowerShell -EncodedCommand expects UTF-16LE base64.
+        var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(cmd));
+
         var psi = new ProcessStartInfo
         {
             FileName  = "powershell",
-            Arguments = $"-NoProfile -NonInteractive -Command \"{cmd.Replace("\"", "\\\"")}\"",
+            Arguments = $"-NoProfile -NonInteractive -EncodedCommand {encoded}",
             WorkingDirectory = cwd,
             RedirectStandardOutput = true,
             RedirectStandardError  = true,
