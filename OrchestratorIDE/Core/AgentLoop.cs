@@ -152,6 +152,37 @@ public class AgentLoop
                 $"Profile: {tcMode} — sending tools[] array.", 3);
         }
 
+        // ── GOBLIN MIND: Schema Simplification ──────────────────────────────
+        // Pre-build the tool schema payload that will be sent to OllamaClient.
+        // If this model has known schema complexity issues, apply simplification
+        // rules transparently. Users never see this transform.
+        var simplRules = ToolCallProfileStore.GetSimplificationRules(session.ActiveModel);
+        IReadOnlyList<object> toolsPayload;
+        if (tools.Count == 0)
+        {
+            toolsPayload = [];
+        }
+        else if (simplRules != null && !simplRules.IsNoOp)
+        {
+            // Convert ToolDefinition→Ollama schema first, then apply simplification
+            var rawSchemas = tools.Select(t => (object)t.ToOllamaSchema()).ToList();
+            toolsPayload = SchemaSimplifier.Apply(rawSchemas, simplRules);
+            Emit(ActivityKind.Debug, "Schema simplifier",
+                $"Applied rules: {simplRules.Summary}", 3);
+        }
+        else
+        {
+            toolsPayload = tools.Select(t => (object)t.ToOllamaSchema()).ToList();
+        }
+
+        // ── GOBLIN MIND: Format Fingerprint ─────────────────────────────────
+        // Read the model's preferred tool-call format from its probe profile.
+        // Passed into BuildMessages so the system prompt uses the right format.
+        var preferredFormat = ToolCallProfileStore.GetPreferredFormat(session.ActiveModel);
+        if (preferredFormat != FormatVariant.BareJson)
+            Emit(ActivityKind.Debug, "Format fingerprint",
+                $"Using {preferredFormat} tool call format for this model.", 3);
+
         // Load project rules (global agent + workspace rules merged)
         var rulesText  = await _rules.LoadAsync(session.WorkspaceRoot);
         var globalPath = AgentPresets.GlobalAgentPath;
@@ -186,7 +217,7 @@ public class AgentLoop
             Emit(ActivityKind.Git, "Checkpoint", $"SHA {checkpointSha[..8]}");
         }
 
-        var messages = BuildMessages(session, userPrompt, planOnly: false, rulesText: rulesText);
+        var messages = BuildMessages(session, userPrompt, planOnly: false, rulesText: rulesText, toolFormat: preferredFormat);
         _context.Update(messages);
 
         var stepCount = 0;
@@ -204,7 +235,8 @@ public class AgentLoop
             var contentBuilder = new System.Text.StringBuilder();
 
             await foreach (var token in _ollama.StreamCompletionAsync(
-                session.ActiveModel, messages, tools,
+                session.ActiveModel, messages,
+                tools: toolsPayload.Count > 0 ? toolsPayload : null,
                 temperature: profile.Temperature,
                 onToolCall: tc => pendingToolCalls.Add(tc),
                 onUsage: (p, c) => OnUsage?.Invoke(p, c),
@@ -393,12 +425,13 @@ public class AgentLoop
         ProjectSession session,
         string userPrompt,
         bool planOnly,
-        string? rulesText = null)
+        string? rulesText = null,
+        FormatVariant toolFormat = FormatVariant.BareJson)
     {
         var profile = ModelProfiles.Get(session.ActiveModel);
         var systemPrompt = planOnly
             ? BuildPlanSystemPrompt(profile, rulesText)
-            : BuildExecuteSystemPrompt(profile, session.WorkspaceRoot, rulesText);
+            : BuildExecuteSystemPrompt(profile, session.WorkspaceRoot, rulesText, toolFormat);
 
         var messages = new List<AgentMessage>
         {
@@ -427,7 +460,7 @@ public class AgentLoop
         return sb.ToString();
     }
 
-    private static string BuildExecuteSystemPrompt(ModelProfile profile, string workspaceRoot, string? rules)
+    private static string BuildExecuteSystemPrompt(ModelProfile profile, string workspaceRoot, string? rules, FormatVariant toolFormat = FormatVariant.BareJson)
     {
         var prompt = profile.PromptStyle switch
         {
@@ -466,25 +499,21 @@ public class AgentLoop
         prompt += "\n- If a tool does not exist, use write_file + run_shell to achieve the same result.";
         prompt += "\n- The user cannot follow manual instructions — they need working files on disk.";
 
-        // Explicit tool call format — required for models that don't use structured tool_calls API
+        // ── GOBLIN MIND: Format-aware tool call instructions ────────────────
+        // Use the model's proven preferred format from FormatProbeEngine.
+        // Falls back to BareJson (safest default) when no fingerprint exists.
+        prompt += FormatProbeEngine.BuildToolFormatSection(toolFormat);
+
+        // Append universal rules that apply regardless of format
         prompt += """
 
 
-TOOL CALL FORMAT (critical — follow exactly):
-To use a tool, output a raw JSON object on its own line. No markdown, no explanation before or after it.
-
-Examples:
-{"name": "write_file", "arguments": {"path": "Calculator.cs", "content": "public class Calculator\n{\n    public double Add(double a, double b) => a + b;\n}"}}
-{"name": "read_file", "arguments": {"path": "Program.cs"}}
-{"name": "list_files", "arguments": {"path": ".", "depth": 2}}
-{"name": "run_shell", "arguments": {"command": "dotnet build"}}
-
-RULES:
-- Do NOT wrap code in ```code blocks```. Put file content inside the JSON "content" field.
+RULES (apply to all tool call formats):
+- Do NOT wrap code in ```code blocks```. Put file content inside the tool call.
 - Do NOT say "I would write..." or describe what you plan to do. Call the tool directly.
-- Escape newlines as \n and quotes as \" inside JSON string values.
+- Escape newlines as \n and quotes as \" inside string values.
 - After every tool call, wait for the result before continuing.
-- When the task is fully complete, respond with plain text — no more JSON.
+- When the task is fully complete, respond with plain text — no more tool calls.
 """;
 
         if (!string.IsNullOrEmpty(rules))

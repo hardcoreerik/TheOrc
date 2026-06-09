@@ -65,6 +65,45 @@ public class ProbeRow : INotifyPropertyChanged
         _                     => "#666666",
     };
 
+    // ── GOBLIN MIND Phase 1: Format Fingerprint ───────────────────────────────
+
+    private FormatVariant? _fmt;
+    public FormatVariant? FormatValue
+    {
+        get => _fmt;
+        set { _fmt = value; OnChanged(nameof(FormatDisplay)); OnChanged(nameof(FormatColor)); }
+    }
+    // Only show on NativeApi row to avoid duplication (format is per-model not per-mode)
+    public string FormatDisplay => Mode == ProbeMode.NativeApi
+        ? (_fmt?.ToString() ?? "—")
+        : "";
+    public string FormatColor => _fmt == null ? "#444444" : "#F0C060";
+
+    // ── GOBLIN MIND Phase 2: Category Boundary Map ────────────────────────────
+
+    private string? _cats;
+    public string? CatsSummary
+    {
+        get => _cats;
+        set { _cats = value; OnChanged(nameof(CatsDisplay)); OnChanged(nameof(CatsColor)); }
+    }
+    // Only show on NativeApi row
+    public string CatsDisplay => Mode == ProbeMode.NativeApi ? (_cats ?? "—") : "";
+    public string CatsColor
+    {
+        get
+        {
+            if (_cats == null || Mode != ProbeMode.NativeApi) return "#444444";
+            if (_cats.Contains('/'))
+            {
+                var parts = _cats.Split('/');
+                if (int.TryParse(parts[0], out var pass) && int.TryParse(parts[1], out var total))
+                    return pass >= total - 1 ? "#4EC94E" : pass >= total / 2 ? "#F0C060" : "#F44747";
+            }
+            return "#888888";
+        }
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnChanged(string n) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));
 }
@@ -114,6 +153,90 @@ public partial class ToolCallTestWindow : Window
     {
         _cts?.Cancel();
         Log("Stopped by user.");
+    }
+
+    private async void BtnRunGoblinMind_Click(object sender, RoutedEventArgs e)
+    {
+        // Run dispatch probe first, then format + category probes for same models
+        var models = DgResults.SelectedItem is ProbeRow sel
+            ? (IReadOnlyList<string>)[sel.ModelId]
+            : await GetInstalledModelsAsync();
+        if (models.Count == 0) { Log("No models found."); return; }
+
+        // Dispatch probe
+        await RunAsync(models);
+
+        // Format + category probes
+        await RunGoblinMindAsync(models);
+    }
+
+    // ── Goblin Mind runner (Format + Category) ────────────────────────────────
+
+    private async Task RunGoblinMindAsync(IReadOnlyList<string> models)
+    {
+        _cts = new CancellationTokenSource();
+        SetRunning(true);
+
+        var host          = _settings.OllamaHost ?? "http://localhost:11434";
+        var formatEngine  = new FormatProbeEngine(host);
+        var categoryEngine = new CategoryProbeEngine(host);
+
+        var done  = 0;
+        var total = models.Count * 2;   // format + category per model
+        PbProgress.Value = 0;
+
+        foreach (var model in models)
+        {
+            if (_cts.Token.IsCancellationRequested) break;
+
+            // ── Phase 1: Format Fingerprinting ───────────────────────────────
+            Log($"\n🎨 [Format] {model}");
+            TbStatus.Text = $"Format probe: {ShortName(model)}… ({done * 2 + 1}/{total})";
+            FormatFingerprint? fingerprint = null;
+            try
+            {
+                fingerprint = await formatEngine.RunAsync(model, Log, _cts.Token);
+                await ToolCallProfileStore.SaveFormatFingerprintAsync(model, fingerprint);
+            }
+            catch (OperationCanceledException) { break; }
+            catch (Exception ex) { Log($"  Format probe ERROR: {ex.Message}"); }
+
+            // Update rows
+            Dispatcher.Invoke(() =>
+            {
+                var nRow = _rows.FirstOrDefault(r => r.ModelId == model && r.Mode == ProbeMode.NativeApi);
+                if (nRow != null && fingerprint != null)
+                    nRow.FormatValue = fingerprint.PreferredFormat;
+            });
+            done++;
+            PbProgress.Value = (double)done * 2 / total * 100;
+
+            // ── Phase 2: Category Boundary Mapping ───────────────────────────
+            Log($"\n🗂  [Category] {model}");
+            TbStatus.Text = $"Category probe: {ShortName(model)}… ({done * 2}/{total})";
+            CategoryBoundaryMap? catMap = null;
+            try
+            {
+                catMap = await categoryEngine.RunAsync(model, Log, _cts.Token);
+                await ToolCallProfileStore.SaveCategoryMapAsync(model, catMap);
+            }
+            catch (OperationCanceledException) { break; }
+            catch (Exception ex) { Log($"  Category probe ERROR: {ex.Message}"); }
+
+            // Update rows
+            Dispatcher.Invoke(() =>
+            {
+                var nRow = _rows.FirstOrDefault(r => r.ModelId == model && r.Mode == ProbeMode.NativeApi);
+                if (nRow != null && catMap != null)
+                    nRow.CatsSummary = catMap.ShortSummary;
+            });
+            done++;
+            PbProgress.Value = (double)done * 2 / total * 100;
+        }
+
+        SetRunning(false);
+        TbStatus.Text = _cts.IsCancellationRequested ? "Stopped" : $"Goblin Mind profile complete — {done / 2} model(s)";
+        PbProgress.Value = 100;
     }
 
     // ── Core runner ───────────────────────────────────────────────────────────
@@ -177,6 +300,17 @@ public partial class ToolCallTestWindow : Window
             // Persist
             await ToolCallProfileStore.SaveFromProbeResultAsync(result);
             Log($"  → {result.SummaryLine}");
+
+            // Backfill FORMAT / CATS columns from any previously stored Goblin Mind profile
+            var stored = ToolCallProfileStore.Load(model);
+            if (stored != null)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    if (stored.FormatProfile   != null) nativeRow.FormatValue = stored.FormatProfile.PreferredFormat;
+                    if (stored.CategoryProfile != null) nativeRow.CatsSummary = stored.CategoryProfile.ShortSummary;
+                });
+            }
 
             done++;
             PbProgress.Value = (double)done / total * 100;
@@ -262,6 +396,12 @@ public partial class ToolCallTestWindow : Window
 
             nativeRow.RecModeValue = profile.RecommendedMode;
             textRow.RecModeValue   = profile.RecommendedMode;
+
+            // ── GOBLIN MIND: populate FORMAT / CATS columns from stored profile ──
+            if (profile.FormatProfile != null)
+                nativeRow.FormatValue = profile.FormatProfile.PreferredFormat;
+            if (profile.CategoryProfile != null)
+                nativeRow.CatsSummary = profile.CategoryProfile.ShortSummary;
         }
     }
 

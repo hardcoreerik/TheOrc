@@ -141,7 +141,7 @@ public class OllamaClient
     public async IAsyncEnumerable<string> StreamCompletionAsync(
         string model,
         IEnumerable<AgentMessage> history,
-        IReadOnlyList<ToolDefinition>? tools = null,
+        IReadOnlyList<object>? tools = null,
         double temperature = 0.1,
         int maxTokens = 4096,
         Action<ToolCall>? onToolCall = null,
@@ -164,8 +164,10 @@ public class OllamaClient
             ["max_tokens"] = maxTokens,
         };
 
+        // tools items are already Ollama-schema objects (built by AgentLoop via
+        // ToolDefinition.ToOllamaSchema(), then optionally simplified by SchemaSimplifier)
         if (tools?.Count > 0)
-            payload["tools"] = tools.Select(t => t.ToOllamaSchema()).ToList();
+            payload["tools"] = tools;
 
         var body = new StringContent(
             JsonSerializer.Serialize(payload, _json),

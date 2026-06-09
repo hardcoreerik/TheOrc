@@ -9,6 +9,11 @@ namespace OrchestratorIDE.Services.ToolCalls;
 /// <summary>
 /// Persisted tool-call capability profile for one model.
 /// Written by ToolCallProbeEngine, read by AgentLoop to select dispatch strategy.
+///
+/// Extended in GOBLIN MIND v1.1:
+///   FormatProfile   — preferred serialization format (from FormatProbeEngine)
+///   CategoryProfile — task-category boundary map (from CategoryProbeEngine)
+///   Simplification  — schema simplification rules derived from probe failures
 /// </summary>
 public record ToolCallProfile(
     string         ModelId,
@@ -21,15 +26,31 @@ public record ToolCallProfile(
     Dictionary<string, bool> TestPassMap
 )
 {
+    // ── GOBLIN MIND Phase 1: Format Fingerprint ─────────────────────────────
+    public FormatFingerprint?          FormatProfile      { get; init; }
+
+    // ── GOBLIN MIND Phase 2: Category Boundary Map ──────────────────────────
+    public CategoryBoundaryMap?        CategoryProfile    { get; init; }
+
+    // ── GOBLIN MIND Phase 4: Schema Simplification Rules ────────────────────
+    public SchemaSimplificationRules?  Simplification     { get; init; }
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
     /// <summary>How long ago this profile was captured.</summary>
     public TimeSpan Age => DateTime.UtcNow - TestedAt;
 
     /// <summary>Should this profile be re-tested? (> 7 days old or unknown mode)</summary>
     public bool IsStale => Age.TotalDays > 7 || RecommendedMode == ToolCallMode.Unknown;
 
+    /// <summary>Has the full Goblin Mind profile been run (format + categories)?</summary>
+    public bool HasGoblinMindProfile => FormatProfile != null && CategoryProfile != null;
+
     /// <summary>One-line display summary.</summary>
     public string Summary =>
-        $"native={NativePasses}/{TotalTests / 2}  text={TextPasses}/{TotalTests / 2}  → {RecommendedMode}  (tested {TestedAt:yyyy-MM-dd})";
+        $"native={NativePasses}/{TotalTests / 2}  text={TextPasses}/{TotalTests / 2}  → {RecommendedMode}  (tested {TestedAt:yyyy-MM-dd})" +
+        (FormatProfile  != null ? $"  fmt={FormatProfile.PreferredFormat}" : "") +
+        (CategoryProfile != null ? $"  cats={CategoryProfile.ShortSummary}" : "");
 }
 
 // ── Store ────────────────────────────────────────────────────────────────────
@@ -81,6 +102,10 @@ public static class ToolCallProfileStore
             o => $"{o.TestId}_{o.Mode}",
             o => o.Result == ProbeResult.Pass);
 
+        // Preserve any existing GOBLIN MIND profile data so that re-running
+        // the dispatch probe does not wipe previously recorded format/category info.
+        var existing = Load(result.ModelId);
+
         var profile = new ToolCallProfile(
             ModelId:         result.ModelId,
             TestedAt:        result.TestedAt,
@@ -89,7 +114,12 @@ public static class ToolCallProfileStore
             TextPasses:      result.TextPasses,
             TotalTests:      result.TotalTests,
             TestPassMap:     testMap
-        );
+        )
+        {
+            FormatProfile    = existing?.FormatProfile,
+            CategoryProfile  = existing?.CategoryProfile,
+            Simplification   = existing?.Simplification,
+        };
         return SaveAsync(profile);
     }
 
@@ -153,5 +183,65 @@ public static class ToolCallProfileStore
     {
         var mode = GetMode(modelId, !defaultValue);
         return mode is ToolCallMode.TextJson or ToolCallMode.Both;
+    }
+
+    // ── GOBLIN MIND query interface ───────────────────────────────────────────
+
+    /// <summary>
+    /// Returns the format fingerprint for a model, or null if not yet probed.
+    /// Used by AgentLoop to pick the right text-JSON system prompt format.
+    /// </summary>
+    public static FormatFingerprint? GetFormatFingerprint(string modelId)
+        => Load(modelId)?.FormatProfile;
+
+    /// <summary>
+    /// Returns the preferred FormatVariant for a model.
+    /// Falls back to BareJson (safest default) when no fingerprint exists.
+    /// </summary>
+    public static FormatVariant GetPreferredFormat(string modelId)
+        => Load(modelId)?.FormatProfile?.PreferredFormat ?? FormatVariant.BareJson;
+
+    /// <summary>
+    /// Returns the category boundary map for a model, or null if not yet probed.
+    /// Used by SwarmSession to gate task routing.
+    /// </summary>
+    public static CategoryBoundaryMap? GetCategoryMap(string modelId)
+        => Load(modelId)?.CategoryProfile;
+
+    /// <summary>
+    /// Returns schema simplification rules for a model.
+    /// Null means no simplification needed (or not yet determined).
+    /// </summary>
+    public static SchemaSimplificationRules? GetSimplificationRules(string modelId)
+        => Load(modelId)?.Simplification;
+
+    /// <summary>
+    /// Save updated format fingerprint onto an existing profile (or create one).
+    /// Preserves all other profile data.
+    /// </summary>
+    public static async Task SaveFormatFingerprintAsync(string modelId, FormatFingerprint fp)
+    {
+        var existing = Load(modelId) ?? new ToolCallProfile(
+            ModelId: modelId, TestedAt: DateTime.UtcNow,
+            RecommendedMode: ToolCallMode.Unknown,
+            NativePasses: 0, TextPasses: 0, TotalTests: 0,
+            TestPassMap: []);
+        await SaveAsync(existing with { FormatProfile = fp });
+    }
+
+    /// <summary>
+    /// Save updated category map onto an existing profile (or create one).
+    /// Preserves all other profile data including format fingerprint.
+    /// Also derives and saves schema simplification rules.
+    /// </summary>
+    public static async Task SaveCategoryMapAsync(string modelId, CategoryBoundaryMap map)
+    {
+        var existing = Load(modelId) ?? new ToolCallProfile(
+            ModelId: modelId, TestedAt: DateTime.UtcNow,
+            RecommendedMode: ToolCallMode.Unknown,
+            NativePasses: 0, TextPasses: 0, TotalTests: 0,
+            TestPassMap: []);
+        var rules = SchemaSimplifier.DeriveRules(existing);
+        await SaveAsync(existing with { CategoryProfile = map, Simplification = rules });
     }
 }
