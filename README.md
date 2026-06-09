@@ -100,50 +100,111 @@ A dedicated research mode with web search and tool use — for when you need ans
 
 ## Supported Hardware
 
-| GPU | Runtime | Recommended Model |
-|---|---|---|
-| NVIDIA RTX (CUDA 12) | cuda12 | Qwen2.5-Coder 14B Q4 |
-| NVIDIA GTX (CUDA 11) | cuda11 | Qwen2.5-Coder 7B Q5 |
-| AMD RX / Pro | Vulkan | Qwen2.5-Coder 7B Q5 |
-| Intel Arc | Vulkan | Qwen2.5-Coder 7B Q5 |
-| CPU (AVX2) | avx2 | Qwen2.5-Coder 3B Q8 |
-| CPU (baseline) | cpu | Qwen2.5-Coder 1.5B Q8 |
+| GPU | Inference Backend | VRAM | Performance |
+|---|---|---|---|
+| NVIDIA RTX 40/50 (CUDA 12) | llama.cpp cuda12 | Up to 24 GB | Maximum throughput |
+| NVIDIA RTX 30 / GTX (CUDA 11) | llama.cpp cuda11 | Up to 16 GB | High throughput |
+| AMD RX 7000 / 6000 | llama.cpp Vulkan | Up to 16 GB | Good throughput |
+| Intel Arc | llama.cpp Vulkan | Up to 12 GB | Moderate throughput |
+| CPU with AVX2 | llama.cpp avx2 | System RAM | Low, small models only |
+| CPU baseline | llama.cpp cpu | System RAM | Minimal — 1.5B/3B only |
+
+TheOrc auto-detects your GPU and CUDA version at install time. Ollama is also supported as an alternative backend — point the Settings panel at any Ollama host.
 
 ---
 
-## Model Tiers
+## Model Catalog
 
-| VRAM | Model | Quality | Notes |
-|---|---|---|---|
-| CPU only | Qwen2.5-Coder 1.5B Q8 | ★★ | Fast, simple edits |
-| 3–4 GB | Qwen2.5-Coder 3B Q8 | ★★★ | Entry level |
-| 5–6 GB | Qwen2.5-Coder 7B Q5 | ★★★★ | **Balanced pick** |
-| 8–10 GB | Qwen2.5-Coder 7B Q8 | ★★★★ | Higher accuracy |
-| 10–12 GB | Qwen2.5-Coder 14B Q4 | ★★★★★ | **Recommended** |
-| 14–18 GB | Qwen2.5-Coder 32B Q3 | ★★★★★ | Flagship |
-| 20–24 GB | Qwen2.5-Coder 32B Q4 | ★★★★★ | **Best available** |
+TheOrc ships with a curated catalog of tested GGUF models spanning 8 model families. The installer auto-selects based on your VRAM; you can switch any model at any time from the Model Library.
 
-Profile-specific alternatives auto-suggested by the installer:
-- **Security/Pentest** → Hermes-4 14B (fewer restrictions, agentic)
-- **Game Dev / Systems** → DeepSeek-Coder-V2-Lite (stronger C++/GLSL)
-- **UI/UX / Mobile** → Phi-4 Mini (fast, structured output)
+**Publisher legend:**
+
+![Qwen](https://img.shields.io/badge/Qwen-Alibaba-FF6A00?style=flat-square&logoColor=white)
+![Meta](https://img.shields.io/badge/Llama-Meta_AI-0668E1?style=flat-square&logoColor=white)
+![Microsoft](https://img.shields.io/badge/Phi-Microsoft-0078D4?style=flat-square&logoColor=white)
+![DeepSeek](https://img.shields.io/badge/R1%2FCoder-DeepSeek-6148FF?style=flat-square&logoColor=white)
+![Nous](https://img.shields.io/badge/Hermes-Nous_Research-C41E3A?style=flat-square&logoColor=white)
+![Google](https://img.shields.io/badge/Gemma-Google_DeepMind-4285F4?style=flat-square&logoColor=white)
+![Mistral](https://img.shields.io/badge/Mistral%2FCodestral-Mistral_AI-F54800?style=flat-square&logoColor=white)
+![NVIDIA](https://img.shields.io/badge/Nemotron-NVIDIA-76B900?style=flat-square&logoColor=white)
+
+**Swarm role icons:** 🧠 Boss (TheOrc) · ⚙️ Worker (Coder) · 🔍 Researcher
+
+---
+
+### Tiny Tier — CPU / 2–4 GB VRAM
+
+| Model | Publisher | Roles | Quality | Notes |
+|---|---|---|---|---|
+| Qwen 2.5 Coder 1.5B Q8 | ![Qwen](https://img.shields.io/badge/-Qwen%2FAlibaba-FF6A00?style=flat-square) | ⚙️ 🔍 | ★★★ | CPU-ok. Fastest response on any hardware. |
+| Qwen 2.5 Coder 3B Q8 | ![Qwen](https://img.shields.io/badge/-Qwen%2FAlibaba-FF6A00?style=flat-square) | ⚙️ 🔍 | ★★★ | Entry coder. Runs well on 4 GB cards. |
+| Llama 3.2 3B Q5 | ![Meta](https://img.shields.io/badge/-Meta_AI-0668E1?style=flat-square) | 🔍 | ★★★ | Fast researcher. Good for quick lookups. |
+| Phi-3.5 Mini Q4 | ![Microsoft](https://img.shields.io/badge/-Microsoft-0078D4?style=flat-square) | 🔍 | ★★★ | 128K context. Best long-doc reader at 4 GB. |
+
+---
+
+### Small Tier — 4–8 GB VRAM
+
+| Model | Publisher | Roles | Quality | Notes |
+|---|---|---|---|---|
+| **Phi-4 Mini Q8** | ![Microsoft](https://img.shields.io/badge/-Microsoft-0078D4?style=flat-square) | 🧠 🔍 | ★★★★ | **Best Boss for 8 GB cards.** Strong reasoning in 3.8B params. |
+| Nemotron Mini 4B Q5 | ![NVIDIA](https://img.shields.io/badge/-NVIDIA-76B900?style=flat-square) | ⚙️ | ★★★★ | NVIDIA-optimised. Fast tool use on RTX cards. |
+| **Qwen 2.5 Coder 7B Q5** | ![Qwen](https://img.shields.io/badge/-Qwen%2FAlibaba-FF6A00?style=flat-square) | ⚙️ | ★★★★ | **Default worker.** Beats many 14B models on HumanEval. |
+| Llama 3.1 8B Q5 | ![Meta](https://img.shields.io/badge/-Meta_AI-0668E1?style=flat-square) | 🧠 ⚙️ 🔍 | ★★★★ | Most versatile 8B model. Runs in all 3 roles. |
+| Hermes 3 8B Q5 | ![Nous](https://img.shields.io/badge/-Nous_Research-C41E3A?style=flat-square) | 🧠 🔍 | ★★★★ | Tool-use specialist. Best Boss at 8 GB if planning is the bottleneck. |
+| DeepSeek R1 Distill 7B Q5 | ![DeepSeek](https://img.shields.io/badge/-DeepSeek_AI-6148FF?style=flat-square) | 🧠 | ★★★★ | Visible chain-of-thought reasoning. Strong Boss candidate. |
+| Mistral 7B v0.3 Q5 | ![Mistral](https://img.shields.io/badge/-Mistral_AI-F54800?style=flat-square) | ⚙️ 🔍 | ★★★ | Solid baseline. Good for mixed code + research tasks. |
+
+---
+
+### Mid Tier — 8–14 GB VRAM
+
+| Model | Publisher | Roles | Quality | Notes |
+|---|---|---|---|---|
+| Qwen 2.5 Coder 7B Q8 | ![Qwen](https://img.shields.io/badge/-Qwen%2FAlibaba-FF6A00?style=flat-square) | ⚙️ | ★★★★ | Near-lossless Q8. Higher accuracy on edge-case tool calls. |
+| Gemma 3 12B Q4 | ![Google](https://img.shields.io/badge/-Google_DeepMind-4285F4?style=flat-square) | ⚙️ | ★★★★ | Google's latest. Strong multilingual + doc understanding. |
+| Mistral Nemo 12B Q4 | ![Mistral](https://img.shields.io/badge/-Mistral_AI-F54800?style=flat-square) | 🧠 🔍 | ★★★★ | 128K context. Best for long-document research sessions. |
+| **Qwen 2.5 Coder 14B Q4** | ![Qwen](https://img.shields.io/badge/-Qwen%2FAlibaba-FF6A00?style=flat-square) | 🧠 ⚙️ | ★★★★★ | **Recommended default.** Best code quality under 14 GB. |
+| Phi-4 14B Q4 | ![Microsoft](https://img.shields.io/badge/-Microsoft-0078D4?style=flat-square) | 🧠 | ★★★★★ | Microsoft's flagship reasoning model. Exceptional Boss. |
+| **Hermes 4 14B Q5** | ![Nous](https://img.shields.io/badge/-Nous_Research-C41E3A?style=flat-square) | 🧠 ⚙️ | ★★★★★ | **Best Boss for pentest/security profiles.** Elite tool use. |
+| DeepSeek R1 Distill 14B Q4 | ![DeepSeek](https://img.shields.io/badge/-DeepSeek_AI-6148FF?style=flat-square) | 🧠 | ★★★★★ | Full chain-of-thought at 14B. Best reasoning Boss in this tier. |
+| DeepSeek Coder V2 Lite Q5 | ![DeepSeek](https://img.shields.io/badge/-DeepSeek_AI-6148FF?style=flat-square) | ⚙️ | ★★★★ | MoE architecture. Fast C/C++/Rust specialist worker. |
+| Qwen 2.5 14B Instruct Q4 | ![Qwen](https://img.shields.io/badge/-Qwen%2FAlibaba-FF6A00?style=flat-square) | 🧠 | ★★★★★ | General reasoning Boss. Better task decomposition than Coder variant. |
+
+---
+
+### Large Tier — 14–24 GB VRAM
+
+| Model | Publisher | Roles | Quality | Notes |
+|---|---|---|---|---|
+| **Codestral 22B Q4** | ![Mistral](https://img.shields.io/badge/-Mistral_AI-F54800?style=flat-square) | ⚙️ | ★★★★★ | **Best pure code worker.** 80+ languages, FIM-optimised. |
+| Qwen 2.5 Coder 32B Q3 | ![Qwen](https://img.shields.io/badge/-Qwen%2FAlibaba-FF6A00?style=flat-square) | 🧠 ⚙️ | ★★★★★ | 32B quality at 16–20 GB. Minor quality trade from Q3 quant. |
+| **Qwen 2.5 Coder 32B Q4** | ![Qwen](https://img.shields.io/badge/-Qwen%2FAlibaba-FF6A00?style=flat-square) | 🧠 ⚙️ | ★★★★★ | **Best available at 24 GB.** Approaches GPT-4 quality locally. |
+
+---
+
+### Flagship Tier — 40+ GB VRAM (multi-GPU)
+
+| Model | Publisher | Roles | Quality | Notes |
+|---|---|---|---|---|
+| Llama 3.3 70B Q4 | ![Meta](https://img.shields.io/badge/-Meta_AI-0668E1?style=flat-square) | 🧠 | ★★★★★ | Near-GPT-4 quality. Best Boss for extreme VRAM. |
 
 ---
 
 ## Coding Profiles
 
-The installer tailors the agent's `.agent.md` rules to your discipline:
+The installer tailors the agent's `.agent.md` rules to your discipline and auto-suggests the best model family for each profile:
 
-| Profile | Stack |
-|---|---|
-| 🌐 Web / Full-Stack | TypeScript · React 18 · Node.js · REST/GraphQL |
-| ⚙️ Systems / Embedded | C · C++ · Rust · RTOS · BSP drivers |
-| 📊 Data / AI / ML | Python · PyTorch · scikit-learn · Polars · MLflow |
-| 🔐 Security / Pentest | Recon · OWASP · Metasploit · Impacket · Flipper/RF |
-| 🎨 UI / UX | Design tokens · WCAG 2.2 · React · Tailwind · Motion |
-| 🎮 Game Development | Unity C# · Unreal C++ · HLSL/GLSL · Physics · AI |
-| 📱 Android / Apple | Kotlin + Compose · Swift + SwiftUI · React Native |
-| 📈 Finance / FinTech | Trading systems · Risk · Crypto · Decimal math · Audit |
+| Profile | Stack | Suggested Model |
+|---|---|---|
+| 🌐 Web / Full-Stack | TypeScript · React 18 · Node.js · REST/GraphQL | Qwen 2.5 Coder |
+| ⚙️ Systems / Embedded | C · C++ · Rust · RTOS · BSP drivers | DeepSeek Coder V2 · Qwen 2.5 Coder |
+| 📊 Data / AI / ML | Python · PyTorch · scikit-learn · Polars · MLflow | Qwen 2.5 Coder · Llama 3.1 8B |
+| 🔐 Security / Pentest | Recon · OWASP · Metasploit · Impacket · Flipper/RF | Hermes 4 (fewer restrictions, agentic) |
+| 🎨 UI / UX | Design tokens · WCAG 2.2 · React · Tailwind · Motion | Phi-4 Mini (fast structured output) |
+| 🎮 Game Development | Unity C# · Unreal C++ · HLSL/GLSL · Physics · AI | DeepSeek Coder V2 · Codestral 22B |
+| 📱 Android / Apple | Kotlin + Compose · Swift + SwiftUI · React Native | Qwen 2.5 Coder · Phi-4 Mini |
+| 📈 Finance / FinTech | Trading systems · Risk · Crypto · Decimal math · Audit | DeepSeek R1 Distill (strong reasoning) |
 
 ---
 
