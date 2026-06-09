@@ -114,6 +114,26 @@ public class OllamaClient
     // ── Model lifecycle ──────────────────────────────────────────────────────
 
     /// <summary>
+    /// Returns the list of models currently loaded in VRAM via Ollama's /api/ps endpoint.
+    /// Returns empty list on non-Ollama backends or if the request fails.
+    /// </summary>
+    public async Task<List<string>> GetLoadedModelsAsync(CancellationToken ct = default)
+    {
+        if (Backend != InferenceBackend.Ollama) return [];
+        try
+        {
+            var resp = await _http.GetAsync($"{_baseUrl}/api/ps", ct);
+            if (!resp.IsSuccessStatusCode) return [];
+            var json = JsonNode.Parse(await resp.Content.ReadAsStringAsync(ct));
+            return json?["models"]?.AsArray()
+                .Select(m => m?["name"]?.GetValue<string>() ?? "")
+                .Where(n => n.Length > 0)
+                .ToList() ?? [];
+        }
+        catch { return []; }
+    }
+
+    /// <summary>
     /// Tells Ollama to immediately evict <paramref name="model"/> from VRAM.
     /// No-ops silently on non-Ollama backends or if the request fails.
     /// Call this after a researcher phase completes when the researcher model
@@ -129,6 +149,35 @@ public class OllamaClient
             await _http.PostAsync($"{_baseUrl}/api/generate", content, ct);
         }
         catch { /* non-fatal — VRAM pressure will evict naturally */ }
+    }
+
+    /// <summary>
+    /// Evicts <paramref name="model"/> and then verifies via /api/ps that it is no longer loaded.
+    /// Returns true if the model was confirmed evicted (or was never loaded).
+    /// Returns false if it is still present in VRAM after eviction.
+    /// Logs the result for diagnostics; never throws.
+    /// </summary>
+    public async Task<bool> EvictAndVerifyAsync(string model, CancellationToken ct = default)
+    {
+        if (Backend != InferenceBackend.Ollama) return true;   // assume evicted on other backends
+        try
+        {
+            await EvictModelAsync(model, ct);
+
+            // Give Ollama up to 3s to release VRAM (eviction is async server-side)
+            for (int i = 0; i < 6; i++)
+            {
+                await Task.Delay(500, ct);
+                var loaded = await GetLoadedModelsAsync(ct);
+                if (!loaded.Any(m => m.Equals(model, StringComparison.OrdinalIgnoreCase) ||
+                                     m.StartsWith(model.Split(':')[0], StringComparison.OrdinalIgnoreCase)))
+                    return true;   // confirmed evicted
+            }
+
+            // Still loaded after 3s — eviction may be deferred under load
+            return false;
+        }
+        catch { return true; }  // assume evicted if /api/ps is unreachable
     }
 
     // ── Streaming completion ─────────────────────────────────────────────────

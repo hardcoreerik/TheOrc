@@ -7,6 +7,7 @@ using System.Windows.Threading;
 using OrchestratorIDE.Agents;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Services.Swarm;
+using OrchestratorIDE.Services.ToolCalls;
 
 namespace OrchestratorIDE.UI.Panels;
 
@@ -18,7 +19,8 @@ namespace OrchestratorIDE.UI.Panels;
 ///   Right — tabbed live stream output per agent
 ///   Bottom strip — scrollable task card list
 ///
-/// Gate: only enabled when activeModel contains "nemotron" AND OLLAMA_NUM_PARALLEL ≥ 3.
+/// Gate: requires OLLAMA_NUM_PARALLEL ≥ 3. Model capability is validated via
+/// GOBLIN MIND profiles (BossScore / CoderScore thresholds) — no hardcoded model names.
 /// </summary>
 public partial class SwarmBoardPanel : UserControl
 {
@@ -178,21 +180,63 @@ public partial class SwarmBoardPanel : UserControl
 
     // ── Gate logic ────────────────────────────────────────────────────────────
 
+    // ── Minimum capability thresholds for swarm roles ─────────────────────────
+    // These are the floor scores below which a model is too unreliable for its role.
+    // Based on observed swarm behaviour: BossScore < 5 means the decomposition is
+    // too weak to route tasks correctly; CoderScore < 4 means write_file reliability
+    // is too low to complete real tasks.
+    private const int MinBossScore   = 5;
+    private const int MinCoderScore  = 4;
+
     private bool IsCapable(out string reason)
     {
-        // Gate checks the worker (coder) model, not the boss — nemotron is the worker.
-        var workerToCheck = string.IsNullOrWhiteSpace(_workerModel) ? ActiveModel : _workerModel;
-        if (!workerToCheck.Contains("nemotron", StringComparison.OrdinalIgnoreCase))
-        {
-            reason = "Swarm requires an NVIDIA Nemotron model as the Coder worker.\nSet the Coder Model picker to a nemotron variant.";
-            return false;
-        }
         var slots = OllamaParallelHelper.DetectCurrentSlots();
         if (slots < 3)
         {
             reason = $"Swarm requires OLLAMA_NUM_PARALLEL ≥ 3 (currently {slots}).\nUse the slot picker below to set it, then restart Ollama.";
             return false;
         }
+
+        // Boss model check — uses GOBLIN MIND profile, not model name
+        if (!string.IsNullOrWhiteSpace(ActiveModel))
+        {
+            var bossProfile = ModelProfiles.Get(ActiveModel);
+
+            if (bossProfile.BossScore < MinBossScore)
+            {
+                reason = $"Boss model '{ActiveModel}' has a BossScore of {bossProfile.BossScore}/10 " +
+                         $"(minimum {MinBossScore}).\nChoose a model with stronger planning capability " +
+                         $"as the boss (e.g. qwen2.5-coder:14b, gemma4:12b).";
+                return false;
+            }
+
+            // If a live GOBLIN MIND probe exists, also check the PLAN category
+            var liveMap = ToolCallProfileStore.GetCategoryMap(ActiveModel);
+            if (liveMap is not null && liveMap.Categories.Count > 0)
+            {
+                if (liveMap.Categories.TryGetValue("PLAN", out var planScore) &&
+                    planScore.Result == OrchestratorIDE.Services.ToolCalls.CategoryResult.Fail)
+                {
+                    reason = $"Boss model '{ActiveModel}' failed the PLAN category in the last GOBLIN MIND probe.\n" +
+                             $"Run 'tool-probe categories --model {ActiveModel}' to re-check, or pick a different boss.";
+                    return false;
+                }
+            }
+        }
+
+        // Coder/worker model check
+        var workerModel = string.IsNullOrWhiteSpace(_workerModel) ? ActiveModel : _workerModel;
+        if (!string.IsNullOrWhiteSpace(workerModel))
+        {
+            var coderProfile = ModelProfiles.Get(workerModel);
+            if (coderProfile.CoderScore < MinCoderScore)
+            {
+                reason = $"Coder model '{workerModel}' has a CoderScore of {coderProfile.CoderScore}/10 " +
+                         $"(minimum {MinCoderScore}).\nChoose a model with stronger coding capability.";
+                return false;
+            }
+        }
+
         reason = "";
         return true;
     }
@@ -547,6 +591,8 @@ public partial class SwarmBoardPanel : UserControl
             AddAgentLog(agentKey, msg);
             OnActivity?.Invoke(msg);
         });
+        _session.OnStagingReady  += (runId, stagingDir, files) =>
+            Dispatcher.InvokeAsync(() => OnStagingReady(runId, stagingDir, files));
 
         _ = _session.RunAsync(goal);
         StatusChanged?.Invoke("Swarm active");
@@ -1028,6 +1074,28 @@ public partial class SwarmBoardPanel : UserControl
             if (_activeTab == "boss") TbStream.Text = _streams["boss"];
             StatusChanged?.Invoke($"Swarm: {message}");
         });
+    }
+
+    private void OnStagingReady(string runId, string stagingDir, IReadOnlyList<string> files)
+    {
+        // Append a staging summary to the boss stream so the user knows what's ready
+        var summary = new System.Text.StringBuilder();
+        summary.AppendLine();
+        summary.AppendLine("──── STAGED FILES READY FOR REVIEW ────");
+        summary.AppendLine($"Run:     {runId}");
+        summary.AppendLine($"Staging: {stagingDir}");
+        summary.AppendLine($"Files:   {files.Count}");
+        summary.AppendLine();
+        foreach (var f in files.Take(30))
+            summary.AppendLine($"  • {f}");
+        if (files.Count > 30)
+            summary.AppendLine($"  … and {files.Count - 30} more");
+        summary.AppendLine();
+        summary.AppendLine("Review the files above, then use File Explorer to copy them into your workspace.");
+
+        _streams["boss"] += summary.ToString();
+        if (_activeTab == "boss") TbStream.Text = _streams["boss"];
+        StatusChanged?.Invoke($"Swarm staged {files.Count} file(s) — review before applying");
     }
 
     // ── Tab switching ─────────────────────────────────────────────────────────

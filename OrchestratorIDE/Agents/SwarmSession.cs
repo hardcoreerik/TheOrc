@@ -37,6 +37,7 @@ public class SwarmSession
     private string                _runId = "";
     private string                _targetLanguage = "";
     private ToolRegistry?         _toolRegistry;    // initialized once output dir is known
+    private int                   _hardwareVramGb;  // detected at run start via nvidia-smi
 
     // ── Co-Work state ─────────────────────────────────────────────────────────
     // taskId → TCS that unblocks the ask_user handler when the user replies
@@ -181,6 +182,10 @@ public class SwarmSession
         var runStartedAt = DateTime.UtcNow;
         _runId          = runStartedAt.ToString("yyyyMMdd_HHmmss");
         _targetLanguage = DetectTargetLanguage(userGoal);
+
+        // Detect hardware VRAM so run metrics are accurate
+        var hw = await OrchestratorIDE.Services.Swarm.SwarmConfigAdvisor.DetectHardwareAsync();
+        _hardwareVramGb = hw.TotalVramGb;
         OnStarted?.Invoke();
 
         Directory.CreateDirectory(RunDir);
@@ -240,11 +245,22 @@ public class SwarmSession
                 }
             }
 
-            // Evict researcher model when it differs from coder model
+            // Evict researcher model when it differs from coder model, then verify
             if (researchers.Count > 0 && _researcherModel != _coderModel)
             {
-                _trace.WriteEvent("model_evict", $"Evicting {_researcherModel}");
-                await _ollama.EvictModelAsync(_researcherModel, ct);
+                Activity($"♻ Evicting {_researcherModel} from VRAM before coder phase…", "boss");
+                _trace?.WriteEvent("model_evict", $"Evicting {_researcherModel}");
+                var evicted = await _ollama.EvictAndVerifyAsync(_researcherModel, ct);
+                if (evicted)
+                {
+                    Activity($"✓ {_researcherModel} confirmed evicted — VRAM freed for coder", "boss");
+                    _trace?.WriteEvent("model_evict_confirmed", _researcherModel);
+                }
+                else
+                {
+                    Activity($"⚠ {_researcherModel} still in VRAM after eviction — may constrain coder", "boss");
+                    _trace?.WriteEvent("model_evict_unconfirmed", _researcherModel);
+                }
             }
 
             // ── Researcher quality gate (zero tokens — pure code check) ─────────
@@ -435,7 +451,7 @@ public class SwarmSession
                 BossModel:            _bossModel,
                 CoderModel:           _coderModel,
                 ResearcherModel:      _researcherModel,
-                TotalVramGb:          0,    // filled by UI layer via SwarmConfigAdvisor.DetectHardwareAsync
+                TotalVramGb:          _hardwareVramGb,
                 Goal:                 userGoal.Length > 120 ? userGoal[..120] : userGoal,
                 SwarmSucceeded:       projectFiles > 0,
                 FilesWritten:         projectFiles,
