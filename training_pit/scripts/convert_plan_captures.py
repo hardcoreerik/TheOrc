@@ -27,7 +27,6 @@ Requirements: none (stdlib only)
 
 import json
 import sys
-import glob
 import argparse
 from pathlib import Path
 from datetime import datetime
@@ -117,7 +116,7 @@ def capture_to_chat_jsonl(capture: dict) -> dict | None:
             {"role": "assistant", "content": assistant_content},
         ],
         "metadata": {
-            "category": capture.get("domain", "general").replace("_", " ").replace("python ", "python_"),
+            "category": "boss_planning",
             "task_type": "feature_plan",
             "source": "swarm_capture",
             "quality": quality,
@@ -215,9 +214,9 @@ def main():
         output_path = Path(args.output)
     else:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = Path("training_pit/datasets/staging")
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / f"converted_{ts}.jsonl"
+        output_path = Path("training_pit/datasets/staging") / f"converted_{ts}.jsonl"
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Write chat-JSONL
     with open(output_path, "w", encoding="utf-8") as f:

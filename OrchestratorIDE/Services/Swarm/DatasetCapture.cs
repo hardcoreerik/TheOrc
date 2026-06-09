@@ -60,9 +60,12 @@ public static class DatasetCapture
 
             Directory.CreateDirectory(stagingDir);
 
-            // Parse the boss's raw JSON to store the structured plan
+            // Parse the boss's raw JSON to store the structured plan.
+            // Strip markdown fences first — the boss sometimes wraps output in ```json...```
+            // even though the system prompt forbids it, and ParseBossPlan already handles this.
+            var rawForParse = StripFences(bossRaw);
             JsonNode? planNode = null;
-            try { planNode = JsonNode.Parse(bossRaw.Trim()); }
+            try { planNode = JsonNode.Parse(rawForParse); }
             catch { /* store null if raw JSON was unparseable */ }
 
             var capture = BuildCapture(runId, userGoal, bossModel, tasks, score, planNode);
@@ -76,6 +79,30 @@ public static class DatasetCapture
         {
             // Best-effort — never propagate capture errors to the caller
         }
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Strip markdown code fences (```json ... ``` or ``` ... ```) from a raw string.
+    /// Mirrors the fence-stripping logic in SwarmSession.ParseBossPlan().
+    /// </summary>
+    private static string StripFences(string raw)
+    {
+        var trimmed = raw.Trim();
+        if (!trimmed.StartsWith("```")) return trimmed;
+
+        // Remove opening fence line (e.g. "```json" or "```")
+        var firstNewline = trimmed.IndexOf('\n');
+        if (firstNewline < 0) return trimmed;
+        trimmed = trimmed[(firstNewline + 1)..];
+
+        // Remove closing fence
+        var closingFence = trimmed.LastIndexOf("```");
+        if (closingFence >= 0)
+            trimmed = trimmed[..closingFence];
+
+        return trimmed.Trim();
     }
 
     // ── Internal ─────────────────────────────────────────────────────────────

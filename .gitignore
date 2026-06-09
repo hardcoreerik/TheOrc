@@ -49,3 +49,4 @@ training_pit/outputs/
 # Swarm dataset staging (auto-generated plan captures from DatasetCapture.cs)
 # Files require human review before moving to training_pit/datasets/
 .orc/swarm/dataset-staging/
+.orc/swarm/dataset-staging-test/
