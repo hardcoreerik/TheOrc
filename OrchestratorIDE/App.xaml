@@ -432,8 +432,8 @@
             <Setter Property="Background"      Value="Transparent"/>
             <Setter Property="Foreground"      Value="#666666"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding"         Value="7,3"/>
-            <Setter Property="FontSize"        Value="10"/>
+            <Setter Property="Padding"         Value="8,4"/>
+            <Setter Property="FontSize"        Value="12"/>
             <Setter Property="FontWeight"      Value="SemiBold"/>
             <Setter Property="Cursor"          Value="Hand"/>
             <Setter Property="Template">

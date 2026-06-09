@@ -196,6 +196,18 @@ public partial class AgentPanel : UserControl
         BtnSend_Click(this, new RoutedEventArgs());
     }
 
+    /// <summary>
+    /// Pre-fills the input box with <paramref name="prompt"/> without sending.
+    /// The user can review/edit before pressing Send.
+    /// Used by the Self-Improve scan so the agent doesn't auto-run.
+    /// </summary>
+    public void InjectUserMessage(string prompt)
+    {
+        TbInput.Text = prompt;
+        TbInput.Focus();
+        TbInput.CaretIndex = TbInput.Text.Length;
+    }
+
     // ── Send ──────────────────────────────────────────────────────────────
     private async void BtnSend_Click(object sender, RoutedEventArgs e)
     {

@@ -361,33 +361,57 @@ Everything below is complete and shipping:
 
 ---
 
+## Changelog
+
+### ✅ v1.1.1 — Settings Overhaul + Self-Improve + Status Bar Polish *(2026-06-08)*
+
+- **Settings panel cleanup** — Fixed toggle button alignment across all rows (DockPanel child ordering), increased sidebar MinWidth, more vertical space in menu bar
+- **Install folder links** — New INSTALL section: direct link to TheOrc's install folder + AppData data folder (one-click open in Explorer)
+- **Self-Improve feature** — TheOrc can now read its own GitHub issues + recent commits, build a structured analysis prompt, and inject it into the Agent panel for you to review and send. Full flow: Grab Source (git clone/pull) → Open in Agent (load as workspace) → Scan GitHub (fetch + build prompt)
+- **Status bar legibility** — Bumped all status bar text from 10–11pt to 12–13pt, row height 24→30px, screenshot button larger (15pt emoji with wider padding), Trust pills 10→12pt
+- **GOBLIN MIND CLI** (`tool-probe.exe`) — Full headless subcommand interface: `dispatch`, `format`, `categories`, `full`, `evolve`, `list`. Shares the same `tool-call-profiles.json` as the GUI. All subcommands support `--json` output
+
+---
+
 ## Roadmap
 
-### 🧠 v1.1 — GOBLIN MIND (Active)
+### 🧠 v1.1 — GOBLIN MIND ✅ `COMPLETE`
 
 The Goblin Mind initiative teaches the swarm to understand itself at runtime.
 See [`GOBLIN_MIND_TODO.md`](GOBLIN_MIND_TODO.md) for full task breakdown.
 
-- [ ] **Phase 1: Behavioral Format Fingerprinting** — Probe each model's preferred tool-call serialization format (OpenAI JSON / Hermes XML / bare JSON / Python-style / YAML). Store as `FormatFingerprint` in the model profile. `AgentLoop` shapes tool schemas to the model's native format.
-- [ ] **Phase 2: Category Boundary Mapping** — 14-query capability taxonomy per model (7 categories × 2 tests). TheOrc reads the map to gate swarm task routing — no coder goblin gets a network task if it fails network probes.
-- [ ] **Phase 3: Adaptive Schema Generation** — Generate and persist confirmed tool schemas per model. Few-shot bootstrapping from successful probe outputs grows the schema library automatically.
-- [ ] **Phase 4: Schema Reduction Middleware** — Transparent `AgentLoop` middleware that simplifies tool schemas for models that fail on complexity. Zero friction for users.
-- [ ] **Phase 5: Evolutionary Schema Search** — On-demand mutation engine. Systematically explores schema space to find each model's highest-fitness calling convention.
-- [ ] **Phase 6: TheOrc Steering Integration** — Boss model reads capability profiles to steer the swarm. Task routing becomes capability-driven, not config-driven.
+- [x] **Phase 1: Behavioral Format Fingerprinting** — Probe each model's preferred tool-call serialization format (OpenAI JSON / Hermes XML / bare JSON / Python-style / YAML). Store as `FormatFingerprint` in the model profile. `AgentLoop` shapes tool schemas to the model's native format.
+- [x] **Phase 2: Category Boundary Mapping** — 14-query capability taxonomy per model (7 categories × 2 tests). TheOrc reads the map to gate swarm task routing — no coder goblin gets a network task if it fails network probes.
+- [x] **Phase 3: Adaptive Schema Generation** — Generate and persist confirmed tool schemas per model. Few-shot bootstrapping from successful probe outputs grows the schema library automatically.
+- [x] **Phase 4: Schema Reduction Middleware** — Transparent `AgentLoop` middleware that simplifies tool schemas for models that fail on complexity. Zero friction for users.
+- [x] **Phase 6: TheOrc Steering Integration** — Boss model reads capability profiles to steer the swarm. Task routing is now capability-driven, not config-driven.
+- [ ] **Phase 5: Evolutionary Schema Search** — On-demand mutation engine. Systematically explores schema space to find each model's highest-fitness calling convention. *(GUI integration pending — CLI `tool-probe evolve` available now)*
 
-### 🍎 v1.2 — Mac / Linux Port
+### 🔬 v1.2 — Swarm Tuning & Self-Improvement (Active)
+
+TheOrc steering and correction is working. Next milestone focuses on making the swarm smarter through live feedback loops and self-directed improvement.
+
+- [ ] **Steering verification** — Run test prompt suite against TheOrc's swarm loop; verify TheOrc correctly routes, retries, and corrects workers using capability profiles
+- [ ] **Live capability badges** — Swarm Board shows Format | Categories | Schema Complexity | Last Probed per model slot, with "Probe Now" button
+- [ ] **Fitness map GUI** — `tool-probe evolve` results surfaced in ToolCallTestWindow "Evolution" tab; high-fitness variants auto-promoted to SchemaLibrary
+- [ ] **Self-improve loop** — GitHub issue scanner → Agent panel injection → TheOrc proposes and applies fixes to itself using the source clone. Full round-trip.
+- [ ] **Parallel slots live gate** — `OLLAMA_NUM_PARALLEL` detection blocks swarm start if slots < worker count; settings panel shows live status
+- [ ] **Wire `TotalVramGb`** in SwarmSession — currently hardcoded 0; call `SwarmConfigAdvisor.DetectHardwareAsync()` at swarm init
+
+### 🍎 v1.3 — Mac / Linux Port
 
 - [ ] Avalonia UI port (Windows WPF → cross-platform)
 - [ ] macOS llama.cpp Metal backend integration
 - [ ] Linux AppImage build
 
-### 🔮 v1.3 — Backlog
+### 🔮 v1.4 — Backlog
 
 - [ ] Inline diff editing (edit proposed diff before approving)
 - [ ] Background agent (fire task, get notified when done)
 - [ ] Token cost estimator
 - [ ] Multi-workspace support
 - [ ] SwarmBoard metrics history tab (ConfigStats per configuration)
+- [ ] `MODEL_PROFILES.md` — auto-generated per-model capability summary from probe results
 
 ---
 

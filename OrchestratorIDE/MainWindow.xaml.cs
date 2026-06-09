@@ -206,6 +206,16 @@ public partial class MainWindow : Window
         _settingsPanel.RegenerateAgentFileRequested += async () =>
             await RegenerateAgentFileAsync();
 
+        _settingsPanel.OpenFolderAsWorkspaceRequested += folder =>
+            _ = OpenWorkspaceAsync(folder);
+
+        _settingsPanel.ScanAnalysisReady += prompt =>
+        {
+            // Switch to agent view and inject the scan prompt as a user message
+            BtnAgent_Click(this, new System.Windows.RoutedEventArgs());
+            _agentPanel?.InjectUserMessage(prompt);
+        };
+
         // Checkpoint browser
         _checkpointPanel = new CheckpointBrowserPanel(_git);
         _checkpointPanel.CheckpointRestored += sha =>
@@ -1405,6 +1415,17 @@ public partial class MainWindow : Window
     /// Called whenever the user explicitly opens a folder — confirms the workspace
     /// and unlocks Execute mode. Also saves it as the last-used folder.
     /// </summary>
+    /// <summary>
+    /// Opens <paramref name="path"/> as the active workspace, usable from any thread
+    /// (dispatches back to the UI thread internally).
+    /// Called by SettingsPanel when the user clicks "Open in Agent".
+    /// </summary>
+    private Task OpenWorkspaceAsync(string path)
+    {
+        Dispatcher.Invoke(() => ConfirmWorkspace(path));
+        return Task.CompletedTask;
+    }
+
     private void ConfirmWorkspace(string path)
     {
         _session.WorkspaceRoot          = path;

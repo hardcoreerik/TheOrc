@@ -35,9 +35,9 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="32"/>   <!-- Title bar -->
-            <RowDefinition Height="22"/>   <!-- Menu bar   -->
+            <RowDefinition Height="26"/>   <!-- Menu bar   -->
             <RowDefinition Height="*"/>    <!-- Workbench  -->
-            <RowDefinition Height="24"/>   <!-- Status bar -->
+            <RowDefinition Height="30"/>   <!-- Status bar -->
         </Grid.RowDefinitions>
 
         <!-- ── Title bar ──────────────────────────────────────────── -->
@@ -275,7 +275,7 @@
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="44"/>   <!-- Activity bar -->
-                <ColumnDefinition Width="220" MinWidth="140"/>  <!-- Sidebar -->
+                <ColumnDefinition Width="220" MinWidth="200"/>  <!-- Sidebar -->
                 <ColumnDefinition Width="4"/>    <!-- Splitter -->
                 <ColumnDefinition Width="*"/>    <!-- Main -->
             </Grid.ColumnDefinitions>
@@ -506,11 +506,11 @@
             <DockPanel>
                 <TextBlock x:Name="SbWorkspace" DockPanel.Dock="Left"
                            Text="📁 No workspace" Foreground="#A8CC80"
-                           Margin="8,0" VerticalAlignment="Center" FontSize="11"
+                           Margin="8,0" VerticalAlignment="Center" FontSize="13"
                            AutomationProperties.AutomationId="StatusBar.Workspace"/>
                 <TextBlock x:Name="SbBranch" DockPanel.Dock="Left"
                            Text="" Foreground="#76B900"
-                           Margin="0,0,8,0" VerticalAlignment="Center" FontSize="11"
+                           Margin="0,0,8,0" VerticalAlignment="Center" FontSize="13"
                            AutomationProperties.AutomationId="StatusBar.Branch"/>
                 <!-- Model status widget (populated by ModelStatusService) -->
                 <Border x:Name="SbModelStatus"
@@ -522,12 +522,12 @@
                         Visibility="Collapsed">
                     <TextBlock x:Name="TxtSbModelStatus"
                                Foreground="{StaticResource Br.Accent.Green}"
-                               FontFamily="Consolas" FontSize="10"/>
+                               FontFamily="Consolas" FontSize="12"/>
                 </Border>
 
                 <TextBlock x:Name="SbModel" DockPanel.Dock="Right"
                            Foreground="#76B900"
-                           Margin="8,0" VerticalAlignment="Center" FontSize="11"
+                           Margin="8,0" VerticalAlignment="Center" FontSize="13"
                            Cursor="Hand" MouseDown="SbModel_Click"
                            ToolTip="Click to change model"
                            AutomationProperties.AutomationId="StatusBar.Model"/>
@@ -604,7 +604,7 @@
                         <TextBlock x:Name="TbApprovalChipLabel"
                                    Text="⏳ Approval needed"
                                    Foreground="#CCA700"
-                                   FontSize="11" FontWeight="SemiBold"
+                                   FontSize="13" FontWeight="SemiBold"
                                    VerticalAlignment="Center"
                                    Margin="4,0,8,0"/>
 
@@ -621,7 +621,7 @@
                                             BorderThickness="1" CornerRadius="3" Padding="7,3">
                                         <TextBlock Text="✓  Apply"
                                                    Foreground="#76B900"
-                                                   FontSize="11" FontWeight="SemiBold"/>
+                                                   FontSize="13" FontWeight="SemiBold"/>
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsMouseOver" Value="True">
@@ -646,7 +646,7 @@
                                             BorderThickness="1" CornerRadius="3" Padding="7,3">
                                         <TextBlock Text="✗  Reject"
                                                    Foreground="#F44747"
-                                                   FontSize="11" FontWeight="SemiBold"/>
+                                                   FontSize="13" FontWeight="SemiBold"/>
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsMouseOver" Value="True">
@@ -666,14 +666,14 @@
                         Background="#111111"
                         BorderBrush="#2A2A2A" BorderThickness="1"
                         CornerRadius="3"
-                        Padding="6,0,6,0"
+                        Padding="8,2,8,2"
                         Margin="4,2,4,2"
                         Cursor="Hand"
                         MouseDown="BdrScreenshot_Click"
                         ToolTip="Take a screenshot of this window (saved to %APPDATA%\OrchestratorIDE\Screenshots)"
                         AutomationProperties.AutomationId="StatusBar.Screenshot">
                     <TextBlock Text="📷"
-                               FontSize="11"
+                               FontSize="15"
                                VerticalAlignment="Center"/>
                 </Border>
 
@@ -706,7 +706,7 @@
                         <TextBlock x:Name="TbRecordingTime"
                                    Text="REC 00:00"
                                    Foreground="#FF9999"
-                                   FontSize="11" FontWeight="SemiBold"
+                                   FontSize="13" FontWeight="SemiBold"
                                    VerticalAlignment="Center"/>
                     </StackPanel>
                 </Border>
@@ -725,13 +725,13 @@
                     <TextBlock x:Name="TbUpdateBadge"
                                Text="↑ Update available"
                                Foreground="#AAFFAA"
-                               FontSize="11"
+                               FontSize="13"
                                VerticalAlignment="Center"/>
                 </Border>
 
                 <TextBlock x:Name="SbStatus" Text="Ready"
                            Foreground="{StaticResource Br.Text.White}"
-                           HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="11"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="13"
                            AutomationProperties.AutomationId="StatusBar.Status"/>
             </DockPanel>
         </Border>

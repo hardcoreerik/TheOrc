@@ -170,6 +170,13 @@ public class AppSettings
     /// <summary>CUDA version string, e.g. "12.4". Empty if not NVIDIA.</summary>
     public string DetectedCudaVersion { get; set; } = "";
 
+    // ── Self-improve ─────────────────────────────────────────────────────
+    /// <summary>
+    /// Local folder where the TheOrc GitHub source is cloned/pulled.
+    /// Defaults to %AppData%\OrchestratorIDE\source.
+    /// </summary>
+    public string SourceFolderPath { get; set; } = "";
+
     // ── Personalisation (set by first-run wizard, editable in Settings) ──
     /// <summary>User's preferred name or handle shown to the agent.</summary>
     public string AgentUserName       { get; set; } = "";

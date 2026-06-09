@@ -164,6 +164,34 @@
 
 ---
 
+## CLI Backend — tool-probe.exe ✅ `DONE`
+
+> Full GOBLIN MIND subcommand interface for headless/scripted probing.
+> Same `tool-call-profiles.json` file shared with the GUI (ToolCallTestWindow).
+
+### Subcommands
+
+| Command | What it does |
+|---|---|
+| `tool-probe dispatch` | Original dispatch probe (default — backward-compat) |
+| `tool-probe format` | Format fingerprinting probe (5 variants) |
+| `tool-probe categories` | Category boundary mapping (7 categories × 2 tests) |
+| `tool-probe full` | Dispatch + format + categories in sequence |
+| `tool-probe evolve` | Schema mutation + fitness evaluation (N generations) |
+| `tool-probe list` | List stored profiles from `tool-call-profiles.json` |
+
+### Notes
+- `--json` flag on all subcommands for machine-readable output
+- `--generations N` for evolve (default 3)
+- `--tools filter` for dispatch subset
+- Reads/writes same `tool-call-profiles.json` as the GUI
+- `ProfileStore.MutateAsync` pattern — partial updates, non-destructive
+
+### File
+- `Tools/ToolCallTester/Program.cs` — full rewrite (~900 lines), all logic self-contained
+
+---
+
 ## Phase 5 — Evolutionary Schema Search ⬜ `PRIORITY: LOW (overnight/on-demand)`
 
 > Systematically mutate tool schemas to find each model's highest-fitness calling convention.
@@ -254,8 +282,9 @@ The milestone is complete when:
 | `Services/ToolCalls/SchemaLibrary.cs` | ✅ Done | Phase 3 |
 | `Services/ToolCalls/SchemaSimplifier.cs` | ✅ Done | Phase 4 |
 | `Agents/SwarmSession.cs` (routing) | ✅ Done | Phase 6 |
-| `Services/ToolCalls/SchemaEvolution.cs` | ⬜ Todo | Phase 5 |
-| `Services/ToolCalls/FitnessMap.cs` | ⬜ Todo | Phase 5 |
+| `Services/ToolCalls/SchemaEvolution.cs` | ⬜ Todo (GUI/main project) | Phase 5 |
+| `Services/ToolCalls/FitnessMap.cs` | ⬜ Todo (GUI/main project) | Phase 5 |
+| `Tools/ToolCallTester/Program.cs` | ✅ Done (CLI — all subcommands) | CLI Backend |
 
 ---
 
