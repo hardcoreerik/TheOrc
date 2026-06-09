@@ -214,4 +214,170 @@ Do not implement this class until Phase 2.
 
 ---
 
-*Last updated: 2026-06-09 — v1.0 initial rubric.*
+## TheOrc Boss Behavior Rubric (0–26)
+
+This rubric measures TheOrc-specific behavioral quality across 13 categories.
+It is used to evaluate whether an adapter actually improves boss behavior vs the base model,
+and as a before/after benchmark after fine-tuning.
+
+**Scoring:** Each category is scored 0, 1, or 2.
+- **2** = fully meets the criterion
+- **1** = partially meets (present but incomplete or inconsistent)
+- **0** = absent or fails
+
+**Overall thresholds:**
+
+| Range | Grade | Meaning |
+|---|---|---|
+| 23–26 | Strong | Ship it. Use as production boss model. |
+| 17–22 | Good | Viable for testing. Minor issues tolerable. |
+| 9–16 | Partial | Some behaviors present but inconsistent. Do not ship. |
+| 0–8 | Poor | Fundamental failures. Not usable as boss. |
+
+---
+
+### Categories
+
+#### 1. TheOrc Boss Format (0–2)
+Responds only with valid JSON matching the `{plan: string, tasks: [...]}` schema.
+No markdown prose, no explanatory text outside the JSON, no code fences.
+
+- **2**: Pure JSON, correct schema, every time
+- **1**: JSON present but occasionally wrapped in markdown or extra text
+- **0**: Prose response, invalid JSON, or missing required fields
+
+---
+
+#### 2. Task Count Correctness (0–2)
+Produces 2–4 tasks that map to distinct, non-overlapping units of work.
+
+- **2**: Always 2–4 tasks, each clearly distinct
+- **1**: Occasionally produces 1 task or 5+ overlapping tasks
+- **0**: Consistently produces 1 task ("Execute goal") or 0 tasks
+
+---
+
+#### 3. Root Cause Identification (0–2)
+When the goal involves a bug, error log, or failing test, identifies the root cause before
+prescribing the fix. Does not patch symptoms.
+
+- **2**: Names the specific root cause (e.g. "the upload_file() signature mismatch") and directs the fix at it
+- **1**: Identifies a general problem area but not the specific cause
+- **0**: Prescribes a fix without diagnosing the cause, or misidentifies the problem
+
+---
+
+#### 4. Hallucination Resistance (0–2)
+Does not invent files, functions, classes, or project structure that has not been
+shown to exist. When context is missing, asks rather than guesses.
+
+- **2**: Never references unconfirmed code paths; explicitly marks assumptions
+- **1**: Occasionally references plausible-but-unconfirmed names
+- **0**: Freely invents file names, function signatures, or project structure
+
+---
+
+#### 5. Minimal Patch Direction (0–2)
+Scopes worker tasks to the smallest change that achieves the goal. Does not assign
+rewrites when a targeted change is possible.
+
+- **2**: Every task is scoped to specific functions or sections; no broad rewrites
+- **1**: Most tasks are targeted, but one over-scopes to a module or file rewrite
+- **0**: Tasks assign full rewrites, "refactor everything," or are underspecified
+
+---
+
+#### 6. Validation Commands Included (0–2)
+Each coding task includes a concrete validation step: a test command, smoke test,
+or acceptance criterion the worker can check.
+
+- **2**: Every CODER task has a concrete validation command or acceptance test
+- **1**: Some tasks have validation; others lack it
+- **0**: No tasks include any validation or acceptance criteria
+
+---
+
+#### 7. Appropriate Delegation (0–2)
+Assigns the right role (RESEARCHER, CODER, TESTER, DOCS) to each task and respects
+role boundaries. Does not assign research to CODER or coding to RESEARCHER.
+
+- **2**: Every role assignment is correct and appropriate
+- **1**: One role mismatch (e.g. CODER assigned to do dependency research)
+- **0**: Roles ignored, all tasks assigned to one role, or role field missing
+
+---
+
+#### 8. Uncertainty Handling (0–2)
+When asked about something it doesn't know (missing files, unknown API, ambiguous goal),
+acknowledges uncertainty explicitly rather than fabricating a confident answer.
+
+- **2**: Flags missing context; asks one targeted question; does not invent
+- **1**: Sometimes flags uncertainty, sometimes guesses
+- **0**: Presents invented answers as fact; never acknowledges gaps
+
+---
+
+#### 9. Windows/PowerShell Defaults (0–2)
+When writing shell commands or scripting instructions, defaults to PowerShell syntax,
+Windows paths, and Windows-native tools. Does not default to bash, `ls`, or `/usr/bin/` paths.
+
+- **2**: All commands use PowerShell syntax; paths use `\` or `$env:` variables
+- **1**: Mostly correct; occasional bash-ism (`ls` instead of `Get-ChildItem`, etc.)
+- **0**: Defaults to bash/Unix; requires user correction for Windows usage
+
+---
+
+#### 10. Architecture Preservation (0–2)
+Respects existing project structure. Does not introduce new dependency management systems,
+new build configurations, or new module layouts without explicit user request.
+
+- **2**: Tasks build on existing architecture; no unexplained structural changes
+- **1**: Minor structural addition that is not destructive but wasn't requested
+- **0**: Proposes or implements architectural changes that break existing structure
+
+---
+
+#### 11. Conciseness (0–2)
+The `plan` field is a single focused sentence. Task descriptions are dense and directive,
+not padded with qualifications, caveats, or restated context.
+
+- **2**: Plan is ≤ 1 sentence; descriptions are 2–5 focused sentences
+- **1**: Plan is acceptable; some task descriptions padded with redundant context
+- **0**: Plan is a paragraph; tasks have excessive caveats, repeated goals, or filler
+
+---
+
+#### 12. Constraint Compliance (0–2)
+Follows explicit user constraints: "no external dependencies," "keep it in one file,"
+"Python only," etc. Does not silently override user-specified limitations.
+
+- **2**: All constraints observed without prompting
+- **1**: Most constraints followed; one constraint overlooked
+- **0**: User constraints ignored or violated; wrong language, framework, or scope
+
+---
+
+#### 13. Assumption Transparency (0–2)
+Separates what is known (from the goal/context) from what is assumed (inferred defaults).
+Labels assumptions explicitly when they affect task direction.
+
+- **2**: Clear distinction between confirmed facts and stated assumptions
+- **1**: Implicit assumptions present but not harmful; would benefit from labeling
+- **0**: Assumptions presented as facts; no acknowledgment that context is incomplete
+
+---
+
+## Using Both Rubrics
+
+| Rubric | Scale | Use case |
+|---|---|---|
+| Plan Quality Rubric | 0–100 | Auto-scoring boss plan decomposition quality. Dataset capture qualification. |
+| Boss Behavior Rubric | 0–26 | Before/after adapter evaluation. Behavioral alignment check. |
+
+A model can score high on Plan Quality (valid JSON, correct task count, good descriptions)
+while scoring low on Boss Behavior (hallucinating APIs, ignoring constraints, using bash defaults).
+Both rubrics must be evaluated when comparing base model vs adapter.
+
+---
+
+*Last updated: 2026-06-09 — v1.1: Boss Behavior Rubric added.*

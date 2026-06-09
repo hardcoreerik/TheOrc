@@ -35,15 +35,16 @@ When `DatasetCapture.cs` is built, it will automatically stage examples when:
 - Boss plan scores ≤ 39 (underplanned/collapsed) → staged as negative
 
 Staged files appear in `.orc/swarm/dataset-staging/` and must be reviewed before
-moving to `fine_tuning/datasets/`.
+moving to `training_pit/datasets/`.
 
 ### Method 2: Manual curation from benchmark runs
 
 1. Find a high-quality run in `.orc/swarm/runs/<run_id>/plan.json`
 2. Check the `autoScore` in `swarm-metrics.json` for that run
-3. If score ≥ 70, format it as a dataset example using `DATASET_SCHEMA.md`
-4. Save to `fine_tuning/datasets/staging/<example_id>.json`
-5. After review, append to `train_v1.jsonl` or `eval_v1.jsonl`
+3. If score ≥ 70, format it as a chat-JSONL example using `DATASET_SCHEMA.md`
+4. Save to `training_pit/datasets/staging/<example_id>.jsonl`
+5. Run `scripts/validate_dataset.py` and `scripts/sanitize_dataset.py` on the file
+6. After review, append to `train_v1.jsonl` or `eval_v1.jsonl`
 
 ### Method 3: Synthetic augmentation (Phase 3+)
 
@@ -82,15 +83,32 @@ Maintain roughly:
 
 ---
 
-## JSONL Format
+## Chat JSONL Format
 
-Each line in `train_v1.jsonl` / `eval_v1.jsonl` is the dataset example object from
-`DATASET_SCHEMA.md`, serialized as a single-line JSON string:
+Each line in `train_v1.jsonl` / `eval_v1.jsonl` is one complete chat example following
+the canonical format from `DATASET_SCHEMA.md`. One JSON object per line, no trailing commas:
 
 ```
-{"schema_version":"1.0","example_id":"ex_20260609_001","goal":"Build a CSV...","plan":{...},"quality_score":85,...}
-{"schema_version":"1.0","example_id":"ex_20260609_002","goal":"Build a REST API...","plan":{...},"quality_score":72,...}
+{"messages":[{"role":"system","content":"..."},{"role":"user","content":"..."},{"role":"assistant","content":"..."}],"metadata":{"category":"boss_planning","source":"manual","quality":"gold",...}}
+{"messages":[...],"metadata":{...}}
 ```
+
+Plan captures (in `PLAN_CAPTURE_SCHEMA.md` format) must be converted to this chat-JSONL
+format before being added to the training dataset. See `PLAN_CAPTURE_SCHEMA.md` for the
+conversion mapping.
+
+---
+
+## Validation Before Training
+
+Always run both scripts before committing or using a dataset file:
+
+```bash
+python training_pit/scripts/validate_dataset.py datasets/train_v1.jsonl
+python training_pit/scripts/sanitize_dataset.py datasets/train_v1.jsonl
+```
+
+Both must pass clean before a file is used in a training job.
 
 ---
 
@@ -99,3 +117,4 @@ Each line in `train_v1.jsonl` / `eval_v1.jsonl` is the dataset example object fr
 | Version | Date | Notes |
 |---|---|---|
 | 1.0 | 2026-06-09 | Initial contributing guide |
+| 1.1 | 2026-06-09 | Updated paths fine_tuning/ → training_pit/; aligned with canonical chat-JSONL schema |

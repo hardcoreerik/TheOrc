@@ -47,8 +47,8 @@
     "max_seq_length": 2048,
 
     "dataset": {
-      "train_path": "fine_tuning/datasets/train_v1.jsonl",
-      "eval_path":  "fine_tuning/datasets/eval_v1.jsonl",
+      "train_path": "training_pit/datasets/train_v1.jsonl",
+      "eval_path":  "training_pit/datasets/eval_v1.jsonl",
       "format": "chat",
       "system_prompt_source": "BossDecomposeSystemPrompt"
     },
@@ -77,8 +77,8 @@
   },
 
   "output": {
-    "adapter_dir": "fine_tuning/outputs/qlora_v1/adapter",
-    "gguf_dir":    "fine_tuning/outputs/qlora_v1/gguf",
+    "adapter_dir": "training_pit/outputs/qlora_v1/adapter",
+    "gguf_dir":    "training_pit/outputs/qlora_v1/gguf",
     "gguf_quant":  "q4_k_m",
     "_gguf_merge_note": "QLoRA adapter must be merged into base weights before GGUF export. Unsloth handles this automatically via model.save_pretrained_merged().",
     "ollama_tag":  "theorc-boss:gemma4-ft"

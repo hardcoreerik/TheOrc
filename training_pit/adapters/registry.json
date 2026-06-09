@@ -1,0 +1,23 @@
+{
+  "_comment": "Adapter registry for TheOrc fine-tuned models. All adapters must be registered here before being used in ModelProfiles.cs.",
+  "_schema_version": "1.0",
+  "_last_updated": "2026-06-09",
+
+  "status_values": {
+    "candidate":    "Adapter is being trained or has not yet been evaluated",
+    "eval_pending": "Training complete; awaiting before/after evaluation",
+    "approved":     "Eval passed; safe to activate in ModelProfiles.cs",
+    "rejected":     "Eval failed or regression detected; do not use",
+    "deprecated":   "Replaced by a newer adapter; kept for audit"
+  },
+
+  "activation_requirements": [
+    "registered in this file with eval_status = 'approved'",
+    "before/after eval scorecard saved to evals/scorecards/",
+    "ModelProfiles.cs entry created with measured BossScore (not estimated)",
+    "no hallucination regression vs base model",
+    "no unsafe behavior introduced"
+  ],
+
+  "adapters": []
+}

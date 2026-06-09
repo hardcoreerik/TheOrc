@@ -42,8 +42,8 @@
     "_max_seq_note": "Boss planning examples are ~600-1200 tokens (system+goal+plan). 2048 covers all cases with headroom.",
 
     "dataset": {
-      "train_path": "fine_tuning/datasets/train_v1.jsonl",
-      "eval_path":  "fine_tuning/datasets/eval_v1.jsonl",
+      "train_path": "training_pit/datasets/train_v1.jsonl",
+      "eval_path":  "training_pit/datasets/eval_v1.jsonl",
       "format": "chat",
       "_format_note": "Each example is {messages:[{role:system,...},{role:user,...},{role:assistant,...}]}. The assistant turn is the JSON plan.",
       "system_prompt_source": "BossDecomposeSystemPrompt",
@@ -72,11 +72,11 @@
   },
 
   "output": {
-    "adapter_dir": "fine_tuning/outputs/lora_v1/adapter",
-    "gguf_dir":    "fine_tuning/outputs/lora_v1/gguf",
+    "adapter_dir": "training_pit/outputs/lora_v1/adapter",
+    "gguf_dir":    "training_pit/outputs/lora_v1/gguf",
     "gguf_quant":  "q4_k_m",
     "ollama_tag":  "theorc-boss:gemma4-ft",
-    "_deploy_note": "After GGUF export: ollama create theorc-boss:gemma4-ft -f fine_tuning/theorc-boss-gemma4-ft.Modelfile"
+    "_deploy_note": "After GGUF export: ollama create theorc-boss:gemma4-ft -f training_pit/theorc-boss-gemma4-ft.Modelfile"
   },
 
   "hardware": {

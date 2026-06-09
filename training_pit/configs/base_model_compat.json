@@ -35,6 +35,14 @@
         "native_ollama_tag_track": "https://ollama.com/library/gemma4"
       },
 
+      "compat_state": {
+        "unsloth_lora":  "inferred",
+        "unsloth_qlora": "inferred",
+        "peft_lora":     "inferred",
+        "peft_qlora":    "inferred",
+        "_note": "Unsloth documents Gemma4 support. Not yet tested in TheOrc's pipeline. Upgrade to 'verified' after first successful training run."
+      },
+
       "fine_tune_status": "planned",
       "fine_tune_priority": 1,
       "expected_gain": "high",
@@ -66,6 +74,12 @@
         "_note": "Slightly lower QLoRA requirement because the QAT quantization is more VRAM-efficient."
       },
 
+      "compat_state": {
+        "unsloth_lora":  "unknown",
+        "unsloth_qlora": "unknown",
+        "_note": "Blocked on Ollama tag. Compatibility state unknown until model is available for testing."
+      },
+
       "fine_tune_status": "blocked_on_ollama_tag",
       "fine_tune_priority": 1,
 
@@ -87,6 +101,12 @@
         "infer_q4_gb": 10,
         "train_lora_bf16_gb": 22,
         "train_qlora_nf4_gb": 14
+      },
+
+      "compat_state": {
+        "unsloth_lora":  "inferred",
+        "unsloth_qlora": "inferred",
+        "_note": "Unsloth documents Qwen2.5 support via qwen_2_5 template. Not yet tested in TheOrc's pipeline."
       },
 
       "fine_tune_status": "future",
@@ -112,6 +132,12 @@
         "train_qlora_nf4_gb": 28
       },
 
+      "compat_state": {
+        "unsloth_lora":  "inferred",
+        "unsloth_qlora": "incompatible",
+        "_note": "QLoRA at 32B requires 28 GB VRAM — incompatible with TheOrc's 16 GB hardware. LoRA requires A100-class hardware."
+      },
+
       "fine_tune_status": "not-planned",
       "fine_tune_priority": 4,
       "_note": "Requires A6000/A100 for QLoRA. Out of scope for consumer hardware fine-tuning."
@@ -130,6 +156,12 @@
         "infer_q4_gb": 18,
         "train_lora_bf16_gb": 48,
         "train_qlora_nf4_gb": 28
+      },
+
+      "compat_state": {
+        "unsloth_lora":  "incompatible",
+        "unsloth_qlora": "incompatible",
+        "_note": "26B inference requires 18 GB VRAM; fine-tuning requires 40+ GB. Hardware incompatible."
       },
 
       "fine_tune_status": "not-planned",
@@ -154,7 +186,7 @@
 
   "gguf_export_path": {
     "unsloth": "model.save_pretrained_merged('merged/', tokenizer, save_method='merged_4bit') then model.save_pretrained_gguf('gguf_output/', tokenizer, quantization_method='q4_k_m')",
-    "ollama_create": "ollama create theorc-boss:gemma4-ft -f fine_tuning/configs/lora_job_template.json",
+    "ollama_create": "ollama create theorc-boss:gemma4-ft -f training_pit/theorc-boss-gemma4-ft.Modelfile",
     "_note": "Unsloth's save_pretrained_gguf merges the LoRA adapter and quantizes in one step. Output is a single .gguf file ready for Ollama."
   }
 }
