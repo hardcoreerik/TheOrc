@@ -29,6 +29,59 @@ public static class WebTools
         "localhost", "127.0.0.1", "0.0.0.0", "192.168.", "10.", "172."
     ];
 
+    // Bot-protection / challenge page detection
+    // These are checked against the raw HTML before stripping.
+    // Returning challenge page content causes small models to hang.
+    private static readonly string[] ChallengeSignals =
+    [
+        "cf-browser-verification",  // Cloudflare: classic IUAM
+        "cf_chl_opt",               // Cloudflare: challenge options object
+        "jschl-answer",             // Cloudflare: JS challenge answer field
+        "cf-chl-bypass",            // Cloudflare: bypass token
+        "cf-turnstile",             // Cloudflare: Turnstile CAPTCHA
+        "Ray ID",                   // Cloudflare: footer Ray ID (combined with status check)
+        "DDoS protection by",       // Cloudflare / generic CDN
+        "__cf_chl_rt_tk",           // Cloudflare: retry token
+        "Attention Required!",      // Cloudflare: access denied page title
+        "Please Wait... | Cloudflare",
+        "Just a moment...",         // Cloudflare: IUAM page title
+        "Client Challenge",         // Cloudflare / generic challenge
+        "verify you are human",
+        "Checking your browser",
+        "Enable JavaScript and cookies",
+        "human verification",
+        "bot protection",
+    ];
+
+    /// <summary>
+    /// Returns true when the response looks like a bot-protection or CAPTCHA challenge page.
+    /// Checking happens on raw HTML before tag-stripping so signal strings are preserved.
+    /// </summary>
+    private static bool IsBotChallengePage(int statusCode, string html)
+    {
+        // 403/503 + any Cloudflare fingerprint → definitely a challenge
+        bool isCfStatus = statusCode is 403 or 503;
+
+        foreach (var signal in ChallengeSignals)
+        {
+            if (html.Contains(signal, StringComparison.OrdinalIgnoreCase))
+            {
+                // "Ray ID" alone could appear in legitimate pages; require bad status or CF brand
+                if (signal == "Ray ID")
+                {
+                    if (isCfStatus || html.Contains("Cloudflare", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+                else
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     public static void Register(ToolRegistry registry)
     {
         registry.Register(new ToolDefinition
@@ -65,7 +118,19 @@ public static class WebTools
 
                 try
                 {
-                    var html = await _http.GetStringAsync(url, ct);
+                    var response = await _http.GetAsync(url, HttpCompletionOption.ResponseContentRead, ct);
+                    var html     = await response.Content.ReadAsStringAsync(ct);
+                    var status   = (int)response.StatusCode;
+
+                    // Detect bot-protection / CAPTCHA challenge pages BEFORE doing anything else.
+                    // Returning challenge page content to a model causes it to hang trying to
+                    // parse thousands of tokens of JavaScript and meta-redirects.
+                    if (IsBotChallengePage(status, html))
+                        return $"[FETCH_BLOCKED] Bot-protection challenge at {url} (HTTP {status}). " +
+                               "This site blocks automated access. Use your existing knowledge instead of retrying this URL.";
+
+                    if (!response.IsSuccessStatusCode)
+                        return $"[ERROR] HTTP {status} from {url}";
 
                     // Strip noise
                     var text = _scripts.Replace(html, " ");

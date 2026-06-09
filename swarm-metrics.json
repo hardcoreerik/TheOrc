@@ -1,0 +1,65 @@
+{
+  "runDate": "2026-06-09",
+  "benchmarks": [
+    {
+      "filesProduced": 8,
+      "notes": "3 agents: Researcher/Coder/UIDeveloper. Mixed Python+C# output. All key deliverables present.",
+      "researcher": "nemotron-3-nano:4b",
+      "autoScore": 85,
+      "coder": "nemotron-3-nano:4b-q8_0",
+      "runId": "20260609_135107",
+      "agentCount": 3,
+      "boss": "qwen2.5-coder:14b",
+      "benchmark": "CleanCSV",
+      "combo": "A"
+    },
+    {
+      "combo": "B",
+      "researcher": "nemotron-3-nano:4b",
+      "coder": "nemotron-3-nano:4b-q8_0",
+      "boss": "gemma4:12b",
+      "benchmark": "CleanCSV",
+      "notes": "FAIL: Boss planned 1 trivial task (31-byte coder assignment). Coder produced no files. Final report was entirely hallucinated by boss. Staging dir empty.",
+      "autoScore": 30,
+      "agentCount": 1,
+      "runId": "20260609_140347",
+      "filesProduced": 0
+    },
+    {
+      "combo": "C",
+      "boss": "qwen2.5-coder:14b",
+      "coder": "qwen2.5-coder:7b",
+      "researcher": "nemotron-3-nano:4b-q8_0",
+      "benchmark": "CleanCSV",
+      "runId": "20260609_150243",
+      "agentCount": 3,
+      "filesProduced": 2,
+      "autoScore": 38,
+      "notes": "PASS (no crash). csv_cleaner.py: all 4 cleaning ops implemented correctly. main.py: tkinter UI exists but uses hardcoded dummy data, no real CSV loading/saving, not integrated with csv_cleaner.py. Missing: sample.csv, README. Prior crash (Path:$.Handler serialization) fixed by inline JsonObject schema building in RunWorkerLoopAsync."
+    },
+    {
+      "combo": "D",
+      "boss": "gemma4:12b",
+      "coder": "qwen2.5-coder:7b",
+      "researcher": "nemotron-3-nano:4b",
+      "benchmark": "CleanCSV",
+      "runId": "20260609_150807",
+      "agentCount": 1,
+      "filesProduced": 4,
+      "autoScore": 18,
+      "notes": "PASS (no crash, syntax check passed). Boss under-planned again (1 task: 'Execute goal') — same pattern as Combo B with gemma4:12b boss. Coder went off-task: produced a web scraper (scraper.py + requests/BeautifulSoup) instead of a CSV cleaner. main.py, README.md, requirements.txt present but wrong domain entirely. gemma4:12b as boss is consistently unsuitable for multi-task decomposition."
+    },
+    {
+      "combo": "E",
+      "boss": "qwen2.5-coder:14b",
+      "coder": "gemma4:12b",
+      "researcher": "gemma4:12b",
+      "benchmark": "CleanCSV",
+      "runId": "20260609_151350",
+      "agentCount": 3,
+      "filesProduced": 2,
+      "autoScore": 68,
+      "notes": "PASS (no crash). Best output after Combo A. csv_cleaner.py: Pandas-based, all 4 ops, type annotations, logging, proper error handling. main.py: fully integrated with csv_cleaner, tkinter Treeview preview, filedialog Load/Save, threading, disabled-until-ready save button. Missing: sample.csv, README. gemma4:12b as coder/researcher produced higher-quality code than smaller models when a good boss (qwen2.5-coder:14b) provides proper task decomposition."
+    }
+  ]
+}

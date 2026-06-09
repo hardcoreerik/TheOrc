@@ -645,8 +645,66 @@ public partial class SwarmBoardPanel : UserControl
         _pulseTimer.Stop();
         SetHeaderActive(false);
         BtnStopSwarm.Visibility = Visibility.Collapsed;
+        BtnNewRun.Visibility    = Visibility.Visible;
         SetNodeIdle(NodeBoss);
         TbBossStatus.Text = "Done ⬡";
+    }
+
+    // ── New Run ───────────────────────────────────────────────────────────────
+
+    private void BtnNewRun_Click(object sender, RoutedEventArgs e)
+    {
+        // Stop any lingering session
+        _session?.Stop();
+        _session = null;
+
+        // Clear stream buffers (same pattern as BtnLaunch_Click reset)
+        foreach (var key in _streams.Keys.ToList())
+        {
+            _streams[key]      = "";
+            _thinkStreams[key]  = "";
+            _rawPending[key]   = "";
+        }
+
+        // Clear shared stream display
+        TbStream.Text    = "";
+        TbThinking.Text  = "";
+        TbThinkCount.Text = "";
+        _thinkVisible = false;
+
+        // Reset task card strip and directive
+        TaskCardPanel.Children.Clear();
+        TbDirective.Text  = "";
+        TbActiveGoal.Text = "";
+
+        // Reset tabs
+        TabResearcher.Visibility = Visibility.Collapsed;
+        TabCoder.Visibility      = Visibility.Collapsed;
+        TabUIDev.Visibility      = Visibility.Collapsed;
+        SelectTab("boss");
+
+        // Reset node status labels
+        TbBossStatus.Text       = "idle";
+        TbResearcherStatus.Text = "idle";
+        TbCoderStatus.Text      = "idle";
+        TbUIDevStatus.Text      = "idle";
+        SetNodeIdle(NodeBoss);
+        SetNodeIdle(NodeResearcher);
+        SetNodeIdle(NodeCoder);
+        SetNodeIdle(NodeUIDev);
+
+        // Hide active panel, show setup panel
+        BtnNewRun.Visibility         = Visibility.Collapsed;
+        BtnLaunchProject.Visibility  = Visibility.Collapsed;
+        BtnStopSwarm.Visibility      = Visibility.Collapsed;
+        BdrDirective.Visibility      = Visibility.Collapsed;
+        PnlActive.Visibility         = Visibility.Collapsed;
+        PnlIdle.Visibility           = Visibility.Visible;
+
+        _lastOutputProjectDir = "";
+        _pulseTimer.Stop();
+        SetHeaderActive(false);
+        StatusChanged?.Invoke("Swarm ready");
     }
 
     // ── SwarmSession event handlers ───────────────────────────────────────────

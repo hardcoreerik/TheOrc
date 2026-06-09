@@ -1354,6 +1354,49 @@ public class SwarmSession
         const int MaxWorkerSteps = 16;
         var finalSb = new StringBuilder();
 
+        // Convert ToolDefinition objects → serializable JsonObject schemas INLINE.
+        // We build JsonObject nodes directly instead of going through SchemaGenerator
+        // or any method that calls JsonSerializer.Serialize(toolDefinition) (even
+        // indirectly via ToOllamaSchema() which returns 'object' and can confuse
+        // the .NET 10 serializer's runtime-type discovery into touching Handler).
+        // JsonObject is natively handled by System.Text.Json — zero reflection on Func<>.
+        IReadOnlyList<object>? toolsPayload = null;
+        if (tools.Count > 0)
+        {
+            var schemas = new List<object>(tools.Count);
+            foreach (var td in tools)
+            {
+                var props = new JsonObject();
+                foreach (var (key, param) in td.Parameters)
+                    props[key] = new JsonObject
+                    {
+                        ["type"]        = JsonValue.Create(param.Type),
+                        ["description"] = JsonValue.Create(param.Description)
+                    };
+
+                var req = new JsonArray();
+                foreach (var r in td.Required)
+                    req.Add(JsonValue.Create(r));
+
+                schemas.Add((object)new JsonObject
+                {
+                    ["type"] = "function",
+                    ["function"] = new JsonObject
+                    {
+                        ["name"]        = JsonValue.Create(td.Name),
+                        ["description"] = JsonValue.Create(td.Description),
+                        ["parameters"]  = new JsonObject
+                        {
+                            ["type"]       = "object",
+                            ["properties"] = props,
+                            ["required"]   = req
+                        }
+                    }
+                });
+            }
+            toolsPayload = schemas;
+        }
+
         for (int step = 0; step < MaxWorkerSteps && !ct.IsCancellationRequested; step++)
         {
             // ── Inject any pending steer messages as user guidance ────────
@@ -1379,7 +1422,7 @@ public class SwarmSession
 
             await foreach (var token in _ollama.StreamCompletionAsync(
                 model, history,
-                tools:       tools.Count > 0 ? tools : null,
+                tools:       toolsPayload,
                 temperature: 0.25,
                 maxTokens:   8192,
                 onToolCall:  tc => pendingTcs.Add(tc),

@@ -180,10 +180,38 @@ public static class SchemaGenerator
         FormatVariant             format,
         SchemaSimplificationRules rules)
     {
-        // Start from the Ollama schema shape
-        var raw    = JsonSerializer.Serialize(tool.ToOllamaSchema());
-        var node   = JsonNode.Parse(raw);
-        if (node == null) return tool.ToOllamaSchema();
+        // Build schema as a JsonNode directly — no serialization round-trip through anonymous
+        // types (which could re-encounter the ToolDefinition.Handler Func<> delegate under
+        // certain .NET runtime reflection paths when T=object is inferred by the compiler).
+        var properties = new JsonObject();
+        foreach (var (key, param) in tool.Parameters)
+        {
+            properties[key] = new JsonObject
+            {
+                ["type"]        = JsonValue.Create(param.Type),
+                ["description"] = JsonValue.Create(param.Description)
+            };
+        }
+
+        var required = new JsonArray();
+        foreach (var r in tool.Required)
+            required.Add(JsonValue.Create(r));
+
+        var node = new JsonObject
+        {
+            ["type"] = "function",
+            ["function"] = new JsonObject
+            {
+                ["name"]        = JsonValue.Create(tool.Name),
+                ["description"] = JsonValue.Create(tool.Description),
+                ["parameters"]  = new JsonObject
+                {
+                    ["type"]       = "object",
+                    ["properties"] = properties,
+                    ["required"]   = required
+                }
+            }
+        };
 
         // Apply simplification rules if needed
         if (!rules.IsNoOp)

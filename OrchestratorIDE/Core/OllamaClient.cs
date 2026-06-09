@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using OrchestratorIDE.Models;
 
 namespace OrchestratorIDE.Core;
@@ -365,6 +366,8 @@ public class ToolDefinition
     public Dictionary<string, ToolParameter> Parameters { get; set; } = [];
     public string[] Required { get; set; } = [];
     public bool RequiresApproval { get; set; } = false;
+    /// <summary>Runtime callback — excluded from JSON serialization (Func delegates cannot be serialized).</summary>
+    [JsonIgnore]
     public Func<Dictionary<string, object?>, CancellationToken, Task<string>>? Handler { get; set; }
 
     public object ToOllamaSchema() => new
