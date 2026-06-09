@@ -100,14 +100,20 @@ None are implemented yet — this documents where they go when Phase 2 starts.
 
 ### SwarmSession — DatasetCapture hook
 
+Built and live in `OrchestratorIDE/Services/Swarm/DatasetCapture.cs`.
+Called in `RunInternalAsync()` after `ParseBossPlan()` succeeds:
+
 ```csharp
-// Location: RunBossDecomposeAsync(), after ParseBossPlan() succeeds
-// If score >= 70: stage as positive example
-// If score <= 39: stage as negative example
-// File: OrchestratorIDE/Services/Swarm/DatasetCapture.cs (NOT BUILT YET)
-if (_captureEnabled)
-    await DatasetCapture.StageExampleAsync(runId, userGoal, raw, tasks, score);
+// After Tasks = ParseBossPlan(bossRaw) and Tasks.Count > 0 guard:
+await DatasetCapture.StageAsync(_runId, userGoal, bossRaw, Tasks, _bossModel, DatasetStagingDir);
 ```
+
+`EvalRubric.Score()` determines whether the plan qualifies:
+- Score ≥ 70 → staged as `plan_capture_good_<runId>_<score>.json`
+- Score ≤ 39 → staged as `plan_capture_bad_<runId>_<score>.json`
+- Score 40–69 → silently skipped (marginal)
+
+`StageAsync` is best-effort — all exceptions are swallowed so capture failures never disrupt swarm runs.
 
 ### ModelProfiles — Adapter entry
 
@@ -136,8 +142,8 @@ if (_captureEnabled)
 | Phase | Status | Description |
 |---|---|---|
 | 1 — Scaffolding | **Done** | Schemas, rubrics, configs, scripts, examples, adapter registry |
-| 2 — Data collection | Planned | DatasetCapture.cs, manual annotation, 200–500 examples |
-| 3 — Training | Future | Unsloth LoRA, eval loop, GGUF export, registry entry |
+| 2 — Data collection | **Active** | DatasetCapture.cs built and live; accumulating real captures; see DATASET_STRATEGY.md for Phase 3 gate |
+| 3 — Training | **Blocked** | Blocked pending ≥150 reviewed positive + ≥25 negative examples; Unsloth LoRA, eval loop, GGUF export |
 | 4 — Deployment | Future | ModelProfiles entry, A/B routing, swarm-metrics benchmark |
 
 ---

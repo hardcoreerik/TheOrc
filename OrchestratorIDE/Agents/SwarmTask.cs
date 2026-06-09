@@ -20,6 +20,14 @@ public class SwarmTask : INotifyPropertyChanged
     public string Description { get; set; } = "";
     public SwarmWorkerRole Role { get; set; }
 
+    /// <summary>
+    /// The logical role string exactly as emitted by the boss (e.g. "TESTER", "DOCS",
+    /// "BACKEND_DEVELOPER"). May differ from Role when a logical role has been normalized
+    /// to a supported execution lane by ParseBossPlan's alias map.
+    /// Null when the boss emitted a string that exactly matches the execution lane name.
+    /// </summary>
+    public string? LogicalRole { get; set; }
+
     // ── Mutable state ─────────────────────────────────────────────────────────
     private SwarmTaskStatus _status = SwarmTaskStatus.Pending;
     private string          _streamBuffer = "";

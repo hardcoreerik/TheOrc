@@ -1948,15 +1948,60 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
             {
                 if (t is null) continue;
                 var roleStr = t["role"]?.GetValue<string>()?.ToUpperInvariant() ?? "CODER";
+
+                // ── Role alias map ──────────────────────────────────────────────────
+                // Maps the logical role the boss emits to the execution lane the
+                // runtime supports.  The boss system prompt only advertises
+                // RESEARCHER / CODER / UIDEVELOPER to avoid model confusion, but the
+                // parser can safely absorb a wider vocabulary from future fine-tuned
+                // variants or user-authored plan JSON.
+                //
+                // Execution lanes and their capabilities:
+                //   Researcher  — fetch/read/investigate; NO write_file
+                //   Coder       — write_file, run_shell, read, grep, fetch
+                //   UIDeveloper — write_file, run_shell, read, fetch (UI-focused prompt)
+                //   Tester      — run_shell, read, list; NO write_file (read+execute only)
+                //
+                // Unknown logical roles fall through to Coder (safe default).
                 var role = roleStr switch
                 {
-                    "RESEARCHER"  => SwarmWorkerRole.Researcher,
-                    "UIDEVELOPER" => SwarmWorkerRole.UIDeveloper,
-                    _             => SwarmWorkerRole.Coder
+                    // ── Native execution lane names ────────────────────────────────
+                    "RESEARCHER"                                          => SwarmWorkerRole.Researcher,
+                    "UIDEVELOPER"                                         => SwarmWorkerRole.UIDeveloper,
+                    "TESTER"                                              => SwarmWorkerRole.Tester,
+
+                    // ── Planning / analysis → RESEARCHER ──────────────────────────
+                    // These roles investigate and document; they do not produce code.
+                    "ARCHITECT" or "PLANNER" or "REVIEWER" or "ANALYST"  => SwarmWorkerRole.Researcher,
+
+                    // ── UI / frontend → UIDEVELOPER ────────────────────────────────
+                    "FRONTEND_DEVELOPER" or "FRONTEND" or "UI"           => SwarmWorkerRole.UIDeveloper,
+
+                    // ── Test / QA → TESTER ────────────────────────────────────────
+                    "QA" or "QUALITY_ASSURANCE"                          => SwarmWorkerRole.Tester,
+
+                    // ── Everything else → CODER ───────────────────────────────────
+                    // Covers: CODER, BACKEND_DEVELOPER, BACKEND, DOCS, DOCUMENTATION,
+                    // DEVOPS, RELEASE_MANAGER, SECURITY, PERFORMANCE, ML_ENGINEER,
+                    // DATA_ENGINEER, and any future or unknown role strings.
+                    _                                                     => SwarmWorkerRole.Coder
                 };
+
+                // Preserve the logical role only when it differs from the execution lane name
+                // (so LogicalRole is null for RESEARCHER/CODER/UIDEVELOPER — no aliasing occurred)
+                var executionName = role switch
+                {
+                    SwarmWorkerRole.Researcher  => "RESEARCHER",
+                    SwarmWorkerRole.UIDeveloper => "UIDEVELOPER",
+                    SwarmWorkerRole.Tester      => "TESTER",
+                    _                           => "CODER"
+                };
+                var logicalRole = roleStr != executionName ? roleStr : null;
+
                 result.Add(new SwarmTask
                 {
                     Role        = role,
+                    LogicalRole = logicalRole,
                     Priority    = t["priority"]?.GetValue<int>() ?? 2,
                     Title       = t["title"]?.GetValue<string>()       ?? "Task",
                     Description = t["description"]?.GetValue<string>() ?? "",

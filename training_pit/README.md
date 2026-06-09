@@ -1,12 +1,12 @@
 # The Training Pit
 
-> **Phase status: SCAFFOLDING — Phase 1 complete.**
-> The Training Pit is TheOrc's adapter lifecycle system. It handles dataset creation,
-> dataset validation, sanitization, evals, hardware checks, base-model compatibility,
-> LoRA/QLoRA job configs, adapter registry, imported adapters, and eventually live local training.
+> **Phase status: PHASE 2 ACTIVE — Data collection in progress.**
+> `DatasetCapture.cs` is live. Boss plans are being auto-staged after every swarm run.
+> Phase 3 training is **blocked** pending ≥150 reviewed positive examples.
+> See `DATASET_STRATEGY.md` for the Phase 3 gate checklist and dataset source strategy.
 >
 > **Live training is not yet implemented. Do not add training scripts or launch jobs
-> until Phase 2 is explicitly started. See ARCHITECTURE.md for the full roadmap.**
+> until Phase 3 is explicitly unblocked. See ARCHITECTURE.md for the full roadmap.**
 
 ---
 
@@ -36,7 +36,7 @@ reliably across goals, domains, and model versions.
 
 ---
 
-## Current State (Phase 1)
+## Current State (Phase 2 Active)
 
 - [x] QAT base model pulled and deployed (`theorc-boss:gemma4` on Ollama server)
 - [x] Canonical dataset schema defined (chat JSONL — `DATASET_SCHEMA.md`)
@@ -44,27 +44,30 @@ reliably across goals, domains, and model versions.
 - [x] Eval rubric: plan quality + boss behavior (`EVAL_RUBRIC.md`)
 - [x] LoRA / QLoRA job config templates (`configs/`)
 - [x] Adapter registry schema (`adapters/registry.json`)
-- [x] Reference examples (`examples/`)
+- [x] Reference examples (`examples/`) — 4 positive, 2 eval-only
 - [x] Eval prompt starter sets (`evals/`)
 - [x] Utility scripts (`scripts/`)
 - [x] Hardware guide, model compatibility, safety docs
+- [x] **`DatasetCapture.cs` live** — auto-staging boss plans after every swarm run
+- [x] **Dataset strategy documented** (`DATASET_STRATEGY.md`) — three-tier sources, Phase 3 gate
+- [x] **Role architecture documented** (`ROLE_ARCHITECTURE.md`) — logical/execution role split, alias map
 
 ---
 
 ## Planned Pipeline
 
 ```
-Phase 1 (DONE):  Scaffolding
+Phase 1 (DONE):   Scaffolding
   └── schemas, rubrics, configs, scripts, eval prompts, adapter registry
 
-Phase 2 (NEXT):  Data collection
-  ├── Auto-capture high-scoring boss plans via DatasetCapture.cs (not built yet)
+Phase 2 (ACTIVE): Data collection
+  ├── Auto-capture boss plans via DatasetCapture.cs ← LIVE
   ├── Manual curation and annotation of examples
   ├── Negative example mining (collapse patterns, hallucinations)
   ├── Validate + sanitize via scripts/validate_dataset.py
-  └── Target: 200–500 curated chat-JSONL examples across categories
+  └── Gate: ≥150 reviewed positive + ≥25 negative examples before Phase 3
 
-Phase 3 (FUTURE): Training
+Phase 3 (BLOCKED): Training
   ├── LoRA fine-tune via Unsloth on QAT base
   ├── Eval loop using boss_behavior_eval_prompts.jsonl
   ├── Export adapter to GGUF
@@ -126,6 +129,9 @@ training_pit/
     check_hardware.py             ← detects GPU/RAM, prints training tier estimate
     check_model_compatibility.py  ← reads base_model_compat.json, prints status
     inspect_adapter.py            ← reads adapter_config.json, prints base model info
+    convert_plan_captures.py      ← converts .orc/swarm/dataset-staging/ captures → chat-JSONL
+    _generate_examples.py         ← regenerates examples/ with canonical BOSS_SYSTEM_PROMPT
+    _make_test_fixtures.py        ← creates synthetic plan captures for e2e pipeline testing
 ```
 
 ---
