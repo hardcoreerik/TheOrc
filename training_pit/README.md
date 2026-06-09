@@ -44,7 +44,7 @@ reliably across goals, domains, and model versions.
 - [x] Eval rubric: plan quality + boss behavior (`EVAL_RUBRIC.md`)
 - [x] LoRA / QLoRA job config templates (`configs/`)
 - [x] Adapter registry schema (`adapters/registry.json`)
-- [x] Reference examples (`examples/`) — 4 positive, 2 eval-only
+- [x] Reference examples (`examples/`) — 5 positive chat SFT + 1 synthetic + 1 eval-only (collapse)
 - [x] Eval prompt starter sets (`evals/`)
 - [x] Utility scripts (`scripts/`)
 - [x] Hardware guide, model compatibility, safety docs
@@ -104,11 +104,16 @@ training_pit/
     CONTRIBUTING.md               ← capture process, quality bar, format spec
 
   examples/
-    plan_capture_good_001.json    ← high-quality plan (Combo A, score 85)
-    plan_capture_good_002.json    ← good plan (Combo E, score 68)
-    plan_capture_bad_001.json     ← collapse pattern (score 5, DPO contrastive pair)
-    chat_sft_good_001.jsonl       ← chat JSONL: boss planning, no hallucination
-    chat_sft_good_002.jsonl       ← chat JSONL: debugging + PowerShell
+    plan_capture_good_001.json       ← high-quality plan (Combo A, score 85)
+    plan_capture_good_002.json       ← good plan (Combo E, score 68)
+    plan_capture_bad_001.json        ← collapse pattern (score 5, DPO contrastive pair)
+    chat_sft_good_001.jsonl          ← chat JSONL: boss planning, no hallucination
+    chat_sft_good_002.jsonl          ← chat JSONL: debugging + PowerShell
+    chat_sft_good_003.jsonl          ← chat JSONL: multi-role (RESEARCHER + CODER)
+    chat_sft_good_004.jsonl          ← chat JSONL: UIDEVELOPER-focused task
+    chat_sft_good_005.jsonl          ← chat JSONL: TESTER golden example (no-write lane)
+    chat_sft_synthetic_001.jsonl     ← synthetic example (eval-only, not in train_v1)
+    chat_sft_eval_collapse_001.jsonl ← eval-only collapse negative (never in train)
 
   evals/
     boss_behavior_eval_prompts.jsonl   ← 10 starter boss behavior eval prompts
@@ -147,4 +152,4 @@ training_pit/
 
 ---
 
-*Last updated: 2026-06-09 — Phase 1 complete. Aligned with The Training Pit architecture.*
+*Last updated: 2026-06-09 — Phase 2 active. TESTER promoted to advertised role; 7 examples (5 positive, 1 synthetic, 1 eval-only). UI aligned to 4-worker swarm board.*

@@ -396,7 +396,7 @@
                     <TextBlock TextAlignment="Center" TextWrapping="Wrap"
                                Foreground="{StaticResource Br.Text.Muted}"
                                FontSize="12" Margin="0,0,0,20">
-                        One Boss coordinates up to 3 specialist workers — Researcher, Coder, and UI Developer —
+                        One Boss coordinates up to 3 specialist workers — Researcher, Coder, UI Developer, and Tester —
                         running concurrently and checking in via a shared task board.
                     </TextBlock>
 
@@ -839,7 +839,7 @@
                                                Width="20" VerticalAlignment="Top"/>
                                     <TextBlock TextWrapping="Wrap" FontSize="11"
                                                Foreground="#A8CC80"
-                                               Text="Describe the outcome, not the steps. TheOrc decomposes the goal and dispatches specialist minions — Researcher, Coder, UI Dev — automatically."/>
+                                               Text="Describe the outcome, not the steps. TheOrc decomposes the goal and dispatches specialist minions — Researcher, Coder, UI Dev, Tester — automatically."/>
                                 </DockPanel>
                                 <!-- Tip 3 -->
                                 <DockPanel Margin="0,0,0,5">
@@ -986,7 +986,7 @@
                         <!-- Workers row -->
                         <UniformGrid x:Name="WorkerGrid"
                                      Grid.Row="2"
-                                     Rows="1" Columns="3"
+                                     Rows="1" Columns="4"
                                      HorizontalAlignment="Stretch">
 
                             <!-- Researcher -->
@@ -1052,6 +1052,29 @@
                                 </StackPanel>
                             </Border>
 
+                            <!-- Tester -->
+                            <Border x:Name="NodeTester"
+                                    Style="{StaticResource NodeBorder}"
+                                    Margin="4,0"
+                                    AutomationProperties.AutomationId="Swarm.NodeTester">
+                                <StackPanel HorizontalAlignment="Center">
+                                    <Grid HorizontalAlignment="Center" Margin="0,0,0,4">
+                                        <TextBlock x:Name="IcoTester" Text="🧪" FontSize="20"/>
+                                        <TextBlock x:Name="IcoTesterThink" Text="💭" FontSize="14"
+                                                   HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                   Margin="0,0,-4,-2" Visibility="Collapsed"/>
+                                    </Grid>
+                                    <TextBlock Text="TESTER" FontSize="9" FontWeight="Bold"
+                                               Foreground="#F0C060" HorizontalAlignment="Center"
+                                               FontFamily="Segoe UI"/>
+                                    <TextBlock x:Name="TbTesterStatus"
+                                               Text="idle" FontSize="10"
+                                               Foreground="{StaticResource Br.Text.Muted}"
+                                               HorizontalAlignment="Center" Margin="0,2,0,0"
+                                               AutomationProperties.AutomationId="Swarm.TesterStatus"/>
+                                </StackPanel>
+                            </Border>
+
                         </UniformGrid>
                     </Grid>
 
@@ -1101,6 +1124,12 @@
                                         Style="{StaticResource StreamTab}"
                                         Click="Tab_Click" Tag="uidev"
                                         Visibility="Collapsed"/>
+                                <Button x:Name="TabTester"
+                                        Content="🧪 Tester"
+                                        Style="{StaticResource StreamTab}"
+                                        Click="Tab_Click" Tag="tester"
+                                        Visibility="Collapsed"
+                                        AutomationProperties.AutomationId="Swarm.TabTester"/>
                             </StackPanel>
 
                             <!-- Font-size badge (right, shows current zoom) -->
@@ -1218,6 +1247,8 @@
                         BorderThickness="0,1,0,0">
                     <Grid>
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="1"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="1"/>
                             <ColumnDefinition Width="*"/>
@@ -1403,6 +1434,64 @@
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel x:Name="LogUIDev" Margin="6,2"/>
+                            </ScrollViewer>
+                        </DockPanel>
+
+                        <!-- Column divider -->
+                        <Rectangle Grid.Column="7" Fill="{StaticResource Br.Border}"/>
+
+                        <!-- 🧪 Tester column -->
+                        <DockPanel Grid.Column="8">
+                            <Border DockPanel.Dock="Top" Background="#0E120E"
+                                    BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1"
+                                    Padding="8,3">
+                                <DockPanel>
+                                    <Button x:Name="BtnSteerTester" DockPanel.Dock="Right"
+                                            Content="📤" Visibility="Collapsed"
+                                            Background="Transparent" Foreground="#F0C060"
+                                            BorderThickness="0" Padding="4,0" Cursor="Hand"
+                                            FontSize="11" ToolTip="Send a message to this worker"
+                                            Click="BtnSteerTester_Click"
+                                            AutomationProperties.AutomationId="Swarm.SteerTester"/>
+                                    <TextBlock Text="🧪  Tester" Foreground="#F0C060"
+                                               FontSize="10" FontWeight="Bold" FontFamily="Consolas"
+                                               VerticalAlignment="Center"/>
+                                </DockPanel>
+                            </Border>
+                            <Border x:Name="CoWorkTester" DockPanel.Dock="Bottom"
+                                    Visibility="Collapsed" Padding="8,6"
+                                    BorderThickness="0,1,0,0"
+                                    AutomationProperties.AutomationId="Swarm.CoWorkTester">
+                                <StackPanel>
+                                    <TextBlock x:Name="TbCoWorkLabelTester"
+                                               FontSize="9" FontWeight="Bold" FontFamily="Consolas"
+                                               Margin="0,0,0,4"/>
+                                    <TextBlock x:Name="TbQuestionTester"
+                                               FontFamily="Consolas" FontSize="11"
+                                               TextWrapping="Wrap" Margin="0,0,0,6"
+                                               Visibility="Collapsed"/>
+                                    <WrapPanel x:Name="WpOptionsTester" Margin="0,0,0,6"
+                                               Visibility="Collapsed"/>
+                                    <DockPanel>
+                                        <Button x:Name="BtnCoWorkSendTester" DockPanel.Dock="Right"
+                                                Content="Send" Padding="8,3" Margin="4,0,0,0"
+                                                FontFamily="Consolas" FontSize="11"
+                                                Click="BtnCoWorkSendTester_Click"
+                                                AutomationProperties.AutomationId="Swarm.CoWorkSendTester"/>
+                                        <TextBox x:Name="TxtCoWorkTester"
+                                                 Background="#111111" Foreground="White"
+                                                 FontFamily="Consolas" FontSize="11" Padding="4,3"
+                                                 BorderBrush="#333333"
+                                                 KeyDown="TxtCoWork_KeyDown"
+                                                 AutomationProperties.AutomationId="Swarm.CoWorkInputTester"/>
+                                    </DockPanel>
+                                </StackPanel>
+                            </Border>
+                            <ScrollViewer x:Name="ScrollTester"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="LogTester" Margin="6,2"
+                                            AutomationProperties.AutomationId="Swarm.LogTester"/>
                             </ScrollViewer>
                         </DockPanel>
                     </Grid>

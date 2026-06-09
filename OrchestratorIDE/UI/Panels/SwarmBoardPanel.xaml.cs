@@ -15,7 +15,7 @@ namespace OrchestratorIDE.UI.Panels;
 /// Hub-and-spoke visual board for the multi-agent Swarm feature.
 ///
 /// Layout:
-///   Left  — node diagram (Boss at top, 3 worker nodes below, canvas lines)
+///   Left  — node diagram (Boss at top, 4 worker nodes below, canvas lines)
 ///   Right — tabbed live stream output per agent
 ///   Bottom strip — scrollable task card list
 ///
@@ -67,25 +67,25 @@ public partial class SwarmBoardPanel : UserControl
     // Per-tab output buffers (thinking stripped out)
     private readonly Dictionary<string, string> _streams = new()
     {
-        ["boss"] = "", ["researcher"] = "", ["coder"] = "", ["uidev"] = "",
+        ["boss"] = "", ["researcher"] = "", ["coder"] = "", ["uidev"] = "", ["tester"] = "",
     };
 
     // Per-tab thinking buffers (<think>…</think> content)
     private readonly Dictionary<string, string> _thinkStreams = new()
     {
-        ["boss"] = "", ["researcher"] = "", ["coder"] = "", ["uidev"] = "",
+        ["boss"] = "", ["researcher"] = "", ["coder"] = "", ["uidev"] = "", ["tester"] = "",
     };
 
     // Per-tab raw remainder for incremental <think> tag parsing
     private readonly Dictionary<string, string> _rawPending = new()
     {
-        ["boss"] = "", ["researcher"] = "", ["coder"] = "", ["uidev"] = "",
+        ["boss"] = "", ["researcher"] = "", ["coder"] = "", ["uidev"] = "", ["tester"] = "",
     };
 
     // Per-tab: are we currently inside a <think> block?
     private readonly Dictionary<string, bool> _inThink = new()
     {
-        ["boss"] = false, ["researcher"] = false, ["coder"] = false, ["uidev"] = false,
+        ["boss"] = false, ["researcher"] = false, ["coder"] = false, ["uidev"] = false, ["tester"] = false,
     };
 
     // Whether the thinking pane is currently visible
@@ -551,24 +551,29 @@ public partial class SwarmBoardPanel : UserControl
         LogResearcher.Children.Clear();
         LogCoder.Children.Clear();
         LogUIDev.Children.Clear();
+        LogTester.Children.Clear();
 
         // Reset node states
         SetNodeIdle(NodeBoss);
         SetNodeIdle(NodeResearcher);
         SetNodeIdle(NodeCoder);
         SetNodeUIDev(NodeUIDev);
+        SetNodeIdle(NodeTester);
         TbBossStatus.Text       = "Orchestrating…";
         TbResearcherStatus.Text = "idle";
         TbCoderStatus.Text      = "idle";
         TbUIDevStatus.Text      = "idle";
+        TbTesterStatus.Text     = "idle";
         IcoResearcherThink.Visibility = Visibility.Collapsed;
         IcoCoderThink.Visibility      = Visibility.Collapsed;
         IcoUIDevThink.Visibility      = Visibility.Collapsed;
+        IcoTesterThink.Visibility     = Visibility.Collapsed;
 
         // Reset tabs
         TabResearcher.Visibility = Visibility.Collapsed;
         TabCoder.Visibility      = Visibility.Collapsed;
         TabUIDev.Visibility      = Visibility.Collapsed;
+        TabTester.Visibility     = Visibility.Collapsed;
         SelectTab("boss");
 
         // Show active board
@@ -692,6 +697,7 @@ public partial class SwarmBoardPanel : UserControl
         TabResearcher.Visibility = Visibility.Collapsed;
         TabCoder.Visibility      = Visibility.Collapsed;
         TabUIDev.Visibility      = Visibility.Collapsed;
+        TabTester.Visibility     = Visibility.Collapsed;
         SelectTab("boss");
 
         // Reset node status labels
@@ -699,10 +705,12 @@ public partial class SwarmBoardPanel : UserControl
         TbResearcherStatus.Text = "idle";
         TbCoderStatus.Text      = "idle";
         TbUIDevStatus.Text      = "idle";
+        TbTesterStatus.Text     = "idle";
         SetNodeIdle(NodeBoss);
         SetNodeIdle(NodeResearcher);
         SetNodeIdle(NodeCoder);
         SetNodeIdle(NodeUIDev);
+        SetNodeIdle(NodeTester);
 
         // Hide active panel, show setup panel
         BtnNewRun.Visibility         = Visibility.Collapsed;
@@ -825,7 +833,8 @@ public partial class SwarmBoardPanel : UserControl
                 {
                     SwarmWorkerRole.Researcher  => "researcher",
                     SwarmWorkerRole.Coder       => "coder",
-                    SwarmWorkerRole.UIDeveloper  => "uidev",
+                    SwarmWorkerRole.UIDeveloper => "uidev",
+                    SwarmWorkerRole.Tester      => "tester",
                     _                           => "coder"
                 };
                 _taskTabMap[task.Id] = tabKey;
@@ -836,6 +845,7 @@ public partial class SwarmBoardPanel : UserControl
                     case SwarmWorkerRole.Researcher:  TabResearcher.Visibility = Visibility.Visible; break;
                     case SwarmWorkerRole.Coder:       TabCoder.Visibility      = Visibility.Visible; break;
                     case SwarmWorkerRole.UIDeveloper: TabUIDev.Visibility      = Visibility.Visible; break;
+                    case SwarmWorkerRole.Tester:      TabTester.Visibility     = Visibility.Visible; break;
                 }
 
                 // Add task card to bottom strip
@@ -866,6 +876,10 @@ public partial class SwarmBoardPanel : UserControl
                                                 CoWorkUIDev, TbCoWorkLabelUIDev, TbQuestionUIDev,
                                                 WpOptionsUIDev, TxtCoWorkUIDev, BtnCoWorkSendUIDev,
                                                 BtnSteerUIDev),
+                SwarmWorkerRole.Tester      => (NodeTester, TbTesterStatus, IcoTesterThink,
+                                                CoWorkTester, TbCoWorkLabelTester, TbQuestionTester,
+                                                WpOptionsTester, TxtCoWorkTester, BtnCoWorkSendTester,
+                                                BtnSteerTester),
                 _ => default
             };
 
@@ -998,6 +1012,7 @@ public partial class SwarmBoardPanel : UserControl
     private void BtnSteerResearcher_Click(object sender, RoutedEventArgs e) => OpenSteerInput(SwarmWorkerRole.Researcher, TxtCoWorkResearcher);
     private void BtnSteerCoder_Click     (object sender, RoutedEventArgs e) => OpenSteerInput(SwarmWorkerRole.Coder,       TxtCoWorkCoder);
     private void BtnSteerUIDev_Click     (object sender, RoutedEventArgs e) => OpenSteerInput(SwarmWorkerRole.UIDeveloper, TxtCoWorkUIDev);
+    private void BtnSteerTester_Click    (object sender, RoutedEventArgs e) => OpenSteerInput(SwarmWorkerRole.Tester,      TxtCoWorkTester);
 
     private void OpenSteerInput(SwarmWorkerRole role, TextBox txtInput)
     {
@@ -1010,6 +1025,8 @@ public partial class SwarmBoardPanel : UserControl
                                             WpOptionsCoder,      BtnCoWorkSendCoder,      BtnSteerCoder,      "#76B900"),
             SwarmWorkerRole.UIDeveloper => (CoWorkUIDev,      TbCoWorkLabelUIDev,      TbQuestionUIDev,
                                             WpOptionsUIDev,      BtnCoWorkSendUIDev,      BtnSteerUIDev,      "#C586C0"),
+            SwarmWorkerRole.Tester      => (CoWorkTester,     TbCoWorkLabelTester,     TbQuestionTester,
+                                            WpOptionsTester,     BtnCoWorkSendTester,     BtnSteerTester,     "#F0C060"),
             _ => default
         };
 
@@ -1035,6 +1052,7 @@ public partial class SwarmBoardPanel : UserControl
     private void BtnCoWorkSendResearcher_Click(object sender, RoutedEventArgs e) => HandleCoWorkSend(SwarmWorkerRole.Researcher,  TxtCoWorkResearcher);
     private void BtnCoWorkSendCoder_Click     (object sender, RoutedEventArgs e) => HandleCoWorkSend(SwarmWorkerRole.Coder,       TxtCoWorkCoder);
     private void BtnCoWorkSendUIDev_Click     (object sender, RoutedEventArgs e) => HandleCoWorkSend(SwarmWorkerRole.UIDeveloper, TxtCoWorkUIDev);
+    private void BtnCoWorkSendTester_Click    (object sender, RoutedEventArgs e) => HandleCoWorkSend(SwarmWorkerRole.Tester,      TxtCoWorkTester);
 
     // Enter key in any co-work input → send
     private void TxtCoWork_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
@@ -1048,6 +1066,7 @@ public partial class SwarmBoardPanel : UserControl
             TextBox tb when tb == TxtCoWorkResearcher => SwarmWorkerRole.Researcher,
             TextBox tb when tb == TxtCoWorkCoder      => SwarmWorkerRole.Coder,
             TextBox tb when tb == TxtCoWorkUIDev      => SwarmWorkerRole.UIDeveloper,
+            TextBox tb when tb == TxtCoWorkTester     => SwarmWorkerRole.Tester,
             _ => (SwarmWorkerRole?)null
         };
         if (role.HasValue)
@@ -1087,6 +1106,7 @@ public partial class SwarmBoardPanel : UserControl
                     SwarmWorkerRole.Researcher  => CoWorkResearcher,
                     SwarmWorkerRole.Coder       => CoWorkCoder,
                     SwarmWorkerRole.UIDeveloper => CoWorkUIDev,
+                    SwarmWorkerRole.Tester      => CoWorkTester,
                     _                           => null
                 };
                 if (cwPanel is not null) cwPanel.Visibility = Visibility.Collapsed;
@@ -1095,6 +1115,7 @@ public partial class SwarmBoardPanel : UserControl
                     SwarmWorkerRole.Researcher  => BtnSteerResearcher,
                     SwarmWorkerRole.Coder       => BtnSteerCoder,
                     SwarmWorkerRole.UIDeveloper => BtnSteerUIDev,
+                    SwarmWorkerRole.Tester      => BtnSteerTester,
                     _                           => null
                 };
                 if (steerBtn is not null) steerBtn.Visibility = Visibility.Visible;
@@ -1112,6 +1133,7 @@ public partial class SwarmBoardPanel : UserControl
         SwarmWorkerRole.Researcher  => "researcher",
         SwarmWorkerRole.Coder       => "coder",
         SwarmWorkerRole.UIDeveloper => "uidev",
+        SwarmWorkerRole.Tester      => "tester",
         _                           => "boss"
     };
 
@@ -1181,7 +1203,7 @@ public partial class SwarmBoardPanel : UserControl
         RefreshStreamDisplay(key);
 
         // Highlight active tab button
-        foreach (var btn in new[] { TabBoss, TabResearcher, TabCoder, TabUIDev })
+        foreach (var btn in new[] { TabBoss, TabResearcher, TabCoder, TabUIDev, TabTester })
         {
             var isActive = btn.Tag as string == key;
             btn.BorderBrush = isActive
@@ -1283,7 +1305,7 @@ public partial class SwarmBoardPanel : UserControl
 
         var bossBottom = BossBottom();
 
-        foreach (var worker in new[] { NodeResearcher, NodeCoder, NodeUIDev })
+        foreach (var worker in new[] { NodeResearcher, NodeCoder, NodeUIDev, NodeTester })
         {
             if (worker.ActualWidth == 0) continue;   // not yet laid out
             var wTop = WorkerTop(worker);
@@ -1421,6 +1443,7 @@ public partial class SwarmBoardPanel : UserControl
             "researcher" => (LogResearcher, ScrollResearcher, Color.FromRgb(0x4A, 0x9F, 0xD9)),
             "coder"      => (LogCoder,      ScrollCoder,      Color.FromRgb(0x76, 0xB9, 0x00)),
             "uidev"      => (LogUIDev,      ScrollUIDev,      Color.FromRgb(0xC5, 0x86, 0xC0)),
+            "tester"     => (LogTester,     ScrollTester,     Color.FromRgb(0xF0, 0xC0, 0x60)),
             _            => (LogBoss,       ScrollBoss,       Color.FromRgb(0x76, 0xB9, 0x00)),
         };
 
