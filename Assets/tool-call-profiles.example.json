@@ -1,0 +1,116 @@
+{
+  "qwen2.5-coder:14b": {
+    "modelId": "qwen2.5-coder:14b",
+    "testedAt": "2026-06-08T00:00:00Z",
+    "recommendedMode": "Native",
+    "nativePasses": 5,
+    "textPasses": 5,
+    "totalTests": 10,
+    "testPassMap": {
+      "BasicCall_Native": true,
+      "IntArgs_Native": true,
+      "MultilineContent_Native": true,
+      "ToolSelection_Native": true,
+      "StructuredOutput_Native": true,
+      "BasicCall_Text": true,
+      "IntArgs_Text": true,
+      "MultilineContent_Text": true,
+      "ToolSelection_Text": true,
+      "StructuredOutput_Text": true
+    },
+    "preferredFormat": "OpenAI",
+    "formatScores": {
+      "OpenAI": 5,
+      "Hermes": 4,
+      "BareJson": 3,
+      "Python": 2,
+      "YAML": 1
+    },
+    "categoryResults": {
+      "FILE": "✅ Pass",
+      "CODE": "✅ Pass",
+      "PLAN": "✅ Pass",
+      "DATA": "✅ Pass",
+      "SRCH": "✅ Pass",
+      "STRCT": "✅ Pass",
+      "SYS": "⚠ Partial"
+    },
+    "categorySummary": "6/7 (1 partial)"
+  },
+  "nemotron-3-nano:4b-q8_0": {
+    "modelId": "nemotron-3-nano:4b-q8_0",
+    "testedAt": "2026-06-08T00:00:00Z",
+    "recommendedMode": "TextJson",
+    "nativePasses": 1,
+    "textPasses": 5,
+    "totalTests": 10,
+    "testPassMap": {
+      "BasicCall_Native": false,
+      "IntArgs_Native": false,
+      "MultilineContent_Native": false,
+      "ToolSelection_Native": true,
+      "StructuredOutput_Native": false,
+      "BasicCall_Text": true,
+      "IntArgs_Text": true,
+      "MultilineContent_Text": true,
+      "ToolSelection_Text": true,
+      "StructuredOutput_Text": true
+    },
+    "preferredFormat": "Bare",
+    "formatScores": {
+      "Bare": 4,
+      "YAML": 3,
+      "OpenAI": 0,
+      "Hermes": 0,
+      "Python": 0
+    },
+    "categoryResults": {
+      "FILE": "✅ Pass",
+      "CODE": "✅ Pass",
+      "PLAN": "❌ Fail",
+      "DATA": "⚠ Partial",
+      "SRCH": "✅ Pass",
+      "STRCT": "⚠ Partial",
+      "SYS": "✅ Pass"
+    },
+    "categorySummary": "3/7 (2 partial, 1 fail)"
+  },
+  "gemma4:12b": {
+    "modelId": "gemma4:12b",
+    "testedAt": "2026-06-08T00:00:00Z",
+    "recommendedMode": "Native",
+    "nativePasses": 5,
+    "textPasses": 5,
+    "totalTests": 10,
+    "testPassMap": {
+      "BasicCall_Native": true,
+      "IntArgs_Native": true,
+      "MultilineContent_Native": true,
+      "ToolSelection_Native": true,
+      "StructuredOutput_Native": true,
+      "BasicCall_Text": true,
+      "IntArgs_Text": true,
+      "MultilineContent_Text": true,
+      "ToolSelection_Text": true,
+      "StructuredOutput_Text": true
+    },
+    "preferredFormat": "OpenAI",
+    "formatScores": {
+      "OpenAI": 5,
+      "Hermes": 4,
+      "BareJson": 4,
+      "Python": 3,
+      "YAML": 2
+    },
+    "categoryResults": {
+      "FILE": "✅ Pass",
+      "CODE": "✅ Pass",
+      "PLAN": "✅ Pass",
+      "DATA": "✅ Pass",
+      "SRCH": "✅ Pass",
+      "STRCT": "⚠ Partial",
+      "SYS": "✅ Pass"
+    },
+    "categorySummary": "6/7 (1 partial)"
+  }
+}

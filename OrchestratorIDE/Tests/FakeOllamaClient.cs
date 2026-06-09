@@ -53,7 +53,7 @@ public class FakeOllamaClient : OllamaClient
 
     // ── Override completion ───────────────────────────────────────────────────
 
-    public new async IAsyncEnumerable<string> StreamCompletionAsync(
+    public override async IAsyncEnumerable<string> StreamCompletionAsync(
         string model,
         IEnumerable<AgentMessage> history,
         IReadOnlyList<object>? tools = null,
@@ -102,10 +102,10 @@ public class FakeOllamaClient : OllamaClient
 
     // ── Override connectivity / model list ────────────────────────────────────
 
-    public new Task<bool> IsReachableAsync(CancellationToken ct = default)
+    public override Task<bool> IsReachableAsync(CancellationToken ct = default)
         => Task.FromResult(true);
 
-    public new Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default)
+    public override Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default)
         => Task.FromResult(new List<string> { "fake-model:7b" });
 
     // ── Private types ─────────────────────────────────────────────────────────

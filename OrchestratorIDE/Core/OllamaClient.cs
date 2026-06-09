@@ -56,7 +56,7 @@ public class OllamaClient
     /// Ollama   → GET /api/tags          (returns models[].name)
     /// LlamaCpp → GET /v1/models         (returns data[].id)
     /// </summary>
-    public Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default)
+    public virtual Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default)
         => Backend == InferenceBackend.LlamaCpp
             ? GetLlamaCppModelsAsync(ct)
             : GetOllamaModelsAsync(ct);
@@ -96,7 +96,7 @@ public class OllamaClient
     /// Quick connectivity check — returns true if the server answers /health (llama.cpp)
     /// or /api/tags (Ollama) within 3 seconds.
     /// </summary>
-    public async Task<bool> IsReachableAsync(CancellationToken ct = default)
+    public virtual async Task<bool> IsReachableAsync(CancellationToken ct = default)
     {
         try
         {
@@ -187,7 +187,7 @@ public class OllamaClient
     /// Fires onUsage(promptTokens, completionTokens) at end of response.
     /// Yields each text delta as it arrives.
     /// </summary>
-    public async IAsyncEnumerable<string> StreamCompletionAsync(
+    public virtual async IAsyncEnumerable<string> StreamCompletionAsync(
         string model,
         IEnumerable<AgentMessage> history,
         IReadOnlyList<object>? tools = null,
