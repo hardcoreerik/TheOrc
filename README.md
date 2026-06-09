@@ -23,6 +23,29 @@ Point it at your GPU, pick a coding profile, and let it rip.
 
 ---
 
+## Current Status
+
+> TheOrc is in **active pre-release development**. The core loop works. Some features are still being hardened.
+
+| Area | Status |
+|---|---|
+| WPF shell, file explorer, code editor | ✅ Stable |
+| Ollama + llama.cpp inference | ✅ Stable |
+| Model selection and profiles | ✅ Stable |
+| Single-agent Plan → Execute + approval gates | ✅ Stable |
+| Git auto-checkpoint | ✅ Stable |
+| Goblin Swarm multi-agent routing | ⚠️ Beta — steering verified, staging area pending |
+| GOBLIN MIND tool-call probing (CLI + GUI) | ⚠️ Beta — GUI phase 5 incomplete |
+| Self-improve / Scan GitHub loop | 🔬 Experimental |
+| Hot-load C# tools (Roslyn) | 🔬 Experimental — UI present, not fully wired |
+| llama.cpp direct backend | 🔬 Experimental |
+| FlaUI UI automation suite | 🔬 In progress |
+| CI / release automation | 🔲 Planned ([#5](https://github.com/hardcoreerik/TheOrc/issues/5)) |
+
+See [open issues](https://github.com/hardcoreerik/TheOrc/issues) for full hardening backlog.
+
+---
+
 ## What Makes TheOrc Different
 
 | | TheOrc | Cursor / Copilot | Ollama + VS Code |
@@ -330,34 +353,43 @@ Setup/
 
 ---
 
-## Shipped Features (v1.0)
+## Features
 
-Everything below is complete and shipping:
+### ✅ Stable
 
-- [x] Plan → Execute agent loop with approval gates
-- [x] Command palette (Ctrl+K)
-- [x] Git auto-checkpoint before every run
-- [x] Hot-loadable C# tools (Roslyn)
-- [x] llama.cpp backend (no Ollama required)
-- [x] One-click guided installer with GPU/CUDA auto-detection
-- [x] GPU-aware model selection (VRAM-tiered)
-- [x] 8 coding profiles (.agent.md rule sets)
-- [x] HTTP range-resume model downloads with SHA-256 verify
-- [x] WMI hardware detection (real GPU/CUDA/VRAM, registry fallback)
-- [x] Auto-update checker (GitHub Releases API, 24-hr throttle)
-- [x] FlaUI UI automation test suite (26/26 passing)
-- [x] **Goblin Swarm** — boss + coder + researcher multi-agent mode
-- [x] **SwarmBoard UI** — real-time task visibility panel
-- [x] **SwarmConfigAdvisor** — hardware-aware role-based model recommender
-- [x] **SwarmRunMetrics** — JSONL run history + quality scoring per config
-- [x] **Co-Work mode** — human + agent working side-by-side in the same session
-- [x] **Just Chat tab** — research assistant with web search and tool use
-- [x] **4-tier trust system** — granular approval controls per tool class
-- [x] **Per-mode model memory** — separate model choice per mode (plan/execute/swarm)
-- [x] **Tool Call Probe Engine** — 5-test × 2-mode behavioral compatibility testing
-- [x] **ToolCallProfileStore** — per-model dispatch profiles persisted across sessions
-- [x] **tool-probe.exe** — standalone CLI tool for headless model probing
-- [x] **Models menu** — Run Tool Call Tests, Manage Library, probe integration
+- Plan → Execute agent loop with visual diff approval before any file write
+- Shell command approval cards — exact command shown before execution
+- 4-tier trust system: Plan / Guarded / Standard / Full Auto
+- Git auto-checkpoint before every Execute run
+- Command palette (Ctrl+K) with fuzzy search
+- Multi-tab AvalonEdit code editor with syntax highlighting
+- File explorer, session save/restore, context progress bar
+- GPU-aware model auto-selection (VRAM-tiered)
+- 8 coding profiles (`.agent.md` rule sets per project type)
+- Per-mode model memory (single / swarm modes remember separately)
+- Auto-update checker (GitHub Releases API, 24-hr throttle)
+- WMI hardware detection (GPU, CUDA version, VRAM)
+- **GOBLIN MIND tool-call probing** — 5-test × 2-mode dispatch probe, format fingerprinting (5 formats), category boundary mapping (7 categories), schema simplification middleware
+- **tool-probe.exe** — standalone headless CLI: `dispatch`, `format`, `categories`, `full`, `evolve`, `list`
+- **ToolCallProfileStore** — per-model probe results persisted, shared between GUI and CLI
+
+### ⚠️ Beta — Working but still being hardened
+
+- **Goblin Swarm** — boss + coder + researcher multi-agent mode with capability-aware routing
+- **SwarmBoard UI** — real-time task visibility, model slot pickers, hardware config
+- **SwarmConfigAdvisor** — hardware-aware role-based model recommender
+- **SwarmRunMetrics** — JSONL run history + quality scoring per configuration
+- **Self-improve panel** — Grab Source (git clone/pull), Open in Agent, Scan GitHub issues
+- **Settings overhaul** — install folder links, source folder management
+
+### 🔬 Experimental — Present but not production-ready
+
+- **Hot-load C# tools (Roslyn)** — UI present; compiler pipeline not fully wired
+- **llama.cpp direct backend** — bundled llama-server.exe; some edge cases unverified
+- **One-click guided installer** — functional; release automation still being built
+- **FlaUI UI automation suite** — in progress; safety-path test coverage incomplete
+- **Just Chat / Co-Work modes** — present in UI; not fully validated
+- **Evolutionary schema search** — `tool-probe evolve` CLI works; GUI integration pending
 
 ---
 
@@ -398,11 +430,17 @@ TheOrc steering and correction is working. Next milestone focuses on making the 
 - [ ] **Parallel slots live gate** — `OLLAMA_NUM_PARALLEL` detection blocks swarm start if slots < worker count; settings panel shows live status
 - [ ] **Wire `TotalVramGb`** in SwarmSession — currently hardcoded 0; call `SwarmConfigAdvisor.DetectHardwareAsync()` at swarm init
 
-### 🍎 v1.3 — Mac / Linux Port
+### 🍎 v1.3 — Cross-platform (Docker + Blazor)
 
-- [ ] Avalonia UI port (Windows WPF → cross-platform)
-- [ ] macOS llama.cpp Metal backend integration
-- [ ] Linux AppImage build
+> **Decision:** Avalonia port is parked. The backend logic is already largely platform-agnostic. Docker + Blazor Server avoids porting 15+ WPF panels and ships cross-platform faster.
+
+- [ ] ASP.NET Core API backend wrapping AgentLoop + ToolRegistry
+- [ ] Blazor Server UI — same feature set as WPF app
+- [ ] Docker image: llama.cpp + backend server in one container
+- [ ] macOS Metal build of llama.cpp bundled in image
+- [ ] Linux AppImage / `.deb` packaging
+
+The WPF app remains the primary Windows-native experience indefinitely.
 
 ### 🔮 v1.4 — Backlog
 
