@@ -20,7 +20,7 @@ This means:
 - ✅ QLoRA on gemma4:12b (QLoRA NF4 ≈ 12 GB — fits with headroom)
 - ✅ QLoRA on qwen2.5-coder:14b (≈ 14 GB — fits at 16 GB)
 - ✅ LoRA on 7B models (≈ 10–12 GB — fits)
-- ⚠️ LoRA on gemma4:12b in bf16 (≈ 18 GB — does NOT fit at 16 GB, needs QLoRA)
+- ❌ LoRA on gemma4:12b in bf16 (**official BF16 size: 26.7 GB** — confirmed by Google AI docs; does not fit at 16 GB, use QLoRA)
 - ❌ LoRA on 32B models (≈ 28+ GB — requires 24 GB+)
 
 ---
@@ -132,19 +132,35 @@ Checklist:
 
 ---
 
+## Official Gemma 4 12B Memory Sizes
+
+Source: Google AI for Developers docs (ai.google.dev/gemma/docs/core), accessed 2026-06-09.
+
+| Format | Size | Use case |
+|---|---|---|
+| BF16 (full precision) | 26.7 GB | Inference reference / LoRA training base |
+| SFP8 | 13.4 GB | Production inference (vLLM / SGLang) |
+| **Q4_0 GGUF** | **6.7 GB** | **Our deployed model** — confirmed match |
+
+The Q4_0 GGUF (6.7 GB) is what we deploy via Ollama. The BF16 figure (26.7 GB) is the
+relevant number for training — loading the BF16 safetensors for LoRA requires ~26.7 GB
+*before* Unsloth's CUDA kernel optimizations, which reduce effective training VRAM.
+
+---
+
 ## Disk Space Requirements
 
 | Item | Size |
 |---|---|
 | `hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0` (already pulled) | 6.7 GB |
-| `google/gemma-4-12b-it` safetensors (for training) | ~24 GB |
+| `google/gemma-4-12b-it` safetensors (for training) | **~26.7 GB** (confirmed) |
 | LoRA adapter weights | ~200 MB |
 | Merged GGUF export (Q4_K_M) | ~8 GB |
 | Training checkpoints (×3 saves) | ~600 MB |
-| **Total needed for training pass** | **~35 GB** |
+| **Total needed for training pass** | **~37 GB** |
 
 Add another 10 GB buffer for Unsloth cache and tokenizer files.
 
 ---
 
-*Last updated: 2026-06-09 — Phase 1 hardware baseline documented.*
+*Last updated: 2026-06-09 — v1.1: Official Gemma 4 12B memory sizes added (Google AI docs source); BF16 training size corrected to 26.7 GB confirmed; disk estimate updated.*

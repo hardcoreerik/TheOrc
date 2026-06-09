@@ -7,20 +7,39 @@
     {
       "id": "gemma4:12b",
       "hf_repo": "google/gemma-4-12b-it",
+      "hf_it_id": "google/gemma-4-12B-it",
       "priority": "primary",
       "reason": "Observed planning failures directly. Fine-tuning impact is highest. Already in ModelProfiles.",
       "architecture": "gemma4",
-      "params_b": 12,
+      "params_b": 11.95,
+      "_params_source": "HuggingFace model card google/gemma-4-12B (2026-06-09)",
+      "layers": 48,
+      "vocab_size": 262144,
       "context_tokens": 262144,
+      "_context_source": "HuggingFace model card + Google AI docs (2026-06-09)",
+      "attention_type": "hybrid_sliding_window_plus_global",
+      "sliding_window_tokens": 1024,
+      "per_layer_embeddings": true,
+      "multimodal": true,
+      "multimodal_note": "Encoder-free: 35M-param vision embedder (48x48 patches) + direct audio projection (16kHz/40ms frames). No separate encoder backbone.",
+      "thinking_mode": "disabled_via_think_false_or_omitting_think_token",
       "ollama_available": true,
       "unsloth_template": "gemma4",
-      "_unsloth_note": "Unsloth has a native Gemma4 fast kernel. Use FastLanguageModel.from_pretrained() with model_name='google/gemma-4-12b-it'.",
+      "_unsloth_note": "Unsloth explicitly listed as supported for Gemma 4 12B in Developer Guide. Use FastLanguageModel.from_pretrained() with model_name='google/gemma-4-12b-it'.",
+      "license": "Apache 2.0",
+      "no_whitepaper": "No Gemma 4 12B technical report or arXiv paper exists as of 2026-06-09.",
 
       "vram": {
-        "infer_q4_gb": 7,
+        "infer_q4_gb": 6.7,
+        "_infer_q4_source": "Confirmed — Google AI docs official memory table (2026-06-09)",
+        "infer_bf16_gb": 26.7,
+        "_infer_bf16_source": "Confirmed — Google AI docs official memory table (2026-06-09)",
+        "infer_sfp8_gb": 13.4,
+        "_infer_sfp8_source": "Confirmed — Google AI docs official memory table (2026-06-09)",
         "train_lora_bf16_gb": 18,
+        "_train_lora_note": "Estimate for Unsloth LoRA training with gradient checkpointing. The BF16 inference size is 26.7 GB; Unsloth's custom CUDA kernels and gradient checkpointing reduce peak training VRAM to ~18 GB on RTX 5070 Ti — still exceeds 16 GB. Use QLoRA.",
         "train_qlora_nf4_gb": 12,
-        "_note": "LoRA in bf16 requires the full bf16 base (~24GB unquantized). Unsloth's optimizations bring this to ~18GB practical."
+        "_train_qlora_note": "Estimate for Unsloth QLoRA (NF4 base, bf16 adapter). Fits in 16 GB VRAM with batch_size=1, gradient_accumulation=8, gradient_checkpointing=true."
       },
 
       "qat_variant": {
@@ -36,11 +55,12 @@
       },
 
       "compat_state": {
-        "unsloth_lora":  "inferred",
-        "unsloth_qlora": "inferred",
+        "unsloth_lora":  "confirmed-external",
+        "unsloth_qlora": "confirmed-external",
         "peft_lora":     "inferred",
         "peft_qlora":    "inferred",
-        "_note": "Unsloth documents Gemma4 support. Not yet tested in TheOrc's pipeline. Upgrade to 'verified' after first successful training run."
+        "_unsloth_note": "Unsloth explicitly listed as supported framework in Gemma 4 12B Developer Guide (developers.googleblog.com, 2026-06-09). Not yet tested in TheOrc's pipeline. Upgrade to 'verified' after first training run.",
+        "_peft_note": "PEFT compat inferred from Gemma4 architecture support in HuggingFace ecosystem; not explicitly listed for Gemma 4 12B."
       },
 
       "fine_tune_status": "planned",

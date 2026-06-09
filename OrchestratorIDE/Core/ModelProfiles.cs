@@ -190,19 +190,26 @@ public static class ModelProfiles
         ),
 
         // ── Gemma 4 ──────────────────────────────────────────────────────────
-        // BFCL: ~78%  |  256K context  |  native function calling
+        // Gemma 4 12B — encoder-free multimodal dense transformer
+        // Params: 11.95B  |  Layers: 48  |  Context: 256K (262,144)  |  Vocab: 262K
+        // Attention: hybrid alternating local-sliding-window (1024 tok) + full global
+        // Vision: encoder-free — 35M-param embedder, 48×48 patches, single matmul
+        // Audio: encoder-free — 16kHz/40ms frames projected directly into embedding space
+        // Memory: BF16=26.7 GB | SFP8=13.4 GB | Q4_0=6.7 GB (Google AI docs, 2026-06-09)
+        // No Gemma 4 12B white paper exists as of 2026-06-09.
+        // License: Apache 2.0
         // ⚠ BOSS WARNING (observed 2026-06-09): Gemma4:12b consistently outputs
         //   title:"Execute goal" description:"" when asked to decompose tasks.
         //   Root cause: ignores multi-task decomposition instructions, collapses to
         //   a single empty Coder task. BossScore set to 2 (effectively unusable as boss).
         //   Excellent as coder/researcher under a capable boss — CoderScore/ResearcherScore accurate.
-        //   Requires custom Modelfile with baked-in few-shot planning examples to work as boss.
+        //   Use theorc-boss:gemma4 (QAT + few-shot tuned) for boss role.
         ["gemma4:12b"] = new(
             "gemma4:12b", "Gemma 4 12B", 262_144, true,
             ["coding", "reasoning", "tool-use", "multimodal", "research"],
             ToolSet.Full, PromptStyle.Agent,
             MaxSteps: 22, Temperature: 0.3, TimeoutSeconds: 90, AutoVerify: true,
-            Description: "Google Gemma 4 12B — 256K context, ~7 GB VRAM. ★ Excellent coder/researcher. ⚠ Not recommended as Boss (under-plans). Use theorc-boss:gemma4 for the tuned boss variant.",
+            Description: "Google Gemma 4 12B — 11.95B params, 256K ctx, encoder-free multimodal (text/image/audio/video), Apache 2.0. Q4_0=6.7 GB. ★ Excellent coder/researcher. ⚠ Not recommended as Boss (planning collapse). Use theorc-boss:gemma4 for the tuned boss variant.",
             MinVramGb: 7, ParamsBillions: 12, Speed: SpeedTier.Fast,
             BossScore: 2, CoderScore: 8, ResearcherScore: 8, TesterScore: 8,
             BossPromptSupplement: """
@@ -220,37 +227,47 @@ CORRECT example for a CSV tool goal:
 Always follow that structure. Each task MUST have a non-empty description of at least 2 sentences.
 """
         ),
-        // ── TheOrc custom boss model — gemma4:12b-it-qat tuned for planning ─────
-        // Base: hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0 (Google official QAT)
+        // ── TheOrc custom boss model — gemma4:12b QAT tuned for planning ────────
+        // Base: hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0 (Google official QAT GGUF)
+        //   Served via Ollama HF passthrough — NOT an Ollama library tag.
+        //   Pull: ollama pull hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0
         // Created via: ollama create theorc-boss:gemma4 -f theorc-boss-gemma4.Modelfile
         // Key differences from gemma4:12b base:
-        //   • QAT Q4_0 base — Google QAT checkpoint, better quality-per-bit than standard Q4_K_M
-        //   • temperature 0.2 (vs 1.0 default) — prevents single-task collapse
-        //   • think=false — prevents thinking-mode token budget exhaustion (Ollama 0.30+)
-        //   • num_ctx 16384 (vs 4096 default) — room for full plan + context
-        //   • Few-shot MESSAGE pairs baked in — calibrates output format at model level
+        //   • QAT Q4_0 base (6.7 GB confirmed — Google AI docs 2026-06-09)
+        //     Google's official QAT checkpoint; better quality-per-bit than post-hoc Q4_K_M
+        //   • temperature 0.2 — deliberate deviation from Google's recommended 1.0
+        //     Lower temp increases JSON output consistency for structured boss plans
+        //   • think=false — disables thinking mode (activated via <|think|> token per HF model card)
+        //     Prevents thinking-mode token budget exhaustion (Ollama 0.30+ issue #15260)
+        //   • num_ctx 16384 — deliberate cap; model supports 256K natively (HF model card)
+        //     Boss planning prompts are 600-1200 tokens; 16K keeps inference fast
+        //   • Few-shot MESSAGE pairs baked in — calibrates JSON output format at model level
+        //   • RENDERER gemma4 / PARSER gemma4 preserved — required for correct tokenisation
         // Verified 2026-06-09: produces 3-4 task plans, finish_reason=stop, ~700 tokens
+        // Unsloth LoRA/QLoRA: confirmed-external (Gemma4 Dev Guide lists Unsloth as supported)
         ["theorc-boss:gemma4"] = new(
             "theorc-boss:gemma4", "TheOrc Boss — Gemma 4 12B QAT (tuned)", 16_384, true,
             ["coding", "reasoning", "planning", "research", "boss"],
             ToolSet.Full, PromptStyle.Agent,
             MaxSteps: 22, Temperature: 0.2, TimeoutSeconds: 90, AutoVerify: true,
-            Description: "Gemma 4 12B QAT — boss-tuned with temperature=0.2, think=false, 16K ctx, few-shot examples baked in. Base: google/gemma-4-12B-it-qat-q4_0-gguf. Install: theorc-boss-gemma4.Modelfile",
+            Description: "Gemma 4 12B QAT boss model — temp=0.2 (deliberate; Google recommends 1.0), think=false, 16K ctx cap (model supports 256K), few-shot baked in. Base: hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0 (6.7 GB confirmed). Install: theorc-boss-gemma4.Modelfile",
             MinVramGb: 7, ParamsBillions: 12, Speed: SpeedTier.Fast,
             BossScore: 6, CoderScore: 8, ResearcherScore: 8, TesterScore: 8
         ),
 
         // ── Raw QAT base — available for use as worker (coder/researcher) ────────
         // Direct HF GGUF pull: ollama pull hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0
-        // Not recommended as boss (BossScore 2 — same collapse pattern as gemma4:12b without tuning).
-        // Excellent as coder/researcher. Use theorc-boss:gemma4 for boss role.
+        // This is the same base as theorc-boss:gemma4 but without the boss-planning tuning.
+        // Google official QAT Q4_0 GGUF — 6.7 GB confirmed (Google AI docs 2026-06-09)
+        // Not recommended as boss (BossScore 2 — same collapse pattern as gemma4:12b).
+        // Encoder-free multimodal: text/image/audio/video. Apache 2.0. No white paper.
         ["hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0"] = new(
             "hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0",
-            "Gemma 4 12B IT QAT Q4_0", 262_144, true,
+            "Gemma 4 12B IT QAT Q4_0 (raw)", 262_144, true,
             ["coding", "reasoning", "tool-use", "multimodal", "research"],
             ToolSet.Full, PromptStyle.Agent,
             MaxSteps: 22, Temperature: 0.3, TimeoutSeconds: 90, AutoVerify: true,
-            Description: "Google Gemma 4 12B IT QAT Q4_0 — official QAT GGUF from Google. 6.7 GB. Same capability as gemma4:12b but QAT base. ⚠ Use theorc-boss:gemma4 for boss role.",
+            Description: "Google Gemma 4 12B IT QAT Q4_0 — official QAT GGUF, 6.7 GB confirmed. Encoder-free multimodal. Apache 2.0. ⚠ Use theorc-boss:gemma4 for boss role (untuned base collapses on planning).",
             MinVramGb: 7, ParamsBillions: 12, Speed: SpeedTier.Fast,
             BossScore: 2, CoderScore: 8, ResearcherScore: 8, TesterScore: 8
         ),
