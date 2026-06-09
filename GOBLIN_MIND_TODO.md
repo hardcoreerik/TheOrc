@@ -23,7 +23,7 @@
 
 ---
 
-## Phase 1 — Behavioral Format Fingerprinting ⬜ `PRIORITY: HIGH`
+## Phase 1 — Behavioral Format Fingerprinting ✅ `DONE`
 
 > Discover each model's *native* preferred tool-call serialization format.
 > Rating: **9/10** — cheapest, most actionable, directly feeds dispatch.
@@ -59,7 +59,7 @@
 
 ---
 
-## Phase 2 — Category Boundary Mapping ⬜ `PRIORITY: HIGH`
+## Phase 2 — Category Boundary Mapping ✅ `DONE`
 
 > Discover which *task categories* each model handles reliably.
 > Rating: **8.5/10** — feeds swarm routing directly, cheap (14 queries per model).
@@ -104,7 +104,7 @@
 
 ---
 
-## Phase 3 — Adaptive Schema Generation ⬜ `PRIORITY: MEDIUM`
+## Phase 3 — Adaptive Schema Generation ✅ `DONE`
 
 > Generate tool schemas shaped to each model's capability profile and preferred format.
 > Combines Format Fingerprint (Phase 1) + Category Map (Phase 2).
@@ -135,7 +135,7 @@
 
 ---
 
-## Phase 4 — Adaptive Schema Reduction Middleware ⬜ `PRIORITY: MEDIUM`
+## Phase 4 — Adaptive Schema Reduction Middleware ✅ `DONE`
 
 > Automatically simplify tool schemas for models that fail on complexity.
 > Runs transparently in `AgentLoop` — zero friction for users.
@@ -188,7 +188,7 @@
 
 ---
 
-## Phase 6 — TheOrc Steering & Correction Integration ⬜ `PRIORITY: HIGH`
+## Phase 6 — TheOrc Steering & Correction Integration ✅ `DONE`
 
 > The boss model reads capability profiles to steer the swarm.
 > This is the core of Goblin Mind — TheOrc knows which goblin can do what.
@@ -247,12 +247,13 @@ The milestone is complete when:
 | `Services/ToolCalls/ToolCallProfileStore.cs` | ✅ Done | Foundation |
 | `Core/AgentLoop.cs` (dispatch hook) | ✅ Done | Foundation |
 | `Tests/ToolCallTestWindow.xaml/.cs` | ✅ Done | Foundation |
-| `Services/ToolCalls/FormatProbeEngine.cs` | ⬜ Todo | Phase 1 |
-| `Services/ToolCalls/CategoryProbeEngine.cs` | ⬜ Todo | Phase 2 |
-| `Services/ToolCalls/CategoryBoundaryMap.cs` | ⬜ Todo | Phase 2 |
-| `Services/ToolCalls/SchemaGenerator.cs` | ⬜ Todo | Phase 3 |
-| `Services/ToolCalls/SchemaLibrary.cs` | ⬜ Todo | Phase 3 |
-| `Services/ToolCalls/SchemaSimplifier.cs` | ⬜ Todo | Phase 4 |
+| `Services/ToolCalls/FormatProbeEngine.cs` | ✅ Done | Phase 1 |
+| `Services/ToolCalls/CategoryProbeEngine.cs` | ✅ Done | Phase 2 |
+| `Services/ToolCalls/CategoryBoundaryMap.cs` | ✅ Done (in CategoryProbeEngine) | Phase 2 |
+| `Services/ToolCalls/SchemaGenerator.cs` | ✅ Done | Phase 3 |
+| `Services/ToolCalls/SchemaLibrary.cs` | ✅ Done | Phase 3 |
+| `Services/ToolCalls/SchemaSimplifier.cs` | ✅ Done | Phase 4 |
+| `Agents/SwarmSession.cs` (routing) | ✅ Done | Phase 6 |
 | `Services/ToolCalls/SchemaEvolution.cs` | ⬜ Todo | Phase 5 |
 | `Services/ToolCalls/FitnessMap.cs` | ⬜ Todo | Phase 5 |
 
