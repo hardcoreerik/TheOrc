@@ -204,9 +204,20 @@ public partial class SwarmBoardPanel : UserControl
 
             if (bossProfile.BossScore < MinBossScore)
             {
+                // Build a dynamic suggestion from installed models with good BossScore
+                var goodBoss = ModelProfiles.All
+                    .Where(kv => kv.Value.BossScore >= MinBossScore)
+                    .OrderByDescending(kv => kv.Value.BossScore)
+                    .Take(3)
+                    .Select(kv => kv.Key)
+                    .ToList();
+                var suggestion = goodBoss.Count > 0
+                    ? $"(e.g. {string.Join(", ", goodBoss)})"
+                    : "choose a model with BossScore ≥ 5";
                 reason = $"Boss model '{ActiveModel}' has a BossScore of {bossProfile.BossScore}/10 " +
-                         $"(minimum {MinBossScore}).\nChoose a model with stronger planning capability " +
-                         $"as the boss (e.g. qwen2.5-coder:14b, gemma4:12b).";
+                         $"(minimum {MinBossScore}). It will under-plan tasks.\n" +
+                         $"Choose a model with stronger planning capability as boss {suggestion}.\n" +
+                         $"Note: {ActiveModel} works well as a Coder or Researcher under a capable boss.";
                 return false;
             }
 

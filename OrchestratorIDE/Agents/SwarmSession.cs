@@ -849,7 +849,7 @@ public class SwarmSession
           • CODER       — writes full implementation code using the researcher's findings
           • UIDEVELOPER — writes UI code (XAML, WPF, HTML/CSS) and styling
 
-        Given a user's coding goal, break it into 1–4 concurrent subtasks.
+        Given a user's coding goal, break it into 2–4 concurrent subtasks.
         Assign each subtask to the best-fit minion role.
 
         Rules:
@@ -887,14 +887,20 @@ public class SwarmSession
 
     private async Task<string> RunBossDecomposeAsync(string userGoal, CancellationToken ct)
     {
-        var bossFile  = await LoadAgentFileAsync("boss");
+        var bossProfile = ModelProfiles.Get(_bossModel);
+        var bossFile    = await LoadAgentFileAsync("boss");
+
+        // Build system prompt: base + optional custom boss file + capability map
         var sysPrompt = string.IsNullOrWhiteSpace(bossFile)
             ? BossDecomposeSystemPrompt
             : BossDecomposeSystemPrompt + "\n\n## Custom boss instructions:\n" + bossFile;
 
+        // Inject model-specific planning supplement (e.g. few-shot examples for weak planners)
+        if (!string.IsNullOrWhiteSpace(bossProfile.BossPromptSupplement))
+            sysPrompt += "\n\n" + bossProfile.BossPromptSupplement.Trim();
+
         // GOBLIN MIND: inject capability map so TheOrc routes tasks correctly
-        var capSummary = BuildCapabilitySummary();
-        sysPrompt += "\n\n" + capSummary;
+        sysPrompt += "\n\n" + BuildCapabilitySummary();
 
         // Append language lock to the goal if we detected one
         var goalWithLang = string.IsNullOrWhiteSpace(_targetLanguage)
@@ -903,22 +909,111 @@ public class SwarmSession
               $"All task descriptions MUST specify {_targetLanguage} explicitly. " +
               $"Minions must NOT use C#, XAML, WPF, or any other language.";
 
+        // Use the model's configured temperature for boss calls; fall back to 0.15
+        var bossTemp = bossProfile.Temperature > 0 ? bossProfile.Temperature : 0.15;
+
+        OnBossToken?.Invoke("⬡ TheOrc is planning the swarm…\n\n");
+
+        // ── Attempt 1 ────────────────────────────────────────────────────────
+        var raw = await StreamBossAsync(sysPrompt, goalWithLang, bossTemp, ct);
+        var plan = ParseBossPlan(raw);
+
+        // ── Boss plan quality gate ────────────────────────────────────────────
+        // Detect models that collapse planning to a single empty task.
+        // If underplanned, retry ONCE with an escalated prompt that:
+        //   (a) shows the bad output the model just produced, and
+        //   (b) explicitly demands a complete multi-task plan.
+        if (IsBossUnderPlanned(plan))
+        {
+            _trace?.WriteEvent("boss_underplanned",
+                $"Boss produced {plan.Count} task(s) with empty/trivial descriptions — retrying with escalated prompt");
+            Activity("⚠ Boss plan is underspecified — retrying with escalated decomposition prompt…", "boss");
+            OnBossToken?.Invoke("\n\n⚠ Plan was underspecified — retrying…\n\n");
+
+            var escalationSuffix = $"""
+
+## ⚠ YOUR PREVIOUS OUTPUT WAS REJECTED
+
+You returned this plan, which is INVALID because the description is empty:
+{raw.Trim()[..Math.Min(400, raw.Trim().Length)]}
+
+REQUIREMENTS YOU MUST FOLLOW NOW:
+1. You MUST output between 3 and 4 tasks. Never 1.
+2. Every "description" field MUST be at least 3 sentences describing exactly what to build.
+3. Task titles MUST name the output file (e.g. "Write csv_cleaner.py").
+4. Do NOT output title:"Execute goal" or description:"" — these are rejected.
+
+Output ONLY the JSON object. No explanation, no apology, no markdown fences.
+""";
+            var escalatedPrompt = sysPrompt + escalationSuffix;
+            raw = await StreamBossAsync(escalatedPrompt, goalWithLang, Math.Min(bossTemp + 0.2, 0.9), ct);
+            _trace?.WriteEvent("boss_retry_complete", $"Escalated plan raw length: {raw.Length}");
+        }
+
+        return raw;
+    }
+
+    /// <summary>
+    /// Returns true when the boss plan is underspecified:
+    /// a single task, or all tasks have empty/trivial descriptions.
+    /// </summary>
+    private static bool IsBossUnderPlanned(List<SwarmTask> tasks)
+    {
+        if (tasks.Count == 0) return true;
+        // 1 task with empty or very short description = classic gemma4:12b collapse pattern
+        if (tasks.Count == 1)
+        {
+            var desc = tasks[0].Description?.Trim() ?? "";
+            return desc.Length < 30;
+        }
+        // Multiple tasks but all descriptions are empty
+        var nonEmpty = tasks.Count(t => (t.Description?.Trim().Length ?? 0) > 20);
+        return nonEmpty == 0;
+    }
+
+    private async Task<string> StreamBossAsync(
+        string sysPrompt, string goalWithLang, double temperature, CancellationToken ct)
+    {
         var history = new List<AgentMessage>
         {
             new() { Role = MessageRole.System, Content = sysPrompt },
             new() { Role = MessageRole.User,   Content = $"Goal: {goalWithLang}" }
         };
-
-        OnBossToken?.Invoke("⬡ TheOrc is planning the swarm…\n\n");
-
         var sb = new StringBuilder();
         await foreach (var token in _ollama.StreamCompletionAsync(
-            _bossModel, history, temperature: 0.15, maxTokens: 2048, ct: ct))
+            _bossModel, history, temperature: temperature, maxTokens: 2048, ct: ct))
         {
             sb.Append(token);
             OnBossToken?.Invoke(token);
         }
-        return sb.ToString();
+        // Strip Gemma4 special tokens that leak through Ollama's OpenAI-compat
+        // /v1/chat/completions endpoint (Ollama issue #15798). Safe on all models —
+        // short-circuits immediately if no Gemma4 artifact markers are present.
+        return StripGemma4Artifacts(sb.ToString());
+    }
+
+    /// <summary>
+    /// Removes Gemma4 special tokens that Ollama leaks through the OpenAI-compat
+    /// /v1/chat/completions endpoint (issue #15798). Artifacts include:
+    ///   <|token|>  — Gemma4 control tokens (e.g. <|tool_call|>, <|turn|>, <|think|>)
+    ///   <token|>   — Gemma4 closing delimiters (e.g. <turn|>, <channel|>)
+    ///   <|channel|>thought\n...<channel|>  — embedded thinking blocks
+    /// This is a no-op when none of these artifacts are present.
+    /// </summary>
+    private static string StripGemma4Artifacts(string raw)
+    {
+        // Fast path — avoid regex overhead on models that don't emit these tokens
+        if (!raw.Contains("<|") && !raw.Contains("<channel|>")) return raw;
+
+        // Remove <|token|> control tokens (Gemma4 format, e.g. <|tool_call|>, <|turn|>)
+        var result = Regex.Replace(raw, @"<\|[^|>]{0,40}\|>", string.Empty);
+        // Remove <token|> closing delimiters (e.g. <turn|>, <channel|>)
+        result     = Regex.Replace(result, @"<[a-z_]{1,20}\|>", string.Empty);
+        // Remove full thinking blocks: <|channel|>thought\n...<channel|>
+        result     = Regex.Replace(result, @"<\|channel\|>.*?<channel\|>",
+                         string.Empty, RegexOptions.Singleline);
+
+        return result.Trim();
     }
 
     // ── Boss: Merge ───────────────────────────────────────────────────────────

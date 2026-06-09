@@ -44,7 +44,13 @@ public record ModelProfile(
     int BossScore       = 5,
     int CoderScore      = 5,
     int ResearcherScore = 5,
-    int TesterScore     = 5
+    int TesterScore     = 5,
+
+    // ── Boss prompt supplement ────────────────────────────────────────────────
+    // Extra text appended to the BossDecomposeSystemPrompt for models that need
+    // additional guidance to produce well-decomposed plans. Null = no supplement.
+    // Use for models with known planning weaknesses (e.g. collapse to 1 empty task).
+    string? BossPromptSupplement = null
 )
 {
     public int ContextK => ContextTokens / 1024;
@@ -185,15 +191,54 @@ public static class ModelProfiles
 
         // ── Gemma 4 ──────────────────────────────────────────────────────────
         // BFCL: ~78%  |  256K context  |  native function calling
+        // ⚠ BOSS WARNING (observed 2026-06-09): Gemma4:12b consistently outputs
+        //   title:"Execute goal" description:"" when asked to decompose tasks.
+        //   Root cause: ignores multi-task decomposition instructions, collapses to
+        //   a single empty Coder task. BossScore set to 2 (effectively unusable as boss).
+        //   Excellent as coder/researcher under a capable boss — CoderScore/ResearcherScore accurate.
+        //   Requires custom Modelfile with baked-in few-shot planning examples to work as boss.
         ["gemma4:12b"] = new(
             "gemma4:12b", "Gemma 4 12B", 262_144, true,
-            ["agent", "reasoning", "coding", "tool-use", "multimodal"],
+            ["coding", "reasoning", "tool-use", "multimodal", "research"],
             ToolSet.Full, PromptStyle.Agent,
-            MaxSteps: 22, Temperature: 0.1, TimeoutSeconds: 90, AutoVerify: true,
-            Description: "Google Gemma 4 12B — native function calling, 256K context, ~7 GB VRAM. ★ Recommended",
+            MaxSteps: 22, Temperature: 0.3, TimeoutSeconds: 90, AutoVerify: true,
+            Description: "Google Gemma 4 12B — 256K context, ~7 GB VRAM. ★ Excellent coder/researcher. ⚠ Not recommended as Boss (under-plans). Use theorc-boss:gemma4 for the tuned boss variant.",
             MinVramGb: 7, ParamsBillions: 12, Speed: SpeedTier.Fast,
-            BossScore: 7, CoderScore: 7, ResearcherScore: 7, TesterScore: 8
+            BossScore: 2, CoderScore: 8, ResearcherScore: 8, TesterScore: 8,
+            BossPromptSupplement: """
+
+## CRITICAL PLANNING REQUIREMENT FOR THIS MODEL
+
+You MUST produce EXACTLY 3–4 tasks. Never produce 1 task. Never leave "description" empty.
+
+WRONG (do not do this):
+{"tasks":[{"role":"Coder","priority":1,"title":"Execute goal","description":""}]}
+
+CORRECT example for a CSV tool goal:
+{"plan":"Build with Python/Tkinter: researcher gathers library docs, two coders split backend and UI.","tasks":[{"role":"RESEARCHER","priority":1,"title":"Research pandas and tkinter file dialog APIs","description":"Investigate: (1) pandas read_csv and DataFrame cleaning methods (dropna, drop_duplicates, str.strip, rename). (2) tkinter.filedialog.askopenfilename and asksaveasfilename usage. Return a 1-page summary with import statements and function signatures the coders will use."},{"role":"CODER","priority":2,"title":"Write csv_cleaner.py with pandas cleaning functions","description":"Create csv_cleaner.py. Implement: trim_whitespace(df), remove_blank_rows(df), remove_duplicates(df), normalize_headers(df) — each returns a cleaned DataFrame. Use the research findings. Include if __name__=='__main__' test block."},{"role":"CODER","priority":2,"title":"Write main.py with tkinter UI for file load, preview, clean, export","description":"Create main.py. Import csv_cleaner. Build a tkinter window with: File>Open button (filedialog), ttk.Treeview for CSV preview, checkboxes for each cleaning op, Clean button that calls csv_cleaner functions, File>Save As button. Use 900x600 geometry."},{"role":"UIDEVELOPER","priority":2,"title":"Write sample_data.csv and README.md","description":"Create sample_data.csv with 8 rows including: 2 blank rows, 2 duplicates, headers with spaces and mixed case, cells with leading/trailing whitespace. Create README.md with: setup (pip install pandas), how to run (python main.py), feature list, screenshot placeholder."}]}
+
+Always follow that structure. Each task MUST have a non-empty description of at least 2 sentences.
+"""
         ),
+        // ── TheOrc custom boss model — gemma4:12b tuned for planning ────────────
+        // Created via: ollama create theorc-boss:gemma4 -f theorc-boss-gemma4.Modelfile
+        // Key differences from gemma4:12b base:
+        //   • temperature 0.2 (vs 1.0 default) — prevents single-task collapse
+        //   • num_ctx 16384 (vs 4096 default) — room for full plan + context
+        //   • Few-shot MESSAGE pairs baked in — calibrates output format at model level
+        //   • SYSTEM prompt aligned with BossDecomposeSystemPrompt
+        // Benchmark expectation: BossScore 6 (rehabilitated from 2 → should produce
+        // multi-task plans). Requires installation on the Ollama server first.
+        ["theorc-boss:gemma4"] = new(
+            "theorc-boss:gemma4", "TheOrc Boss — Gemma 4 12B (tuned)", 16_384, true,
+            ["coding", "reasoning", "planning", "research", "boss"],
+            ToolSet.Full, PromptStyle.Agent,
+            MaxSteps: 22, Temperature: 0.2, TimeoutSeconds: 90, AutoVerify: true,
+            Description: "Gemma 4 12B tuned for boss/planning role. Baked-in temperature 0.2, 16K ctx, few-shot examples. Install via: ollama create theorc-boss:gemma4 -f theorc-boss-gemma4.Modelfile",
+            MinVramGb: 7, ParamsBillions: 12, Speed: SpeedTier.Fast,
+            BossScore: 6, CoderScore: 8, ResearcherScore: 8, TesterScore: 8
+        ),
+
         ["gemma4:e4b"] = new(
             "gemma4:e4b", "Gemma 4 (E4B)", 32_768, true,
             ["general", "chat", "fast", "reasoning"],
