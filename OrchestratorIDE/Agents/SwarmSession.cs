@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Models;
 using OrchestratorIDE.Services.Swarm;
+using OrchestratorIDE.Services.ToolCalls;
 using OrchestratorIDE.Tools;
 using OrchestratorIDE.Trust;
 
@@ -137,7 +138,7 @@ public class SwarmSession
 
         var ct       = _cts?.Token ?? CancellationToken.None;
         var agentKey = AgentKey(task.Role);
-        var model    = task.Role == SwarmWorkerRole.Researcher ? _researcherModel : _coderModel;
+        var model    = GetCapableModel(task.Role);   // GOBLIN MIND: capability-aware
         var noThink  = ShouldDisableThinking(model);
         var tools    = GetWorkerTools(task.Role);
         var history  = task.ConversationHistory; // continue from saved history
@@ -460,6 +461,106 @@ public class SwarmSession
 
     private const int MaxRetries = 2;
 
+    // ── GOBLIN MIND: Capability-aware routing ─────────────────────────────────
+
+    /// <summary>
+    /// Returns the best available model for the given role, validated against
+    /// the model's CategoryBoundaryMap.  Falls back gracefully if no map exists
+    /// (assumes the model is capable — avoids breaking setups that haven't been probed).
+    ///
+    /// For each role the required categories are:
+    ///   Boss       → StructuredOutput + TaskPlanning
+    ///   Researcher → Network + DataTransform
+    ///   Coder      → FileOps + CodeExec
+    ///   UIDev      → FileOps + CodeExec  (same as Coder)
+    ///   Tester     → CodeExec + SystemInspect
+    /// </summary>
+    private string GetCapableModel(SwarmWorkerRole role)
+    {
+        var (primary, fallback) = role == SwarmWorkerRole.Researcher
+            ? (_researcherModel, _coderModel)
+            : (_coderModel,      _bossModel);
+
+        var required = role switch
+        {
+            SwarmWorkerRole.Researcher  => SwarmRoleRequirements.Researcher,
+            SwarmWorkerRole.Coder       => SwarmRoleRequirements.Worker,
+            SwarmWorkerRole.UIDeveloper => SwarmRoleRequirements.Worker,
+            SwarmWorkerRole.Tester      => new[] { CategoryId.CodeExec, CategoryId.SystemInspect },
+            _                           => SwarmRoleRequirements.Boss,
+        };
+
+        var map = ToolCallProfileStore.GetCategoryMap(primary);
+        if (map == null)
+            return primary;   // not yet probed — assume capable
+
+        if (map.MeetsRoleRequirements(required))
+            return primary;
+
+        // Primary failed — log and try fallback
+        var failedCats = required.Where(c => !map.CanHandle(c)).Select(c => c.ToString());
+        Activity($"⚠ {ShortModelName(primary)} missing categories [{string.Join(", ", failedCats)}] " +
+                 $"for {role} — falling back to {ShortModelName(fallback)}", "boss");
+
+        // Check fallback too (informational only — always use it if primary fails)
+        var fallbackMap = ToolCallProfileStore.GetCategoryMap(fallback);
+        if (fallbackMap != null && !fallbackMap.MeetsRoleRequirements(required))
+        {
+            var fbFailed = required.Where(c => !fallbackMap.CanHandle(c)).Select(c => c.ToString());
+            Activity($"⚠ Fallback {ShortModelName(fallback)} also missing [{string.Join(", ", fbFailed)}] — proceeding anyway", "boss");
+        }
+
+        return fallback;
+    }
+
+    /// <summary>
+    /// Builds a compact capability summary string for all swarm models.
+    /// Injected into the boss decompose prompt so TheOrc knows which goblins
+    /// can handle which task categories without knowing model internals.
+    ///
+    /// Example output:
+    ///   Boss (qwen2.5:32b): StructuredOutput ✅ TaskPlanning ✅
+    ///   Coder (qwen2.5-coder:14b): FileOps ✅ CodeExec ✅ Network ⚠
+    ///   Researcher (mistral:7b): Network ✅ DataTransform ✅ FileOps ✗
+    /// </summary>
+    private string BuildCapabilitySummary()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("## Goblin Capability Map");
+        sb.AppendLine("Use this to route tasks to the right goblin. " +
+                      "Do NOT assign tasks to goblins that lack required categories.");
+        sb.AppendLine();
+
+        void AppendModel(string label, string modelId, CategoryId[] highlight)
+        {
+            sb.Append($"- **{label}** ({ShortModelName(modelId)}): ");
+            var map = ToolCallProfileStore.GetCategoryMap(modelId);
+            if (map == null) { sb.AppendLine("not yet profiled (assume capable)"); return; }
+
+            var cats = highlight
+                .Select(c => $"{c} {(map.CanHandle(c) ? "✅" : "⚠")}")
+                .ToList();
+            // Also note any category that partially passes
+            sb.AppendLine(string.Join("  ", cats) + $"  [{map.ShortSummary}]");
+        }
+
+        AppendModel("Boss/TheOrc", _bossModel,       SwarmRoleRequirements.Boss);
+        AppendModel("Coder",       _coderModel,       SwarmRoleRequirements.Worker);
+        if (_researcherModel != _coderModel)
+            AppendModel("Researcher", _researcherModel, SwarmRoleRequirements.Researcher);
+
+        return sb.ToString();
+    }
+
+    private static string ShortModelName(string modelId)
+    {
+        // "qwen2.5-coder:14b-instruct-q4_K_M" → "qwen2.5-coder:14b"
+        var parts = modelId.Split(':');
+        if (parts.Length < 2) return modelId;
+        var tag = parts[1].Split('-')[0];
+        return $"{parts[0]}:{tag}";
+    }
+
     // ── File extraction ───────────────────────────────────────────────────────
 
     private static readonly Regex FileMarker = new(
@@ -754,6 +855,10 @@ public class SwarmSession
         var sysPrompt = string.IsNullOrWhiteSpace(bossFile)
             ? BossDecomposeSystemPrompt
             : BossDecomposeSystemPrompt + "\n\n## Custom boss instructions:\n" + bossFile;
+
+        // GOBLIN MIND: inject capability map so TheOrc routes tasks correctly
+        var capSummary = BuildCapabilitySummary();
+        sysPrompt += "\n\n" + capSummary;
 
         // Append language lock to the goal if we detected one
         var goalWithLang = string.IsNullOrWhiteSpace(_targetLanguage)
@@ -1167,7 +1272,8 @@ public class SwarmSession
                 new() { Role = MessageRole.User,   Content = userMsg }
             };
 
-            var modelForRole = task.Role == SwarmWorkerRole.Researcher ? _researcherModel : _coderModel;
+            // GOBLIN MIND: capability-aware model selection
+            var modelForRole = GetCapableModel(task.Role);
             var agentKey     = AgentKey(task.Role);
             var tools        = GetWorkerTools(task.Role);
             var noThink      = ShouldDisableThinking(modelForRole);

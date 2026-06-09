@@ -152,28 +152,37 @@ public class AgentLoop
                 $"Profile: {tcMode} — sending tools[] array.", 3);
         }
 
-        // ── GOBLIN MIND: Schema Simplification ──────────────────────────────
-        // Pre-build the tool schema payload that will be sent to OllamaClient.
-        // If this model has known schema complexity issues, apply simplification
-        // rules transparently. Users never see this transform.
+        // ── GOBLIN MIND: Schema Library + Simplification ────────────────────
+        // SchemaGenerator.GenerateForRole() handles the full pipeline:
+        //   1. Check SchemaLibrary for confirmed schemas per tool
+        //   2. Apply SchemaSimplificationRules for models that fail on complexity
+        //   3. Return serializable schema objects ready for OllamaClient
+        // Users never see any of this — it's transparent middleware.
         var simplRules = ToolCallProfileStore.GetSimplificationRules(session.ActiveModel);
         IReadOnlyList<object> toolsPayload;
         if (tools.Count == 0)
         {
             toolsPayload = [];
         }
-        else if (simplRules != null && !simplRules.IsNoOp)
-        {
-            // Convert ToolDefinition→Ollama schema first, then apply simplification
-            var rawSchemas = tools.Select(t => (object)t.ToOllamaSchema()).ToList();
-            toolsPayload = SchemaSimplifier.Apply(rawSchemas, simplRules);
-            Emit(ActivityKind.Debug, "Schema simplifier",
-                $"Applied rules: {simplRules.Summary}", 3);
-        }
         else
         {
-            toolsPayload = tools.Select(t => (object)t.ToOllamaSchema()).ToList();
+            toolsPayload = SchemaGenerator.GenerateForRole(tools, session.ActiveModel);
+
+            if (simplRules != null && !simplRules.IsNoOp)
+                Emit(ActivityKind.Debug, "Schema simplifier",
+                    $"Applied rules: {simplRules.Summary}", 3);
+
+            var libCount = tools.Count(t =>
+                SchemaLibrary.GetBestSchema(session.ActiveModel, t.Name)?.IsReliable == true);
+            if (libCount > 0)
+                Emit(ActivityKind.Debug, "Schema library",
+                    $"{libCount}/{tools.Count} tool(s) using confirmed schemas.", 3);
         }
+
+        // Build tool-name → payload index map for recording successes later
+        var toolSchemaIndex = tools
+            .Select((t, i) => (t.Name, i))
+            .ToDictionary(x => x.Name, x => x.i, StringComparer.OrdinalIgnoreCase);
 
         // ── GOBLIN MIND: Format Fingerprint ─────────────────────────────────
         // Read the model's preferred tool-call format from its probe profile.
@@ -353,6 +362,16 @@ public class AgentLoop
 
                 var result = await _registry.ExecuteAsync(tc, ct,
                     onActivity: msg => Emit(ActivityKind.Tool, tc.Name, msg));
+
+                // GOBLIN MIND: record schema that produced a successful tool call
+                if (!result.StartsWith("[ERROR", StringComparison.OrdinalIgnoreCase)
+                    && toolSchemaIndex.TryGetValue(tc.Name, out var schemaIdx)
+                    && schemaIdx < toolsPayload.Count)
+                {
+                    var format = ToolCallProfileStore.GetPreferredFormat(session.ActiveModel);
+                    _ = SchemaLibrary.RecordSuccessAsync(session.ActiveModel, tc.Name,
+                        format, toolsPayload[schemaIdx]);
+                }
 
                 Emit(ActivityKind.ToolResult, tc.Name, result.Length > 200 ? result[..200] + "…" : result);
                 // V4: full tool result
