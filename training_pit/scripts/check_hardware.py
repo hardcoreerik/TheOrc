@@ -11,13 +11,17 @@ Detects:
     - CUDA version
     - Recommended training tier (LoRA / QLoRA / inference-only)
 
-Requirements:
+Requirements (for full output):
     pip install psutil
     (torch is optional — falls back to nvidia-smi if not installed)
 """
 
 import subprocess
 import sys
+
+# Force UTF-8 output on Windows (cp1252 can't encode checkmark / emoji chars)
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
 
 try:
     import psutil
@@ -83,16 +87,19 @@ def tier_recommendation(vram_gb: float, ram_gb: float) -> str:
         return "INFERENCE ONLY — VRAM < 8 GB (can run Q4 models up to 7B via Ollama)"
     if vram_gb < 12:
         return "INFERENCE ONLY — VRAM 8-11 GB (can run gemma4:12b Q4 via Ollama, but no local fine-tuning)"
-    if vram_gb < 16:
+    if vram_gb < 15.5:
+        # 12–15 GB (genuine low-VRAM cards: RTX 3080 12GB, RTX 4070 12GB, etc.)
         tier = "QLORA CAPABLE — 12-15 GB VRAM\n"
         tier += "  ✅ QLoRA on gemma4:12b (NF4, ~12 GB)\n"
         tier += "  ❌ LoRA on gemma4:12b (requires 16+ GB)\n"
         tier += "  Config: use qlora_job_template.json with batch_size=1, gradient_accumulation=8"
-        if ram_gb < 32:
-            tier += "\n  ⚠️  System RAM < 32 GB — paged optimizer may be slow"
+        if ram_gb < 28:
+            tier += "\n  ⚠️  System RAM < 28 GB — paged optimizer may struggle"
         return tier
     if vram_gb < 24:
-        tier = "QLORA + LORA (7B) CAPABLE — 16-23 GB VRAM\n"
+        # 15.5–23 GB — covers 16 GB cards (RTX 4080, RTX 4070 Ti, RTX 5070 Ti)
+        # Note: GPU drivers reserve ~100-300 MB; a 16 GB card reports ~15.7-15.9 GB
+        tier = "QLORA + LORA (7B) CAPABLE — 16 GB VRAM\n"
         tier += "  ✅ QLoRA on gemma4:12b (NF4, ~12 GB) — RECOMMENDED for this hardware\n"
         tier += "  ✅ LoRA on 7B models (bf16, ~10-12 GB)\n"
         tier += "  ❌ LoRA on gemma4:12b (bf16, ~18 GB — does NOT fit at 16 GB)\n"

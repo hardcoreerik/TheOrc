@@ -12,6 +12,10 @@ Requirements: none (stdlib only)
 
 import json
 import sys
+
+# Force UTF-8 output on Windows (cp1252 can't encode emoji chars)
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
 from pathlib import Path
 
 REGISTRY_JSON = Path(__file__).parent.parent / "adapters" / "registry.json"

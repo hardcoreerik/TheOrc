@@ -37,3 +37,15 @@ appsettings.local.json
 # Exclude only build artifacts within Tools/
 Tools/**/bin/
 Tools/**/obj/
+
+# Training Pit — dataset JSONL files (large, contain model outputs, not versioned)
+# Only examples/ and evals/ are committed; datasets/ is local-only
+training_pit/datasets/*.jsonl
+training_pit/datasets/staging/
+
+# Training outputs (LoRA adapters, GGUFs — large binary artifacts)
+training_pit/outputs/
+
+# Swarm dataset staging (auto-generated plan captures from DatasetCapture.cs)
+# Files require human review before moving to training_pit/datasets/
+.orc/swarm/dataset-staging/

@@ -81,8 +81,14 @@ public class SwarmSession
     /// Files stay here until the user reviews and applies them to the workspace,
     /// preventing the workspace root from being silently overwritten mid-run.
     /// </summary>
-    private string OutputProjectDir => Path.Combine(RunDir, "staging");
-    private string AgentsTaskDir    => Path.Combine(RunDir, "agents");
+    private string OutputProjectDir  => Path.Combine(RunDir, "staging");
+    private string AgentsTaskDir     => Path.Combine(RunDir, "agents");
+    /// <summary>
+    /// Boss plan captures are written here for dataset review.
+    /// Files are plan-capture JSON (PLAN_CAPTURE_SCHEMA.md format).
+    /// Convert to chat-JSONL via training_pit/scripts/convert_plan_captures.py.
+    /// </summary>
+    private string DatasetStagingDir => Path.Combine(_workspaceRoot ?? Path.GetTempPath(), ".orc", "swarm", "dataset-staging");
 
     /// <summary>Returns the staging dir for the last (or current) run. Empty if no run yet.</summary>
     public string GetOutputProjectDir() => string.IsNullOrEmpty(_runId) ? "" : OutputProjectDir;
@@ -214,6 +220,11 @@ public class SwarmSession
                 OnError?.Invoke("Boss returned no tasks — try rephrasing your goal.");
                 return;
             }
+
+            // ── Phase 2: Dataset capture ──────────────────────────────────────
+            // Stage qualifying boss plans for the Training Pit dataset.
+            // Best-effort: StageAsync swallows all exceptions internally.
+            await DatasetCapture.StageAsync(_runId, userGoal, bossRaw, Tasks, _bossModel, DatasetStagingDir);
 
             _trace.WriteAssistantMessage(bossRaw, agent: "boss", model: _bossModel);
             _trace.WriteEvent("tasks_planned", $"{Tasks.Count} task(s): " +

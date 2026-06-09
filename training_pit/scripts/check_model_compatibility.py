@@ -15,13 +15,18 @@ import json
 import sys
 from pathlib import Path
 
+# Force UTF-8 output on Windows (cp1252 can't encode box-drawing / emoji chars)
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+
 COMPAT_JSON = Path(__file__).parent.parent / "configs" / "base_model_compat.json"
 
 STATE_SYMBOL = {
-    "verified":     "✅ verified",
-    "inferred":     "🔶 inferred",
-    "unknown":      "❓ unknown",
-    "incompatible": "❌ incompatible",
+    "verified":            "✅ verified",
+    "confirmed-external":  "🟢 confirmed-external",
+    "inferred":            "🔶 inferred",
+    "unknown":             "❓ unknown",
+    "incompatible":        "❌ incompatible",
 }
 
 
@@ -97,7 +102,7 @@ def main():
             print(f"  {name}: {rec} — {info.get('reason', '')}")
 
     print(f"\n{'=' * 60}")
-    print("Legend: ✅ verified  🔶 inferred  ❓ unknown  ❌ incompatible")
+    print("Legend: ✅ verified  🟢 confirmed-external  🔶 inferred  ❓ unknown  ❌ incompatible")
     print("=" * 60)
 
 
