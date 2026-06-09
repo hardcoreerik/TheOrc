@@ -220,23 +220,39 @@ CORRECT example for a CSV tool goal:
 Always follow that structure. Each task MUST have a non-empty description of at least 2 sentences.
 """
         ),
-        // ── TheOrc custom boss model — gemma4:12b tuned for planning ────────────
+        // ── TheOrc custom boss model — gemma4:12b-it-qat tuned for planning ─────
+        // Base: hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0 (Google official QAT)
         // Created via: ollama create theorc-boss:gemma4 -f theorc-boss-gemma4.Modelfile
         // Key differences from gemma4:12b base:
+        //   • QAT Q4_0 base — Google QAT checkpoint, better quality-per-bit than standard Q4_K_M
         //   • temperature 0.2 (vs 1.0 default) — prevents single-task collapse
+        //   • think=false — prevents thinking-mode token budget exhaustion (Ollama 0.30+)
         //   • num_ctx 16384 (vs 4096 default) — room for full plan + context
         //   • Few-shot MESSAGE pairs baked in — calibrates output format at model level
-        //   • SYSTEM prompt aligned with BossDecomposeSystemPrompt
-        // Benchmark expectation: BossScore 6 (rehabilitated from 2 → should produce
-        // multi-task plans). Requires installation on the Ollama server first.
+        // Verified 2026-06-09: produces 3-4 task plans, finish_reason=stop, ~700 tokens
         ["theorc-boss:gemma4"] = new(
-            "theorc-boss:gemma4", "TheOrc Boss — Gemma 4 12B (tuned)", 16_384, true,
+            "theorc-boss:gemma4", "TheOrc Boss — Gemma 4 12B QAT (tuned)", 16_384, true,
             ["coding", "reasoning", "planning", "research", "boss"],
             ToolSet.Full, PromptStyle.Agent,
             MaxSteps: 22, Temperature: 0.2, TimeoutSeconds: 90, AutoVerify: true,
-            Description: "Gemma 4 12B tuned for boss/planning role. Baked-in temperature 0.2, 16K ctx, few-shot examples. Install via: ollama create theorc-boss:gemma4 -f theorc-boss-gemma4.Modelfile",
+            Description: "Gemma 4 12B QAT — boss-tuned with temperature=0.2, think=false, 16K ctx, few-shot examples baked in. Base: google/gemma-4-12B-it-qat-q4_0-gguf. Install: theorc-boss-gemma4.Modelfile",
             MinVramGb: 7, ParamsBillions: 12, Speed: SpeedTier.Fast,
             BossScore: 6, CoderScore: 8, ResearcherScore: 8, TesterScore: 8
+        ),
+
+        // ── Raw QAT base — available for use as worker (coder/researcher) ────────
+        // Direct HF GGUF pull: ollama pull hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0
+        // Not recommended as boss (BossScore 2 — same collapse pattern as gemma4:12b without tuning).
+        // Excellent as coder/researcher. Use theorc-boss:gemma4 for boss role.
+        ["hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0"] = new(
+            "hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0",
+            "Gemma 4 12B IT QAT Q4_0", 262_144, true,
+            ["coding", "reasoning", "tool-use", "multimodal", "research"],
+            ToolSet.Full, PromptStyle.Agent,
+            MaxSteps: 22, Temperature: 0.3, TimeoutSeconds: 90, AutoVerify: true,
+            Description: "Google Gemma 4 12B IT QAT Q4_0 — official QAT GGUF from Google. 6.7 GB. Same capability as gemma4:12b but QAT base. ⚠ Use theorc-boss:gemma4 for boss role.",
+            MinVramGb: 7, ParamsBillions: 12, Speed: SpeedTier.Fast,
+            BossScore: 2, CoderScore: 8, ResearcherScore: 8, TesterScore: 8
         ),
 
         ["gemma4:e4b"] = new(

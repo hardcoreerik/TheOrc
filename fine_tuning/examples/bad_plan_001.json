@@ -1,0 +1,56 @@
+{
+  "_comment": "Negative reference example: gemma4:12b boss collapse pattern. Score 5/100. Critical training signal — the model must unlearn this.",
+  "schema_version": "1.0",
+  "example_id": "ex_20260609_bad_001",
+  "run_id": "20260609_140347",
+  "captured_at": "2026-06-09T14:03:47Z",
+
+  "source": "swarm_run",
+  "boss_model": "gemma4:12b",
+  "benchmark_id": "CleanCSV",
+
+  "goal": "Build a CSV file cleaner tool with a Python GUI that can trim whitespace, remove blank rows, remove duplicates, and normalize headers.",
+  "domain": "python_desktop",
+  "difficulty": 2,
+
+  "plan": {
+    "plan": "",
+    "tasks": [
+      {
+        "role": "Coder",
+        "priority": 1,
+        "title": "Execute goal",
+        "description": ""
+      }
+    ]
+  },
+
+  "quality_score": 5,
+  "rubric_scores": {
+    "task_count":        0,
+    "description_depth": 0,
+    "filename_presence": 0,
+    "api_contract":      0,
+    "domain_accuracy":   0,
+    "json_validity":     12
+  },
+  "_rubric_notes": {
+    "task_count": "1 task = collapse pattern = 0",
+    "description_depth": "description is empty string = 0, hard floor",
+    "filename_presence": "title 'Execute goal' contains no filename = 0",
+    "api_contract": "not applicable — single task with empty description",
+    "domain_accuracy": "cannot assess — description empty",
+    "json_validity": "+12: JSON is technically valid and parseable; -3: wrapped in markdown fences"
+  },
+
+  "example_class": "negative",
+  "failure_mode": "single_empty_task_collapse",
+  "_failure_mode_note": "This is the primary gemma4:12b boss failure pattern observed in benchmarks. The model produces a single task titled 'Execute goal' with an empty description. The JSON is valid — it passes parse but fails all planning quality checks. Observed in Combo B (score 30) and Combo D (score 18). Root cause: training distribution — gemma4:12b was not trained on multi-task agentic decomposition at this scale. Temperature=1.0 compounds it.",
+
+  "notes": "Combo B run. Boss staged empty plan — resulted in coder producing no files (staging dir empty). Final report was entirely hallucinated by boss. This is the exact failure mode the fine-tuning aims to eliminate. The correct plan for this goal is in good_plan_001.json (score 85) — use as a contrasting pair in training.",
+  "annotator": "human:session-review",
+  "tags": ["collapse-pattern", "single-task", "empty-description", "gemma4-failure", "negative-example", "pair-with:ex_20260609_001"],
+
+  "correct_plan_reference": "ex_20260609_001",
+  "_training_note": "For contrastive fine-tuning (DPO/ORPO): this is the 'rejected' output; ex_20260609_001 is the 'chosen' output for the same goal. Contrastive training on these pairs is more data-efficient than SFT alone for fixing a specific failure mode."
+}

@@ -1,0 +1,62 @@
+{
+  "_comment": "Reference example: good plan from gemma4:12b coder/researcher under qwen2.5 boss. Score 68/100.",
+  "schema_version": "1.0",
+  "example_id": "ex_20260609_002",
+  "run_id": "20260609_151350",
+  "captured_at": "2026-06-09T15:13:50Z",
+
+  "source": "swarm_run",
+  "boss_model": "qwen2.5-coder:14b",
+  "benchmark_id": "CleanCSV",
+
+  "goal": "Build a CSV file cleaner tool with a Python GUI that can trim whitespace, remove blank rows, remove duplicates, and normalize headers.",
+  "domain": "python_desktop",
+  "difficulty": 2,
+
+  "plan": {
+    "plan": "Build with Python/Tkinter using pandas: researcher investigates APIs, coder implements cleaning backend, coder builds integrated UI.",
+    "tasks": [
+      {
+        "role": "RESEARCHER",
+        "priority": 1,
+        "title": "Research pandas DataFrame cleaning and tkinter integration patterns",
+        "description": "Investigate pandas 2.x methods for: read_csv, dropna, drop_duplicates, str.strip on all columns, column rename/normalization. Research tkinter filedialog module for open/save dialogs and ttk.Treeview for tabular display. Return a concise reference sheet with exact import paths and method signatures that the coder tasks will use directly."
+      },
+      {
+        "role": "CODER",
+        "priority": 2,
+        "title": "Write csv_cleaner.py — pandas-based cleaning module",
+        "description": "Create csv_cleaner.py with a class CSVCleaner wrapping a DataFrame. Implement methods: load(path) reads CSV via pandas, trim_whitespace() strips string column whitespace, remove_blank_rows() drops all-NaN rows, remove_duplicates() drops exact duplicate rows, normalize_headers() lowercases and strips header whitespace, save(path) writes to CSV. Add type annotations throughout. Include logging at INFO level for each operation showing row counts before/after."
+      },
+      {
+        "role": "CODER",
+        "priority": 2,
+        "title": "Write main.py — tkinter UI integrating CSVCleaner",
+        "description": "Create main.py importing csv_cleaner.CSVCleaner. Build a tkinter application: File menu with Open and Save As items using filedialog, ttk.Treeview preview panel showing the current DataFrame (updates after each clean operation), left sidebar with four checkboxes (Trim Whitespace, Remove Blank Rows, Remove Duplicates, Normalize Headers), Clean button that instantiates CSVCleaner and runs checked operations, status bar showing row count and last operation. Use threading.Thread for the clean operation to prevent UI freeze. Window size 900x600."
+      }
+    ]
+  },
+
+  "quality_score": 68,
+  "rubric_scores": {
+    "task_count":        18,
+    "description_depth": 24,
+    "filename_presence": 10,
+    "api_contract":      10,
+    "domain_accuracy":   10,
+    "json_validity":     15
+  },
+  "_rubric_notes": {
+    "task_count": "3 tasks — good, -2 vs 4",
+    "description_depth": "-1: all descriptions are 3+ sentences and concrete — very strong",
+    "filename_presence": "-5: RESEARCHER task has no filename in title (acceptable), but task 2 and 3 have filenames",
+    "api_contract": "-5: main.py uses CSVCleaner class correctly, but CSVCleaner interface differs from good_plan_001's function-based API — fine internally but shows inconsistency if compared across plans",
+    "domain_accuracy": "All tasks on-domain",
+    "json_validity": "Valid JSON"
+  },
+
+  "example_class": "positive",
+  "notes": "Strong descriptions — gemma4:12b as coder/researcher under qwen boss produced well-structured code (Pandas-based, logging, threading in main.py). Missing sample_data.csv and README.md (no UIDEVELOPER task). The class-based CSVCleaner interface is a valid design choice. Useful as an example of good description depth even with only 3 tasks.",
+  "annotator": "human:session-review",
+  "tags": ["well-decomposed", "class-based-design", "threading-awareness", "strong-descriptions", "missing-uideveloper"]
+}

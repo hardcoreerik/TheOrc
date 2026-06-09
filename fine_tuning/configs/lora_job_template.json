@@ -1,0 +1,92 @@
+{
+  "_comment": "LoRA fine-tuning job config — PLACEHOLDER. No training runner exists yet.",
+  "_phase": "Phase 3 (future). Do not use until training infrastructure is built.",
+  "_schema_version": "1.0",
+
+  "job": {
+    "name": "theorc-boss-gemma4-lora-v1",
+    "description": "LoRA adapter for gemma4:12b boss planning role",
+    "adapter_type": "lora",
+    "created": "2026-06-09"
+  },
+
+  "base_model": {
+    "ollama_tag": "gemma4:12b",
+    "hf_repo": "google/gemma-4-12b-it",
+    "_note": "When gemma4:12b-it-qat lands on Ollama, prefer that as base for better quality-per-bit.",
+    "_qat_hf_repo": "unsloth/gemma-4-12b-it-qat",
+    "quantization": "none",
+    "dtype": "bfloat16"
+  },
+
+  "adapter": {
+    "type": "lora",
+    "rank": 16,
+    "_rank_note": "r=16 is a good starting point. Increase to 32-64 if planning quality plateaus.",
+    "alpha": 32,
+    "_alpha_note": "alpha = 2*rank is a common default. Effective LR scale = alpha/rank = 2.0.",
+    "dropout": 0.05,
+    "target_modules": [
+      "q_proj", "k_proj", "v_proj", "o_proj",
+      "gate_proj", "up_proj", "down_proj"
+    ],
+    "_target_modules_note": "All attention and MLP projection layers. Gemma4 uses GatedMLP (gate+up+down). If quality is insufficient, add 'embed_tokens' and 'lm_head'.",
+    "bias": "none",
+    "task_type": "CAUSAL_LM"
+  },
+
+  "training": {
+    "framework": "unsloth",
+    "_framework_note": "Unsloth is preferred for Gemma4 — it has a native Gemma4 fast kernel and the QAT GGUF export path. Fallback: HuggingFace PEFT + trl.",
+    "max_seq_length": 2048,
+    "_max_seq_note": "Boss planning examples are ~600-1200 tokens (system+goal+plan). 2048 covers all cases with headroom.",
+
+    "dataset": {
+      "train_path": "fine_tuning/datasets/train_v1.jsonl",
+      "eval_path":  "fine_tuning/datasets/eval_v1.jsonl",
+      "format": "chat",
+      "_format_note": "Each example is {messages:[{role:system,...},{role:user,...},{role:assistant,...}]}. The assistant turn is the JSON plan.",
+      "system_prompt_source": "BossDecomposeSystemPrompt",
+      "_system_prompt_note": "Use the same system prompt TheOrc sends at runtime. Sync with SwarmSession.BossDecomposeSystemPrompt."
+    },
+
+    "hyperparams": {
+      "learning_rate": 2e-4,
+      "_lr_note": "Standard LoRA LR. Reduce to 1e-4 if loss oscillates.",
+      "num_epochs": 3,
+      "_epochs_note": "3 epochs on ~300 examples. Watch for overfitting on eval loss.",
+      "per_device_train_batch_size": 2,
+      "gradient_accumulation_steps": 4,
+      "_effective_batch": "effective_batch_size = 2 * 4 = 8",
+      "warmup_steps": 10,
+      "weight_decay": 0.01,
+      "optimizer": "adamw_8bit",
+      "_optimizer_note": "8-bit AdamW via bitsandbytes reduces optimizer memory by ~60%.",
+      "lr_scheduler": "cosine",
+      "logging_steps": 10,
+      "save_steps": 50,
+      "eval_steps": 50,
+      "load_best_model_at_end": true,
+      "metric_for_best_model": "eval_loss"
+    }
+  },
+
+  "output": {
+    "adapter_dir": "fine_tuning/outputs/lora_v1/adapter",
+    "gguf_dir":    "fine_tuning/outputs/lora_v1/gguf",
+    "gguf_quant":  "q4_k_m",
+    "ollama_tag":  "theorc-boss:gemma4-ft",
+    "_deploy_note": "After GGUF export: ollama create theorc-boss:gemma4-ft -f fine_tuning/theorc-boss-gemma4-ft.Modelfile"
+  },
+
+  "hardware": {
+    "min_vram_gb": 16,
+    "recommended_vram_gb": 24,
+    "estimated_train_time_hours": {
+      "RTX_4090_24GB": 0.5,
+      "RTX_3090_24GB": 1.0,
+      "RTX_4080_16GB": 1.5,
+      "A100_40GB": 0.25
+    }
+  }
+}

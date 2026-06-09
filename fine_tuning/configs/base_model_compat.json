@@ -1,0 +1,160 @@
+{
+  "_comment": "Base model compatibility matrix for TheOrc fine-tuning.",
+  "_last_updated": "2026-06-09",
+  "_schema_version": "1.0",
+
+  "models": [
+    {
+      "id": "gemma4:12b",
+      "hf_repo": "google/gemma-4-12b-it",
+      "priority": "primary",
+      "reason": "Observed planning failures directly. Fine-tuning impact is highest. Already in ModelProfiles.",
+      "architecture": "gemma4",
+      "params_b": 12,
+      "context_tokens": 262144,
+      "ollama_available": true,
+      "unsloth_template": "gemma4",
+      "_unsloth_note": "Unsloth has a native Gemma4 fast kernel. Use FastLanguageModel.from_pretrained() with model_name='google/gemma-4-12b-it'.",
+
+      "vram": {
+        "infer_q4_gb": 7,
+        "train_lora_bf16_gb": 18,
+        "train_qlora_nf4_gb": 12,
+        "_note": "LoRA in bf16 requires the full bf16 base (~24GB unquantized). Unsloth's optimizations bring this to ~18GB practical."
+      },
+
+      "qat_variant": {
+        "available": true,
+        "ollama_hf_tag": "hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0",
+        "hf_repo": "google/gemma-4-12B-it-qat-q4_0-gguf",
+        "hf_available": true,
+        "installed_on_server": true,
+        "size_gb": 6.7,
+        "_note": "Google's official QAT Q4_0 GGUF — installed 2026-06-09. theorc-boss:gemma4 now uses this as base. Pull command: ollama pull hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0",
+        "native_ollama_tag_available": false,
+        "native_ollama_tag_track": "https://ollama.com/library/gemma4"
+      },
+
+      "fine_tune_status": "planned",
+      "fine_tune_priority": 1,
+      "expected_gain": "high",
+      "_gain_note": "Moves from BossScore 2 (raw) to estimated 7-8 after 300-example LoRA. The planning collapse is a training distribution gap — fine-tuning directly addresses it.",
+
+      "known_issues": [
+        "thinking_mode_consumes_tokens: Fixed via think=false in Modelfile (Ollama 0.30+)",
+        "token_leakage_via_openai_compat: Fixed via StripGemma4Artifacts() in SwarmSession",
+        "default_temperature_too_high: Fixed via temperature=0.2 in Modelfile"
+      ]
+    },
+
+    {
+      "id": "gemma4:12b-it-qat",
+      "hf_repo": "unsloth/gemma-4-12b-it-qat",
+      "priority": "primary-when-available",
+      "reason": "QAT base preserves quality at 4-bit better than standard quantization. Prefer once Ollama tag exists.",
+      "architecture": "gemma4",
+      "params_b": 12,
+      "context_tokens": 262144,
+      "ollama_available": false,
+      "ollama_tag_expected": "gemma4:12b-it-qat",
+      "unsloth_template": "gemma4",
+
+      "vram": {
+        "infer_q4_gb": 7,
+        "train_lora_bf16_gb": 18,
+        "train_qlora_nf4_gb": 11,
+        "_note": "Slightly lower QLoRA requirement because the QAT quantization is more VRAM-efficient."
+      },
+
+      "fine_tune_status": "blocked_on_ollama_tag",
+      "fine_tune_priority": 1,
+
+      "upgrade_path": "When available: pull via 'ollama pull gemma4:12b-it-qat', then update theorc-boss-gemma4.Modelfile FROM line and rebuild via 'ollama create theorc-boss:gemma4 -f theorc-boss-gemma4.Modelfile'"
+    },
+
+    {
+      "id": "qwen2.5-coder:14b",
+      "hf_repo": "Qwen/Qwen2.5-Coder-14B-Instruct",
+      "priority": "secondary",
+      "reason": "Already performs well as boss (BossScore 6). Fine-tuning offers marginal gains. Worth doing after gemma4 to generalize the fine-tune approach.",
+      "architecture": "qwen2.5",
+      "params_b": 14,
+      "context_tokens": 32768,
+      "ollama_available": true,
+      "unsloth_template": "qwen_2_5",
+
+      "vram": {
+        "infer_q4_gb": 10,
+        "train_lora_bf16_gb": 22,
+        "train_qlora_nf4_gb": 14
+      },
+
+      "fine_tune_status": "future",
+      "fine_tune_priority": 2,
+      "expected_gain": "moderate",
+      "_gain_note": "Already works. Fine-tuning would push BossScore from 6 to 8-9 and reduce planning variance on complex goals."
+    },
+
+    {
+      "id": "qwen2.5-coder:32b",
+      "hf_repo": "Qwen/Qwen2.5-Coder-32B-Instruct",
+      "priority": "low",
+      "reason": "Highest base capability. Fine-tuning cost/benefit is poor — already scores well.",
+      "architecture": "qwen2.5",
+      "params_b": 32,
+      "context_tokens": 32768,
+      "ollama_available": true,
+      "unsloth_template": "qwen_2_5",
+
+      "vram": {
+        "infer_q4_gb": 20,
+        "train_lora_bf16_gb": 48,
+        "train_qlora_nf4_gb": 28
+      },
+
+      "fine_tune_status": "not-planned",
+      "fine_tune_priority": 4,
+      "_note": "Requires A6000/A100 for QLoRA. Out of scope for consumer hardware fine-tuning."
+    },
+
+    {
+      "id": "gemma4:26b",
+      "hf_repo": "google/gemma-4-26b-it",
+      "priority": "out-of-scope",
+      "reason": "18 GB inference model. Fine-tuning requires 40+ GB VRAM. Not viable on consumer hardware.",
+      "architecture": "gemma4",
+      "params_b": 26,
+      "ollama_available": true,
+
+      "vram": {
+        "infer_q4_gb": 18,
+        "train_lora_bf16_gb": 48,
+        "train_qlora_nf4_gb": 28
+      },
+
+      "fine_tune_status": "not-planned",
+      "fine_tune_priority": 5
+    }
+  ],
+
+  "framework_notes": {
+    "unsloth": {
+      "recommended": true,
+      "reason": "Native Gemma4 fast kernel, 2x faster than PEFT, 40% less VRAM, direct GGUF export",
+      "install": "pip install unsloth[cu124] -- for CUDA 12.4; see unsloth.ai/docs for version matrix",
+      "gemma4_support": "confirmed — unsloth.ai/docs/models/gemma-4",
+      "_note": "Unsloth changed their package name in 2025. Current install is 'pip install unsloth' not 'pip install unsloth[colab]'."
+    },
+    "peft_trl": {
+      "recommended": false,
+      "reason": "No Gemma4-specific optimizations. Higher VRAM. Use as fallback only.",
+      "install": "pip install peft trl bitsandbytes transformers"
+    }
+  },
+
+  "gguf_export_path": {
+    "unsloth": "model.save_pretrained_merged('merged/', tokenizer, save_method='merged_4bit') then model.save_pretrained_gguf('gguf_output/', tokenizer, quantization_method='q4_k_m')",
+    "ollama_create": "ollama create theorc-boss:gemma4-ft -f fine_tuning/configs/lora_job_template.json",
+    "_note": "Unsloth's save_pretrained_gguf merges the LoRA adapter and quantizes in one step. Output is a single .gguf file ready for Ollama."
+  }
+}

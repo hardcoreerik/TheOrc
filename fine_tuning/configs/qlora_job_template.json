@@ -1,0 +1,111 @@
+{
+  "_comment": "QLoRA fine-tuning job config — PLACEHOLDER. Extends lora_job_template.json for 4-bit quantized base.",
+  "_phase": "Phase 3 (future). Use this when training hardware has less than 16 GB VRAM.",
+  "_schema_version": "1.0",
+  "_extends": "lora_job_template.json",
+
+  "job": {
+    "name": "theorc-boss-gemma4-qlora-v1",
+    "description": "QLoRA adapter for gemma4:12b boss planning role — 4-bit quantized base for low-VRAM training",
+    "adapter_type": "qlora",
+    "created": "2026-06-09"
+  },
+
+  "base_model": {
+    "ollama_tag": "gemma4:12b",
+    "hf_repo": "google/gemma-4-12b-it",
+    "_qat_preferred": "When unsloth/gemma-4-12b-it-qat is available on HF, prefer it here — QAT base + QLoRA training gives better final quality than standard Q4 base.",
+    "quantization": "4bit",
+    "quantization_config": {
+      "load_in_4bit": true,
+      "bnb_4bit_compute_dtype": "bfloat16",
+      "bnb_4bit_quant_type": "nf4",
+      "_nf4_note": "NF4 (Normal Float 4) is specifically optimized for normally-distributed neural network weights. Always prefer nf4 over fp4 for LLM fine-tuning.",
+      "bnb_4bit_use_double_quant": true,
+      "_double_quant_note": "Double quantization quantizes the quantization constants themselves, saving ~0.4 bits/param with negligible quality loss. Recommended."
+    },
+    "dtype": "bfloat16"
+  },
+
+  "adapter": {
+    "type": "lora",
+    "_qlora_note": "QLoRA is LoRA applied to a 4-bit quantized base. The adapter weights themselves are stored in bf16; only the frozen base is 4-bit.",
+    "rank": 16,
+    "alpha": 32,
+    "dropout": 0.05,
+    "target_modules": [
+      "q_proj", "k_proj", "v_proj", "o_proj",
+      "gate_proj", "up_proj", "down_proj"
+    ],
+    "bias": "none",
+    "task_type": "CAUSAL_LM"
+  },
+
+  "training": {
+    "framework": "unsloth",
+    "_unsloth_qlora_note": "Unsloth's QLoRA implementation is 2x faster than standard PEFT QLoRA and uses ~40% less VRAM via their custom CUDA kernels. Required for 12 GB VRAM training.",
+    "max_seq_length": 2048,
+
+    "dataset": {
+      "train_path": "fine_tuning/datasets/train_v1.jsonl",
+      "eval_path":  "fine_tuning/datasets/eval_v1.jsonl",
+      "format": "chat",
+      "system_prompt_source": "BossDecomposeSystemPrompt"
+    },
+
+    "hyperparams": {
+      "learning_rate": 2e-4,
+      "_lr_note": "Same as LoRA — 4-bit quantization doesn't require different LR.",
+      "num_epochs": 3,
+      "per_device_train_batch_size": 1,
+      "_batch_note": "Reduced from LoRA's 2 to fit 12 GB VRAM.",
+      "gradient_accumulation_steps": 8,
+      "_effective_batch": "effective_batch_size = 1 * 8 = 8 (same effective batch as LoRA)",
+      "warmup_steps": 10,
+      "weight_decay": 0.01,
+      "optimizer": "paged_adamw_8bit",
+      "_paged_optimizer_note": "Paged AdamW offloads optimizer states to CPU RAM when they don't fit in VRAM. Required for 12 GB VRAM setups.",
+      "lr_scheduler": "cosine",
+      "gradient_checkpointing": true,
+      "_gradient_checkpointing_note": "Trades compute for memory — recomputes activations on backward pass instead of storing them. ~30% slower but reduces VRAM by ~40%.",
+      "logging_steps": 10,
+      "save_steps": 50,
+      "eval_steps": 50,
+      "load_best_model_at_end": true,
+      "metric_for_best_model": "eval_loss"
+    }
+  },
+
+  "output": {
+    "adapter_dir": "fine_tuning/outputs/qlora_v1/adapter",
+    "gguf_dir":    "fine_tuning/outputs/qlora_v1/gguf",
+    "gguf_quant":  "q4_k_m",
+    "_gguf_merge_note": "QLoRA adapter must be merged into base weights before GGUF export. Unsloth handles this automatically via model.save_pretrained_merged().",
+    "ollama_tag":  "theorc-boss:gemma4-ft"
+  },
+
+  "hardware": {
+    "min_vram_gb": 12,
+    "_12gb_note": "RTX 3080 (12GB), RTX 4070Ti (12GB), RTX 3060 (12GB) are viable. Will be slow (~3-4 hours for 300 examples).",
+    "recommended_vram_gb": 16,
+    "estimated_train_time_hours": {
+      "RTX_4090_24GB": 0.75,
+      "RTX_3090_24GB": 1.5,
+      "RTX_4080_16GB": 2.0,
+      "RTX_4070Ti_12GB": 3.5,
+      "RTX_3080_12GB": 4.5,
+      "A100_40GB": 0.35
+    },
+    "_ram_note": "32 GB system RAM recommended. Paged optimizer may need to offload states — 16 GB RAM minimum."
+  },
+
+  "vs_lora": {
+    "_summary": "Use QLoRA when VRAM < 16 GB. Quality is marginally lower (~1-2 rubric points) but practical on consumer hardware.",
+    "lora_vram_min": 16,
+    "qlora_vram_min": 12,
+    "quality_gap": "negligible for planning tasks (not math or code generation)",
+    "speed_ratio": "QLoRA is ~30% slower than LoRA due to dequantization overhead",
+    "prefer_lora_when": "VRAM >= 16 GB and speed matters",
+    "prefer_qlora_when": "VRAM < 16 GB or cost is a concern"
+  }
+}

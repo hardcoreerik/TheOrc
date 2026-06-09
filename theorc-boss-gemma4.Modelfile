@@ -1,14 +1,24 @@
-FROM gemma4:12b
+FROM hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0
 
-# ── Planning parameters ────────────────────────────────────────────────────────
-# Gemma4's Ollama defaults are temperature=1.0, top_k=64, top_p=0.95 — calibrated
-# for creative/conversational use. Structured planning tasks need near-determinism.
+# ── Base model: QAT Q4_0 (Quantization-Aware Training) ───────────────────────
+# Google's official QAT checkpoint — weights trained with quantization in the loop,
+# preserving quality at 4-bit better than post-hoc quantization of a bf16 checkpoint.
+# Source: https://huggingface.co/google/gemma-4-12B-it-qat-q4_0-gguf
+# Size: 6.7 GB (vs 7.0 GB for standard gemma4:12b Q4_K_M)
+#
+# Previous base: gemma4:12b (standard Q4_K_M quantization)
+# Upgraded: 2026-06-09 — QAT base should reduce planning variance at low temperature.
+#
+# ── Planning parameters ───────────────────────────────────────────────────────
+# Gemma4's defaults are temperature=1.0, top_k=64, top_p=0.95 — calibrated for
+# creative/conversational use. Structured planning tasks need near-determinism.
 # Root cause of gemma4:12b boss collapse (single empty task): default temperature=1.0
 # introduces excessive randomness in constrained JSON generation.
 #
-# ⚠ DO NOT add "PARAMETER think false" — Ollama issue #15260: when think=false is
-#   explicitly set, the format/schema constraint is silently dropped. Suppress thinking
-#   via system prompt instead (simply don't invoke <|think|> in the system turn).
+# ⚠ DO NOT remove "PARAMETER think false" — without it, Gemma4 spends its entire
+#   token budget in the thinking phase and returns empty content (observed in testing,
+#   Ollama 0.30.6). The Ollama issue #15260 (think=false breaks format=json) does not
+#   apply here because TheOrc uses client-side schema validation, not format=json.
 PARAMETER temperature 0.2
 PARAMETER top_k 40
 PARAMETER top_p 0.85
