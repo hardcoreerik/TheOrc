@@ -7,14 +7,14 @@
 [![Platform](https://img.shields.io/badge/platform-Windows-blue?style=for-the-badge&logo=windows)](https://github.com/hardcoreerik/TheOrc/releases)
 [![.NET](https://img.shields.io/badge/.NET-10.0-purple?style=for-the-badge&logo=dotnet)](https://dotnet.microsoft.com/download/dotnet/10.0)
 [![License](https://img.shields.io/badge/license-MIT-brightgreen?style=for-the-badge)](LICENSE)
-[![Backend](https://img.shields.io/badge/inference-llama.cpp-orange?style=for-the-badge)](https://github.com/ggml-org/llama.cpp)
+[![Backend](https://img.shields.io/badge/inference-llama.cpp%20%2F%20Ollama-orange?style=for-the-badge)](https://github.com/ggml-org/llama.cpp)
 [![Models](https://img.shields.io/badge/models-HuggingFace_GGUF-yellow?style=for-the-badge)](https://huggingface.co/bartowski)
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?style=for-the-badge&logo=github-sponsors)](https://github.com/sponsors/hardcoreerik)
 
 <br/>
 
-**TheOrc** is a native AI coding assistant that runs 100% on your hardware —  
-no cloud, no subscriptions, no data leaving your machine.  
+**TheOrc** is a native AI coding assistant that runs 100% on your hardware —
+no cloud, no subscriptions, no data leaving your machine.
 Point it at your GPU, pick a coding profile, and let it rip.
 
 [**Download Setup**](https://github.com/hardcoreerik/The-Orchestrator/releases) · [**Documentation**](#getting-started) · [**Profiles**](#coding-profiles) · [**Supported Hardware**](#supported-hardware)
@@ -29,6 +29,7 @@ Point it at your GPU, pick a coding profile, and let it rip.
 |---|---|---|---|
 | Runs 100% locally | ✅ | ❌ | ✅ |
 | No subscription | ✅ | ❌ | ✅ |
+| Multi-agent Goblin Swarm | ✅ | ❌ | ❌ |
 | Auto-selects best model for your GPU | ✅ | ❌ | ❌ |
 | Guided one-click installer | ✅ | ✅ | ❌ |
 | Plan → Review → Execute safety loop | ✅ | ❌ | ❌ |
@@ -36,10 +37,37 @@ Point it at your GPU, pick a coding profile, and let it rip.
 | Git auto-checkpoint before each run | ✅ | ❌ | ❌ |
 | Profile-tailored agent rules (.agent.md) | ✅ | ❌ | ❌ |
 | Hot-load custom C# tools at runtime | ✅ | ❌ | ❌ |
+| Runtime tool-call compatibility probing | ✅ | ❌ | ❌ |
+
+---
+
+## Goblin Swarm — Multi-Agent Mode
+
+<div align="center">
+
+![Goblin Swarm](Assets/goblin%20swarm.png)
+
+</div>
+
+TheOrc doesn't work alone. Activate the **Goblin Swarm** and deploy a coordinated squad:
+
+| Role | Responsibility |
+|---|---|
+| **TheOrc (Boss)** | Reads your goal, decomposes it into tasks, steers and corrects the swarm |
+| **Coder Goblin** `</>` | Writes code, creates files, runs builds |
+| **Researcher Goblin** `>_` | Searches the web, reads docs, answers context questions |
+| **Ghost Researchers** | Parallel sub-agents spawned for deep research tasks |
+
+Each goblin runs on a separate model you choose. TheOrc orchestrates — issuing tasks, reviewing outputs, retrying failures, and synthesizing the final result. You watch it happen in real time on the Swarm Board.
+
+**Hardware-aware auto-config:** TheOrc reads your GPU, VRAM, and benchmark history to recommend the optimal model for each role — no guessing required.
 
 ---
 
 ## Features
+
+### 🐉 Goblin Swarm — Multi-Agent Orchestration
+Deploy a full squad: TheOrc (boss) breaks down your goal and routes tasks to specialized goblin agents in parallel. Automatic retry loops, quality scoring, and a real-time Swarm Board give you full visibility into what each agent is doing.
 
 ### 🔒 Trust-First Agent Loop
 Every file write surfaces a **visual diff** — Approve or Reject before anything on disk changes. Shell commands show a **ShellApprovalCard** with the exact command to be run. You stay in control; the agent does the heavy lifting.
@@ -47,11 +75,14 @@ Every file write surfaces a **visual diff** — Approve or Reject before anythin
 ### 📋 Plan → Execute Split
 The agent proposes a step-by-step plan for your review before executing a single tool call. Reject the plan, edit it, or approve — your call.
 
-### ⚡ Local Inference via llama.cpp
-TheOrc bundles **llama-server.exe** directly — no Ollama required (though Ollama is supported as an alternative backend). The installer detects your GPU and downloads the right CUDA/Vulkan/AVX2 runtime automatically.
+### ⚡ Local Inference via llama.cpp + Ollama
+TheOrc bundles **llama-server.exe** directly — no Ollama required (though Ollama is fully supported). The installer detects your GPU and downloads the right CUDA/Vulkan/AVX2 runtime automatically.
 
 ### 🎯 GPU-Aware Model Selection
-The installer reads your VRAM and picks the best Qwen2.5-Coder model for your hardware — from 1.5B on a CPU-only machine all the way to 32B Q4 on a 24 GB card.
+The installer reads your VRAM and picks the best model for your hardware — from 1.5B on a CPU-only machine all the way to 32B Q4 on a 24 GB card. The Swarm auto-config goes further: it recommends the optimal model *per role* based on your VRAM budget and observed run history.
+
+### 🔬 Tool Call Compatibility Probing
+Every model gets behaviorally tested before it's deployed. The **Tool Call Probe Engine** runs 5 deterministic tests × 2 dispatch modes, stores the results, and automatically routes tool calls through the correct path (native API or text-JSON). No more silent failures from model format mismatches.
 
 ### 📝 Coding Profiles
 Eight tailored `.agent.md` rule sets — the agent knows your domain before you type a word.
@@ -61,6 +92,9 @@ Write a C# class, hit **Compile & Load** — the agent picks up your new tool wi
 
 ### 📸 Git Checkpoints
 Auto-commits before every Execute run. Mess something up? `git log` shows every checkpoint. Roll back in one click.
+
+### 💬 Just Chat — Research Assistant
+A dedicated research mode with web search and tool use — for when you need answers, not code. Runs alongside the main agent loop.
 
 ---
 
@@ -149,7 +183,7 @@ The installer handles everything: llama.cpp runtime, GGUF model download, `.agen
 
 ### Option 2 — Portable (no installer)
 
-Download **TheOrc-x.x.x-win-x64-portable.zip** from [Releases](https://github.com/hardcoreerik/The-Orchestrator/releases), unzip anywhere, and run `OrchestratorIDE.exe`.  
+Download **TheOrc-x.x.x-win-x64-portable.zip** from [Releases](https://github.com/hardcoreerik/The-Orchestrator/releases), unzip anywhere, and run `OrchestratorIDE.exe`.
 You'll need an existing [Ollama](https://ollama.ai) or llama-server instance — point Settings at it.
 
 ### Option 3 — Build from Source
@@ -193,37 +227,33 @@ Alternatively, use the **Settings** panel in the app (gear icon in the activity 
 
 ---
 
-## Support TheOrc
-
-TheOrc is free, open source, and always will be.  
-If it saves you a subscription bill, consider buying the orc a coffee ☕
-
-<div align="center">
-
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support_the_Orc-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/hardcoreerik)
-[![PayPal](https://img.shields.io/badge/PayPal-Donate-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/hardcoreerik)
-[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?style=for-the-badge&logo=github-sponsors&logoColor=white)](https://github.com/sponsors/hardcoreerik)
-
-</div>
-
----
-
 ## Architecture
 
 ```
 OrchestratorIDE/          — Main WPF application (.NET 10)
   Core/
-    AgentOrchestrator     — Plan/Execute loop, tool dispatch, streaming
+    AgentLoop             — Plan/Execute loop, tool dispatch, format-aware routing
     OllamaClient          — OpenAI-compat /v1/chat/completions streaming
     LlamaServerManager    — Manages llama-server.exe process lifecycle
     AppSettings           — Settings persistence (%APPDATA%)
+  Agents/
+    SwarmSession          — Multi-agent orchestration: boss + coder + researcher
+    AgentWorker           — Individual goblin worker lifecycle
+  Services/
+    Swarm/
+      SwarmConfigAdvisor  — Hardware-aware model recommender (nvidia-smi + benchmarks)
+      SwarmMetricsStore   — JSONL run history, ConfigStats quality scoring
+    ToolCalls/
+      ToolCallProbeEngine — 5-test × 2-mode behavioral compatibility prober
+      ToolCallProfileStore— Per-model probe results, dispatch mode selection
   UI/Panels/
     AgentPanel            — Chat interface, mode toggle, token meter
+    SwarmBoardPanel       — Swarm Board: model pickers, goal input, live activity
     ToolEditorPanel       — Hot-load custom C# tools via Roslyn
-  UI/Controls/
-    CommandPalette        — Ctrl+K fuzzy search
-    DiffViewer            — File write approval (before/after diff)
-    ShellApprovalCard     — Shell command approval
+  Tests/
+    ToolCallTestWindow    — WPF probe results grid, live log
+  Tools/
+    ToolCallTester/       — tool-probe.exe standalone CLI
 
 OrchestratorSetup/        — Guided installer WPF app
   Services/
@@ -239,31 +269,79 @@ Setup/
 
 ---
 
-## Roadmap
+## Shipped Features (v1.0)
+
+Everything below is complete and shipping:
 
 - [x] Plan → Execute agent loop with approval gates
 - [x] Command palette (Ctrl+K)
-- [x] Git auto-checkpoint
+- [x] Git auto-checkpoint before every run
 - [x] Hot-loadable C# tools (Roslyn)
 - [x] llama.cpp backend (no Ollama required)
-- [x] One-click guided installer
-- [x] GPU-aware model selection
-- [x] 8 coding profiles
-- [x] HTTP range-resume model downloads
-- [x] **Phase F** — WMI hardware detection (real GPU/CUDA/VRAM query, registry fallback)
-- [x] **Phase G** — Auto-update checker (GitHub Releases API, 24-hr throttle, Settings toggle)
+- [x] One-click guided installer with GPU/CUDA auto-detection
+- [x] GPU-aware model selection (VRAM-tiered)
+- [x] 8 coding profiles (.agent.md rule sets)
+- [x] HTTP range-resume model downloads with SHA-256 verify
+- [x] WMI hardware detection (real GPU/CUDA/VRAM, registry fallback)
+- [x] Auto-update checker (GitHub Releases API, 24-hr throttle)
 - [x] FlaUI UI automation test suite (26/26 passing)
-- [ ] Linux / macOS (Avalonia port, planned)
+- [x] **Goblin Swarm** — boss + coder + researcher multi-agent mode
+- [x] **SwarmBoard UI** — real-time task visibility panel
+- [x] **SwarmConfigAdvisor** — hardware-aware role-based model recommender
+- [x] **SwarmRunMetrics** — JSONL run history + quality scoring per config
+- [x] **Co-Work mode** — human + agent working side-by-side in the same session
+- [x] **Just Chat tab** — research assistant with web search and tool use
+- [x] **4-tier trust system** — granular approval controls per tool class
+- [x] **Per-mode model memory** — separate model choice per mode (plan/execute/swarm)
+- [x] **Tool Call Probe Engine** — 5-test × 2-mode behavioral compatibility testing
+- [x] **ToolCallProfileStore** — per-model dispatch profiles persisted across sessions
+- [x] **tool-probe.exe** — standalone CLI tool for headless model probing
+- [x] **Models menu** — Run Tool Call Tests, Manage Library, probe integration
 
 ---
 
-## License
+## Roadmap
 
-MIT — use it, fork it, ship it.
+### 🧠 v1.1 — GOBLIN MIND (Active)
 
-```
-Copyright (c) 2025 hardcoreerik
-```
+The Goblin Mind initiative teaches the swarm to understand itself at runtime.
+See [`GOBLIN_MIND_TODO.md`](GOBLIN_MIND_TODO.md) for full task breakdown.
+
+- [ ] **Phase 1: Behavioral Format Fingerprinting** — Probe each model's preferred tool-call serialization format (OpenAI JSON / Hermes XML / bare JSON / Python-style / YAML). Store as `FormatFingerprint` in the model profile. `AgentLoop` shapes tool schemas to the model's native format.
+- [ ] **Phase 2: Category Boundary Mapping** — 14-query capability taxonomy per model (7 categories × 2 tests). TheOrc reads the map to gate swarm task routing — no coder goblin gets a network task if it fails network probes.
+- [ ] **Phase 3: Adaptive Schema Generation** — Generate and persist confirmed tool schemas per model. Few-shot bootstrapping from successful probe outputs grows the schema library automatically.
+- [ ] **Phase 4: Schema Reduction Middleware** — Transparent `AgentLoop` middleware that simplifies tool schemas for models that fail on complexity. Zero friction for users.
+- [ ] **Phase 5: Evolutionary Schema Search** — On-demand mutation engine. Systematically explores schema space to find each model's highest-fitness calling convention.
+- [ ] **Phase 6: TheOrc Steering Integration** — Boss model reads capability profiles to steer the swarm. Task routing becomes capability-driven, not config-driven.
+
+### 🍎 v1.2 — Mac / Linux Port
+
+- [ ] Avalonia UI port (Windows WPF → cross-platform)
+- [ ] macOS llama.cpp Metal backend integration
+- [ ] Linux AppImage build
+
+### 🔮 v1.3 — Backlog
+
+- [ ] Inline diff editing (edit proposed diff before approving)
+- [ ] Background agent (fire task, get notified when done)
+- [ ] Token cost estimator
+- [ ] Multi-workspace support
+- [ ] SwarmBoard metrics history tab (ConfigStats per configuration)
+
+---
+
+## Support TheOrc
+
+TheOrc is free, open source, and always will be.
+If it saves you a subscription bill, consider buying the orc a coffee ☕
+
+<div align="center">
+
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support_the_Orc-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/hardcoreerik)
+[![PayPal](https://img.shields.io/badge/PayPal-Donate-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/hardcoreerik)
+[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?style=for-the-badge&logo=github-sponsors&logoColor=white)](https://github.com/sponsors/hardcoreerik)
+
+</div>
 
 ---
 
@@ -271,7 +349,7 @@ Copyright (c) 2025 hardcoreerik
 
 ## ❤️ Like TheOrc? Support the Project
 
-TheOrc replaces a **$20–$40/month** subscription with a one-time setup and your own hardware.  
+TheOrc replaces a **$20–$40/month** subscription with a one-time setup and your own hardware.
 If it's saving you money, a small contribution goes a long way.
 
 <br/>
@@ -303,6 +381,6 @@ If it's saving you money, a small contribution goes a long way.
 
 *Built for developers. Made for freedom. Free forever.*
 
-<img src="Assets/icon.png" width="80" alt="TheOrc"/>
+<img src="Assets/goblin%20swarm%20badge.png" width="160" alt="TheOrc Goblin Swarm"/>
 
 </div>

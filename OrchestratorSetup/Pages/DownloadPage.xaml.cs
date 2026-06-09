@@ -68,10 +68,16 @@ public partial class DownloadPage : UserControl, IInstallerPage
                              "Inference engine (llama-server.exe + GPU libraries)"));
         }
 
-        var modelName = _vm.AllModels.FirstOrDefault(m => m.Id == _vm.State.SelectedModelId)?.Name
-                        ?? _vm.State.SelectedModelId;
-        _rows.Add(AddRow("model", modelName,
-                          "GGUF model file (the AI brain)"));
+        // One progress row per selected model; fall back to single-model legacy path
+        var modelsToShow = _vm.State.SelectedModels.Any()
+            ? _vm.State.SelectedModels
+            : _vm.AllModels.Where(m => m.Id == _vm.State.SelectedModelId).ToList();
+
+        foreach (var model in modelsToShow)
+        {
+            var role = _vm.State.ModelRoles.TryGetValue(model.Id, out var r) ? r : "Model";
+            _rows.Add(AddRow(model.Name, model.Name, $"{role}  ·  GGUF model file"));
+        }
 
         _rows.Add(AddRow("config", "Configuration", "settings.json + .agent.md profile"));
     }
@@ -209,10 +215,13 @@ public partial class DownloadPage : UserControl, IInstallerPage
 
     private void UpdateItemRow(DownloadProgress p)
     {
-        // Match progress item to the correct row by name substring
+        // Match progress item to the correct row.
+        // Row keys: exact model name (for model rows) or fixed strings ("runtime", "config", "OrchestratorIDE").
+        // InstallOrchestrator fires progress with ItemName = the model's Name or step name.
         RowRef? row = _rows.FirstOrDefault(r =>
+            string.Equals(r.Key, p.ItemName, StringComparison.OrdinalIgnoreCase) ||
             p.ItemName.Contains(r.Key, StringComparison.OrdinalIgnoreCase) ||
-            r.Key == "model" && !p.ItemName.Contains("runtime", StringComparison.OrdinalIgnoreCase) && !p.ItemName.Contains("config", StringComparison.OrdinalIgnoreCase));
+            r.Key.Contains(p.ItemName, StringComparison.OrdinalIgnoreCase));
 
         if (row is null) return;
 

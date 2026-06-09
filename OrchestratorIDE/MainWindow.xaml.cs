@@ -6,10 +6,12 @@ using System.Windows.Media;
 using OrchestratorIDE.Agents;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Models;
+using OrchestratorIDE.Services.Models;
 using OrchestratorIDE.Tools;
 using OrchestratorIDE.Trust;
 using OrchestratorIDE.UI.Controls;
 using OrchestratorIDE.UI.Panels;
+using OrchestratorIDE.UI.Windows;
 
 namespace OrchestratorIDE;
 
@@ -24,7 +26,8 @@ public partial class MainWindow : Window
     private readonly RulesLoader        _rules;
     private readonly AgentLoop          _loop;
     private readonly SessionStore       _store;
-    private          LlamaServerManager? _llamaServer;
+    private          LlamaServerManager?  _llamaServer;
+    private          ModelStatusService?  _modelStatus;
 
     // ── State ─────────────────────────────────────────────────────────────
     private ProjectSession           _session;
@@ -65,6 +68,8 @@ public partial class MainWindow : Window
         {
             _llamaServer?.Stop();
             _recorder.Stop();
+            _modelStatus?.Stop();
+            _modelStatus?.Dispose();
         };
 
         // Recorder events → status bar
@@ -404,6 +409,17 @@ public partial class MainWindow : Window
             _explorerPanel.LoadWorkspace(_session.WorkspaceRoot);
             Dispatcher.Invoke(UpdateStatusBar);
         }
+
+        // ── Model status polling ─────────────────────────────────────────────
+        _modelStatus = new ModelStatusService(_settings);
+        _modelStatus.OnUpdate += snap => Dispatcher.InvokeAsync(() =>
+        {
+            var line = snap.ShortStatusLine + snap.VramDisplay;
+            TxtSbModelStatus.Text       = line;
+            SbModelStatus.Visibility    = string.IsNullOrEmpty(line)
+                ? Visibility.Collapsed : Visibility.Visible;
+        });
+        _modelStatus.Start(TimeSpan.FromSeconds(8));
 
         // ── CLI overrides (--workspace, --autotest) ───────────────────────
         // Used by FlaUI / CI tests for headless autonomous runs.
@@ -1921,6 +1937,75 @@ public partial class MainWindow : Window
 
     private void Menu_GitHub(object sender, RoutedEventArgs e)
         => UpdateChecker.OpenReleasePage("https://github.com/hardcoreerik/TheOrc");
+
+    // ── Models menu ───────────────────────────────────────────────────────────
+
+    private void Menu_ModelChoose(object sender, RoutedEventArgs e)
+        => SbModel_Click(this, null!);   // reuse existing model picker
+
+    private void Menu_ModelDownload(object sender, RoutedEventArgs e)
+    {
+        var win = new ModelDownloaderWindow(_settings) { Owner = this };
+        win.ShowDialog();
+        // Refresh installed models list and status bar after potential download
+        _ = Task.Run(async () =>
+        {
+            var models = await _ollama.GetInstalledModelsAsync();
+            Dispatcher.Invoke(() =>
+            {
+                _installedModels = models;
+                _chatPanel.SetModels(models, _session.ActiveModel);
+                UpdateStatusBar();
+            });
+        });
+    }
+
+    private async void Menu_WarmUp(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem mi) return;
+        var role = mi.Tag?.ToString() ?? "worker";
+
+        SetStatus($"Warming up {role} model…");
+        using var svc = new ModelWarmUpService(_settings);
+        try
+        {
+            await svc.WarmUpAsync(
+                role,
+                msg => Dispatcher.InvokeAsync(() => SetStatus(msg)),
+                _ => { });
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Warm-up error: {ex.Message}");
+        }
+    }
+
+    private void Menu_WarmUpEdit(object sender, RoutedEventArgs e)
+    {
+        var win = new WarmUpEditorWindow(_settings) { Owner = this };
+        win.Show();
+    }
+
+    private void Menu_ModelLibrary(object sender, RoutedEventArgs e)
+    {
+        var win = new ModelLibraryWindow(_settings) { Owner = this };
+        win.Show();
+    }
+
+    private void Menu_RunToolProbe(object sender, RoutedEventArgs e)
+    {
+        var win = new OrchestratorIDE.Tests.ToolCallTestWindow(_settings)
+        {
+            Owner  = this,
+            Ollama = _ollama,
+        };
+        win.Show();
+    }
+
+    // ── Model status bar click ─────────────────────────────────────────────────
+
+    private void SbModelStatus_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        => Menu_ModelDownload(this, null!);
 
     // ── Keyboard shortcuts (extend existing handler) ───────────────────────
 

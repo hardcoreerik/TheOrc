@@ -231,6 +231,28 @@
                 <MenuItem Header="New Session"                                  Click="Menu_NewSession"/>
             </MenuItem>
 
+            <!-- ── Models ─────────────────────────────────────────── -->
+            <MenuItem Header="_Models">
+                <MenuItem Header="Choose Model…"
+                          InputGestureText="Ctrl+Shift+M"
+                          Click="Menu_ModelChoose"/>
+                <MenuItem Header="Download Models…"
+                          Click="Menu_ModelDownload"/>
+                <Separator/>
+                <MenuItem Header="Warm Up">
+                    <MenuItem Header="Worker · Coder"      Tag="worker"     Click="Menu_WarmUp"/>
+                    <MenuItem Header="Boss · Orchestrator" Tag="boss"       Click="Menu_WarmUp"/>
+                    <MenuItem Header="Researcher"          Tag="researcher" Click="Menu_WarmUp"/>
+                    <Separator/>
+                    <MenuItem Header="Edit Warm-Up Scripts…" Click="Menu_WarmUpEdit"/>
+                </MenuItem>
+                <Separator/>
+                <MenuItem Header="Run Tool Call Tests…"
+                          Click="Menu_RunToolProbe"/>
+                <Separator/>
+                <MenuItem Header="Manage Library…"   Click="Menu_ModelLibrary"/>
+            </MenuItem>
+
             <!-- ── Debug ─────────────────────────────────────────── -->
             <MenuItem Header="_Debug">
                 <MenuItem Header="Start / Stop Recording"
@@ -490,6 +512,19 @@
                            Text="" Foreground="#76B900"
                            Margin="0,0,8,0" VerticalAlignment="Center" FontSize="11"
                            AutomationProperties.AutomationId="StatusBar.Branch"/>
+                <!-- Model status widget (populated by ModelStatusService) -->
+                <Border x:Name="SbModelStatus"
+                        DockPanel.Dock="Right"
+                        Background="#111111" CornerRadius="3"
+                        Padding="6,1" Margin="0,2,8,2"
+                        Cursor="Hand" MouseDown="SbModelStatus_Click"
+                        ToolTip="Model status — click to open Downloader"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="TxtSbModelStatus"
+                               Foreground="{StaticResource Br.Accent.Green}"
+                               FontFamily="Consolas" FontSize="10"/>
+                </Border>
+
                 <TextBlock x:Name="SbModel" DockPanel.Dock="Right"
                            Foreground="#76B900"
                            Margin="8,0" VerticalAlignment="Center" FontSize="11"

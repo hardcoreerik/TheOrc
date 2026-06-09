@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using OrchestratorIDE.Models;
+using OrchestratorIDE.Services.ToolCalls;
 
 namespace OrchestratorIDE.Core;
 
@@ -130,7 +131,26 @@ public class AgentLoop
         CancellationToken ct)
     {
         var profile = ModelProfiles.Get(session.ActiveModel);
-        var tools = _registry.GetForProfile(profile);
+        var tools   = _registry.GetForProfile(profile);
+
+        // ── Tool-call dispatch: check probe profile ─────────────────────────
+        // If the probe tester has run and found that native API doesn't work for
+        // this model but text-JSON does, skip the tools array entirely so the
+        // model falls through to the text-format parser path automatically.
+        var tcMode = ToolCallProfileStore.GetMode(session.ActiveModel,
+            profileDefault: profile.NativeToolUse);  // fall back to static profile flag
+        var useNativeTools = tcMode is ToolCallMode.Native or ToolCallMode.Both or ToolCallMode.Unknown;
+        if (!useNativeTools)
+        {
+            Emit(ActivityKind.Info, "Tool dispatch",
+                $"Profile: {tcMode} — skipping tools[] array, relying on text-JSON format.");
+            tools = [];  // force text-JSON path — system prompt has the format instructions
+        }
+        else if (tcMode != ToolCallMode.Unknown)
+        {
+            Emit(ActivityKind.Debug, "Tool dispatch",
+                $"Profile: {tcMode} — sending tools[] array.", 3);
+        }
 
         // Load project rules (global agent + workspace rules merged)
         var rulesText  = await _rules.LoadAsync(session.WorkspaceRoot);

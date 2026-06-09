@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Models;
+using OrchestratorIDE.Services.Swarm;
 using OrchestratorIDE.Tools;
 using OrchestratorIDE.Trust;
 
@@ -166,7 +167,8 @@ public class SwarmSession
         _cts            = new CancellationTokenSource();
         var ct          = _cts.Token;
         Tasks           = [];
-        _runId          = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
+        var runStartedAt = DateTime.UtcNow;
+        _runId          = runStartedAt.ToString("yyyyMMdd_HHmmss");
         _targetLanguage = DetectTargetLanguage(userGoal);
         OnStarted?.Invoke();
 
@@ -234,12 +236,38 @@ public class SwarmSession
                 await _ollama.EvictModelAsync(_researcherModel, ct);
             }
 
-            var findings = researchers
+            // ── Researcher quality gate (zero tokens — pure code check) ─────────
+            // Prevents silent empty-researcher output from flowing into coder prompts.
+            // Catches: ghost responses (""), trivially short outputs, LLM refusals.
+            const int MinResearchChars = 150;
+            const int MinResearchLines = 3;
+
+            var allFindings = researchers
                 .Where(t => t.Status == SwarmTaskStatus.Done && t.Result is not null)
-                .Select(t => (t.Title, t.Result!))
+                .Select(t => (Title: t.Title, Result: t.Result!))
                 .ToList();
 
+            var findings = allFindings.Where(f =>
+            {
+                var text       = f.Result.Trim();
+                var longEnough = text.Length >= MinResearchChars;
+                var denseEnough = text.Split('\n').Count(l => l.Trim().Length > 0) >= MinResearchLines;
+                var noRefusal  = !System.Text.RegularExpressions.Regex.IsMatch(
+                    text, @"\b(cannot|unable to|i don't know|as an ai)\b",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                return longEnough && denseEnough && noRefusal;
+            }).ToList();
+
+            var ghostCount = allFindings.Count - findings.Count;
+            if (ghostCount > 0)
+            {
+                _trace?.WriteEvent("researcher_quality_fail",
+                    $"{ghostCount} researcher(s) returned insufficient output (<{MinResearchChars} chars or <{MinResearchLines} lines) — excluded");
+                Activity($"⚠ {ghostCount} researcher(s) returned ghost output — coders proceeding without research context", "boss");
+            }
+
             // ── Phase 2b: Coder + UIDev workers ──────────────────────────────
+            var coderRetryCount = 0;     // hoisted for metrics capture
             if (others.Count > 0)
             {
                 Activity($"Coder phase — {others.Count} worker(s) running concurrently", "boss");
@@ -266,7 +294,7 @@ public class SwarmSession
                     }
 
                     // ── Boss retry: worker wrote no files via tools OR markers ─
-                    for (int attempt = 1; attempt <= MaxRetries; attempt++)
+                    for (int attempt = 1; attempt <= MaxRetries; attempt++, coderRetryCount++)
                     {
                         Activity($"⚠ {t.Title} wrote no files — retrying ({attempt}/{MaxRetries})…", "boss");
                         _trace?.WriteEvent("worker_retry", $"{t.Role}:{t.Title} attempt {attempt}");
@@ -297,10 +325,61 @@ public class SwarmSession
                 Activity($"Workers wrote {totalFiles} file(s) to workspace root", "boss");
             }
 
-            // ── Phase 3: Boss merge → final_report.md ────────────────────────
+            // ── Phase 3: Tester goblin — verify output before merge ──────────
+            string? testerVerdict   = null;
+            bool    fixTaskSpawned  = false;
+            bool    fixTaskSucceeded = false;
+            var workerFiles = Tasks
+                .Where(t => t.Role is SwarmWorkerRole.Coder or SwarmWorkerRole.UIDeveloper
+                            && t.Status == SwarmTaskStatus.Done)
+                .Sum(t => t.ToolFilesWritten);
+
+            if (workerFiles > 0 && !ct.IsCancellationRequested)
+            {
+                Activity("🧪 Tester goblin — verifying output files…", "boss");
+                _trace.WriteEvent("phase_start", "Verification phase");
+
+                var testerTask = BuildTesterTask(userGoal, Tasks, OutputProjectDir, _targetLanguage);
+                Tasks.Add(testerTask);
+                OnTasksPlanned?.Invoke(Tasks);   // refresh board to show tester card
+                await RunWorkerAsync(testerTask, [], ct);
+
+                if (testerTask.Status == SwarmTaskStatus.Done && !string.IsNullOrWhiteSpace(testerTask.Result))
+                {
+                    testerVerdict = ExtractTesterSummary(testerTask.Result);
+                    _trace.WriteEvent("verification_complete", testerVerdict);
+                    Activity($"🧪 Tester: {testerVerdict}", "boss");
+
+                    // ── Boss spawns targeted fix task on FAIL ─────────────────
+                    if (TesterReportedFailure(testerTask.Result) && !ct.IsCancellationRequested)
+                    {
+                        fixTaskSpawned = true;
+                        Activity("⚠ Tester found failures — Boss spawning targeted fix task", "boss");
+                        _trace.WriteEvent("fix_task_spawned", "Tester failure triggered fix pass");
+
+                        var fixTask = BuildFixTask(testerTask.Result, Tasks, _targetLanguage);
+                        Tasks.Add(fixTask);
+                        OnTasksPlanned?.Invoke(Tasks);
+                        await RunWorkerAsync(fixTask, findings, ct);
+
+                        if (fixTask.Status == SwarmTaskStatus.Done)
+                        {
+                            fixTaskSucceeded = true;
+                            Activity("✓ Fix task complete", "boss");
+                            testerVerdict += " → fix applied";
+                        }
+                    }
+                }
+            }
+            else if (workerFiles == 0)
+            {
+                Activity("⚠ Tester skipped — no files were written to workspace", "boss");
+            }
+
+            // ── Phase 4: Boss merge → final_report.md ────────────────────────
             Activity("Boss merging results → writing final_report.md", "boss");
             _trace.WriteEvent("phase_start", "Boss merge");
-            var merged = await RunBossMergeAsync(userGoal, Tasks, ct);
+            var merged = await RunBossMergeAsync(userGoal, Tasks, ct, testerVerdict);
 
             // Extract final_report.md — only write to RunDir (not workspace root)
             ExtractAndWriteFiles(merged, RunDir);
@@ -317,6 +396,36 @@ public class SwarmSession
             // Count only files actually written by workers (tool calls + ### FILE: markers)
             var projectFiles = Tasks.Sum(t => t.ToolFilesWritten);
             Activity($"Swarm complete — {projectFiles} file(s) written to workspace", "boss");
+
+            // ── Emit run metrics (non-blocking, non-fatal) ────────────────────
+            var tvEnum = testerVerdict switch
+            {
+                null                                => TesterVerdict.Skipped,
+                var s when s.Contains("PASS")       => TesterVerdict.Pass,
+                var s when s.Contains("fix applied")=> TesterVerdict.Partial,
+                _                                   => TesterVerdict.Fail
+            };
+            var bossProfile   = ModelProfiles.Get(_bossModel);
+            var coderProfile  = ModelProfiles.Get(_coderModel);
+            _ = SwarmMetricsStore.AppendAsync(new SwarmRunRecord(
+                RunId:                _runId,
+                StartedAt:            runStartedAt,
+                DurationSeconds:      (int)(DateTime.UtcNow - runStartedAt).TotalSeconds,
+                BossModel:            _bossModel,
+                CoderModel:           _coderModel,
+                ResearcherModel:      _researcherModel,
+                TotalVramGb:          0,    // filled by UI layer via SwarmConfigAdvisor.DetectHardwareAsync
+                Goal:                 userGoal.Length > 120 ? userGoal[..120] : userGoal,
+                SwarmSucceeded:       projectFiles > 0,
+                FilesWritten:         projectFiles,
+                GhostResearcherCount: ghostCount,
+                CoderRetryCount:      coderRetryCount,
+                Verdict:              tvEnum,
+                FixTaskSpawned:       fixTaskSpawned,
+                FixTaskSucceeded:     fixTaskSucceeded,
+                BossScoreAtRunTime:   bossProfile.BossScore,
+                CoderScoreAtRunTime:  coderProfile.CoderScore
+            ));
 
             OnSwarmComplete?.Invoke(merged);
         }
@@ -345,6 +454,7 @@ public class SwarmSession
         SwarmWorkerRole.Researcher  => "researcher",
         SwarmWorkerRole.Coder       => "coder",
         SwarmWorkerRole.UIDeveloper => "uidev",
+        SwarmWorkerRole.Tester      => "tester",
         _                           => "boss"
     };
 
@@ -673,19 +783,28 @@ public class SwarmSession
     // ── Boss: Merge ───────────────────────────────────────────────────────────
 
     private async Task<string> RunBossMergeAsync(
-        string userGoal, List<SwarmTask> tasks, CancellationToken ct)
+        string userGoal, List<SwarmTask> tasks, CancellationToken ct,
+        string? testerVerdict = null)
     {
         // Build a compact summary of worker results (not full content — avoid context overflow)
         var ctx = new StringBuilder();
         ctx.AppendLine($"Original goal: {userGoal}");
         ctx.AppendLine();
 
-        foreach (var t in tasks.Where(t => t.Status == SwarmTaskStatus.Done))
+        foreach (var t in tasks.Where(t => t.Status == SwarmTaskStatus.Done
+                                          && t.Role != SwarmWorkerRole.Tester))
         {
             ctx.AppendLine($"## {t.RoleIcon} {t.Title} [{t.Role}]");
             // Include up to 1500 chars of each worker's output to avoid context overflow
             var workerOutput = t.Result ?? "(empty)";
             ctx.AppendLine(workerOutput.Length > 1500 ? workerOutput[..1500] + "\n…(truncated)" : workerOutput);
+            ctx.AppendLine();
+        }
+
+        if (!string.IsNullOrWhiteSpace(testerVerdict))
+        {
+            ctx.AppendLine("## 🧪 Verification Result");
+            ctx.AppendLine(testerVerdict);
             ctx.AppendLine();
         }
 
@@ -704,7 +823,8 @@ public class SwarmSession
             2. What each agent produced (list the files)
             3. How to run the project
             4. How to test the project
-            5. Known risks or limitations
+            5. Verification result (from the Tester goblin, if present)
+            6. Known risks or limitations
 
             Use this exact output format:
 
@@ -723,6 +843,10 @@ public class SwarmSession
 
             ## How to Test
             [test checklist]
+
+            ## Verification
+            [Tester goblin result — PASS/FAIL/PARTIAL and any errors found.
+             If no tester was run, write "Not verified — no runnable files produced."]
 
             ## Known Risks / Limitations
             [any important caveats]
@@ -868,6 +992,41 @@ public class SwarmSession
             {FileOutputInstructions}
             """,
 
+        SwarmWorkerRole.Tester => """
+            You are a TESTER in a multi-agent AI coding swarm.
+            Your ONLY job: run the code that was written and report what happened.
+
+            RULES — follow every rule exactly:
+            - You have run_shell, read_file, and list_files. Use them. Do NOT use write_file.
+            - Do NOT rewrite code. Do NOT give suggestions. Only run and report.
+            - Report the EXACT error text if something fails. Do not paraphrase.
+            - If a file does not exist, say so exactly.
+
+            STEPS (execute in this order):
+            1. list_files — confirm which files exist in the workspace.
+            2. Syntax check — run_shell with the language-appropriate command:
+               Python:     python -m py_compile main.py  (or the entry file from your task)
+               JavaScript: node --check index.js
+            3. Smoke run — run_shell to attempt a brief import/load with a short timeout.
+               Python:     python -c "import ast; [compile statements check]"
+               or simply:  python main.py  with a 5-second timeout if safe.
+            4. Report results using EXACTLY this format — no other text:
+
+            STATUS: PASS
+            FILES_FOUND: file1.py, file2.py
+            ERRORS: none
+            NOTES: All files present and syntax checks pass.
+
+            --- OR ---
+
+            STATUS: FAIL
+            FILES_FOUND: file1.py, file2.py
+            ERRORS: [EXACT error text including line numbers]
+            NOTES: [one sentence on root cause]
+
+            Only STATUS: PASS, STATUS: FAIL, or STATUS: PARTIAL are valid verdicts.
+            """,
+
         _ => $"You are a worker agent. Complete the assigned task thoroughly.{FileOutputInstructions}"
     };
 
@@ -951,6 +1110,8 @@ public class SwarmSession
                                                     "list_files", "grep_code", "fetch_url" },
             SwarmWorkerRole.UIDeveloper => new[] { "write_file", "read_file", "run_shell",
                                                     "list_files", "fetch_url" },
+            // Tester: read + execute only — NO write_file by design (prevents self-patching)
+            SwarmWorkerRole.Tester      => new[] { "run_shell", "read_file", "list_files" },
             _                           => new[] { "read_file", "list_files" },
         };
 
@@ -1302,6 +1463,153 @@ public class SwarmSession
         sb.AppendLine("## Your task:");
         sb.AppendLine(task.Description);
         return sb.ToString();
+    }
+
+    // ── Tester helpers ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Builds a self-contained Tester task describing the files to verify
+    /// and the expected entry point for the project's language.
+    /// </summary>
+    private SwarmTask BuildTesterTask(
+        string goal, List<SwarmTask> completedTasks,
+        string outputDir, string targetLanguage)
+    {
+        // Collect files actually on disk (workers may have written more than FILE: markers show)
+        var onDisk = Directory.Exists(outputDir)
+            ? string.Join(", ",
+                Directory.GetFiles(outputDir, "*.*", SearchOption.TopDirectoryOnly)
+                         .Select(Path.GetFileName)
+                         .Where(f => !string.IsNullOrWhiteSpace(f)))
+            : "(none yet)";
+
+        var entryPoint = targetLanguage switch
+        {
+            "Python"              => "main.py",
+            "JavaScript"          => "index.js",
+            "TypeScript"          => "index.ts",
+            "HTML/CSS/JavaScript" => "index.html",
+            "Ruby"                => "main.rb",
+            "Go"                  => "main.go",
+            "Rust"                => "main.rs",
+            _                     => "main.py",
+        };
+
+        var syntaxCmd = targetLanguage switch
+        {
+            "Python"     => $"python -m py_compile {entryPoint}",
+            "JavaScript" => $"node --check {entryPoint}",
+            "TypeScript" => $"npx tsc --noEmit",
+            _            => $"python -m py_compile {entryPoint}",
+        };
+
+        return new SwarmTask
+        {
+            Role        = SwarmWorkerRole.Tester,
+            Priority    = 3,
+            Title       = $"Verify {entryPoint}",
+            Description = $"""
+                Project goal: {goal}
+
+                Files on disk: {onDisk}
+                Expected entry point: {entryPoint}
+                Language: {(string.IsNullOrWhiteSpace(targetLanguage) ? "Python" : targetLanguage)}
+                Syntax check command: {syntaxCmd}
+
+                Step 1: list_files — confirm the files above exist.
+                Step 2: run_shell("{syntaxCmd}") — check for syntax errors.
+                Step 3: If Python, also run: run_shell("python -c \\"import importlib.util; spec=importlib.util.spec_from_file_location('m','{entryPoint}'); m=importlib.util.module_from_spec(spec)\\"")
+                Step 4: Report STATUS: PASS or STATUS: FAIL with the exact error text.
+                """,
+        };
+    }
+
+    /// <summary>
+    /// Builds a targeted fix task from the Tester's exact error report.
+    /// Uses verbatim error text — never a paraphrase — so weak models can patch precisely.
+    /// </summary>
+    private static SwarmTask BuildFixTask(
+        string testerResult, List<SwarmTask> tasks, string targetLanguage)
+    {
+        // Extract just the structured lines from the tester report
+        var reportLines = testerResult
+            .Split('\n')
+            .Where(l =>
+            {
+                var t = l.TrimStart();
+                return t.StartsWith("STATUS:",  StringComparison.OrdinalIgnoreCase)
+                    || t.StartsWith("ERRORS:",  StringComparison.OrdinalIgnoreCase)
+                    || t.StartsWith("NOTES:",   StringComparison.OrdinalIgnoreCase)
+                    || t.StartsWith("FILES_FOUND:", StringComparison.OrdinalIgnoreCase);
+            })
+            .Take(12);
+
+        var errorBlock = string.Join("\n", reportLines);
+
+        var filesToFix = tasks
+            .Where(t => t.Role is SwarmWorkerRole.Coder or SwarmWorkerRole.UIDeveloper
+                        && t.Status == SwarmTaskStatus.Done)
+            .SelectMany(t => ExtractFileNames(t.Result ?? ""))
+            .Distinct()
+            .ToList();
+
+        return new SwarmTask
+        {
+            Role        = SwarmWorkerRole.Coder,
+            Priority    = 4,
+            Title       = "Fix tester-reported errors",
+            Description = $"""
+                The Tester goblin ran the code and found errors. Fix ONLY the reported errors.
+
+                TESTER REPORT:
+                {errorBlock}
+
+                INSTRUCTIONS:
+                - Use read_file to read the current content of the broken file(s).
+                - Use write_file to patch only the lines causing the error.
+                - Do NOT rewrite files from scratch — minimal targeted fix only.
+                - After writing, use run_shell to verify the fix (syntax check).
+
+                FILES TO INSPECT: {string.Join(", ", filesToFix)}
+                LANGUAGE: {(string.IsNullOrWhiteSpace(targetLanguage) ? "Python" : targetLanguage)}
+                """,
+        };
+    }
+
+    /// <summary>Returns true if the tester's output indicates a failure that should trigger a fix task.</summary>
+    private static bool TesterReportedFailure(string result)
+    {
+        if (string.IsNullOrWhiteSpace(result)) return false;
+        return result.Contains("STATUS: FAIL",    StringComparison.OrdinalIgnoreCase)
+            || result.Contains("STATUS: PARTIAL", StringComparison.OrdinalIgnoreCase)
+            || result.Contains("ModuleNotFoundError", StringComparison.Ordinal)
+            || result.Contains("SyntaxError",         StringComparison.Ordinal)
+            || result.Contains("ImportError",         StringComparison.Ordinal)
+            || result.Contains("NameError",            StringComparison.Ordinal)
+            || result.Contains("Traceback (most recent", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Extracts the short STATUS/ERRORS/NOTES summary from the Tester's full output
+    /// for injection into the Boss merge context (keeps it brief to save tokens).
+    /// </summary>
+    private static string ExtractTesterSummary(string result)
+    {
+        var lines = result.Split('\n');
+        var summary = string.Join(" | ", lines
+            .Where(l =>
+            {
+                var t = l.TrimStart();
+                return t.StartsWith("STATUS:", StringComparison.OrdinalIgnoreCase)
+                    || t.StartsWith("ERRORS:", StringComparison.OrdinalIgnoreCase)
+                    || t.StartsWith("NOTES:",  StringComparison.OrdinalIgnoreCase);
+            })
+            .Take(3)
+            .Select(l => l.Trim()));
+
+        return string.IsNullOrWhiteSpace(summary)
+            ? (result.Length > 200 ? result[..200] + "…" : result)
+            : summary;
     }
 
     // ── Boss plan parsing ─────────────────────────────────────────────────────

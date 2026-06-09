@@ -1,6 +1,5 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
 using System.Windows.Media;
 using OrchestratorSetup.Models;
 using OrchestratorSetup.ViewModels;
@@ -11,6 +10,11 @@ public partial class ModelPage : UserControl, IInstallerPage
 {
     private readonly InstallerViewModel _vm;
 
+    // The three bundle slots (null if model not available for that role)
+    private SelectableModelEntry? _workerEntry;
+    private SelectableModelEntry? _bossEntry;
+    private SelectableModelEntry? _researcherEntry;
+
     public ModelPage(InstallerViewModel vm)
     {
         _vm = vm;
@@ -18,94 +22,157 @@ public partial class ModelPage : UserControl, IInstallerPage
         Loaded += (_, _) => Refresh();
     }
 
+    // ── Page init ──────────────────────────────────────────────────────────────
+
     private void Refresh()
     {
-        // Ensure a recommendation exists
-        _vm.UpdateRecommendedModel();
+        _vm.UpdateRecommendedModel();   // ensures hardware-matched recommendation + bundle defaults
 
-        var rec = _vm.RecommendedModel;
-        if (rec is not null)
+        PopulateBundleRows();
+        PopulateFullList();
+        UpdateFooter();
+    }
+
+    // ── Bundle rows ───────────────────────────────────────────────────────────
+
+    private void PopulateBundleRows()
+    {
+        // Find the three bundle slots by role label
+        _workerEntry     = _vm.AllSelectableModels.FirstOrDefault(
+                               e => e.RoleLabel != null && e.RoleLabel.Contains("Worker"));
+        _bossEntry       = _vm.AllSelectableModels.FirstOrDefault(
+                               e => e.RoleLabel != null && e.RoleLabel.Contains("Boss"));
+        _researcherEntry = _vm.AllSelectableModels.FirstOrDefault(
+                               e => e.RoleLabel != null && e.RoleLabel.Contains("Researcher"));
+
+        // Hardware summary chip next to "SWARM BUNDLE"
+        var vram = _vm.State.DetectedVramGb;
+        TxtBundleHardwareSummary.Text =
+            vram > 0 ? $"Matched for your {_vm.State.DetectedGpuName}  ({vram} GB VRAM)"
+                     : "Hardware-matched recommendation";
+
+        // Worker row
+        if (_workerEntry is { } w)
         {
-            TxtRecName.Text    = rec.Name;
-            TxtRecDesc.Text    = rec.Description;
-            TxtRecVram.Text    = rec.VramDisplay;
-            TxtRecSize.Text    = rec.SizeDisplay;
-            TxtRecContext.Text = rec.ContextDisplay;
-            TxtRecStars.Text   = rec.StarsDisplay;
+            ChkWorker.IsChecked = w.IsSelected;
+            TxtWorkerName.Text  = w.Name;
+            TxtWorkerVram.Text  = w.VramDisplay;
+            TxtWorkerSize.Text  = w.SizeDisplay;
+            TxtWorkerStars.Text = w.StarsDisplay;
 
-            // Partner badge (NVIDIA / GOOGLE) on recommended card
-            if (rec.HasPartnerBadge)
+            if (w.HasPartnerBadge)
             {
-                BdrPartnerBadge.Visibility  = Visibility.Visible;
-                TxtPartnerBadge.Text        = rec.PartnerBadge;
-                BdrPartnerBadge.Background  = new SolidColorBrush(
-                    (Color)ColorConverter.ConvertFromString(rec.PartnerBadgeBg));
-                TxtPartnerBadge.Foreground  = new SolidColorBrush(
-                    (Color)ColorConverter.ConvertFromString(rec.PartnerBadgeFg));
+                BdrWorkerPartner.Visibility  = Visibility.Visible;
+                TxtWorkerPartner.Text        = w.PartnerBadge;
+                BdrWorkerPartner.Background  = new SolidColorBrush(
+                    (Color)ColorConverter.ConvertFromString(w.PartnerBadgeBg));
+                TxtWorkerPartner.Foreground  = new SolidColorBrush(
+                    (Color)ColorConverter.ConvertFromString(w.PartnerBadgeFg));
             }
             else
             {
-                BdrPartnerBadge.Visibility  = Visibility.Collapsed;
+                BdrWorkerPartner.Visibility = Visibility.Collapsed;
             }
 
-            // "Ollama recommended" chip for models with no direct GGUF URL
-            BdrRecOllamaOnly.Visibility = rec.OllamaOnly ? Visibility.Visible : Visibility.Collapsed;
+            RowWorker.Visibility = Visibility.Visible;
         }
-
-        // Populate the full list
-        ModelList.ItemsSource = _vm.AllModels;
-
-        UpdateSelectionLabel();
-    }
-
-    // ── Button handlers ───────────────────────────────────────────────────────
-
-    private void BtnUseRecommended_Click(object sender, RoutedEventArgs e)
-    {
-        if (_vm.RecommendedModel is { } rec)
+        else
         {
-            _vm.SelectModel(rec);
-            UpdateSelectionLabel();
+            RowWorker.Visibility = Visibility.Collapsed;
         }
-    }
 
-    private void ModelRow_Click(object sender, MouseButtonEventArgs e)
-    {
-        if (sender is Border { DataContext: ModelEntry entry })
+        // Boss row
+        if (_bossEntry is { } b)
         {
-            _vm.SelectModel(entry);
-            UpdateSelectionLabel();
+            ChkBoss.IsChecked = b.IsSelected;
+            TxtBossName.Text  = b.Name;
+            TxtBossVram.Text  = b.VramDisplay;
+            TxtBossSize.Text  = b.SizeDisplay;
+            TxtBossStars.Text = b.StarsDisplay;
+            RowBoss.Visibility = Visibility.Visible;
         }
-    }
-
-    private void ModelSelectBtn_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { Tag: string id })
+        else
         {
-            var entry = _vm.AllModels.FirstOrDefault(m => m.Id == id);
-            if (entry is not null)
-            {
-                _vm.SelectModel(entry);
-                UpdateSelectionLabel();
-            }
+            RowBoss.Visibility = Visibility.Collapsed;
+        }
+
+        // Researcher row (optional — show only when available, starts unchecked)
+        if (_researcherEntry is { } r)
+        {
+            ChkResearcher.IsChecked     = r.IsSelected;
+            TxtResearcherName.Text      = r.Name;
+            TxtResearcherVram.Text      = r.VramDisplay;
+            TxtResearcherSize.Text      = r.SizeDisplay;
+            TxtResearcherStars.Text     = r.StarsDisplay;
+            RowResearcher.Visibility    = Visibility.Visible;
+        }
+        else
+        {
+            RowResearcher.Visibility = Visibility.Collapsed;
         }
     }
 
-    private void UpdateSelectionLabel()
+    private void PopulateFullList()
     {
-        var id    = _vm.State.SelectedModelId;
-        var entry = _vm.AllModels.FirstOrDefault(m => m.Id == id);
-        TxtCurrentSelection.Text = entry is not null
-            ? $"Selected: {entry.Name}  ({entry.SizeDisplay})"
-            : "No model selected";
+        ModelList.ItemsSource = _vm.AllSelectableModels;
     }
+
+    // ── Bundle checkbox handler ───────────────────────────────────────────────
+
+    private void BundleCheckBox_Changed(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox cb) return;
+        var isChecked = cb.IsChecked == true;
+
+        if (ReferenceEquals(cb, ChkWorker)     && _workerEntry     is not null)
+            _vm.ToggleModel(_workerEntry.Id,     isChecked);
+        else if (ReferenceEquals(cb, ChkBoss)  && _bossEntry       is not null)
+            _vm.ToggleModel(_bossEntry.Id,       isChecked);
+        else if (ReferenceEquals(cb, ChkResearcher) && _researcherEntry is not null)
+            _vm.ToggleModel(_researcherEntry.Id, isChecked);
+
+        UpdateFooter();
+    }
+
+    // ── Full-list checkbox handler (bubbled up from DataTemplate items) ───────
+
+    private void ModelListCheckBox_Click(object sender, RoutedEventArgs e)
+    {
+        if (e.OriginalSource is CheckBox cb && cb.Tag is string id)
+        {
+            _vm.ToggleModel(id, cb.IsChecked == true);
+
+            // Keep bundle checkboxes in sync if this model is one of the bundle slots
+            if (id == _workerEntry?.Id)     ChkWorker.IsChecked     = cb.IsChecked;
+            if (id == _bossEntry?.Id)       ChkBoss.IsChecked       = cb.IsChecked;
+            if (id == _researcherEntry?.Id) ChkResearcher.IsChecked = cb.IsChecked;
+
+            UpdateFooter();
+        }
+    }
+
+    // ── Footer ────────────────────────────────────────────────────────────────
+
+    private void UpdateFooter()
+    {
+        var count = _vm.SelectedModelCount;
+        TxtFooterCount.Text = count == 0 ? "No models selected — select at least one to continue."
+                            : count == 1 ? "1 model selected"
+                            :              $"{count} models selected";
+
+        TxtFooterSize.Text = count > 0 ? $"Total download: {_vm.SelectedTotalSizeDisplay}" : "";
+    }
+
+    // ── IInstallerPage ────────────────────────────────────────────────────────
 
     public bool CanLeave()
     {
-        if (string.IsNullOrEmpty(_vm.State.SelectedModelId))
+        _vm.SyncSelectionToState();   // make sure state is current before leaving
+
+        if (_vm.SelectedModelCount == 0)
         {
             MessageBox.Show(
-                "Please select a model before continuing.",
+                "Please select at least one model before continuing.",
                 "Model Required",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return false;

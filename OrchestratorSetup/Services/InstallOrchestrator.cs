@@ -173,28 +173,44 @@ public sealed class InstallOrchestrator : IDisposable
                     try { File.Delete(runtimeZip); } catch { }
                 }, ct);
 
-                // Step 4: Download GGUF model
-                var modelEntry = _vm.AllModels.FirstOrDefault(m => m.Id == _state.SelectedModelId);
-                if (modelEntry is not null)
+                // Step 4+: Download all selected GGUF models
+                // Use SelectedModels (multi-select path) or fall back to legacy single model.
+                var modelsToDownload = _state.SelectedModels.Any()
+                    ? _state.SelectedModels
+                    : _vm.AllModels
+                          .Where(m => m.Id == _state.SelectedModelId)
+                          .ToList();
+
+                if (modelsToDownload.Count == 0)
                 {
-                    await Step($"Downloading model: {modelEntry.Name}", async () =>
+                    Log($"⚠ No model selected — skipping model download.");
+                }
+
+                foreach (var modelEntry in modelsToDownload)
+                {
+                    if (string.IsNullOrEmpty(modelEntry.Url))
                     {
-                        Log($"  URL : {_state.SelectedModelUrl}");
-                        Log($"  Dest: {_state.ModelFilePath}");
+                        Log($"⚠ Model '{modelEntry.Name}' has no direct URL — install via Ollama.");
+                        continue;
+                    }
+
+                    var destPath = _state.GetModelFilePath(modelEntry);
+                    var role     = _state.ModelRoles.TryGetValue(modelEntry.Id, out var r) ? $" ({r})" : "";
+
+                    await Step($"Downloading {modelEntry.Name}{role}", async () =>
+                    {
+                        Log($"  URL : {modelEntry.Url}");
+                        Log($"  Dest: {destPath}");
                         Log($"  Size: {modelEntry.SizeDisplay}");
 
                         await _dl.DownloadFileAsync(
-                            _state.SelectedModelUrl,
-                            _state.ModelFilePath,
+                            modelEntry.Url,
+                            destPath,
                             modelEntry.Name,
-                            _state.SelectedModelSizeBytes > 0 ? _state.SelectedModelSizeBytes : null,
+                            modelEntry.SizeBytes > 0 ? modelEntry.SizeBytes : null,
                             modelEntry.Sha256,
                             ct);
                     }, ct);
-                }
-                else
-                {
-                    Log($"⚠ Model entry not found for id '{_state.SelectedModelId}' — skipping download.");
                 }
             }
             else
@@ -266,7 +282,12 @@ public sealed class InstallOrchestrator : IDisposable
         else if (!_state.UseExistingOllama)
         {
             n += 2;  // download runtime + extract
-            n += 1;  // download model
+
+            // One step per selected model with a download URL; minimum 1 for the primary
+            var modelCount = _state.SelectedModels.Any()
+                ? _state.SelectedModels.Count(m => !string.IsNullOrEmpty(m.Url))
+                : 1;
+            n += Math.Max(1, modelCount);
         }
         // ExistingOllama path: no extra steps
 

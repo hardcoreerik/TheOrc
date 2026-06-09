@@ -6,6 +6,7 @@ using System.Windows.Shapes;
 using System.Windows.Threading;
 using OrchestratorIDE.Agents;
 using OrchestratorIDE.Core;
+using OrchestratorIDE.Services.Swarm;
 
 namespace OrchestratorIDE.UI.Panels;
 
@@ -358,6 +359,99 @@ public partial class SwarmBoardPanel : UserControl
 
     private void BtnOpenWorkspace_Click(object sender, RoutedEventArgs e)
         => WorkspaceChangeRequested?.Invoke();
+
+    // ── Auto-Config ───────────────────────────────────────────────────────────
+
+    private SwarmModelConfig? _lastAutoConfig;
+
+    private async void BtnAutoConfig_Click(object sender, RoutedEventArgs e)
+    {
+        BtnAutoConfig.IsEnabled = false;
+        TbHardwareSummary.Text = "⏳ Detecting hardware…";
+        TbHardwareSummary.Visibility = Visibility.Visible;
+        BdrAutoConfigResult.Visibility = Visibility.Collapsed;
+        BtnApplyAutoConfig.Visibility  = Visibility.Collapsed;
+
+        try
+        {
+            var hw = await SwarmConfigAdvisor.DetectHardwareAsync();
+
+            TbHardwareSummary.Text = hw.HasNvidiaSmi
+                ? $"🖥 {hw.Summary}"
+                : "⚠ nvidia-smi not found — using CPU-only profile";
+
+            // Collect installed model names from the combo boxes (already populated)
+            var models = new List<string>();
+            foreach (var item in CbBossModel.Items) if (item is string s) models.Add(s);
+            // Deduplicate (all three combos have same list)
+            models = models.Distinct().ToList();
+
+            if (models.Count == 0)
+            {
+                TbHardwareSummary.Text += "  |  No models loaded — pull a model first.";
+                return;
+            }
+
+            var cfg = SwarmConfigAdvisor.Recommend(hw, models);
+            _lastAutoConfig = cfg;
+
+            if (cfg.IsEmpty)
+            {
+                TbHardwareSummary.Text += "  |  Could not find a suitable model config.";
+                return;
+            }
+
+            // Source tag
+            TbAutoConfigSource.Text = cfg.Source switch
+            {
+                ConfigSource.ObservedBest    => "🏅 Based on observed run history",
+                ConfigSource.BenchmarkBased  => "📊 Based on benchmark scores",
+                _                            => "⚙ Fallback minimal config",
+            };
+            TbAutoConfigTier.Text      = cfg.TierLabel;
+            TbAutoConfigReasoning.Text = cfg.Reasoning;
+            TbAutoConfigBoss.Text      = cfg.BossModel;
+            TbAutoConfigCoder.Text     = cfg.CoderModel;
+            TbAutoConfigResearcher.Text = cfg.ResearcherModel;
+            TbAutoConfigTester.Text    = cfg.TesterModel;
+
+            BdrAutoConfigResult.Visibility = Visibility.Visible;
+            BtnApplyAutoConfig.Visibility  = Visibility.Visible;
+        }
+        finally
+        {
+            BtnAutoConfig.IsEnabled = true;
+        }
+    }
+
+    private void BtnApplyAutoConfig_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastAutoConfig is null || _lastAutoConfig.IsEmpty) return;
+
+        SelectComboItem(CbBossModel,       _lastAutoConfig.BossModel);
+        SelectComboItem(CbWorkerModel,     _lastAutoConfig.CoderModel);
+        SelectComboItem(CbResearcherModel, _lastAutoConfig.ResearcherModel);
+
+        // Fire events so MainWindow updates its stored model strings
+        BossModelChanged?.Invoke(_lastAutoConfig.BossModel);
+        WorkerModelChanged?.Invoke(_lastAutoConfig.CoderModel);
+        ResearcherModelChanged?.Invoke(_lastAutoConfig.ResearcherModel);
+
+        BtnApplyAutoConfig.Content   = "✓  Applied";
+        BtnApplyAutoConfig.IsEnabled = false;
+    }
+
+    private static void SelectComboItem(ComboBox cb, string value)
+    {
+        for (int i = 0; i < cb.Items.Count; i++)
+        {
+            if (cb.Items[i] is string s && s == value)
+            {
+                cb.SelectedIndex = i;
+                return;
+            }
+        }
+    }
 
     // ── Launch ────────────────────────────────────────────────────────────────
 

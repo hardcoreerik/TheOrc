@@ -9,136 +9,241 @@
         <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
     </UserControl.Resources>
 
-    <Grid Margin="40,32">
+    <Grid Margin="40,28">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>   <!-- Header -->
+            <RowDefinition Height="Auto"/>   <!-- Swarm Bundle card -->
+            <RowDefinition Height="*"/>      <!-- All models expander -->
+            <RowDefinition Height="Auto"/>   <!-- Footer -->
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+        <!-- ── Header ──────────────────────────────────────────────────────── -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,18">
             <TextBlock Text="Model Selection" Style="{StaticResource TextPageTitle}"/>
             <TextBlock Style="{StaticResource TextSubtitle}">
-                Based on your GPU and coding profile, we recommend the model below.
-                You can choose any model from the full list.
+                Select the AI models to install.  The Swarm Bundle below gives TheOrc a
+                dedicated <Run Foreground="{StaticResource Success}">Worker</Run> for coding
+                and a fast <Run Foreground="{StaticResource Warning}">Boss</Run> for planning.
+                Both are recommended for the best multi-agent experience.
             </TextBlock>
         </StackPanel>
 
-        <!-- ── Recommended card ─────────────────────────────────────────── -->
+        <!-- ── Swarm Bundle card ────────────────────────────────────────────── -->
         <Border Grid.Row="1" Style="{StaticResource CardBorder}"
                 BorderBrush="{StaticResource BorderAccent}"
-                Margin="0,0,0,12">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+                Margin="0,0,0,12"
+                AutomationProperties.AutomationId="Model.BundleCard">
+            <StackPanel>
 
-                <StackPanel Grid.Column="0">
-
-                    <!-- Badge row: RECOMMENDED + optional partner badge -->
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                        <Border Background="{StaticResource Accent}"
-                                CornerRadius="3" Padding="6,2" Margin="0,0,8,0">
-                            <TextBlock Text="RECOMMENDED" Foreground="White"
-                                       FontSize="10" FontWeight="Bold"
-                                       FontFamily="Segoe UI"/>
-                        </Border>
-
-                        <!-- Partner badge (NVIDIA / GOOGLE) — shown by code-behind -->
-                        <Border x:Name="BdrPartnerBadge"
-                                CornerRadius="3" Padding="6,2" Margin="0,0,8,0"
-                                Visibility="Collapsed">
-                            <TextBlock x:Name="TxtPartnerBadge"
-                                       FontSize="10" FontWeight="Bold"
-                                       FontFamily="Segoe UI"/>
-                        </Border>
-
-                        <TextBlock x:Name="TxtRecName"
-                                   FontFamily="Segoe UI" FontSize="14" FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextPrimary}"
-                                   VerticalAlignment="Center"/>
-                    </StackPanel>
-
-                    <TextBlock x:Name="TxtRecDesc"
-                               Style="{StaticResource TextSubtitle}"
-                               Margin="0,0,0,10"/>
-
-                    <WrapPanel>
-                        <Border Background="#1A2A3A" CornerRadius="3" Padding="6,2" Margin="0,0,6,4">
-                            <TextBlock x:Name="TxtRecVram" FontSize="11"
-                                       Foreground="{StaticResource Accent}"
-                                       FontFamily="Segoe UI"/>
-                        </Border>
-                        <Border Background="#1A2A1A" CornerRadius="3" Padding="6,2" Margin="0,0,6,4">
-                            <TextBlock x:Name="TxtRecSize" FontSize="11"
-                                       Foreground="{StaticResource Success}"
-                                       FontFamily="Segoe UI"/>
-                        </Border>
-                        <Border Background="#2A2A1A" CornerRadius="3" Padding="6,2" Margin="0,0,6,4">
-                            <TextBlock x:Name="TxtRecContext" FontSize="11"
-                                       Foreground="{StaticResource Warning}"
-                                       FontFamily="Segoe UI"/>
-                        </Border>
-                        <!-- Ollama-only chip (shown when no direct download URL) -->
-                        <Border x:Name="BdrRecOllamaOnly"
-                                Background="#1A2A1A" CornerRadius="3" Padding="6,2" Margin="0,0,6,4"
-                                Visibility="Collapsed"
-                                ToolTip="Best installed via Ollama. The direct GGUF download path also works if Ollama is not available.">
-                            <TextBlock Text="Ollama recommended" FontSize="11"
-                                       Foreground="#4A9FD9" FontFamily="Segoe UI"/>
-                        </Border>
-                        <TextBlock x:Name="TxtRecStars" FontSize="14"
-                                   Foreground="{StaticResource Warning}"
-                                   VerticalAlignment="Center" Margin="4,0,0,0"/>
-                    </WrapPanel>
+                <!-- Bundle badge row -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                    <Border Background="{StaticResource Accent}" CornerRadius="3"
+                            Padding="6,2" Margin="0,0,8,0">
+                        <TextBlock Text="SWARM BUNDLE" Foreground="White"
+                                   FontSize="10" FontWeight="Bold" FontFamily="Segoe UI"/>
+                    </Border>
+                    <TextBlock x:Name="TxtBundleHardwareSummary"
+                               Foreground="{StaticResource TextSecondary}"
+                               FontSize="12" FontFamily="Segoe UI"
+                               VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <!-- Use this button -->
-                <Button Grid.Column="1"
-                        x:Name="BtnUseRecommended"
-                        Content="Use This ✓"
-                        Style="{StaticResource PrimaryButton}"
-                        VerticalAlignment="Center"
-                        Margin="16,0,0,0"
-                        Click="BtnUseRecommended_Click"
-                        AutomationProperties.AutomationId="Model.UseRecommended"/>
-            </Grid>
+                <!-- ── Worker row ────────────────────────────────────────── -->
+                <Border x:Name="RowWorker"
+                        Background="#0D1A0D" CornerRadius="4"
+                        Padding="10,8" Margin="0,0,0,6">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <CheckBox Grid.Column="0" x:Name="ChkWorker"
+                                  VerticalAlignment="Center" Margin="0,0,10,0"
+                                  Checked="BundleCheckBox_Changed"
+                                  Unchecked="BundleCheckBox_Changed"
+                                  AutomationProperties.AutomationId="Model.ChkWorker"/>
+
+                        <Border Grid.Column="1" CornerRadius="3" Padding="6,2"
+                                Background="#1A3A1A" VerticalAlignment="Center"
+                                Margin="0,0,10,0">
+                            <TextBlock Text="WORKER · CODER" FontSize="9" FontWeight="Bold"
+                                       Foreground="#4ACA4A" FontFamily="Segoe UI"/>
+                        </Border>
+
+                        <StackPanel Grid.Column="2">
+                            <StackPanel Orientation="Horizontal">
+                                <!-- Partner badge (NVIDIA / GOOGLE) — shown by code-behind -->
+                                <Border x:Name="BdrWorkerPartner"
+                                        CornerRadius="3" Padding="5,1" Margin="0,0,7,0"
+                                        VerticalAlignment="Center"
+                                        Visibility="Collapsed">
+                                    <TextBlock x:Name="TxtWorkerPartner"
+                                               FontSize="9" FontWeight="Bold"
+                                               FontFamily="Segoe UI"/>
+                                </Border>
+                                <TextBlock x:Name="TxtWorkerName"
+                                           FontFamily="Segoe UI" FontSize="13"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextPrimary}"/>
+                            </StackPanel>
+                            <WrapPanel Margin="0,3,0,0">
+                                <TextBlock x:Name="TxtWorkerVram" FontSize="11"
+                                           Foreground="{StaticResource Accent}"
+                                           FontFamily="Segoe UI" Margin="0,0,10,0"/>
+                                <TextBlock x:Name="TxtWorkerSize" FontSize="11"
+                                           Foreground="{StaticResource Success}"
+                                           FontFamily="Segoe UI" Margin="0,0,10,0"/>
+                                <TextBlock x:Name="TxtWorkerStars" FontSize="13"
+                                           Foreground="{StaticResource Warning}"/>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- ── Boss row ──────────────────────────────────────────── -->
+                <Border x:Name="RowBoss"
+                        Background="#1A140A" CornerRadius="4"
+                        Padding="10,8" Margin="0,0,0,6">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <CheckBox Grid.Column="0" x:Name="ChkBoss"
+                                  VerticalAlignment="Center" Margin="0,0,10,0"
+                                  Checked="BundleCheckBox_Changed"
+                                  Unchecked="BundleCheckBox_Changed"
+                                  AutomationProperties.AutomationId="Model.ChkBoss"/>
+
+                        <Border Grid.Column="1" CornerRadius="3" Padding="6,2"
+                                Background="#3A2800" VerticalAlignment="Center"
+                                Margin="0,0,10,0">
+                            <TextBlock Text="BOSS · ORCHESTRATOR" FontSize="9" FontWeight="Bold"
+                                       Foreground="#FFB300" FontFamily="Segoe UI"/>
+                        </Border>
+
+                        <StackPanel Grid.Column="2">
+                            <TextBlock x:Name="TxtBossName"
+                                       FontFamily="Segoe UI" FontSize="13"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimary}"/>
+                            <WrapPanel Margin="0,3,0,0">
+                                <TextBlock x:Name="TxtBossVram" FontSize="11"
+                                           Foreground="{StaticResource Accent}"
+                                           FontFamily="Segoe UI" Margin="0,0,10,0"/>
+                                <TextBlock x:Name="TxtBossSize" FontSize="11"
+                                           Foreground="{StaticResource Success}"
+                                           FontFamily="Segoe UI" Margin="0,0,10,0"/>
+                                <TextBlock x:Name="TxtBossStars" FontSize="13"
+                                           Foreground="{StaticResource Warning}"/>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- ── Researcher row (optional, not pre-checked) ────────── -->
+                <Border x:Name="RowResearcher"
+                        Background="#0A1420" CornerRadius="4"
+                        Padding="10,8" Margin="0,0,0,0"
+                        Visibility="Collapsed">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <CheckBox Grid.Column="0" x:Name="ChkResearcher"
+                                  VerticalAlignment="Center" Margin="0,0,10,0"
+                                  Checked="BundleCheckBox_Changed"
+                                  Unchecked="BundleCheckBox_Changed"
+                                  AutomationProperties.AutomationId="Model.ChkResearcher"/>
+
+                        <Border Grid.Column="1" CornerRadius="3" Padding="6,2"
+                                Background="#0E1F2E" VerticalAlignment="Center"
+                                Margin="0,0,10,0">
+                            <TextBlock Text="RESEARCHER" FontSize="9" FontWeight="Bold"
+                                       Foreground="#4A9FD9" FontFamily="Segoe UI"/>
+                        </Border>
+
+                        <StackPanel Grid.Column="2">
+                            <TextBlock x:Name="TxtResearcherName"
+                                       FontFamily="Segoe UI" FontSize="13"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimary}"/>
+                            <WrapPanel Margin="0,3,0,0">
+                                <TextBlock x:Name="TxtResearcherVram" FontSize="11"
+                                           Foreground="{StaticResource Accent}"
+                                           FontFamily="Segoe UI" Margin="0,0,10,0"/>
+                                <TextBlock x:Name="TxtResearcherSize" FontSize="11"
+                                           Foreground="{StaticResource Success}"
+                                           FontFamily="Segoe UI" Margin="0,0,10,0"/>
+                                <TextBlock x:Name="TxtResearcherStars" FontSize="13"
+                                           Foreground="{StaticResource Warning}"/>
+                            </WrapPanel>
+                        </StackPanel>
+
+                        <TextBlock Grid.Column="3" Text="Optional"
+                                   FontSize="10" FontStyle="Italic"
+                                   Foreground="{StaticResource TextSecondary}"
+                                   VerticalAlignment="Center" Margin="10,0,0,0"/>
+                    </Grid>
+                </Border>
+
+            </StackPanel>
         </Border>
 
-        <!-- ── Full list toggle ──────────────────────────────────────────── -->
+        <!-- ── All models expander ──────────────────────────────────────────── -->
         <Expander Grid.Row="2"
                   x:Name="ExpanderAllModels"
-                  Header="Show all models"
+                  Header="Browse all available models"
                   Foreground="{StaticResource TextSecondary}"
-                  FontFamily="Segoe UI"
-                  FontSize="12"
+                  FontFamily="Segoe UI" FontSize="12"
                   Margin="0,0,0,0">
-            <ScrollViewer MaxHeight="260"
+            <ScrollViewer MaxHeight="240"
                           VerticalScrollBarVisibility="Auto"
                           Margin="0,8,0,0">
-                <ItemsControl x:Name="ModelList">
+                <!-- Attach a class-level CheckBox.Click handler via the ItemsControl -->
+                <ItemsControl x:Name="ModelList"
+                              CheckBox.Click="ModelListCheckBox_Click">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border x:Name="ModelRow"
-                                    Style="{StaticResource CardBorder}"
-                                    Margin="0,0,0,6"
-                                    Padding="12,10"
-                                    Cursor="Hand"
-                                    MouseLeftButtonUp="ModelRow_Click">
+                            <Border Style="{StaticResource CardBorder}"
+                                    Margin="0,0,0,5"
+                                    Padding="10,8">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
 
-                                    <StackPanel Grid.Column="0">
+                                    <!-- Checkbox — IsChecked bound two-way; Click bubbles to ItemsControl -->
+                                    <CheckBox Grid.Column="0"
+                                              IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                              Tag="{Binding Id}"
+                                              VerticalAlignment="Center"
+                                              Margin="0,0,10,0"/>
 
+                                    <!-- Role badge (optional) -->
+                                    <Border Grid.Column="1"
+                                            Visibility="{Binding HasRoleLabel, Converter={StaticResource BoolToVis}}"
+                                            CornerRadius="3" Padding="5,1" Margin="0,0,8,0"
+                                            Background="#1A2A1A" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding RoleLabel}"
+                                                   FontSize="9" FontWeight="Bold"
+                                                   Foreground="{StaticResource Success}"
+                                                   FontFamily="Segoe UI"/>
+                                    </Border>
+
+                                    <StackPanel Grid.Column="2">
                                         <!-- Name row with optional partner badge -->
-                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                                            <!-- Partner badge (NVIDIA / GOOGLE) -->
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,3">
                                             <Border Visibility="{Binding HasPartnerBadge, Converter={StaticResource BoolToVis}}"
                                                     Background="{Binding PartnerBadgeBg}"
                                                     CornerRadius="3" Padding="5,1" Margin="0,0,7,0"
@@ -159,36 +264,25 @@
                                                    Style="{StaticResource TextSubtitle}"
                                                    FontSize="11"/>
 
-                                        <WrapPanel Margin="0,6,0,0">
+                                        <WrapPanel Margin="0,4,0,0">
                                             <TextBlock Text="{Binding VramDisplay}"
                                                        FontSize="11" FontFamily="Segoe UI"
                                                        Foreground="{StaticResource Accent}"
-                                                       Margin="0,0,12,0"/>
+                                                       Margin="0,0,10,0"/>
                                             <TextBlock Text="{Binding SizeDisplay}"
                                                        FontSize="11" FontFamily="Segoe UI"
                                                        Foreground="{StaticResource Success}"
-                                                       Margin="0,0,12,0"/>
-                                            <!-- Ollama-only chip -->
+                                                       Margin="0,0,10,0"/>
                                             <TextBlock Visibility="{Binding OllamaOnly, Converter={StaticResource BoolToVis}}"
                                                        Text="Ollama pull"
                                                        FontSize="11" FontFamily="Segoe UI"
                                                        Foreground="#4A9FD9"
-                                                       Margin="0,0,12,0"/>
+                                                       Margin="0,0,10,0"/>
                                             <TextBlock Text="{Binding StarsDisplay}"
                                                        FontSize="13"
                                                        Foreground="{StaticResource Warning}"/>
                                         </WrapPanel>
                                     </StackPanel>
-
-                                    <Button Grid.Column="1"
-                                            Content="Select"
-                                            Style="{StaticResource SecondaryButton}"
-                                            Padding="12,6"
-                                            FontSize="12"
-                                            VerticalAlignment="Center"
-                                            Margin="12,0,0,0"
-                                            Click="ModelSelectBtn_Click"
-                                            Tag="{Binding Id}"/>
                                 </Grid>
                             </Border>
                         </DataTemplate>
@@ -197,12 +291,20 @@
             </ScrollViewer>
         </Expander>
 
-        <!-- Current selection -->
-        <TextBlock Grid.Row="3"
-                   x:Name="TxtCurrentSelection"
-                   Style="{StaticResource TextSubtitle}"
-                   FontSize="11"
-                   VerticalAlignment="Bottom"
-                   Margin="0,12,0,0"/>
+        <!-- ── Footer: selection summary ───────────────────────────────────── -->
+        <Border Grid.Row="3" Margin="0,10,0,0"
+                Background="#0A0A0A" CornerRadius="4" Padding="12,7">
+            <DockPanel>
+                <TextBlock x:Name="TxtFooterCount"
+                           DockPanel.Dock="Left"
+                           FontFamily="Segoe UI" FontSize="12"
+                           Foreground="{StaticResource TextSecondary}"/>
+                <TextBlock x:Name="TxtFooterSize"
+                           DockPanel.Dock="Right"
+                           FontFamily="Consolas" FontSize="12"
+                           Foreground="{StaticResource Accent}"
+                           HorizontalAlignment="Right"/>
+            </DockPanel>
+        </Border>
     </Grid>
 </UserControl>

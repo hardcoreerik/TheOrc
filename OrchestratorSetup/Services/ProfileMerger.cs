@@ -64,9 +64,33 @@ public static class ProfileMerger
 
         var settingsPath = Path.Combine(appDataDir, "settings.json");
 
-        // Build a settings object that mirrors OrchestratorIDE.Core.AppSettings
-        // We write raw JSON rather than taking a project reference to keep the
-        // installer self-contained.
+        // ── Resolve model identifiers per role ────────────────────────────────
+        // For Ollama backend: use OllamaName (e.g. "qwen2.5-coder:7b").
+        // For llama.cpp backend: use the local file path.
+        string ModelIdentifier(Models.ModelEntry m) =>
+            state.UseExistingOllama
+                ? (m.OllamaName ?? "qwen2.5-coder:7b")
+                : state.GetModelFilePath(m);
+
+        Models.ModelEntry? FindByRole(string roleLabel)
+        {
+            var id = state.ModelRoles
+                .FirstOrDefault(kvp => kvp.Value.Contains(roleLabel, StringComparison.OrdinalIgnoreCase))
+                .Key;
+            return id is null ? null : state.SelectedModels.FirstOrDefault(m => m.Id == id);
+        }
+
+        var primaryModel     = state.SelectedModels.FirstOrDefault();
+        var workerModel      = FindByRole("Worker")     ?? primaryModel;
+        var bossModel        = FindByRole("Boss")       ?? workerModel;
+        var researcherModel  = FindByRole("Researcher") ?? workerModel;
+
+        var workerModelId     = workerModel    is not null ? ModelIdentifier(workerModel)     : "";
+        var bossModelId       = bossModel      is not null ? ModelIdentifier(bossModel)       : workerModelId;
+        var researcherModelId = researcherModel is not null ? ModelIdentifier(researcherModel) : workerModelId;
+
+        // ── Build settings object (mirrors OrchestratorIDE.Core.AppSettings) ─
+        // Writing raw JSON keeps the installer project self-contained (no circular ref).
         var settings = new
         {
             backend              = state.UseExistingOllama ? "Ollama" : "LlamaCpp",
@@ -82,8 +106,15 @@ public static class ProfileMerger
             llamaCppContextSize  = 8192,
             llamaCppThreads      = 0,         // 0 = auto-detect
             defaultModel         = state.UseExistingOllama
-                                       ? "qwen2.5-coder:14b"
+                                       ? bossModelId   // Ollama: boss handles main prompts
                                        : Path.GetFileNameWithoutExtension(state.ModelFilePath),
+            // ── Swarm model assignments ──────────────────────────────────────
+            // These map directly to AppSettings.LastWorkerModel / LastSwarmModel / LastResearcherModel.
+            // The main app reads them on first launch to pre-configure each agent's model.
+            lastWorkerModel      = workerModelId,
+            lastSwarmModel       = bossModelId,
+            lastResearcherModel  = researcherModelId,
+
             maxStepsOverride     = 0,
             autoVerify           = true,
             autoCheckpoint       = true,

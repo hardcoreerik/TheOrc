@@ -5,7 +5,7 @@ using OrchestratorIDE.Models;
 namespace OrchestratorIDE.Agents;
 
 public enum SwarmTaskStatus { Pending, InProgress, WaitingForUser, Done, Error }
-public enum SwarmWorkerRole  { Researcher, Coder, UIDeveloper }
+public enum SwarmWorkerRole  { Researcher, Coder, UIDeveloper, Tester }
 
 /// <summary>
 /// A single unit of work owned by one swarm worker.
@@ -91,6 +91,7 @@ public class SwarmTask : INotifyPropertyChanged
         SwarmWorkerRole.Researcher  => "🔍",
         SwarmWorkerRole.Coder       => "💻",
         SwarmWorkerRole.UIDeveloper => "🎨",
+        SwarmWorkerRole.Tester      => "🧪",
         _                           => "⚡"
     };
 
@@ -99,6 +100,7 @@ public class SwarmTask : INotifyPropertyChanged
         SwarmWorkerRole.Researcher  => "RESEARCHER",
         SwarmWorkerRole.Coder       => "CODER",
         SwarmWorkerRole.UIDeveloper => "UI DEV",
+        SwarmWorkerRole.Tester      => "TESTER",
         _                           => "WORKER"
     };
 
@@ -107,6 +109,7 @@ public class SwarmTask : INotifyPropertyChanged
         SwarmWorkerRole.Researcher  => "#4A9FD9",
         SwarmWorkerRole.Coder       => "#76B900",
         SwarmWorkerRole.UIDeveloper => "#C586C0",
+        SwarmWorkerRole.Tester      => "#F0C060",
         _                           => "#888888"
     };
 

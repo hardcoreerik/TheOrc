@@ -43,6 +43,31 @@ public class InstallerState
     /// <summary>Expected file size in bytes (for progress display).</summary>
     public long SelectedModelSizeBytes { get; set; } = 0;
 
+    // ── Multi-model swarm selection ───────────────────────────────────────────
+
+    /// <summary>
+    /// All models selected by the user. The first entry is always the primary
+    /// Worker model (used for single-model llama.cpp path). Additional entries
+    /// (Boss, Researcher) are downloaded and wired into AppSettings for Ollama
+    /// swarm mode. Populated by InstallerViewModel.SyncSelectionToState().
+    /// </summary>
+    public List<ModelEntry> SelectedModels { get; set; } = [];
+
+    /// <summary>
+    /// Role assignments keyed by model ID:
+    ///   "Worker · Coder", "Boss · Orchestrator", "Researcher"
+    /// Written by InstallerViewModel.SyncSelectionToState() from the checkbox UI.
+    /// </summary>
+    public Dictionary<string, string> ModelRoles { get; set; } = new();
+
+    /// <summary>
+    /// Returns the full download destination path for any model in the list.
+    /// Uses <see cref="ModelStoragePath"/> as the base directory.
+    /// </summary>
+    public string GetModelFilePath(ModelEntry model)
+        => Path.Combine(ModelStoragePath,
+               Path.GetFileName(model.Url.Length > 0 ? model.Url : $"{model.Id}.gguf"));
+
     // ── Ollama handling ───────────────────────────────────────────────────────
 
     public bool OllamaDetected       { get; set; } = false;
@@ -107,8 +132,20 @@ public class InstallerState
     public string LlamaRuntimeExtractPath =>
         Path.Combine(AppInstallPath, "Runtime", "llama");
 
-    /// <summary>Full path for the downloaded model file.</summary>
-    public string ModelFilePath =>
-        Path.Combine(ModelStoragePath,
-                     Path.GetFileName(SelectedModelUrl.Length > 0 ? SelectedModelUrl : "model.gguf"));
+    /// <summary>
+    /// Full path for the primary (Worker) model file.
+    /// Uses the first entry in <see cref="SelectedModels"/> when available;
+    /// falls back to the legacy <see cref="SelectedModelUrl"/> field.
+    /// </summary>
+    public string ModelFilePath
+    {
+        get
+        {
+            var primaryUrl = SelectedModels.FirstOrDefault()?.Url;
+            var url = primaryUrl is { Length: > 0 } ? primaryUrl
+                    : SelectedModelUrl.Length > 0    ? SelectedModelUrl
+                    : "model.gguf";
+            return Path.Combine(ModelStoragePath, Path.GetFileName(url));
+        }
+    }
 }

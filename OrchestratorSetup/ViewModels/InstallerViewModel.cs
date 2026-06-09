@@ -47,8 +47,13 @@ public class InstallerViewModel : INotifyPropertyChanged
 
     // ── Model catalogue (loaded from bundled manifest) ────────────────────────
 
-    public List<ModelEntry> AllModels      { get; } = [];
-    public ModelEntry?      RecommendedModel { get; private set; }
+    public List<ModelEntry>          AllModels           { get; } = [];
+    public List<SelectableModelEntry> AllSelectableModels { get; } = [];
+    public ModelEntry?               RecommendedModel    { get; private set; }
+
+    // True once ApplyBundleDefaults() has run — prevents resetting user edits
+    // when UpdateRecommendedModel() is re-called by a profile change.
+    private bool _bundleDefaultsApplied = false;
 
     // ── Construction ──────────────────────────────────────────────────────────
 
@@ -199,19 +204,131 @@ public class InstallerViewModel : INotifyPropertyChanged
         }
 
         OnPropertyChanged(nameof(RecommendedModel));
+
+        // Apply bundle pre-selection now that we have a recommendation.
+        // No-ops if user has already made manual selections.
+        ApplyBundleDefaults();
     }
 
-    /// <summary>Apply the user's explicit model choice.</summary>
+    /// <summary>Apply the user's explicit model choice (legacy single-select path).</summary>
     public void SelectModel(ModelEntry model)
     {
         State.SelectedModelId        = model.Id;
         State.SelectedModelUrl       = model.Url;
         State.SelectedModelSizeBytes = model.SizeBytes;
-
-        // Keep the Ollama pull tag in sync so the Install Ollama path uses the right model.
         State.SelectedOllamaModel    = model.OllamaName ?? "qwen2.5-coder:7b";
 
         OnPropertyChanged(nameof(RecommendedModel));
+    }
+
+    // ── Multi-model / Swarm Bundle ────────────────────────────────────────────
+
+    /// <summary>
+    /// Pre-selects the Swarm Bundle (Worker + Boss) and labels each entry with
+    /// its intended role. Called automatically from UpdateRecommendedModel() after
+    /// hardware is known. No-ops on repeat calls to preserve user edits.
+    /// </summary>
+    public void ApplyBundleDefaults()
+    {
+        if (_bundleDefaultsApplied)  return;
+        if (RecommendedModel is null) return;
+        if (!AllSelectableModels.Any()) return;
+
+        // Clear prior state
+        foreach (var e in AllSelectableModels) { e.IsSelected = false; e.RoleLabel = null; }
+
+        // ── Worker = recommended model ───────────────────────────────────────
+        var worker = AllSelectableModels.FirstOrDefault(e => e.Id == RecommendedModel.Id);
+        if (worker is not null) { worker.IsSelected = true; worker.RoleLabel = "Worker · Coder"; }
+
+        // ── Boss = phi4-mini-q8 → nemotron-mini → first swarm-capable ≠ worker
+        SelectableModelEntry? boss = null;
+        foreach (var id in new[] { "phi4-mini-q8", "nemotron-mini-4b-q5" })
+        {
+            boss = AllSelectableModels.FirstOrDefault(e => e.Id == id && e.Id != worker?.Id);
+            if (boss is not null) break;
+        }
+        boss ??= AllSelectableModels.FirstOrDefault(e => e.SwarmCapable && e.Id != worker?.Id);
+
+        if (boss is not null) { boss.IsSelected = true; boss.RoleLabel = "Boss · Orchestrator"; }
+
+        // ── Researcher = smallest model ≠ worker ≠ boss (opt-in, not pre-checked) ─
+        SelectableModelEntry? researcher = null;
+        foreach (var id in new[] { "qwen25-coder-1-5b-q8", "qwen25-coder-3b-q8" })
+        {
+            researcher = AllSelectableModels.FirstOrDefault(
+                e => e.Id == id && e.Id != worker?.Id && e.Id != boss?.Id);
+            if (researcher is not null) break;
+        }
+        if (researcher is not null) { researcher.RoleLabel = "Researcher"; }
+
+        _bundleDefaultsApplied = true;
+        SyncSelectionToState();
+    }
+
+    /// <summary>
+    /// Toggle a model's IsSelected state by ID and sync to InstallerState.
+    /// Called by checkbox handlers in ModelPage.
+    /// </summary>
+    public void ToggleModel(string id, bool selected)
+    {
+        var entry = AllSelectableModels.FirstOrDefault(e => e.Id == id);
+        if (entry is null) return;
+        entry.IsSelected = selected;
+        SyncSelectionToState();
+        OnPropertyChanged(nameof(SelectedModelCount));
+        OnPropertyChanged(nameof(SelectedTotalSizeDisplay));
+    }
+
+    /// <summary>
+    /// Pushes current IsSelected state from AllSelectableModels into
+    /// InstallerState.SelectedModels and updates the legacy single-model fields.
+    /// </summary>
+    public void SyncSelectionToState()
+    {
+        State.SelectedModels = AllSelectableModels
+            .Where(e => e.IsSelected)
+            .Select(e => e.Model)
+            .ToList();
+
+        State.ModelRoles = AllSelectableModels
+            .Where(e => e.IsSelected && e.HasRoleLabel)
+            .ToDictionary(e => e.Id, e => e.RoleLabel!);
+
+        // Keep legacy fields pointing at the Worker model
+        var primary = AllSelectableModels.FirstOrDefault(
+                          e => e.IsSelected && e.RoleLabel != null && e.RoleLabel.Contains("Worker"))
+                   ?? AllSelectableModels.FirstOrDefault(e => e.IsSelected);
+
+        if (primary is not null)
+        {
+            State.SelectedModelId        = primary.Id;
+            State.SelectedModelUrl       = primary.Model.Url;
+            State.SelectedModelSizeBytes = primary.Model.SizeBytes;
+            State.SelectedOllamaModel    = primary.Model.OllamaName ?? "qwen2.5-coder:7b";
+        }
+
+        OnPropertyChanged(nameof(SelectedModelCount));
+        OnPropertyChanged(nameof(SelectedTotalSizeDisplay));
+    }
+
+    // ── Selection summary for UI ──────────────────────────────────────────────
+
+    /// <summary>Number of models currently checked.</summary>
+    public int SelectedModelCount => AllSelectableModels.Count(e => e.IsSelected);
+
+    /// <summary>Human-readable total download size of all checked models.</summary>
+    public string SelectedTotalSizeDisplay
+    {
+        get
+        {
+            long total = AllSelectableModels
+                .Where(e => e.IsSelected)
+                .Sum(e => e.Model.SizeBytes);
+            return total >= 1_073_741_824
+                ? $"{total / 1_073_741_824.0:F1} GB"
+                : $"{total / 1_048_576.0:F0} MB";
+        }
     }
 
     // ── Manifest loading ──────────────────────────────────────────────────────
@@ -263,6 +380,11 @@ public class InstallerViewModel : INotifyPropertyChanged
         {
             // Non-fatal — UI will show an empty model list with a warning
         }
+
+        // Build the selectable wrappers now that AllModels is populated
+        AllSelectableModels.Clear();
+        foreach (var m in AllModels)
+            AllSelectableModels.Add(new SelectableModelEntry(m));
     }
 
     // ── INotifyPropertyChanged ────────────────────────────────────────────────

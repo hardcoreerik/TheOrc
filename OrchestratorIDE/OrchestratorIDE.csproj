@@ -25,6 +25,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Resources\curated-models.json"/>
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="AvalonEditB" Version="1.2.0" />
     <PackageReference Include="DiffPlex" Version="1.9.0" />
     <PackageReference Include="LibGit2Sharp" Version="0.31.0" />

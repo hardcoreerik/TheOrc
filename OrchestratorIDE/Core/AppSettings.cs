@@ -54,6 +54,24 @@ public class AppSettings
         ? $"http://127.0.0.1:{LlamaCppPort}"
         : OllamaHost;
 
+    // ── Model storage ────────────────────────────────────────────────────
+    /// <summary>
+    /// Directory where GGUF model files are downloaded.
+    /// Empty = default: %APPDATA%\OrchestratorIDE\Models
+    /// </summary>
+    public string ModelStoragePath { get; set; } = "";
+
+    /// <summary>
+    /// Resolved model storage directory — always non-empty, never throws.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ResolvedModelStoragePath =>
+        !string.IsNullOrEmpty(ModelStoragePath)
+            ? ModelStoragePath
+            : Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "OrchestratorIDE", "Models");
+
     // ── Agent behaviour ──────────────────────────────────────────────────
     public string DefaultModel  { get; set; } = "qwen2.5-coder:14b";
 
