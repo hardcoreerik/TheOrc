@@ -329,12 +329,28 @@ public class ToolCallProbeEngine
             {
                 if (!name.Equals("report_status", StringComparison.OrdinalIgnoreCase))
                     return $"expected 'report_status', got '{name}'";
+
                 var status = ArgStr(args, "status");
-                if (!new[] { "ok", "success", "pass" }.Any(v =>
+
+                // Some models nest the full args object inside the status field
+                // e.g. status = '{"status":"ok","message":"probe complete","code":0}'
+                // Detect and unwrap gracefully.
+                if (status.TrimStart().StartsWith("{"))
+                {
+                    try
+                    {
+                        var inner = JsonNode.Parse(status);
+                        status = inner?["status"]?.GetValue<string>() ?? status;
+                    }
+                    catch { }
+                }
+
+                if (!new[] { "ok", "success", "pass", "complete" }.Any(v =>
                     status.Equals(v, StringComparison.OrdinalIgnoreCase)))
                     return $"unexpected status value: '{status}'";
+
                 var code = ArgStr(args, "code");
-                if (code != "0" && code != "0.0")
+                if (code != "0" && code != "0.0" && code != "\"0\"")
                     return $"expected code=0, got '{code}'";
                 return null;
             }
@@ -421,10 +437,39 @@ public class ToolCallProbeEngine
             try
             {
                 var node = JsonNode.Parse(json);
-                var name = node?["name"]?.GetValue<string>();
+
+                // Accept "name" or "tool" or "function" as the tool-name key
+                var name = node?["name"]?.GetValue<string>()
+                        ?? node?["tool"]?.GetValue<string>()
+                        ?? node?["function"]?.GetValue<string>();
+
                 if (!string.IsNullOrEmpty(name))
                 {
-                    var args = ParseArgs(node?["arguments"]?.ToJsonString() ?? "{}");
+                    // Accept "arguments", "args", "parameters", "inputs" as arg wrappers.
+                    // If none present, treat all non-name keys as the args (flat format).
+                    var argsNode = node?["arguments"]
+                                ?? node?["args"]
+                                ?? node?["parameters"]
+                                ?? node?["inputs"];
+
+                    Dictionary<string, object?> args;
+                    if (argsNode != null)
+                    {
+                        args = ParseArgs(argsNode.ToJsonString());
+                    }
+                    else
+                    {
+                        // Flat format: {"name":"add_numbers","a":17,"b":25}
+                        var flatJson = node!.AsObject()
+                            .Where(kv => kv.Key is not ("name" or "tool" or "function"))
+                            .Aggregate(new JsonObject(), (acc, kv) =>
+                            {
+                                acc[kv.Key] = kv.Value?.DeepClone();
+                                return acc;
+                            });
+                        args = ParseArgs(flatJson.ToJsonString());
+                    }
+
                     result.Add(new ParsedCall(name, args));
                 }
             }
@@ -442,8 +487,13 @@ public class ToolCallProbeEngine
             var node = JsonNode.Parse(json);
             if (node is JsonObject obj)
                 foreach (var kvp in obj)
+                {
+                    // Prefer string value; for numbers/bools use ToJsonString() so
+                    // integers like 17 come back as "17" rather than failing TryGetValue<string>.
                     dict[kvp.Key] = kvp.Value is JsonValue jv && jv.TryGetValue<string>(out var s)
-                        ? s : kvp.Value?.ToString();
+                        ? s
+                        : kvp.Value?.ToJsonString() ?? "";
+                }
         }
         catch { }
         return dict;

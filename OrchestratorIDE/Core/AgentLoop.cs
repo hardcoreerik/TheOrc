@@ -578,20 +578,43 @@ RULES (apply to all tool call formats):
             try
             {
                 var node = JsonNode.Parse(json);
-                var name = node?["name"]?.GetValue<string>();
+
+                // Accept "name", "tool", or "function" as the tool-name key
+                var name = node?["name"]?.GetValue<string>()
+                        ?? node?["tool"]?.GetValue<string>()
+                        ?? node?["function"]?.GetValue<string>();
+
                 if (!string.IsNullOrEmpty(name))
                 {
+                    // Accept "arguments", "args", "parameters", "inputs" as arg wrappers.
+                    // If none present, treat all non-name keys as the args (flat format).
+                    var argsNode = node?["arguments"]
+                                ?? node?["args"]
+                                ?? node?["parameters"]
+                                ?? node?["inputs"];
+
                     var args = new Dictionary<string, object?>();
-                    if (node?["arguments"] is JsonObject argsObj)
-                    {
+                    var argsObj = argsNode as JsonObject
+                               ?? (argsNode == null
+                                   ? node!.AsObject()
+                                       .Where(kv => kv.Key is not ("name" or "tool" or "function"))
+                                       .Aggregate(new JsonObject(), (acc, kv) =>
+                                       {
+                                           acc[kv.Key] = kv.Value?.DeepClone();
+                                           return acc;
+                                       })
+                                   : null);
+
+                    if (argsObj != null)
                         foreach (var kvp in argsObj)
                         {
-                            // Unwrap string values; fall back to raw JSON for others
+                            // Prefer string; use ToJsonString() for numbers/bools so
+                            // integers like 17 come back as "17" not null.
                             args[kvp.Key] = kvp.Value is JsonValue jv && jv.TryGetValue<string>(out var s)
                                 ? s
-                                : kvp.Value?.ToString();
+                                : kvp.Value?.ToJsonString() ?? "";
                         }
-                    }
+
                     result.Add(new ToolCall
                     {
                         Id           = Guid.NewGuid().ToString("N")[..8],
