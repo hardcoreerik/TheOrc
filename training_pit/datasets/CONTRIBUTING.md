@@ -1,9 +1,10 @@
 # Contributing Training Examples
 
-> **Status:** Phase 2 ACTIVE — data collection in progress.
+> **Status:** Phase 2.5 ACTIVE — Dataset Review / Approval Valve.
+> Use `review_captures.py` (not manual cat-append) to promote captures to training data.
 > Phase 3 training is BLOCKED pending minimum dataset thresholds.
-> See [DATASET_STRATEGY.md](../DATASET_STRATEGY.md) for the full strategy,
-> source-tier rationale, and Phase 3 unblock conditions.
+> See [DATASET_STRATEGY.md](../DATASET_STRATEGY.md) for the full strategy and
+> [docs/DATASET_REVIEW_WORKFLOW.md](../../docs/DATASET_REVIEW_WORKFLOW.md) for the review process.
 
 ---
 
@@ -74,7 +75,7 @@ Public datasets may be considered for later worker-goblin adapters, not for the 
 
 ## How to Add Examples
 
-### Method 1: Auto-capture from live swarm runs (primary path)
+### Method 1: Auto-capture from live swarm runs (primary path — Phase 2.5)
 
 `DatasetCapture.cs` automatically stages boss plans after every swarm run:
 
@@ -82,34 +83,29 @@ Public datasets may be considered for later worker-goblin adapters, not for the 
 - Score ≤ 39 → `plan_capture_bad_<runId>_<score>.json` in `.orc/swarm/dataset-staging/`
 - Score 40–69 → silently skipped (marginal, too noisy)
 
-To convert staged captures:
+**Use `review_captures.py` to review and export:**
 
-```bash
-# Convert all good captures to chat-JSONL
-python training_pit/scripts/convert_plan_captures.py
+```powershell
+# See what's staged
+python training_pit/scripts/review_captures.py --list
 
-# Review the output in training_pit/datasets/staging/converted_<ts>.jsonl
-# Validate and sanitize:
-python training_pit/scripts/validate_dataset.py training_pit/datasets/staging/converted_<ts>.jsonl
-python training_pit/scripts/sanitize_dataset.py training_pit/datasets/staging/converted_<ts>.jsonl
+# Inspect a capture before deciding
+python training_pit/scripts/review_captures.py --inspect .orc/swarm/dataset-staging/plan_capture_good_<runId>_<score>.json
 
-# After manual review, selectively append reviewed examples only:
-# ⚠️  DO NOT blindly run this command. Open the file, read every line,
-#     remove any example that fails the review checklist, THEN append.
-#     Blindly piping the full converted file bypasses the manual review gate
-#     and will silently admit bad examples into the training set.
-#
-# cat training_pit/datasets/staging/converted_<ts>.jsonl >> training_pit/datasets/train_v1.jsonl
-#
-# PREFERRED: Copy only reviewed lines — edit staging file first, then append.
-# See docs/DATASET_REVIEW_WORKFLOW.md for the step-by-step process.
+# Approve it (train split requires gold or silver quality)
+python training_pit/scripts/review_captures.py \
+    --approve .orc/swarm/dataset-staging/plan_capture_good_<runId>_<score>.json \
+    --split train --quality silver
+
+# Export approved captures → train_v1.jsonl (atomic: validate + sanitize gate runs first)
+python training_pit/scripts/review_captures.py --export-train
 ```
 
-**Do not blindly append all converts.** Review each example for:
-- Goal is specific enough to be a useful training signal
-- Plan is actually good — correct roles, named files, useful descriptions
-- No hallucinated APIs or imaginary module names
-- No sensitive data (paths, IPs, credentials)
+The export gate runs `validate_dataset.py` and `sanitize_dataset.py` automatically.
+If either fails, `train_v1.jsonl` is left unchanged.
+
+> ⚠️ **Do not use the old cat-append pattern.** It bypasses the approval manifest and the
+> validate/sanitize gate. Use `review_captures.py --export-train` exclusively.
 
 ### Method 2: Hand-authored golden examples
 
@@ -186,3 +182,4 @@ Both must pass clean (0 errors, 0 rejects) before a file is used in a training j
 | 1.0 | 2026-06-09 | Initial contributing guide |
 | 1.1 | 2026-06-09 | Updated paths fine_tuning/ → training_pit/; aligned with canonical chat-JSONL schema |
 | 1.2 | 2026-06-09 | Three-tier source strategy, Phase 3 gate, no-public-datasets policy, synthetic % corrected 25% → 5% eval-only |
+| 1.3 | 2026-06-09 | Phase 2.5: replaced manual cat-append with review_captures.py approval valve |

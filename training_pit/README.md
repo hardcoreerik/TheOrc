@@ -1,9 +1,10 @@
 # The Training Pit
 
-> **Phase status: PHASE 2 ACTIVE — Data collection in progress.**
-> `DatasetCapture.cs` is live. Boss plans are being auto-staged after every swarm run.
+> **Phase status: PHASE 2.5 ACTIVE — Dataset Review / Approval Valve.**
+> `DatasetCapture.cs` is live. Boss plans are auto-staged after every swarm run.
+> Use `review_captures.py` to inspect, approve, and export captures to training JSONL.
 > Phase 3 training is **blocked** pending ≥150 reviewed positive examples.
-> See `DATASET_STRATEGY.md` for the Phase 3 gate checklist and dataset source strategy.
+> Run `python training_pit/scripts/review_captures.py --status` for live gate counters.
 >
 > **Live training is not yet implemented. Do not add training scripts or launch jobs
 > until Phase 3 is explicitly unblocked. See ARCHITECTURE.md for the full roadmap.**
@@ -36,7 +37,7 @@ reliably across goals, domains, and model versions.
 
 ---
 
-## Current State (Phase 2 Active)
+## Current State (Phase 2.5 Active)
 
 - [x] QAT base model pulled and deployed (`theorc-boss:gemma4` on Ollama server)
 - [x] Canonical dataset schema defined (chat JSONL — `DATASET_SCHEMA.md`)
@@ -51,6 +52,7 @@ reliably across goals, domains, and model versions.
 - [x] **`DatasetCapture.cs` live** — auto-staging boss plans after every swarm run
 - [x] **Dataset strategy documented** (`DATASET_STRATEGY.md`) — three-tier sources, Phase 3 gate
 - [x] **Role architecture documented** (`ROLE_ARCHITECTURE.md`) — logical/execution role split, alias map
+- [x] **`review_captures.py` live (Phase 2.5)** — approval valve with manifest, validate+sanitize gate, atomic export
 
 ---
 
@@ -60,12 +62,15 @@ reliably across goals, domains, and model versions.
 Phase 1 (DONE):   Scaffolding
   └── schemas, rubrics, configs, scripts, eval prompts, adapter registry
 
-Phase 2 (ACTIVE): Data collection
+Phase 2 (DONE):   Data collection infrastructure
   ├── Auto-capture boss plans via DatasetCapture.cs ← LIVE
-  ├── Manual curation and annotation of examples
-  ├── Negative example mining (collapse patterns, hallucinations)
-  ├── Validate + sanitize via scripts/validate_dataset.py
-  └── Gate: ≥150 reviewed positive + ≥25 negative examples before Phase 3
+  └── validate_dataset.py + sanitize_dataset.py scripts
+
+Phase 2.5 (ACTIVE): Dataset Review / Approval Valve
+  ├── review_captures.py — list/inspect/approve/reject/export/status
+  ├── reviewed_v1.json manifest — tracked in git
+  ├── Atomic export gate: validate + sanitize before writing JSONL
+  └── Phase 3 counters: 0/150 train, 0/25 negative, 0+/20 eval
 
 Phase 3 (BLOCKED): Training
   ├── LoRA fine-tune via Unsloth on QAT base
@@ -102,6 +107,9 @@ training_pit/
   datasets/
     .gitkeep                      ← datasets NOT committed to git
     CONTRIBUTING.md               ← capture process, quality bar, format spec
+    manifests/
+      reviewed_v1.json            ← approval manifest (tracked in git)
+    staging/                      ← converted-but-not-yet-reviewed (gitignored)
 
   examples/
     plan_capture_good_001.json       ← high-quality plan (Combo A, score 85)
@@ -129,6 +137,7 @@ training_pit/
     registry.json                 ← adapter registry (status, targets, eval state)
 
   scripts/
+    review_captures.py            ← Phase 2.5 approval valve (list/inspect/approve/reject/export)
     validate_dataset.py           ← validates JSONL format, fields, roles
     sanitize_dataset.py           ← scans for secrets, reports suspicious lines
     check_hardware.py             ← detects GPU/RAM, prints training tier estimate
@@ -137,6 +146,11 @@ training_pit/
     convert_plan_captures.py      ← converts .orc/swarm/dataset-staging/ captures → chat-JSONL
     _generate_examples.py         ← regenerates examples/ with canonical BOSS_SYSTEM_PROMPT
     _make_test_fixtures.py        ← creates synthetic plan captures for e2e pipeline testing
+
+  tests/
+    __init__.py
+    fixtures/review_workflow/     ← test fixtures for review_captures.py
+    test_review_captures.py       ← unit tests for review_captures.py (31 tests)
 ```
 
 ---
@@ -152,4 +166,4 @@ training_pit/
 
 ---
 
-*Last updated: 2026-06-09 — Phase 2 active. TESTER promoted to advertised role; 7 examples (5 positive, 1 synthetic, 1 eval-only). UI aligned to 4-worker swarm board.*
+*Last updated: 2026-06-09 — Phase 2.5 active. review_captures.py approval valve added; manifest tracked in git; 31 unit tests green.*

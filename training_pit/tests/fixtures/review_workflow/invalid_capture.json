@@ -1,0 +1,14 @@
+{
+  "_comment": "TEST FIXTURE — intentionally invalid capture (missing required fields).",
+  "schema_version": "1.0",
+  "example_id": "ex_test_fixture_invalid_001",
+  "run_id": "test_fixture_run_invalid_001",
+  "captured_at": "2026-06-09T10:02:00Z",
+  "source": "swarm_run",
+  "boss_model": "unknown",
+  "goal": "",
+  "plan": null,
+  "quality_score": 0,
+  "example_class": "negative",
+  "notes": "Test fixture — missing goal and plan fields. capture_to_chat_jsonl must return None."
+}

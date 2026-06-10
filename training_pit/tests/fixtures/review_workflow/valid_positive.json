@@ -1,0 +1,39 @@
+{
+  "_comment": "TEST FIXTURE — valid positive plan capture for review_captures.py tests.",
+  "schema_version": "1.0",
+  "example_id": "ex_test_fixture_pos_001",
+  "run_id": "test_fixture_run_pos_001",
+  "captured_at": "2026-06-09T10:00:00Z",
+  "source": "swarm_run",
+  "boss_model": "qwen2.5-coder:14b",
+  "benchmark_id": null,
+  "goal": "Write a Python script that reads a JSON file and prints each key-value pair on a separate line.",
+  "domain": "python_cli",
+  "difficulty": 1,
+  "plan": {
+    "plan": "Single CODER task: read JSON with stdlib, print key-value pairs.",
+    "tasks": [
+      {
+        "role": "CODER",
+        "priority": 1,
+        "title": "Write json_reader.py",
+        "description": "Create json_reader.py. Accept input path via sys.argv[1]. Use json.load() to parse the file. Iterate over dict.items() and print each key and value as 'key: value'. Add a usage message if no argument is provided and exit with code 1."
+      }
+    ]
+  },
+  "quality_score": 75,
+  "rubric_scores": {
+    "task_count": 10,
+    "description_depth": 20,
+    "filename_presence": 15,
+    "api_contract": 15,
+    "domain_accuracy": 10,
+    "json_validity": 15
+  },
+  "example_class": "positive",
+  "failure_mode": null,
+  "correct_plan_reference": null,
+  "notes": "Test fixture — valid positive capture. Do not use for actual training.",
+  "annotator": "human:test",
+  "tags": ["test-fixture"]
+}

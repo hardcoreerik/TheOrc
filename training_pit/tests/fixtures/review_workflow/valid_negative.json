@@ -1,0 +1,39 @@
+{
+  "_comment": "TEST FIXTURE — valid negative (collapse) plan capture for review_captures.py tests.",
+  "schema_version": "1.0",
+  "example_id": "ex_test_fixture_neg_001",
+  "run_id": "test_fixture_run_neg_001",
+  "captured_at": "2026-06-09T10:01:00Z",
+  "source": "swarm_run",
+  "boss_model": "gemma4:12b",
+  "benchmark_id": null,
+  "goal": "Write a Python script that reads a JSON file and prints each key-value pair on a separate line.",
+  "domain": "python_cli",
+  "difficulty": 1,
+  "plan": {
+    "plan": "",
+    "tasks": [
+      {
+        "role": "Coder",
+        "priority": 1,
+        "title": "Execute goal",
+        "description": ""
+      }
+    ]
+  },
+  "quality_score": 5,
+  "rubric_scores": {
+    "task_count": 0,
+    "description_depth": 0,
+    "filename_presence": 0,
+    "api_contract": 0,
+    "domain_accuracy": 0,
+    "json_validity": 12
+  },
+  "example_class": "negative",
+  "failure_mode": "single_empty_task_collapse",
+  "correct_plan_reference": "ex_test_fixture_pos_001",
+  "notes": "Test fixture — negative capture (collapse pattern). Do not use for actual training.",
+  "annotator": "human:test",
+  "tags": ["test-fixture", "collapse-pattern"]
+}

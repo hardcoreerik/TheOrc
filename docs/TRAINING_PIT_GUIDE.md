@@ -1,9 +1,10 @@
 # TheOrc — Training Pit Guide
 
-> **Current status: PHASE 2 ACTIVE — Data collection in progress.**
-> Phase 3 training is **BLOCKED** pending ≥150 reviewed positive examples.
-> Live training has not yet been implemented.
-> Do not add training scripts or launch training jobs until Phase 3 is explicitly unblocked.
+> **Current status: PHASE 2.5 ACTIVE — Dataset Review / Approval Valve.**
+> Phase 2.5 adds `review_captures.py` — the manifest-based gate between raw swarm captures
+> and promoted training data. Phase 3 training is **BLOCKED** pending ≥150 reviewed
+> positive examples. Do not add training scripts or launch training jobs until Phase 3
+> is explicitly unblocked (`--status` shows ALL GATES MET).
 
 ---
 
@@ -36,12 +37,16 @@ survive any prompt and work reliably across goals, domains, and model versions.
 Phase 1 (DONE):   Scaffolding
   └── schemas, rubrics, configs, scripts, eval prompts, adapter registry
 
-Phase 2 (ACTIVE): Data collection
+Phase 2 (DONE):   Data collection infrastructure
   ├── Auto-capture boss plans via DatasetCapture.cs ← LIVE
-  ├── Manual curation and annotation of examples
-  ├── Negative example mining (collapse patterns, hallucinations)
-  ├── Validate + sanitize via scripts/validate_dataset.py
-  └── Gate: ≥150 reviewed positive + ≥25 negative examples before Phase 3
+  ├── EvalRubric scoring (positive ≥70, negative ≤39)
+  └── validate_dataset.py + sanitize_dataset.py scripts
+
+Phase 2.5 (ACTIVE): Dataset Review / Approval Valve
+  ├── review_captures.py — manifest-driven approve/reject/export
+  ├── reviewed_v1.json manifest — tracked in git; source of truth for reviewed decisions
+  ├── Atomic export gate: validate + sanitize before writing JSONL
+  └── Phase 3 gate counters: 0/150 train, 0/25 negative, 0+/20 eval
 
 Phase 3 (BLOCKED): Training
   ├── LoRA fine-tune via Unsloth on QAT base
@@ -113,28 +118,27 @@ Staged captures are gitignored and local-only.
 
 ---
 
-## Dataset Pipeline (Phase 2 Active Work)
+## Dataset Pipeline (Phase 2.5 Active)
 
 ```
 Live swarm run
       │
       ▼
-DatasetCapture.cs → .orc/swarm/dataset-staging/ (raw JSON captures)
+DatasetCapture.cs → .orc/swarm/dataset-staging/ (raw JSON captures, gitignored)
       │
       ▼
-convert_plan_captures.py → training_pit/datasets/staging/converted_<ts>.jsonl
-      │
+review_captures.py --list
+review_captures.py --inspect <capture>
+review_captures.py --approve <capture> --split train --quality silver
+      │ (decision stored in reviewed_v1.json manifest — NO JSONL written yet)
       ▼
-Manual review — check for: specific goal, good plan, no hallucinations, no PII
-      │
+review_captures.py --export-train
+      │ atomic: convert → temp file → validate_dataset → sanitize_dataset → replace final
       ▼
-validate_dataset.py + sanitize_dataset.py → must pass 0 errors, 0 rejects
-      │
-      ▼
-Promote to training_pit/datasets/train_v1.jsonl
+training_pit/datasets/train_v1.jsonl  (gitignored; rebuilt from manifest)
 ```
 
-See [DATASET_REVIEW_WORKFLOW.md](DATASET_REVIEW_WORKFLOW.md) for the step-by-step review process.
+See [DATASET_REVIEW_WORKFLOW.md](DATASET_REVIEW_WORKFLOW.md) for the full step-by-step process.
 
 ---
 
@@ -159,11 +163,12 @@ All scripts are in `training_pit/scripts/`:
 
 | Script | Purpose |
 |---|---|
+| `review_captures.py` | **Phase 2.5 valve** — list, inspect, approve, reject, export, status |
 | `validate_dataset.py` | Validates JSONL format, fields, roles, quality labels |
 | `sanitize_dataset.py` | Scans for secrets, credentials, suspicious content |
 | `check_hardware.py` | Detects GPU/RAM, prints training tier estimate |
 | `check_model_compatibility.py` | Reads `base_model_compat.json`, prints status |
-| `convert_plan_captures.py` | Converts staging captures → chat-JSONL |
+| `convert_plan_captures.py` | Converts staging captures → chat-JSONL (used by review pipeline) |
 | `inspect_adapter.py` | Reads `adapter_config.json`, prints base model info |
 
 ---
@@ -196,8 +201,11 @@ training_pit/
 
   datasets/
     CONTRIBUTING.md             How to add examples, quality bar
-    (train_v1.jsonl)            Not yet created; gitignored
-    (eval_v1.jsonl)             Not yet created; gitignored
+    manifests/
+      reviewed_v1.json          Approval manifest — tracked in git
+    (train_v1.jsonl)            Gitignored; rebuilt from manifest via --export-train
+    (eval_v1.jsonl)             Gitignored; rebuilt from manifest via --export-eval
+    (negative_v1.jsonl)         Gitignored; rebuilt from manifest via --export-negative
 
   examples/
     plan_capture_good_001.json  High-quality plan example
@@ -206,7 +214,8 @@ training_pit/
     chat_sft_synthetic_001.jsonl Synthetic (eval-only, not in train)
     chat_sft_eval_collapse_001.jsonl Collapse eval negative
 
-  scripts/                      validate, sanitize, convert, check hardware
+  scripts/                      review_captures, validate, sanitize, convert, check hardware
+  tests/                        Unit tests for Training Pit scripts
   configs/                      LoRA/QLoRA job config templates
   evals/                        Boss eval prompts
   adapters/registry.json        Adapter registry

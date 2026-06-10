@@ -1,7 +1,8 @@
 # The Training Pit — Dataset Strategy
 
-> **Status:** Active (Phase 2 data collection). Phase 3 training is BLOCKED.
-> See Phase 3 Gate below for unblock conditions.
+> **Status:** Active (Phase 2.5 — Dataset Review / Approval Valve). Phase 3 training is BLOCKED.
+> Use `review_captures.py` to approve captures and track progress toward the Phase 3 gate.
+> Run `python training_pit/scripts/review_captures.py --status` for live gate counters.
 
 ---
 
@@ -46,12 +47,12 @@ Real boss plans captured during normal TheOrc use. These are the
 3. Qualifying plans are written to `.orc/swarm/dataset-staging/`
    - `plan_capture_good_<runId>_<score:D3>.json` — score ≥ 70
    - `plan_capture_bad_<runId>_<score:D3>.json`  — score ≤ 39
-4. Plans in staging are reviewed manually
-5. Reviewed plans are converted to chat-JSONL via
-   `training_pit/scripts/convert_plan_captures.py`
-6. Converted output lands in `training_pit/datasets/staging/`
-7. After a second review pass, examples are promoted to
-   `training_pit/datasets/train_v1.jsonl` or `negative_v1.jsonl`
+4. Plans in staging are reviewed via `review_captures.py`:
+   - `--inspect` shows full detail, conversion preview, validation results
+   - `--approve` records the decision in `reviewed_v1.json` manifest
+   - `--reject` marks the capture as rejected (documented, not lost)
+5. `--export-train` atomically writes `train_v1.jsonl` after validate+sanitize gate
+   (similarly `--export-eval` and `--export-negative` for their respective splits)
 
 **Marginal plans (score 40–69) are never staged.** They are noisy — good
 enough to not be clear failures but not good enough to be clean training
@@ -191,25 +192,29 @@ DatasetCapture.cs
   plan_capture_good_<runId>_<score>.json   ← raw capture (gitignored)
   plan_capture_bad_<runId>_<score>.json    ← raw capture (gitignored)
         │
-        │ [MANUAL REVIEW — human must inspect each capture]
+        │ [review_captures.py --list / --inspect]
         ▼
-training_pit/scripts/convert_plan_captures.py
-        │ converts plan capture → canonical chat-JSONL
+training_pit/scripts/review_captures.py
+  --approve <path> --split train --quality silver
+  --reject  <path> --note "reason"
+        │ writes to reviewed_v1.json manifest (tracked in git)
+        │ NO JSONL written yet
         ▼
-training_pit/datasets/staging/
-  converted_<timestamp>.jsonl              ← converted, not yet reviewed (gitignored)
-        │
-        │ [SECOND REVIEW — validate, sanitize, check content]
-        │ python training_pit/scripts/validate_dataset.py <file>
-        │ python training_pit/scripts/sanitize_dataset.py <file>
+review_captures.py --export-train
+  convert approved entries → temp file
+  validate_dataset.py gate ──► abort on error
+  sanitize_dataset.py gate ──► abort on REJECT
+  atomic replace final file
         ▼
 training_pit/datasets/
-  train_v1.jsonl     ← promoted positive examples (gitignored)
-  negative_v1.jsonl  ← promoted negative/collapse examples (gitignored)
+  train_v1.jsonl     ← approved positive examples (gitignored)
+  eval_v1.jsonl      ← approved eval examples (gitignored)
+  negative_v1.jsonl  ← approved negative/collapse examples (gitignored)
 ```
 
 **Captures are not automatically promoted to training data.**
-Every example that enters `train_v1.jsonl` has been reviewed by a human.
+Every example that enters `train_v1.jsonl` has been reviewed by a human
+and explicitly approved through `review_captures.py`.
 
 ---
 
@@ -291,3 +296,4 @@ Add a new role to training examples only after:
 | Version | Date | Notes |
 |---------|------|-------|
 | 1.0 | 2026-06-09 | Initial dataset strategy document |
+| 1.1 | 2026-06-09 | Phase 2.5: replaced manual staging flow with review_captures.py approval valve |
