@@ -458,6 +458,8 @@ The WPF app remains the primary Windows-native experience indefinitely.
 TheOrc is free, open source, and always will be.
 If it saves you a subscription bill, consider buying the orc a coffee ☕
 
+**Hardware vendors and community supporters:** see [**docs/SPONSOR_TEST_LAB.md**](docs/SPONSOR_TEST_LAB.md) for how to get your hardware into TheOrc's compatibility matrix.
+
 <div align="center">
 
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support_the_Orc-FF5E5B?style=for-the-badge&logo=kofi&logoColor=white)](https://ko-fi.com/hardcoreerik)
