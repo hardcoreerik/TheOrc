@@ -232,7 +232,8 @@
             </MenuItem>
 
             <!-- ── Models ─────────────────────────────────────────── -->
-            <MenuItem Header="_Models">
+            <MenuItem Header="_Models"
+                      AutomationProperties.AutomationId="Menu.Models">
                 <MenuItem Header="Choose Model…"
                           InputGestureText="Ctrl+Shift+M"
                           Click="Menu_ModelChoose"/>
@@ -250,9 +251,11 @@
                 <MenuItem Header="Run Tool Call Tests…"
                           Click="Menu_RunToolProbe"/>
                 <MenuItem Header="Run Model Capability Test…"
+                          AutomationProperties.AutomationId="Menu.ModelCapabilityTest"
                           Click="Menu_RunModelCapabilityTest"/>
                 <Separator/>
                 <MenuItem Header="Model Wiki / Lab…"
+                          AutomationProperties.AutomationId="Menu.ModelWiki"
                           Click="Menu_ModelWiki"/>
                 <Separator/>
                 <MenuItem Header="Manage Library…"   Click="Menu_ModelLibrary"/>

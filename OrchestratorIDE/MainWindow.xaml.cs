@@ -2036,6 +2036,20 @@ public partial class MainWindow : Window
 
     private void Menu_ModelWiki(object sender, RoutedEventArgs e)
     {
+        // Single-instance: if a Model Wiki window is already open, activate it
+        // rather than stacking another one. This prevents duplicate windows that
+        // confuse both the user and the FlaUI test suite.
+        foreach (Window w in System.Windows.Application.Current.Windows)
+        {
+            if (w is OrchestratorIDE.UI.Windows.ModelWikiWindow existing)
+            {
+                existing.Activate();
+                if (existing.WindowState == WindowState.Minimized)
+                    existing.WindowState = WindowState.Normal;
+                return;
+            }
+        }
+
         var win = new OrchestratorIDE.UI.Windows.ModelWikiWindow(_settings) { Owner = this };
         win.Show();
     }

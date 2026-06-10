@@ -18,11 +18,12 @@ namespace OrchestratorIDE.UITests;
 [SetUpFixture]
 public class AppFixture
 {
-    private static Application?     _app;
+    private static Application?    _app;
     private static UIA3Automation? _automation;
 
     public static Window          MainWindow  { get; private set; } = null!;
-    public static UIA3Automation  Automation  => _automation!; // exposed for desktop-level searches
+    public static UIA3Automation  Automation  => _automation!;
+    public static int             AppProcessId => _app?.ProcessId ?? -1;
 
     // ── Path resolution ───────────────────────────────────────────────────
 
@@ -34,15 +35,8 @@ public class AppFixture
             return envPath;
 
         // 2. Walk up from the test output directory to the solution root.
-        //
-        //    Debug output:   bin/Debug/net10.0-windows/          (3 levels)
-        //    Release output: bin/Release/net10.0-windows/win-x64 (4 levels)
-        //
-        //    Either way we need to reach <SolutionRoot>/OrchestratorIDE/bin/<cfg>/net10.0-windows/.
-        //    We try Debug first (developer local run), then Release (post-publish run).
         var testDir = AppDomain.CurrentDomain.BaseDirectory;
 
-        // Navigate up until we find the .slnx file (solution root), max 8 levels.
         var dir = new DirectoryInfo(testDir);
         for (int i = 0; i < 8; i++)
         {
@@ -56,7 +50,6 @@ public class AppFixture
 
         var solutionRoot = dir.FullName;
 
-        // Try Debug then Release build outputs
         string[] candidates =
         [
             Path.Combine(solutionRoot, "OrchestratorIDE", "bin", "Debug",   "net10.0-windows", "OrchestratorIDE.exe"),
@@ -83,18 +76,14 @@ public class AppFixture
         _automation = new UIA3Automation();
         _app        = Application.Launch(exePath);
 
-        // Give WPF time to paint; 15 s is generous but avoids flakiness on CI
         MainWindow = _app.GetMainWindow(_automation, TimeSpan.FromSeconds(15));
         Assert.That(MainWindow, Is.Not.Null, "Main window did not appear within timeout.");
 
-        // Maximize so all panels are fully on-screen and in the UIA tree.
-        // FlaUI tests require the window to be maximized — element visibility
-        // and automation hit-testing are unreliable in a smaller window.
         try
         {
             MainWindow.Patterns.Window.Pattern.SetWindowVisualState(
                 FlaUI.Core.Definitions.WindowVisualState.Maximized);
-            Thread.Sleep(500);   // let WPF complete the resize layout pass
+            Thread.Sleep(500);
         }
         catch { /* pattern unavailable — continue without maximizing */ }
     }
@@ -109,7 +98,7 @@ public class AppFixture
         _app?.Dispose();
     }
 
-    // ── Helpers shared by all test classes ───────────────────────────────
+    // ── Element helpers ───────────────────────────────────────────────────
 
     /// <summary>Find an element by its AutomationId. Returns null if not found.</summary>
     public static AutomationElement? FindById(string automationId)
@@ -123,48 +112,58 @@ public class AppFixture
         return el!;
     }
 
+    // ── Window helpers ────────────────────────────────────────────────────
+
     /// <summary>
-    /// Search the desktop for a top-level <see cref="Window"/> whose title
-    /// contains <paramref name="titleFragment"/>. Returns null if not found.
+    /// Search for a top-level <see cref="Window"/> in the app process whose
+    /// UIA Name contains <paramref name="titleFragment"/> (case-insensitive).
+    /// Uses process-ID scoping so foreign windows with similar titles are ignored.
     /// </summary>
     public static Window? FindWindowByTitle(string titleFragment)
+        => FindInProcess(w =>
+            w.Name?.Contains(titleFragment, StringComparison.OrdinalIgnoreCase) == true);
+
+    /// <summary>
+    /// Search for a top-level <see cref="Window"/> in the app process whose
+    /// AutomationId exactly matches <paramref name="automationId"/>.
+    /// This is the most reliable way to find a window when its AutomationId is known.
+    /// </summary>
+    public static Window? FindWindowByAutomationId(string automationId)
+        => FindInProcess(w => w.AutomationId == automationId);
+
+    /// <summary>
+    /// Core window search scoped to the app process.
+    ///
+    /// Search order:
+    ///   1. Direct desktop children for our PID (standard top-level windows).
+    ///   2. Direct Window-typed children of each app window (owned/double-owned windows
+    ///      that UIA places under their owner rather than the desktop root).
+    ///
+    /// Returns null if not found or on any UIA error.
+    /// </summary>
+    private static Window? FindInProcess(Func<AutomationElement, bool> predicate)
     {
         try
         {
-            // Strategy 1: all direct desktop children (top-level windows).
-            // Deliberately skip the ControlType filter — owned WPF windows
-            // sometimes surface with an unexpected ControlType and would be
-            // excluded by a strict ByControlType(Window) predicate.
-            var desktop  = _automation!.GetDesktop();
-            var topLevel = desktop.FindAllChildren();
-            var found    = topLevel.FirstOrDefault(w =>
-                w.Name?.Contains(titleFragment, StringComparison.OrdinalIgnoreCase) == true);
+            if (_app == null || _automation == null) return null;
+
+            var pid     = _app.ProcessId;
+            var desktop = _automation.GetDesktop();
+
+            // Pass 1: direct desktop children scoped to our process
+            var appWins = desktop.FindAllChildren(cf => cf.ByProcessId(pid));
+
+            var found = appWins.FirstOrDefault(predicate);
             if (found != null) return found.AsWindow();
 
-            // Strategy 2: owned WPF windows (Owner = someWindow) sometimes
-            // appear as UIA children of the owner rather than the desktop.
-            // Search MainWindow's direct children for a matching Window element.
-            if (MainWindow != null)
-            {
-                var ownedWins = MainWindow.FindAllChildren(cf =>
-                    cf.ByControlType(FlaUI.Core.Definitions.ControlType.Window));
-                var owned = ownedWins.FirstOrDefault(w =>
-                    w.Name?.Contains(titleFragment, StringComparison.OrdinalIgnoreCase) == true);
-                if (owned != null) return owned.AsWindow();
-            }
-
-            // Strategy 3: double-owned windows (e.g. dialog owned by a non-modal
-            // child window) appear as UIA children of their immediate owner, which
-            // is itself a child of the desktop.  Walk every top-level window's
-            // direct Window-typed children to catch this case.
-            foreach (var topWin in topLevel)
+            // Pass 2: owned windows that appear as children of another app window
+            foreach (var parent in appWins)
             {
                 try
                 {
-                    var childWins = topWin.FindAllChildren(cf =>
+                    var childWins = parent.FindAllChildren(cf =>
                         cf.ByControlType(FlaUI.Core.Definitions.ControlType.Window));
-                    var child = childWins.FirstOrDefault(w =>
-                        w.Name?.Contains(titleFragment, StringComparison.OrdinalIgnoreCase) == true);
+                    var child = childWins.FirstOrDefault(predicate);
                     if (child != null) return child.AsWindow();
                 }
                 catch { /* skip inaccessible windows */ }
@@ -174,6 +173,44 @@ public class AppFixture
         }
         catch { return null; }
     }
+
+    /// <summary>
+    /// Enumerate ALL windows currently belonging to the app process.
+    /// Used for diagnostic output when a window search fails.
+    /// </summary>
+    public static List<(string Name, string AutomationId)> EnumerateAppWindows()
+    {
+        var result = new List<(string, string)>();
+        if (_app == null || _automation == null) return result;
+
+        var pid     = _app.ProcessId;
+        var desktop = _automation.GetDesktop();
+
+        AutomationElement[] appWins;
+        try { appWins = desktop.FindAllChildren(cf => cf.ByProcessId(pid)); }
+        catch { return result; }
+
+        foreach (var w in appWins)
+        {
+            result.Add((w.Name ?? "<null>", w.AutomationId ?? "<null>"));
+
+            // also report owned children
+            AutomationElement[] childWins;
+            try
+            {
+                childWins = w.FindAllChildren(cf =>
+                    cf.ByControlType(FlaUI.Core.Definitions.ControlType.Window));
+            }
+            catch { continue; }
+
+            foreach (var c in childWins)
+                result.Add(($"  └─ {c.Name ?? "<null>"}", c.AutomationId ?? "<null>"));
+        }
+
+        return result;
+    }
+
+    // ── Wait helpers ──────────────────────────────────────────────────────
 
     /// <summary>
     /// Spin-wait until <paramref name="condition"/> returns true or
