@@ -23,6 +23,31 @@ Thumbs.db
 PENTEST.agent.md
 PROJECT_LOG.md
 
+# Internal dev scratch / session notes — not user-facing
+dev-notes/
+GOBLIN_MIND_TODO.md
+GOBLIN_MIND_UPDATES.md
+RESEARCH_TOOL_TODO.md
+THE_ORC_HANDOFF.md
+ROADMAP_MAC_PORT.md
+
+# Root-level ROADMAP.md superseded by docs/ROADMAP.md
+ROADMAP.md
+
+# Portable release zips — upload to GitHub Releases, not committed to repo
+TheOrc-*.zip
+TheOrc-*.exe
+
+# Runtime-generated swarm benchmark data
+swarm-metrics.json
+
+# Swarm benchmark workspace (live run outputs — not versioned)
+OrchestratorIDE.SwarmBenchmarks/
+
+# Meeting notes and personal documents
+*.docx
+*.doc
+
 # Publish output (large binary artifacts — run dotnet publish locally)
 publish/
 

@@ -462,7 +462,7 @@ Setup/
 ### 🧠 v1.1 — GOBLIN MIND ✅ `COMPLETE`
 
 The Goblin Mind initiative teaches the swarm to understand itself at runtime.
-See [`GOBLIN_MIND_TODO.md`](GOBLIN_MIND_TODO.md) for full task breakdown.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for full milestone breakdown.
 
 - [x] **Phase 1: Behavioral Format Fingerprinting** — Probe each model's preferred tool-call serialization format (OpenAI JSON / Hermes XML / bare JSON / Python-style / YAML). Store as `FormatFingerprint` in the model profile. `AgentLoop` shapes tool schemas to the model's native format.
 - [x] **Phase 2: Category Boundary Mapping** — 14-query capability taxonomy per model (7 categories × 2 tests). TheOrc reads the map to gate swarm task routing — no coder goblin gets a network task if it fails network probes.
