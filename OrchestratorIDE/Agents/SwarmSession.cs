@@ -13,12 +13,14 @@ using OrchestratorIDE.Trust;
 namespace OrchestratorIDE.Agents;
 
 /// <summary>
-/// Orchestrates a 1-boss + up-to-3-worker Swarm run.
+/// Orchestrates a 1-boss + up-to-4-worker Swarm run.
 ///
-/// Phase 1:  Boss decomposes the user's goal into RESEARCHER / CODER / UIDEVELOPER tasks (JSON).
+/// Phase 1:  Boss decomposes the user's goal into RESEARCHER / CODER / UIDEVELOPER / TESTER tasks (JSON).
 /// Phase 2a: RESEARCHER tasks run first (parallel) — coders depend on their findings.
-/// Phase 2b: CODER + UIDEVELOPER tasks run concurrently with research context injected.
-/// Phase 3:  Boss merges all worker results into final_report.md.
+/// Phase 2b: CODER + UIDEVELOPER + planned TESTER tasks run concurrently with research context injected.
+///           TESTER tasks are verification-only — they never write files and are exempt from file-write retries.
+/// Phase 3:  Auto Tester goblin verifies files produced by CODER/UIDEVELOPER this run (skipped if none).
+/// Phase 4:  Boss merges all worker results (including TESTER verdicts) into final_report.md.
 ///
 /// Worker output files are written to a staging area at <runDir>/staging/ so they
 /// can be reviewed before being applied to the workspace. Run metadata (plan.json,
@@ -304,17 +306,32 @@ public class SwarmSession
                 Activity($"⚠ {ghostCount} researcher(s) returned ghost output — coders proceeding without research context", "boss");
             }
 
-            // ── Phase 2b: Coder + UIDev workers ──────────────────────────────
+            // ── Phase 2b: Coder + UIDev + planned Tester workers ─────────────────
+            // TESTER is verification-only: no write_file, no ### FILE: output expected.
+            // Never retry TESTER for zero file output; never run ExtractAndWriteFiles on its output.
             var coderRetryCount = 0;     // hoisted for metrics capture
             if (others.Count > 0)
             {
-                Activity($"Coder phase — {others.Count} worker(s) running concurrently", "boss");
-                _trace?.WriteEvent("phase_start", $"Coder/UIDev phase: {others.Count} worker(s)");
+                var implCount = others.Count(t => t.Role != SwarmWorkerRole.Tester);
+                var testCount = others.Count(t => t.Role == SwarmWorkerRole.Tester);
+                var phaseDesc = (implCount, testCount) switch
+                {
+                    ( > 0,  > 0) => $"{implCount} implementation + {testCount} planned tester worker(s)",
+                    ( > 0,   0) => $"{implCount} implementation worker(s)",
+                    (  0,  > 0) => $"{testCount} planned tester worker(s)",
+                    _           => $"{others.Count} worker(s)"
+                };
+                Activity($"Coder phase — {phaseDesc} running concurrently", "boss");
+                _trace?.WriteEvent("phase_start", $"Coder/UIDev/Tester phase: {others.Count} worker(s)");
                 await Task.WhenAll(others.Select(t => RunWorkerAsync(t, findings, ct)));
 
                 var totalFiles = 0;
                 foreach (var t in others.Where(t => t.Status == SwarmTaskStatus.Done && t.Result is not null))
                 {
+                    // TESTER is verification-only — no file output expected or required.
+                    // A completed TESTER with zero files is correct by design; never retry it.
+                    if (t.Role == SwarmWorkerRole.Tester) continue;
+
                     // Count files written via tools during execution
                     totalFiles += t.ToolFilesWritten;
 
@@ -324,6 +341,7 @@ public class SwarmSession
                         // Log ### FILE: marker files that weren't already logged via write_file
                         if (n > 0)
                         {
+                            t.MarkerFilesWritten = n;   // track for workerFiles + metrics
                             var names = ExtractFileNames(t.Result!);
                             Activity($"→ {string.Join(", ", names)}", AgentKey(t.Role));
                         }
@@ -363,14 +381,35 @@ public class SwarmSession
                 Activity($"Workers wrote {totalFiles} file(s) to workspace root", "boss");
             }
 
-            // ── Phase 3: Tester goblin — verify output before merge ──────────
+            // ── Collect planned TESTER verdicts (boss-assigned, ran in Phase 2b) ──
+            // These are distinct from the Phase 3 auto tester goblin (which verifies
+            // files written this run). Both contribute to testerVerdict for the merge.
+            string? plannedTesterVerdict = null;
+            {
+                var verdicts = others
+                    .Where(t => t.Role == SwarmWorkerRole.Tester
+                                && t.Status == SwarmTaskStatus.Done
+                                && !string.IsNullOrWhiteSpace(t.Result))
+                    .Select(t => $"[Planned: {t.Title}] {ExtractTesterSummary(t.Result!)}")
+                    .ToList();
+                if (verdicts.Count > 0)
+                {
+                    plannedTesterVerdict = string.Join("\n", verdicts);
+                    _trace?.WriteEvent("planned_tester_complete", plannedTesterVerdict);
+                    Activity($"🧪 Planned Tester: {plannedTesterVerdict}", "boss");
+                }
+            }
+
+            // ── Phase 3: Auto Tester goblin — verify files written this run ──────
+            // Only runs when CODER/UIDEVELOPER produced files this run (tool calls or markers).
+            // Planned TESTER tasks (Phase 2b) verify pre-existing workspace files instead.
             string? testerVerdict   = null;
             bool    fixTaskSpawned  = false;
             bool    fixTaskSucceeded = false;
             var workerFiles = Tasks
                 .Where(t => t.Role is SwarmWorkerRole.Coder or SwarmWorkerRole.UIDeveloper
                             && t.Status == SwarmTaskStatus.Done)
-                .Sum(t => t.ToolFilesWritten);
+                .Sum(t => t.ToolFilesWritten + t.MarkerFilesWritten);
 
             if (workerFiles > 0 && !ct.IsCancellationRequested)
             {
@@ -409,10 +448,16 @@ public class SwarmSession
                     }
                 }
             }
-            else if (workerFiles == 0)
+            else if (workerFiles == 0 && plannedTesterVerdict is null)
             {
-                Activity("⚠ Tester skipped — no files were written to workspace", "boss");
+                Activity("⚠ Auto Tester skipped — no new files were written by implementation workers", "boss");
             }
+
+            // Merge planned TESTER verdict with auto tester verdict (planned first, auto after)
+            if (plannedTesterVerdict is not null)
+                testerVerdict = testerVerdict is null
+                    ? plannedTesterVerdict
+                    : plannedTesterVerdict + "\n" + testerVerdict;
 
             // ── Phase 4: Boss merge → final_report.md ────────────────────────
             Activity("Boss merging results → writing final_report.md", "boss");
@@ -432,7 +477,7 @@ public class SwarmSession
             _trace?.WriteEvent("swarm_complete", "All phases done");
 
             // Count only files actually written by workers (tool calls + ### FILE: markers)
-            var projectFiles = Tasks.Sum(t => t.ToolFilesWritten);
+            var projectFiles = Tasks.Sum(t => t.ToolFilesWritten + t.MarkerFilesWritten);
 
             // Collect staged files and notify the UI so the user can review before applying
             var stagedFiles = Directory.Exists(OutputProjectDir)
@@ -1700,7 +1745,8 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
             .Distinct()
             .ToList();
 
-        if (titleFiles.Count > 0 && task.Role != SwarmWorkerRole.Researcher)
+        // TESTER is verification-only — it has no write_file tool and must not be told to produce files.
+        if (titleFiles.Count > 0 && task.Role is not SwarmWorkerRole.Researcher and not SwarmWorkerRole.Tester)
         {
             sb.AppendLine("⚡ REQUIRED OUTPUT FILE(S) — NON-NEGOTIABLE:");
             foreach (var f in titleFiles)
@@ -1713,7 +1759,8 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         // Collect filenames being produced by ALL other coder/uidev tasks in this run.
         // This tells main.py's author that scraper.py, ollama_client.py etc. WILL exist
         // at runtime — so it must use real `import X` statements, never `X = None`.
-        if (allTasks is { Count: > 0 } && task.Role != SwarmWorkerRole.Researcher)
+        // TESTER is excluded: it needs to know what files exist, not import them as modules.
+        if (allTasks is { Count: > 0 } && task.Role is not SwarmWorkerRole.Researcher and not SwarmWorkerRole.Tester)
         {
             var siblingModules = allTasks
                 .Where(t => t.Id != task.Id && t.Role != SwarmWorkerRole.Researcher)

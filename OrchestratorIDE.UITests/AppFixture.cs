@@ -85,6 +85,17 @@ public class AppFixture
         // Give WPF time to paint; 15 s is generous but avoids flakiness on CI
         MainWindow = _app.GetMainWindow(_automation, TimeSpan.FromSeconds(15));
         Assert.That(MainWindow, Is.Not.Null, "Main window did not appear within timeout.");
+
+        // Maximize so all panels are fully on-screen and in the UIA tree.
+        // FlaUI tests require the window to be maximized — element visibility
+        // and automation hit-testing are unreliable in a smaller window.
+        try
+        {
+            MainWindow.Patterns.Window.Pattern.SetWindowVisualState(
+                FlaUI.Core.Definitions.WindowVisualState.Maximized);
+            Thread.Sleep(500);   // let WPF complete the resize layout pass
+        }
+        catch { /* pattern unavailable — continue without maximizing */ }
     }
 
     // ── One-time teardown ─────────────────────────────────────────────────

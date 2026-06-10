@@ -53,7 +53,9 @@ public class SwarmTask : INotifyPropertyChanged
 
     public string? ErrorMessage      { get; set; }
     /// <summary>Files written directly via write_file tool calls (vs ### FILE: markers).</summary>
-    public int     ToolFilesWritten  { get; set; }
+    public int     ToolFilesWritten   { get; set; }
+    /// <summary>Files extracted from ### FILE: markers in the worker's text output (vs write_file calls).</summary>
+    public int     MarkerFilesWritten { get; set; }
     public DateTime  CreatedAt   { get; init; } = DateTime.UtcNow;
     public DateTime? StartedAt   { get; set; }
     public DateTime? CompletedAt { get; set; }
