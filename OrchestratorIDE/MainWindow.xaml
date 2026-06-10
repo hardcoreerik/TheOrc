@@ -271,7 +271,21 @@
             </MenuItem>
 
             <!-- ── Help ──────────────────────────────────────────── -->
-            <MenuItem Header="_Help">
+            <MenuItem Header="_Help"
+                      AutomationProperties.AutomationId="Menu.Help">
+                <MenuItem Header="Documentation"
+                          AutomationProperties.AutomationId="Help.Documentation"
+                          Click="Menu_HelpDocumentation"/>
+                <MenuItem Header="Troubleshooting"
+                          AutomationProperties.AutomationId="Help.Troubleshooting"
+                          Click="Menu_HelpTroubleshooting"/>
+                <MenuItem Header="Model Guide"
+                          AutomationProperties.AutomationId="Help.ModelGuide"
+                          Click="Menu_HelpModelGuide"/>
+                <MenuItem Header="Training Pit Guide"
+                          AutomationProperties.AutomationId="Help.TrainingPitGuide"
+                          Click="Menu_HelpTrainingPitGuide"/>
+                <Separator/>
                 <MenuItem Header="Check for Updates…"   Click="Menu_CheckUpdates"/>
                 <Separator/>
                 <MenuItem Header="View Release Notes"   Click="Menu_ReleaseNotes"/>

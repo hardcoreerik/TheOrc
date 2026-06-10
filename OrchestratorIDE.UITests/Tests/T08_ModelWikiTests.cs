@@ -39,8 +39,8 @@ public class T08_ModelWikiTests : RecordingTestBase
         // Ensure no stale wiki window from a previous test cycle is still open.
         CloseAllWikiWindows();
 
-        AppFixture.MainWindow.Focus();
-        Thread.Sleep(200);
+        try { AppFixture.MainWindow.Focus(); } catch { /* UIA transient event dispatch error — safe to ignore */ }
+        Thread.Sleep(300);
 
         // ── Step 1: click the Models top-level menu item by AutomationId ────────
         var modelsItem = AppFixture.WaitUntilGet(

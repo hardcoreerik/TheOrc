@@ -1980,6 +1980,62 @@ public partial class MainWindow : Window
     private void Menu_GitHub(object sender, RoutedEventArgs e)
         => UpdateChecker.OpenReleasePage("https://github.com/hardcoreerik/TheOrc");
 
+    private void Menu_HelpDocumentation(object sender, RoutedEventArgs e)
+        => OpenDocFile("README.md");
+
+    private void Menu_HelpTroubleshooting(object sender, RoutedEventArgs e)
+        => OpenDocFile("TROUBLESHOOTING.md");
+
+    private void Menu_HelpModelGuide(object sender, RoutedEventArgs e)
+        => OpenDocFile("MODEL_GUIDE.md");
+
+    private void Menu_HelpTrainingPitGuide(object sender, RoutedEventArgs e)
+        => OpenDocFile("TRAINING_PIT_GUIDE.md");
+
+    /// <summary>
+    /// Opens a docs/ file using the system default application (usually a browser
+    /// for .md files, or the user's preferred Markdown viewer).
+    /// Falls back to a message box if the file is not found — docs/ may not be
+    /// present in a portable install that was unzipped without the source tree.
+    /// </summary>
+    private static void OpenDocFile(string fileName)
+    {
+        try
+        {
+            // Resolve relative to the executable directory so it works both in
+            // the repo (docs/ next to OrchestratorIDE/) and in a portable zip
+            // that ships with a docs/ folder.
+            var exeDir = System.AppContext.BaseDirectory;
+            var path = System.IO.Path.Combine(exeDir, "docs", fileName);
+            if (!System.IO.File.Exists(path))
+            {
+                // Also try three levels up (running from bin/Debug/net10.0-windows/)
+                path = System.IO.Path.GetFullPath(
+                    System.IO.Path.Combine(exeDir, "..", "..", "..", "docs", fileName));
+            }
+            if (System.IO.File.Exists(path))
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = path,
+                    UseShellExecute = true
+                });
+            }
+            else
+            {
+                System.Windows.MessageBox.Show(
+                    $"Documentation file not found:\n{fileName}\n\nBrowse the docs/ folder or visit the GitHub repository.",
+                    "Documentation",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Information);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"OpenDocFile failed: {ex.Message}");
+        }
+    }
+
     // ── Models menu ───────────────────────────────────────────────────────────
 
     private void Menu_ModelChoose(object sender, RoutedEventArgs e)

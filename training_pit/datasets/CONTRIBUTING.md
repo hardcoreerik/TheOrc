@@ -93,8 +93,16 @@ python training_pit/scripts/convert_plan_captures.py
 python training_pit/scripts/validate_dataset.py training_pit/datasets/staging/converted_<ts>.jsonl
 python training_pit/scripts/sanitize_dataset.py training_pit/datasets/staging/converted_<ts>.jsonl
 
-# After manual review, append to train_v1.jsonl:
-cat training_pit/datasets/staging/converted_<ts>.jsonl >> training_pit/datasets/train_v1.jsonl
+# After manual review, selectively append reviewed examples only:
+# ⚠️  DO NOT blindly run this command. Open the file, read every line,
+#     remove any example that fails the review checklist, THEN append.
+#     Blindly piping the full converted file bypasses the manual review gate
+#     and will silently admit bad examples into the training set.
+#
+# cat training_pit/datasets/staging/converted_<ts>.jsonl >> training_pit/datasets/train_v1.jsonl
+#
+# PREFERRED: Copy only reviewed lines — edit staging file first, then append.
+# See docs/DATASET_REVIEW_WORKFLOW.md for the step-by-step process.
 ```
 
 **Do not blindly append all converts.** Review each example for:

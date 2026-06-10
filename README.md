@@ -291,6 +291,30 @@ dotnet publish OrchestratorIDE/OrchestratorIDE.csproj `
 
 ---
 
+## Documentation
+
+All guides live in [**docs/**](docs/README.md).
+
+| Guide | What it covers |
+|---|---|
+| [Quick Start](docs/QUICK_START.md) | 10-step first-run: Ollama → model → workspace → Single Agent → Swarm |
+| [Installation](docs/INSTALLATION.md) | Requirements, build from source, VS/VS Code setup, FlaUI test requirements |
+| [User Guide](docs/USER_GUIDE.md) | Modes, Plan/Execute split, trust levels, keyboard shortcuts, .agent.md |
+| [Single Agent Guide](docs/SINGLE_AGENT_GUIDE.md) | Plan → Execute loop, T06, write_file ceilings, model selection |
+| [Swarm Guide](docs/SWARM_GUIDE.md) | Swarm roles, Swarm Board, OLLAMA_NUM_PARALLEL, model selection per role |
+| [Model Guide](docs/MODEL_GUIDE.md) | Profile scores, tool support ceiling, role recommendations, VRAM table |
+| [Model Wiki & Lab](docs/MODEL_WIKI_AND_LAB.md) | Wiki window, capability test dialog, observation schema |
+| [Hardware Guide](docs/HARDWARE_GUIDE.md) | GPU tiers, VRAM quick reference, training hardware |
+| [Training Pit Guide](docs/TRAINING_PIT_GUIDE.md) | Phase status, dataset pipeline, base model, what the first LoRA targets |
+| [Dataset Review Workflow](docs/DATASET_REVIEW_WORKFLOW.md) | Step-by-step capture → review → promote process |
+| [Testing Guide](docs/TESTING_GUIDE.md) | FlaUI test suite, T01–T08 descriptions, AutomationId reference |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Common failures, diagnosis steps, log locations |
+| [FAQ](docs/FAQ.md) | Frequently asked questions |
+| [Roadmap](docs/ROADMAP.md) | v1.1 / v1.2 / v1.3 feature status |
+| [Sponsor / Test Lab](docs/SPONSOR_TEST_LAB.md) | Hardware vendor and sponsor program |
+
+---
+
 ## Configuration
 
 Settings are stored at `%APPDATA%\OrchestratorIDE\settings.json`.
