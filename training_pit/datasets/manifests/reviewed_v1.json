@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "created_at": "2026-06-09T00:00:00Z",
-  "last_modified": "2026-06-10T21:53:11Z",
+  "last_modified": "2026-06-10T22:56:42Z",
   "entries": {
     "ex_test_001": {
       "file": ".orc\\swarm\\dataset-staging-test\\plan_capture_good_test_001_085.json",
@@ -625,6 +625,58 @@
       "quality": "rejected",
       "note": "CAPTURE-020 role-misuse bait: confirmed — TESTER assigned to WRITE test_processor.py (no-write lane violation) and boss fabricated a word-frequency function from vague goal; rubric 84 cannot see role misuse",
       "decided_at": "2026-06-10T21:53:11Z",
+      "decided_by": "human"
+    },
+    "ex_20260610_225335": {
+      "file": ".orc\\swarm\\dataset-staging\\plan_capture_good_20260610_225335_084.json",
+      "example_id": "ex_20260610_225335",
+      "run_id": "20260610_225335",
+      "quality_score": 84,
+      "example_class": "positive",
+      "decision": "rejected",
+      "split": null,
+      "quality": null,
+      "note": "CAPTURE-001 post token fix: collapse cured but hallucinated HTML/CSS/JS stack (sidebar_ui.html, history_manager.js) for WPF app — web-default failure mode, same family as 012/015/016",
+      "decided_at": "2026-06-10T22:54:31Z",
+      "decided_by": "human"
+    },
+    "ex_20260610_225431": {
+      "file": ".orc\\swarm\\dataset-staging\\plan_capture_good_20260610_225431_084.json",
+      "example_id": "ex_20260610_225431",
+      "run_id": "20260610_225431",
+      "quality_score": 84,
+      "example_class": "positive",
+      "decision": "approved",
+      "split": "train",
+      "quality": "silver",
+      "note": "CAPTURE-004 post token fix: 3-task plan meets all gold content criteria (exact --dry-run arg, [DRY RUN] prefix, manifest-write skip specified); TESTER correctly run-and-report; silver by rubric-90 rule (84)",
+      "decided_at": "2026-06-10T22:55:22Z",
+      "decided_by": "human"
+    },
+    "ex_20260610_225522": {
+      "file": ".orc\\swarm\\dataset-staging\\plan_capture_good_20260610_225522_078.json",
+      "example_id": "ex_20260610_225522",
+      "run_id": "20260610_225522",
+      "quality_score": 78,
+      "example_class": "positive",
+      "decision": "rejected",
+      "split": null,
+      "quality": null,
+      "note": "CAPTURE-006 retry: hallucinated ModelWikiService.py (Python) for WPF Model Wiki + new service class when engines exist — wrong-stack family (was TypeScript on attempt 1); deterministic-ish app-feature Python default",
+      "decided_at": "2026-06-10T22:55:58Z",
+      "decided_by": "human"
+    },
+    "ex_20260610_225558": {
+      "file": ".orc\\swarm\\dataset-staging\\plan_capture_good_20260610_225558_084.json",
+      "example_id": "ex_20260610_225558",
+      "run_id": "20260610_225558",
+      "quality_score": 84,
+      "example_class": "positive",
+      "decision": "rejected",
+      "split": null,
+      "quality": null,
+      "note": "CAPTURE-008 retry: TESTER assigned to WRITE test_data.jsonl + verify_diff.py again (identical to attempt 1) — deterministic role misuse whenever test creation is implied; boss prompt/LoRA must teach TESTER=no-write",
+      "decided_at": "2026-06-10T22:56:42Z",
       "decided_by": "human"
     }
   }

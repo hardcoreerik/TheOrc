@@ -39,6 +39,13 @@ feedback loops and self-directed improvement.
   high-fitness variants auto-promoted to SchemaLibrary
 - [ ] **Self-improve loop** — GitHub issue scanner → Agent panel injection → TheOrc proposes
   and applies fixes to itself via source clone
+- [ ] **GOBLIN HARVEST — autonomous dataset farming** — TheOrc runs Training Pit capture
+  cycles on itself: swarmcli batch runner → deterministic rubric rejections (wrong-stack
+  extension check, TESTER-write check, single-task check) → local judge-model triage
+  (qwen2.5-coder:14b or Hermes-4-14B — never the boss model judging itself) → human
+  approves only final train candidates. Identified 2026-06-10 after manual review caught
+  4 high-rubric defect classes the rubric cannot see (wrong stack, role misuse, language
+  substitution, confident fabrication)
 - [ ] **Parallel slots live gate** — `OLLAMA_NUM_PARALLEL` detection; swarm start blocked if
   slots < worker count; settings panel shows live status
 - [ ] **Wire `TotalVramGb`** in SwarmSession — currently hardcoded 0; call
@@ -84,12 +91,12 @@ The Training Pit is on its own milestone track, not tied to app version numbers.
 |---|---|---|
 | Phase 1 | ✅ Done | Scaffolding — schemas, rubrics, configs, scripts |
 | Phase 2 | ✅ Done | Data collection — auto-capture via DatasetCapture.cs |
-| Phase 2.5 | 🔵 Active | Dataset Accumulation — infrastructure complete; collecting captures (16/150 train · 4/20 eval · 7/25 negative) |
+| Phase 2.5 | 🔵 Active | Dataset Accumulation — infrastructure complete; collecting captures (17/150 train · 4/20 eval · 7/25 negative) |
 | Phase 3 | 🔴 Blocked | Training — LoRA fine-tune on Gemma 4 12B QAT |
 | Phase 4 | 🔲 Future | Deployment — A/B path in SwarmSession |
 
 **Phase 3 gate:** ≥150 reviewed positive examples + ≥25 negative examples + ≥20 eval.
-Current count: **16/150 train, 7/25 negative, 4/20 eval.**
+Current count: **17/150 train, 7/25 negative, 4/20 eval.**
 Run `python training_pit/scripts/review_captures.py --status` for live counters.
 See `training_pit/BATCH_CAPTURE_PLAN.md` for the next planned capture batch (20 prompts).
 

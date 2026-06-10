@@ -4,7 +4,7 @@
 > Phase 3 infrastructure is complete (`review_captures.py`, `phase3_preflight.py`, manifest tracking).
 > We are now in the **dataset accumulation stage** — collecting real TheOrc swarm captures,
 > reviewing them, and building toward the Phase 3 gate (150/20/25).
-> Current counts: **16/150 train · 4/20 eval · 7/25 negative.**
+> Current counts: **17/150 train · 4/20 eval · 7/25 negative.**
 > Do not add training scripts or launch training jobs until `phase3_preflight.py` exits 0.
 
 ---
@@ -69,7 +69,7 @@ Phase 4 (FUTURE): Deployment
 
 | Item | Count | Required for Phase 3 |
 |---|---|---|
-| Reviewed positive examples in `train_v1.jsonl` | **16** | ≥ 150 |
+| Reviewed positive examples in `train_v1.jsonl` | **17** | ≥ 150 |
 | Reviewed negative examples in `negative_v1.jsonl` | **7** | ≥ 25 |
 | Fixed eval prompts in `evals/` | 10+ | ≥ 20 (met) |
 
