@@ -4,7 +4,7 @@
 > Phase 2.5 adds `review_captures.py` — the manifest-based gate between raw swarm captures
 > and promoted training data. Phase 3 training is **BLOCKED** pending ≥150 reviewed
 > positive examples. Do not add training scripts or launch training jobs until Phase 3
-> is explicitly unblocked (`--status` shows ALL GATES MET).
+> is explicitly unblocked (`phase3_preflight.py` exits 0).
 
 ---
 
@@ -46,6 +46,7 @@ Phase 2.5 (ACTIVE): Dataset Review / Approval Valve
   ├── review_captures.py — manifest-driven approve/reject/export
   ├── reviewed_v1.json manifest — tracked in git; source of truth for reviewed decisions
   ├── Atomic export gate: validate + sanitize before writing JSONL
+  ├── phase3_preflight.py — 9-check readiness gate (exit 0 = READY, 1 = BLOCKED)
   └── Phase 3 gate counters: 0/150 train, 0/25 negative, 0+/20 eval
 
 Phase 3 (BLOCKED): Training
@@ -164,6 +165,7 @@ All scripts are in `training_pit/scripts/`:
 | Script | Purpose |
 |---|---|
 | `review_captures.py` | **Phase 2.5 valve** — list, inspect, approve, reject, export, status |
+| `phase3_preflight.py` | **Phase 3 gate** — 9 readiness checks; exit 0 = READY, 1 = BLOCKED |
 | `validate_dataset.py` | Validates JSONL format, fields, roles, quality labels |
 | `sanitize_dataset.py` | Scans for secrets, credentials, suspicious content |
 | `check_hardware.py` | Detects GPU/RAM, prints training tier estimate |
@@ -177,7 +179,7 @@ All scripts are in `training_pit/scripts/`:
 
 - Do **not** add `trainer.py` or Unsloth/transformers training scripts yet
 - Do **not** add `requirements-train.txt` or heavy ML dependencies to the main project
-- Do **not** launch training jobs until Phase 3 is explicitly unblocked
+- Do **not** launch training jobs until `python training_pit/scripts/phase3_preflight.py` exits 0
 - Do **not** commit raw dataset JSONL files — they are local-only and gitignored
 - Do **not** mark an adapter `approved` until it improves eval results over the base model
 - Do **not** add new swarm execution roles beyond the existing four (RESEARCHER, CODER, UIDEVELOPER, TESTER)

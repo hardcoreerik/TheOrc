@@ -175,6 +175,18 @@ the QAT base model + prompt engineering. The threshold exists because:
 - With < 25 negatives, the eval loop cannot detect regression on failure modes
 - Without held-out eval prompts, there is no reliable pre/post improvement signal
 
+**The Phase 3 gate is enforced programmatically.** All training scripts must call
+`phase3_preflight.py` before starting and abort if it exits non-zero:
+
+```powershell
+python training_pit/scripts/phase3_preflight.py
+# exit 0 = READY, exit 1 = BLOCKED, exit 2 = error
+```
+
+`phase3_preflight.py` checks 9 conditions: manifest validity, count thresholds, JSONL
+file presence, manifest/file consistency, validation, sanitization, duplicates,
+eval isolation, and staging safety.
+
 ---
 
 ## Dataset Staging Flow
@@ -297,3 +309,4 @@ Add a new role to training examples only after:
 |---------|------|-------|
 | 1.0 | 2026-06-09 | Initial dataset strategy document |
 | 1.1 | 2026-06-09 | Phase 2.5: replaced manual staging flow with review_captures.py approval valve |
+| 1.2 | 2026-06-09 | Phase 2.5: added phase3_preflight.py programmatic gate for Phase 3 |

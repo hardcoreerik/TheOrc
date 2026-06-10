@@ -3,6 +3,7 @@
 > **Status:** Phase 2.5 ACTIVE — Dataset Review / Approval Valve.
 > Use `review_captures.py` (not manual cat-append) to promote captures to training data.
 > Phase 3 training is BLOCKED pending minimum dataset thresholds.
+> Run `python training_pit/scripts/phase3_preflight.py` to check all 9 readiness conditions.
 > See [DATASET_STRATEGY.md](../DATASET_STRATEGY.md) for the full strategy and
 > [docs/DATASET_REVIEW_WORKFLOW.md](../../docs/DATASET_REVIEW_WORKFLOW.md) for the review process.
 
@@ -63,6 +64,13 @@ Public datasets may be considered for later worker-goblin adapters, not for the 
 
 ## Phase 3 Gate — Training Is Blocked Until
 
+Run the preflight to check all conditions at once:
+
+```powershell
+python training_pit/scripts/phase3_preflight.py
+# exit 0 = READY, exit 1 = BLOCKED
+```
+
 | Condition | Required |
 |-----------|---------|
 | Reviewed positive examples in `train_v1.jsonl` | ≥ 150 |
@@ -70,6 +78,11 @@ Public datasets may be considered for later worker-goblin adapters, not for the 
 | Fixed eval prompts in `evals/` | ≥ 20 (already met) |
 | All training data: `validate_dataset.py` passed | 0 errors |
 | All training data: `sanitize_dataset.py` passed | 0 rejects |
+| No duplicates across splits | 0 duplicates |
+| Eval prompts not in training set | 0 contamination |
+
+**All future training scripts must call `phase3_preflight.py` and abort if it exits non-zero.**
+No training script should be added to this repo until Phase 3 is explicitly unblocked.
 
 ---
 
@@ -183,3 +196,4 @@ Both must pass clean (0 errors, 0 rejects) before a file is used in a training j
 | 1.1 | 2026-06-09 | Updated paths fine_tuning/ → training_pit/; aligned with canonical chat-JSONL schema |
 | 1.2 | 2026-06-09 | Three-tier source strategy, Phase 3 gate, no-public-datasets policy, synthetic % corrected 25% → 5% eval-only |
 | 1.3 | 2026-06-09 | Phase 2.5: replaced manual cat-append with review_captures.py approval valve |
+| 1.4 | 2026-06-09 | Phase 2.5: added phase3_preflight.py gate; training guard note |

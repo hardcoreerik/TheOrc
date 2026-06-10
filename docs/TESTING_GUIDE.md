@@ -215,3 +215,25 @@ FlaUI test failures save screen recordings to:
 
 These are AVI files named by test and timestamp. Review them when a test fails in CI or
 on a machine where you can't observe the screen.
+
+---
+
+## Training Pit Python Tests
+
+The Training Pit scripts have their own unittest suites under `training_pit/tests/`.
+These run without FlaUI, Ollama, or a live desktop — pure Python unit tests.
+
+```powershell
+# Run from the repo root
+
+# Phase 2.5 approval valve tests (31 tests)
+python training_pit/tests/test_review_captures.py
+
+# Phase 3 preflight guardrail tests (36 tests)
+python training_pit/tests/test_phase3_preflight.py
+```
+
+Both suites use isolated temp directories and do not read or modify the live
+`reviewed_v1.json` manifest or any staged captures.
+
+**Run both after any change to Training Pit scripts.** All tests must pass before committing.

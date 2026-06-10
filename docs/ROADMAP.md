@@ -84,7 +84,7 @@ The Training Pit is on its own milestone track, not tied to app version numbers.
 |---|---|---|
 | Phase 1 | ✅ Done | Scaffolding — schemas, rubrics, configs, scripts |
 | Phase 2 | ✅ Done | Data collection — auto-capture via DatasetCapture.cs |
-| Phase 2.5 | 🔵 Active | Dataset Review / Approval Valve — `review_captures.py` |
+| Phase 2.5 | 🔵 Active | Dataset Review / Approval Valve — `review_captures.py` + `phase3_preflight.py` |
 | Phase 3 | 🔴 Blocked | Training — LoRA fine-tune on Gemma 4 12B QAT |
 | Phase 4 | 🔲 Future | Deployment — A/B path in SwarmSession |
 

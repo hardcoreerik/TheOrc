@@ -44,6 +44,10 @@ python training_pit/scripts/review_captures.py --export-negative
 
 # Phase 3 gate counters
 python training_pit/scripts/review_captures.py --status
+
+# Full Phase 3 readiness check (9 checks — exit 0 = READY, 1 = BLOCKED)
+python training_pit/scripts/phase3_preflight.py
+python training_pit/scripts/phase3_preflight.py --json   # machine-readable output
 ```
 
 ---
@@ -228,15 +232,26 @@ Output:
 
 ## Phase 3 Gate
 
-Training is blocked until ALL of these conditions are met:
+Training is blocked until ALL of these conditions are met. Run `phase3_preflight.py` to check all 9:
+
+```powershell
+python training_pit/scripts/phase3_preflight.py
+```
 
 | Condition | Required | Status |
 |---|---|---|
 | Reviewed positive examples in `train_v1.jsonl` | ≥ 150 | 0 / 150 |
 | Reviewed negative examples in `negative_v1.jsonl` | ≥ 25 | 0 / 25 |
 | Eval prompts in `evals/` | ≥ 20 | Met |
-| `validate_dataset.py` passes on `train_v1.jsonl` | 0 errors | Enforced by export gate |
-| `sanitize_dataset.py` passes on `train_v1.jsonl` | 0 rejects | Enforced by export gate |
+| JSONL export files exist | All 3 present | Enforced by preflight |
+| Manifest/file counts consistent | 0 mismatches | Enforced by preflight |
+| `validate_dataset.py` passes on all JSONL files | 0 errors | Enforced by export gate + preflight |
+| `sanitize_dataset.py` passes on all JSONL files | 0 rejects | Enforced by export gate + preflight |
+| No duplicate examples across splits | 0 duplicates | Enforced by preflight |
+| Eval prompts not in training data | 0 contamination | Enforced by preflight |
+
+**`phase3_preflight.py` must exit 0 before any training job is started.**
+Customize thresholds for testing: `--min-train 5 --min-eval 1 --min-negative 1`
 
 See [TRAINING_PIT_GUIDE.md](TRAINING_PIT_GUIDE.md) for the full Phase 3 decision framework.
 

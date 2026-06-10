@@ -5,9 +5,10 @@
 > Use `review_captures.py` to inspect, approve, and export captures to training JSONL.
 > Phase 3 training is **blocked** pending ≥150 reviewed positive examples.
 > Run `python training_pit/scripts/review_captures.py --status` for live gate counters.
+> Run `python training_pit/scripts/phase3_preflight.py` to check all 9 Phase 3 readiness conditions.
 >
 > **Live training is not yet implemented. Do not add training scripts or launch jobs
-> until Phase 3 is explicitly unblocked. See ARCHITECTURE.md for the full roadmap.**
+> until `phase3_preflight.py` exits 0. See ARCHITECTURE.md for the full roadmap.**
 
 ---
 
@@ -53,6 +54,7 @@ reliably across goals, domains, and model versions.
 - [x] **Dataset strategy documented** (`DATASET_STRATEGY.md`) — three-tier sources, Phase 3 gate
 - [x] **Role architecture documented** (`ROLE_ARCHITECTURE.md`) — logical/execution role split, alias map
 - [x] **`review_captures.py` live (Phase 2.5)** — approval valve with manifest, validate+sanitize gate, atomic export
+- [x] **`phase3_preflight.py` live (Phase 2.5)** — 9-check Phase 3 readiness gate; all future training scripts must call this first
 
 ---
 
@@ -70,6 +72,7 @@ Phase 2.5 (ACTIVE): Dataset Review / Approval Valve
   ├── review_captures.py — list/inspect/approve/reject/export/status
   ├── reviewed_v1.json manifest — tracked in git
   ├── Atomic export gate: validate + sanitize before writing JSONL
+  ├── phase3_preflight.py — 9-check readiness gate (exit 0=READY, 1=BLOCKED)
   └── Phase 3 counters: 0/150 train, 0/25 negative, 0+/20 eval
 
 Phase 3 (BLOCKED): Training
@@ -138,6 +141,7 @@ training_pit/
 
   scripts/
     review_captures.py            ← Phase 2.5 approval valve (list/inspect/approve/reject/export)
+    phase3_preflight.py           ← Phase 3 readiness check (9 checks; exit 0=READY, 1=BLOCKED)
     validate_dataset.py           ← validates JSONL format, fields, roles
     sanitize_dataset.py           ← scans for secrets, reports suspicious lines
     check_hardware.py             ← detects GPU/RAM, prints training tier estimate
@@ -151,6 +155,7 @@ training_pit/
     __init__.py
     fixtures/review_workflow/     ← test fixtures for review_captures.py
     test_review_captures.py       ← unit tests for review_captures.py (31 tests)
+    test_phase3_preflight.py      ← unit tests for phase3_preflight.py (36 tests)
 ```
 
 ---
@@ -158,6 +163,7 @@ training_pit/
 ## Do Not
 
 - Do not add `trainer.py` or any Unsloth/transformers training scripts yet
+- All future training scripts must call `phase3_preflight.py` before starting — it is the only gate to Phase 3
 - Do not add `requirements-train.txt` or heavy ML deps to the main project
 - Do not launch training jobs until Phase 2 data collection is complete and validated
 - Do not commit raw dataset JSONL files — add `datasets/*.jsonl` to `.gitignore` when Phase 2 starts
@@ -166,4 +172,4 @@ training_pit/
 
 ---
 
-*Last updated: 2026-06-09 — Phase 2.5 active. review_captures.py approval valve added; manifest tracked in git; 31 unit tests green.*
+*Last updated: 2026-06-09 — Phase 2.5 complete. review_captures.py (31 tests) + phase3_preflight.py (36 tests) both green. Phase 3 BLOCKED pending dataset collection.*
