@@ -28,4 +28,10 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk"  Version="17.12.0"/>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Direct reference for white-box unit tests (language detection etc.);
+         FlaUI black-box tests still launch the built exe separately -->
+    <ProjectReference Include="..\OrchestratorIDE\OrchestratorIDE.csproj" />
+  </ItemGroup>
+
 </Project>

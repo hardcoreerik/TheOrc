@@ -29,6 +29,11 @@
     <EmbeddedResource Include="Resources\model-wiki-observations.json"/>
   </ItemGroup>
 
+  <!-- Expose internals (e.g. SwarmSession.DetectTargetLanguage) to the test project -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="OrchestratorIDE.UITests" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="AvalonEditB" Version="1.2.0" />
     <PackageReference Include="DiffPlex" Version="1.9.0" />

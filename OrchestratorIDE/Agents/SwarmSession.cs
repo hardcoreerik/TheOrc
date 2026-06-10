@@ -849,15 +849,24 @@ public class SwarmSession
     /// Inspects the user's goal for explicit language/stack keywords.
     /// Returns the canonical language name, or empty string if undetected.
     /// Workers will be locked to this language if non-empty.
+    ///
+    /// Detection runs in two passes:
+    ///   1. Output-artifact pass — filenames the goal asks to create/write/add.
+    ///      "Write T09_Tests.cs that invokes review_captures.py" locks to C#,
+    ///      because .cs is the requested artifact and .py is just tooling.
+    ///   2. Keyword pass — the original keyword scan, unchanged, as fallback.
     /// </summary>
-    private static string DetectTargetLanguage(string goal)
+    internal static string DetectTargetLanguage(string goal)
     {
         var lower = goal.ToLowerInvariant();
 
+        var artifactLang = DetectArtifactLanguage(lower);
+        if (artifactLang.Length > 0) return artifactLang;
+
         // Python — most common swarm target; check early
+        // (filename mentions like ".py" are handled by the artifact pass above)
         if (lower.Contains("python") || lower.Contains("tkinter") || lower.Contains("pyqt") ||
-            lower.Contains("flask") || lower.Contains("django") || lower.Contains("fastapi") ||
-            lower.Contains(".py ") || lower.Contains(".py\n") || lower.EndsWith(".py"))
+            lower.Contains("flask") || lower.Contains("django") || lower.Contains("fastapi"))
             return "Python";
 
         // Web
@@ -890,11 +899,70 @@ public class SwarmSession
         // Scripting
         if (lower.Contains("ruby") || lower.Contains("rails")) return "Ruby";
         if (lower.Contains("php") || lower.Contains("laravel")) return "PHP";
-        if (lower.Contains("powershell") || lower.Contains(" ps1")) return "PowerShell";
+        if (lower.Contains("powershell")) return "PowerShell";
         if (lower.Contains("bash") || lower.Contains("shell script")) return "Bash";
 
         return "";  // unknown — boss/task description will guide workers
     }
+
+    // Filenames with a recognized code extension, e.g. health_check.ps1,
+    // ModelWikiWindow.xaml.cs, review_captures.py
+    private static readonly Regex _artifactFileRe =
+        new(@"[\w\-]+(?:\.[\w\-]+)*\.(?<ext>[a-z0-9]{1,6})\b", RegexOptions.Compiled);
+
+    // A creation verb followed by the filename within the same sentence fragment
+    // (no sentence terminator between verb and filename) marks the file as the
+    // goal's requested OUTPUT artifact rather than referenced tooling.
+    private static readonly Regex _creationVerbRe =
+        new(@"\b(write|create|add|implement|build|generate|make|update|modify|edit|extend|refactor)\b[^.!?\n]{0,80}$",
+            RegexOptions.Compiled);
+
+    /// <summary>
+    /// Detects the lock language from filenames mentioned in the goal.
+    /// Requested artifacts (preceded by a creation verb) outrank incidental
+    /// mentions; mixed-language mentions without a clear requested artifact
+    /// yield no lock so the keyword pass can decide.
+    /// </summary>
+    internal static string DetectArtifactLanguage(string lowerGoal)
+    {
+        var requested = new HashSet<string>();
+        var mentioned = new HashSet<string>();
+
+        foreach (Match m in _artifactFileRe.Matches(lowerGoal))
+        {
+            var lang = ExtensionLanguage(m.Groups["ext"].Value);
+            if (lang is null) continue;
+
+            mentioned.Add(lang);
+            if (_creationVerbRe.IsMatch(lowerGoal[..m.Index]))
+                requested.Add(lang);
+        }
+
+        if (requested.Count == 1) return requested.First();
+        if (requested.Count == 0 && mentioned.Count == 1) return mentioned.First();
+        return "";  // none, or ambiguous mix — defer to keyword pass
+    }
+
+    /// <summary>Maps a filename extension to its canonical lock language.</summary>
+    private static string? ExtensionLanguage(string ext) => ext switch
+    {
+        "py"                                    => "Python",
+        "cs" or "xaml" or "csproj" or "sln"
+             or "slnx"                          => "C#",
+        "ts" or "tsx"                           => "TypeScript",
+        "js" or "jsx" or "mjs"                  => "JavaScript",
+        "rs"                                    => "Rust",
+        "go"                                    => "Go",
+        "cpp" or "cc" or "cxx" or "hpp"         => "C++",
+        "kt" or "kts"                           => "Kotlin",
+        "java"                                  => "Java",
+        "swift"                                 => "Swift",
+        "rb"                                    => "Ruby",
+        "php"                                   => "PHP",
+        "ps1" or "psm1" or "psd1"               => "PowerShell",
+        "sh" or "bash"                          => "Bash",
+        _                                       => null   // docs/data/unknown — no lock signal
+    };
 
     // ── Boss: Decompose ───────────────────────────────────────────────────────
 
