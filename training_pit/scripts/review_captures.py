@@ -91,6 +91,7 @@ MANIFEST_PATH = REPO_ROOT / "training_pit" / "datasets" / "manifests" / "reviewe
 STAGING_DIRS: list[Path] = [
     REPO_ROOT / ".orc" / "swarm" / "dataset-staging",
     REPO_ROOT / ".orc" / "swarm" / "dataset-staging-test",
+    REPO_ROOT / ".orc" / "swarm" / "dataset-staging-manual",  # hand-authored plan captures
 ]
 
 OUTPUT_PATHS: dict[str, Path] = {

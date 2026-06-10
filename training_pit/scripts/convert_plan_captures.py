@@ -92,7 +92,11 @@ def load_capture(path: Path) -> dict | None:
 
 
 def capture_to_chat_jsonl(capture: dict) -> dict | None:
-    """Convert a positive plan capture to a chat-JSONL training example."""
+    """Convert a plan capture to a chat-JSONL training example.
+
+    Works for both positive (score >= 70) and negative (score <= 39) captures.
+    Negative captures are exported to negative_v1.jsonl for DPO/regression eval.
+    """
     goal = capture.get("goal", "")
     plan = capture.get("plan")
     score = capture.get("quality_score", 0)
@@ -108,8 +112,20 @@ def capture_to_chat_jsonl(capture: dict) -> dict | None:
     else:
         assistant_content = json.dumps(plan, separators=(",", ":"), ensure_ascii=False)
 
-    # Determine quality tier
+    if not assistant_content:
+        return None
+
+    # Determine quality tier from score (reviewer override applied later in review_captures.py)
     quality = "gold" if score >= 90 else "silver"
+
+    # Preserve source from capture; map to a valid VALID_SOURCES value
+    _VALID_SOURCES = {
+        "manual", "corrected_model_output", "terminal_log", "repo_issue",
+        "swarm_capture", "eval_failure", "synthetic", "imported",
+    }
+    raw_source = capture.get("source", "swarm_capture")
+    source = raw_source if raw_source in _VALID_SOURCES else "swarm_capture"
+    created_by = "user" if source == "manual" else "auto"
 
     return {
         "messages": [
@@ -120,16 +136,15 @@ def capture_to_chat_jsonl(capture: dict) -> dict | None:
         "metadata": {
             "category": "boss_planning",
             "task_type": "feature_plan",
-            "source": "swarm_capture",
+            "source": source,
             "quality": quality,
             "contains_sensitive_data": False,
             "base_model_target": boss_model,
-            "created_by": "auto",
+            "created_by": created_by,
             "notes": (
-                f"Auto-converted from plan capture {capture.get('example_id', run_id)}. "
+                f"Converted from plan capture {capture.get('example_id', run_id)}. "
                 f"Quality score: {score}/100. "
-                f"Rubric: {capture.get('rubric_scores', {})}. "
-                f"Review before promoting to training set."
+                f"Rubric: {capture.get('rubric_scores', {})}."
             ),
         },
     }

@@ -75,10 +75,12 @@ from sanitize_dataset import sanitize_file   # noqa: E402
 _DEFAULT_MANIFEST = REPO_ROOT / "training_pit" / "datasets" / "manifests" / "reviewed_v1.json"
 _DEFAULT_DATASETS_DIR = REPO_ROOT / "training_pit" / "datasets"
 
-# Staging directories to check for unreviewed captures
+# Staging directories to check for unreviewed captures.
+# Must stay in sync with review_captures.py STAGING_DIRS.
 _STAGING_DIRS: list[Path] = [
     REPO_ROOT / ".orc" / "swarm" / "dataset-staging",
     REPO_ROOT / ".orc" / "swarm" / "dataset-staging-test",
+    REPO_ROOT / ".orc" / "swarm" / "dataset-staging-manual",  # hand-authored plan captures
 ]
 
 # Default thresholds (same as Phase 3 gate in DATASET_STRATEGY.md)
@@ -596,16 +598,26 @@ def _check_staging_safety(manifest: dict, staging_dirs: list[Path]) -> CheckResu
         if not staging_dir.exists():
             continue
         for capture_file in staging_dir.glob("plan_capture_*.json"):
-            # Derive example_id from filename (DatasetCapture.cs format:
+            # Prefer reading example_id directly from the JSON file (authoritative).
+            # Fall back to filename-derived ID for captures that can't be read.
+            example_id: str | None = None
+            try:
+                import json as _json
+                with open(capture_file, encoding="utf-8") as _f:
+                    capture_data = _json.load(_f)
+                    example_id = capture_data.get("example_id")
+            except Exception:
+                pass
+
+            # Fallback: derive from filename (DatasetCapture.cs format:
             # plan_capture_{good|bad}_{runId}_{score:D3}.json → ex_{runId})
-            parts = capture_file.stem.split("_")
-            # parts: ["plan", "capture", "good"|"bad", *runId_parts, score]
-            # runId is everything between index 3 and the last part
-            if len(parts) >= 5:
-                run_id_parts = parts[3:-1]  # exclude score (last part)
-                example_id = "ex_" + "_".join(run_id_parts)
-            else:
-                example_id = capture_file.stem
+            if not example_id:
+                parts = capture_file.stem.split("_")
+                if len(parts) >= 5:
+                    run_id_parts = parts[3:-1]  # exclude score (last part)
+                    example_id = "ex_" + "_".join(run_id_parts)
+                else:
+                    example_id = capture_file.stem
 
             if example_id in manifest_keys:
                 reviewed_count += 1
