@@ -2,6 +2,7 @@ using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.UIA3;
 using NUnit.Framework;
+using System.Text.RegularExpressions;
 
 namespace OrchestratorIDE.UITests.Tests;
 
@@ -15,6 +16,12 @@ namespace OrchestratorIDE.UITests.Tests;
 ///   - No prompt-length limit: full Python code is embedded verbatim in prompts so
 ///     the model just copies content into write_file calls (no code generation needed).
 ///   - Two passes, 3 files each — matches the model's natural step limit.
+///
+/// Known model requirement:
+///   This test requires reliable write_file tool-call JSON generation.
+///   Small models (≤4B, e.g. nemotron-nano, phi-mini, llama-3.2-3b) frequently
+///   truncate the JSON mid-content, leaving unparseable tool calls.
+///   Use theorc-boss:gemma4, gemma4:12b, qwen2.5-coder:14b, or similar for reliable results.
 /// </summary>
 [TestFixture]
 public class T06_BuildResearchTool : RecordingTestBase
@@ -33,10 +40,18 @@ public class T06_BuildResearchTool : RecordingTestBase
     private static Window?         _win;
     private static string          _workspace = "";
 
-    // ── Pass 1 prompt — 3 Python modules ─────────────────────────────────────
-    // Spec-style: tells the model what to write; AgentLoop's IsRefusal nudge
-    // handles the case where the model responds with markdown instead of write_file.
+    // ── Weak model names that reliably fail this test ─────────────────────────
+    // Match both hyphenated slugs (settings/ollama tags) and space-separated display names (StatusBar).
+    private static readonly string[] WeakModelSubstrings =
+    [
+        "nemotron-3-nano", "nemotron-nano", "nemotron 3 nano", "nemotron nano",
+        "phi-mini", "phi4-mini", "phi 4 mini", "phi mini",
+        "llama-3.2-3b", "llama3.2:3b", "llama 3.2 3b",
+        "qwen:1.5b", "qwen:3b", "qwen 1.5b", "qwen 3b",
+        "tinyllama", "smollm",
+    ];
 
+    // ── Pass 1 prompt — 3 Python modules ─────────────────────────────────────
     private const string Pass1Prompt =
         "Write 3 Python files using write_file:\n\n" +
         "main.py: tkinter GUI 'OrcResearcher'. " +
@@ -51,7 +66,6 @@ public class T06_BuildResearchTool : RecordingTestBase
         "generate(host,model,prompt,cb) POST /api/generate streaming.";
 
     // ── Pass 2 prompt — 3 support files (literal content, proven to work) ────
-
     private const string Pass2Prompt =
         "Write 3 more OrcResearcher files now using write_file:\n\n" +
         "file_manager.py: " +
@@ -67,10 +81,7 @@ public class T06_BuildResearchTool : RecordingTestBase
         "python main.py\n" +
         "Requires Ollama running at http://localhost:11434";
 
-    // ── Pass 3 prompt — main.py ONLY, minimal stub so JSON fits in one response ─
-    // Root cause: the model truncates its response at ~754 chars when writing
-    // complex GUI code; a short stub (~15 lines) fits in one complete JSON call.
-
+    // ── Pass 3 prompt — main.py ONLY, minimal stub ───────────────────────────
     private const string Pass3MainPrompt =
         "Write ONLY main.py using write_file. " +
         "Keep it short (15-20 lines) — a minimal working stub:\n\n" +
@@ -82,7 +93,6 @@ public class T06_BuildResearchTool : RecordingTestBase
         "Do NOT write any other files. Write ONLY main.py.";
 
     // ── Required files for assertion ──────────────────────────────────────────
-
     private static readonly string[] RequiredFiles =
     [
         "main.py", "scraper.py", "ollama_client.py",
@@ -98,14 +108,17 @@ public class T06_BuildResearchTool : RecordingTestBase
             Path.GetTempPath(),
             $"OrcResearcher_{DateTime.Now:yyyyMMdd_HHmmss}");
         Directory.CreateDirectory(_workspace);
-        TestContext.WriteLine($"[T06] Workspace : {_workspace}");
 
         var exe = ResolveExePath();
+
+        // ── Print startup diagnostics ─────────────────────────────────────────
+        TestContext.WriteLine($"[T06] ═══ STARTUP DIAGNOSTICS ═══");
+        TestContext.WriteLine($"[T06] Workspace : {_workspace}");
         TestContext.WriteLine($"[T06] Executable: {exe}");
+        TestContext.WriteLine($"[T06] Timestamp : {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        TestContext.WriteLine($"[T06] AutoApprove: enabled (--autoapprove flag passed)");
 
         _automation = new UIA3Automation();
-        // --autoapprove: sets _approvals.AutoApprove=true so write_file never shows approval UI.
-        // Do NOT use --autotest — that flag is intercepted by App.xaml.cs → AutoTestWindow.
         _app = Application.Launch(exe, $"--workspace \"{_workspace}\" --autoapprove");
         _win = _app.GetMainWindow(_automation, TimeSpan.FromSeconds(20));
 
@@ -167,6 +180,11 @@ public class T06_BuildResearchTool : RecordingTestBase
         Assert.That(WaitUntil(() => FindById("AgentPanel.Input") != null, TimeSpan.FromSeconds(15)),
             Is.True, "Agent panel did not appear.");
 
+        // ── 2b. Print active model from status bar ────────────────────────────
+        var activeModel = ByIdText("StatusBar.Model") ?? "(unknown)";
+        TestContext.WriteLine($"[T06]    Active model: {activeModel}");
+        CheckModelCapability(activeModel);
+
         // ── 3. Idle check ──────────────────────────────────────────────────────
         TestContext.WriteLine("[T06] ── 3. Waiting for idle agent…");
         WaitForAgentIdle(TimeSpan.FromSeconds(20));
@@ -174,7 +192,7 @@ public class T06_BuildResearchTool : RecordingTestBase
         // ── 4. Pass 1 — main.py, scraper.py, ollama_client.py ────────────────
         TestContext.WriteLine("[T06] ── 4. Pass 1 (3 Python modules)…");
         var p1 = SendAndWaitForAgent(Pass1Prompt, AgentStartWaitSec);
-        TestContext.WriteLine(p1 ? "[T06]    ✓ Agent started" : "[T06]    ⚠ Agent start unconfirmed — monitoring anyway");
+        TestContext.WriteLine(p1 ? "[T06]    ✓ Agent started (Stop button enabled)" : "[T06]    ⚠ Agent start unconfirmed — monitoring anyway");
         MonitorBuild(TimeSpan.FromMinutes(PassTimeoutMin), TimeSpan.FromMinutes(StallDetectMin));
         PrintAndClearAgentLog("Pass1");
 
@@ -184,24 +202,19 @@ public class T06_BuildResearchTool : RecordingTestBase
             .ToList();
         TestContext.WriteLine($"[T06] ── 5. Pass 2 ({missingAfterPass1.Count} files still missing)…");
 
-        // Always run pass 2 to ensure the lightweight support files are written.
-        // If everything was written in pass 1, pass 2 is a fast no-op (model sees files exist).
         WaitForAgentIdle(TimeSpan.FromSeconds(15));
         var p2 = SendAndWaitForAgent(Pass2Prompt, AgentStartWaitSec);
-        TestContext.WriteLine(p2 ? "[T06]    ✓ Agent started" : "[T06]    ⚠ Agent start unconfirmed — monitoring anyway");
+        TestContext.WriteLine(p2 ? "[T06]    ✓ Agent started (Stop button enabled)" : "[T06]    ⚠ Agent start unconfirmed — monitoring anyway");
         MonitorBuild(TimeSpan.FromMinutes(PassTimeoutMin), TimeSpan.FromMinutes(StallDetectMin));
         PrintAndClearAgentLog("Pass2");
 
         // ── 6. Pass 3 — main.py stub (only if still missing) ─────────────────
-        // The model truncates its JSON response at ~754 chars when asked to write
-        // complex GUI code for all 3 files in Pass 1. Pass 3 asks for ONLY main.py
-        // with an explicit minimal spec so the JSON is small and complete.
         if (!File.Exists(Path.Combine(_workspace, "main.py")))
         {
             TestContext.WriteLine("[T06] ── 6. Pass 3 (main.py stub — still missing)…");
             WaitForAgentIdle(TimeSpan.FromSeconds(15));
             var p3 = SendAndWaitForAgent(Pass3MainPrompt, AgentStartWaitSec);
-            TestContext.WriteLine(p3 ? "[T06]    ✓ Agent started" : "[T06]    ⚠ Agent start unconfirmed — monitoring anyway");
+            TestContext.WriteLine(p3 ? "[T06]    ✓ Agent started (Stop button enabled)" : "[T06]    ⚠ Agent start unconfirmed — monitoring anyway");
             MonitorBuild(TimeSpan.FromMinutes(PassTimeoutMin), TimeSpan.FromMinutes(StallDetectMin));
             PrintAndClearAgentLog("Pass3");
         }
@@ -219,13 +232,163 @@ public class T06_BuildResearchTool : RecordingTestBase
         foreach (var name in RequiredFiles)
             TestContext.WriteLine($"[T06]    {name,-22}: {(File.Exists(Path.Combine(_workspace, name)) ? "✓" : "✗")}");
 
+        // ── 7b. Failure evidence dump ─────────────────────────────────────────
+        // Read the final agentlog BEFORE assertions clear it, so PrintFailureEvidence
+        // has content to analyse even though PrintAndClearAgentLog already ran.
+        string? finalLogContent = null;
+        {
+            var lp = AgentLogPath();
+            if (File.Exists(lp)) finalLogContent = File.ReadAllText(lp);
+        }
+        if (pyFiles.Count == 0 || !hasMain || !hasReq)
+            PrintFailureEvidence(activeModel, finalLogContent);
+
         Assert.Multiple(() =>
         {
             Assert.That(pyFiles.Count, Is.GreaterThan(0),
-                "No .py files — Execute didn't run. Check Ollama (ollama ps).");
-            Assert.That(hasMain, Is.True, "main.py missing after both passes.");
-            Assert.That(hasReq,  Is.True, "requirements.txt missing after both passes.");
+                "No .py files — Execute didn't run. Check Ollama (ollama ps) and model capability.");
+            Assert.That(hasMain, Is.True, "main.py missing after all passes.");
+            Assert.That(hasReq,  Is.True, "requirements.txt missing after all passes.");
         });
+    }
+
+    // ── Model capability warning ───────────────────────────────────────────────
+
+    private static void CheckModelCapability(string modelName)
+    {
+        var lower = modelName.ToLowerInvariant();
+        var isWeak = WeakModelSubstrings.Any(s => lower.Contains(s));
+        if (isWeak)
+        {
+            TestContext.WriteLine(
+                $"[T06]    ⚠ MODEL WARNING: '{modelName}' appears to be a small/weak model.");
+            TestContext.WriteLine(
+                "[T06]      T06 is a live autonomous build test and requires reliable write_file tool-call generation.");
+            TestContext.WriteLine(
+                "[T06]      Small models (≤4B) frequently truncate write_file JSON mid-content, leaving");
+            TestContext.WriteLine(
+                "[T06]      unparseable tool calls. Switch to theorc-boss:gemma4, gemma4:12b, or qwen2.5-coder:14b.");
+        }
+        else
+        {
+            TestContext.WriteLine($"[T06]    Model capability: appears adequate for write_file generation.");
+        }
+    }
+
+    // ── Failure evidence dump ──────────────────────────────────────────────────
+
+    private void PrintFailureEvidence(string activeModel, string? preservedLogContent = null)
+    {
+        TestContext.WriteLine("[T06] ══ FAILURE EVIDENCE ══");
+
+        // All files under workspace
+        var allFiles = Directory.GetFiles(_workspace, "*", SearchOption.AllDirectories)
+                                .Where(f => !f.Contains("\\__pycache__\\"))
+                                .OrderBy(f => f).ToList();
+        TestContext.WriteLine($"[T06] All workspace files ({allFiles.Count}):");
+        if (allFiles.Count == 0)
+            TestContext.WriteLine("  (none — no files were written to workspace at all)");
+        else
+            foreach (var f in allFiles)
+                TestContext.WriteLine($"  {Path.GetRelativePath(_workspace, f),-45}  {new FileInfo(f).Length,6:N0} B");
+
+        // Final agentlog — use preserved content (captured before last PrintAndClearAgentLog deleted it)
+        // or fall back to reading from disk if still there.
+        var logContent = preservedLogContent;
+        if (logContent == null)
+        {
+            var logPath = AgentLogPath();
+            if (File.Exists(logPath)) logContent = File.ReadAllText(logPath);
+        }
+
+        if (logContent != null)
+        {
+            TestContext.WriteLine($"[T06] Last pass _agentlog.txt ({logContent.Length} chars):");
+            TestContext.WriteLine(logContent);
+            AnalyseAgentLog(logContent);
+        }
+        else
+        {
+            TestContext.WriteLine("[T06] _agentlog.txt: already cleared by PrintAndClearAgentLog (see per-pass output above)");
+        }
+
+        // Model diagnosis summary
+        var lower = activeModel.ToLowerInvariant();
+        var isWeak = WeakModelSubstrings.Any(s => lower.Contains(s));
+        TestContext.WriteLine($"[T06] Active model: {activeModel}");
+        if (isWeak)
+        {
+            TestContext.WriteLine("[T06] LIKELY ROOT CAUSE: Small/weak model truncated write_file JSON.");
+            TestContext.WriteLine("[T06] RECOMMENDED FIX: Set single-agent model to theorc-boss:gemma4");
+            TestContext.WriteLine("[T06]   or another ≥12B model before running T06.");
+        }
+        else
+        {
+            TestContext.WriteLine("[T06] Model appears capable — check Ollama connectivity and tool dispatch.");
+            TestContext.WriteLine("[T06] If write_file calls are truncated, the effective token limit may be too low.");
+        }
+    }
+
+    // ── Agent log analysis ────────────────────────────────────────────────────
+
+    private static void AnalyseAgentLog(string logContent)
+    {
+        // Detect write_file JSON fragments
+        var writeFileMatches = Regex.Matches(logContent, @"\{""name"":""write_file""");
+        TestContext.WriteLine($"[T06] write_file call fragments seen: {writeFileMatches.Count}");
+
+        // Check for truncated JSON — write_file start without closing }}
+        var truncated = 0;
+        foreach (Match m in writeFileMatches)
+        {
+            // A valid complete tool call ends with closing braces
+            var fragment = logContent[m.Index..Math.Min(m.Index + 2000, logContent.Length)];
+            // Count braces — valid JSON should be balanced
+            var opens  = fragment.Count(c => c == '{');
+            var closes = fragment.Count(c => c == '}');
+            if (opens > closes)
+            {
+                truncated++;
+                // Extract path if present
+                var pathMatch = Regex.Match(fragment, @"""path""\s*:\s*""([^""]+)""");
+                var path = pathMatch.Success ? pathMatch.Groups[1].Value : "(unknown path)";
+                TestContext.WriteLine($"[T06]   TRUNCATED write_file for: {path} (opens={opens} closes={closes})");
+            }
+            else
+            {
+                var pathMatch = Regex.Match(fragment, @"""path""\s*:\s*""([^""]+)""");
+                var path = pathMatch.Success ? pathMatch.Groups[1].Value : "(unknown path)";
+                TestContext.WriteLine($"[T06]   Parseable write_file for: {path}");
+            }
+        }
+
+        if (writeFileMatches.Count > 0 && truncated == writeFileMatches.Count)
+        {
+            TestContext.WriteLine("[T06] ALL write_file calls were truncated — model stopped mid-JSON.");
+            TestContext.WriteLine("[T06] This is a model capability failure, not an app logic failure.");
+        }
+        else if (writeFileMatches.Count > 0 && truncated == 0)
+        {
+            TestContext.WriteLine("[T06] write_file JSON appears complete — check tool dispatch path.");
+        }
+        else if (writeFileMatches.Count == 0)
+        {
+            TestContext.WriteLine("[T06] No write_file calls seen at all — model may be in Plan mode,");
+            TestContext.WriteLine("[T06] or refused to generate tool calls for this prompt.");
+        }
+    }
+
+    // ── Agent log path (fixed: .orc/_agentlog.txt, with fallback) ────────────
+
+    private string AgentLogPath()
+    {
+        // Primary: .orc/_agentlog.txt (where AgentLoop actually writes it)
+        var primary = Path.Combine(_workspace, ".orc", "_agentlog.txt");
+        if (File.Exists(primary)) return primary;
+
+        // Fallback: workspace root (old path, kept for backward compat)
+        var legacy = Path.Combine(_workspace, "_agentlog.txt");
+        return legacy;   // return even if it doesn't exist; caller checks File.Exists
     }
 
     // ── Build monitor ─────────────────────────────────────────────────────────
@@ -280,25 +443,13 @@ public class T06_BuildResearchTool : RecordingTestBase
 
     // ── Send helper ───────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Delivers a prompt to the agent via file-based IPC — no length limit, no truncation:
-    ///   1. Writes the full prompt to &lt;workspace&gt;/.flaui_cmd
-    ///   2. MainWindow's FileSystemWatcher picks it up and calls _agentPanel.AutoSend(prompt)
-    ///      which sets TbInput.Text directly and fires BtnSend_Click in-process.
-    ///
-    /// This bypasses IValueProvider.SetValue which silently truncates at ~383 chars,
-    /// causing the model to receive a garbled partial prompt and produce no write_file calls.
-    /// One retry on timeout.
-    /// </summary>
     private bool SendAndWaitForAgent(string prompt, int waitSec)
     {
         var cmdFile = Path.Combine(_workspace, ".flaui_cmd");
 
-        // Write the full prompt — no truncation, no IValueProvider involved.
         File.WriteAllText(cmdFile, prompt, System.Text.Encoding.UTF8);
         TestContext.WriteLine($"[T06]    Written {prompt.Length} chars to .flaui_cmd");
 
-        // Give the FileSystemWatcher time to fire and the UI thread to process the send.
         Thread.Sleep(2_000);
 
         var started = WaitUntil(
@@ -307,7 +458,6 @@ public class T06_BuildResearchTool : RecordingTestBase
 
         if (!started)
         {
-            // Retry — rewrite the command file (delete first in case it wasn't consumed)
             TestContext.WriteLine("[T06]    ⚠ Agent didn't start — retrying .flaui_cmd…");
             try { if (File.Exists(cmdFile)) File.Delete(cmdFile); } catch { }
             Thread.Sleep(500);
@@ -319,6 +469,36 @@ public class T06_BuildResearchTool : RecordingTestBase
         }
 
         return started;
+    }
+
+    // ── PrintAndClearAgentLog (fixed path) ───────────────────────────────────
+
+    /// <summary>
+    /// Reads and prints the AgentLoop diagnostic log, then deletes it so the next
+    /// pass gets a clean slate.
+    ///
+    /// FIX: AgentLoop writes to &lt;workspace&gt;/.orc/_agentlog.txt — NOT to
+    /// &lt;workspace&gt;/_agentlog.txt. The old path silently missed the log every pass.
+    /// </summary>
+    private void PrintAndClearAgentLog(string label)
+    {
+        var logPath = AgentLogPath();
+
+        if (!File.Exists(logPath))
+        {
+            TestContext.WriteLine($"[T06]    [{label}] no _agentlog.txt found at {logPath}");
+            return;
+        }
+
+        var content = File.ReadAllText(logPath);
+        TestContext.WriteLine($"[T06] ── {label} agent diagnostic log ({content.Length} chars):");
+        TestContext.WriteLine(content);
+
+        // Inline analysis so we see truncation evidence immediately
+        AnalyseAgentLog(content);
+
+        try { File.Delete(logPath); }
+        catch { TestContext.WriteLine($"[T06]    ⚠ Could not delete {logPath}"); }
     }
 
     // ── Polling helpers ───────────────────────────────────────────────────────
@@ -349,7 +529,7 @@ public class T06_BuildResearchTool : RecordingTestBase
 
     private bool WaitForAgentIdle(TimeSpan timeout)
     {
-        var deadline = DateTime.UtcNow + timeout;
+        var deadline  = DateTime.UtcNow + timeout;
         var idleCount = 0;
         while (DateTime.UtcNow < deadline)
         {
@@ -358,16 +538,6 @@ public class T06_BuildResearchTool : RecordingTestBase
             Thread.Sleep(1_000);
         }
         return false;
-    }
-
-    /// <summary>Prints the agent diagnostic log written by AgentLoop, then deletes it so the next pass gets a clean slate.</summary>
-    private void PrintAndClearAgentLog(string label)
-    {
-        var logPath = Path.Combine(_workspace, "_agentlog.txt");
-        if (!File.Exists(logPath)) { TestContext.WriteLine($"[T06]    [{label}] no _agentlog.txt"); return; }
-        TestContext.WriteLine($"[T06] ── {label} agent diagnostic log:");
-        TestContext.WriteLine(File.ReadAllText(logPath));
-        try { File.Delete(logPath); } catch { }
     }
 
     private List<string> WorkspaceFiles() =>
