@@ -74,15 +74,15 @@ python training_pit/scripts/phase3_preflight.py
 **Category:** `model_wiki`
 **Intent:** train/gold
 **Goal prompt:**
-> Add a "Last Probed" timestamp column to the Model Wiki model list. When a model has been GOBLIN MIND probed, display the probe date in the list. If never probed, show "—". The data comes from the existing ModelProfile.LastProbed field.
+> Add a "Last Probed" timestamp column to the Model Wiki model list. When a model has been GOBLIN MIND probed, display the probe date in the list. If never probed, show "—". The data comes from the existing ToolCallProfile.TestedAt field, accessible via the model's probe profile in ModelWikiWindow.xaml.cs.
 
 **Expected tasks:** 3 (CODER × 2 + UIDEVELOPER)
-**Expected roles:** CODER (ModelWikiViewModel update) · UIDEVELOPER (ModelWikiWindow.xaml column) · CODER (ModelProfile binding)
-**Expected files:** `ModelWikiViewModel.cs`, `ModelWikiWindow.xaml`
+**Expected roles:** CODER (ModelWikiWindow.xaml.cs — expose TestedAt via display property) · UIDEVELOPER (ModelWikiWindow.xaml — add column) · CODER (format TestedAt as short date string; null → "—")
+**Expected files:** `ModelWikiWindow.xaml.cs`, `ModelWikiWindow.xaml`
 **Good training signal:** Incremental WPF feature on existing window — tests ability to plan targeted changes without rewriting unrelated code.
-**Gold if:** Tasks call out specific existing AutomationIds and property names; change is scoped to minimal files.
-**Silver if:** Correct files but descriptions reference "update the window" without specifying which column/binding.
-**Rejected if:** Proposes rewriting the entire Model Wiki window.
+**Gold if:** Tasks reference `ToolCallProfile.TestedAt` and `entry.ProbeProfile` by name; column binding is explicit; null-guard for no-probe case specified.
+**Silver if:** Correct files but describes binding generically without field name.
+**Rejected if:** Proposes rewriting the entire Model Wiki window, or invents a non-existent `LastProbed` field.
 
 ---
 
@@ -90,15 +90,15 @@ python training_pit/scripts/phase3_preflight.py
 **Category:** `swarm`
 **Intent:** train/gold
 **Goal prompt:**
-> Add a TESTER lane to the Swarm Board that runs after all priority-2 workers finish. The TESTER should attempt to build the project (dotnet build) and report pass/fail in the SwarmBoard UI. Wire up the existing TESTER role in SwarmSession.cs.
+> After a swarm run that included a TESTER task completes, display a colored verdict summary card at the top of the Boss output tab in SwarmBoardPanel. The card should show PASS (green), PARTIAL (yellow), FAIL (red), or SKIPPED (gray) based on the existing TesterVerdict enum in SwarmSession.cs. Show the verdict label and the key verdict line from the TESTER output. Wire it to the existing OnSwarmComplete event in SwarmBoardPanel.xaml.cs.
 
-**Expected tasks:** 3 (RESEARCHER + CODER × 2)
-**Expected roles:** RESEARCHER (SwarmSession TESTER flow) · CODER (SwarmSession.cs wiring) · CODER (SwarmBoard UI status badge)
-**Expected files:** `SwarmSession.cs`, `SwarmBoardViewModel.cs`
-**Good training signal:** Requires understanding TESTER role constraints (no file write, runs after priority-2). Tests role-aware decomposition.
-**Gold if:** RESEARCHER task is scoped to existing TESTER role rules; CODER tasks reference specific methods in SwarmSession.cs.
-**Silver if:** Correct approach but descriptions don't reference specific method names.
-**Rejected if:** Assigns build execution to CODER, ignoring TESTER lane.
+**Expected tasks:** 3 (CODER × 2 + UIDEVELOPER)
+**Expected roles:** CODER (SwarmSession.cs — expose TesterVerdict via OnSwarmComplete or a dedicated event) · UIDEVELOPER (SwarmBoardPanel.xaml — add verdict card Border with DataTrigger colors) · CODER (SwarmBoardPanel.xaml.cs — populate verdict card on OnSwarmComplete)
+**Expected files:** `SwarmSession.cs`, `SwarmBoardPanel.xaml.cs`, `SwarmBoardPanel.xaml`
+**Good training signal:** Cross-layer feature on existing infrastructure — tests planning the data-flow from SwarmSession event through ViewModel binding to XAML display. TESTER role is already wired; only the verdict display is missing.
+**Gold if:** All three files named in titles; TesterVerdict enum values (Pass/Partial/Fail/Skipped) used as the branching condition in both CODER and UIDEVELOPER tasks; DataTrigger color values specified.
+**Silver if:** Files named but verdict enum not referenced; color logic described generically.
+**Rejected if:** Proposes re-implementing the TESTER lane itself (already exists); or uses a single CODER task with no UIDEVELOPER split.
 
 ---
 
@@ -138,15 +138,15 @@ python training_pit/scripts/phase3_preflight.py
 **Category:** `goblin_mind`
 **Intent:** train/gold
 **Goal prompt:**
-> Add a "Probe All Models" button to the GOBLIN MIND panel that runs the tool-call format probe on every installed Ollama model in sequence and updates their FormatFingerprint. Show a progress indicator while probing.
+> Add a "🧠 Probe Now" button to the Model Wiki detail pane. When clicked, run FormatProbeEngine and CategoryProbeEngine on the currently selected model, save the result via ToolCallProfileStore, and refresh the detail pane to show updated probe data. Show a progress ring in the button while the probe runs. The probe engines already exist in OrchestratorIDE/Services/ToolCalls/.
 
 **Expected tasks:** 3 (CODER × 2 + UIDEVELOPER)
-**Expected roles:** CODER (GoblinMindService.cs probe loop) · UIDEVELOPER (GoblinMindPanel.xaml button + progress) · CODER (progress binding in ViewModel)
-**Expected files:** `GoblinMindService.cs`, `GoblinMindPanelViewModel.cs`, `GoblinMindPanel.xaml`
-**Good training signal:** Multi-component feature with clear service/ViewModel/XAML split. Tests API contract between CODER and UIDEVELOPER.
-**Gold if:** ViewModel property name for progress is consistent between CODER and UIDEVELOPER tasks.
-**Silver if:** Files named but progress binding not explicitly contracted.
-**Rejected if:** Single task "implement the button."
+**Expected roles:** CODER (ModelWikiWindow.xaml.cs — BtnProbeNow_Click, call FormatProbeEngine + CategoryProbeEngine, save via ToolCallProfileStore, call existing RefreshDetailPane) · UIDEVELOPER (ModelWikiWindow.xaml — add "🧠 Probe Now" button + ProgressRing to detail pane) · CODER (disable button + show spinner during probe; re-enable and refresh on completion)
+**Expected files:** `ModelWikiWindow.xaml.cs`, `ModelWikiWindow.xaml`
+**Good training signal:** Feature from v1.2 roadmap — tests CODER/UIDEVELOPER split on an incremental addition to an existing window. Uses real service class names (`FormatProbeEngine`, `CategoryProbeEngine`, `ToolCallProfileStore`).
+**Gold if:** Both CODER tasks and UIDEVELOPER task use the same button name (`BtnProbeNow`); probe engine class names explicitly stated; async/await pattern noted.
+**Silver if:** Files named and approach correct but engine class names not specified.
+**Rejected if:** Proposes a new service class when the probe engines already exist; or single task "add probe button."
 
 ---
 
@@ -359,11 +359,11 @@ python training_pit/scripts/phase3_preflight.py
 | ID | Category | Intent | Tasks | Key Signal |
 |----|----------|--------|-------|-----------|
 | CAPTURE-001 | wpf_ui | train/gold | 3 | CODER/UIDEVELOPER split, ViewModel contract |
-| CAPTURE-002 | model_wiki | train/gold | 3 | Incremental WPF, minimal file touch |
-| CAPTURE-003 | swarm | train/gold | 3 | TESTER lane, role-aware decomposition |
+| CAPTURE-002 | model_wiki | train/gold | 3 | Incremental WPF, ToolCallProfile.TestedAt column |
+| CAPTURE-003 | swarm | train/gold | 3 | TESTER verdict card (display gap, not lane wiring) |
 | CAPTURE-004 | training_pit | train/gold | 2 | Single-file extension, bounded scope |
 | CAPTURE-005 | ollama | train/gold | 3 | RESEARCHER-first, API contract from research |
-| CAPTURE-006 | goblin_mind | train/gold | 3 | Service/ViewModel/XAML API contract |
+| CAPTURE-006 | goblin_mind | train/gold | 3 | "Probe Now" in Model Wiki detail pane (roadmap v1.2) |
 | CAPTURE-007 | powershell | train/gold | 2 | PS-native tooling, not bash |
 | CAPTURE-008 | python_utility | train/silver | 2 | 2-task Python utility, scoped |
 | CAPTURE-009 | wpf_ui | train/gold | 2 | Targeted XAML/cs edit, minimal scope |
@@ -396,4 +396,4 @@ python training_pit/scripts/phase3_preflight.py
 
 ---
 
-*Last updated: 2026-06-09 — v1, first batch plan. 20 prompts covering 10 categories.*
+*Last updated: 2026-06-09 — v1.1, repo-verified revision. CAPTURE-002 field name corrected (ToolCallProfile.TestedAt); CAPTURE-003 replaced (TESTER lane already exists — replaced with verdict card); CAPTURE-006 replaced (GoblinMindPanel/Service don't exist — replaced with "Probe Now" button in ModelWikiWindow using real engine class names).*
