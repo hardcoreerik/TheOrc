@@ -34,12 +34,16 @@ Point it at your GPU, pick a coding profile, and let it rip.
 | Model selection and profiles | ✅ Stable |
 | Single-agent Plan → Execute + approval gates | ✅ Stable |
 | Git auto-checkpoint | ✅ Stable |
-| Goblin Swarm multi-agent routing | ⚠️ Beta — steering verified, staging area pending |
-| GOBLIN MIND tool-call probing (CLI + GUI) | ⚠️ Beta — GUI phase 5 incomplete |
-| Self-improve / Scan GitHub loop | 🔬 Experimental |
+| Tool path sandbox (workspace boundary enforcement) | ✅ Stable |
+| Co-Work mode (workers pause to ask user questions) | ✅ Stable |
+| Goblin Swarm — 4-role multi-agent (Boss + Coder + Researcher + Tester) | ⚠️ Beta |
+| GOBLIN MIND tool-call probing (CLI + GUI) | ⚠️ Beta — GUI Phase 5 pending |
+| Model Wiki / Lab — model catalogue + capability testing | ⚠️ Beta |
+| Self-improve / Scan GitHub loop | ⚠️ Beta |
+| Training Pit Phase 2 — boss plan auto-capture | ⚠️ Beta — data collection active |
 | Hot-load C# tools (Roslyn) | 🔬 Experimental — UI present, not fully wired |
 | llama.cpp direct backend | 🔬 Experimental |
-| FlaUI UI automation suite | 🔬 In progress |
+| FlaUI UI automation suite | 🔬 In progress (T01–T08) |
 | CI / release automation | 🔲 Planned ([#5](https://github.com/hardcoreerik/TheOrc/issues/5)) |
 
 See [open issues](https://github.com/hardcoreerik/TheOrc/issues) for full hardening backlog.
@@ -76,10 +80,11 @@ TheOrc doesn't work alone. Activate the **Goblin Swarm** and deploy a coordinate
 
 | Role | Responsibility |
 |---|---|
-| **TheOrc (Boss)** | Reads your goal, decomposes it into tasks, steers and corrects the swarm |
+| **TheOrc (Boss)** | Reads your goal, decomposes it into 2–4 tasks, steers and corrects the swarm |
 | **Coder Goblin** `</>` | Writes code, creates files, runs builds |
-| **Researcher Goblin** `>_` | Searches the web, reads docs, answers context questions |
-| **Ghost Researchers** | Parallel sub-agents spawned for deep research tasks |
+| **UIDeveloper Goblin** `◧` | Writes UI components, styles, and markup |
+| **Researcher Goblin** `>_` | Searches the web, reads docs, summarizes findings — no file writes |
+| **Tester Goblin** `✓` | Runs tests, reads logs, reports pass/fail verdicts — no file writes by design |
 
 Each goblin runs on a separate model you choose. TheOrc orchestrates — issuing tasks, reviewing outputs, retrying failures, and synthesizing the final result. You watch it happen in real time on the Swarm Board.
 
@@ -385,6 +390,7 @@ Setup/
 - Shell command approval cards — exact command shown before execution
 - 4-tier trust system: Plan / Guarded / Standard / Full Auto
 - Git auto-checkpoint before every Execute run
+- **Tool path sandbox** — `PathSandbox` enforces workspace boundary on all file and shell tools; escape attempts surface a `SandboxBypassDialog` (Allow Once / Deny)
 - Command palette (Ctrl+K) with fuzzy search
 - Multi-tab AvalonEdit code editor with syntax highlighting
 - File explorer, session save/restore, context progress bar
@@ -396,28 +402,42 @@ Setup/
 - **GOBLIN MIND tool-call probing** — 5-test × 2-mode dispatch probe, format fingerprinting (5 formats), category boundary mapping (7 categories), schema simplification middleware
 - **tool-probe.exe** — standalone headless CLI: `dispatch`, `format`, `categories`, `full`, `evolve`, `list`
 - **ToolCallProfileStore** — per-model probe results persisted, shared between GUI and CLI
+- **Documentation suite** — 16 reference guides in `docs/`, Help menu with direct links
 
 ### ⚠️ Beta — Working but still being hardened
 
-- **Goblin Swarm** — boss + coder + researcher multi-agent mode with capability-aware routing
-- **SwarmBoard UI** — real-time task visibility, model slot pickers, hardware config
+- **Goblin Swarm** — 4-role multi-agent mode: Boss + Coder + UIDeveloper + Researcher + Tester; capability-aware routing
+- **Co-Work mode** — Swarm workers can pause mid-task and ask the user a clarifying question; per-column amber banner with option chips; follow-up chat resumes saved thread
+- **TESTER role** — dedicated test-runner worker; no `write_file` access by design; pass/fail verdicts surfaced to the boss; retry-exempt
+- **SwarmBoard UI** — real-time node graph, model slot pickers, steering bar, live activity feed
 - **SwarmConfigAdvisor** — hardware-aware role-based model recommender
 - **SwarmRunMetrics** — JSONL run history + quality scoring per configuration
+- **Model Wiki / Lab** — searchable model catalogue; per-model scores, observations, GOBLIN MIND data; `FileWriteSmall / Medium / Large` capability test dialog with live phase strip
+- **theorc-boss:gemma4** — Modelfile-calibrated Gemma 4 12B QAT boss; `temperature=0.2, think=false, 16K context`; proven multi-task planner
+- **Training Pit Phase 2** — `DatasetCapture.cs` auto-stages boss plans (score ≥70 good / ≤39 bad) after every swarm run; validated dataset pipeline
 - **Self-improve panel** — Grab Source (git clone/pull), Open in Agent, Scan GitHub issues
-- **Settings overhaul** — install folder links, source folder management
 
 ### 🔬 Experimental — Present but not production-ready
 
 - **Hot-load C# tools (Roslyn)** — UI present; compiler pipeline not fully wired
 - **llama.cpp direct backend** — bundled llama-server.exe; some edge cases unverified
 - **One-click guided installer** — functional; release automation still being built
-- **FlaUI UI automation suite** — in progress; safety-path test coverage incomplete
-- **Just Chat / Co-Work modes** — present in UI; not fully validated
+- **FlaUI UI automation suite** — T01–T08 passing; coverage still expanding
 - **Evolutionary schema search** — `tool-probe evolve` CLI works; GUI integration pending
 
 ---
 
 ## Changelog
+
+### ✅ v1.2.0 — TESTER Role + Model Wiki / Lab + Training Pit Phase 2 + Docs *(2026-06-09)*
+
+- **TESTER role** — promoted to first-class swarm worker. Dedicated no-write-file verdict lane. Retry-exempt. Pass/fail verdicts surfaced to boss. Swarm Board has a dedicated TESTER node.
+- **Model Wiki / Lab** (`Models → Model Wiki / Lab…`) — non-modal browseable model catalogue. Per-model scores (Boss/Coder/Researcher/Tester), observations, GOBLIN MIND probe data. **Capability Test dialog** — FileWriteSmall / FileWriteMedium / FileWriteLarge test suite with live phase strip, test cards, and colored activity feed. Results persisted to `%APPDATA%\OrchestratorIDE\model-wiki\results.jsonl`.
+- **theorc-boss:gemma4** — Modelfile wrapper for Gemma 4 12B QAT (`temperature=0.2, think=false, num_ctx=16384`). Confirmed multi-task planner — avoids planning collapse observed on raw `gemma4:12b`.
+- **Training Pit Phase 2** — `DatasetCapture.cs` live. Boss plans auto-staged to `.orc/swarm/dataset-staging/` after every swarm run (score ≥70 good, ≤39 bad). Dataset pipeline: `convert_plan_captures.py → validate → sanitize → promote`. Phase 3 LoRA training blocked pending ≥150 reviewed examples.
+- **Documentation suite** — 16 reference guides added to `docs/` (Quick Start, Installation, User Guide, Single Agent, Swarm, Model Guide, Model Wiki, Hardware, Training Pit, Dataset Review, Testing, Troubleshooting, Roadmap, FAQ, Sponsor, Documentation Standard). Help menu links directly to docs files.
+- **FlaUI T08 suite** — 8 Model Wiki UI automation tests (window discovery, filter chips, search, model list, capability test dialog lifecycle). All 15 T07+T08 tests passing.
+- **T06 diagnostic hardening** — per-pass agentlog analysis, truncation detection (`opens > closes`), explicit failure message for sub-7B models.
 
 ### ✅ v1.1.1 — Settings Overhaul + Self-Improve + Status Bar Polish *(2026-06-08)*
 
@@ -426,6 +446,14 @@ Setup/
 - **Self-Improve feature** — TheOrc can now read its own GitHub issues + recent commits, build a structured analysis prompt, and inject it into the Agent panel for you to review and send. Full flow: Grab Source (git clone/pull) → Open in Agent (load as workspace) → Scan GitHub (fetch + build prompt)
 - **Status bar legibility** — Bumped all status bar text from 10–11pt to 12–13pt, row height 24→30px, screenshot button larger (15pt emoji with wider padding), Trust pills 10→12pt
 - **GOBLIN MIND CLI** (`tool-probe.exe`) — Full headless subcommand interface: `dispatch`, `format`, `categories`, `full`, `evolve`, `list`. Shares the same `tool-call-profiles.json` as the GUI. All subcommands support `--json` output
+
+### ✅ v1.0.5 — Co-Work Mode + Stream Zoom + Tool Path Sandbox *(2026-06-08)*
+
+- **Co-Work mode** — Swarm workers can pause and ask the user a question via `ask_user()`. Per-column amber banner shows the question with clickable option chips. Follow-up chat after task completion resumes the saved conversation thread.
+- **Stream zoom** — `Ctrl+Wheel` over the stream pane increases/decreases font size (8–28pt). `Ctrl+0` resets to 12pt. Size badge in tab bar turns green when non-default.
+- **Tool path sandbox** — `PathSandbox.IsInsideSandbox()` normalizes paths and blocks traversal escapes. `read_file`, `write_file`, `list_files`, `run_shell` all enforce the workspace boundary. Sandbox escapes surface a `SandboxBypassDialog` (Allow Once / Deny) before the tool call proceeds.
+- **Boss prompt improvements** — FILENAME RULE (task titles must name output files) + API CONTRACT RULE (shared function names consistent across producing and consuming tasks).
+- **File output routing fix** — Worker files written directly to workspace root; run metadata (plan, trace, final_report) stays in `.orc/swarm/runs/<runId>/`.
 
 ---
 
@@ -443,14 +471,19 @@ See [`GOBLIN_MIND_TODO.md`](GOBLIN_MIND_TODO.md) for full task breakdown.
 - [x] **Phase 6: TheOrc Steering Integration** — Boss model reads capability profiles to steer the swarm. Task routing is now capability-driven, not config-driven.
 - [ ] **Phase 5: Evolutionary Schema Search** — On-demand mutation engine. Systematically explores schema space to find each model's highest-fitness calling convention. *(GUI integration pending — CLI `tool-probe evolve` available now)*
 
-### 🔬 v1.2 — Swarm Tuning & Self-Improvement (Active)
+### ⚙️ v1.2 — Swarm Completeness + Model Intelligence (Active)
 
-TheOrc steering and correction is working. Next milestone focuses on making the swarm smarter through live feedback loops and self-directed improvement.
+Building out the full 4-role swarm, model capability awareness, and the training data pipeline.
 
-- [ ] **Steering verification** — Run test prompt suite against TheOrc's swarm loop; verify TheOrc correctly routes, retries, and corrects workers using capability profiles
+- [x] **TESTER role** — 4th swarm worker; no-write verdict lane; retry-exempt; boss-visible results
+- [x] **theorc-boss:gemma4** — Modelfile-calibrated Gemma 4 12B QAT boss; planning collapse eliminated
+- [x] **Model Wiki / Lab** — browseable model catalogue; per-model scores, observations, GOBLIN MIND data; capability test dialog (FileWriteSmall/Medium/Large)
+- [x] **Training Pit Phase 2** — `DatasetCapture.cs` live; boss plans auto-staged; dataset pipeline documented
+- [x] **Self-improve loop** — GitHub issue scanner → Agent panel injection → TheOrc proposes fixes using source clone
+- [x] **Documentation suite** — 16 reference guides; Help menu direct links
+- [ ] **Steering verification** — test prompt suite against swarm loop; verify capability-driven routing/retry/correction
 - [ ] **Live capability badges** — Swarm Board shows Format | Categories | Schema Complexity | Last Probed per model slot, with "Probe Now" button
-- [ ] **Fitness map GUI** — `tool-probe evolve` results surfaced in ToolCallTestWindow "Evolution" tab; high-fitness variants auto-promoted to SchemaLibrary
-- [ ] **Self-improve loop** — GitHub issue scanner → Agent panel injection → TheOrc proposes and applies fixes to itself using the source clone. Full round-trip.
+- [ ] **Fitness map GUI** — `tool-probe evolve` results in ToolCallTestWindow "Evolution" tab; high-fitness variants auto-promoted to SchemaLibrary
 - [ ] **Parallel slots live gate** — `OLLAMA_NUM_PARALLEL` detection blocks swarm start if slots < worker count; settings panel shows live status
 - [ ] **Wire `TotalVramGb`** in SwarmSession — currently hardcoded 0; call `SwarmConfigAdvisor.DetectHardwareAsync()` at swarm init
 
@@ -474,6 +507,11 @@ The WPF app remains the primary Windows-native experience indefinitely.
 - [ ] Multi-workspace support
 - [ ] SwarmBoard metrics history tab (ConfigStats per configuration)
 - [ ] `MODEL_PROFILES.md` — auto-generated per-model capability summary from probe results
+- [ ] Model Wiki: model comparison view (side-by-side two models)
+- [ ] Model Wiki: historical result trends chart
+- [ ] Model Wiki: export capability matrix to Markdown
+- [ ] Model Wiki: "Probe Now" button in detail pane
+- [ ] Training Pit Phase 3 — LoRA fine-tune once ≥150 reviewed examples collected (Phase 2 active)
 
 ---
 
