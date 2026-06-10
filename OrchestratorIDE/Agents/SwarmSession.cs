@@ -1110,8 +1110,12 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
             new() { Role = MessageRole.User,   Content = $"Goal: {goalWithLang}" }
         };
         var sb = new StringBuilder();
+        // 8192: Gemma4 spends a variable (often large) share of the budget on
+        // reasoning tokens before the JSON plan. At 2048 the plan was routinely
+        // truncated mid-string (or never started), presenting as json_invalid
+        // collapse. max_tokens overrides the Modelfile's num_predict 2048.
         await foreach (var token in _ollama.StreamCompletionAsync(
-            _bossModel, history, temperature: temperature, maxTokens: 2048, ct: ct))
+            _bossModel, history, temperature: temperature, maxTokens: 8192, ct: ct))
         {
             sb.Append(token);
             OnBossToken?.Invoke(token);

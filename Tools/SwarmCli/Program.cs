@@ -91,10 +91,20 @@ var before = Directory.Exists(stagingDir)
 var ollama  = new OllamaClient(host);
 var session = new SwarmSession(ollama, boss, workspace, coder, researcher);
 
-bool planSeen = false, errored = false;
+bool planSeen = false, errored = false, stopRequested = false;
 
 session.OnActivity += (agent, msg) => Console.WriteLine($"  [{agent}] {msg}");
-session.OnError    += msg => { errored = true; Console.Error.WriteLine($"  [ERROR] {msg}"); };
+session.OnError    += msg =>
+{
+    // Our own plan-only Stop() surfaces as "Swarm stopped." — not an error
+    if (stopRequested && msg.Contains("stopped", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.WriteLine($"  [{msg.TrimEnd('.')}]");
+        return;
+    }
+    errored = true;
+    Console.Error.WriteLine($"  [ERROR] {msg}");
+};
 
 session.OnTasksPlanned += tasks =>
 {
@@ -108,6 +118,7 @@ session.OnTasksPlanned += tasks =>
     if (planOnly)
     {
         Console.WriteLine("Plan captured (staging happens before this event) — stopping run.");
+        stopRequested = true;
         session.Stop();
     }
 };
@@ -121,6 +132,7 @@ bool timedOut = finished != runTask;
 if (timedOut)
 {
     Console.Error.WriteLine($"Timeout after {timeoutSec}s — stopping run.");
+    stopRequested = true;
     session.Stop();
     await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(10)));
 }
