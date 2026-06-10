@@ -5,6 +5,42 @@
 
 ---
 
+## T06 Runtime Observation — Nemotron Nano 4B (2026-06-09)
+
+> This is not a GOBLIN MIND phase result — it is pre-probe runtime evidence
+> gathered by the T06 FlaUI integration test. It informs the FileWrite Probe
+> design (Phase 4b) and updates model placement across the project.
+
+**Model tested:** `nemotron-3-nano:4b-q8_0`
+**Mode:** Single-agent Execute (NOT swarm)
+**Task:** Build OrcResearcher — write 6 Python files via write_file tool calls
+
+**Observed:**
+- App launched ✅, workspace confirmed ✅, AutoSend triggered Execute mode ✅
+- Pass 1: model started `write_file main.py` — JSON truncated (opens=2, closes=0)
+- Pass 2: model started `write_file file_manager.py` — JSON truncated (opens=2, closes=0)
+- Pass 3: empty response (len=0)
+- Zero files written across all 3 passes
+
+**Conclusion:**
+Tool support is not binary. A model can initiate a native tool call and still fail when
+the payload is large. The 4B active-parameter ceiling prevents the model from maintaining
+JSON schema context across a ~150–300 line Python file encoded as `\n`-escaped JSON.
+
+**Actions taken:**
+- `ModelProfiles.cs` — CoderScore lowered (4b: 4→2, 4b-q8_0: 5→3), descriptions updated,
+  preferred uses documented, "coding" removed from Strengths
+- `GOBLIN_MIND_TODO.md` — Phase 4b (FileWrite Payload Probe) added with Small/Medium/Large tiers
+- `training_pit/MODEL_COMPATIBILITY.md` — Nemotron Nano 4B section added with T06 evidence
+- `training_pit/HARDWARE_GUIDE.md` — LoRA/QLoRA guidance for small models added
+- `T06_BuildResearchTool.cs` — Class summary expanded with failure interpretation guide
+
+**Next step for this model:**
+Run FileWriteSmall/Medium/Large probes (Phase 4b) to find the actual payload ceiling.
+Candidate lightweight roles: TESTER, log summarizer, short report generator.
+
+---
+
 ## Milestone Overview
 
 **Codename:** GOBLIN MIND

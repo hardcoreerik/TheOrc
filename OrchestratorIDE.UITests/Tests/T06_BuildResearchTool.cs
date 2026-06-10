@@ -9,19 +9,54 @@ namespace OrchestratorIDE.UITests.Tests;
 /// <summary>
 /// T06 — Autonomous build: TheOrc builds OrcResearcher (Python research tool).
 ///
+/// MODE: Single-agent Execute mode ONLY.
+///   This test drives the single-agent panel (AgentPanel), NOT the Swarm board.
+///   The agent receives a goal, runs autonomously, and must write 6 files via write_file
+///   tool calls. It is a live end-to-end integration test — no mocking.
+///
 /// Architecture:
 ///   - File-based IPC: test writes prompt to &lt;workspace&gt;/.flaui_cmd; MainWindow's
 ///     FileSystemWatcher picks it up and calls _agentPanel.AutoSend(prompt) directly —
 ///     completely bypassing IValueProvider.SetValue which truncates at ~383 chars.
 ///   - No prompt-length limit: full Python code is embedded verbatim in prompts so
 ///     the model just copies content into write_file calls (no code generation needed).
-///   - Two passes, 3 files each — matches the model's natural step limit.
+///   - Three passes — each narrows the remaining missing files.
 ///
-/// Known model requirement:
-///   This test requires reliable write_file tool-call JSON generation.
-///   Small models (≤4B, e.g. nemotron-nano, phi-mini, llama-3.2-3b) frequently
-///   truncate the JSON mid-content, leaving unparseable tool calls.
-///   Use theorc-boss:gemma4, gemma4:12b, qwen2.5-coder:14b, or similar for reliable results.
+/// What this test measures:
+///   Reliable long write_file tool-call JSON generation — the model must:
+///     1. Emit a valid write_file tool call (correct JSON structure)
+///     2. Complete the JSON payload without truncation (full file content preserved)
+///     3. Do this for each of 6 files across up to 3 passes
+///
+/// FAILURE INTERPRETATION:
+///   If T06 fails with diagnostics showing truncated write_file JSON
+///   (opens > closes in _agentlog.txt analysis), the failure is a MODEL CAPABILITY
+///   issue, not an app logic or Ollama configuration failure. The agentlog will show
+///   entries like: "opens=2 closes=0 — TRUNCATED write_file for: main.py"
+///
+/// Model requirement — MINIMUM ≥12B:
+///   Small models (≤4B, e.g. nemotron-3-nano, phi-mini, llama-3.2-3b) reliably
+///   fail this test by truncating write_file JSON mid-content. The 4B parameter
+///   ceiling cannot sustain a ~200-line Python source file encoded as a single JSON
+///   string value with all newlines escaped as \n.
+///
+///   T06 CONFIRMED FAILURES (observed 2026-06-09):
+///     nemotron-3-nano:4b-q8_0 — Pass 1: main.py truncated (opens=2, closes=0)
+///                              — Pass 2: file_manager.py truncated (opens=2, closes=0)
+///                              — Pass 3: empty response (len=0)
+///                              — Zero files written across all 3 passes.
+///
+///   RECOMMENDED MODELS (≥12B, reliable long write_file):
+///     theorc-boss:gemma4    — 12B QAT, proven in swarm runs
+///     qwen2.5-coder:14b     — ★ Best for T06 (purpose-built coder, already on server)
+///     gemma4:12b            — 12B, reliable file writer
+///     mistral-small:latest  — 24B, strong all-rounder
+///
+/// Tool-call support is not binary:
+///   A model can "start" a tool call (NativeToolUse=true) and still fail on long
+///   payloads. The difference between short tool calls (e.g. read_file, list_dir)
+///   and long file-write calls (200-line Python files) is critical for coder roles.
+///   See ModelProfiles.cs for CoderScore definitions and per-model notes.
 /// </summary>
 [TestFixture]
 public class T06_BuildResearchTool : RecordingTestBase

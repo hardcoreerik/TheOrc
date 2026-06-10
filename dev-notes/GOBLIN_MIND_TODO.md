@@ -192,6 +192,64 @@
 
 ---
 
+## Phase 4b — FileWrite Payload Probe ⬜ `PRIORITY: HIGH (before routing nano to coder roles)`
+
+> Determine each model's maximum safe write_file payload size.
+> Motivation: T06 confirmed (2026-06-09) that nemotron-3-nano:4b-q8_0 truncates
+> write_file JSON on payloads representing ~50–200 line Python files. Tool support
+> is not binary — a model can pass format probes (short calls) and still fail on
+> long-payload file writes. This probe closes that gap.
+
+### Probe Definitions
+
+| Probe ID | Tool call | Payload size | Success criteria |
+|---|---|---|---|
+| `FileWriteSmall` | `write_file hello.txt` | 1 line (~20 chars) | valid JSON, file written, content exact |
+| `FileWriteMedium` | `write_file script.py` | ~50 lines (~1.5 KB) | valid JSON, file written, full content preserved |
+| `FileWriteLarge` | `write_file app.py` | ~200 lines (~6 KB) | valid JSON, file written, full content preserved, no truncation |
+
+### Metrics to Collect
+
+For each probe per model:
+- `valid_json` — tool call JSON parsed without error
+- `file_written` — file actually appeared on disk
+- `content_preserved` — written content matches expected (no truncation)
+- `truncation_detected` — unbalanced braces in raw agentlog (opens > closes)
+- `retry_count` — how many attempts before success (or max reached)
+- `max_safe_payload_chars` — largest payload that reliably succeeds (derived from Small/Medium/Large)
+
+### Known Results (pre-probe — T06 runtime evidence)
+
+| Model | FileWriteSmall | FileWriteMedium | FileWriteLarge | Source |
+|---|---|---|---|---|
+| nemotron-3-nano:4b-q8_0 | unknown | ❌ truncated | ❌ truncated | T06 2026-06-09 |
+| theorc-boss:gemma4 | ✅ (inferred) | ✅ (inferred) | TBD | swarm run observations |
+| qwen2.5-coder:14b | ✅ (inferred) | ✅ (inferred) | TBD | benchmark scores |
+
+### Tasks
+
+- [ ] **`Services/ToolCalls/FileWriteProbeEngine.cs`** — New probe engine
+  - 3 probe variants (Small / Medium / Large)
+  - Each: send the model a write_file request with the target payload
+  - Verify: file written to temp workspace, content matches, JSON was complete
+  - Record: `FileWriteProbeResult` per model per probe
+
+- [ ] **`ToolCallProfile`** — Add `FileWriteProfile` field
+  - `MaxSafePayloadChars` — derived from largest passing probe
+  - `FileWriteSmall/Medium/LargeResult` — `Pass / Fail / Truncated / Unknown`
+  - Persist to `tool-call-profiles.json` alongside format/category profiles
+
+- [ ] **`SwarmConfigAdvisor.cs`** — Gate coder role assignment
+  - Before assigning a model as CODER: check `FileWriteProfile.FileWriteLargeResult`
+  - If `Truncated` or `Fail`: log warning, suggest upgrade to ≥12B model
+  - If `Unknown`: allow but log "unprobed for file-write payload capacity"
+
+- [ ] **`Tests/ToolCallTestWindow`** — Add "FileWrite" column
+  - Show S/M/L chips (✅/⚠️/❌) per model
+  - Tooltip: "Small ✅ Medium ❌ (truncated at 1.2 KB)"
+
+---
+
 ## Phase 5 — Evolutionary Schema Search ⬜ `PRIORITY: LOW (overnight/on-demand)`
 
 > Systematically mutate tool schemas to find each model's highest-fitness calling convention.

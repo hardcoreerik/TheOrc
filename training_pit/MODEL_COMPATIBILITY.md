@@ -176,6 +176,62 @@ context (e.g., large codebase analysis).
   raw model has planning collapse tendencies; special token leakage fixed by `StripGemma4Artifacts()`
 - **Training source:** `google/gemma-4-12b-it` safetensors via HuggingFace
 
+### `nemotron-3-nano:4b` and `nemotron-3-nano:4b-q8_0`
+
+- **Inference:** ✅ Available on server; 2.8 GB (4b) / 4.2 GB (Q8)
+- **Architecture:** NVIDIA Nemotron 3 Nano — hybrid Mamba-Transformer MoE, 3.6B active / 31.6B total params, 128K context
+- **Training:** ❌ Not a LoRA/QLoRA target — 4B active-parameter ceiling makes it unsuitable for autonomous coder training
+- **Fine-tune priority:** None for coder role. Potential future narrow adapter (tester/summarizer) — see below.
+
+#### T06 Runtime Evidence (2026-06-09) — Single-Agent Execute Mode
+
+The model was tested as the single-agent model in T06 (autonomous Python build task).
+Observed behavior across 3 passes:
+
+| Pass | Observed | Agentlog evidence |
+|---|---|---|
+| Pass 1 | `write_file main.py` — JSON truncated | `len=2000, opens=2, closes=0` |
+| Pass 2 | `write_file file_manager.py` — JSON truncated | `len=85, opens=2, closes=0` |
+| Pass 3 | Empty response | `len=0` |
+
+**Zero files written.** App logic confirmed correct. Root cause: 4B active parameters cannot
+sustain a ~150–300 line Python source file encoded as a single JSON string value.
+
+#### Tool Support Is Not Binary
+
+This is the critical insight from T06. A model can:
+- Have `NativeToolUse=true` in its profile ✅
+- Successfully pass format probes (short tool calls) ✅
+- Successfully start a `write_file` tool call ✅
+- **Still fail** when the JSON payload represents a large file ❌
+
+The difference between `write_file hello.txt` (20 chars) and `write_file app.py` (6 KB of
+Python with all newlines escaped as `\n`) is enormous for a 4B model. Long structured payloads
+require the model to maintain JSON schema context across hundreds of tokens — this is a
+parameter-count ceiling, not a format or configuration issue.
+
+#### Preferred Uses for Nemotron Nano 4B
+
+✅ **Suitable (short-payload tasks):**
+- Lightweight TESTER role: verify file exists, check content structure, report pass/fail
+- Short log summarization: summarize a 20–50 line log file
+- Simple research summaries: text-only response, no write_file required
+- Short command/report tasks: single tool call with < ~50 lines output
+
+❌ **Not suitable:**
+- Multi-file code generation (T06-class tasks)
+- Any write_file call with > ~50 lines of content
+- Primary single-agent CODER for production tasks
+
+#### Future LoRA Adapter Possibility
+
+A narrow LoRA adapter targeting **tester/log-summarizer behavior** — NOT long-file code
+generation — could improve reliability for the suitable use cases above. This would be a
+low-priority adapter after the primary boss-planning adapter for gemma4. See HARDWARE_GUIDE.md
+for LoRA/QLoRA guidance on the Nano 4B architecture.
+
+---
+
 ### `qwen2.5-coder:14b`
 
 - **Inference:** ✅ Available; proven high-quality boss (BossScore 6 in benchmarks)

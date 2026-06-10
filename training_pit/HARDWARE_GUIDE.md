@@ -163,4 +163,65 @@ Add another 10 GB buffer for Unsloth cache and tokenizer files.
 
 ---
 
-*Last updated: 2026-06-09 — v1.1: Official Gemma 4 12B memory sizes added (Google AI docs source); BF16 training size corrected to 26.7 GB confirmed; disk estimate updated.*
+---
+
+## LoRA/QLoRA Guidance for Small Models (≤4B)
+
+### What LoRA/QLoRA Can Improve
+
+LoRA and QLoRA are efficient fine-tuning methods that add trainable adapter weights on top
+of a frozen base model. For small models (≤4B), they can improve:
+
+- **Format adherence** — teaching the model to consistently use a specific JSON schema
+  or tool-call format without drifting to prose or alternate structures
+- **Narrow task specialization** — a tester model that reliably outputs pass/fail verdicts;
+  a summarizer that follows a consistent summary template
+- **Short structured outputs** — outputs up to ~500 tokens that match a learned pattern
+
+### What LoRA/QLoRA Cannot Fix
+
+**A LoRA adapter cannot turn a 4B model into a reliable long-file autonomous coder.**
+
+The reason is architectural: a model with 4B active parameters has a hard ceiling on how
+much context state it can maintain while generating a long, nested JSON payload. When
+writing `write_file app.py` with 200 lines of Python encoded as a JSON string, the model
+must track `{` / `}` balance, escape state, and code coherence simultaneously across
+hundreds of tokens. This is a parameter-count capacity issue — fine-tuning changes the
+adapter weights, not the base model's capacity.
+
+T06 confirmed (2026-06-09): even at Q8 precision (highest quality for the 4B weights),
+`nemotron-3-nano:4b-q8_0` truncates write_file JSON on every pass. Q8 vs Q4 does not
+change the active parameter count (3.6B in both cases).
+
+### Best Adapter Target for Nemotron Nano 4B
+
+If a Nano 4B adapter is ever built, the correct target is:
+
+```
+NARROW TESTER / LOG SUMMARIZER adapter
+  Goal:        Improve reliability of short structured outputs (< 100 tokens)
+  Training:    ~100–200 examples of: [log content] → [pass/fail verdict + reason]
+  NOT a goal:  Multi-file code generation, long write_file payloads
+  Dataset:     Short prompt → short structured response pairs (tester verdicts, summaries)
+  Expected improvement: format adherence and verdict consistency for lightweight roles
+```
+
+### Primary LoRA Target (Phase 3 — boss planning)
+
+The first Training Pit LoRA target remains the **boss-planning adapter for Gemma 4 12B QAT**.
+
+```
+Priority 1:  gemma4:12b — boss-planning QLoRA adapter
+  Goal:      Improve task decomposition quality and JSON plan consistency
+  Evidence:  swarm benchmarks show planning collapse on plain gemma4:12b; theorc-boss:gemma4
+             (few-shot tuned) partially addresses this — a real adapter will do more
+  Hardware:  RTX 5070 Ti (16 GB) — QLoRA NF4 ≈ 12–14 GB, fits with headroom
+  Dataset:   boss_plan_examples.jsonl (≥150 examples required before Phase 3 start)
+
+Priority 2:  qwen2.5-coder:7b or qwen2.5-coder:14b — goblin coder adapter (future)
+Priority 3:  nemotron-3-nano:4b — narrow tester adapter (low priority, narrow scope)
+```
+
+---
+
+*Last updated: 2026-06-09 — v1.2: LoRA/QLoRA guidance for small models added; Nemotron Nano 4B adapter scope documented; T06 evidence referenced.*

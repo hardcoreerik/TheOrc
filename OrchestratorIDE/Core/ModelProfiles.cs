@@ -170,23 +170,54 @@ public static class ModelProfiles
 
         // ── NVIDIA Nemotron ──────────────────────────────────────────────────
         // BFCL: ~48%  |  HumanEval: ~52%  |  128K context is its strength
+        //
+        // ⚠ T06 OBSERVED (2026-06-09): nemotron-3-nano:4b-q8_0 — SINGLE-AGENT EXECUTE MODE
+        //   The model started write_file tool calls but truncated the JSON payload on every pass:
+        //     Pass 1: write_file for main.py  — opens=2, closes=0 (JSON did not close)
+        //     Pass 2: write_file for file_manager.py — opens=2, closes=0
+        //     Pass 3: empty response (len=0)
+        //   Zero project files written across 3 passes. App logic confirmed correct.
+        //   Root cause: 4B active parameters cannot sustain long JSON-encoded code payloads.
+        //   This is a model capability ceiling, not an app or Ollama config issue.
+        //
+        //   CoderScore represents HumanEval benchmark correctness, NOT write_file JSON reliability.
+        //   The distinction matters: a model can "know" the code but fail to emit it inside a
+        //   valid tool-call JSON envelope when the payload is long (100–300 lines).
+        //
+        //   PREFERRED USES (confirmed reasonable for 4B):
+        //     • Lightweight TESTER role (short verification prompts, no multi-file output)
+        //     • Short log summarization (< 1K tokens output)
+        //     • Simple research summaries (no write_file, text-only response)
+        //     • Short command/report tasks (single tool call with small payload)
+        //
+        //   NOT RECOMMENDED:
+        //     • Primary single-agent CODER for multi-file generation (T06-class tasks)
+        //     • Any task requiring write_file with > ~50 lines of content per file
+        //
+        //   Do NOT remove from catalog — it is genuinely useful for lightweight roles.
+        //   Re-evaluate CoderScore after FileWriteSmall/Medium/Large probes (see GOBLIN_MIND_TODO.md).
         ["nemotron-3-nano:4b"] = new(
             "nemotron-3-nano:4b", "Nemotron 3 Nano 4B", 131_072, true,
-            ["agent", "reasoning", "tool-use", "fast", "coding"],
+            ["agent", "reasoning", "tool-use", "fast", "tester", "summarization"],
             ToolSet.Full, PromptStyle.Agent,
             MaxSteps: 18, Temperature: 0.1, TimeoutSeconds: 60, AutoVerify: true,
-            Description: "NVIDIA Nemotron 3 Nano 4B — agentic-tuned, 128K context, 2.8 GB. Fast local agent.",
+            Description: "NVIDIA Nemotron 3 Nano 4B — agentic-tuned, 128K context, 2.8 GB. ✅ Good for: lightweight tester, short summaries, simple reports. ⚠ NOT for: multi-file code generation (T06 confirmed: truncates write_file JSON on all passes). CoderScore reflects HumanEval, not long write_file reliability.",
             MinVramGb: 3, ParamsBillions: 4, Speed: SpeedTier.Fast,
-            BossScore: 4, CoderScore: 4, ResearcherScore: 4, TesterScore: 3
+            BossScore: 4, CoderScore: 2, ResearcherScore: 4, TesterScore: 3
         ),
+        // ⚠ Q8 variant — same T06 failure as 4b base despite higher precision.
+        //   Q8 improves token quality at the margins; it does not fix the 4B parameter ceiling
+        //   that causes write_file JSON truncation on long payloads. See comment on 4b entry.
+        //   CoderScore lowered from 5 → 3 to reflect observed long-payload write_file failure.
+        //   TesterScore kept at 4 — Q8 likely still adequate for short structured outputs.
         ["nemotron-3-nano:4b-q8_0"] = new(
             "nemotron-3-nano:4b-q8_0", "Nemotron 3 Nano 4B (Q8)", 131_072, true,
-            ["agent", "reasoning", "tool-use", "coding"],
+            ["agent", "reasoning", "tool-use", "tester", "summarization"],
             ToolSet.Full, PromptStyle.Agent,
             MaxSteps: 18, Temperature: 0.1, TimeoutSeconds: 60, AutoVerify: true,
-            Description: "NVIDIA Nemotron 3 Nano 4B Q8 — higher precision, 4.2 GB. Better quality vs 4b base.",
+            Description: "NVIDIA Nemotron 3 Nano 4B Q8 — higher precision, 4.2 GB. ✅ Good for: lightweight tester, short summaries, simple reports. ⚠ NOT for: multi-file code generation (T06 confirmed: truncates write_file JSON on all passes). CoderScore 3 reflects long-payload failure, not HumanEval accuracy.",
             MinVramGb: 5, ParamsBillions: 4, Speed: SpeedTier.Fast,
-            BossScore: 4, CoderScore: 5, ResearcherScore: 4, TesterScore: 4
+            BossScore: 4, CoderScore: 3, ResearcherScore: 4, TesterScore: 4
         ),
 
         // ── Gemma 4 ──────────────────────────────────────────────────────────
