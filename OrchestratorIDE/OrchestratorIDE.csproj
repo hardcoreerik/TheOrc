@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Resources\curated-models.json"/>
+    <EmbeddedResource Include="Resources\model-wiki-observations.json"/>
   </ItemGroup>
 
   <ItemGroup>

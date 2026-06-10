@@ -18,10 +18,11 @@ namespace OrchestratorIDE.UITests;
 [SetUpFixture]
 public class AppFixture
 {
-    private static Application? _app;
+    private static Application?     _app;
     private static UIA3Automation? _automation;
 
-    public static Window MainWindow { get; private set; } = null!;
+    public static Window          MainWindow  { get; private set; } = null!;
+    public static UIA3Automation  Automation  => _automation!; // exposed for desktop-level searches
 
     // ── Path resolution ───────────────────────────────────────────────────
 
@@ -123,6 +124,58 @@ public class AppFixture
     }
 
     /// <summary>
+    /// Search the desktop for a top-level <see cref="Window"/> whose title
+    /// contains <paramref name="titleFragment"/>. Returns null if not found.
+    /// </summary>
+    public static Window? FindWindowByTitle(string titleFragment)
+    {
+        try
+        {
+            // Strategy 1: all direct desktop children (top-level windows).
+            // Deliberately skip the ControlType filter — owned WPF windows
+            // sometimes surface with an unexpected ControlType and would be
+            // excluded by a strict ByControlType(Window) predicate.
+            var desktop  = _automation!.GetDesktop();
+            var topLevel = desktop.FindAllChildren();
+            var found    = topLevel.FirstOrDefault(w =>
+                w.Name?.Contains(titleFragment, StringComparison.OrdinalIgnoreCase) == true);
+            if (found != null) return found.AsWindow();
+
+            // Strategy 2: owned WPF windows (Owner = someWindow) sometimes
+            // appear as UIA children of the owner rather than the desktop.
+            // Search MainWindow's direct children for a matching Window element.
+            if (MainWindow != null)
+            {
+                var ownedWins = MainWindow.FindAllChildren(cf =>
+                    cf.ByControlType(FlaUI.Core.Definitions.ControlType.Window));
+                var owned = ownedWins.FirstOrDefault(w =>
+                    w.Name?.Contains(titleFragment, StringComparison.OrdinalIgnoreCase) == true);
+                if (owned != null) return owned.AsWindow();
+            }
+
+            // Strategy 3: double-owned windows (e.g. dialog owned by a non-modal
+            // child window) appear as UIA children of their immediate owner, which
+            // is itself a child of the desktop.  Walk every top-level window's
+            // direct Window-typed children to catch this case.
+            foreach (var topWin in topLevel)
+            {
+                try
+                {
+                    var childWins = topWin.FindAllChildren(cf =>
+                        cf.ByControlType(FlaUI.Core.Definitions.ControlType.Window));
+                    var child = childWins.FirstOrDefault(w =>
+                        w.Name?.Contains(titleFragment, StringComparison.OrdinalIgnoreCase) == true);
+                    if (child != null) return child.AsWindow();
+                }
+                catch { /* skip inaccessible windows */ }
+            }
+
+            return null;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
     /// Spin-wait until <paramref name="condition"/> returns true or
     /// <paramref name="timeout"/> elapses.
     /// </summary>
@@ -135,5 +188,22 @@ public class AppFixture
             Thread.Sleep(150);
         }
         return false;
+    }
+
+    /// <summary>
+    /// Spin-wait until <paramref name="getter"/> returns a non-null value,
+    /// then return it; returns null on timeout.
+    /// </summary>
+    public static T? WaitUntilGet<T>(Func<T?> getter, TimeSpan? timeout = null)
+        where T : class
+    {
+        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(5));
+        while (DateTime.UtcNow < deadline)
+        {
+            var v = getter();
+            if (v != null) return v;
+            Thread.Sleep(150);
+        }
+        return null;
     }
 }

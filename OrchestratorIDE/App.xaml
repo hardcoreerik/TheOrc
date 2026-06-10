@@ -456,6 +456,65 @@
             </Setter>
         </Style>
 
+        <!-- ── Model Wiki styles ─────────────────────────────────────────────────
+             FilterChipStyle  — toggled pill buttons in the wiki left pane
+             WikiSectionHeader — muted uppercase section label
+             WikiSectionBody   — dark-bordered content area
+        ─────────────────────────────────────────────────────────────────── -->
+        <Style x:Key="FilterChipStyle" TargetType="ToggleButton">
+            <Setter Property="Background"      Value="#111A11"/>
+            <Setter Property="Foreground"      Value="{StaticResource Br.Text.Muted}"/>
+            <Setter Property="BorderBrush"     Value="#2A3A2A"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding"         Value="8,3"/>
+            <Setter Property="Margin"          Value="0,0,4,4"/>
+            <Setter Property="FontFamily"      Value="Segoe UI"/>
+            <Setter Property="FontSize"        Value="11"/>
+            <Setter Property="Cursor"          Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="3"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background"   Value="#1A3A0A"/>
+                                <Setter TargetName="Bd" Property="BorderBrush"  Value="{StaticResource Br.Accent.Green}"/>
+                                <Setter Property="Foreground" Value="{StaticResource Br.Accent.Green}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#182818"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="WikiSectionHeader" TargetType="TextBlock">
+            <Setter Property="Foreground"  Value="{StaticResource Br.Text.Muted}"/>
+            <Setter Property="FontFamily"  Value="Segoe UI"/>
+            <Setter Property="FontSize"    Value="10"/>
+            <Setter Property="FontWeight"  Value="Bold"/>
+            <Setter Property="Margin"      Value="0,12,0,4"/>
+        </Style>
+
+        <Style x:Key="WikiSectionBody" TargetType="Border">
+            <Setter Property="Background"      Value="#0A120A"/>
+            <Setter Property="BorderBrush"     Value="#1E2E1E"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius"    Value="4"/>
+            <Setter Property="Padding"         Value="12,10"/>
+            <Setter Property="Margin"          Value="0,0,0,4"/>
+        </Style>
+
         <!-- Activity bar icon buttons -->
         <Style x:Key="ActivityBtnStyle" TargetType="Button">
             <Setter Property="Background"  Value="Transparent"/>

@@ -1,0 +1,339 @@
+<Window x:Class="OrchestratorIDE.UI.Windows.ModelWikiWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Model Wiki / Lab — TheOrc"
+        Width="1160" Height="740"
+        MinWidth="800" MinHeight="500"
+        Background="{StaticResource Br.Bg.App}"
+        WindowStartupLocation="CenterOwner"
+        AutomationProperties.AutomationId="ModelWiki.Root"
+        AutomationProperties.Name="Model Wiki Lab">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>   <!-- header -->
+            <RowDefinition Height="*"/>      <!-- content -->
+            <RowDefinition Height="28"/>     <!-- status bar -->
+        </Grid.RowDefinitions>
+
+        <!-- ── Header ──────────────────────────────────────────────────── -->
+        <Border Grid.Row="0" Background="#0A0A0A" BorderBrush="#1E2E1E"
+                BorderThickness="0,0,0,1" Padding="16,10">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="⬡" Foreground="{StaticResource Br.Accent.Green}"
+                               FontSize="18" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                    <StackPanel>
+                        <TextBlock Text="Model Wiki / Lab"
+                                   Foreground="{StaticResource Br.Text.White}"
+                                   FontSize="15" FontWeight="Bold" FontFamily="Segoe UI"/>
+                        <TextBlock Foreground="{StaticResource Br.Text.Muted}"
+                                   FontSize="11" FontFamily="Segoe UI" Margin="0,2,0,0"
+                                   Text="Per-model capability profiles, local evidence, and routing guidance"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="BtnRunCapabilityTest"
+                            Content="▶  Run Capability Test…"
+                            Click="BtnRunCapabilityTest_Click"
+                            Padding="14,6" Margin="0,0,10,0"
+                            Background="{StaticResource Br.Accent.Green}"
+                            Foreground="White" BorderThickness="0"
+                            FontFamily="Segoe UI" FontSize="12"
+                            Cursor="Hand"
+                            AutomationProperties.AutomationId="ModelWiki.RunCapabilityTest"/>
+                    <Button x:Name="BtnRefresh"
+                            Content="↺ Refresh"
+                            Click="BtnRefresh_Click"
+                            Padding="10,6"
+                            Background="#1A2A1A" Foreground="{StaticResource Br.Text.White}"
+                            BorderBrush="#2A3A2A" BorderThickness="1"
+                            FontFamily="Segoe UI" FontSize="12"
+                            Cursor="Hand"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ── Content: left list + right detail ──────────────────────── -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="290" MinWidth="200"/>
+                <ColumnDefinition Width="4"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- ── Left: search + filters + model list ───────────────── -->
+            <Grid Grid.Column="0" Background="#0C0C0C">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>  <!-- search -->
+                    <RowDefinition Height="Auto"/>  <!-- filters -->
+                    <RowDefinition Height="*"/>     <!-- list -->
+                </Grid.RowDefinitions>
+
+                <!-- Search box -->
+                <Border Grid.Row="0" Background="#0A0A0A" BorderBrush="#1E2E1E"
+                        BorderThickness="0,0,0,1" Padding="8,6">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="🔍" Grid.Column="0" VerticalAlignment="Center"
+                                   Foreground="{StaticResource Br.Text.Muted}" Margin="2,0,6,0"/>
+                        <TextBox x:Name="TbSearch"
+                                 Grid.Column="1"
+                                 Background="Transparent"
+                                 Foreground="{StaticResource Br.Text.White}"
+                                 CaretBrush="{StaticResource Br.Accent.Green}"
+                                 BorderThickness="0"
+                                 FontFamily="Segoe UI" FontSize="12"
+                                 VerticalAlignment="Center"
+                                 TextChanged="TbSearch_TextChanged"
+                                 AutomationProperties.AutomationId="ModelWiki.Search"
+                                 AutomationProperties.Name="Model Search"/>
+                        <TextBlock x:Name="TbSearchHint" Grid.Column="1"
+                                   Text="Search models…"
+                                   Foreground="{StaticResource Br.Text.Muted}"
+                                   FontFamily="Segoe UI" FontSize="12" FontStyle="Italic"
+                                   VerticalAlignment="Center" IsHitTestVisible="False"/>
+                        <Button x:Name="BtnClearSearch" Grid.Column="2"
+                                Content="✕" Width="18" Height="18"
+                                Background="Transparent" BorderThickness="0"
+                                Foreground="{StaticResource Br.Text.Muted}"
+                                FontSize="10" Cursor="Hand"
+                                Visibility="Collapsed"
+                                Click="BtnClearSearch_Click"/>
+                    </Grid>
+                </Border>
+
+                <!-- Filter chips -->
+                <Border Grid.Row="1" Background="#0D0D0D" BorderBrush="#1E2E1E"
+                        BorderThickness="0,0,0,1" Padding="6,5">
+                    <WrapPanel x:Name="FilterPanel" Orientation="Horizontal">
+                        <ToggleButton x:Name="FilterInstalled" Content="✅ Installed"
+                                      Style="{StaticResource FilterChipStyle}"
+                                      Click="Filter_Click" Tag="Installed"/>
+                        <ToggleButton x:Name="FilterBoss"      Content="👑 Boss"
+                                      Style="{StaticResource FilterChipStyle}"
+                                      Click="Filter_Click" Tag="Boss"/>
+                        <ToggleButton x:Name="FilterCoder"     Content="⚡ Coder"
+                                      Style="{StaticResource FilterChipStyle}"
+                                      Click="Filter_Click" Tag="Coder"/>
+                        <ToggleButton x:Name="FilterResearcher" Content="🔍 Researcher"
+                                      Style="{StaticResource FilterChipStyle}"
+                                      Click="Filter_Click" Tag="Researcher"/>
+                        <ToggleButton x:Name="FilterTester"    Content="🧪 Tester"
+                                      Style="{StaticResource FilterChipStyle}"
+                                      Click="Filter_Click" Tag="Tester"/>
+                        <ToggleButton x:Name="FilterLongWrite" Content="📝 Long write_file"
+                                      Style="{StaticResource FilterChipStyle}"
+                                      Click="Filter_Click" Tag="LongWrite"/>
+                        <ToggleButton x:Name="FilterFast"      Content="⚡ Fast/Small"
+                                      Style="{StaticResource FilterChipStyle}"
+                                      Click="Filter_Click" Tag="Fast"/>
+                    </WrapPanel>
+                </Border>
+
+                <!-- Model list -->
+                <ListBox x:Name="ModelList"
+                         Grid.Row="2"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         SelectionChanged="ModelList_SelectionChanged"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         AutomationProperties.AutomationId="ModelWiki.ModelList"
+                         AutomationProperties.Name="Model List">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="Margin"  Value="0"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                                BorderBrush="#1E2E1E" BorderThickness="0,0,0,1"
+                                                Padding="8,7">
+                                            <ContentPresenter/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="#0D1A0D"/>
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Br.Accent.Green}"/>
+                                                <Setter TargetName="Bd" Property="BorderThickness" Value="2,0,0,0"/>
+                                            </Trigger>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="#101810"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <!-- Display name + installed badge -->
+                                <DockPanel Grid.Row="0">
+                                    <TextBlock Text="{Binding InstalledBadge}"
+                                               DockPanel.Dock="Right"
+                                               Foreground="{Binding InstalledColor}"
+                                               FontSize="10" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                    <TextBlock Text="{Binding DisplayName}"
+                                               Foreground="{StaticResource Br.Text.White}"
+                                               FontSize="12" FontFamily="Segoe UI"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </DockPanel>
+                                <!-- model ID + speed + vram -->
+                                <TextBlock Grid.Row="1"
+                                           Text="{Binding SubLabel}"
+                                           Foreground="{StaticResource Br.Text.Muted}"
+                                           FontSize="10" FontFamily="Consolas"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+
+            <!-- Splitter -->
+            <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch"
+                          Background="#1E2E1E" ShowsPreview="False"/>
+
+            <!-- ── Right: detail pane ──────────────────────────────────── -->
+            <ScrollViewer Grid.Column="2"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          AutomationProperties.AutomationId="ModelWiki.Detail"
+                          AutomationProperties.Name="Model Detail Pane">
+                <!-- ScrollViewer requires a single child — wrap both states in a Grid -->
+                <Grid>
+
+                <!-- Empty state -->
+                <Grid x:Name="DetailEmpty" Visibility="Visible">
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="40">
+                        <TextBlock Text="⬡" Foreground="{StaticResource Br.Accent.Green}"
+                                   FontSize="48" HorizontalAlignment="Center" Margin="0,0,0,16"/>
+                        <TextBlock Text="Select a model to view its wiki entry"
+                                   Foreground="{StaticResource Br.Text.Muted}"
+                                   FontSize="14" HorizontalAlignment="Center"/>
+                        <TextBlock Text="Use the filter chips on the left to narrow the list."
+                                   Foreground="{StaticResource Br.Text.Muted}"
+                                   FontSize="11" HorizontalAlignment="Center" Margin="0,8,0,0"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Detail content (populated in code-behind) -->
+                <StackPanel x:Name="DetailPanel" Visibility="Collapsed"
+                            Margin="20,16,20,20">
+
+                    <!-- ── Model header ──────────────────────────────── -->
+                    <Border Background="#0A140A" BorderBrush="#1E3E1E"
+                            BorderThickness="1" CornerRadius="4" Padding="16,12" Margin="0,0,0,14">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock x:Name="TbDetailName"
+                                           Foreground="{StaticResource Br.Text.White}"
+                                           FontSize="18" FontWeight="Bold" FontFamily="Segoe UI"/>
+                                <TextBlock x:Name="TbDetailId"
+                                           Foreground="{StaticResource Br.Accent.Green}"
+                                           FontSize="11" FontFamily="Consolas" Margin="0,4,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                                <Border x:Name="BdInstalled" CornerRadius="3" Padding="8,3" Margin="0,0,6,0">
+                                    <TextBlock x:Name="TbInstalled" FontSize="11" FontFamily="Segoe UI"/>
+                                </Border>
+                                <Border x:Name="BdSpeed" Background="#1A2010" CornerRadius="3" Padding="8,3">
+                                    <TextBlock x:Name="TbSpeed"
+                                               Foreground="{StaticResource Br.Accent.Green}"
+                                               FontSize="11" FontFamily="Segoe UI"/>
+                                </Border>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- ── A. Summary ──────────────────────────────────── -->
+                    <TextBlock Text="A  SUMMARY" Style="{StaticResource WikiSectionHeader}"/>
+                    <Border Style="{StaticResource WikiSectionBody}">
+                        <Grid x:Name="GridSummary">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <!-- Col 0 labels + Col 1 values, Col 2 labels + Col 3 values -->
+                        </Grid>
+                    </Border>
+
+                    <!-- ── B. Role Scores ──────────────────────────────── -->
+                    <TextBlock Text="B  ROLE SCORES" Style="{StaticResource WikiSectionHeader}"/>
+                    <Border Style="{StaticResource WikiSectionBody}">
+                        <StackPanel x:Name="PnlScores"/>
+                    </Border>
+
+                    <!-- ── C. Local Observations ──────────────────────── -->
+                    <TextBlock Text="C  LOCAL OBSERVATIONS" Style="{StaticResource WikiSectionHeader}"/>
+                    <Border Style="{StaticResource WikiSectionBody}">
+                        <StackPanel x:Name="PnlObservations"/>
+                    </Border>
+
+                    <!-- ── D. Tool-Call Reliability ───────────────────── -->
+                    <TextBlock Text="D  TOOL-CALL RELIABILITY" Style="{StaticResource WikiSectionHeader}"/>
+                    <Border Style="{StaticResource WikiSectionBody}">
+                        <StackPanel x:Name="PnlToolReliability"/>
+                    </Border>
+
+                    <!-- ── E. Routing Recommendation ──────────────────── -->
+                    <TextBlock Text="E  ROUTING RECOMMENDATION" Style="{StaticResource WikiSectionHeader}"/>
+                    <Border Style="{StaticResource WikiSectionBody}">
+                        <StackPanel x:Name="PnlRouting"/>
+                    </Border>
+
+                    <!-- ── F. LoRA/QLoRA Suitability ──────────────────── -->
+                    <TextBlock Text="F  LORA / QLORA SUITABILITY" Style="{StaticResource WikiSectionHeader}"/>
+                    <Border Style="{StaticResource WikiSectionBody}">
+                        <TextBlock x:Name="TbLoraGuidance"
+                                   Foreground="{StaticResource Br.Text.White}"
+                                   FontFamily="Segoe UI" FontSize="12"
+                                   TextWrapping="Wrap" LineHeight="20"/>
+                    </Border>
+
+                </StackPanel>
+                </Grid><!-- /wrapper Grid -->
+            </ScrollViewer>
+        </Grid>
+
+        <!-- ── Status bar ──────────────────────────────────────────────── -->
+        <Border Grid.Row="2" Background="#070707" BorderBrush="#111111"
+                BorderThickness="0,1,0,0" Padding="12,0">
+            <DockPanel>
+                <TextBlock x:Name="TbStatus"
+                           Foreground="{StaticResource Br.Text.Muted}"
+                           FontFamily="Segoe UI" FontSize="11"
+                           VerticalAlignment="Center"
+                           Text="Loading models…"/>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

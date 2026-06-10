@@ -1,0 +1,62 @@
+[
+  {
+    "ModelId": "nemotron-3-nano:4b-q8_0",
+    "Source": "local_system_test",
+    "TestId": "T06_BuildResearchTool",
+    "Date": "2026-06-09",
+    "Result": "failed",
+    "Summary": "Model started write_file JSON for main.py and file_manager.py but truncated before closing braces on passes 1 and 2; pass 3 returned empty response; zero project files written across all 3 passes.",
+    "Classification": "not_recommended_for_long_write_file",
+    "RecommendedUses": [ "short chat", "lightweight tester", "log summarization", "short command/report tasks" ],
+    "NotRecommendedUses": [ "primary single-agent Execute coder", "multi-file autonomous generation", "long write_file payloads" ],
+    "Confidence": "observed_local_single_run"
+  },
+  {
+    "ModelId": "nemotron-3-nano:4b",
+    "Source": "local_system_test",
+    "TestId": "T06_BuildResearchTool",
+    "Date": "2026-06-09",
+    "Result": "not_tested",
+    "Summary": "Q8 variant (4b-q8_0) was tested and failed long write_file generation. The base 4b (Q4) variant uses lower precision and is expected to perform the same or worse for long-payload tool calls.",
+    "Classification": "not_recommended_for_long_write_file",
+    "RecommendedUses": [ "short chat", "lightweight tester", "log summarization", "short command/report tasks" ],
+    "NotRecommendedUses": [ "primary single-agent Execute coder", "multi-file autonomous generation" ],
+    "Confidence": "inferred_from_q8_result"
+  },
+  {
+    "ModelId": "theorc-boss:gemma4",
+    "Source": "local_observation",
+    "TestId": "swarm_benchmark_multiple_runs",
+    "Date": "2026-06-09",
+    "Result": "pass",
+    "Summary": "Produces 3-4 task plans with non-empty descriptions. Custom Modelfile with temperature=0.2, think=false, 16K context cap, few-shot examples baked in. QAT wrapper — not a LoRA-trained adapter. Phase 3 LoRA training remains blocked at 0/150 examples.",
+    "Classification": "recommended_boss_model",
+    "RecommendedUses": [ "boss planning", "task decomposition", "swarm orchestration" ],
+    "NotRecommendedUses": [ "raw use without Modelfile (planning collapse observed on base gemma4:12b)" ],
+    "Confidence": "observed_local_multiple_runs"
+  },
+  {
+    "ModelId": "gemma4:12b",
+    "Source": "local_observation",
+    "TestId": "swarm_benchmark_multiple_runs",
+    "Date": "2026-06-09",
+    "Result": "partial",
+    "Summary": "Excellent coder and researcher in swarm worker role. Not recommended as boss without tuning — observed planning collapse: outputs title='Execute goal', description='' when asked to decompose tasks. Use theorc-boss:gemma4 (tuned Modelfile) for boss role.",
+    "Classification": "recommended_coder_researcher_not_boss",
+    "RecommendedUses": [ "swarm coder", "swarm researcher", "single-agent coding tasks" ],
+    "NotRecommendedUses": [ "boss role without Modelfile tuning (planning collapse)" ],
+    "Confidence": "observed_local_multiple_runs"
+  },
+  {
+    "ModelId": "hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0",
+    "Source": "local_observation",
+    "TestId": "swarm_benchmark_multiple_runs",
+    "Date": "2026-06-09",
+    "Result": "partial",
+    "Summary": "Google official QAT GGUF, 6.7 GB. Same base as theorc-boss:gemma4 but without boss-planning Modelfile calibration. Good coder and researcher. Not recommended as boss without tuning (same planning collapse as plain gemma4:12b).",
+    "Classification": "recommended_coder_researcher_not_boss",
+    "RecommendedUses": [ "swarm coder", "swarm researcher" ],
+    "NotRecommendedUses": [ "boss role without Modelfile tuning" ],
+    "Confidence": "observed_local_multiple_runs"
+  }
+]
