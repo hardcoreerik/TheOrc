@@ -236,6 +236,10 @@ public class SwarmSession
             OnTasksPlanned?.Invoke(Tasks);
             await SavePlanJsonAsync(userGoal);
 
+            // Honor Stop() requested during OnTasksPlanned (e.g. swarmcli --plan-only)
+            // before any worker phase starts
+            ct.ThrowIfCancellationRequested();
+
             // ── Phase 2a: Research tasks ──────────────────────────────────────
             var researchers = Tasks.Where(t => t.Role == SwarmWorkerRole.Researcher).ToList();
             var others      = Tasks.Where(t => t.Role != SwarmWorkerRole.Researcher).ToList();
@@ -1409,6 +1413,9 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         Func<string, string, string, CancellationToken, Task<bool>> sandboxBypass =
             async (toolName, escapedPath, sandboxRoot, ct) =>
             {
+                // Headless host (no WPF Application) — deny sandbox escapes outright
+                if (System.Windows.Application.Current is null) return false;
+
                 var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>(
                               System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
                 ct.Register(() => tcs.TrySetResult(false));

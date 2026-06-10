@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "created_at": "2026-06-09T00:00:00Z",
-  "last_modified": "2026-06-10T15:28:43Z",
+  "last_modified": "2026-06-10T21:23:33Z",
   "entries": {
     "ex_test_001": {
       "file": ".orc\\swarm\\dataset-staging-test\\plan_capture_good_test_001_085.json",
@@ -378,6 +378,32 @@
       "quality": null,
       "note": "CAPTURE-012: boss json_invalid collapse (plan=null); displayed raw plan also hallucinated Python files (models.py, ollama_service.py) for the WPF app — no training signal",
       "decided_at": "2026-06-10T15:28:43Z",
+      "decided_by": "human"
+    },
+    "ex_20260610_212111": {
+      "file": ".orc\\swarm\\dataset-staging\\plan_capture_good_20260610_212111_078.json",
+      "example_id": "ex_20260610_212111",
+      "run_id": "20260610_212111",
+      "quality_score": 78,
+      "example_class": "positive",
+      "decision": "approved",
+      "split": "train",
+      "quality": "silver",
+      "note": "CAPTURE-009 via swarmcli plan-only: 2-task RESEARCHER+CODER, MainWindow.xaml.cs named, WPF-correct, no hallucinated stack; silver (no AutomationId reference)",
+      "decided_at": "2026-06-10T21:23:32Z",
+      "decided_by": "human"
+    },
+    "ex_20260610_212238": {
+      "file": ".orc\\swarm\\dataset-staging\\plan_capture_good_20260610_212238_084.json",
+      "example_id": "ex_20260610_212238",
+      "run_id": "20260610_212238",
+      "quality_score": 84,
+      "example_class": "positive",
+      "decision": "approved",
+      "split": "train",
+      "quality": "silver",
+      "note": "CAPTURE-007 via swarmcli plan-only: 3-task RESEARCHER+CODER+TESTER, health_check.ps1 named, PS-native cmdlets specified, TESTER correctly run-and-report only; silver (rubric 84)",
+      "decided_at": "2026-06-10T21:23:33Z",
       "decided_by": "human"
     }
   }

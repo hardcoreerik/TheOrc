@@ -84,12 +84,12 @@ The Training Pit is on its own milestone track, not tied to app version numbers.
 |---|---|---|
 | Phase 1 | ✅ Done | Scaffolding — schemas, rubrics, configs, scripts |
 | Phase 2 | ✅ Done | Data collection — auto-capture via DatasetCapture.cs |
-| Phase 2.5 | 🔵 Active | Dataset Accumulation — infrastructure complete; collecting captures (13/150 train · 0/20 eval · 5/25 negative) |
+| Phase 2.5 | 🔵 Active | Dataset Accumulation — infrastructure complete; collecting captures (15/150 train · 0/20 eval · 5/25 negative) |
 | Phase 3 | 🔴 Blocked | Training — LoRA fine-tune on Gemma 4 12B QAT |
 | Phase 4 | 🔲 Future | Deployment — A/B path in SwarmSession |
 
 **Phase 3 gate:** ≥150 reviewed positive examples + ≥25 negative examples + ≥20 eval.
-Current count: **13/150 train, 5/25 negative, 0/20 eval.**
+Current count: **15/150 train, 5/25 negative, 0/20 eval.**
 Run `python training_pit/scripts/review_captures.py --status` for live counters.
 See `training_pit/BATCH_CAPTURE_PLAN.md` for the next planned capture batch (20 prompts).
 
