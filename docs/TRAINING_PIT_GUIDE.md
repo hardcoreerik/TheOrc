@@ -1,10 +1,11 @@
 # TheOrc — Training Pit Guide
 
-> **Current status: PHASE 2.5 ACTIVE — Dataset Review / Approval Valve.**
-> Phase 2.5 adds `review_captures.py` — the manifest-based gate between raw swarm captures
-> and promoted training data. Phase 3 training is **BLOCKED** pending ≥150 reviewed
-> positive examples. Do not add training scripts or launch training jobs until Phase 3
-> is explicitly unblocked (`phase3_preflight.py` exits 0).
+> **Current status: PHASE 2.5 ACTIVE — Dataset Accumulation.**
+> Phase 3 infrastructure is complete (`review_captures.py`, `phase3_preflight.py`, manifest tracking).
+> We are now in the **dataset accumulation stage** — collecting real TheOrc swarm captures,
+> reviewing them, and building toward the Phase 3 gate (150/20/25).
+> Current counts: **3/150 train · 0/20 eval · 0/25 negative.**
+> Do not add training scripts or launch training jobs until `phase3_preflight.py` exits 0.
 
 ---
 
@@ -42,12 +43,13 @@ Phase 2 (DONE):   Data collection infrastructure
   ├── EvalRubric scoring (positive ≥70, negative ≤39)
   └── validate_dataset.py + sanitize_dataset.py scripts
 
-Phase 2.5 (ACTIVE): Dataset Review / Approval Valve
+Phase 2.5 (ACTIVE): Dataset Accumulation
   ├── review_captures.py — manifest-driven approve/reject/export
   ├── reviewed_v1.json manifest — tracked in git; source of truth for reviewed decisions
   ├── Atomic export gate: validate + sanitize before writing JSONL
   ├── phase3_preflight.py — 9-check readiness gate (exit 0 = READY, 1 = BLOCKED)
-  └── Phase 3 gate counters: 0/150 train, 0/25 negative, 0+/20 eval
+  ├── BATCH_CAPTURE_PLAN.md — 20 designed live swarm prompts for next capture batch
+  └── Phase 3 gate counters: 3/150 train, 0/25 negative, 0/20 eval
 
 Phase 3 (BLOCKED): Training
   ├── LoRA fine-tune via Unsloth on QAT base
@@ -63,13 +65,15 @@ Phase 4 (FUTURE): Deployment
 
 ---
 
-## Current Phase 2 Counters
+## Current Dataset Counts
 
 | Item | Count | Required for Phase 3 |
 |---|---|---|
-| Reviewed positive examples in `train_v1.jsonl` | 0 | ≥ 150 |
+| Reviewed positive examples in `train_v1.jsonl` | **3** | ≥ 150 |
 | Reviewed negative examples in `negative_v1.jsonl` | 0 | ≥ 25 |
 | Fixed eval prompts in `evals/` | 10+ | ≥ 20 (met) |
+
+See `training_pit/BATCH_CAPTURE_PLAN.md` for the next 20 planned live swarm prompts.
 
 ---
 
