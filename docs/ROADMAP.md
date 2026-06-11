@@ -86,7 +86,7 @@ The WPF app remains the primary Windows-native experience indefinitely.
 - [ ] Background agent (fire task, get notified when done)
 - [ ] Token cost estimator
 - [ ] Multi-workspace support
-- [ ] SwarmBoard metrics history tab (ConfigStats per configuration)
+- [x] SwarmBoard metrics history tab (ConfigStats per configuration) — lazy expander, quality-sorted, codex-reviewed (2026-06-11)
 - [x] Model Wiki: model comparison view (side-by-side) — ModelCompareWindow, winner highlighting, codex CLEAN (2026-06-11)
 - [x] Model Wiki: historical result trends chart — C2 trends strip + pass-rate trend, codex-reviewed (2026-06-11)
 - [x] Model Wiki: export capability matrix to Markdown — Export Matrix button, ModelWikiExporter + T12 tests (2026-06-11)
