@@ -310,6 +310,11 @@
             <!-- ── Help ──────────────────────────────────────────── -->
             <MenuItem Header="_Help"
                       AutomationProperties.AutomationId="Menu.Help">
+                <MenuItem Header="Help Topics"
+                          InputGestureText="F1"
+                          AutomationProperties.AutomationId="Help.Topics"
+                          Click="Menu_HelpTopics"/>
+                <Separator/>
                 <MenuItem Header="Documentation"
                           AutomationProperties.AutomationId="Help.Documentation"
                           Click="Menu_HelpDocumentation"/>

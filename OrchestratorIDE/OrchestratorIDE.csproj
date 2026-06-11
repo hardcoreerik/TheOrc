@@ -27,6 +27,9 @@
   <ItemGroup>
     <EmbeddedResource Include="Resources\curated-models.json"/>
     <EmbeddedResource Include="Resources\model-wiki-observations.json"/>
+    <!-- Documentation suite embedded for the in-app Help window — published
+         single-file installs have no docs/ folder on disk. -->
+    <EmbeddedResource Include="..\docs\*.md" Link="Resources\docs\%(Filename)%(Extension)"/>
   </ItemGroup>
 
   <!-- Expose internals (e.g. SwarmSession.DetectTargetLanguage) to the test project -->
