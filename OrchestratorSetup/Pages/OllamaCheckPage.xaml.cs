@@ -24,20 +24,64 @@ public partial class OllamaCheckPage : UserControl, IInstallerPage
 
     private async Task DetectOllamaAsync()
     {
+        // Step 1: probe the live API (fastest signal — service is running)
+        bool running = false;
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
             var resp = await http.GetAsync("http://localhost:11434/api/tags");
-            _vm.State.OllamaDetected = true;
-            _vm.State.OllamaRunning  = resp.IsSuccessStatusCode;
+            running = resp.IsSuccessStatusCode;
         }
-        catch
-        {
-            _vm.State.OllamaDetected = false;
-            _vm.State.OllamaRunning  = false;
-        }
+        catch { }
+
+        // Step 2: check whether ollama.exe is on disk even if the service is down
+        bool installed = running || IsOllamaInstalled();
+
+        _vm.State.OllamaDetected = installed;
+        _vm.State.OllamaRunning  = running;
 
         UpdateStatusDisplay();
+    }
+
+    /// <summary>
+    /// Returns true if ollama.exe is found via PATH or the default install location.
+    /// Mirrors OllamaInstaller.FindOllamaExe() without depending on that internal class.
+    /// </summary>
+    private static bool IsOllamaInstalled()
+    {
+        // 1. PATH — where.exe / where ollama
+        try
+        {
+            using var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName               = "where",
+                Arguments              = "ollama",
+                UseShellExecute        = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                CreateNoWindow         = true,
+            });
+            if (p is not null)
+            {
+                string? line = p.StandardOutput.ReadLine()?.Trim();
+                p.WaitForExit(3000);
+                if (!string.IsNullOrEmpty(line) && File.Exists(line)) return true;
+            }
+        }
+        catch { }
+
+        // 2. Default install locations
+        var candidates = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Programs", "Ollama", "ollama.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Ollama", "ollama.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Ollama", "ollama.exe"),
+        };
+
+        return candidates.Any(File.Exists);
     }
 
     private void UpdateStatusDisplay()
@@ -60,12 +104,17 @@ public partial class OllamaCheckPage : UserControl, IInstallerPage
         else if (_vm.State.OllamaDetected)
         {
             TxtOllamaIcon.Text   = "🟡";
-            TxtOllamaStatus.Text = "Ollama is installed but not running";
-            TxtOllamaDetail.Text = "Ollama was found but its service is not active. " +
-                                   "llama.cpp (bundled) is recommended, or install a fresh Ollama.";
+            TxtOllamaStatus.Text = "Ollama is installed but not currently running";
+            TxtOllamaDetail.Text = "Ollama is installed on this machine but its service is not active. " +
+                                   "You can still choose it — just start Ollama before launching The Orc.";
 
-            CardOllama.IsEnabled = false;
-            CardOllama.Opacity   = 0.4;
+            TxtOllamaOptionDetail.Text =
+                "Ollama is installed but not running right now. " +
+                "Start Ollama before launching The Orc, or it won't connect.";
+
+            // Allow selection — user can start Ollama after install
+            CardOllama.IsEnabled = true;
+            CardOllama.Opacity   = 1.0;
         }
         else
         {

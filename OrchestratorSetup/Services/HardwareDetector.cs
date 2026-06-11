@@ -84,6 +84,41 @@ public static class HardwareDetector
             log?.Report($"WMI VideoController query failed: {ex.Message}");
         }
 
+        // ── 1b. nvidia-smi fallback — catches cases where WMI returns empty Name ─
+        if (gpuName == "Unknown")
+        {
+            log?.Report("WMI returned no GPU name — trying nvidia-smi…");
+            try
+            {
+                var (smiName, smiVram) = QueryNvidiaSmi(log);
+                if (!string.IsNullOrEmpty(smiName))
+                {
+                    gpuName   = smiName;
+                    if (smiVram > vramBytes) vramBytes = smiVram;
+                    log?.Report($"  nvidia-smi: {smiName}");
+                }
+            }
+            catch (Exception ex)
+            {
+                log?.Report($"nvidia-smi fallback failed: {ex.Message}");
+            }
+        }
+
+        // ── 1c. WMIC CLI fallback ─────────────────────────────────────────────
+        if (gpuName == "Unknown")
+        {
+            log?.Report("Trying wmic path win32_videocontroller…");
+            try
+            {
+                var wmicName = QueryWmicGpuName(log);
+                if (!string.IsNullOrEmpty(wmicName)) gpuName = wmicName;
+            }
+            catch (Exception ex)
+            {
+                log?.Report($"WMIC fallback failed: {ex.Message}");
+            }
+        }
+
         // ── 2. Derive vendor from GPU name ────────────────────────────────────
         vendor = InferVendor(gpuName);
         log?.Report($"Vendor: {vendor}");
@@ -312,6 +347,107 @@ public static class HardwareDetector
         if (vendor == "nvidia" && !string.IsNullOrEmpty(cuda)) return "cuda11"; // unknown minor → safer pick
         if (vendor is "amd" or "intel") return "vulkan";
         return hasAvx2 ? "avx2" : "cpu";
+    }
+
+    /// <summary>
+    /// Queries nvidia-smi for GPU name and VRAM — works even when WMI returns
+    /// an empty Name field (common on some OEM/Optimus laptop configurations).
+    /// </summary>
+    private static (string Name, long VramBytes) QueryNvidiaSmi(IProgress<string>? log)
+    {
+        // nvidia-smi is in PATH when NVIDIA drivers are installed
+        var candidates = new[]
+        {
+            "nvidia-smi",
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "NVIDIA Corporation", "NVSMI", "nvidia-smi.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                "System32", "nvidia-smi.exe"),
+        };
+
+        string? smiExe = candidates.FirstOrDefault(File.Exists)
+                      ?? (CanRunProcess("nvidia-smi", "--version") ? "nvidia-smi" : null);
+        if (smiExe is null) return ("", 0);
+
+        var psi = new ProcessStartInfo
+        {
+            FileName               = smiExe,
+            Arguments              = "--query-gpu=name,memory.total --format=csv,noheader,nounits",
+            UseShellExecute        = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError  = true,
+            CreateNoWindow         = true,
+        };
+
+        using var p = Process.Start(psi);
+        if (p is null) return ("", 0);
+
+        string output = p.StandardOutput.ReadToEnd().Trim();
+        p.WaitForExit(5000);
+
+        // output is "NVIDIA GeForce RTX 3050, 6144" (memory in MiB)
+        var parts = output.Split(',');
+        string name = parts.Length >= 1 ? parts[0].Trim() : "";
+        long vramBytes = 0;
+        if (parts.Length >= 2 && long.TryParse(parts[1].Trim(), out long mib))
+            vramBytes = mib * 1024L * 1024L;
+
+        return (name, vramBytes);
+    }
+
+    private static bool CanRunProcess(string exe, string args)
+    {
+        try
+        {
+            var p = Process.Start(new ProcessStartInfo
+            {
+                FileName               = exe,
+                Arguments              = args,
+                UseShellExecute        = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                CreateNoWindow         = true,
+            });
+            p?.WaitForExit(3000);
+            return p?.ExitCode == 0;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// Reads GPU name via the WMIC command-line tool as a last-resort fallback.
+    /// </summary>
+    private static string QueryWmicGpuName(IProgress<string>? log)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName               = "wmic",
+            Arguments              = "path win32_videocontroller get name /format:list",
+            UseShellExecute        = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError  = true,
+            CreateNoWindow         = true,
+        };
+
+        using var p = Process.Start(psi);
+        if (p is null) return "";
+
+        string output = p.StandardOutput.ReadToEnd();
+        p.WaitForExit(5000);
+
+        foreach (string line in output.Split('\n'))
+        {
+            // Lines look like "Name=NVIDIA GeForce RTX 3050"
+            if (!line.StartsWith("Name=", StringComparison.OrdinalIgnoreCase)) continue;
+            string name = line.Split('=', 2)[1].Trim();
+            if (!string.IsNullOrEmpty(name) && !IsSoftwareAdapter(name))
+            {
+                log?.Report($"  wmic: {name}");
+                return name;
+            }
+        }
+
+        return "";
     }
 
     // ── Drive space helper (used by pages) ────────────────────────────────────
