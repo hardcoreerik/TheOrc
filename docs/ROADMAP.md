@@ -31,8 +31,11 @@ The Goblin Mind initiative teaches the swarm to understand itself at runtime.
 Steering and correction are working. This milestone makes the swarm smarter through live
 feedback loops and self-directed improvement.
 
-- [ ] **Steering test suite** — Test prompt suite verifying TheOrc correctly routes, retries,
-  and corrects workers using capability profiles
+- [x] **Steering test suite** — T11_SteeringTests (15 pure-logic NUnit tests) pins the
+  capability-routing contract: unprobed models trusted, deficient primaries fall back
+  with exact missing-category reporting, role requirements fixed (TESTER never needs
+  FileOps), boss-prompt capability map verified. Routing extracted to SwarmSteering
+  for testability. Built 2026-06-11
 - [x] **Live capability badges** — Swarm Board shows mode | format | categories | schema |
   probe-age per model slot, with "Probe Now" button opening the probe window. Built 2026-06-10
 - [x] **Fitness map GUI** — ToolCallTestWindow "Evolution" tab lists fitness records
