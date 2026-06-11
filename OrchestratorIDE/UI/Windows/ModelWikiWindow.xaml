@@ -43,6 +43,16 @@
                             FontFamily="Segoe UI" FontSize="12"
                             Cursor="Hand"
                             AutomationProperties.AutomationId="ModelWiki.RunCapabilityTest"/>
+                    <Button x:Name="BtnCompare"
+                            Content="⚖ Compare"
+                            Click="BtnCompare_Click"
+                            ToolTip="Compare two models side by side (scores, probe results, routing)"
+                            Padding="10,6" Margin="0,0,10,0"
+                            Background="#1A2A1A" Foreground="{StaticResource Br.Text.White}"
+                            BorderBrush="#2A3A2A" BorderThickness="1"
+                            FontFamily="Segoe UI" FontSize="12"
+                            Cursor="Hand"
+                            AutomationProperties.AutomationId="ModelWiki.Compare"/>
                     <Button x:Name="BtnExportMatrix"
                             Content="⬇ Export Matrix"
                             Click="BtnExportMatrix_Click"

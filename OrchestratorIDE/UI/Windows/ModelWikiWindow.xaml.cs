@@ -231,6 +231,19 @@ public partial class ModelWikiWindow : Window
         win.Show();
     }
 
+    private void BtnCompare_Click(object sender, RoutedEventArgs e)
+    {
+        if (_allItems.Count < 2)
+        {
+            SetStatus("Need at least two models in the catalogue to compare.");
+            return;
+        }
+        var win = new ModelCompareWindow(
+            _allItems.Select(i => i.Entry).ToList(),
+            leftId: _selected?.Entry.ModelId) { Owner = this };
+        win.Show();
+    }
+
     private void BtnExportMatrix_Click(object sender, RoutedEventArgs e)
     {
         if (_allItems.Count == 0)

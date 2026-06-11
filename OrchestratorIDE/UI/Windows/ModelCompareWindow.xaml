@@ -1,0 +1,57 @@
+<Window x:Class="OrchestratorIDE.UI.Windows.ModelCompareWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Compare Models — TheOrc"
+        Width="860" Height="640"
+        MinWidth="680" MinHeight="460"
+        Background="{StaticResource Br.Bg.App}"
+        WindowStartupLocation="CenterOwner"
+        AutomationProperties.AutomationId="ModelCompare.Root">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#0A0A0A" BorderBrush="#1E2E1E"
+                BorderThickness="0,0,0,1" Padding="16,12">
+            <StackPanel>
+                <TextBlock Text="⚖ Model Comparison"
+                           Foreground="{StaticResource Br.Text.White}"
+                           FontSize="15" FontWeight="Bold" FontFamily="Segoe UI"/>
+                <TextBlock Text="Side-by-side scores, probe results, and routing guidance — better value per row is highlighted"
+                           Foreground="{StaticResource Br.Text.Muted}"
+                           FontSize="11" FontFamily="Segoe UI" Margin="0,4,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Model pickers -->
+        <Grid Grid.Row="1" Margin="16,10,16,4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="190"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <ComboBox x:Name="CbLeft"  Grid.Column="1" Margin="0,0,6,0" Padding="6,4"
+                      SelectionChanged="Picker_SelectionChanged"
+                      AutomationProperties.AutomationId="ModelCompare.Left"/>
+            <ComboBox x:Name="CbRight" Grid.Column="2" Margin="6,0,0,0" Padding="6,4"
+                      SelectionChanged="Picker_SelectionChanged"
+                      AutomationProperties.AutomationId="ModelCompare.Right"/>
+        </Grid>
+
+        <!-- Comparison rows (built in code-behind) -->
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="16,4,16,16">
+            <Grid x:Name="RowsGrid" AutomationProperties.AutomationId="ModelCompare.Rows">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="190"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
+</Window>
