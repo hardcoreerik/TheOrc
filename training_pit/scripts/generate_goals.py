@@ -14,7 +14,7 @@ Usage:
   python generate_goals.py [--count 30] [--model qwen2.5-coder:14b]
                            [--host URL] [--out PSV] [--prefix NH]
 """
-import argparse, datetime, json, re, urllib.request
+import argparse, datetime, json, re, sys, urllib.request
 from pathlib import Path
 
 VALID_DOMAINS = {"wpf_ui", "swarm", "ollama", "model_wiki", "csharp_core",
