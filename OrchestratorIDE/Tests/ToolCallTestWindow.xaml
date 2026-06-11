@@ -159,9 +159,44 @@
             </Border>
         </DockPanel>
 
-        <!-- ── Results table ────────────────────────────────────────────────── -->
-        <Border Grid.Row="2" Background="#111111" BorderBrush="#2A2A2A"
-                BorderThickness="1" CornerRadius="4">
+        <!-- ── Results tabs: Probes | Evolution ─────────────────────────────── -->
+        <TabControl Grid.Row="2" Background="Transparent" BorderThickness="0"
+                    Padding="0" SelectionChanged="Tabs_SelectionChanged"
+                    x:Name="ResultTabs"
+                    AutomationProperties.AutomationId="ToolProbe.Tabs">
+            <TabControl.Resources>
+                <Style TargetType="TabItem">
+                    <Setter Property="Foreground" Value="#888888"/>
+                    <Setter Property="FontFamily" Value="Consolas"/>
+                    <Setter Property="FontSize"   Value="11"/>
+                    <Setter Property="FontWeight" Value="Bold"/>
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="TabItem">
+                                <Border x:Name="Bd" Background="#141414" BorderBrush="#2A2A2A"
+                                        BorderThickness="1,1,1,0" CornerRadius="4,4,0,0"
+                                        Padding="14,6" Margin="0,0,4,0">
+                                    <ContentPresenter ContentSource="Header"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter TargetName="Bd" Property="Background" Value="#111111"/>
+                                        <Setter Property="Foreground" Value="#76B900"/>
+                                    </Trigger>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Bd" Property="Background" Value="#1A1A1A"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </TabControl.Resources>
+
+            <TabItem Header="⬡ PROBES"
+                     AutomationProperties.AutomationId="ToolProbe.Tab.Probes">
+        <Border Background="#111111" BorderBrush="#2A2A2A"
+                BorderThickness="1" CornerRadius="0,4,4,4">
             <DataGrid x:Name="DgResults"
                       AutoGenerateColumns="False"
                       CanUserAddRows="False"
@@ -333,6 +368,115 @@
                 </DataGrid.Columns>
             </DataGrid>
         </Border>
+            </TabItem>
+
+            <!-- ── GOBLIN MIND Phase 5: Evolutionary schema fitness ─────────── -->
+            <TabItem Header="🧬 EVOLUTION"
+                     AutomationProperties.AutomationId="ToolProbe.Tab.Evolution">
+                <Border Background="#111111" BorderBrush="#2A2A2A"
+                        BorderThickness="1" CornerRadius="0,4,4,4">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Evolution toolbar -->
+                        <DockPanel Grid.Row="0" Margin="10,8">
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                <Button x:Name="BtnEvoRefresh" Content="↻ Refresh"
+                                        AutomationProperties.AutomationId="ToolProbe.Evolution.Refresh"
+                                        Padding="10,4" Margin="0,0,8,0" Cursor="Hand"
+                                        Background="#1A2A1A" Foreground="#76B900"
+                                        BorderBrush="#2A4A1A" BorderThickness="1"
+                                        FontFamily="Consolas" FontSize="10" FontWeight="Bold"
+                                        Click="BtnEvoRefresh_Click"/>
+                                <Button x:Name="BtnPromote" Content="⬆ Promote Winners"
+                                        AutomationProperties.AutomationId="ToolProbe.Evolution.Promote"
+                                        Padding="10,4" Cursor="Hand"
+                                        Background="#1F3D00" Foreground="#76B900"
+                                        BorderBrush="#2A5A00" BorderThickness="1"
+                                        FontFamily="Consolas" FontSize="10" FontWeight="Bold"
+                                        ToolTip="Save every winning schema variant into SchemaLibrary so AgentLoop uses it automatically"
+                                        Click="BtnPromote_Click"/>
+                            </StackPanel>
+                            <TextBlock x:Name="TbEvoSummary"
+                                       Text="Schema variants discovered by 'tool-probe evolve' — run it from the CLI to populate this map."
+                                       Foreground="#666666" FontFamily="Consolas" FontSize="10"
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        </DockPanel>
+
+                        <!-- Fitness records grid -->
+                        <DataGrid x:Name="DgEvolution" Grid.Row="1"
+                                  AutomationProperties.AutomationId="ToolProbe.Evolution.Grid"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="False" CanUserDeleteRows="False"
+                                  SelectionMode="Single" IsReadOnly="True"
+                                  Background="#111111" Foreground="#CCCCCC"
+                                  RowBackground="#111111" AlternatingRowBackground="#161616"
+                                  GridLinesVisibility="Horizontal"
+                                  HorizontalGridLinesBrush="#1E1E1E"
+                                  BorderThickness="0"
+                                  FontFamily="Consolas" FontSize="11"
+                                  ColumnHeaderHeight="28" RowHeight="26">
+                            <DataGrid.Resources>
+                                <Style TargetType="DataGridColumnHeader">
+                                    <Setter Property="Background"   Value="#0A0A0A"/>
+                                    <Setter Property="Foreground"   Value="#76B900"/>
+                                    <Setter Property="FontSize"     Value="10"/>
+                                    <Setter Property="FontWeight"   Value="Bold"/>
+                                    <Setter Property="Padding"      Value="8,4"/>
+                                    <Setter Property="BorderBrush"  Value="#2A2A2A"/>
+                                    <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                                </Style>
+                                <Style TargetType="DataGridCell">
+                                    <Setter Property="BorderThickness" Value="0"/>
+                                    <Setter Property="Padding"         Value="8,0"/>
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="DataGridCell">
+                                                <Border Background="{TemplateBinding Background}"
+                                                        Padding="{TemplateBinding Padding}">
+                                                    <ContentPresenter VerticalAlignment="Center"/>
+                                                </Border>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </DataGrid.Resources>
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="MODEL"     Binding="{Binding ModelId}"      Width="200"/>
+                                <DataGridTextColumn Header="TOOL"      Binding="{Binding ToolName}"     Width="160"/>
+                                <DataGridTextColumn Header="VARIANTS"  Binding="{Binding TestedDisplay}" Width="90">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="HorizontalAlignment" Value="Center"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+                                <DataGridTextColumn Header="WIN RATE"  Binding="{Binding WinRateDisplay}" Width="90">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="HorizontalAlignment" Value="Center"/>
+                                            <Setter Property="Foreground" Value="{Binding WinRateColor}"/>
+                                            <Setter Property="FontWeight" Value="SemiBold"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+                                <DataGridTextColumn Header="BEST MUTATION" Binding="{Binding BestMutation}" Width="160">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="#4EC9B0"/>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+                                <DataGridTextColumn Header="UPDATED"   Binding="{Binding UpdatedDisplay}" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </Border>
+            </TabItem>
+        </TabControl>
 
         <!-- ── Live log ─────────────────────────────────────────────────────── -->
         <Border Grid.Row="3" Background="#0D0D0D" BorderBrush="#2A2A2A"

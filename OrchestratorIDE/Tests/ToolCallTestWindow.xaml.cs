@@ -124,7 +124,84 @@ public partial class ToolCallTestWindow : Window
         InitializeComponent();
         _settings = settings;
         DgResults.ItemsSource = _rows;
+        DgEvolution.ItemsSource = _evoRows;
         TbProfilePath.Text = ToolCallProfileStore.ProfilesPath;
+    }
+
+    // ── GOBLIN MIND Phase 5: Evolution tab ────────────────────────────────────
+
+    /// <summary>Display row for one (model, tool) fitness record.</summary>
+    private sealed record EvolutionRow(
+        string ModelId, string ToolName, string TestedDisplay,
+        string WinRateDisplay, string WinRateColor,
+        string BestMutation, string UpdatedDisplay);
+
+    private readonly ObservableCollection<EvolutionRow> _evoRows = [];
+
+    private void Tabs_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        // Lazy-load fitness records when the Evolution tab is first shown
+        if (!ReferenceEquals(e.Source, ResultTabs)) return;
+        if (ResultTabs.SelectedIndex == 1) LoadEvolution();
+    }
+
+    private void BtnEvoRefresh_Click(object sender, RoutedEventArgs e) => LoadEvolution();
+
+    private void LoadEvolution()
+    {
+        _evoRows.Clear();
+        var records = FitnessMap.LoadAll();
+
+        foreach (var r in records)
+        {
+            string rateColor = r.WinRate >= 0.5 ? "#4EC94E"
+                             : r.WinRate >  0   ? "#F0C060" : "#F44747";
+            _evoRows.Add(new EvolutionRow(
+                ModelId:        r.ModelId,
+                ToolName:       r.ToolName,
+                TestedDisplay:  $"{r.TestedCount}/{r.Variants.Count}",
+                WinRateDisplay: r.TestedCount == 0 ? "—" : $"{r.WinRate:P0}",
+                WinRateColor:   rateColor,
+                BestMutation:   r.BestVariant?.Mutation.ToString() ?? "no winner",
+                UpdatedDisplay: r.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")));
+        }
+
+        int winners = records.Count(r => r.BestVariant is not null);
+        TbEvoSummary.Text = records.Count == 0
+            ? "No fitness data yet — run 'OrchestratorIDE.exe tool-probe evolve <model>' from the CLI to explore schema variants."
+            : $"{records.Count} (model · tool) records  ·  {winners} with a winning variant  ·  {FitnessMap.MapPath}";
+    }
+
+    private async void BtnPromote_Click(object sender, RoutedEventArgs e)
+    {
+        var models = _evoRows.Select(r => r.ModelId).Distinct().ToList();
+        if (DgEvolution.SelectedItem is EvolutionRow sel)
+            models = [sel.ModelId];   // promote only the selected model's winners
+
+        if (models.Count == 0)
+        {
+            Log("Nothing to promote — the fitness map is empty.");
+            return;
+        }
+
+        BtnPromote.IsEnabled = false;
+        try
+        {
+            int total = 0;
+            foreach (var m in models)
+            {
+                int n = await FitnessMap.PromoteWinnersAsync(m);
+                if (n > 0) Log($"Promoted {n} winning schema(s) for {m} into SchemaLibrary.");
+                total += n;
+            }
+            Log(total == 0
+                ? "No winning variants to promote."
+                : $"✓ {total} schema(s) promoted — AgentLoop will use them on the next session.");
+        }
+        finally
+        {
+            BtnPromote.IsEnabled = true;
+        }
     }
 
     // ── Start / stop ──────────────────────────────────────────────────────────
