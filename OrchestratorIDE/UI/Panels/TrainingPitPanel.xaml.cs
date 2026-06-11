@@ -50,8 +50,11 @@ public partial class TrainingPitPanel : UserControl
 
         // Live monitoring starts at construction, not first show, so the
         // title-bar badge works even if the user never opens this panel.
+        // WorkspaceRoot is not assigned yet here (object initializer runs after
+        // the ctor) — EnsureLiveMonitor is idempotent and is retried from
+        // Refresh() once the real workspace is known.
         _pitRoot = ResolvePitRoot(WorkspaceRoot);
-        InitLiveMonitor();
+        EnsureLiveMonitor();
     }
 
     // ── Live activity monitor ─────────────────────────────────────────────
@@ -63,11 +66,11 @@ public partial class TrainingPitPanel : UserControl
 
     private static readonly TimeSpan LiveWindow = TimeSpan.FromMinutes(3);
 
-    private void InitLiveMonitor()
+    private void EnsureLiveMonitor()
     {
         if (_pitRoot.Length == 0) return;
         var staging = Path.Combine(_pitRoot, ".orc", "swarm", "dataset-staging");
-        if (Directory.Exists(staging))
+        if (_stagingWatcher is null && Directory.Exists(staging))
         {
             _stagingWatcher = new FileSystemWatcher(staging, "plan_capture_*.json")
             {
@@ -84,9 +87,12 @@ public partial class TrainingPitPanel : UserControl
                 .Max();
         }
 
-        _liveTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
-        _liveTimer.Tick += (_, _) => UpdateLiveState();
-        _liveTimer.Start();
+        if (_liveTimer is null)
+        {
+            _liveTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+            _liveTimer.Tick += (_, _) => UpdateLiveState();
+            _liveTimer.Start();
+        }
         UpdateLiveState();
     }
 
@@ -122,12 +128,17 @@ public partial class TrainingPitPanel : UserControl
             var age = (int)(DateTime.Now - _lastCaptureTime).TotalSeconds;
             HarvestStatus.Text = $"collecting now — last plan {age}s ago";
             HarvestStatus.Foreground = new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00));
+            // Captures are landing from somewhere we didn't launch (terminal farm,
+            // GUI swarm). Starting a harvest now would double-farm the same goals.
+            BtnStartHarvest.IsEnabled = false;
+            BtnStartHarvest.ToolTip   = "Captures are already arriving from another run — wait for it to finish.";
         }
         else
         {
             HarvestStatus.Text = "not running";
             HarvestStatus.Foreground = new SolidColorBrush(Color.FromRgb(0x99, 0x99, 0x99));
             BtnStartHarvest.IsEnabled = true;
+            BtnStartHarvest.ToolTip   = null;
             BtnStopHarvest.IsEnabled  = false;
         }
 
@@ -162,6 +173,7 @@ public partial class TrainingPitPanel : UserControl
             PhaseText.Text = "training_pit not found — open the TheOrc repo as workspace";
             return;
         }
+        EnsureLiveMonitor();   // workspace may have just become known (see ctor note)
         Task.Run(LoadAll);
     }
 
@@ -359,6 +371,12 @@ public partial class TrainingPitPanel : UserControl
     private void BtnStartHarvest_Click(object s, RoutedEventArgs e)
     {
         if (HarvestRunning) return;
+        if (_liveActive)
+        {
+            // Belt-and-braces: the button should already be disabled in this state.
+            OnActivity?.Invoke("Not starting night harvest — captures are already arriving from another run.");
+            return;
+        }
         var script = Path.Combine(_pitRoot, "training_pit", "scripts", "night_harvest.ps1");
         _harvestProcess = Process.Start(new ProcessStartInfo
         {
@@ -381,7 +399,7 @@ public partial class TrainingPitPanel : UserControl
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    private Task<(int Code, string Output)> RunPythonAsync(string args) => Task.Run(() =>
+    private Task<(int Code, string Output)> RunPythonAsync(string args) => Task.Run(async () =>
     {
         var psi = new ProcessStartInfo
         {
@@ -394,9 +412,17 @@ public partial class TrainingPitPanel : UserControl
             CreateNoWindow         = true,
         };
         using var p = Process.Start(psi)!;
-        var output = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
-        p.WaitForExit(30_000);
-        return (p.ExitCode, output);
+        // Read both streams async BEFORE waiting, or a synchronous ReadToEnd
+        // blocks forever and the timeout below is never reached.
+        var stdout = p.StandardOutput.ReadToEndAsync();
+        var stderr = p.StandardError.ReadToEndAsync();
+        if (!p.WaitForExit(30_000))
+        {
+            try { p.Kill(entireProcessTree: true); } catch { /* already gone */ }
+            return (-1, "review tool timed out after 30s — manifest unchanged, retry from CLI if it persists");
+        }
+        p.WaitForExit();   // flush async stream readers
+        return (p.ExitCode, await stdout + await stderr);
     });
 
     private static string Truncate(string s, int max) =>
