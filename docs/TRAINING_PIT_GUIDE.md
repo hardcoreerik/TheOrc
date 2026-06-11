@@ -1,11 +1,10 @@
 # TheOrc — Training Pit Guide
 
-> **Current status: PHASE 2.5 ACTIVE — Dataset Accumulation.**
-> Phase 3 infrastructure is complete (`review_captures.py`, `phase3_preflight.py`, manifest tracking).
-> We are now in the **dataset accumulation stage** — collecting real TheOrc swarm captures,
-> reviewing them, and building toward the Phase 3 gate (150/20/25).
-> Current counts: **36/150 train · 20/20 eval (GATE MET) · 25/25 negative (GATE MET).**
-> Do not add training scripts or launch training jobs until `phase3_preflight.py` exits 0.
+> **Current status: PHASE 3 GATE MET (2026-06-11) — training authorized, not yet started.**
+> Counts: **163/150 train ✓ · 20/20 eval ✓ · 25/25 negative ✓** — `phase3_preflight.py` exits 0.
+> The v1 gate is the starting line, not the goal: NIGHT HARVEST continues farming toward
+> the ~1,000-example professional target (see "Dataset Size Targets").
+> Review training_pit/ARCHITECTURE.md before starting a training job.
 
 ---
 

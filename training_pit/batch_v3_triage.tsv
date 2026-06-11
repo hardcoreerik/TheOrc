@@ -1,0 +1,107 @@
+risk	id	score	file	issues	summary
+low	V3-T020	93	.orc/swarm/dataset-staging/plan_capture_good_20260611_013209_093.json		The plan is well-aligned with the goal, covering research, coding, and UI updates without introducing any fabrication or inconsistencies.
+low	V3-T024	93	.orc/swarm/dataset-staging/plan_capture_good_20260611_013424_093.json		The plan aligns well with the goal and does not introduce any fabrication or inconsistencies.
+low	V3-T028	93	.orc/swarm/dataset-staging/plan_capture_good_20260611_013723_093.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T031	93	.orc/swarm/dataset-staging/plan_capture_good_20260611_013938_093.json		The plan aligns with the goal and does not introduce any fabrication or inconsistencies.
+low	V3-T032	93	.orc/swarm/dataset-staging/plan_capture_good_20260611_014020_093.json		The plan accurately aligns with the goal, providing clear steps for adding an EstimatedTokens property and displaying it in the UI.
+low	V3-T035	93	.orc/swarm/dataset-staging/plan_capture_good_20260611_014244_093.json		The plan is consistent with the goal and does not introduce any fabrication or contradictions.
+low	V3-T052	93	.orc/swarm/dataset-staging/plan_capture_good_20260611_015244_093.json		The plan aligns well with the goal, detailing tasks that logically follow each other without introducing fabrication or inconsistencies.
+low	V3-T064	93	.orc/swarm/dataset-staging/plan_capture_good_20260611_020051_093.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T067	93	.orc/swarm/dataset-staging/plan_capture_good_20260611_020217_093.json		The plan aligns well with the goal, providing a clear and logical approach to track model usage and display it in the UI.
+low	V3-T086	93	.orc/swarm/dataset-staging/plan_capture_good_20260611_021147_093.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T089	93	.orc/swarm/dataset-staging/plan_capture_good_20260611_021506_093.json		The plan aligns with the goal, covering all specified scenarios without introducing any fabrication or inconsistencies.
+low	V3-T097	93	.orc/swarm/dataset-staging/plan_capture_good_20260611_022205_093.json		The plan aligns well with the goal and does not introduce any fabrication or internal inconsistencies.
+low	V3-T136	93	.orc/swarm/dataset-staging/plan_capture_good_20260611_023926_093.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T140	93	.orc/swarm/dataset-staging/plan_capture_good_20260611_024120_093.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T055	90	.orc/swarm/dataset-staging/plan_capture_good_20260611_015421_090.json		The plan aligns well with the goal, providing a clear and logical sequence of tasks to implement a live tokens-per-second meter in the application.
+low	V3-T026	87	.orc/swarm/dataset-staging/plan_capture_good_20260611_013610_087.json		The plan accurately addresses the goal by adding a cancel button to each running task card and implementing the necessary methods in both SwarmSession.cs and SwarmBoardPanel.xaml.cs.
+low	V3-T039	87	.orc/swarm/dataset-staging/plan_capture_good_20260611_014537_087.json		The plan accurately addresses the goal by adding a character counter with specified behavior.
+low	V3-T040	87	.orc/swarm/dataset-staging/plan_capture_good_20260611_014614_087.json		The plan accurately addresses the goal of adding a free-text notes field and saving it as 'run_notes.txt' in the run folder upon completion.
+low	V3-T042	87	.orc/swarm/dataset-staging/plan_capture_good_20260611_014712_087.json		The plan aligns with the goal and does not introduce any fabrication or inconsistencies.
+low	V3-T043	87	.orc/swarm/dataset-staging/plan_capture_good_20260611_014756_087.json		The plan accurately addresses the goal by adding a timer to the Swarm Board header and implementing the necessary logic in both XAML and code-behind.
+low	V3-T045	87	.orc/swarm/dataset-staging/plan_capture_good_20260611_014924_087.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T068	87	.orc/swarm/dataset-staging/plan_capture_good_20260611_020240_087.json		The plan aligns with the goal and does not introduce any fabrication or inconsistencies.
+low	V3-T074	87	.orc/swarm/dataset-staging/plan_capture_good_20260611_020459_087.json		The plan aligns with the goal and does not introduce any fabrication or inconsistencies.
+low	V3-T088	87	.orc/swarm/dataset-staging/plan_capture_good_20260611_021427_087.json		The plan accurately addresses the goal by creating a specific NUnit test class with detailed test cases, and includes a tester task to run and report on those tests.
+low	V3-T090	87	.orc/swarm/dataset-staging/plan_capture_good_20260611_021558_087.json		The plan aligns with the goal, covering necessary test cases for ProcessRunner.cs without introducing fabrication or inconsistencies.
+low	V3-T124	87	.orc/swarm/dataset-staging/plan_capture_good_20260611_023443_087.json		The plan aligns with the goal, investigating necessary PowerShell commands and implementing a script that builds specified projects, handles errors, and outputs build results.
+low	V3-T141	87	.orc/swarm/dataset-staging/plan_capture_good_20260611_024144_087.json		The plan accurately addresses the goal by adding --limit and --dry-run options to convert_plan_captures.py.
+low	V3-T001	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_011948_084.json		The plan is consistent with the goal and does not introduce any fabrication or contradictions.
+low	V3-T002	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_012053_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T003	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_012229_084.json		The plan aligns with the goal and does not introduce any fabrication or internal inconsistencies.
+low	V3-T004	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_012250_084.json		The plan is consistent with the goal and does not introduce any fabrication or contradictions.
+low	V3-T005	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_012332_084.json		The plan aligns well with the goal, covering all necessary steps without introducing any fabrication or inconsistencies.
+low	V3-T006	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_012422_084.json		The plan accurately addresses the goal by researching necessary components, updating the UI, and implementing the timer logic.
+low	V3-T008	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_012549_084.json		The plan accurately addresses the goal by researching necessary WPF features, creating a dialog for input, and updating both XAML and code-behind files.
+low	V3-T009	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_012626_084.json		The plan aligns well with the goal, ensuring the activity log panel becomes collapsible with an expander header that includes an unread-entry count badge.
+low	V3-T010	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_012657_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T011	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_012742_084.json		The plan is consistent with the goal and does not introduce any fabrication or contradictions.
+low	V3-T012	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_012803_084.json		The plan accurately addresses the goal by researching necessary techniques, updating the UI, and implementing the search logic.
+low	V3-T013	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_012830_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T014	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_012853_084.json		The plan aligns well with the goal, covering research on retrieving and filtering fonts, implementing font management logic in code-behind, and updating the UI to include a ComboBox for selecting monospace fonts.
+low	V3-T015	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_012918_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T017	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_013030_084.json		The plan aligns well with the goal and does not introduce any fabrication or inconsistencies.
+low	V3-T018	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_013124_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T019	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_013148_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T021	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_013238_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T022	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_013316_084.json		The plan aligns well with the goal, covering research, coding, and UI development tasks without introducing any inconsistencies or fabrications.
+low	V3-T023	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_013347_084.json		The plan aligns with the goal, detailing tasks to implement a Ctrl+Shift+T shortcut for reopening tabs while managing file history and checking disk existence.
+low	V3-T025	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_013533_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T027	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_013649_084.json		The plan aligns with the goal and does not introduce any fabrication or inconsistencies.
+low	V3-T029	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_013823_084.json		The plan aligns well with the goal, implementing an approval gate without introducing any fabrication or inconsistencies.
+low	V3-T030	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_013852_084.json		The plan aligns with the goal and does not introduce any fabrication or internal inconsistencies.
+low	V3-T033	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_014101_084.json		The plan accurately addresses the goal by creating a run-history panel in the Swarm Board, including file reading, data parsing, and UI updates.
+low	V3-T034	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_014143_084.json		The plan accurately addresses the goal by researching necessary WPF components, implementing a value converter in C#, and updating the XAML file to apply the converter.
+low	V3-T036	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_014335_084.json		The plan aligns well with the goal and does not introduce any fabrication or inconsistencies.
+low	V3-T037	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_014358_084.json		The plan accurately aligns with the goal, detailing tasks for researching and implementing a Windows toast notification service and integrating it into an existing event handler.
+low	V3-T038	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_014438_084.json		The plan aligns with the goal of grouping task cards into priority columns on the Swarm Board, using WPF for UI layout and C# for logic implementation.
+low	V3-T044	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_014846_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T046	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_014957_084.json		The plan aligns with the goal, providing a clear and consistent approach to adding a cached model list with TTL and a refresh button.
+low	V3-T047	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_015024_084.json		The plan aligns well with the goal, covering research, code updates, and UI modifications without introducing any inconsistencies or fabrications.
+low	V3-T049	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_015112_084.json		The plan aligns well with the goal and does not introduce any fabrication or internal inconsistencies.
+low	V3-T050	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_015149_084.json		The plan aligns with the goal and does not introduce any fabrication or inconsistencies.
+low	V3-T053	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_015324_084.json		The plan aligns with the goal and does not introduce any fabrication or inconsistencies.
+low	V3-T054	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_015353_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T056	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_015555_084.json		The plan aligns well with the goal and does not introduce any fabrication or internal inconsistencies.
+low	V3-T057	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_015618_084.json		The plan aligns well with the goal, providing a clear sequence of tasks for adding a fallback-host list to OllamaClient.cs and updating the UI to display the active host.
+low	V3-T058	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_015650_084.json		The plan aligns with the goal and does not introduce any fabrication or internal inconsistencies.
+low	V3-T059	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_015734_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T060	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_015817_084.json		The plan aligns well with the goal, covering JSON persistence and WPF list sorting without introducing any fabrication or inconsistencies.
+low	V3-T061	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_015857_084.json		The plan aligns with the goal and does not introduce any fabrication or inconsistencies.
+low	V3-T062	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_015935_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T065	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_020110_084.json		The plan accurately addresses the goal by creating a formatter class and updating the UI code to use it.
+low	V3-T066	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_020138_084.json		The plan is well-aligned with the goal, focusing on detecting duplicates in Model Wiki and updating the UI accordingly.
+low	V3-T069	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_020301_084.json		The plan is consistent with the goal and does not introduce any fabrication or contradictions.
+low	V3-T072	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_020408_084.json		The plan aligns with the goal and does not introduce any fabrication or inconsistencies.
+low	V3-T075	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_020537_084.json		The plan aligns well with the goal, providing a clear and logical sequence of tasks to implement the token estimator and integrate it into the UI.
+low	V3-T076	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_020559_084.json		The plan aligns with the goal and does not introduce any fabrication or internal inconsistencies.
+low	V3-T078	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_020659_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T079	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_020717_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T083	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_020910_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T093	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_022002_084.json		The plan aligns with the goal, providing a clear sequence of tasks to add a commit-message template setting in a WPF application.
+low	V3-T094	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_022027_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T096	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_022139_084.json		The plan aligns well with the goal and does not introduce any fabrication or inconsistencies.
+low	V3-T098	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_022318_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T099	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_022340_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T100	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_022410_084.json		The plan aligns well with the goal, detailing steps to create a service that fetches git status, parses it, and updates the UI accordingly.
+low	V3-T101	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_022446_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T110	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_022807_084.json		The plan aligns well with the goal and does not introduce any fabrication or inconsistencies.
+low	V3-T123	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_023408_084.json		The plan aligns with the goal and does not introduce any fabrication or inconsistencies.
+low	V3-T126	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_023536_084.json		The plan aligns well with the goal, providing a clear sequence of tasks without introducing any fabrication or inconsistencies.
+low	V3-T128	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_023613_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T129	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_023636_084.json		The plan is consistent with the goal and does not introduce any fabrication or contradictions.
+low	V3-T131	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_023713_084.json		The plan is consistent with the goal and does not introduce any fabrication or contradictions.
+low	V3-T132	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_023738_084.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T139	84	.orc/swarm/dataset-staging/plan_capture_good_20260611_024049_084.json		The plan aligns well with the goal, providing clear steps for adding JSON output to phase3_preflight.py without introducing any fabrication or inconsistencies.
+low	V3-T007	78	.orc/swarm/dataset-staging/plan_capture_good_20260611_012459_078.json		The plan is consistent with the goal and does not introduce any fabrication or contradictions.
+low	V3-T016	78	.orc/swarm/dataset-staging/plan_capture_good_20260611_012938_078.json		The plan is consistent with the goal and does not introduce any fabrication.
+low	V3-T071	78	.orc/swarm/dataset-staging/plan_capture_good_20260611_020345_078.json		The plan aligns with the goal, focusing on creating a debounce utility with appropriate methods and documentation.
+low	V3-T080	78	.orc/swarm/dataset-staging/plan_capture_good_20260611_020740_078.json		The plan is clear, consistent with the goal, and does not introduce any fabrication or contradictions.
+low	V3-T087	78	.orc/swarm/dataset-staging/plan_capture_good_20260611_021318_078.json		The plan aligns with the goal, covering necessary research and coding tasks without introducing fabrication or inconsistencies.
+low	V3-T091	78	.orc/swarm/dataset-staging/plan_capture_good_20260611_021755_078.json		The plan aligns with the goal and does not introduce any fabrication or internal inconsistencies.
+low	V3-T092	78	.orc/swarm/dataset-staging/plan_capture_good_20260611_021902_078.json		The plan is consistent with the goal and does not introduce any fabrication or contradictions.
+low	V3-T107	78	.orc/swarm/dataset-staging/plan_capture_good_20260611_022654_078.json		The plan aligns well with the goal and does not introduce any fabrication or inconsistencies.
+low	V3-T122	78	.orc/swarm/dataset-staging/plan_capture_good_20260611_023341_078.json		The plan aligns with the goal, providing a clear sequence of tasks to achieve the desired functionality without introducing any fabrication or inconsistencies.
+low	V3-T125	78	.orc/swarm/dataset-staging/plan_capture_good_20260611_023515_078.json		The plan aligns well with the goal, focusing on researching the necessary dotnet test filters and PowerShell output parsing techniques, followed by implementing the script to meet the specified requirements.
+low	V3-T134	78	.orc/swarm/dataset-staging/plan_capture_good_20260611_023841_078.json		The plan aligns with the goal and does not introduce any fabrication or inconsistencies.
+low	V3-T138	78	.orc/swarm/dataset-staging/plan_capture_good_20260611_024020_078.json		The plan is consistent with the goal and does not introduce any fabrication.

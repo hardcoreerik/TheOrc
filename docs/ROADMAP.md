@@ -95,8 +95,8 @@ The Training Pit is on its own milestone track, not tied to app version numbers.
 |---|---|---|
 | Phase 1 | ✅ Done | Scaffolding — schemas, rubrics, configs, scripts |
 | Phase 2 | ✅ Done | Data collection — auto-capture via DatasetCapture.cs |
-| Phase 2.5 | 🔵 Active | Dataset Accumulation — eval and negative gates MET; collecting train captures (36/150 train · 20/20 eval ✅ · 25/25 negative ✅) |
-| Phase 3 | 🔴 Blocked | Training — LoRA fine-tune on Gemma 4 12B QAT |
+| Phase 2.5 | ✅ Gate met | Dataset Accumulation — ALL GATES MET 2026-06-11 (163/150 train ✅ · 20/20 eval ✅ · 25/25 negative ✅); farming continues toward ~1,000 |
+| Phase 3 | 🟢 Authorized | Training — LoRA fine-tune on Gemma 4 12B QAT; preflight exits 0, not yet started |
 | Phase 4 | 🔲 Future | Deployment — A/B path in SwarmSession |
 
 **Phase 3 gate:** ≥150 reviewed positive examples + ≥25 negative examples + ≥20 eval.
@@ -104,7 +104,7 @@ The Training Pit is on its own milestone track, not tied to app version numbers.
 production-quality adapter; 150 is the proof-of-concept starting line. Five-nines
 reliability comes from the system (rubric + validation + retry), not dataset size.
 See TRAINING_PIT_GUIDE.md "Dataset Size Targets".
-Current count: **36/150 train, 25/25 negative ✅, 20/20 eval ✅ — train is the only open gate.**
+Current count: **163/150 train ✅, 25/25 negative ✅, 20/20 eval ✅ — ALL GATES MET 2026-06-11.**
 Run `python training_pit/scripts/review_captures.py --status` for live counters.
 See `training_pit/BATCH_CAPTURE_PLAN_V2.md` for the active capture batch
 (v1 plan is fully dispositioned).
