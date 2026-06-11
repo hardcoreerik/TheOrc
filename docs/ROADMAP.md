@@ -44,12 +44,13 @@ feedback loops and self-directed improvement.
   wrong-stack, TESTER-write, single-task, low-rubric) → local judge-model triage
   (`judge_captures.py`, qwen2.5-coder:14b — never the boss model judging itself) →
   human approves only final train candidates. Built 2026-06-11.
-- [ ] **NIGHT HARVEST — train till dawn** — `night_harvest.ps1` loops the full GOBLIN
+- [x] **NIGHT HARVEST — train till dawn** — `night_harvest.ps1` loops the full GOBLIN
   HARVEST pipeline overnight: a local model authors fresh goal tranches from
   PROMPT_AUTHORING_GUIDE.md (`generate_goals.py`, linted + deduped in code), farms,
-  pre-screens, judge-triages; ends at dawn (default 06:00), after -Hours, or via the
-  .orc/swarm/HARVEST_STOP file. Never approves, never trains. Scripts complete
-  2026-06-11; first live overnight run pending
+  pre-screens, judge-triages; ends at dawn, after -Hours, -UntilStopped, or via the
+  .orc/swarm/HARVEST_STOP file. Never approves, never trains. First live run
+  2026-06-10→11: 34 cycles · 850 goals farmed · 608 survivors · 162 auto-rejected,
+  zero crashes over ~9 h unattended
 - [x] **Parallel slots live gate** — `OllamaParallelHelper` detects user/machine/process
   env; swarm start blocked below 3 slots with fix-it message + slot picker; settings
   panel writes and reports the value (was already complete; roadmap entry was stale)
