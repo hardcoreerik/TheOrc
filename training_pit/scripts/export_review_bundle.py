@@ -38,8 +38,10 @@ The quality bar each example must meet:
 1. 2-4 tasks. Single-task plans and 5+ task plans are defects.
 2. Roles are EXACTLY one of: RESEARCHER, CODER, UIDEVELOPER, TESTER.
    Any other role string is an instant fail.
-3. TESTER never creates, writes, or edits files — it only runs things and
-   reports. A TESTER task with create/write verbs is an instant fail.
+3. TESTER runs existing code, executes tests, checks syntax, and reports
+   results. It never creates, writes, or edits files — a TESTER task with
+   create/write verbs is an instant fail. (Syntax-checking and reporting ARE
+   within TESTER's charter; do not fail a TESTER task for those.)
 4. CODER/UIDEVELOPER tasks name concrete output files with extensions.
 5. Tasks must agree with each other: shared deliverables must use identical
    file/class/property names across tasks.

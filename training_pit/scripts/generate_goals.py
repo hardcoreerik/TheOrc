@@ -17,6 +17,8 @@ Usage:
 import argparse, datetime, json, re, urllib.request
 from pathlib import Path
 
+VALID_DOMAINS = {"wpf_ui", "swarm", "ollama", "model_wiki", "csharp_core",
+                 "testing", "git", "python_utility", "powershell", "training_pit"}
 VAGUE = re.compile(r"\b(improve|optimi[sz]e|clean\s*up|refactor everything|make .{0,20}(better|faster|nicer)|fix it)\b", re.I)
 FILE_ANCHOR = re.compile(r"[\w][\w./\\-]*\.(cs|xaml|py|ps1|psm1|csproj|json)\b", re.I)
 LANG_EXT = {"cs": "csharp", "xaml": "csharp", "csproj": "csharp",
@@ -58,6 +60,8 @@ def existing_goals(root):
 
 def lint(goal, domain, seen):
     """Return None if the goal passes every guide rule, else the failure name."""
+    if domain not in VALID_DOMAINS:
+        return "invalid_domain"
     if "|" in goal or '"' in goal:
         return "forbidden_char"
     if not (120 <= len(goal) <= 700):
@@ -154,12 +158,16 @@ def main():
         print(f"round {rounds}: accepted={len(accepted)}/{args.count}"
               + (f" rejects: {feedback}" if feedback else ""))
 
-    with out.open("w", encoding="utf-8", newline="\n") as fh:
+    # Atomic write: never leave a partial tranche a farm run could pick up.
+    tmp = out.with_suffix(".psv.tmp")
+    with tmp.open("w", encoding="utf-8", newline="\n") as fh:
         for i, (domain, goal) in enumerate(accepted, 1):
             fh.write(f"{prefix}-T{i:03}|{domain}|{goal}\n")
+    tmp.replace(out)
     print(f"\nwrote {len(accepted)} goals -> {out}")
     if len(accepted) < args.count:
-        print(f"WARNING: short of target after {rounds} rounds")
+        print(f"SHORTFALL: {len(accepted)}/{args.count} after {rounds} rounds")
+        sys.exit(2)   # nonzero so night_harvest fails closed on a thin tranche
 
 
 if __name__ == "__main__":

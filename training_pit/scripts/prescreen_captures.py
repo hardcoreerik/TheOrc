@@ -3,11 +3,19 @@
 
 Auto-flags the mechanical defect classes a human shouldn't waste time on:
   REJECT single_task      plan has fewer than 2 tasks
+  REJECT invalid_role     a task role is not exactly one of the four (e.g. UIDEDEVELOPER)
   REJECT tester_write     a TESTER task uses file-writing verbs
   REJECT wrong_stack      plan task extensions conflict with the goal's stack
   REJECT low_rubric       capture staged as bad (score <= 39) for a train goal
   WARN   create_existing  a task says "create <file>" for a file already in the workspace
+  WARN   fabricated_ref   a task updates/modifies a file that exists neither in the
+                          repo nor as another task's deliverable in the same plan
   PASS                    survivor — needs human fabrication review
+
+Regression anchors (caught by human review before these checks existed):
+  ex_20260611_015650  invalid_role UIDEDEVELOPER
+  ex_20260611_030431  create-existing MainWindow.xaml.cs
+  ex_20260611_021318  fabricated_ref SettingsManager.cs (V3-T047)
 
 Only captures whose goal text matches an entry in the goals file are considered
 (everything else in staging is from earlier tranches and already reviewed).
@@ -20,7 +28,11 @@ Usage:
 import argparse, json, re, subprocess, sys
 from pathlib import Path
 
+VALID_ROLES = {"RESEARCHER", "CODER", "UIDEVELOPER", "TESTER"}
 WRITE_VERBS = re.compile(r"\b(create|write|implement|build|generate|author|compose)\b", re.I)
+UPDATE_NEAR_FILE = re.compile(
+    r"\b(update|modif\w+|edit|extend|refactor)\b[^.]{0,60}?"
+    r"([\w][\w./\\-]*\.(?:cs|xaml|py|ps1))", re.I)
 FILE_RE = re.compile(r"[\w][\w./\\-]*\.(cs|xaml|py|ps1|psm1|csproj|json|md|ts|js)\b", re.I)
 CREATE_NEAR_FILE = re.compile(
     r"\bcreat\w*\b(?![^.]{0,60}?\b(in|inside|within|under)\b)[^.]{0,60}?"
@@ -100,14 +112,27 @@ def main():
             reasons.append("low_rubric")
         if len(tasks) < 2:
             reasons.append("single_task")
+        # files this plan itself creates — legitimate update targets for sibling tasks
+        plan_created = set()
         for t in tasks:
             blob = f"{t.get('title','')} {t.get('description','')}"
-            if t.get("role", "").upper() == "TESTER" and WRITE_VERBS.search(blob):
+            for cm in CREATE_NEAR_FILE.finditer(blob):
+                plan_created.add(Path(cm.group(2).replace("\\", "/")).name.lower())
+        for t in tasks:
+            role = t.get("role", "").upper().strip()
+            if role not in VALID_ROLES:
+                reasons.append(f"invalid_role:{role or 'EMPTY'}")
+            blob = f"{t.get('title','')} {t.get('description','')}"
+            if role == "TESTER" and WRITE_VERBS.search(blob):
                 reasons.append("tester_write")
             for cm in CREATE_NEAR_FILE.finditer(blob):
                 name = Path(cm.group(2).replace("\\", "/")).name.lower()
                 if name in existing:
                     warns.append(f"create_existing:{name}")
+            for um in UPDATE_NEAR_FILE.finditer(blob):
+                name = Path(um.group(2).replace("\\", "/")).name.lower()
+                if name not in existing and name not in plan_created:
+                    warns.append(f"fabricated_ref:{name}")
         goal_langs = langs_of(cap.get("goal", ""))
         plan_langs = langs_of(" ".join(
             f"{t.get('title','')} {t.get('description','')}" for t in tasks))

@@ -27,7 +27,13 @@ $root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 Set-Location $root
 
 $stopFile = Join-Path $root ".orc\swarm\HARVEST_STOP"
-if (Test-Path $stopFile) { Remove-Item $stopFile -Confirm:$false }
+if (Test-Path $stopFile) {
+    # A pre-existing stop file is an operator's standing stop request —
+    # honor it, never silently delete it (codex audit finding).
+    Write-Host "HARVEST_STOP already present — refusing to start. Remove it to allow harvesting:" -ForegroundColor Red
+    Write-Host "  Remove-Item $stopFile" -ForegroundColor Yellow
+    exit 1
+}
 
 if ($UntilStopped)      { $deadline = [datetime]::MaxValue }
 elseif ($Hours -gt 0)   { $deadline = (Get-Date).AddHours($Hours) }
@@ -57,13 +63,17 @@ while ((Get-Date) -lt $deadline -and -not (StopRequested)) {
     $prefix = "NH$(Get-Date -Format yyMMdd)c$cycle"
     Log "── cycle $cycle ── authoring $GoalsPerCycle goals ($GenModel)" Cyan
 
+    # Fail closed at every phase: a nonzero native exit code ends the harvest
+    # rather than farming a partial/garbage tranche (codex audit finding).
     python training_pit\scripts\generate_goals.py --count $GoalsPerCycle `
         --model $GenModel --prefix $prefix 2>&1 | Tee-Object -Append $log | Out-Null
+    if ($LASTEXITCODE -ne 0) { Log "goal generation failed (exit $LASTEXITCODE) — ending harvest" Red; break }
     $goalsFile = "training_pit\batch_${prefix}_goals.psv"
-    if (-not (Test-Path $goalsFile) -or (Get-Content $goalsFile).Count -eq 0) {
-        Log "goal generation produced nothing — ending harvest" Red; break
+    $goalCount = if (Test-Path $goalsFile) { @(Get-Content $goalsFile).Count } else { 0 }
+    if ($goalCount -lt [Math]::Ceiling($GoalsPerCycle * 0.8)) {
+        Log "tranche undersized ($goalCount/$GoalsPerCycle) — ending harvest" Red; break
     }
-    $totals.goals += (Get-Content $goalsFile).Count
+    $totals.goals += $goalCount
     if (StopRequested) { break }
 
     Log "farming $goalsFile" Cyan
@@ -71,10 +81,12 @@ while ((Get-Date) -lt $deadline -and -not (StopRequested)) {
         -GoalsFile $goalsFile -DoneFile "training_pit\batch_${prefix}_done.csv" `
         -TimeoutSec $TimeoutSec -StopFile $stopFile 2>&1 |
         Tee-Object -Append $log | Out-Null
+    if ($LASTEXITCODE -ne 0) { Log "farm runner failed (exit $LASTEXITCODE) — ending harvest" Red; break }
     if (StopRequested) { break }
 
     Log "pre-screen (deterministic auto-reject)" Cyan
     $pre = python training_pit\scripts\prescreen_captures.py --goals $goalsFile --apply 2>&1
+    if ($LASTEXITCODE -ne 0) { $pre | Add-Content $log; Log "pre-screen failed (exit $LASTEXITCODE) — ending harvest" Red; break }
     $pre | Add-Content $log
     $summary = ($pre | Select-String '^# pass=').Line
     if ($summary -match 'pass=(\d+).*reject=(\d+)') {
@@ -87,6 +99,7 @@ while ((Get-Date) -lt $deadline -and -not (StopRequested)) {
     python training_pit\scripts\judge_captures.py --goals $goalsFile `
         --model $JudgeModel --out "training_pit\batch_${prefix}_triage.tsv" 2>&1 |
         Tee-Object -Append $log | Out-Null
+    if ($LASTEXITCODE -ne 0) { Log "judge failed (exit $LASTEXITCODE) — captures remain staged for manual triage" Yellow }
 
     Log "cycle $cycle done — running totals: $($totals.goals) farmed, $($totals.staged) awaiting review, $($totals.rejected) auto-rejected" Green
 }
