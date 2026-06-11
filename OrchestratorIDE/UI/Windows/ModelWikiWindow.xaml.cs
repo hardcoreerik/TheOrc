@@ -118,6 +118,16 @@ public partial class ModelWikiWindow : Window
                     case "Fast":
                         if (item.Entry.Profile.Speed != SpeedTier.Fast) return false;
                         break;
+                    default:
+                        // GOBLIN MIND category chips ("Cat:FileOps" …) — require a
+                        // probe that passed the category; unprobed models drop out.
+                        if (filter.StartsWith("Cat:", StringComparison.Ordinal) &&
+                            Enum.TryParse<Services.ToolCalls.CategoryId>(filter[4..], out var cat))
+                        {
+                            var map = item.Entry.ProbeProfile?.CategoryProfile;
+                            if (map is null || !map.CanHandle(cat)) return false;
+                        }
+                        break;
                 }
             }
 
@@ -181,13 +191,9 @@ public partial class ModelWikiWindow : Window
         _allItems.Clear();
         _filteredItems.Clear();
         _activeFilters.Clear();
-        FilterInstalled.IsChecked  = false;
-        FilterBoss.IsChecked       = false;
-        FilterCoder.IsChecked      = false;
-        FilterResearcher.IsChecked = false;
-        FilterTester.IsChecked     = false;
-        FilterLongWrite.IsChecked  = false;
-        FilterFast.IsChecked       = false;
+        // Uncheck every chip in the panel (covers category chips with no x:Name)
+        foreach (var chip in FilterPanel.Children.OfType<ToggleButton>())
+            chip.IsChecked = false;
         TbSearch.Clear();
         ModelList.ItemsSource = null;
         ShowEmpty();

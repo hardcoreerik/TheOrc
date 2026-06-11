@@ -144,6 +144,29 @@
                         <ToggleButton x:Name="FilterFast"      Content="⚡ Fast/Small"
                                       Style="{StaticResource FilterChipStyle}"
                                       Click="Filter_Click" Tag="Fast"/>
+                        <!-- GOBLIN MIND category chips — match models whose probe
+                             passed the category (unprobed models are excluded) -->
+                        <ToggleButton Content="📁 FileOps"   Style="{StaticResource FilterChipStyle}"
+                                      Click="Filter_Click" Tag="Cat:FileOps"
+                                      ToolTip="Probed: can read/write/delete files"/>
+                        <ToggleButton Content="🌐 Network"   Style="{StaticResource FilterChipStyle}"
+                                      Click="Filter_Click" Tag="Cat:Network"
+                                      ToolTip="Probed: can fetch URLs / HTTP"/>
+                        <ToggleButton Content="🖥 CodeExec"  Style="{StaticResource FilterChipStyle}"
+                                      Click="Filter_Click" Tag="Cat:CodeExec"
+                                      ToolTip="Probed: can run shell commands / eval code"/>
+                        <ToggleButton Content="🔄 DataTransform" Style="{StaticResource FilterChipStyle}"
+                                      Click="Filter_Click" Tag="Cat:DataTransform"
+                                      ToolTip="Probed: can parse/format/convert data"/>
+                        <ToggleButton Content="🔬 SystemInspect" Style="{StaticResource FilterChipStyle}"
+                                      Click="Filter_Click" Tag="Cat:SystemInspect"
+                                      ToolTip="Probed: can inspect env/processes/system"/>
+                        <ToggleButton Content="🧱 StructuredOutput" Style="{StaticResource FilterChipStyle}"
+                                      Click="Filter_Click" Tag="Cat:StructuredOutput"
+                                      ToolTip="Probed: produces multi-field structured JSON"/>
+                        <ToggleButton Content="📋 TaskPlanning" Style="{StaticResource FilterChipStyle}"
+                                      Click="Filter_Click" Tag="Cat:TaskPlanning"
+                                      ToolTip="Probed: breaks goals into ordered steps"/>
                     </WrapPanel>
                 </Border>
 
