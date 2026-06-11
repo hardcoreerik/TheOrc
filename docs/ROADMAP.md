@@ -84,7 +84,7 @@ The WPF app remains the primary Windows-native experience indefinitely.
 
 - [ ] Inline diff editing (edit proposed diff before approving)
 - [ ] Background agent (fire task, get notified when done)
-- [ ] Token cost estimator
+- [x] Token cost estimator — live next-request token + ETA estimate on the ctx badge, T13 tests, codex-reviewed (2026-06-11)
 - [ ] Multi-workspace support
 - [x] SwarmBoard metrics history tab (ConfigStats per configuration) — lazy expander, quality-sorted, codex-reviewed (2026-06-11)
 - [x] Model Wiki: model comparison view (side-by-side) — ModelCompareWindow, winner highlighting, codex CLEAN (2026-06-11)
