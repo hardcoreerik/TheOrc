@@ -58,9 +58,16 @@ Log "stop file: $stopFile" DarkGray
 
 $cycle = 0
 $totals = @{ goals = 0; staged = 0; rejected = 0 }
+# Run-unique stamp: a date-only prefix collides when a run crosses midnight or
+# two runs share a day — the new run then "resumes" the old run's done files
+# and farms nothing (2026-06-11 incident: cycles spun for 1.5 h staging zero).
+$runStamp = Get-Date -Format "yyMMdd_HHmmss"
 while ((Get-Date) -lt $deadline -and -not (StopRequested)) {
     $cycle++
-    $prefix = "NH$(Get-Date -Format yyMMdd)c$cycle"
+    $prefix = "NH${runStamp}c$cycle"
+    if (Test-Path "training_pit\batch_${prefix}_goals.psv") {
+        Log "tranche file for $prefix already exists — refusing to overwrite, ending harvest" Red; break
+    }
     Log "── cycle $cycle ── authoring $GoalsPerCycle goals ($GenModel)" Cyan
 
     # Fail closed at every phase: a nonzero native exit code ends the harvest
