@@ -87,7 +87,7 @@ The WPF app remains the primary Windows-native experience indefinitely.
 - [ ] Token cost estimator
 - [ ] Multi-workspace support
 - [ ] SwarmBoard metrics history tab (ConfigStats per configuration)
-- [ ] Model Wiki: model comparison view (side-by-side)
+- [x] Model Wiki: model comparison view (side-by-side) — ModelCompareWindow, winner highlighting, codex CLEAN (2026-06-11)
 - [ ] Model Wiki: historical result trends chart
 - [x] Model Wiki: export capability matrix to Markdown — Export Matrix button, ModelWikiExporter + T12 tests (2026-06-11)
 - [x] Model Wiki: filter chips for GOBLIN MIND category scores — 7 probe-category chips, unprobed models excluded (2026-06-11)
