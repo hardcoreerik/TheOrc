@@ -190,27 +190,60 @@ public sealed class InstallOrchestrator : IDisposable
                 {
                     if (string.IsNullOrEmpty(modelEntry.Url))
                     {
-                        Log($"⚠ Model '{modelEntry.Name}' has no direct URL — install via Ollama.");
+                        Log($"⚠ Model '{modelEntry.Name}' has no direct download URL — " +
+                            $"use Ollama to pull '{modelEntry.OllamaName ?? modelEntry.Name}'.");
+                        OnItemProgress?.Invoke(new DownloadProgress
+                        {
+                            ItemName = modelEntry.Name,
+                            Error    = "No direct URL — use Ollama to pull this model",
+                        });
                         continue;
                     }
 
                     var destPath = _state.GetModelFilePath(modelEntry);
                     var role     = _state.ModelRoles.TryGetValue(modelEntry.Id, out var r) ? $" ({r})" : "";
 
-                    await Step($"Downloading {modelEntry.Name}{role}", async () =>
+                    // Model downloads are non-fatal: a 401 (gated model), 404, or
+                    // transient network error should skip this model with a warning
+                    // rather than aborting the entire installation.
+                    try
                     {
-                        Log($"  URL : {modelEntry.Url}");
-                        Log($"  Dest: {destPath}");
-                        Log($"  Size: {modelEntry.SizeDisplay}");
+                        await Step($"Downloading {modelEntry.Name}{role}", async () =>
+                        {
+                            Log($"  URL : {modelEntry.Url}");
+                            Log($"  Dest: {destPath}");
+                            Log($"  Size: {modelEntry.SizeDisplay}");
 
-                        await _dl.DownloadFileAsync(
-                            modelEntry.Url,
-                            destPath,
-                            modelEntry.Name,
-                            modelEntry.SizeBytes > 0 ? modelEntry.SizeBytes : null,
-                            modelEntry.Sha256,
-                            ct);
-                    }, ct);
+                            await _dl.DownloadFileAsync(
+                                modelEntry.Url,
+                                destPath,
+                                modelEntry.Name,
+                                modelEntry.SizeBytes > 0 ? modelEntry.SizeBytes : null,
+                                modelEntry.Sha256,
+                                ct);
+                        }, ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw; // cancellation always propagates
+                    }
+                    catch (Exception modelEx)
+                    {
+                        // 401 = gated model (requires HuggingFace login / license accept)
+                        bool isAuth = modelEx.Message.Contains("401") ||
+                                      modelEx.Message.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase);
+                        string hint = isAuth
+                            ? $"This model requires a HuggingFace account and license acceptance. " +
+                              $"Use Ollama to pull '{modelEntry.OllamaName ?? modelEntry.Name}' instead."
+                            : modelEx.Message;
+
+                        Log($"\n⚠ Skipping '{modelEntry.Name}': {hint}");
+                        OnItemProgress?.Invoke(new DownloadProgress
+                        {
+                            ItemName = modelEntry.Name,
+                            Error    = hint,
+                        });
+                    }
                 }
             }
             else
