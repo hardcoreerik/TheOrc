@@ -123,25 +123,25 @@
                 <Border Grid.Row="1" Background="#0D0D0D" BorderBrush="#1E2E1E"
                         BorderThickness="0,0,0,1" Padding="6,5">
                     <WrapPanel x:Name="FilterPanel" Orientation="Horizontal">
-                        <ToggleButton x:Name="FilterInstalled" Content="✅ Installed"
+                        <ToggleButton x:Name="FilterInstalled" AutomationProperties.AutomationId="ModelWiki.Filter.Installed" Content="✅ Installed"
                                       Style="{StaticResource FilterChipStyle}"
                                       Click="Filter_Click" Tag="Installed"/>
-                        <ToggleButton x:Name="FilterBoss"      Content="👑 Boss"
+                        <ToggleButton x:Name="FilterBoss" AutomationProperties.AutomationId="ModelWiki.Filter.Boss"      Content="👑 Boss"
                                       Style="{StaticResource FilterChipStyle}"
                                       Click="Filter_Click" Tag="Boss"/>
-                        <ToggleButton x:Name="FilterCoder"     Content="⚡ Coder"
+                        <ToggleButton x:Name="FilterCoder" AutomationProperties.AutomationId="ModelWiki.Filter.Coder"     Content="⚡ Coder"
                                       Style="{StaticResource FilterChipStyle}"
                                       Click="Filter_Click" Tag="Coder"/>
-                        <ToggleButton x:Name="FilterResearcher" Content="🔍 Researcher"
+                        <ToggleButton x:Name="FilterResearcher" AutomationProperties.AutomationId="ModelWiki.Filter.Researcher" Content="🔍 Researcher"
                                       Style="{StaticResource FilterChipStyle}"
                                       Click="Filter_Click" Tag="Researcher"/>
-                        <ToggleButton x:Name="FilterTester"    Content="🧪 Tester"
+                        <ToggleButton x:Name="FilterTester" AutomationProperties.AutomationId="ModelWiki.Filter.Tester"    Content="🧪 Tester"
                                       Style="{StaticResource FilterChipStyle}"
                                       Click="Filter_Click" Tag="Tester"/>
-                        <ToggleButton x:Name="FilterLongWrite" Content="📝 Long write_file"
+                        <ToggleButton x:Name="FilterLongWrite" AutomationProperties.AutomationId="ModelWiki.Filter.LongWrite" Content="📝 Long write_file"
                                       Style="{StaticResource FilterChipStyle}"
                                       Click="Filter_Click" Tag="LongWrite"/>
-                        <ToggleButton x:Name="FilterFast"      Content="⚡ Fast/Small"
+                        <ToggleButton x:Name="FilterFast" AutomationProperties.AutomationId="ModelWiki.Filter.Fast"      Content="⚡ Fast/Small"
                                       Style="{StaticResource FilterChipStyle}"
                                       Click="Filter_Click" Tag="Fast"/>
                         <!-- GOBLIN MIND category chips — match models whose probe
