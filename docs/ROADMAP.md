@@ -54,6 +54,9 @@ feedback loops and self-directed improvement.
   slots < worker count; settings panel shows live status
 - [ ] **Wire `TotalVramGb`** in SwarmSession — currently hardcoded 0; call
   `SwarmConfigAdvisor.DetectHardwareAsync()` at swarm init
+- [x] **In-app Help window** — F1 / Help menu opens an embedded documentation
+  browser: all 17 guides ship inside the exe (works on published installs with
+  no docs/ folder), full-text search, cross-guide link navigation. Built 2026-06-10
 
 ---
 
