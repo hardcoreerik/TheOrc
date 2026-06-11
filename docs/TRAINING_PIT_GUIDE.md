@@ -9,6 +9,26 @@
 
 ---
 
+## Plain-Language Glossary
+
+The Training Pit has jargon. Here is what it actually means:
+
+| Term | Plain meaning |
+|---|---|
+| **Rubric** | A scoring checklist, like a teacher grading an essay. Every plan the boss makes gets auto-graded: enough tasks? detailed descriptions? real file names? valid JSON? High score = probably good. |
+| **Train split** ("Lessons") | The textbook. Good plans the model studies and learns to imitate. We need 150. |
+| **Eval split** ("Exam") | The final exam. Held-back examples the model never studies — after training we test on these to prove it actually got smarter. You can't grade a student on questions they memorized. |
+| **Negative split** ("Mistakes") | The "don't do this" pile. Bad plans (collapses, made-up files) kept so we can check the trained model *stopped* making these mistakes. |
+| **Capture** | One saved boss plan — a goal we gave it plus the task plan it produced — frozen as a JSON file for review. |
+| **Staging** | The waiting room. Captures sit here until a human keeps or throws out each one. |
+| **Manifest** | The ledger. A git-tracked file recording every keep/throw-out decision ever made, with reasons. |
+| **Pre-screen** | Automatic first pass that throws out plans with mechanical defects (only one task, wrong language, TESTER asked to write files) so a human never wastes time on them. |
+| **Judge** | A second local model that reads surviving plans and flags ones that *sound* confident but made things up. It sorts your review queue — it never decides. |
+| **LoRA / QLoRA** | The training method. Instead of rebuilding the whole model, it learns a small "adapter" bolted on top — like new glasses instead of new eyes. QLoRA is the memory-saving version that fits on a 16 GB GPU. |
+| **NIGHT HARVEST** | The overnight mode: write goals, farm plans, screen, sort — all night, no approvals. You sign the ledger in the morning. |
+
+---
+
 ## What the Training Pit Is
 
 The Training Pit is the system for improving TheOrc's models through structured data
@@ -62,6 +82,32 @@ Phase 4 (FUTURE): Deployment
   ├── A/B path in SwarmSession (base vs adapter)
   └── Before/after benchmark vs swarm-metrics.json baselines
 ```
+
+---
+
+## Dataset Size Targets (agreed 2026-06-10)
+
+The 150-example gate is the **starting line, not the goal**. Tiers, for a
+narrow single-behavior LoRA on a 12B model:
+
+| Tier | Train examples | What it buys | Status |
+|---|---|---|---|
+| **v1 gate** | 150 | Proof of concept — behavior shifts measurably (~90% plan acceptability) | active target |
+| **Professional** | **~1,000 train / ~200 eval** | Production quality, edge cases covered (~97–99%) | **the real goal** |
+| Ceiling | 2,000–5,000 | Near the most a 12B can absorb on one task | only if evals say so |
+
+Re-evaluate the exact number when the v1 adapter's eval results are in —
+the adapter's failure modes tell us what the next 850 examples should teach.
+
+**Why no dataset size reaches "99.999%":** five nines means 1 failure per
+100k plans. That can't be proven without ~300k eval runs, and sampling-based
+models always roll occasional bad outputs. Five-nines reliability is a
+**system property**: a ~99% model + rubric scoring + JSON validation +
+automatic re-plan retry. Past ~1,000 examples, effort goes into the safety
+net (rubric hardening, judge, retry logic), not more data.
+
+At NIGHT HARVEST pace (~80 good captures/hour), ~1,000 examples ≈ one week
+of overnight runs plus morning reviews.
 
 ---
 
@@ -145,6 +191,58 @@ training_pit/datasets/train_v1.jsonl  (gitignored; rebuilt from manifest)
 ```
 
 See [DATASET_REVIEW_WORKFLOW.md](DATASET_REVIEW_WORKFLOW.md) for the full step-by-step process.
+
+---
+
+## NIGHT HARVEST — Train till Dawn
+
+> *"The goblins work while you sleep. You still sign the ledger in the morning."*
+
+NIGHT HARVEST is the autonomous overnight dataset farming mode — the full
+GOBLIN HARVEST pipeline running unattended in cycles until dawn or until stopped:
+
+```
+generate_goals.py        a local model (NEVER the boss family) authors a fresh
+      │                  goal tranche from PROMPT_AUTHORING_GUIDE.md, linted in
+      │                  code and deduped against every goal ever farmed
+      ▼
+farm_batch.ps1           swarmcli --plan-only over the tranche, headless
+      ▼
+prescreen_captures.py    deterministic auto-reject: single-task, TESTER-write,
+      │                  wrong-stack, low-rubric
+      ▼
+judge_captures.py        qwen2.5-coder:14b triages survivors by fabrication
+      │                  risk → batch_NH*_triage.tsv (high risk first)
+      ▼
+   (repeat until dawn / -Hours elapsed / stop file)
+```
+
+**Usage:**
+
+```powershell
+# until 06:00 local (the default dawn)
+pwsh training_pit\scripts\night_harvest.ps1
+
+# for a fixed window, or truly "go until stopped"
+pwsh training_pit\scripts\night_harvest.ps1 -Hours 4
+pwsh training_pit\scripts\night_harvest.ps1 -UntilStopped
+
+# stop it cleanly any time (takes effect between goals)
+New-Item .orc\swarm\HARVEST_STOP
+```
+
+**Hard limits — what NIGHT HARVEST will never do:**
+
+- It never approves examples — every approval is a human decision in the morning
+  (`review_captures.py --approve`, then `--export-train`).
+- It never starts Phase 3 training.
+- The goal generator and judge are never the boss model family — the boss must
+  not author its own curriculum or grade its own homework.
+- Logs land in `.orc/swarm/night_harvest/`; triage queues in
+  `training_pit/batch_NH*_triage.tsv`.
+
+**Morning-after workflow:** open the triage TSVs (high risk first), spot-check
+fabrication, approve survivors, export, commit the manifest.
 
 ---
 

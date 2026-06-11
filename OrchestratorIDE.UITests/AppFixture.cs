@@ -50,11 +50,13 @@ public class AppFixture
 
         var solutionRoot = dir.FullName;
 
+        // Release first: capture/test runs must hit the same build the swarm uses.
+        // A stale Debug build silently lacking DatasetCapture cost us a full overnight run.
         string[] candidates =
         [
-            Path.Combine(solutionRoot, "OrchestratorIDE", "bin", "Debug",   "net10.0-windows", "OrchestratorIDE.exe"),
             Path.Combine(solutionRoot, "OrchestratorIDE", "bin", "Release",  "net10.0-windows", "OrchestratorIDE.exe"),
             Path.Combine(solutionRoot, "OrchestratorIDE", "bin", "Release",  "net10.0-windows", "win-x64", "OrchestratorIDE.exe"),
+            Path.Combine(solutionRoot, "OrchestratorIDE", "bin", "Debug",   "net10.0-windows", "OrchestratorIDE.exe"),
         ];
 
         foreach (var candidate in candidates)

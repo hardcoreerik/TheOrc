@@ -48,6 +48,7 @@ public partial class MainWindow : Window
     private readonly ToolCompiler            _toolCompiler;
     private readonly SwarmBoardPanel         _swarmPanel;
     private readonly UI.Panels.ChatPanel     _chatPanel;
+    private readonly UI.Panels.TrainingPitPanel _pitPanel;
 
     // ── Screen recorder ───────────────────────────────────────────────────
     private readonly ScreenRecorder _recorder = new();
@@ -272,6 +273,20 @@ public partial class MainWindow : Window
         {
             OllamaClient = _ollama,
         };
+
+        // Training Pit panel — dataset farming dashboard (Phase 2.5)
+        _pitPanel = new UI.Panels.TrainingPitPanel
+        {
+            WorkspaceRoot = _session.WorkspaceRoot,
+        };
+        _pitPanel.StatusChanged += msg => Dispatcher.Invoke(() => SetStatus(msg));
+        _pitPanel.OnActivity    += msg => Dispatcher.Invoke(() =>
+            AddActivity(new ActivityEvent(ActivityKind.Info, "Training Pit", msg, DateTime.Now)));
+        _pitPanel.LiveStateChanged += (active, waiting) => Dispatcher.Invoke(() =>
+        {
+            PitLiveDot.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+            PitQueueBadge.Text    = waiting > 0 ? waiting.ToString() : "";
+        });
 
         // Default sidebar = explorer
         SidebarContent.Content = _explorerPanel;
@@ -1279,6 +1294,7 @@ public partial class MainWindow : Window
     private void BtnModeSingle_Click(object sender, RoutedEventArgs e) => SetMode("single");
     private void BtnModeSwarm_Click(object sender, RoutedEventArgs e)  => SetMode("swarm");
     private void BtnModeChat_Click(object sender, RoutedEventArgs e)   => SetMode("chat");
+    private void BtnModePit_Click(object sender, RoutedEventArgs e)    => SetMode("pit");
 
     /// <summary>
     /// Switches between Single Agent and Swarm modes.
@@ -1316,6 +1332,15 @@ public partial class MainWindow : Window
 
             MainContent.Content    = _chatPanel;
             SidebarContent.Content = _explorerPanel;  // explorer still useful for context
+        }
+        else if (mode == "pit")
+        {
+            // ── Training Pit: dataset dashboard, no model switch needed ────────
+            _pitPanel.WorkspaceRoot = _session.WorkspaceRoot;
+            _pitPanel.Refresh();
+
+            MainContent.Content    = _pitPanel;
+            SidebarContent.Content = _explorerPanel;
         }
         else
         {
@@ -1389,6 +1414,8 @@ public partial class MainWindow : Window
         BtnModeSwarm.Foreground  = mode == "swarm"  ? activeFg     : inactiveFg;
         BtnModeChat.Background   = mode == "chat"   ? activeGreen  : inactiveBg;
         BtnModeChat.Foreground   = mode == "chat"   ? activeFg     : inactiveFg;
+        BtnModePit.Background    = mode == "pit"    ? activeGreen  : inactiveBg;
+        BtnModePit.Foreground    = mode == "pit"    ? activeFg     : inactiveFg;
     }
 
     /// <summary>

@@ -1,0 +1,209 @@
+<UserControl x:Class="OrchestratorIDE.UI.Panels.TrainingPitPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="#0E0E0E"
+             AutomationProperties.AutomationId="TrainingPit.Panel">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+        <Style x:Key="PitButton" TargetType="Button">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="3" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.8"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- ── Header ─────────────────────────────────────────────────── -->
+        <DockPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="⛏ Training Pit" FontSize="16" FontWeight="SemiBold"
+                       Foreground="#D4D4D4" VerticalAlignment="Center"/>
+            <Border x:Name="PhaseBadge" Background="#1A2A00" CornerRadius="3"
+                    Padding="8,2" Margin="10,0,0,0" VerticalAlignment="Center">
+                <TextBlock x:Name="PhaseText" Text="Collecting examples — training not started"
+                           FontSize="11" Foreground="#CCA700"/>
+            </Border>
+            <Button x:Name="BtnRefresh" Style="{StaticResource PitButton}"
+                    Background="#111111" BorderBrush="#2A2A2A" Foreground="#999999"
+                    Content="⟳ Refresh" HorizontalAlignment="Right" DockPanel.Dock="Right"
+                    Click="BtnRefresh_Click"
+                    AutomationProperties.AutomationId="TrainingPit.Refresh"/>
+        </DockPanel>
+
+        <!-- ── Gate cards ─────────────────────────────────────────────── -->
+        <UniformGrid Grid.Row="1" Columns="3" Margin="0,0,0,12">
+            <Border Background="#141814" CornerRadius="6" Padding="12,10" Margin="0,0,6,0"
+                    ToolTip="The 'train' split — the textbook the model studies during fine-tuning.">
+                <StackPanel>
+                    <TextBlock Text="Lessons" FontSize="12" Foreground="#D4D4D4"/>
+                    <TextBlock Text="good plans the model learns from" FontSize="10" Foreground="#999999"/>
+                    <TextBlock x:Name="TrainCount" Text="—" FontSize="20" Foreground="#D4D4D4" Margin="0,4,0,4"
+                               AutomationProperties.AutomationId="TrainingPit.TrainCount"/>
+                    <ProgressBar x:Name="TrainBar" Height="6" BorderThickness="0"
+                                 Background="#111111" Foreground="#CCA700"/>
+                </StackPanel>
+            </Border>
+            <Border Background="#141814" CornerRadius="6" Padding="12,10" Margin="3,0,3,0"
+                    ToolTip="The 'eval' split — held-back exam questions the model never trains on.">
+                <StackPanel>
+                    <TextBlock Text="Exam" FontSize="12" Foreground="#D4D4D4"/>
+                    <TextBlock Text="held back to test it after training" FontSize="10" Foreground="#999999"/>
+                    <TextBlock x:Name="EvalCount" Text="—" FontSize="20" Foreground="#D4D4D4" Margin="0,4,0,4"/>
+                    <ProgressBar x:Name="EvalBar" Height="6" BorderThickness="0"
+                                 Background="#111111" Foreground="#76B900"/>
+                </StackPanel>
+            </Border>
+            <Border Background="#141814" CornerRadius="6" Padding="12,10" Margin="6,0,0,0"
+                    ToolTip="The 'negative' split — bad plans kept to verify the trained model stops making them.">
+                <StackPanel>
+                    <TextBlock Text="Mistakes" FontSize="12" Foreground="#D4D4D4"/>
+                    <TextBlock Text="bad plans it must stop making" FontSize="10" Foreground="#999999"/>
+                    <TextBlock x:Name="NegCount" Text="—" FontSize="20" Foreground="#D4D4D4" Margin="0,4,0,4"/>
+                    <ProgressBar x:Name="NegBar" Height="6" BorderThickness="0"
+                                 Background="#111111" Foreground="#76B900"/>
+                </StackPanel>
+            </Border>
+        </UniformGrid>
+
+        <!-- ── Night harvest bar ──────────────────────────────────────── -->
+        <Border Grid.Row="2" Background="#101410" BorderBrush="#2A2A2A" BorderThickness="1"
+                CornerRadius="6" Padding="12,8" Margin="0,0,0,12">
+            <DockPanel>
+                <Ellipse x:Name="LiveDot" Width="9" Height="9" Fill="#76B900"
+                         VerticalAlignment="Center" Visibility="Collapsed" Margin="0,0,8,0"
+                         AutomationProperties.AutomationId="TrainingPit.LiveDot"/>
+                <TextBlock Text="🌙" FontSize="14" VerticalAlignment="Center"/>
+                <TextBlock Text="Night harvest" FontSize="12" FontWeight="SemiBold"
+                           Foreground="#D4D4D4" Margin="8,0,10,0" VerticalAlignment="Center"/>
+                <TextBlock x:Name="HarvestStatus" Text="not running" FontSize="11"
+                           Foreground="#999999" VerticalAlignment="Center"
+                           AutomationProperties.AutomationId="TrainingPit.HarvestStatus"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
+                    <Button x:Name="BtnStartHarvest" Style="{StaticResource PitButton}"
+                            Background="#1F3D00" BorderBrush="#76B900" Foreground="#A8CC80"
+                            Content="▶ Start (until dawn)" Click="BtnStartHarvest_Click"
+                            AutomationProperties.AutomationId="TrainingPit.HarvestStart"/>
+                    <Button x:Name="BtnStopHarvest" Style="{StaticResource PitButton}"
+                            Background="#1A2A00" BorderBrush="#CCA700" Foreground="#CCA700"
+                            Content="⏸ Finish current plan, then stop" Margin="8,0,0,0"
+                            Click="BtnStopHarvest_Click" IsEnabled="False"
+                            AutomationProperties.AutomationId="TrainingPit.HarvestStop"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ── Queue header ───────────────────────────────────────────── -->
+        <DockPanel Grid.Row="3" Margin="0,0,0,6">
+            <TextBlock Text="Your review queue" FontSize="12" FontWeight="SemiBold" Foreground="#D4D4D4"/>
+            <TextBlock Text="  — riskiest first. You make the final call." FontSize="11" Foreground="#999999"
+                       VerticalAlignment="Bottom"/>
+            <TextBlock x:Name="QueueCount" Text="" FontSize="11" Foreground="#999999"
+                       HorizontalAlignment="Right" DockPanel.Dock="Right" VerticalAlignment="Bottom"
+                       AutomationProperties.AutomationId="TrainingPit.QueueCount"/>
+        </DockPanel>
+
+        <!-- ── Review queue ───────────────────────────────────────────── -->
+        <Border Grid.Row="4" BorderBrush="#2A2A2A" BorderThickness="1" CornerRadius="6">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="QueueList" AutomationProperties.AutomationId="TrainingPit.Queue">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="#2A2A2A" BorderThickness="0,0,0,1" Background="#0E0E0E">
+                                <StackPanel>
+                                    <Button Click="QueueHeader_Click" Tag="{Binding}" Cursor="Hand"
+                                            Background="Transparent" BorderThickness="0"
+                                            HorizontalContentAlignment="Stretch" Padding="0">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border Background="#161616" Padding="10,7">
+                                                    <ContentPresenter/>
+                                                </Border>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                        <DockPanel>
+                                            <Border Background="{Binding RiskBg}" CornerRadius="3" Padding="7,1"
+                                                    VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding RiskLabel}" FontSize="10"
+                                                           Foreground="{Binding RiskFg}"/>
+                                            </Border>
+                                            <TextBlock Text="{Binding Summary}" FontSize="12" Foreground="#D4D4D4"
+                                                       Margin="10,0,0,0" VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding ScoreText}" FontSize="11" Foreground="#999999"
+                                                       HorizontalAlignment="Right" DockPanel.Dock="Right"
+                                                       VerticalAlignment="Center"/>
+                                        </DockPanel>
+                                    </Button>
+                                    <StackPanel Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVis}}"
+                                                Margin="10,8,10,10">
+                                        <TextBlock Text="{Binding Goal}" FontSize="11" Foreground="#999999"
+                                                   TextWrapping="Wrap" Margin="0,0,0,6"/>
+                                        <ItemsControl ItemsSource="{Binding TaskChips}" Margin="0,0,0,8">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Background="#141814" BorderBrush="#2A2A2A" BorderThickness="1"
+                                                            CornerRadius="3" Padding="7,2" Margin="0,0,6,4">
+                                                        <TextBlock Text="{Binding}" FontSize="10" Foreground="#A8CC80"/>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock Text="{Binding JudgeNote}" FontSize="11" Foreground="#CCA700"
+                                                   TextWrapping="Wrap" Margin="0,0,0,8"
+                                                   Visibility="{Binding HasJudgeNote, Converter={StaticResource BoolToVis}}"/>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button Style="{StaticResource PitButton}" Content="✓ Keep it"
+                                                    Background="#1F3D00" BorderBrush="#76B900" Foreground="#76B900"
+                                                    Click="BtnKeepSilver_Click" Tag="{Binding}"/>
+                                            <Button Style="{StaticResource PitButton}" Content="★ Keep — top quality"
+                                                    Background="#1A2A00" BorderBrush="#CCA700" Foreground="#CCA700"
+                                                    Margin="8,0,0,0" Click="BtnKeepGold_Click" Tag="{Binding}"/>
+                                            <Button Style="{StaticResource PitButton}" Content="✕ Throw out"
+                                                    Background="#2A0A0A" BorderBrush="#5A0000" Foreground="#F44747"
+                                                    Margin="8,0,0,0" Click="BtnReject_Click" Tag="{Binding}"/>
+                                            <Button Style="{StaticResource PitButton}" Content="📄 See full plan"
+                                                    Background="#111111" BorderBrush="#2A2A2A" Foreground="#999999"
+                                                    Margin="8,0,0,0" Click="BtnOpenCapture_Click" Tag="{Binding}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</UserControl>

@@ -150,6 +150,34 @@
                                     <ControlTemplate TargetType="Button">
                                         <Border x:Name="Bd"
                                                 Background="{TemplateBinding Background}"
+                                                CornerRadius="0,0,0,0"
+                                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter HorizontalAlignment="Center"
+                                                              VerticalAlignment="Center"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Opacity" Value="0.8"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                            <!-- Divider -->
+                            <Rectangle Width="1" Fill="#2A3A2A"/>
+                            <!-- Training Pit button -->
+                            <Button x:Name="BtnModePit"
+                                    ToolTip="Training Pit — dataset farming, review queue, night harvest"
+                                    Padding="10,4"
+                                    FontSize="11" FontFamily="Segoe UI"
+                                    BorderThickness="0"
+                                    Cursor="Hand"
+                                    Click="BtnModePit_Click"
+                                    AutomationProperties.AutomationId="Mode.Pit">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Bd"
+                                                Background="{TemplateBinding Background}"
                                                 CornerRadius="0,3,3,0"
                                                 Padding="{TemplateBinding Padding}">
                                             <ContentPresenter HorizontalAlignment="Center"
@@ -162,6 +190,15 @@
                                         </ControlTemplate.Triggers>
                                     </ControlTemplate>
                                 </Button.Template>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="⛏ Pit"/>
+                                    <Ellipse x:Name="PitLiveDot" Width="7" Height="7" Fill="#76B900"
+                                             VerticalAlignment="Center" Margin="5,0,0,0"
+                                             Visibility="Collapsed"
+                                             ToolTip="The pit is collecting plans right now"/>
+                                    <TextBlock x:Name="PitQueueBadge" Text="" Margin="4,0,0,0"
+                                               ToolTip="Plans waiting for your review"/>
+                                </StackPanel>
                             </Button>
                         </StackPanel>
                     </Border>

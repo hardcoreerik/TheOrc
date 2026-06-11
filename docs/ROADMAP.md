@@ -39,13 +39,17 @@ feedback loops and self-directed improvement.
   high-fitness variants auto-promoted to SchemaLibrary
 - [ ] **Self-improve loop** — GitHub issue scanner → Agent panel injection → TheOrc proposes
   and applies fixes to itself via source clone
-- [ ] **GOBLIN HARVEST — autonomous dataset farming** — TheOrc runs Training Pit capture
-  cycles on itself: swarmcli batch runner → deterministic rubric rejections (wrong-stack
-  extension check, TESTER-write check, single-task check) → local judge-model triage
-  (qwen2.5-coder:14b or Hermes-4-14B — never the boss model judging itself) → human
-  approves only final train candidates. Identified 2026-06-10 after manual review caught
-  4 high-rubric defect classes the rubric cannot see (wrong stack, role misuse, language
-  substitution, confident fabrication)
+- [x] **GOBLIN HARVEST — autonomous dataset farming** — swarmcli batch runner
+  (`farm_batch.ps1`) → deterministic rubric rejections (`prescreen_captures.py`:
+  wrong-stack, TESTER-write, single-task, low-rubric) → local judge-model triage
+  (`judge_captures.py`, qwen2.5-coder:14b — never the boss model judging itself) →
+  human approves only final train candidates. Built 2026-06-11.
+- [ ] **NIGHT HARVEST — train till dawn** — `night_harvest.ps1` loops the full GOBLIN
+  HARVEST pipeline overnight: a local model authors fresh goal tranches from
+  PROMPT_AUTHORING_GUIDE.md (`generate_goals.py`, linted + deduped in code), farms,
+  pre-screens, judge-triages; ends at dawn (default 06:00), after -Hours, or via the
+  .orc/swarm/HARVEST_STOP file. Never approves, never trains. Scripts complete
+  2026-06-11; first live overnight run pending
 - [ ] **Parallel slots live gate** — `OLLAMA_NUM_PARALLEL` detection; swarm start blocked if
   slots < worker count; settings panel shows live status
 - [ ] **Wire `TotalVramGb`** in SwarmSession — currently hardcoded 0; call
@@ -96,6 +100,10 @@ The Training Pit is on its own milestone track, not tied to app version numbers.
 | Phase 4 | 🔲 Future | Deployment — A/B path in SwarmSession |
 
 **Phase 3 gate:** ≥150 reviewed positive examples + ≥25 negative examples + ≥20 eval.
+**Long-term dataset goal (agreed 2026-06-10):** ~1,000 train / ~200 eval for a
+production-quality adapter; 150 is the proof-of-concept starting line. Five-nines
+reliability comes from the system (rubric + validation + retry), not dataset size.
+See TRAINING_PIT_GUIDE.md "Dataset Size Targets".
 Current count: **36/150 train, 25/25 negative ✅, 20/20 eval ✅ — train is the only open gate.**
 Run `python training_pit/scripts/review_captures.py --status` for live counters.
 See `training_pit/BATCH_CAPTURE_PLAN_V2.md` for the active capture batch
