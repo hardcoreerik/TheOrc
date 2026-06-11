@@ -43,6 +43,16 @@
                             FontFamily="Segoe UI" FontSize="12"
                             Cursor="Hand"
                             AutomationProperties.AutomationId="ModelWiki.RunCapabilityTest"/>
+                    <Button x:Name="BtnExportMatrix"
+                            Content="⬇ Export Matrix"
+                            Click="BtnExportMatrix_Click"
+                            ToolTip="Export the full capability matrix (scores, probe results, routing) as Markdown"
+                            Padding="10,6" Margin="0,0,10,0"
+                            Background="#1A2A1A" Foreground="{StaticResource Br.Text.White}"
+                            BorderBrush="#2A3A2A" BorderThickness="1"
+                            FontFamily="Segoe UI" FontSize="12"
+                            Cursor="Hand"
+                            AutomationProperties.AutomationId="ModelWiki.ExportMatrix"/>
                     <Button x:Name="BtnRefresh"
                             Content="↺ Refresh"
                             Click="BtnRefresh_Click"
@@ -50,7 +60,8 @@
                             Background="#1A2A1A" Foreground="{StaticResource Br.Text.White}"
                             BorderBrush="#2A3A2A" BorderThickness="1"
                             FontFamily="Segoe UI" FontSize="12"
-                            Cursor="Hand"/>
+                            Cursor="Hand"
+                            AutomationProperties.AutomationId="ModelWiki.Refresh"/>
                 </StackPanel>
             </DockPanel>
         </Border>

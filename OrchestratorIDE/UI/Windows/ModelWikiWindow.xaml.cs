@@ -194,6 +194,35 @@ public partial class ModelWikiWindow : Window
         OnLoaded(this, new RoutedEventArgs());
     }
 
+    private void BtnExportMatrix_Click(object sender, RoutedEventArgs e)
+    {
+        if (_allItems.Count == 0)
+        {
+            SetStatus("Nothing to export yet — wait for the catalogue to load.");
+            return;
+        }
+
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title      = "Export capability matrix",
+            FileName   = $"TheOrc-Model-Capability-Matrix-{DateTime.Now:yyyyMMdd}.md",
+            Filter     = "Markdown (*.md)|*.md|All files (*.*)|*.*",
+            DefaultExt = ".md",
+        };
+        if (dlg.ShowDialog(this) != true) return;
+
+        try
+        {
+            var entries = _allItems.Select(i => i.Entry).ToList();
+            System.IO.File.WriteAllText(dlg.FileName, ModelWikiExporter.ToMarkdown(entries));
+            SetStatus($"Capability matrix exported: {dlg.FileName}");
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Export failed: {ex.Message}");
+        }
+    }
+
     private void BtnRunCapabilityTest_Click(object sender, RoutedEventArgs e)
     {
         var modelId = _selected?.Entry.ModelId ?? "";
