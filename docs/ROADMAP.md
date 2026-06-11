@@ -89,9 +89,9 @@ The WPF app remains the primary Windows-native experience indefinitely.
 - [ ] SwarmBoard metrics history tab (ConfigStats per configuration)
 - [ ] Model Wiki: model comparison view (side-by-side)
 - [ ] Model Wiki: historical result trends chart
-- [ ] Model Wiki: export capability matrix to Markdown
+- [x] Model Wiki: export capability matrix to Markdown — Export Matrix button, ModelWikiExporter + T12 tests (2026-06-11)
 - [ ] Model Wiki: filter chips for GOBLIN MIND category scores
-- [ ] Model Wiki: "Probe Now" button in detail pane
+- [x] Model Wiki: "Probe Now" button in detail pane — opens probe window, detail refreshes on close (2026-06-11)
 
 ---
 
