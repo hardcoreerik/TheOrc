@@ -79,3 +79,6 @@ training_pit/outputs/
 # Files require human review before moving to training_pit/datasets/
 .orc/swarm/dataset-staging/
 .orc/swarm/dataset-staging-test/
+
+# All TheOrc local runtime state (runs, staging, manual captures) — local-only by design
+.orc/
