@@ -328,6 +328,7 @@ public partial class ModelWikiWindow : Window
         RenderSummary(entry);
         RenderScores(entry);
         RenderObservations(entry);
+        RenderTrends(entry);
         RenderToolReliability(entry);
         RenderRouting(entry);
         TbLoraGuidance.Text = ModelWikiService.GetLoraGuidance(entry);
@@ -457,6 +458,82 @@ public partial class ModelWikiWindow : Window
     }
 
     // ── Section C: Observations ────────────────────────────────────────────────
+
+    // ── Section C2: Result trends ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Chronological outcome strip over every local result for this model:
+    /// capability tests (squares) and swarm runs (tall bars), oldest → newest,
+    /// green/amber/red by outcome, with a pass-rate trend line underneath.
+    /// Plain WPF shapes — no charting packages.
+    /// </summary>
+    private void RenderTrends(ModelWikiEntry entry)
+    {
+        PnlTrends.Children.Clear();
+
+        var events = entry.CapabilityTests
+            .Select(t => (When: t.Timestamp, Kind: "test",
+                          Ok: t.Result == "pass" ? 1.0 : t.Result == "partial" ? 0.5 : 0.0,
+                          Tip: $"{t.Timestamp:yyyy-MM-dd HH:mm}  {t.TestName}: {t.Result}" +
+                               (string.IsNullOrEmpty(t.Notes) ? "" : $"\n{t.Notes}")))
+            .Concat(entry.SwarmRuns
+                .Select(r => (When: r.StartedAt, Kind: "swarm",
+                              Ok: r.SwarmSucceeded ? 1.0 : 0.0,
+                              Tip: $"{r.StartedAt:yyyy-MM-dd HH:mm}  swarm run " +
+                                   $"({(r.SwarmSucceeded ? "succeeded" : "failed")}, {r.FilesWritten} files)\n{r.Goal}")))
+            .OrderBy(e => e.When)
+            .ToList();
+
+        if (events.Count == 0)
+        {
+            PnlTrends.Children.Add(MutedText(
+                "No local results yet — run a capability test or a swarm with this model."));
+            return;
+        }
+
+        var strip = new WrapPanel { Orientation = Orientation.Horizontal };
+        foreach (var ev in events.TakeLast(60))   // keep the strip readable
+        {
+            var color = ev.Ok >= 1.0 ? "#4ACA4A" : ev.Ok > 0 ? "#E8A030" : "#E84040";
+            strip.Children.Add(new Border
+            {
+                Width  = ev.Kind == "swarm" ? 10 : 14,
+                Height = ev.Kind == "swarm" ? 26 : 14,
+                CornerRadius = new CornerRadius(2),
+                Margin = new Thickness(0, ev.Kind == "swarm" ? 0 : 6, 3, 0),
+                Background = new SolidColorBrush(
+                    (Color)ColorConverter.ConvertFromString(color)),
+                ToolTip = ev.Tip,
+                VerticalAlignment = VerticalAlignment.Bottom,
+            });
+        }
+        PnlTrends.Children.Add(strip);
+
+        // Trend summary: recent half vs earlier half pass rate
+        double Rate(IEnumerable<double> xs) { var l = xs.ToList(); return l.Count == 0 ? 0 : l.Average(); }
+        string arrow;
+        if (events.Count < 4)
+        {
+            arrow = "→ not enough data for a trend";   // codex: lone result must not read "declining"
+        }
+        else
+        {
+            var half  = events.Count / 2;
+            var early = Rate(events.Take(half).Select(e => e.Ok));
+            var late  = Rate(events.Skip(half).Select(e => e.Ok));
+            arrow = late > early + 0.05 ? "↗ improving"
+                  : late < early - 0.05 ? "↘ declining" : "→ steady";
+        }
+
+        PnlTrends.Children.Add(new TextBlock
+        {
+            Text = $"{events.Count} results  ·  pass rate {Rate(events.Select(e => e.Ok)):P0}  ·  trend {arrow}" +
+                   $"   (■ capability test  ▌ swarm run, oldest → newest)",
+            FontFamily = new FontFamily("Segoe UI"), FontSize = 11,
+            Foreground = (Brush)FindResource("Br.Text.Muted"),
+            Margin = new Thickness(0, 8, 0, 0),
+        });
+    }
 
     private void RenderObservations(ModelWikiEntry entry)
     {

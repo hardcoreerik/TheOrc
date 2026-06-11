@@ -357,6 +357,13 @@
                         <StackPanel x:Name="PnlObservations"/>
                     </Border>
 
+                    <!-- ── C2. Result Trends ──────────────────────────── -->
+                    <TextBlock Text="C2  RESULT TRENDS" Style="{StaticResource WikiSectionHeader}"/>
+                    <Border Style="{StaticResource WikiSectionBody}">
+                        <StackPanel x:Name="PnlTrends"
+                                    AutomationProperties.AutomationId="ModelWiki.Trends"/>
+                    </Border>
+
                     <!-- ── D. Tool-Call Reliability ───────────────────── -->
                     <TextBlock Text="D  TOOL-CALL RELIABILITY" Style="{StaticResource WikiSectionHeader}"/>
                     <Border Style="{StaticResource WikiSectionBody}">
