@@ -706,6 +706,23 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- ── Metrics history (ConfigStats per configuration) ── -->
+                    <Expander x:Name="ExpMetricsHistory"
+                              Margin="0,0,0,6"
+                              Expanded="ExpMetricsHistory_Expanded"
+                              AutomationProperties.AutomationId="Swarm.MetricsHistory">
+                        <Expander.Header>
+                            <TextBlock Text="📊 METRICS HISTORY — past runs by configuration"
+                                       Foreground="#76B900" FontSize="10"
+                                       FontWeight="Bold" FontFamily="Consolas"/>
+                        </Expander.Header>
+                        <Border Background="#0E120E" BorderBrush="#252525" BorderThickness="1"
+                                CornerRadius="6" Padding="12,8" Margin="0,4,0,0">
+                            <StackPanel x:Name="PnlMetricsHistory"
+                                        AutomationProperties.AutomationId="Swarm.MetricsHistoryRows"/>
+                        </Border>
+                    </Expander>
+
                     <!-- ── Auto-Config panel ─────────────────────────────── -->
                     <Border Background="#0E120E" BorderBrush="#1E3A1E" BorderThickness="1"
                             CornerRadius="6" Padding="12,10" Margin="0,0,0,14">

@@ -186,6 +186,61 @@ public partial class SwarmBoardPanel : UserControl
         RefreshGate();
     }
 
+    // ── Metrics history (ConfigStats per configuration) ──────────────────────
+
+    /// <summary>
+    /// Lazily renders past-run stats per (boss|coder|researcher) configuration
+    /// when the expander opens: runs, success, tester pass, avg duration,
+    /// composite quality. Best configuration is highlighted. Pure store reads.
+    /// </summary>
+    private async void ExpMetricsHistory_Expanded(object sender, RoutedEventArgs e)
+    {
+        PnlMetricsHistory.Children.Clear();
+
+        // Store read is file IO — keep it off the UI thread (codex finding)
+        var stats = await Task.Run(() =>
+            Services.Swarm.SwarmMetricsStore.GetConfigStats(minRuns: 1)
+                .OrderByDescending(s => s.QualityScore)
+                .ToList());
+
+        if (stats.Count == 0)
+        {
+            PnlMetricsHistory.Children.Add(new System.Windows.Controls.TextBlock
+            {
+                Text = "No swarm runs recorded yet — stats appear after the first completed run.",
+                Foreground = System.Windows.Media.Brushes.Gray,
+                FontSize = 11, FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
+            });
+            return;
+        }
+
+        void Row(string text, string hex, bool bold = false)
+            => PnlMetricsHistory.Children.Add(new System.Windows.Controls.TextBlock
+            {
+                Text = text, FontFamily = new System.Windows.Media.FontFamily("Consolas"),
+                FontSize = 11,
+                FontWeight = bold ? FontWeights.Bold : FontWeights.Normal,
+                Foreground = new System.Windows.Media.SolidColorBrush(
+                    (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex)),
+                Margin = new Thickness(0, 1, 0, 1),
+            });
+
+        Row($"{"CONFIG (boss · coder · researcher)",-52} {"RUNS",4} {"OK",5} {"TESTER",6} {"AVG",6} {"QUAL",5}", "#76B900", bold: true);
+        foreach (var (s, i) in stats.Select((s, i) => (s, i)))
+        {
+            string cfg = $"{Short(s.BossModel)} · {Short(s.CoderModel)} · {Short(s.ResearcherModel)}";
+            if (cfg.Length > 52) cfg = cfg[..51] + "…";
+            string line = $"{cfg,-52} {s.RunCount,4} {s.SuccessRate,5:P0} {s.TesterPassRate,6:P0} " +
+                          $"{TimeSpan.FromSeconds(s.AvgDurationSeconds),6:m\\:ss} {s.QualityScore,5:F2}";
+            Row(line, i == 0 ? "#4EC94E" : "#CCCCCC", bold: i == 0);
+        }
+
+        Row($"{stats.Sum(s => s.RunCount)} total runs · best configuration highlighted · " +
+            $"data: {Services.Swarm.SwarmMetricsStore.MetricsFilePath}", "#666666");
+
+        static string Short(string m) => m.Split(':')[0];
+    }
+
     // ── GOBLIN MIND capability badges ─────────────────────────────────────────
 
     /// <summary>
