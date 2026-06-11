@@ -150,7 +150,8 @@ public partial class MainWindow : Window
         });
 
         // Context meter
-        _context.UsageChanged += () => Dispatcher.Invoke(UpdateContextDisplay);
+        _context.UsageChanged       += () => Dispatcher.Invoke(UpdateContextDisplay);
+        _agentPanel.InputTextChanged += UpdateContextDisplay;   // live next-request estimate
 
         // Approval gate — use diff viewer in AgentPanel for write_file, dialog for shell
         _approvals.ApprovalRequested  += OnApprovalRequested;
@@ -1042,8 +1043,16 @@ public partial class MainWindow : Window
 
     private void UpdateContextDisplay()
     {
-        TbContextPct.Text = $"{_context.UsagePercent:F0}% ctx";
-        TbContextPct.Foreground = _context.IsCritical
+        // Token cost estimate for the NEXT request: context + pending input +
+        // an assumed response budget, with a rough local-inference ETA.
+        var est = TokenCostEstimator.Estimate(
+            _context.UsedTokens, _context.MaxTokens, _agentPanel?.PendingInputText ?? "");
+
+        TbContextPct.Text = est.InputTokens > 0
+            ? $"{_context.UsagePercent:F0}% ctx · next ≈{est.TotalTokens / 1000.0:F1}k tok"
+            : $"{_context.UsagePercent:F0}% ctx";
+        TbContextPct.ToolTip = est.Summary(tokensPerSecond: 25);
+        TbContextPct.Foreground = _context.IsCritical || !est.FitsContext
             ? (Brush)FindResource("Br.Error")
             : _context.IsWarning
                 ? (Brush)FindResource("Br.Warning")
@@ -2130,5 +2139,4 @@ public partial class MainWindow : Window
     // stubs kept for XAML compat
     private void BtnSend_Click(object sender, RoutedEventArgs e) { }
     private void BtnStop_Click(object sender, RoutedEventArgs e) { }
-    private void TbInput_KeyDown(object sender, KeyEventArgs e) { }
 }

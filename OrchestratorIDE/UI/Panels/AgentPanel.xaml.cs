@@ -31,6 +31,13 @@ public partial class AgentPanel : UserControl
     // Fires when user clicks Global Agent badge — MainWindow opens global agent picker
     public event Action? GlobalAgentRequested;
 
+    // Fires as the user types in the input box — MainWindow refreshes the
+    // token-cost estimate badge. Wired in the constructor.
+    public event Action? InputTextChanged;
+
+    /// <summary>Pending (unsent) input text, for token-cost estimation.</summary>
+    public string PendingInputText => TbInput?.Text ?? "";
+
     private CancellationTokenSource? _cts;
     private readonly ObservableCollection<MessageVm> _messages = [];
 
@@ -45,6 +52,7 @@ public partial class AgentPanel : UserControl
     {
         InitializeComponent();
         MsgList.ItemsSource = _messages;
+        TbInput.TextChanged += (_, _) => InputTextChanged?.Invoke();
 
         // Startup greeting
         _messages.Add(new MessageVm
