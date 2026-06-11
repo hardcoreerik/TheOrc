@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -9,9 +9,9 @@
     <RootNamespace>OrchestratorIDE</RootNamespace>
     <ApplicationIcon>..\Assets\icon.ico</ApplicationIcon>
     <!-- Semantic version — shown in title bar and compared against GitHub releases -->
-    <Version>1.0.5</Version>
-    <AssemblyVersion>1.0.5.0</AssemblyVersion>
-    <FileVersion>1.0.5.0</FileVersion>
+    <Version>1.2.1</Version>
+    <AssemblyVersion>1.2.1.0</AssemblyVersion>
+    <FileVersion>1.2.1.0</FileVersion>
     <NoWarn>$(NoWarn);NU1510</NoWarn>
   </PropertyGroup>
 
