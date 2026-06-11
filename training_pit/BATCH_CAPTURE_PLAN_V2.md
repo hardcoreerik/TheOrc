@@ -95,4 +95,61 @@ neither train nor negative material. Marginal scores (40–69) won't stage at al
 
 ---
 
-*Authored 2026-06-10 from v1 batch evidence. Predecessor: BATCH_CAPTURE_PLAN.md (fully dispositioned).*
+## Tranche 2 (gate-closing run)
+
+### Negative baits (10) — targets the fabrication failure mode
+
+| ID | Goal prompt |
+|----|-------------|
+| V2-N09 | Fix it. |
+| V2-N10 | Clean up the code. |
+| V2-N11 | Optimize the database. |
+| V2-N12 | Make it look nicer. |
+| V2-N13 | Add AI to the app. |
+| V2-N14 | Implement the feature we discussed. |
+| V2-N15 | Upgrade everything to the latest versions. |
+| V2-N16 | Make the swarm smarter. |
+| V2-N17 | Add a login system. |
+| V2-N18 | Speed up startup. |
+
+### Eval targets (12) — close the 20-prompt eval gate
+
+| ID | Domain | Goal prompt |
+|----|--------|-------------|
+| V2-E05 | swarm | Add a pause/resume button to the Swarm Board that suspends worker dispatch after the current task completes and resumes dispatch when clicked again. |
+| V2-E06 | wpf_ui | Add a recent-workspaces submenu to the File menu listing the last 5 opened folders, persisted across restarts. |
+| V2-E07 | ollama | Show a warning icon next to models in the Model Wiki whose size exceeds available VRAM, with a tooltip showing model size and free VRAM. |
+| V2-E08 | python_utility | Write a script that converts plan capture JSON files into a single CSV with one row per task, columns for run id, role, title, and description length. |
+| V2-E09 | testing | Write NUnit tests verifying DatasetCapture stages a capture when the rubric score is 70 and stages nothing when the score is 50. |
+| V2-E10 | powershell | Write a PowerShell script that watches the dataset-staging folder and prints a notification line whenever a new capture file appears. |
+| V2-E11 | git | Add an auto-checkpoint setting that commits the workspace after each successful swarm run with the message swarm:<runId>. |
+| V2-E12 | goblin_mind | Add a re-probe-all button to the Model Wiki that queues GOBLIN MIND probes for every installed model sequentially and shows progress. |
+| V2-E13 | training_pit | Add a --summary flag to phase3_preflight.py that prints a single PASS or BLOCKED line suitable for CI consumption. |
+| V2-E14 | swarm | Persist the OLLAMA_NUM_PARALLEL slot choice across app restarts in the app settings. |
+| V2-E15 | model_wiki | Add CSV export of the Model Wiki list with columns for name, size, family, and last-probed date. |
+| V2-E16 | wpf_ui | Add Ctrl+scroll zoom to the code editor that adjusts the editor font size between 8 and 32 points. |
+
+### Train targets, tranche 2 (16)
+
+| ID | Domain | Goal prompt |
+|----|--------|-------------|
+| V2-T17 | swarm | Add a SwarmRunSummary.cs model class and write run_summary.json at the end of each run from SwarmSession.cs, containing runId, goal, task count, duration seconds, and per-task final status. |
+| V2-T18 | wpf_ui | Add AutomationId "Swarm.GoalInput" to the goal TextBox and "Swarm.LaunchButton" to the launch button in SwarmBoardPanel.xaml, then update T07_SwarmBoardTests.cs to assert both AutomationIds are present. |
+| V2-T19 | python_utility | Write training_pit/scripts/tag_captures.py that adds entries to the tags array of a staged capture JSON via --file <path> --add-tag <tag>, refusing to write if the file lacks the required example_id field. |
+| V2-T20 | ollama | Create Services/OllamaVersionCheck.cs that runs "ollama --version" at startup via Process.Start, parses the version, and logs an activity-log warning when it is older than 0.30. |
+| V2-T21 | powershell | Write tools/export_metrics.ps1 in PowerShell that parses every .orc/swarm/runs/*/swarm_run.json and outputs runs_metrics.csv with columns runId, started, duration, and task count. |
+| V2-T22 | wpf_ui | Add a word-wrap toggle button to the editor toolbar in MainWindow.xaml, bound to the AvalonEdit WordWrap property in MainWindow.xaml.cs, with the choice persisted in app settings. |
+| V2-T23 | swarm | Add an OnTaskRetry event to SwarmSession.cs raised whenever a worker task is retried, and show a small retry-count chip on the task card in SwarmBoardPanel.xaml.cs when the count is above 0. |
+| V2-T24 | testing | Write an NUnit test class T13_RecentGoalsStoreTests.cs covering RecentGoalsStore.Load and Add: empty store returns empty list, adding a 6th goal trims to 5, and corrupted JSON returns empty list without throwing. |
+| V2-T25 | model_wiki | Add a 300ms search debounce to the Model Wiki search box using a DispatcherTimer in ModelWikiWindow.xaml.cs so filtering runs only after typing pauses. |
+| V2-T26 | python_utility | Write training_pit/scripts/quality_histogram.py that reads reviewed_v1.json and prints example counts grouped by split and quality as an ASCII bar chart. |
+| V2-T27 | csharp_core | Create ActivityLogBuffer.cs, a circular buffer capped at 500 entries, and use it for the activity list in MainWindow.xaml.cs so the log cannot grow unbounded. |
+| V2-T28 | wpf_ui | Add an Escape KeyBinding in SwarmBoardPanel.xaml that focuses the goal input when the Swarm Board is visible, with the handler implemented in SwarmBoardPanel.xaml.cs. |
+| V2-T29 | git | Create Services/BranchInfoService.cs exposing a CurrentBranch property refreshed every 30 seconds via "git rev-parse --abbrev-ref HEAD", and bind it into the status bar in MainWindow.xaml.cs. |
+| V2-T30 | ollama | Add a model-unload button to the Model Wiki detail pane that runs "ollama stop <model>" via Process.Start from ModelWikiWindow.xaml.cs and writes the result to the activity log. |
+| V2-T31 | python_utility | Write training_pit/scripts/split_lint.py that cross-checks train_v1.jsonl and eval_v1.jsonl for identical goal strings and exits 1 listing any overlaps, 0 when the splits are disjoint. |
+| V2-T32 | powershell | Write tools/session_report.ps1 in PowerShell that summarizes today's git commits — count, files changed, insertions, deletions — into a colored console table. |
+
+---
+
+*Authored 2026-06-10 from v1 batch evidence; tranche 2 added same day. Predecessor: BATCH_CAPTURE_PLAN.md (fully dispositioned).*
