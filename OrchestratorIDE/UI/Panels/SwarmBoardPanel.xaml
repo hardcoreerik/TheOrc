@@ -560,96 +560,150 @@
                     <!-- ── Boss / Orchestrator model picker ──────────────── -->
                     <Border Background="#0E120E" BorderBrush="#252525" BorderThickness="1"
                             CornerRadius="6" Padding="12,8" Margin="0,0,0,6">
-                        <DockPanel>
-                            <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-                                <TextBlock Text="BOSS MODEL"
-                                           Foreground="#76B900" FontSize="10"
-                                           FontWeight="Bold" FontFamily="Consolas"/>
-                                <TextBlock Text="Orchestrator · planner · merger"
-                                           Foreground="#666666" FontSize="10"
-                                           Margin="0,2,0,0"/>
-                            </StackPanel>
-                            <ComboBox x:Name="CbBossModel"
-                                      DockPanel.Dock="Right"
-                                      MinWidth="200"
-                                      BorderBrush="#2E3A2E"
-                                      Padding="6,3"
-                                      VerticalAlignment="Center"
-                                      SelectionChanged="CbBossModel_SelectionChanged"
-                                      AutomationProperties.AutomationId="Swarm.BossModel">
-                                <ComboBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding}" Foreground="#1A1A1A"
-                                                   FontSize="11" FontFamily="Segoe UI"/>
-                                    </DataTemplate>
-                                </ComboBox.ItemTemplate>
-                            </ComboBox>
-                        </DockPanel>
+                        <StackPanel>
+                            <DockPanel>
+                                <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                                    <TextBlock Text="BOSS MODEL"
+                                               Foreground="#76B900" FontSize="10"
+                                               FontWeight="Bold" FontFamily="Consolas"/>
+                                    <TextBlock Text="Orchestrator · planner · merger"
+                                               Foreground="#666666" FontSize="10"
+                                               Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <ComboBox x:Name="CbBossModel"
+                                          DockPanel.Dock="Right"
+                                          MinWidth="200"
+                                          BorderBrush="#2E3A2E"
+                                          Padding="6,3"
+                                          VerticalAlignment="Center"
+                                          SelectionChanged="CbBossModel_SelectionChanged"
+                                          AutomationProperties.AutomationId="Swarm.BossModel">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" Foreground="#1A1A1A"
+                                                       FontSize="11" FontFamily="Segoe UI"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </DockPanel>
+                            <!-- GOBLIN MIND capability badges -->
+                            <DockPanel Margin="0,6,0,0">
+                                <Button x:Name="BtnProbeBoss" DockPanel.Dock="Right"
+                                        Content="Probe Now" Click="BtnProbeNow_Click"
+                                        AutomationProperties.AutomationId="Swarm.ProbeBoss"
+                                        Background="Transparent" Foreground="#4EC9B0"
+                                        BorderBrush="#2E3A2E" BorderThickness="1"
+                                        Padding="8,2" FontSize="10" FontFamily="Segoe UI"
+                                        VerticalAlignment="Center" Cursor="Hand"
+                                        ToolTip="Run the GOBLIN MIND capability probe for this model"/>
+                                <TextBlock x:Name="TbBossBadges" Text=""
+                                           Foreground="#666666" FontSize="10" FontFamily="Consolas"
+                                           VerticalAlignment="Center" Margin="0,0,8,0"
+                                           TextTrimming="CharacterEllipsis"
+                                           AutomationProperties.AutomationId="Swarm.BossBadges"/>
+                            </DockPanel>
+                        </StackPanel>
                     </Border>
 
                     <!-- ── Coder / UIDev model picker ───────────────────── -->
                     <Border Background="#0E120E" BorderBrush="#252525" BorderThickness="1"
                             CornerRadius="6" Padding="12,8" Margin="0,0,0,6">
-                        <DockPanel>
-                            <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-                                <TextBlock Text="CODER MODEL"
-                                           Foreground="#76B900" FontSize="10"
-                                           FontWeight="Bold" FontFamily="Consolas"/>
-                                <TextBlock Text="Coder · UI Dev  (quality model)"
-                                           Foreground="#666666" FontSize="10"
-                                           Margin="0,2,0,0"/>
-                            </StackPanel>
-                            <ComboBox x:Name="CbWorkerModel"
-                                      DockPanel.Dock="Right"
-                                      MinWidth="200"
-                                      BorderBrush="#2E3A2E"
-                                      Padding="6,3"
-                                      VerticalAlignment="Center"
-                                      SelectionChanged="CbWorkerModel_SelectionChanged"
-                                      AutomationProperties.AutomationId="Swarm.WorkerModel">
-                                <ComboBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding}" Foreground="#1A1A1A"
-                                                   FontSize="11" FontFamily="Segoe UI"/>
-                                    </DataTemplate>
-                                </ComboBox.ItemTemplate>
-                            </ComboBox>
-                        </DockPanel>
+                        <StackPanel>
+                            <DockPanel>
+                                <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                                    <TextBlock Text="CODER MODEL"
+                                               Foreground="#76B900" FontSize="10"
+                                               FontWeight="Bold" FontFamily="Consolas"/>
+                                    <TextBlock Text="Coder · UI Dev  (quality model)"
+                                               Foreground="#666666" FontSize="10"
+                                               Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <ComboBox x:Name="CbWorkerModel"
+                                          DockPanel.Dock="Right"
+                                          MinWidth="200"
+                                          BorderBrush="#2E3A2E"
+                                          Padding="6,3"
+                                          VerticalAlignment="Center"
+                                          SelectionChanged="CbWorkerModel_SelectionChanged"
+                                          AutomationProperties.AutomationId="Swarm.WorkerModel">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" Foreground="#1A1A1A"
+                                                       FontSize="11" FontFamily="Segoe UI"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </DockPanel>
+                            <!-- GOBLIN MIND capability badges -->
+                            <DockPanel Margin="0,6,0,0">
+                                <Button x:Name="BtnProbeWorker" DockPanel.Dock="Right"
+                                        Content="Probe Now" Click="BtnProbeNow_Click"
+                                        AutomationProperties.AutomationId="Swarm.ProbeWorker"
+                                        Background="Transparent" Foreground="#4EC9B0"
+                                        BorderBrush="#2E3A2E" BorderThickness="1"
+                                        Padding="8,2" FontSize="10" FontFamily="Segoe UI"
+                                        VerticalAlignment="Center" Cursor="Hand"
+                                        ToolTip="Run the GOBLIN MIND capability probe for this model"/>
+                                <TextBlock x:Name="TbWorkerBadges" Text=""
+                                           Foreground="#666666" FontSize="10" FontFamily="Consolas"
+                                           VerticalAlignment="Center" Margin="0,0,8,0"
+                                           TextTrimming="CharacterEllipsis"
+                                           AutomationProperties.AutomationId="Swarm.WorkerBadges"/>
+                            </DockPanel>
+                        </StackPanel>
                     </Border>
 
                     <!-- ── Researcher model picker (lower-quant OK) ──────── -->
                     <Border Background="#0E120E" BorderBrush="#252525" BorderThickness="1"
                             CornerRadius="6" Padding="12,8" Margin="0,0,0,14">
-                        <DockPanel>
-                            <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
-                                <TextBlock Text="RESEARCHER MODEL"
-                                           Foreground="#76B900" FontSize="10"
-                                           FontWeight="Bold" FontFamily="Consolas"/>
-                                <TextBlock Text="Research phase — evicted before coder loads"
-                                           Foreground="#666666" FontSize="10"
-                                           Margin="0,2,0,0"/>
-                            </StackPanel>
-                            <ComboBox x:Name="CbResearcherModel"
-                                      DockPanel.Dock="Right"
-                                      MinWidth="200"
-                                      BorderBrush="#2E3A2E"
-                                      Padding="6,3"
-                                      VerticalAlignment="Center"
-                                      SelectionChanged="CbResearcherModel_SelectionChanged"
-                                      AutomationProperties.AutomationId="Swarm.ResearcherModel">
-                                <ComboBox.ItemTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding}" Foreground="#1A1A1A"
-                                                   FontSize="11" FontFamily="Segoe UI"/>
-                                    </DataTemplate>
-                                </ComboBox.ItemTemplate>
-                                <ComboBox.ItemContainerStyle>
-                                    <Style TargetType="ComboBoxItem">
-                                        <Setter Property="Foreground" Value="Black"/>
-                                    </Style>
-                                </ComboBox.ItemContainerStyle>
-                            </ComboBox>
-                        </DockPanel>
+                        <StackPanel>
+                            <DockPanel>
+                                <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                                    <TextBlock Text="RESEARCHER MODEL"
+                                               Foreground="#76B900" FontSize="10"
+                                               FontWeight="Bold" FontFamily="Consolas"/>
+                                    <TextBlock Text="Research phase — evicted before coder loads"
+                                               Foreground="#666666" FontSize="10"
+                                               Margin="0,2,0,0"/>
+                                </StackPanel>
+                                <ComboBox x:Name="CbResearcherModel"
+                                          DockPanel.Dock="Right"
+                                          MinWidth="200"
+                                          BorderBrush="#2E3A2E"
+                                          Padding="6,3"
+                                          VerticalAlignment="Center"
+                                          SelectionChanged="CbResearcherModel_SelectionChanged"
+                                          AutomationProperties.AutomationId="Swarm.ResearcherModel">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" Foreground="#1A1A1A"
+                                                       FontSize="11" FontFamily="Segoe UI"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                    <ComboBox.ItemContainerStyle>
+                                        <Style TargetType="ComboBoxItem">
+                                            <Setter Property="Foreground" Value="Black"/>
+                                        </Style>
+                                    </ComboBox.ItemContainerStyle>
+                                </ComboBox>
+                            </DockPanel>
+                            <!-- GOBLIN MIND capability badges -->
+                            <DockPanel Margin="0,6,0,0">
+                                <Button x:Name="BtnProbeResearcher" DockPanel.Dock="Right"
+                                        Content="Probe Now" Click="BtnProbeNow_Click"
+                                        AutomationProperties.AutomationId="Swarm.ProbeResearcher"
+                                        Background="Transparent" Foreground="#4EC9B0"
+                                        BorderBrush="#2E3A2E" BorderThickness="1"
+                                        Padding="8,2" FontSize="10" FontFamily="Segoe UI"
+                                        VerticalAlignment="Center" Cursor="Hand"
+                                        ToolTip="Run the GOBLIN MIND capability probe for this model"/>
+                                <TextBlock x:Name="TbResearcherBadges" Text=""
+                                           Foreground="#666666" FontSize="10" FontFamily="Consolas"
+                                           VerticalAlignment="Center" Margin="0,0,8,0"
+                                           TextTrimming="CharacterEllipsis"
+                                           AutomationProperties.AutomationId="Swarm.ResearcherBadges"/>
+                            </DockPanel>
+                        </StackPanel>
                     </Border>
 
                     <!-- ── Auto-Config panel ─────────────────────────────── -->

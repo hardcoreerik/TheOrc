@@ -28,6 +28,7 @@ public partial class SwarmBoardPanel : UserControl
     public OllamaClient? Ollama        { get; set; }
     public string        ActiveModel   { get; set; } = "";
     public string?       WorkspaceRoot { get; set; }
+    public AppSettings?  Settings      { get; set; }   // for opening the probe window
 
     // ── Worker models (separate from boss/orchestrator model) ────────────────
     private string _workerModel     = "";  // Coder + UIDev
@@ -122,6 +123,12 @@ public partial class SwarmBoardPanel : UserControl
             _pulseOn = !_pulseOn;
             PulseActiveDot();
         };
+
+        // Capability badges track whatever model each slot currently shows.
+        // Additive handlers — the named SelectionChanged handlers still run.
+        CbBossModel.SelectionChanged       += (_, _) => UpdateCapabilityBadges();
+        CbWorkerModel.SelectionChanged     += (_, _) => UpdateCapabilityBadges();
+        CbResearcherModel.SelectionChanged += (_, _) => UpdateCapabilityBadges();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -130,6 +137,7 @@ public partial class SwarmBoardPanel : UserControl
         TbSlots.Text = $"{slots} slot{(slots == 1 ? "" : "s")}";
         UpdateSlotButtons(slots);
         RefreshGate();
+        UpdateCapabilityBadges();
         DiagramGrid.SizeChanged += (_, _) => DrawConnectionLines();
 
         // Ctrl+0 → reset stream font size
@@ -176,6 +184,69 @@ public partial class SwarmBoardPanel : UserControl
         TbModelName.Text = string.IsNullOrEmpty(ActiveModel) ? "—" : ActiveModel;
         RefreshSlotLabel();
         RefreshGate();
+    }
+
+    // ── GOBLIN MIND capability badges ─────────────────────────────────────────
+
+    /// <summary>
+    /// Refreshes the Format | Categories | Schema | Last-Probed badge line under
+    /// each model picker from the persisted ToolCallProfileStore. Pure reads —
+    /// never triggers a probe.
+    /// </summary>
+    private void UpdateCapabilityBadges()
+    {
+        SetBadge(TbBossBadges,       CbBossModel.SelectedItem as string);
+        SetBadge(TbWorkerBadges,     CbWorkerModel.SelectedItem as string);
+        SetBadge(TbResearcherBadges, CbResearcherModel.SelectedItem as string);
+
+        static void SetBadge(System.Windows.Controls.TextBlock tb, string? model)
+        {
+            if (string.IsNullOrWhiteSpace(model))
+            {
+                tb.Text = "";
+                return;
+            }
+
+            var profile = Services.ToolCalls.ToolCallProfileStore.Load(model);
+            if (profile is null)
+            {
+                tb.Text = "⚪ capabilities unknown — never probed";
+                tb.ToolTip = "Run Probe Now to fingerprint this model's tool-call format and task categories.";
+                return;
+            }
+
+            var parts = new List<string> { $"⚙ {profile.RecommendedMode}" };
+            if (profile.FormatProfile is { } fmt)
+                parts.Add($"fmt:{fmt.PreferredFormat}");
+            if (profile.CategoryProfile is { } cats)
+                parts.Add($"cats:{cats.ShortSummary}");
+            if (profile.Simplification is not null)
+                parts.Add("schema:reduced");
+
+            int days = (int)profile.Age.TotalDays;
+            string age = days == 0 ? "today" : $"{days}d ago";
+            parts.Add(profile.IsStale ? $"⚠ probed {age} (stale)" : $"probed {age}");
+
+            tb.Text = string.Join("  ·  ", parts);
+            tb.ToolTip = profile.Summary;
+        }
+    }
+
+    private void BtnProbeNow_Click(object sender, RoutedEventArgs e)
+    {
+        if (Settings is null)
+        {
+            StatusChanged?.Invoke("Probe window unavailable — settings not wired.");
+            return;
+        }
+
+        var win = new Tests.ToolCallTestWindow(Settings)
+        {
+            Owner = Window.GetWindow(this),
+        };
+        // Refresh badges when the probe window closes — new results may exist
+        win.Closed += (_, _) => UpdateCapabilityBadges();
+        win.Show();
     }
 
     // ── Gate logic ────────────────────────────────────────────────────────────

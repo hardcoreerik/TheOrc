@@ -244,6 +244,7 @@ public partial class MainWindow : Window
             Ollama        = _ollama,
             ActiveModel   = _session.ActiveModel,
             WorkspaceRoot = _session.WorkspaceRoot,
+            Settings      = _settings,
         };
         _swarmPanel.StatusChanged            += msg  => Dispatcher.Invoke(() => SetStatus(msg));
         _swarmPanel.OnActivity               += msg  => Dispatcher.Invoke(() =>
