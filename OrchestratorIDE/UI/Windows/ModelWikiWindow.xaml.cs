@@ -194,6 +194,18 @@ public partial class ModelWikiWindow : Window
         OnLoaded(this, new RoutedEventArgs());
     }
 
+    private void BtnProbeNow_Click(object sender, RoutedEventArgs e)
+    {
+        // Opens the GOBLIN MIND probe window; results land in the profile store
+        // and show up here after a Refresh. Detail pane refreshes on close.
+        var win = new Tests.ToolCallTestWindow(_settings) { Owner = this };
+        win.Closed += (_, _) =>
+        {
+            if (_selected is not null) ShowDetail(_selected.Entry);
+        };
+        win.Show();
+    }
+
     private void BtnExportMatrix_Click(object sender, RoutedEventArgs e)
     {
         if (_allItems.Count == 0)

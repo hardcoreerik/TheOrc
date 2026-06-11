@@ -267,11 +267,19 @@
                                 <Border x:Name="BdInstalled" CornerRadius="3" Padding="8,3" Margin="0,0,6,0">
                                     <TextBlock x:Name="TbInstalled" FontSize="11" FontFamily="Segoe UI"/>
                                 </Border>
-                                <Border x:Name="BdSpeed" Background="#1A2010" CornerRadius="3" Padding="8,3">
+                                <Border x:Name="BdSpeed" Background="#1A2010" CornerRadius="3" Padding="8,3" Margin="0,0,6,0">
                                     <TextBlock x:Name="TbSpeed"
                                                Foreground="{StaticResource Br.Accent.Green}"
                                                FontSize="11" FontFamily="Segoe UI"/>
                                 </Border>
+                                <Button x:Name="BtnProbeNow" Content="🧠 Probe Now"
+                                        Click="BtnProbeNow_Click"
+                                        ToolTip="Run the GOBLIN MIND capability probe (format fingerprint + category map) for this model"
+                                        Padding="10,3" Cursor="Hand"
+                                        Background="#0A1A2A" Foreground="#4A9FD9"
+                                        BorderBrush="#1A3A5A" BorderThickness="1"
+                                        FontFamily="Segoe UI" FontSize="11"
+                                        AutomationProperties.AutomationId="ModelWiki.ProbeNow"/>
                             </StackPanel>
                         </Grid>
                     </Border>
