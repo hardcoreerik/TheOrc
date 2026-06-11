@@ -577,36 +577,21 @@ public class SwarmSession
             ? (_researcherModel, _coderModel)
             : (_coderModel,      _bossModel);
 
-        var required = role switch
+        // Decision logic lives in SwarmSteering (unit-tested, T11); this method
+        // only wires the live profile store and surfaces the warnings.
+        var d = SwarmSteering.SelectModel(role, primary, fallback,
+                                          ToolCallProfileStore.GetCategoryMap);
+
+        if (d.UsedFallback)
         {
-            SwarmWorkerRole.Researcher  => SwarmRoleRequirements.Researcher,
-            SwarmWorkerRole.Coder       => SwarmRoleRequirements.Worker,
-            SwarmWorkerRole.UIDeveloper => SwarmRoleRequirements.Worker,
-            SwarmWorkerRole.Tester      => new[] { CategoryId.CodeExec, CategoryId.SystemInspect },
-            _                           => SwarmRoleRequirements.Boss,
-        };
+            Activity($"⚠ {ShortModelName(primary)} missing categories [{string.Join(", ", d.PrimaryMissing)}] " +
+                     $"for {role} — falling back to {ShortModelName(fallback)}", "boss");
 
-        var map = ToolCallProfileStore.GetCategoryMap(primary);
-        if (map == null)
-            return primary;   // not yet probed — assume capable
-
-        if (map.MeetsRoleRequirements(required))
-            return primary;
-
-        // Primary failed — log and try fallback
-        var failedCats = required.Where(c => !map.CanHandle(c)).Select(c => c.ToString());
-        Activity($"⚠ {ShortModelName(primary)} missing categories [{string.Join(", ", failedCats)}] " +
-                 $"for {role} — falling back to {ShortModelName(fallback)}", "boss");
-
-        // Check fallback too (informational only — always use it if primary fails)
-        var fallbackMap = ToolCallProfileStore.GetCategoryMap(fallback);
-        if (fallbackMap != null && !fallbackMap.MeetsRoleRequirements(required))
-        {
-            var fbFailed = required.Where(c => !fallbackMap.CanHandle(c)).Select(c => c.ToString());
-            Activity($"⚠ Fallback {ShortModelName(fallback)} also missing [{string.Join(", ", fbFailed)}] — proceeding anyway", "boss");
+            if (d.FallbackMissing.Length > 0)
+                Activity($"⚠ Fallback {ShortModelName(fallback)} also missing [{string.Join(", ", d.FallbackMissing)}] — proceeding anyway", "boss");
         }
 
-        return fallback;
+        return d.Model;
     }
 
     /// <summary>
@@ -620,33 +605,9 @@ public class SwarmSession
     ///   Researcher (mistral:7b): Network ✅ DataTransform ✅ FileOps ✗
     /// </summary>
     private string BuildCapabilitySummary()
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("## Goblin Capability Map");
-        sb.AppendLine("Use this to route tasks to the right goblin. " +
-                      "Do NOT assign tasks to goblins that lack required categories.");
-        sb.AppendLine();
-
-        void AppendModel(string label, string modelId, CategoryId[] highlight)
-        {
-            sb.Append($"- **{label}** ({ShortModelName(modelId)}): ");
-            var map = ToolCallProfileStore.GetCategoryMap(modelId);
-            if (map == null) { sb.AppendLine("not yet profiled (assume capable)"); return; }
-
-            var cats = highlight
-                .Select(c => $"{c} {(map.CanHandle(c) ? "✅" : "⚠")}")
-                .ToList();
-            // Also note any category that partially passes
-            sb.AppendLine(string.Join("  ", cats) + $"  [{map.ShortSummary}]");
-        }
-
-        AppendModel("Boss/TheOrc", _bossModel,       SwarmRoleRequirements.Boss);
-        AppendModel("Coder",       _coderModel,       SwarmRoleRequirements.Worker);
-        if (_researcherModel != _coderModel)
-            AppendModel("Researcher", _researcherModel, SwarmRoleRequirements.Researcher);
-
-        return sb.ToString();
-    }
+        => SwarmSteering.BuildCapabilitySummary(
+               _bossModel, _coderModel, _researcherModel,
+               ToolCallProfileStore.GetCategoryMap, ShortModelName);
 
     private static string ShortModelName(string modelId)
     {
