@@ -148,24 +148,31 @@
                              passed the category (unprobed models are excluded) -->
                         <ToggleButton Content="📁 FileOps"   Style="{StaticResource FilterChipStyle}"
                                       Click="Filter_Click" Tag="Cat:FileOps"
+                                      AutomationProperties.AutomationId="ModelWiki.Filter.FileOps"
                                       ToolTip="Probed: can read/write/delete files"/>
                         <ToggleButton Content="🌐 Network"   Style="{StaticResource FilterChipStyle}"
                                       Click="Filter_Click" Tag="Cat:Network"
+                                      AutomationProperties.AutomationId="ModelWiki.Filter.Network"
                                       ToolTip="Probed: can fetch URLs / HTTP"/>
                         <ToggleButton Content="🖥 CodeExec"  Style="{StaticResource FilterChipStyle}"
                                       Click="Filter_Click" Tag="Cat:CodeExec"
+                                      AutomationProperties.AutomationId="ModelWiki.Filter.CodeExec"
                                       ToolTip="Probed: can run shell commands / eval code"/>
                         <ToggleButton Content="🔄 DataTransform" Style="{StaticResource FilterChipStyle}"
                                       Click="Filter_Click" Tag="Cat:DataTransform"
+                                      AutomationProperties.AutomationId="ModelWiki.Filter.DataTransform"
                                       ToolTip="Probed: can parse/format/convert data"/>
                         <ToggleButton Content="🔬 SystemInspect" Style="{StaticResource FilterChipStyle}"
                                       Click="Filter_Click" Tag="Cat:SystemInspect"
+                                      AutomationProperties.AutomationId="ModelWiki.Filter.SystemInspect"
                                       ToolTip="Probed: can inspect env/processes/system"/>
                         <ToggleButton Content="🧱 StructuredOutput" Style="{StaticResource FilterChipStyle}"
                                       Click="Filter_Click" Tag="Cat:StructuredOutput"
+                                      AutomationProperties.AutomationId="ModelWiki.Filter.StructuredOutput"
                                       ToolTip="Probed: produces multi-field structured JSON"/>
                         <ToggleButton Content="📋 TaskPlanning" Style="{StaticResource FilterChipStyle}"
                                       Click="Filter_Click" Tag="Cat:TaskPlanning"
+                                      AutomationProperties.AutomationId="ModelWiki.Filter.TaskPlanning"
                                       ToolTip="Probed: breaks goals into ordered steps"/>
                     </WrapPanel>
                 </Border>

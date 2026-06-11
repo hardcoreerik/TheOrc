@@ -584,11 +584,12 @@ public class SwarmSession
 
         if (d.UsedFallback)
         {
-            Activity($"⚠ {ShortModelName(primary)} missing categories [{string.Join(", ", d.PrimaryMissing)}] " +
-                     $"for {role} — falling back to {ShortModelName(fallback)}", "boss");
+            Activity(SwarmSteering.PrimaryFallbackWarning(
+                ShortModelName(primary), ShortModelName(fallback), role, d.PrimaryMissing), "boss");
 
             if (d.FallbackMissing.Length > 0)
-                Activity($"⚠ Fallback {ShortModelName(fallback)} also missing [{string.Join(", ", d.FallbackMissing)}] — proceeding anyway", "boss");
+                Activity(SwarmSteering.FallbackDeficientWarning(
+                    ShortModelName(fallback), d.FallbackMissing), "boss");
         }
 
         return d.Model;

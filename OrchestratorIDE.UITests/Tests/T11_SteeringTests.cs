@@ -151,6 +151,27 @@ public class T11_SteeringTests
                     Does.Not.Contain(CategoryId.FileOps));
     }
 
+    // ── Activity-log warning wording contract ─────────────────────────────────
+
+    [Test]
+    public void FallbackWarning_WordingIsPinned()
+    {
+        var msg = SwarmSteering.PrimaryFallbackWarning(
+            "coder-14b", "boss-32b", SwarmWorkerRole.Coder, ["FileOps", "CodeExec"]);
+
+        Assert.That(msg, Is.EqualTo(
+            "⚠ coder-14b missing categories [FileOps, CodeExec] for Coder — falling back to boss-32b"));
+    }
+
+    [Test]
+    public void FallbackDeficientWarning_WordingIsPinned()
+    {
+        var msg = SwarmSteering.FallbackDeficientWarning("boss-32b", ["CodeExec"]);
+
+        Assert.That(msg, Is.EqualTo(
+            "⚠ Fallback boss-32b also missing [CodeExec] — proceeding anyway"));
+    }
+
     // ── Capability summary injected into the boss prompt ─────────────────────
 
     [Test]

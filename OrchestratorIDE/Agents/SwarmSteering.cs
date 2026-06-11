@@ -62,6 +62,20 @@ internal static class SwarmSteering
     }
 
     /// <summary>
+    /// Activity-log warning when a primary model fails its role requirements.
+    /// Wording is part of the steering contract (operators grep for it) —
+    /// pinned by T11; SwarmSession must emit it verbatim.
+    /// </summary>
+    internal static string PrimaryFallbackWarning(
+        string primaryShort, string fallbackShort, SwarmWorkerRole role, string[] missing)
+        => $"⚠ {primaryShort} missing categories [{string.Join(", ", missing)}] " +
+           $"for {role} — falling back to {fallbackShort}";
+
+    /// <summary>Warning when the fallback is also deficient but used anyway.</summary>
+    internal static string FallbackDeficientWarning(string fallbackShort, string[] missing)
+        => $"⚠ Fallback {fallbackShort} also missing [{string.Join(", ", missing)}] — proceeding anyway";
+
+    /// <summary>
     /// Builds the capability map block injected into the boss decompose prompt.
     /// Researcher line is omitted when it is the same model as the coder.
     /// </summary>

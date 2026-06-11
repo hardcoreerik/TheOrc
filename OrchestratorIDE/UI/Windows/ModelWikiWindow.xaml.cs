@@ -121,9 +121,12 @@ public partial class ModelWikiWindow : Window
                     default:
                         // GOBLIN MIND category chips ("Cat:FileOps" …) — require a
                         // probe that passed the category; unprobed models drop out.
-                        if (filter.StartsWith("Cat:", StringComparison.Ordinal) &&
-                            Enum.TryParse<Services.ToolCalls.CategoryId>(filter[4..], out var cat))
+                        // Fails CLOSED: an unparseable Cat: tag matches nothing
+                        // rather than silently broadening results.
+                        if (filter.StartsWith("Cat:", StringComparison.Ordinal))
                         {
+                            if (!Enum.TryParse<Services.ToolCalls.CategoryId>(filter[4..], out var cat))
+                                return false;
                             var map = item.Entry.ProbeProfile?.CategoryProfile;
                             if (map is null || !map.CanHandle(cat)) return false;
                         }
@@ -202,12 +205,28 @@ public partial class ModelWikiWindow : Window
 
     private void BtnProbeNow_Click(object sender, RoutedEventArgs e)
     {
-        // Opens the GOBLIN MIND probe window; results land in the profile store
-        // and show up here after a Refresh. Detail pane refreshes on close.
+        // Opens the GOBLIN MIND probe window. On close, the selected entry is
+        // REBUILT from the stores (not just re-rendered) so fresh probe results
+        // actually appear — the cached entry predates the probe run.
         var win = new Tests.ToolCallTestWindow(_settings) { Owner = this };
         win.Closed += (_, _) =>
         {
-            if (_selected is not null) ShowDetail(_selected.Entry);
+            if (_selected is null) return;
+
+            var installed = _allItems
+                .Where(i => i.Entry.IsInstalled)
+                .Select(i => i.Entry.ModelId)
+                .ToList();
+            var fresh = ModelWikiService.BuildEntry(_selected.Entry.ModelId, installed);
+            var freshItem = new ModelWikiListItem(fresh);
+
+            int idx = _allItems.FindIndex(i =>
+                string.Equals(i.Entry.ModelId, fresh.ModelId, StringComparison.OrdinalIgnoreCase));
+            if (idx >= 0) _allItems[idx] = freshItem;
+
+            _selected = freshItem;
+            ApplyFilters();
+            ShowDetail(fresh);
         };
         win.Show();
     }
