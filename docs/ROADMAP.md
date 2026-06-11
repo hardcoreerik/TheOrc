@@ -33,8 +33,8 @@ feedback loops and self-directed improvement.
 
 - [ ] **Steering test suite** — Test prompt suite verifying TheOrc correctly routes, retries,
   and corrects workers using capability profiles
-- [ ] **Live capability badges** — Swarm Board shows Format | Categories | Schema Complexity |
-  Last Probed per model slot, with "Probe Now" button
+- [x] **Live capability badges** — Swarm Board shows mode | format | categories | schema |
+  probe-age per model slot, with "Probe Now" button opening the probe window. Built 2026-06-10
 - [ ] **Fitness map GUI** — `tool-probe evolve` results in ToolCallTestWindow "Evolution" tab;
   high-fitness variants auto-promoted to SchemaLibrary
 - [ ] **Self-improve loop** — GitHub issue scanner → Agent panel injection → TheOrc proposes
@@ -50,10 +50,11 @@ feedback loops and self-directed improvement.
   pre-screens, judge-triages; ends at dawn (default 06:00), after -Hours, or via the
   .orc/swarm/HARVEST_STOP file. Never approves, never trains. Scripts complete
   2026-06-11; first live overnight run pending
-- [ ] **Parallel slots live gate** — `OLLAMA_NUM_PARALLEL` detection; swarm start blocked if
-  slots < worker count; settings panel shows live status
-- [ ] **Wire `TotalVramGb`** in SwarmSession — currently hardcoded 0; call
-  `SwarmConfigAdvisor.DetectHardwareAsync()` at swarm init
+- [x] **Parallel slots live gate** — `OllamaParallelHelper` detects user/machine/process
+  env; swarm start blocked below 3 slots with fix-it message + slot picker; settings
+  panel writes and reports the value (was already complete; roadmap entry was stale)
+- [x] **Wire `TotalVramGb`** in SwarmSession — DetectHardwareAsync() runs at swarm
+  start and feeds run metrics (was already complete; roadmap entry was stale)
 - [x] **In-app Help window** — F1 / Help menu opens an embedded documentation
   browser: all 17 guides ship inside the exe (works on published installs with
   no docs/ folder), full-text search, cross-guide link navigation. Built 2026-06-10
