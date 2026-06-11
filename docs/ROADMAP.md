@@ -35,8 +35,8 @@ feedback loops and self-directed improvement.
   and corrects workers using capability profiles
 - [x] **Live capability badges** — Swarm Board shows mode | format | categories | schema |
   probe-age per model slot, with "Probe Now" button opening the probe window. Built 2026-06-10
-- [ ] **Fitness map GUI** — `tool-probe evolve` results in ToolCallTestWindow "Evolution" tab;
-  high-fitness variants auto-promoted to SchemaLibrary
+- [x] **Fitness map GUI** — ToolCallTestWindow "Evolution" tab lists fitness records
+  (variants, win rate, best mutation); Promote Winners saves to SchemaLibrary. Built 2026-06-11
 - [ ] **Self-improve loop** — GitHub issue scanner → Agent panel injection → TheOrc proposes
   and applies fixes to itself via source clone
 - [x] **GOBLIN HARVEST — autonomous dataset farming** — swarmcli batch runner
