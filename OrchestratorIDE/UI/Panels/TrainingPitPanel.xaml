@@ -39,6 +39,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>  <!-- WARCHIEF FORGE -->
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
@@ -121,8 +122,93 @@
             </DockPanel>
         </Border>
 
+        <!-- ── WARCHIEF FORGE — Phase 3 training ──────────────────────── -->
+        <Expander Grid.Row="3" x:Name="ExpForge" Margin="0,0,0,12"
+                  AutomationProperties.AutomationId="TrainingPit.Forge"
+                  Expanded="ExpForge_Expanded">
+            <Expander.Header>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="⚒" FontSize="14" VerticalAlignment="Center"/>
+                    <TextBlock Text="WARCHIEF FORGE" FontSize="12" FontWeight="Bold"
+                               Foreground="#E8A030" Margin="8,0,10,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Phase 3 — forge the boss adapter from the reviewed dataset"
+                               FontSize="11" Foreground="#999999" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="ForgeBadge" Text="" FontSize="11" FontWeight="SemiBold"
+                               Foreground="#76B900" Margin="10,0,0,0" VerticalAlignment="Center"
+                               AutomationProperties.AutomationId="TrainingPit.ForgeBadge"/>
+                </StackPanel>
+            </Expander.Header>
+            <Border Background="#14100A" BorderBrush="#3A2A10" BorderThickness="1"
+                    CornerRadius="6" Padding="12,10" Margin="0,6,0,0">
+                <StackPanel>
+                    <!-- Dataset provenance card -->
+                    <Border Background="#0E0C08" BorderBrush="#2A2A2A" BorderThickness="1"
+                            CornerRadius="4" Padding="10,8" Margin="0,0,0,10">
+                        <StackPanel>
+                            <TextBlock x:Name="ForgeDataset" FontSize="12" FontWeight="SemiBold"
+                                       Foreground="#E8C080"
+                                       Text="Dataset: loading…"
+                                       AutomationProperties.AutomationId="TrainingPit.ForgeDataset"/>
+                            <TextBlock FontSize="11" Foreground="#999999" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Text="What it is: goal → plan examples teaching the boss (theorc-boss:gemma4) to decompose one-sentence coding goals into 2–4 task swarm plans with correct roles and concrete files.&#x0a;How it was made: live swarm captures → auto-scoring rubric → deterministic pre-screen → local judge triage → human review (every approval and rejection logged in reviewed_v1.json).&#x0a;Intended use: QLoRA adapter (r16/α32, 4-bit NF4 base) for the orchestration role only — workers are unaffected. Output: training_pit/outputs/lora_v1/."/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Controls row -->
+                    <DockPanel Margin="0,0,0,8">
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <TextBlock Text="VRAM cap" FontSize="11" Foreground="#999999" VerticalAlignment="Center"/>
+                            <ComboBox x:Name="CbVramCap" Width="110" Margin="6,0,14,0" FontSize="11"
+                                      AutomationProperties.AutomationId="TrainingPit.ForgeVramCap">
+                                <ComboBoxItem Content="No cap" IsSelected="True" Tag="0"/>
+                                <ComboBoxItem Content="12 GB" Tag="12"/>
+                                <ComboBoxItem Content="10 GB" Tag="10"/>
+                                <ComboBoxItem Content="8 GB"  Tag="8"/>
+                                <ComboBoxItem Content="6 GB"  Tag="6"/>
+                            </ComboBox>
+                            <CheckBox x:Name="ChkDryRun" Content="Dry run (validate only)" FontSize="11"
+                                      Foreground="#999999" VerticalAlignment="Center"
+                                      AutomationProperties.AutomationId="TrainingPit.ForgeDryRun"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
+                            <Button x:Name="BtnForgeStart" Style="{StaticResource PitButton}"
+                                    Background="#3D2A00" BorderBrush="#E8A030" Foreground="#E8C080"
+                                    Content="⚒ Start forging" Click="BtnForgeStart_Click"
+                                    AutomationProperties.AutomationId="TrainingPit.ForgeStart"/>
+                            <Button x:Name="BtnForgeResume" Style="{StaticResource PitButton}"
+                                    Background="#1A2A00" BorderBrush="#76B900" Foreground="#A8CC80"
+                                    Content="⏯ Resume" Margin="8,0,0,0" IsEnabled="False"
+                                    Click="BtnForgeResume_Click"
+                                    AutomationProperties.AutomationId="TrainingPit.ForgeResume"/>
+                            <Button x:Name="BtnForgeStop" Style="{StaticResource PitButton}"
+                                    Background="#2A0A0A" BorderBrush="#F44747" Foreground="#F09090"
+                                    Content="⏹ Stop" Margin="8,0,0,0" IsEnabled="False"
+                                    Click="BtnForgeStop_Click"
+                                    ToolTip="Stops the trainer. Progress is checkpointed every 50 steps — Resume continues from the last checkpoint."
+                                    AutomationProperties.AutomationId="TrainingPit.ForgeStop"/>
+                        </StackPanel>
+                    </DockPanel>
+
+                    <!-- Live status -->
+                    <DockPanel>
+                        <Ellipse x:Name="ForgeDot" Width="9" Height="9" Fill="#E8A030"
+                                 VerticalAlignment="Center" Visibility="Collapsed" Margin="0,0,8,0"/>
+                        <TextBlock x:Name="ForgeStatus" Text="Idle — adapter not yet forged" FontSize="11"
+                                   Foreground="#999999" VerticalAlignment="Center"
+                                   AutomationProperties.AutomationId="TrainingPit.ForgeStatus"/>
+                        <TextBlock x:Name="ForgeMetrics" Text="" FontSize="11" Foreground="#E8C080"
+                                   FontFamily="Consolas" HorizontalAlignment="Right" DockPanel.Dock="Right"
+                                   AutomationProperties.AutomationId="TrainingPit.ForgeMetrics"/>
+                    </DockPanel>
+                    <ProgressBar x:Name="ForgeBar" Height="8" Margin="0,6,0,0" BorderThickness="0"
+                                 Background="#111111" Foreground="#E8A030" Maximum="100"
+                                 AutomationProperties.AutomationId="TrainingPit.ForgeBar"/>
+                </StackPanel>
+            </Border>
+        </Expander>
+
         <!-- ── Queue header ───────────────────────────────────────────── -->
-        <DockPanel Grid.Row="3" Margin="0,0,0,6">
+        <DockPanel Grid.Row="4" Margin="0,0,0,6">
             <TextBlock Text="Your review queue" FontSize="12" FontWeight="SemiBold" Foreground="#D4D4D4"/>
             <TextBlock Text="  — riskiest first. You make the final call." FontSize="11" Foreground="#999999"
                        VerticalAlignment="Bottom"/>
@@ -132,7 +218,7 @@
         </DockPanel>
 
         <!-- ── Review queue ───────────────────────────────────────────── -->
-        <Border Grid.Row="4" BorderBrush="#2A2A2A" BorderThickness="1" CornerRadius="6">
+        <Border Grid.Row="5" BorderBrush="#2A2A2A" BorderThickness="1" CornerRadius="6">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="QueueList" AutomationProperties.AutomationId="TrainingPit.Queue">
                     <ItemsControl.ItemTemplate>

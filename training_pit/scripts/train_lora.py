@@ -35,15 +35,47 @@ def main():
                     help="GB of VRAM this process may use (0 = no cap). Lets the "
                          "trainer coexist with other GPU workloads; layers beyond "
                          "the cap offload to system RAM (slower).")
+    ap.add_argument("--resume", action="store_true",
+                    help="resume from the latest checkpoint in the output dir")
     args = ap.parse_args()
+
+    # ── Progress heartbeat for the WARCHIEF FORGE GUI ─────────────────────────
+    # The panel polls this file; a stale mtime while the process lives = hung.
+    progress_path = Path(args.out).parent / "progress.json"
+    progress_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def beat(status, **kw):
+        kw.update(status=status, updated=time.strftime("%Y-%m-%d %H:%M:%S"),
+                  pid=os.getpid())
+        progress_path.write_text(json.dumps(kw), encoding="utf-8")
+
+    beat("starting")
 
     # Imports deferred so --help works without the training stack installed
     import torch
     from datasets import load_dataset
     from transformers import (AutoModelForCausalLM, AutoTokenizer,
-                              BitsAndBytesConfig)
+                              BitsAndBytesConfig, TrainerCallback)
     from peft import LoraConfig
     from trl import SFTConfig, SFTTrainer
+
+    class HeartbeatCallback(TrainerCallback):
+        """Streams step/loss/eta into progress.json for the Forge GUI."""
+        def on_log(self, args_, state, control, logs=None, **kw):
+            logs = logs or {}
+            beat("training",
+                 step=state.global_step, max_steps=state.max_steps,
+                 epoch=round(state.epoch or 0, 2),
+                 loss=logs.get("loss"), eval_loss=logs.get("eval_loss"),
+                 lr=logs.get("learning_rate"))
+        def on_step_end(self, args_, state, control, **kw):
+            if state.global_step % 5 == 0:
+                beat("training", step=state.global_step,
+                     max_steps=state.max_steps,
+                     epoch=round(state.epoch or 0, 2))
+        def on_evaluate(self, args_, state, control, metrics=None, **kw):
+            beat("evaluating", step=state.global_step, max_steps=state.max_steps,
+                 eval_loss=(metrics or {}).get("eval_loss"))
 
     assert torch.cuda.is_available(), \
         "CUDA unavailable — install the cu128 torch build before training."
@@ -71,6 +103,7 @@ def main():
         bnb_4bit_quant_type="nf4",
         bnb_4bit_use_double_quant=True,
     )
+    beat("loading_model", base=args.base)
     print(f"loading base: {args.base} (4-bit NF4)…")
     tok = AutoTokenizer.from_pretrained(args.base)
     model = AutoModelForCausalLM.from_pretrained(
@@ -123,13 +156,20 @@ def main():
         eval_dataset=data["eval"],
         processing_class=tok,
         peft_config=lora,
+        callbacks=[HeartbeatCallback()],
     )
 
+    # Resume from the latest checkpoint when asked (Forge "Resume" button)
+    ckpt_dir = out_dir.parent / "checkpoints"
+    resume = args.resume and ckpt_dir.exists() and any(ckpt_dir.glob("checkpoint-*"))
+
     t0 = time.time()
-    result = trainer.train()
+    result = trainer.train(resume_from_checkpoint=resume or None)
     minutes = (time.time() - t0) / 60
 
+    beat("final_eval")
     final_eval = trainer.evaluate()
+    beat("saving")
     trainer.save_model(str(out_dir))
     tok.save_pretrained(str(out_dir))
 
@@ -147,6 +187,8 @@ def main():
     }
     (out_dir.parent / "training_summary.json").write_text(
         json.dumps(summary, indent=2), encoding="utf-8")
+    beat("done", train_loss=summary["train_loss"], eval_loss=summary["eval_loss"],
+         minutes=summary["minutes"])
     print(json.dumps(summary, indent=2))
 
 
