@@ -398,8 +398,8 @@ public partial class TrainingPitPanel : UserControl
         if (HarvestRunning) return;
         if (ForgeRunning)
         {
-            OnActivity?.Invoke("Not starting night harvest — WARCHIEF FORGE is training on the GPU.");
-            HarvestStatus.Text = "refused — forge is training on the GPU";
+            OnActivity?.Invoke("Not starting night harvest — ORC ACADEMY is training on the GPU.");
+            HarvestStatus.Text = "refused — academy is training on the GPU";
             return;
         }
         if (_liveActive)
@@ -476,7 +476,7 @@ public partial class TrainingPitPanel : UserControl
             try
             {
                 var sum = System.Text.Json.JsonDocument.Parse(File.ReadAllText(SummaryPath)).RootElement;
-                ForgeBadge.Text  = $"✓ adapter forged — eval loss {sum.GetProperty("eval_loss").GetDouble():F3}";
+                ForgeBadge.Text  = $"✓ adapter trained — eval loss {sum.GetProperty("eval_loss").GetDouble():F3}";
                 ForgeStatus.Text = $"Last run: {sum.GetProperty("train_examples").GetInt32()} examples, " +
                                    $"{sum.GetProperty("minutes").GetDouble():F0} min, finished {sum.GetProperty("finished").GetString()}";
             }
@@ -492,7 +492,7 @@ public partial class TrainingPitPanel : UserControl
         if (ForgeRunning) return;
         if (HarvestRunning || _liveActive)
         {
-            OnActivity?.Invoke("⚒ Forge refused: the harvest is using the GPU. Stop it first.");
+            OnActivity?.Invoke("🏛 Academy refused: the harvest is using the GPU. Stop it first.");
             ForgeStatus.Text = "Refused — harvest owns the GPU. Stop the harvest first.";
             return;
         }
@@ -525,7 +525,7 @@ public partial class TrainingPitPanel : UserControl
         {
             _forgeProcess = null;
             ForgeStatus.Text = $"Failed to launch python ({ex.Message}) — is it on PATH?";
-            OnActivity?.Invoke($"⚒ Forge launch failed: {ex.Message}");
+            OnActivity?.Invoke($"🏛 Academy launch failed: {ex.Message}");
             return;
         }
         if (_forgeProcess is null)
@@ -547,7 +547,7 @@ public partial class TrainingPitPanel : UserControl
         Pump(_forgeProcess.StandardOutput);
         Pump(_forgeProcess.StandardError);
 
-        OnActivity?.Invoke($"⚒ WARCHIEF FORGE {(resume ? "resumed" : "started")}" +
+        OnActivity?.Invoke($"🏛 ORC ACADEMY {(resume ? "resumed" : "started")}" +
                            (cap != "0" ? $" (VRAM cap {cap} GB)" : "") +
                            (ChkDryRun.IsChecked == true ? " — dry run" : ""));
         ForgeBadge.Text   = "";
@@ -574,7 +574,7 @@ public partial class TrainingPitPanel : UserControl
             _forgeProcess.WaitForExit(5000);
         }
         catch { }
-        OnActivity?.Invoke("⚒ Forge stopped — checkpoints kept; Resume continues from the last one.");
+        OnActivity?.Invoke("🏛 Academy stopped — checkpoints kept; Resume continues from the last one.");
         ForgeStatus.Text = "Stopped. Checkpoints kept — Resume continues from the last one.";
         ForgeDone();
     }
@@ -589,7 +589,7 @@ public partial class TrainingPitPanel : UserControl
                      File.GetLastWriteTime(SummaryPath) > DateTime.Now.AddMinutes(-5);
             if (ok)
             {
-                OnActivity?.Invoke("⚒ Forge finished — adapter saved.");
+                OnActivity?.Invoke("🏛 Academy finished — adapter saved.");
             }
             else
             {
@@ -597,7 +597,7 @@ public partial class TrainingPitPanel : UserControl
                     ? string.Join(" ", File.ReadLines(ForgeLogPath).TakeLast(3))
                     : "no log";
                 ForgeStatus.Text = Truncate($"Trainer exited unexpectedly — {tail}", 160);
-                OnActivity?.Invoke("⚒ Forge exited unexpectedly — see training_pit/outputs/lora_v1/forge.log");
+                OnActivity?.Invoke("🏛 Academy exited unexpectedly — see training_pit/outputs/lora_v1/forge.log");
             }
             ForgeDone();
             return;
@@ -637,7 +637,7 @@ public partial class TrainingPitPanel : UserControl
             {
                 "starting"      => "Preparing — loading dataset…",
                 "loading_model" => "Loading base model (4-bit quantization)… this takes a few minutes",
-                "training"      => $"Forging — step {step}/{max}",
+                "training"      => $"Training — step {step}/{max}",
                 "evaluating"    => $"Evaluating at step {step}…",
                 "final_eval"    => "Final evaluation…",
                 "saving"        => "Saving adapter…",
