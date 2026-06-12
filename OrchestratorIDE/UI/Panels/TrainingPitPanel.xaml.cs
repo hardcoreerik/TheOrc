@@ -517,6 +517,30 @@ public partial class TrainingPitPanel : UserControl
         }
         catch (Exception ex) { ForgeDataset.Text = $"Dataset: unavailable ({ex.Message})"; }
 
+        // Re-attach to a trainer that outlived an app restart: a fresh heartbeat
+        // names a live pid we can adopt for tracking and Stop.
+        if (!ForgeRunning && File.Exists(ProgressPath) &&
+            DateTime.Now - File.GetLastWriteTime(ProgressPath) < TimeSpan.FromMinutes(2))
+        {
+            try
+            {
+                var beat = System.Text.Json.JsonDocument.Parse(File.ReadAllText(ProgressPath)).RootElement;
+                var proc = Process.GetProcessById(beat.GetProperty("pid").GetInt32());
+                if (!proc.HasExited && proc.ProcessName.StartsWith("python", StringComparison.OrdinalIgnoreCase))
+                {
+                    _forgeProcess = proc;
+                    ForgeDot.Visibility = Visibility.Visible;
+                    ForgeStatus.Text = "Re-attached to a running training process…";
+                    OnActivity?.Invoke("🏛 Academy re-attached to a training run that survived an app restart.");
+                    _forgeTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+                    _forgeTimer.Tick -= ForgeTimer_Tick;
+                    _forgeTimer.Tick += ForgeTimer_Tick;
+                    _forgeTimer.Start();
+                }
+            }
+            catch { /* pid gone or not ours — nothing to adopt */ }
+        }
+
         BtnForgeResume.IsEnabled = !ForgeRunning && HasCheckpoint;
         BtnForgeStart.IsEnabled  = !ForgeRunning;
         BtnForgeStop.IsEnabled   = ForgeRunning;
@@ -557,15 +581,19 @@ public partial class TrainingPitPanel : UserControl
         if (cap != "0")                  args += $" --vram-cap {cap}";
         if (resume)                      args += " --resume";
 
+        // Launch through cmd with FILE redirection, not .NET pipes: a piped
+        // child dies with the app (broken-pipe kill once the buffer fills —
+        // observed 2026-06-11: an app restart silently killed a loading
+        // trainer at 86%). File-redirected, the trainer survives app restarts
+        // and RefreshForge re-attaches to it via the heartbeat pid.
+        File.WriteAllText(ForgeLogPath, $"=== forge run {DateTime.Now:yyyy-MM-dd HH:mm} (resume={resume}) ===\n");
         var psi = new ProcessStartInfo
         {
-            FileName               = "python",
-            Arguments              = args,
-            WorkingDirectory       = _pitRoot,
-            UseShellExecute        = false,
-            CreateNoWindow         = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError  = true,
+            FileName         = "cmd.exe",
+            Arguments        = $"/c python {args} >> \"{ForgeLogPath}\" 2>&1",
+            WorkingDirectory = _pitRoot,
+            UseShellExecute  = false,
+            CreateNoWindow   = true,
         };
         try
         {
@@ -574,28 +602,15 @@ public partial class TrainingPitPanel : UserControl
         catch (Exception ex)
         {
             _forgeProcess = null;
-            ForgeStatus.Text = $"Failed to launch python ({ex.Message}) — is it on PATH?";
+            ForgeStatus.Text = $"Failed to launch the trainer ({ex.Message})";
             OnActivity?.Invoke($"🏛 Academy launch failed: {ex.Message}");
             return;
         }
         if (_forgeProcess is null)
         {
-            ForgeStatus.Text = "Failed to launch python — is it on PATH?";
+            ForgeStatus.Text = "Failed to launch the trainer.";
             return;
         }
-
-        // Pump stdout/stderr to forge.log so failures are diagnosable post-mortem.
-        File.WriteAllText(ForgeLogPath, $"=== forge run {DateTime.Now:yyyy-MM-dd HH:mm} (resume={resume}) ===\n");
-        void Pump(StreamReader r) => Task.Run(async () =>
-        {
-            string? line;
-            while ((line = await r.ReadLineAsync()) != null)
-            {
-                try { File.AppendAllText(ForgeLogPath, line + "\n"); } catch { }
-            }
-        });
-        Pump(_forgeProcess.StandardOutput);
-        Pump(_forgeProcess.StandardError);
 
         OnActivity?.Invoke($"🏛 ORC ACADEMY {(resume ? "resumed" : "started")}" +
                            (cap != "0" ? $" (VRAM cap {cap} GB)" : "") +
