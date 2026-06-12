@@ -154,3 +154,22 @@ idea — Ollama-port probing as a discovery *hint* — gets folded into H1.
    have TheOrc's repo configured; nodes that only train/judge need nothing.)
 3. Version skew policy: refuse jobs across mismatched TheOrc versions, or
    best-effort with a warning?
+
+## 8. Zero-config enrollment (R1 extension, agreed 2026-06-11)
+
+The user installs TheOrc; the hive just works. No manual env vars, ever.
+
+- **Installer (OrchestratorSetup)**: a "Join HIVE MIND" step (checked by
+  default, plain-language consent — "other PCs running TheOrc on your home
+  network can use this computer''s AI"): sets OLLAMA_HOST=0.0.0.0 in the user
+  environment (same mechanism as OllamaParallelHelper), adds a Windows
+  Firewall inbound rule for 11434 + the hive port (7077), Private profile
+  ONLY — never Public/Domain.
+- **Existing installs** (e.g. HARDCOREPC, which already runs Ollama): TheOrc
+  detects local-only Ollama binding at startup and the HIVE roster panel
+  offers one-click "Enable hive serving on this PC" doing the same work —
+  no reinstall needed.
+- **Security note**: Ollama itself is unauthenticated; LAN exposure is gated
+  by (a) Private-profile firewall scoping and (b) the §4 pairing layer for
+  all hive-node operations. Inference via raw Ollama is LAN-trust; job
+  dispatch is pairing-trust.
