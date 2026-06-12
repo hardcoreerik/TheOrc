@@ -71,7 +71,7 @@ public partial class OllamaCheckPage : UserControl, IInstallerPage
         catch { }
 
         // 2. Default install locations
-        var candidates = new[]
+        var candidates = new List<string>
         {
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "Programs", "Ollama", "ollama.exe"),
@@ -81,7 +81,49 @@ public partial class OllamaCheckPage : UserControl, IInstallerPage
                 "Ollama", "ollama.exe"),
         };
 
-        return candidates.Any(File.Exists);
+        // 3. Ollama installs PER-USER. When setup runs elevated, the env above
+        // resolves to the ADMIN profile, hiding a normal-user Ollama — so scan
+        // every real user profile under C:\Users (the actual 2026-06 bug on
+        // HARDCOREPC: per-user Ollama invisible to the elevated installer).
+        try
+        {
+            var usersRoot = Path.GetDirectoryName(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+            if (usersRoot != null && Directory.Exists(usersRoot))
+                foreach (var prof in Directory.GetDirectories(usersRoot))
+                    candidates.Add(Path.Combine(prof, "AppData", "Local",
+                        "Programs", "Ollama", "ollama.exe"));
+        }
+        catch { }
+
+        if (candidates.Any(File.Exists)) return true;
+
+        // 4. Registry uninstall keys (HKLM + HKCU, 64/32-bit views).
+        try
+        {
+            string[] roots =
+            {
+                @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+                @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+            };
+            foreach (var hive in new[] { Microsoft.Win32.Registry.LocalMachine,
+                                         Microsoft.Win32.Registry.CurrentUser })
+            foreach (var root in roots)
+            {
+                using var key = hive.OpenSubKey(root);
+                if (key is null) continue;
+                foreach (var sub in key.GetSubKeyNames())
+                {
+                    using var app = key.OpenSubKey(sub);
+                    var name = app?.GetValue("DisplayName") as string;
+                    if (name != null && name.Contains("Ollama", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+            }
+        }
+        catch { }
+
+        return false;
     }
 
     private void UpdateStatusDisplay()
