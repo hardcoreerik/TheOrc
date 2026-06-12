@@ -557,6 +557,28 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- ── HIVE MIND: run this swarm on a chosen node ──────── -->
+                    <Border Background="#0A1410" BorderBrush="#2A5A3A" BorderThickness="1"
+                            CornerRadius="6" Padding="12,8" Margin="0,0,0,6">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center">
+                                <TextBlock Text="🐝 RUN ON" Foreground="#4EC94E" FontSize="10"
+                                           FontWeight="Bold" FontFamily="Consolas"/>
+                                <TextBlock Text="which hive node runs this swarm" Foreground="#666666"
+                                           FontSize="10" Margin="0,2,0,0"/>
+                            </StackPanel>
+                            <ComboBox x:Name="CbRunOn" DockPanel.Dock="Right" MinWidth="200"
+                                      BorderBrush="#2A5A3A" Padding="6,3" VerticalAlignment="Center"
+                                      Foreground="#1A1A1A"
+                                      SelectionChanged="CbRunOn_SelectionChanged"
+                                      AutomationProperties.AutomationId="Swarm.RunOn">
+                                <ComboBox.ItemContainerStyle>
+                                    <Style TargetType="ComboBoxItem"><Setter Property="Foreground" Value="Black"/></Style>
+                                </ComboBox.ItemContainerStyle>
+                            </ComboBox>
+                        </DockPanel>
+                    </Border>
+
                     <!-- ── Boss / Orchestrator model picker ──────────────── -->
                     <Border Background="#0E120E" BorderBrush="#252525" BorderThickness="1"
                             CornerRadius="6" Padding="12,8" Margin="0,0,0,6">

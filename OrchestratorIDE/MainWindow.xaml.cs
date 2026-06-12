@@ -1364,6 +1364,7 @@ public partial class MainWindow : Window
             _swarmPanel.ActiveModel   = _session.ActiveModel;
             _swarmPanel.WorkspaceRoot = _session.WorkspaceRoot;
             _swarmPanel.SetModels(_installedModels, _session.ActiveModel, _settings.LastWorkerModel, _settings.LastResearcherModel);
+            _swarmPanel.SetHiveHosts(Services.Hive.HiveHosts.Load(_settings.OllamaHost));
             _swarmPanel.Refresh();
 
             MainContent.Content    = _swarmPanel;

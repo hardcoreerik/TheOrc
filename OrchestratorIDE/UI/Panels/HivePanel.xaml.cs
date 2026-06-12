@@ -134,10 +134,13 @@ public partial class HivePanel : UserControl
         });
         sp.Children.Add(new TextBlock
         {
-            Text = host.Url.Replace("http://", "").Replace(":11434", ""),
+            Text = (host.Source == "tailscale" ? "🔗 " : "") +
+                   (host.Hostname.Length > 0 ? host.Hostname
+                                             : host.Url.Replace("http://", "").Replace(":11434", "")),
             FontFamily = new FontFamily("Consolas"), FontSize = 9,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x77, 0x77, 0x77)),
-            Margin = new Thickness(0, 1, 0, 3),
+            Foreground = new SolidColorBrush(host.Source == "tailscale"
+                ? Color.FromRgb(0x6A, 0x9A, 0xC8) : Color.FromRgb(0x77, 0x77, 0x77)),
+            Margin = new Thickness(0, 1, 0, 3), TextTrimming = TextTrimming.CharacterEllipsis,
         });
         // What this node offers / is doing (Phase A: model count; H1 adds GPU+lanes+job).
         string status = host.Reachable == false ? "offline"
@@ -223,6 +226,41 @@ public partial class HivePanel : UserControl
 
         _hosts.Add(new HiveHost { Name = name, Url = url });
         HiveHosts.Save(_hosts.Where(h => h.Name != "This PC"));
+        await ProbeAndDraw();
+    }
+
+    private async void BtnFindTailscale_Click(object s, RoutedEventArgs e)
+    {
+        if (!TailscalePeers.IsInstalled)
+        {
+            MessageBox.Show(
+                "Tailscale was not found on this PC.\n\nTailscale gives your hive stable names " +
+                "that work across networks. Install it on the PCs you want in the hive, then click again.",
+                "HIVE MIND — Tailscale", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var peers = await Task.Run(TailscalePeers.Discover);
+        int added = 0;
+        foreach (var p in peers)
+        {
+            var name = TailscalePeers.ShortName(p.DnsName);
+            // Prefer the MagicDNS name as the URL — it survives IP changes.
+            var addr = p.DnsName.Length > 0 ? p.DnsName : p.Ip;
+            var url = $"http://{addr}:11434";
+            if (_hosts.Any(h => h.Url == url || h.Hostname == p.DnsName && p.DnsName.Length > 0)) continue;
+            _hosts.Add(new HiveHost
+            {
+                Name = name.Length > 0 ? name : p.Ip,
+                Url = url, Hostname = p.DnsName, Source = "tailscale",
+            });
+            added++;
+        }
+        HiveHosts.Save(_hosts.Where(h => h.Name != "This PC"));
+        MessageBox.Show(
+            peers.Count == 0 ? "No Tailscale peers found (is Tailscale up and are other nodes online?)."
+                             : $"Found {peers.Count} Tailscale peer(s); added {added} new node(s).",
+            "HIVE MIND — Tailscale", MessageBoxButton.OK, MessageBoxImage.Information);
         await ProbeAndDraw();
     }
 

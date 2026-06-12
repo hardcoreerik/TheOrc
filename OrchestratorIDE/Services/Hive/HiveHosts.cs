@@ -20,6 +20,12 @@ public sealed class HiveHost
     public string Name { get; set; } = "";
     public string Url  { get; set; } = "";
 
+    /// <summary>Stable DNS/MagicDNS hostname when known (Tailscale, mDNS).</summary>
+    public string Hostname { get; set; } = "";
+
+    /// <summary>"manual" | "lan" | "tailscale" — how this node was added.</summary>
+    public string Source { get; set; } = "manual";
+
     /// <summary>Set by ProbeAsync — not persisted.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool? Reachable { get; set; }

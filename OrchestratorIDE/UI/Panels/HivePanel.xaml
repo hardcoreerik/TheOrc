@@ -17,6 +17,11 @@
             <TextBlock x:Name="HiveSummary" Text="" FontSize="11" Foreground="#999999"
                        Margin="12,0,0,0" VerticalAlignment="Bottom"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
+                <Button x:Name="BtnFindTailscale" Content="🔗 Find Tailscale nodes" Click="BtnFindTailscale_Click"
+                        Padding="10,4" Margin="0,0,8,0" Cursor="Hand"
+                        Background="#0A1A2A" BorderBrush="#4A9FD9" Foreground="#8FC9F0"
+                        BorderThickness="1" FontFamily="Segoe UI" FontSize="11"
+                        AutomationProperties.AutomationId="Hive.FindTailscale"/>
                 <Button x:Name="BtnAddNode" Content="➕ Join a node" Click="BtnAddNode_Click"
                         Padding="10,4" Margin="0,0,8,0" Cursor="Hand"
                         Background="#1F3D00" BorderBrush="#76B900" Foreground="#A8CC80"

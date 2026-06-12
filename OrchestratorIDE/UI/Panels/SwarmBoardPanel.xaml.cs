@@ -26,6 +26,39 @@ public partial class SwarmBoardPanel : UserControl
 {
     // ── Dependencies (set by MainWindow) ──────────────────────────────────────
     public OllamaClient? Ollama        { get; set; }
+
+    /// <summary>HIVE MIND: Ollama base URL the swarm runs against. null = This PC.</summary>
+    private string? _runOnUrl;
+    private string  _runOnName = "This PC";
+
+    /// <summary>Populates the "Run on" hive picker from reachable hosts.</summary>
+    public void SetHiveHosts(IReadOnlyList<Services.Hive.HiveHost> hosts)
+    {
+        CbRunOn.Items.Clear();
+        foreach (var h in hosts)
+        {
+            CbRunOn.Items.Add(new System.Windows.Controls.ComboBoxItem
+            {
+                Content = h.Name + (h.Reachable == false ? " (offline)" : ""),
+                Tag = h,
+                IsEnabled = h.Name == "This PC" || h.Reachable != false,
+            });
+        }
+        if (CbRunOn.SelectedIndex < 0 && CbRunOn.Items.Count > 0) CbRunOn.SelectedIndex = 0;
+    }
+
+    private void CbRunOn_SelectionChanged(object s, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (CbRunOn.SelectedItem is System.Windows.Controls.ComboBoxItem { Tag: Services.Hive.HiveHost h })
+        {
+            _runOnName = h.Name;
+            _runOnUrl  = h.Name == "This PC" ? null : h.Url;
+            StatusChanged?.Invoke(_runOnUrl is null
+                ? "Swarm runs on This PC"
+                : $"Swarm will run on {h.Name} ({h.Url})");
+        }
+    }
+
     public string        ActiveModel   { get; set; } = "";
     public string?       WorkspaceRoot { get; set; }
     public AppSettings?  Settings      { get; set; }   // for opening the probe window
@@ -719,7 +752,12 @@ public partial class SwarmBoardPanel : UserControl
         // Boss = ActiveModel, Coder/UIDev = _workerModel, Researcher = _researcherModel
         var coderModel      = string.IsNullOrWhiteSpace(_workerModel)     ? ActiveModel    : _workerModel;
         var researcherModel = string.IsNullOrWhiteSpace(_researcherModel) ? coderModel     : _researcherModel;
-        _session = new SwarmSession(Ollama!, ActiveModel, WorkspaceRoot, coderModel, researcherModel);
+        // HIVE MIND: route the swarm to the chosen node. A remote node gets a
+        // fresh OllamaClient pointed at its URL; This PC keeps the injected one.
+        var swarmOllama = _runOnUrl is null ? Ollama! : new OllamaClient(_runOnUrl);
+        if (_runOnUrl is not null)
+            OnActivity?.Invoke($"🐝 Running this swarm on {_runOnName} ({_runOnUrl})");
+        _session = new SwarmSession(swarmOllama, ActiveModel, WorkspaceRoot, coderModel, researcherModel);
 
         _session.OnBossToken     += OnBossToken;
         _session.OnWorkerToken   += OnWorkerToken;
