@@ -104,7 +104,7 @@ The Training Pit is on its own milestone track, not tied to app version numbers.
 | Phase 1 | ✅ Done | Scaffolding — schemas, rubrics, configs, scripts |
 | Phase 2 | ✅ Done | Data collection — auto-capture via DatasetCapture.cs |
 | Phase 2.5 | ✅ Gate met | Dataset Accumulation — ALL GATES MET 2026-06-11 (163/150 train ✅ · 20/20 eval ✅ · 25/25 negative ✅); farming continues toward ~1,000 |
-| Phase 3 | 🟢 Authorized | Training — LoRA fine-tune on Gemma 4 12B QAT; preflight exits 0, not yet started |
+| Phase 3 | 🟢 Ready | Training — WARCHIEF FORGE GUI in the Training Pit panel + train_lora.py QLoRA runner; dataset 900/87/25; awaiting GPU window |
 | Phase 4 | 🔲 Future | Deployment — A/B path in SwarmSession |
 
 **Phase 3 gate:** ≥150 reviewed positive examples + ≥25 negative examples + ≥20 eval.
