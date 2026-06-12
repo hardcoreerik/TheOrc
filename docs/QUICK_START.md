@@ -1,174 +1,148 @@
 # TheOrc — Quick Start
 
-> **Windows only.** .NET 10 required. Ollama required (or llama.cpp — see [INSTALLATION.md](INSTALLATION.md)).
->
-> **Honest local-model disclaimer:** model performance varies by model size, quantization, backend,
-> VRAM, prompt format, and tool-call reliability. A model that passes short tool calls may still
-> fail large file writes. See [MODEL_GUIDE.md](MODEL_GUIDE.md) for details.
+> This is the fastest verified path from a fresh install to a successful local run. For the bigger picture, see [ARCHITECTURE.md](ARCHITECTURE.md). For project vocabulary, see [GLOSSARY.md](GLOSSARY.md).
 
 ---
 
-## Step 1 — Install and start Ollama
+## What You Are Doing
 
-Download Ollama from [ollama.ai](https://ollama.ai) and start it:
+You are proving four things:
+
+1. TheOrc can reach your inference backend.
+2. A usable model is installed.
+3. The app is pointed at a real workspace.
+4. A simple plan can become an approved execution run.
+
+---
+
+## 1. Start Your Inference Backend
+
+If you are using Ollama, start it first:
 
 ```powershell
 ollama serve
 ```
 
-Verify it's running:
+Check that it responds:
+
 ```powershell
 ollama list
 ```
 
-By default Ollama listens at `http://localhost:11434`. If you run Ollama on a separate machine,
-note the host address — you'll configure it in TheOrc Settings.
+The default host used by TheOrc is `http://localhost:11434`.
 
 ---
 
-## Step 2 — Install a recommended model
+## 2. Pull A First Model
 
-For a first run, pull a model that fits your VRAM:
+A safe first-run choice is a coding-capable model that fits your VRAM. The docs avoid pretending one model is perfect everywhere because local behavior depends on quantization, VRAM headroom, and tool-call reliability.
 
-| Your VRAM | Recommended first model | Command |
-|---|---|---|
-| 6 GB | Qwen 2.5 Coder 7B Q4 | `ollama pull qwen2.5-coder:7b` |
-| 8 GB | Qwen 2.5 Coder 7B Q5 | `ollama pull qwen2.5-coder:7b-instruct-q5_k_m` |
-| 10–12 GB | Qwen 2.5 Coder 14B Q4 | `ollama pull qwen2.5-coder:14b` |
-| 16 GB | Qwen 2.5 Coder 14B Q5 | `ollama pull qwen2.5-coder:14b-instruct-q5_k_m` |
+Practical starting points:
 
-> ⚠️ **Nemotron Nano 4B note:** This model starts `write_file` JSON but truncates before
-> closing braces on large payloads. It will NOT complete T06-style autonomous file writing.
-> Use it for short tasks, lightweight testing, or chat only. See [MODEL_GUIDE.md](MODEL_GUIDE.md).
+- 6 to 8 GB VRAM: `qwen2.5-coder:7b`
+- 10 to 16 GB VRAM: `qwen2.5-coder:14b`
+- higher VRAM: use [MODEL_GUIDE.md](MODEL_GUIDE.md) and [MODEL_WIKI_AND_LAB.md](MODEL_WIKI_AND_LAB.md) for a better fit
 
----
+Example:
 
-## Step 3 — Launch TheOrc
-
-**From a release build:**
-Run `OrchestratorIDE.exe` from the portable zip or installer output.
-
-**From source:**
 ```powershell
-dotnet run --project OrchestratorIDE/OrchestratorIDE.csproj
+ollama pull qwen2.5-coder:14b
 ```
 
 ---
 
-## Step 4 — Point TheOrc at your Ollama instance
+## 3. Launch TheOrc
 
-On first launch, open **Settings** (gear icon in the activity bar, bottom left).
+Open the app and confirm these shell signals:
 
-- Set **Ollama Host** to your Ollama address (default: `http://localhost:11434`)
-- The model dropdown will populate once the host is reachable
+- the workspace badge is visible in the status bar
+- the build stamp appears in the status bar
+- the model label is populated
+- the app does not show an Ollama connectivity problem
 
-If you see a red Ollama status indicator in the status bar, Ollama is not reachable.
-Check that `ollama serve` is running and the host address is correct.
-
----
-
-## Step 5 — Open a workspace
-
-Click the **📁 workspace badge** in the top bar (shows the current workspace path, or
-"No workspace" if none is open).
-
-Select a folder you want to work in. TheOrc will use this as the root for all file operations.
-
-> **Git auto-checkpoint:** If the workspace has a git repo, TheOrc commits a checkpoint
-> before every Execute run. Nothing is lost.
+If something is off already, jump to [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ---
 
-## Step 6 — Try Single Agent
+## 4. Open A Workspace
 
-Make sure the mode selector (top left) shows **Single** (not Swarm or Chat).
+Use the workspace badge or the file-opening flow to point TheOrc at a real project folder.
 
-Type a request in the chat input and press **Enter** or click **Plan**.
+Why this matters:
 
-TheOrc will:
-1. Call the model with your goal and produce a **Plan** — a list of steps it intends to take
-2. Show you the plan for review
-3. On **Execute** approval: carry out the steps, showing diffs before any file write
-
-> **Important:** The first time you click Execute, you may see a trust prompt. Start in
-> **Guarded** mode (default) — every file write and shell command requires approval.
+- file tools are rooted to the workspace
+- the file explorer uses that root
+- git checkpoints only happen when the workspace is a git repo
+- swarm run artifacts and dataset captures are written relative to that root
 
 ---
 
-## Step 7 — Try Swarm mode
+## 5. Read The In-App Help Once
 
-Switch the mode selector to **Swarm**.
+Press `F1` to open the Help window.
 
-Open the **Swarm Board** tab (or it may open automatically in Swarm mode).
+This confirms two things:
 
-On the Swarm Board:
-- Select a **Boss model** (needs planning capability — see [SWARM_GUIDE.md](SWARM_GUIDE.md))
-- Select a **Coder model** and **Researcher model**
-- Enter a goal in the Goal input
-- Click **Launch Swarm**
-
-> **OLLAMA_NUM_PARALLEL requirement:** Swarm mode runs multiple models concurrently.
-> Set `OLLAMA_NUM_PARALLEL=3` (or higher) in your environment before starting Ollama.
-> Without this, workers queue and performance degrades significantly.
+- the embedded docs viewer is working
+- you can navigate guides in-app without leaving the shell
 
 ---
 
-## Step 8 — Open Model Wiki / Lab
+## 6. Run A Small Single-Agent Plan
 
-In the menu bar: **Models → Model Wiki / Lab…**
+Switch to `Single` mode and ask for a tiny change or inspection task, for example:
 
-This opens a non-modal window with:
-- A searchable, filterable catalogue of all models TheOrc knows about
-- Per-model scores (Boss, Coder, Researcher, Tester)
-- Built-in observations from local tests (e.g. T06 Nemotron Nano results)
-- GOBLIN MIND probe results if you've run them
+```text
+Read the README and summarize the build steps without modifying files.
+```
 
-Browse models and use the **Run Capability Test** button to open the capability test dialog.
+This should produce a plan first. Nothing should execute yet.
 
 ---
 
-## Step 9 — Run a Model Capability Test
+## 7. Approve A Safe Execute Run
 
-In the menu bar: **Models → Run Model Capability Test…**
+After the plan looks sane, execute a low-risk task that can complete with reads or a tiny write.
 
-Or click **Run Capability Test** inside the Model Wiki window.
+Watch for these behaviors:
 
-The dialog lets you:
-- Select a model and test level (Small / Medium / Large / All three)
-- Click **▶ Run** to start
-- Watch the phase strip: Idle → Sending → Waiting → Received → Analyzing → Done
-- See live test cards showing each test's state and result
-- Read the colored activity feed for detailed output
-
-Results are saved to `%APPDATA%\OrchestratorIDE\model-wiki\results.jsonl` and
-appear in the Model Wiki detail pane on next open.
-
-> Tests run in an isolated temp workspace (`%TEMP%\TheOrc\ModelTests\`).
-> They do NOT touch your active project workspace.
+- shell commands show an approval card before running
+- file writes show a diff before applying
+- the status bar remains responsive
+- activity events stream live instead of only appearing at the end
 
 ---
 
-## Step 10 — Understand T06-style autonomous file writing
+## 8. Try Swarm Mode
 
-**T06** is the internal benchmark test for single-agent autonomous code generation:
-the agent is given a coding goal and must write working files without human approval of each step.
+Switch to `Swarm` mode and confirm:
 
-T06 requires a capable model. It **will fail** with:
-- Models under ~7B parameters
-- Models that truncate long JSON payloads (confirmed: Nemotron Nano 4B)
-- Models with poor tool-call reliability
+- the Boss, Coder, and Researcher model pickers are populated
+- capability badges appear under each picker
+- the Launch button is enabled only when the workspace and slot/model gate are valid
 
-If you're trying T06-style work and "the agent runs but writes no files," see
-[TROUBLESHOOTING.md](TROUBLESHOOTING.md#agent-runs-but-writes-no-files).
+If needed, use the `Probe Now` button to open the tool-call probe window.
 
 ---
 
-## What's Next
+## 9. Confirm Model Intelligence Surfaces
 
-| Goal | Doc |
-|---|---|
-| Understand all the mode options | [USER_GUIDE.md](USER_GUIDE.md) |
-| Pick the right model for your GPU | [MODEL_GUIDE.md](MODEL_GUIDE.md) |
-| Configure Swarm mode properly | [SWARM_GUIDE.md](SWARM_GUIDE.md) |
-| Understand The Training Pit | [TRAINING_PIT_GUIDE.md](TRAINING_PIT_GUIDE.md) |
-| Diagnose a problem | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) |
+Open `Models -> Model Wiki / Lab...` and check that you can see:
+
+- model detail
+- local observations
+- trends strip
+- capability test entry point
+- comparison entry point
+
+This is the fastest way to verify that TheOrc is not treating model choice as a blind string.
+
+---
+
+## 10. Know The Next Three Guides
+
+After this quick start, the best next reads are:
+
+- [USER_GUIDE.md](USER_GUIDE.md) for the shell and trust model
+- [SWARM_GUIDE.md](SWARM_GUIDE.md) for multi-agent orchestration
+- [TRAINING_PIT_GUIDE.md](TRAINING_PIT_GUIDE.md) for the capture-to-adapter loop

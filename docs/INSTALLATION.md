@@ -1,163 +1,142 @@
 # TheOrc — Installation
 
----
-
-## Platform Status
-
-**TheOrc is Windows-first.** The UI is built on WPF (.NET 10) and uses Windows-native
-UI automation (FlaUI / UIA3). There is no macOS or Linux build at this time.
-
-A cross-platform Docker + Blazor port is on the roadmap (v1.4). The WPF app will
-remain the primary Windows experience indefinitely.
+> This guide covers the verified installation paths for the current Windows application and the minimum setup needed for local training. For architecture context, see [ARCHITECTURE.md](ARCHITECTURE.md). For operator workflow after install, see [QUICK_START.md](QUICK_START.md).
 
 ---
 
-## Requirements
+## Platform Reality
 
-| Requirement | Version / Notes |
-|---|---|
-| Windows | 10 or 11 (64-bit) |
-| .NET Runtime | 10.0+ (included in self-contained portable builds) |
-| GPU | Any NVIDIA, AMD, or Intel GPU; CPU inference supported but slow |
-| Inference backend | **Ollama** (recommended) or llama.cpp via `OrchestratorIDE.exe` bundled runtime |
+The current app is Windows-only.
 
----
+- UI: WPF on .NET 10
+- test automation: Windows UI Automation via FlaUI
+- training GUI: integrated into the Windows shell
 
-## Option A — Portable ZIP (no installer)
-
-1. Download `TheOrc-x.x.x-win-x64-portable.zip` from [Releases](https://github.com/hardcoreerik/The-Orchestrator/releases)
-2. Unzip to any folder (e.g. `C:\Tools\TheOrc\`)
-3. Run `OrchestratorIDE.exe`
-
-You will need an existing Ollama instance running. Point **Settings → Ollama Host** at it.
+The repository contains planned cross-platform direction, but this guide documents the current Windows implementation only.
 
 ---
 
-## Option B — Build from Source
+## Option 1: Installer
 
-### Prerequisites
+Use the installer if you want the app to make the early hardware and runtime choices for you.
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-- [Git](https://git-scm.com/)
-- [Ollama](https://ollama.ai) running (or llama.cpp)
+The installer path is the best fit when you want:
 
-### Steps
+- hardware detection
+- a guided profile choice
+- model/runtime download help
+- a clean first-run setup
+
+After install, continue with [QUICK_START.md](QUICK_START.md).
+
+---
+
+## Option 2: Portable Build
+
+The portable route is appropriate when you already have a working inference backend and want to place the app manually.
+
+Expect to configure:
+
+- Ollama host or llama.cpp runtime path
+- model selection
+- workspace and settings paths
+
+If the app opens but cannot see models, use [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
+---
+
+## Option 3: Build From Source
+
+Source build is the best choice if you are working on TheOrc itself.
+
+Minimum requirements:
+
+- Windows 10 or 11
+- .NET 10 SDK
+- a working local inference backend for full runtime testing
+
+Typical build commands:
 
 ```powershell
-# Clone the repo
-git clone https://github.com/hardcoreerik/The-Orchestrator.git
-cd The-Orchestrator
-
-# Build the main application
-dotnet build OrchestratorIDE/OrchestratorIDE.csproj --configuration Debug
-
-# Run directly
+dotnet build OrchestratorIDE.slnx
 dotnet run --project OrchestratorIDE/OrchestratorIDE.csproj
-
-# Or publish a self-contained single executable
-dotnet publish OrchestratorIDE/OrchestratorIDE.csproj `
-  -r win-x64 --self-contained `
-  -p:PublishSingleFile=true `
-  -o publish/
 ```
 
-The `publish/` folder will contain `OrchestratorIDE.exe` and supporting assets.
+If you are only checking compile health, you can build without a live model. If you are validating agent behavior, model surfaces, or swarm execution, you need a reachable backend.
 
 ---
 
-## Visual Studio / VS Code Notes
+## Inference Backend Setup
 
-### Visual Studio 2022 (recommended for full WPF dev)
+The current shell is designed around reachable local or LAN inference endpoints.
 
-1. Open `OrchestratorIDE.slnx` (Visual Studio solution file)
-2. Set `OrchestratorIDE` as the startup project
-3. Run with F5
-
-The solution includes `OrchestratorIDE.UITests` — these are FlaUI automation tests
-that launch the actual app. Do not run them from the IDE Test Explorer unless you
-understand the desktop requirement (see below).
-
-### VS Code
-
-VS Code can build and run TheOrc via the `dotnet` CLI. XAML editing is functional
-but without the WPF Designer. Install the C# Dev Kit extension for best experience.
-
----
-
-## Ollama Setup
-
-TheOrc communicates with Ollama via the OpenAI-compatible `/v1/chat/completions` endpoint.
+Common setup:
 
 ```powershell
-# Start Ollama (required before launching TheOrc)
 ollama serve
-
-# Default host (TheOrc will discover models automatically)
-# http://localhost:11434
-
-# To use a remote Ollama server, set in TheOrc Settings:
-# Ollama Host = http://192.168.1.x:11434
+ollama list
 ```
 
-Settings are persisted at `%APPDATA%\OrchestratorIDE\settings.json`.
+The default Ollama host is:
 
-**Multi-agent (Swarm) requirement:**
-```powershell
-# Allow multiple models to run in parallel
-$env:OLLAMA_NUM_PARALLEL = "4"
-ollama serve
+```text
+http://localhost:11434
 ```
-Without `OLLAMA_NUM_PARALLEL` set, Swarm workers will queue instead of running concurrently.
+
+The app can also point at another host in Settings, which is useful when a second machine has the stronger GPU.
 
 ---
 
-## Common Setup Problems
+## Training Pit Setup
 
-### "OrchestratorIDE.exe not found"
-Build the main project first:
+Training is separate from ordinary inference setup.
+
+What the code expects:
+
+- the repository contains `training_pit/`
+- reviewed dataset exports exist under `training_pit/datasets/`
+- Python can run the Training Pit scripts
+- CUDA is available for the current `train_lora.py` path
+
+Useful checks:
+
 ```powershell
-dotnet build OrchestratorIDE/OrchestratorIDE.csproj
+python training_pit/scripts/phase3_preflight.py
+python training_pit/scripts/review_captures.py --status
 ```
-Or set the `ORCHESTRATOR_EXE` environment variable to the full path of the binary
-(useful in CI where the output path differs from the default).
 
-### Red Ollama indicator in status bar
-- Check that `ollama serve` is running
-- Check **Settings → Ollama Host** matches the address Ollama is listening on
-- Check Windows Firewall if Ollama is on a different machine
-
-### Model list is empty
-- The Ollama host must be reachable before TheOrc starts
-- Pull at least one model: `ollama pull qwen2.5-coder:7b`
-- Restart TheOrc after pulling if the model list was already showing empty
-
-### "SmartScreen prevented an unrecognized app"
-The executable is unsigned. Click **More info → Run anyway**. This is normal for
-open-source apps that are not code-signed. The source is available at the repo for inspection.
-
-### dotnet build fails: "SDK not found"
-Install the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
-Make sure `dotnet --version` shows `10.x.x` after installation.
+The current preflight gate is already met in this repository, but preflight still matters because it verifies manifest consistency, validation, sanitizer safety, duplicate safety, and eval isolation before training starts.
 
 ---
 
-## FlaUI UI Tests — Special Requirement
+## ORC ACADEMY Prerequisites
 
-The `OrchestratorIDE.UITests` project uses FlaUI (Windows UI Automation) to drive the
-actual application as a black-box UI test suite.
+The in-app training GUI expects:
 
-**FlaUI tests require:**
-- An **interactive Windows desktop session** (not a headless server, not RDP with no display)
-- No other application should be covering the TheOrc window during test execution
-- Do not move the mouse or type during FlaUI test runs — keyboard/mouse events interfere
+- Python packages required by `training_pit/scripts/train_lora.py`
+- CUDA-capable PyTorch for the current training path
+- enough GPU memory for the chosen run mode
 
-Run the tests from the command line:
-```powershell
-dotnet test OrchestratorIDE.UITests/OrchestratorIDE.UITests.csproj `
-  --no-build `
-  --filter "FullyQualifiedName~T07|FullyQualifiedName~T08"
-```
+The GUI itself contributes:
 
-Do not run T06 unless you have a capable model installed (≥7B recommended).
+- `dry run`
+- `resume`
+- `VRAM cap`
+- heartbeat monitoring
+- re-attach after app restart
 
-See [TESTING_GUIDE.md](TESTING_GUIDE.md) for the full test reference.
+Read [TRAINING_PIT_GUIDE.md](TRAINING_PIT_GUIDE.md) before launching a real run.
+
+---
+
+## First Post-Install Checks
+
+After installation or build, verify:
+
+- `F1` opens the in-app Help window
+- the status bar shows a build stamp
+- a model can be selected
+- the Model Wiki / Lab window opens
+- the Swarm Board shows capability badges
+
+Those checks cover the shell, model services, and embedded docs in one pass.

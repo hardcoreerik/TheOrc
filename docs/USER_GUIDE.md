@@ -1,159 +1,167 @@
 # TheOrc — User Guide
 
----
-
-## Mode Selector
-
-The mode selector is in the top-left of the main window. Three modes are available:
-
-| Mode | What it does |
-|---|---|
-| **Single** | One agent, one model, one task at a time. Full Plan → Execute loop. |
-| **Swarm** | Multi-agent: Boss decomposes the goal, workers run in parallel. |
-| **Chat** | Direct conversation without a task loop. Research, Q&A, exploration. |
-
-Switch modes at any time. The active model is remembered separately per mode.
+> This guide explains how to operate the current shell, not the idealized future product. Pair it with [ARCHITECTURE.md](ARCHITECTURE.md) for internals and [GLOSSARY.md](GLOSSARY.md) for terminology.
 
 ---
 
-## Opening a Workspace
+## What The Shell Is Organizing
 
-Click the **📁 workspace badge** in the top bar to open a folder as your workspace.
+TheOrc's shell is responsible for three operator jobs:
 
-- TheOrc sets this folder as the root for all file operations
-- The file explorer (left panel) shows the workspace tree
-- `write_file` paths are resolved relative to the workspace root
-- Git auto-checkpoint: if the workspace contains a `.git` folder, TheOrc commits
-  a checkpoint before every Execute run
-
-**There is no restriction on what folder you open.** You can open any project folder,
-including TheOrc's own source code (which is how the Self-Improve feature works).
+- choosing a mode and model
+- keeping execution inside visible trust boundaries
+- exposing enough live state that you can tell what the system is doing
 
 ---
 
-## Plan Mode vs Execute Mode
+## Main Modes
 
-Every task in Single Agent mode goes through two stages:
+The mode selector in the main window exposes three runtime surfaces:
 
-### Plan
-1. You type a goal and press Enter (or click **Plan**)
-2. TheOrc sends your goal to the model with the current workspace context
-3. The model returns a **plan** — a step-by-step list of what it intends to do
-4. You review the plan in the chat panel
+- `Single`: one model, one plan-and-execute loop
+- `Swarm`: one boss plus worker lanes
+- `Chat`: direct conversation and research-style use
 
-At this point nothing has been written or run. You can:
-- **Approve** → move to Execute
-- **Reject** → ask the model to revise or start over
-
-### Execute
-1. The model executes the plan one step at a time
-2. Before each `write_file` call, TheOrc shows a **visual diff** — you Approve or Reject
-3. Before each `run_shell` call, TheOrc shows a **ShellApprovalCard** — you Approve or Reject
-4. The model can use `read_file`, `list_files`, `grep_code`, and `get_outline` without approval
+The active model is remembered separately across modes, so switching modes does not mean redoing the entire model setup each time.
 
 ---
 
-## Trust Levels
+## Status Bar
 
-The trust level controls how much the agent can do without asking:
+The status bar is not decoration. It is the fastest health readout in the app.
 
-| Trust Level | Write file | Run shell | Notes |
-|---|---|---|---|
-| **Plan** | ❌ Never | ❌ Never | Plan step only — no execution |
-| **Guarded** | ✅ Requires approval | ✅ Requires approval | Default — safest for first use |
-| **Standard** | ✅ Requires approval | ✅ Requires approval | Same as Guarded in current build |
-| **Full Auto** | ✅ Auto-approved | ✅ Auto-approved | No prompts — use only for trusted tasks |
+It shows:
 
-Trust level is shown as a pill in the status bar and can be changed at any time.
+- workspace
+- git branch
+- build stamp
+- active model
+- current status text
 
----
-
-## The Model Badge
-
-The model badge in the status bar shows the currently selected model for the active mode.
-
-- Click the badge to open the model picker flyout
-- Models are loaded from the connected Ollama instance
-- TheOrc shows each model's profile scores (Boss, Coder, etc.) if available
-- The auto-select logic picks the best model for your available VRAM on startup;
-  you can override this at any time
-
-Swarm mode has separate model selectors for Boss, Coder, Researcher, etc. on the Swarm Board.
+The build stamp exists specifically to identify which binary is running, including the commit suffix when available.
 
 ---
 
-## Git Checkpoints
+## Help And Embedded Docs
 
-If your workspace has a git repository, TheOrc automatically commits a checkpoint
-before every Execute run:
+Press `F1` to open the in-app Help window.
 
-```
-[TheOrc checkpoint] Before execute: <first line of your goal>
-```
+What the help surface does:
 
-This means:
-- You can always roll back to before any agent run with `git log` + `git reset`
-- Checkpoints accumulate in git history — use `git log` to see them
-- The checkpoint is a real commit on whatever branch you're currently on
+- loads `docs/*.md` from disk in a repo checkout
+- falls back to embedded docs in published builds
+- keeps internal guide links in-app
 
-If the workspace is not a git repo, no checkpoint is made.
+If a guide link is written like `[User Guide](USER_GUIDE.md)`, the help window routes it internally.
 
 ---
 
-## Where Output and Logs Live
+## Workspace Model
 
-| Item | Location |
-|---|---|
-| Agent session logs | Activity log in the chat panel (in-app only, not persisted to disk by default) |
-| Git checkpoints | `.git/` in your workspace (standard git history) |
-| Settings | `%APPDATA%\OrchestratorIDE\settings.json` |
-| Model Wiki results | `%APPDATA%\OrchestratorIDE\model-wiki\results.jsonl` |
-| UI test recordings | `%APPDATA%\OrchestratorIDE\Recordings\` (AVI files from FlaUI test runs) |
-| Swarm metrics | `swarm-metrics.json` in the solution root (if swarm benchmarks have been run) |
-| Dataset staging | `.orc/swarm/dataset-staging/` in the workspace (boss plan captures, gitignored) |
+The workspace is the operational root for file-centric work.
 
----
+When you open a workspace:
 
-## File Writing and Staging
+- file tools resolve relative paths against it
+- the explorer panel reflects it
+- git checkpoints run against it when it is a git repo
+- swarm artifacts and dataset captures land beneath it
 
-All file writes go through the diff viewer in Guarded mode:
-
-1. Model calls `write_file` with a path and content
-2. TheOrc reads the existing file (if any) and generates a diff
-3. The diff is shown in the DiffViewer with **Approve** / **Reject** buttons
-4. On Approve: the file is written and the git checkpoint (if any) is updated
-5. On Reject: the write is skipped; the agent receives a rejection notice and may try again
-
-In **Full Auto** mode, writes proceed without showing the diff.
+This is why the workspace badge matters more than a cosmetic project title.
 
 ---
 
-## Keyboard Shortcuts
+## Trust And Approval Flow
 
-| Shortcut | Action |
-|---|---|
-| `Ctrl+K` | Open command palette (fuzzy search over all commands) |
-| `Ctrl+Shift+E` | Toggle file explorer |
-| `Ctrl+Shift+C` | Toggle code editor |
-| `Ctrl+Shift+R` | Edit rules file (`.agent.md`) |
-| `Ctrl+Shift+M` | Open model picker (Choose Model…) |
-| `F12` | Start / Stop screen recording |
-| `Ctrl+=` | Increase font size |
-| `Ctrl+-` | Decrease font size |
-| `Ctrl+0` | Reset font size |
+TheOrc treats plan generation and execution as different trust stages.
+
+In practice:
+
+- planning can happen without tools
+- shell commands can require explicit approval
+- file writes can require diff approval
+- the approval queue is part of runtime control, not a post-hoc audit log
+
+This is the core safety model for both single-agent and swarm workflows.
 
 ---
 
-## The Rules File (`.agent.md`)
+## Single-Agent Experience
 
-Every workspace can have a `.agent.md` file in its root. TheOrc injects this file
-into every Plan and Execute system prompt.
+In `Single` mode:
 
-Use `.agent.md` to tell the agent about your project:
-- What language and framework it uses
-- What conventions to follow
-- What files should never be modified
-- Any project-specific tool notes
+1. you ask for a task
+2. the model proposes a plan
+3. you approve execution
+4. tool calls run with approval and feedback
+5. the final response is returned in the same thread
 
-The installer generates a profile-specific `.agent.md` (Web, Systems, Security, etc.)
-for new projects. You can edit it at any time with **View → Edit Rules File** (Ctrl+Shift+R).
+For the deeper execution loop, read [SINGLE_AGENT_GUIDE.md](SINGLE_AGENT_GUIDE.md).
+
+---
+
+## Swarm Experience
+
+In `Swarm` mode:
+
+- the boss decomposes the goal
+- workers run by lane
+- capability badges show what is known about each selected model
+- per-lane streams let you watch progress in real time
+- co-work input can answer a worker, steer a worker, or continue a completed worker thread
+
+For the lane and routing model, read [SWARM_GUIDE.md](SWARM_GUIDE.md).
+
+---
+
+## Model Surfaces
+
+The model UX is broader than a single dropdown.
+
+Important surfaces:
+
+- status-bar model picker
+- Model Wiki / Lab
+- capability test dialog
+- model comparison window
+- Swarm Board capability badges
+
+These surfaces exist because local model suitability is evidence-driven in TheOrc, not guess-driven.
+
+---
+
+## Training Pit Surface
+
+The Training Pit panel is the operator view into the dataset and training loop.
+
+It currently exposes:
+
+- live capture state
+- review queue
+- gate counters
+- ORC ACADEMY controls
+- VRAM meter
+- heartbeat-driven training progress
+- resume and re-attach behavior
+
+That makes the Training Pit a shell feature, not a folder of scripts hidden off to the side.
+
+---
+
+## Shortcuts That Matter
+
+- `F1`: open Help
+- `F12`: start or stop screen recording
+- `Ctrl+K`: open command palette
+- `Ctrl+Shift+E`: show file explorer
+- `Ctrl+Wheel`: zoom the active stream pane
+- `Ctrl+0`: reset stream zoom
+
+---
+
+## What To Read Next
+
+- [SINGLE_AGENT_GUIDE.md](SINGLE_AGENT_GUIDE.md) if you mostly want one-model workflows
+- [SWARM_GUIDE.md](SWARM_GUIDE.md) if you want the multi-agent flow
+- [MODEL_WIKI_AND_LAB.md](MODEL_WIKI_AND_LAB.md) if you are evaluating local models
+- [TRAINING_PIT_GUIDE.md](TRAINING_PIT_GUIDE.md) if you want to understand how swarm plans become adapters

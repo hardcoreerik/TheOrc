@@ -1,181 +1,104 @@
 # TheOrc — Single Agent Guide
 
----
-
-## What Single Agent Mode Is
-
-In Single Agent mode, one model does everything for one task at a time:
-planning, writing code, running shell commands, and reading files. There
-is no boss/worker split — the model you pick handles the full loop.
-
-Select **Single** in the mode selector (top left of the main window).
+> This guide explains the current one-model execution loop. Read [USER_GUIDE.md](USER_GUIDE.md) for shell basics and [ARCHITECTURE.md](ARCHITECTURE.md) for the underlying `AgentLoop` and `ToolRegistry` design.
 
 ---
 
-## The Plan → Execute Loop
+## What Single-Agent Mode Is
 
-Every task in Single Agent mode goes through two stages.
+Single-agent mode runs one model through a plan-review-execute cycle. It is the simplest way to use TheOrc because there is no role routing or multi-lane orchestration.
 
-### Stage 1 — Plan
+This mode is best when:
 
-1. Type a goal in the chat input and press **Enter** or click **Plan**
-2. TheOrc sends your goal to the model with the current workspace context
-3. The model returns a **plan** — a numbered list of steps it intends to take
-4. The plan is shown in the chat panel for review
-
-At this point nothing has been written or run. You can:
-
-- **Approve** the plan → move to Execute
-- **Reject** the plan → the model sees your rejection and may revise
-- **Edit** the goal and re-plan
-
-### Stage 2 — Execute
-
-1. The model executes the plan step by step
-2. Before each `write_file` call, TheOrc shows a **visual diff** in the DiffViewer
-   - Click **Approve** → the file is written and git checkpoint is updated
-   - Click **Reject** → the write is skipped; the model receives a rejection notice
-3. Before each `run_shell` call, a **ShellApprovalCard** shows the exact command
-   - Click **Approve** → the shell command runs
-   - Click **Reject** → the command is skipped
-
-The model can use `read_file`, `list_files`, `grep_code`, and `get_outline` without approval.
+- the task is narrow
+- you want one conversational thread
+- you want the smallest possible trust surface
 
 ---
 
-## Trust Levels
+## The Real Loop
 
-The trust level controls how much the agent can do without asking:
+The runtime split is not just a UI convention. `AgentLoop` really has separate planning and execution phases.
 
-| Trust Level | Write file | Run shell |
-|---|---|---|
-| **Plan** | Never — plan step only | Never |
-| **Guarded** | Requires approval | Requires approval |
-| **Standard** | Requires approval | Requires approval |
-| **Full Auto** | Auto-approved | Auto-approved |
+### Plan
 
-The default is **Guarded**. Use **Full Auto** only for trusted, well-understood tasks.
+During planning:
 
-Trust level is shown as a pill in the status bar and can be changed at any time.
+- the model gets workspace context
+- project rules are injected if present
+- no tools are available
+- the output is expected to be a plan only
 
----
+### Execute
 
-## T06 — Single-Agent Autonomous File Writing
+During execution:
 
-**T06** is the internal benchmark for single-agent autonomous code generation:
-
-> The agent is given a coding goal and must write working project files from start
-> to finish without human approval of each step (Full Auto trust, capable model).
-
-T06 is the hardest single-agent task — it requires:
-- A model with strong `write_file` JSON reliability for large payloads
-- A capable model (≥7B parameters recommended)
-- A clear, specific goal with enough context
-
-T06 **will fail** with:
-- Models under ~7B parameters (confirmed: Nemotron Nano 4B truncates JSON before closing braces)
-- Models that start `write_file` but can't complete large payloads
-- Goals that are too vague to produce a coherent plan
-
-See [MODEL_GUIDE.md](MODEL_GUIDE.md) and [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for diagnosis.
+- `ToolRegistry` selects the tool set for the active model profile
+- GOBLIN MIND data can influence tool dispatch mode and schema shaping
+- write and shell approvals can pause execution
+- tool results are fed back into the same conversation
 
 ---
 
-## Why Small Models Fail Long write_file Tasks
+## Tool Dispatch Reality
 
-`write_file hello.txt "Hello World"` — ~30 chars — almost any model handles this.
+TheOrc does not assume every model handles tool calls the same way.
 
-`write_file app.py` with 150 lines of Python (all newlines escaped as `\n`) — ~5 KB JSON string.
-The model must maintain JSON schema context, `{` / `}` balance, escape state, and code coherence
-for hundreds of tokens. This is a parameter-count capacity issue, not a format issue.
+At execute time, `AgentLoop` can:
 
-**A LoRA adapter cannot fix this.** Fine-tuning changes adapter weights, not the model's
-active parameter count. Nemotron Nano 4B Q8 (the highest quality 4B quantization) still
-truncates on pass after pass. Q4 vs Q8 changes precision, not parameter count.
+- use native tool calling
+- fall back to text-JSON tool calling
+- shape the prompt to the model's preferred format
+- simplify schemas for models that fail on complex parameter structures
 
-Run **Models → Run Model Capability Test…** to measure exactly what your model can handle.
-The FileWriteSmall / FileWriteMedium / FileWriteLarge test suite gives a direct answer.
+That is why one local model can work well in Single mode while another appears to "support tools" but still falls apart on larger writes.
 
 ---
 
-## Recommended Models for Single Agent
+## Write Approval And Verification
 
-| VRAM | Model | Notes |
-|---|---|---|
-| 6 GB | `qwen2.5-coder:7b` | Smallest viable single-agent model |
-| 8 GB | `qwen2.5-coder:7b-instruct-q5_k_m` | Near-lossless 7B |
-| 10–12 GB | `qwen2.5-coder:14b` | Strong coder; best at this tier |
-| 16 GB | `qwen2.5-coder:14b-instruct-q5_k_m` | High-quality 14B |
+Two approval gates matter most in this mode:
 
-Models to avoid for single-agent coding (autonomous file writing):
-- `nemotron-3-nano:4b` / `nemotron-3-nano:4b-q8_0` — confirmed fail on long payloads
-- Any model below ~7B parameters
+- `write_file` can show a diff before any change is applied
+- `run_shell` can show an approval card before the command executes
 
-For research/chat tasks that do not require `write_file`, smaller models work fine.
+If auto-verify is enabled for the active profile, a write can be followed by `run_tests`.
 
 ---
 
-## How to Pick a Model
+## Rules And Workspace Context
 
-1. Open **Models → Model Wiki / Lab…**
-2. Browse models by VRAM and scores
-3. Check the **Section B — Role Scores** for CoderScore
-4. Check **Section C — Observations** for local test results
-5. Run **Models → Run Model Capability Test…** to measure FileWriteSmall / Medium / Large
+Single-agent planning and execution can both load project rules from the workspace. This is how TheOrc keeps repo-specific guidance close to the actual task without hardcoding those conventions into the product itself.
 
-See [MODEL_GUIDE.md](MODEL_GUIDE.md) for profile score definitions.
+The workspace also controls:
 
----
-
-## The Rules File (.agent.md)
-
-The `.agent.md` file in your workspace root is injected into every Plan and Execute prompt.
-Use it to tell the model about your project.
-
-Open or edit it: **View → Edit Rules File** (`Ctrl+Shift+R`)
-
-Example useful `.agent.md` content:
-
-```markdown
-## Project
-This is a Python 3.12 FastAPI project with Alembic migrations.
-
-## Conventions
-- Use snake_case for variables and functions
-- All new modules must have type hints
-- Tests in tests/ using pytest
-
-## Never modify
-- alembic/env.py
-- src/config.py (contains production settings)
-```
-
-The installer generates a profile-specific `.agent.md` for new projects (Web, Systems, Security, etc.).
+- where file tools read and write
+- whether git checkpoints happen
+- what the file explorer shows
 
 ---
 
-## Workspace and File Paths
+## Refusal Handling
 
-Click the **📁 workspace badge** in the top bar to open a folder as your workspace.
+Single-agent mode actively pushes back on weak local-model behavior.
 
-- `write_file` paths are resolved relative to the workspace root
-- `read_file`, `list_files`, `grep_code` all operate within the workspace
-- If the workspace has a `.git` folder, TheOrc commits a checkpoint before every Execute run
+If the model responds with refusal text or code in chat instead of issuing real tool calls, `AgentLoop` can nudge it back toward:
 
----
+- real `write_file` calls
+- real shell calls
+- actual tool usage instead of explanation-only output
 
-## Session Logs
-
-Activity logs are shown in the chat panel in real time. They are not persisted to disk by default.
-
-Git checkpoints accumulate in your workspace git history and survive across sessions.
+This is one of the practical differences between TheOrc and a plain chat wrapper around a model.
 
 ---
 
-## Troubleshooting
+## When Single-Agent Mode Is The Right Choice
 
-**Agent runs but writes no files** → see [TROUBLESHOOTING.md#agent-runs-but-writes-no-files](TROUBLESHOOTING.md)
+Use it when:
 
-**Model takes too long** → try a smaller or faster model; check VRAM usage in Task Manager
+- one model is already good enough
+- the task is mostly sequential
+- you want minimal orchestration overhead
+- you want the cleanest audit trail around approvals
 
-**Plan keeps being rejected** → review the `.agent.md` and make the goal more specific
+Switch to swarm when decomposition, specialization, or live multi-lane visibility matters more than keeping everything in one thread.
