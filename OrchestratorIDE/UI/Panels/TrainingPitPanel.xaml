@@ -58,6 +58,17 @@
                     Content="⟳ Refresh" HorizontalAlignment="Right" DockPanel.Dock="Right"
                     Click="BtnRefresh_Click"
                     AutomationProperties.AutomationId="TrainingPit.Refresh"/>
+            <!-- Live VRAM meter (nvidia-smi, refreshed with the live timer) -->
+            <StackPanel x:Name="PnlVram" Orientation="Horizontal" DockPanel.Dock="Right"
+                        Margin="0,0,12,0" VerticalAlignment="Center" Visibility="Collapsed">
+                <TextBlock x:Name="TbVram" Text="" FontSize="11" FontFamily="Consolas"
+                           Foreground="#999999" VerticalAlignment="Center" Margin="0,0,6,0"
+                           AutomationProperties.AutomationId="TrainingPit.Vram"/>
+                <ProgressBar x:Name="VramBar" Width="70" Height="7" BorderThickness="0"
+                             Background="#111111" Foreground="#76B900" Maximum="100"
+                             VerticalAlignment="Center"
+                             AutomationProperties.AutomationId="TrainingPit.VramBar"/>
+            </StackPanel>
         </DockPanel>
 
         <!-- ── Gate cards ─────────────────────────────────────────────── -->

@@ -98,8 +98,58 @@ public partial class TrainingPitPanel : UserControl
         UpdateLiveState();
     }
 
+    // ── VRAM meter ────────────────────────────────────────────────────────
+    // Polled on the same 5 s live timer; nvidia-smi runs off the UI thread and
+    // overlapping queries are skipped. Hidden entirely on non-NVIDIA boxes.
+
+    private bool _vramQueryBusy;
+    private bool _vramUnavailable;
+
+    private void UpdateVramMeter()
+    {
+        if (_vramQueryBusy || _vramUnavailable) return;
+        _vramQueryBusy = true;
+
+        Task.Run(() =>
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "nvidia-smi",
+                    Arguments = "--query-gpu=memory.used,memory.total --format=csv,noheader,nounits",
+                    UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true,
+                };
+                using var p = Process.Start(psi);
+                var line = p?.StandardOutput.ReadLine();
+                p?.WaitForExit(3000);
+                if (line is null) { _vramUnavailable = true; return; }
+
+                var parts = line.Split(',');
+                if (parts.Length < 2 ||
+                    !double.TryParse(parts[0].Trim(), out var used) ||
+                    !double.TryParse(parts[1].Trim(), out var total) || total <= 0) return;
+
+                var pct = used / total * 100;
+                Dispatcher.BeginInvoke(() =>
+                {
+                    PnlVram.Visibility = Visibility.Visible;
+                    TbVram.Text   = $"VRAM {used / 1024:F1}/{total / 1024:F1} GB";
+                    VramBar.Value = pct;
+                    VramBar.Foreground = new SolidColorBrush(
+                        pct >= 92 ? Color.FromRgb(0xF4, 0x47, 0x47) :
+                        pct >= 75 ? Color.FromRgb(0xE8, 0xA0, 0x30) :
+                                    Color.FromRgb(0x76, 0xB9, 0x00));
+                });
+            }
+            catch { _vramUnavailable = true; }
+            finally { _vramQueryBusy = false; }
+        });
+    }
+
     private void UpdateLiveState()
     {
+        UpdateVramMeter();
         var active = HarvestRunning || DateTime.Now - _lastCaptureTime < LiveWindow;
 
         if (active != _liveActive)
