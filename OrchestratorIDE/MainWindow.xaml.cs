@@ -153,6 +153,8 @@ public partial class MainWindow : Window
         _context.UsageChanged       += () => Dispatcher.Invoke(UpdateContextDisplay);
         _agentPanel.InputTextChanged += UpdateContextDisplay;   // live next-request estimate
 
+        ShowBuildStamp();
+
         // Approval gate — use diff viewer in AgentPanel for write_file, dialog for shell
         _approvals.ApprovalRequested  += OnApprovalRequested;
         _approvals.PendingCountChanged += OnApprovalPendingCountChanged;
@@ -1039,6 +1041,30 @@ public partial class MainWindow : Window
             Dispatcher.Invoke(() =>
                 SbBranch.Text = branch != null ? $"⬡ {branch}" : "");
         });
+    }
+
+    /// <summary>
+    /// Status-bar build stamp: "v1.2.3 · a1b2c3d" (+ "-dirty" when built from an
+    /// uncommitted tree). Proves at a glance which build is running — the fix
+    /// for the stale-exe incidents. Source: AssemblyInformationalVersion,
+    /// stamped by the StampGitCommit msbuild target.
+    /// </summary>
+    private void ShowBuildStamp()
+    {
+        var asm  = System.Reflection.Assembly.GetExecutingAssembly();
+        var info = (Attribute.GetCustomAttribute(asm,
+                typeof(System.Reflection.AssemblyInformationalVersionAttribute))
+            as System.Reflection.AssemblyInformationalVersionAttribute)?
+            .InformationalVersion ?? "";
+        var parts = info.Split('+', 2);
+        var ver   = parts.Length > 0 && parts[0].Length > 0 ? parts[0] : "?";
+        var sha   = parts.Length > 1 ? parts[1] : "no-git";
+
+        SbBuild.Text = $"v{ver} · {sha}";
+        var exe = Environment.ProcessPath;
+        SbBuild.ToolTip = $"Build {info}\n{exe}\nbuilt {(exe != null ? File.GetLastWriteTime(exe).ToString("yyyy-MM-dd HH:mm") : "?")}";
+        if (sha.EndsWith("-dirty"))
+            SbBuild.Foreground = (Brush)FindResource("Br.Warning");
     }
 
     private void UpdateContextDisplay()

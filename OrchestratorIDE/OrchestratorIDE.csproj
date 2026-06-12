@@ -32,6 +32,21 @@
     <EmbeddedResource Include="..\docs\*.md" Link="Resources\docs\%(Filename)%(Extension)"/>
   </ItemGroup>
 
+  <!-- Stamp the git commit into AssemblyInformationalVersion at build time so
+       the status bar can prove which build is running (version+sha+dirty flag).
+       Falls back silently when git is unavailable (e.g. source-zip builds). -->
+  <Target Name="StampGitCommit" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo">
+    <!-- match pattern that never hits a tag -> always the short sha (+ -dirty) -->
+    <Exec Command="git describe --always --dirty --match _no_tag_" ConsoleToMSBuild="true"
+          ContinueOnError="true" StandardOutputImportance="low" IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="GitCommitHash"/>
+    </Exec>
+    <PropertyGroup>
+      <InformationalVersion Condition="'$(GitCommitHash)' != ''">$(Version)+$(GitCommitHash)</InformationalVersion>
+      <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    </PropertyGroup>
+  </Target>
+
   <!-- Expose internals (e.g. SwarmSession.DetectTargetLanguage) to the test project -->
   <ItemGroup>
     <InternalsVisibleTo Include="OrchestratorIDE.UITests" />

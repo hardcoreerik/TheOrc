@@ -576,6 +576,10 @@
                            Text="" Foreground="#76B900"
                            Margin="0,0,8,0" VerticalAlignment="Center" FontSize="13"
                            AutomationProperties.AutomationId="StatusBar.Branch"/>
+                <TextBlock x:Name="SbBuild" DockPanel.Dock="Left"
+                           Text="" Foreground="#666666" FontFamily="Consolas"
+                           Margin="0,0,8,0" VerticalAlignment="Center" FontSize="11"
+                           AutomationProperties.AutomationId="StatusBar.Build"/>
                 <!-- Model status widget (populated by ModelStatusService) -->
                 <Border x:Name="SbModelStatus"
                         DockPanel.Dock="Right"
