@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -49,6 +49,7 @@ public partial class MainWindow : Window
     private readonly SwarmBoardPanel         _swarmPanel;
     private readonly UI.Panels.ChatPanel     _chatPanel;
     private readonly UI.Panels.TrainingPitPanel _pitPanel;
+    private readonly UI.Panels.HivePanel _hivePanel = new();
 
     // ── Screen recorder ───────────────────────────────────────────────────
     private readonly ScreenRecorder _recorder = new();
@@ -1338,6 +1339,7 @@ public partial class MainWindow : Window
     private void BtnModeSwarm_Click(object sender, RoutedEventArgs e)  => SetMode("swarm");
     private void BtnModeChat_Click(object sender, RoutedEventArgs e)   => SetMode("chat");
     private void BtnModePit_Click(object sender, RoutedEventArgs e)    => SetMode("pit");
+    private void BtnModeHive_Click(object sender, RoutedEventArgs e)  => SetMode("hive");
 
     /// <summary>
     /// Switches between Single Agent and Swarm modes.
@@ -1375,6 +1377,13 @@ public partial class MainWindow : Window
 
             MainContent.Content    = _chatPanel;
             SidebarContent.Content = _explorerPanel;  // explorer still useful for context
+        }
+        else if (mode == "hive")
+        {
+            _hivePanel.LocalUrl = _settings.OllamaHost;
+            _hivePanel.Refresh();
+            MainContent.Content    = _hivePanel;
+            SidebarContent.Content = _explorerPanel;
         }
         else if (mode == "pit")
         {

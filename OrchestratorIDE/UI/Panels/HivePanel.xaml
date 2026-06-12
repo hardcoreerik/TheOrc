@@ -1,0 +1,43 @@
+<UserControl x:Class="OrchestratorIDE.UI.Panels.HivePanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="#0A0E0A"
+             AutomationProperties.AutomationId="Hive.Panel">
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <DockPanel Grid.Row="0" Margin="0,0,0,10">
+            <TextBlock Text="🐝 HIVE MIND" FontSize="16" FontWeight="SemiBold"
+                       Foreground="#76B900" VerticalAlignment="Center"/>
+            <TextBlock x:Name="HiveSummary" Text="" FontSize="11" Foreground="#999999"
+                       Margin="12,0,0,0" VerticalAlignment="Bottom"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
+                <Button x:Name="BtnAddNode" Content="➕ Join a node" Click="BtnAddNode_Click"
+                        Padding="10,4" Margin="0,0,8,0" Cursor="Hand"
+                        Background="#1F3D00" BorderBrush="#76B900" Foreground="#A8CC80"
+                        BorderThickness="1" FontFamily="Segoe UI" FontSize="11"
+                        AutomationProperties.AutomationId="Hive.AddNode"/>
+                <Button x:Name="BtnRescan" Content="⟳ Rescan" Click="BtnRescan_Click"
+                        Padding="10,4" Cursor="Hand"
+                        Background="#111111" BorderBrush="#2A2A2A" Foreground="#999999"
+                        BorderThickness="1" FontFamily="Segoe UI" FontSize="11"
+                        AutomationProperties.AutomationId="Hive.Rescan"/>
+            </StackPanel>
+        </DockPanel>
+
+        <!-- War-camp constellation -->
+        <Border Grid.Row="1" Background="#0C120C" BorderBrush="#1E2E1E" BorderThickness="1"
+                CornerRadius="8" ClipToBounds="True">
+            <Canvas x:Name="HiveCanvas" SizeChanged="HiveCanvas_SizeChanged"
+                    AutomationProperties.AutomationId="Hive.Canvas"/>
+        </Border>
+
+        <TextBlock Grid.Row="2" Margin="2,8,0,0" FontSize="10" Foreground="#666666"
+                   Text="This PC sits at the center. Reachable nodes glow green and pulse; lines carry work. Click a node for detail."/>
+    </Grid>
+</UserControl>

@@ -1,4 +1,4 @@
-﻿<Window x:Class="OrchestratorIDE.MainWindow"
+<Window x:Class="OrchestratorIDE.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -198,6 +198,33 @@
                                              ToolTip="The pit is collecting plans right now"/>
                                     <TextBlock x:Name="PitQueueBadge" Text="" Margin="4,0,0,0"
                                                ToolTip="Plans waiting for your review"/>
+                                </StackPanel>
+                            </Button>
+                            <!-- HIVE MIND button -->
+                            <Button x:Name="BtnModeHive"
+                                    ToolTip="HIVE MIND — other PCs on your network running TheOrc"
+                                    Padding="10,4" Margin="6,0,0,0"
+                                    FontSize="11" FontFamily="Segoe UI"
+                                    BorderThickness="0" Cursor="Hand"
+                                    Click="BtnModeHive_Click"
+                                    AutomationProperties.AutomationId="Mode.Hive">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                                CornerRadius="3" Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Opacity" Value="0.8"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="🐝 Hive"/>
+                                    <TextBlock x:Name="HiveNodeBadge" Text="" Margin="4,0,0,0"
+                                               ToolTip="Nodes online"/>
                                 </StackPanel>
                             </Button>
                         </StackPanel>
