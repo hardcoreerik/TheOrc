@@ -31,6 +31,10 @@ def main():
     ap.add_argument("--max-seq", type=int, default=1536)   # examples are ~600-1200 tokens
     ap.add_argument("--dry-run", action="store_true",
                     help="verify model+data load and a single forward step, then exit")
+    ap.add_argument("--vram-cap", type=float, default=0,
+                    help="GB of VRAM this process may use (0 = no cap). Lets the "
+                         "trainer coexist with other GPU workloads; layers beyond "
+                         "the cap offload to system RAM (slower).")
     args = ap.parse_args()
 
     # Imports deferred so --help works without the training stack installed
@@ -43,8 +47,18 @@ def main():
 
     assert torch.cuda.is_available(), \
         "CUDA unavailable — install the cu128 torch build before training."
-    print(f"GPU: {torch.cuda.get_device_name(0)} "
-          f"({torch.cuda.get_device_properties(0).total_memory / 2**30:.0f} GB)")
+    total_gb = torch.cuda.get_device_properties(0).total_memory / 2**30
+    print(f"GPU: {torch.cuda.get_device_name(0)} ({total_gb:.0f} GB)")
+
+    max_memory = None
+    if args.vram_cap > 0:
+        # Hard allocator cap (fail fast past the budget) + load-time placement
+        # budget (overflow layers go to CPU RAM instead of GPU).
+        torch.cuda.set_per_process_memory_fraction(
+            min(1.0, args.vram_cap / total_gb), 0)
+        max_memory = {0: f"{max(1.0, args.vram_cap - 1.5):.1f}GiB", "cpu": "48GiB"}
+        print(f"VRAM cap: {args.vram_cap:.1f} GB "
+              f"(model placement budget {max_memory[0]}, rest offloads to RAM)")
 
     # ── Data: chat-format JSONL ({messages:[system,user,assistant]}) ─────────
     data = load_dataset("json", data_files={"train": args.train, "eval": args.eval})
@@ -61,6 +75,7 @@ def main():
     tok = AutoTokenizer.from_pretrained(args.base)
     model = AutoModelForCausalLM.from_pretrained(
         args.base, quantization_config=bnb, device_map="auto",
+        max_memory=max_memory,
         dtype=torch.bfloat16, attn_implementation="eager")
     model.config.use_cache = False  # incompatible with gradient checkpointing
     print(f"model footprint: {model.get_memory_footprint() / 2**30:.1f} GB "
