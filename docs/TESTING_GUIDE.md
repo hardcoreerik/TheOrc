@@ -1,239 +1,85 @@
 # TheOrc — Testing Guide
 
----
-
-## Test Suite Overview
-
-TheOrc uses **FlaUI (Windows UI Automation)** for black-box UI testing. The test
-project is `OrchestratorIDE.UITests`. Tests drive the actual application as a user would —
-clicking buttons, reading UI state, checking results.
-
-There is no mock layer. Every test that touches agent behavior requires a live Ollama server.
+> This guide covers the current test surfaces that protect the shell, model tooling, and Training Pit scripts. For shell behavior, see [USER_GUIDE.md](USER_GUIDE.md). For swarm internals, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
-## Requirements
+## What Is Under Test
 
-- **Windows interactive desktop session** — FlaUI tests require an actual display.
-  They cannot run headless, on a server, or in RDP with no display attached.
-- **Ollama running** — tests that interact with agent features require `ollama serve`
-- **Do not touch the mouse or keyboard** during FlaUI test runs — input events interfere
-- **No other window should cover the TheOrc window** during tests
-- Build the app first before running tests
+The current repository has two main testing layers:
 
----
+- Windows UI tests under `OrchestratorIDE.UITests`
+- Python tests for Training Pit scripts under `training_pit/tests`
 
-## Running Tests
-
-```powershell
-# Run T07 and T08 (safe — do not require a capable model)
-dotnet test OrchestratorIDE.UITests/OrchestratorIDE.UITests.csproj `
-  --no-build `
-  --filter "FullyQualifiedName~T07|FullyQualifiedName~T08"
-
-# Run all tests except T06
-dotnet test OrchestratorIDE.UITests/OrchestratorIDE.UITests.csproj `
-  --filter "FullyQualifiedName!~T06"
-
-# Run a specific test
-dotnet test OrchestratorIDE.UITests/OrchestratorIDE.UITests.csproj `
-  --filter "FullyQualifiedName~T01_LaunchTests.MainWindow_IsVisible"
-```
-
-> **Do NOT run T06 unless you have intentionally selected a capable model (≥12B).**
-> T06 is a live end-to-end test that runs the agent autonomously and writes files.
+There are also focused logic tests, including steering-related coverage, that protect capability-aware swarm behavior.
 
 ---
 
-## Test Suite Reference
+## UI Tests
 
-### T01 — Launch Tests
+The UI test project drives the real application through FlaUI and Windows UI Automation.
 
-**What it tests:** Application launch, main window visibility, AutomationId integrity,
-basic status bar elements.
+That means:
 
-**Requirements:** No Ollama required. App must be built.
+- a real interactive Windows desktop session is required
+- the app must be buildable
+- model-dependent flows need a reachable inference backend
 
-**Key assertions:**
-- Main window is visible and has title containing "Orchestrator IDE"
-- `AutomationId` of root window is `MainWindow`
-- Status bar workspace label is present
-
-### T02 — Activity Bar Tests
-
-**What it tests:** Mode selector, activity bar navigation buttons, panel switching.
-
-**Requirements:** No Ollama required.
-
-**Key assertions:**
-- Mode buttons are present and clickable (`Mode.Single`, `Mode.Swarm`, `Mode.Chat`)
-- Switching modes shows/hides the correct panels
-
-### T03 — Command Palette Tests
-
-**What it tests:** `Ctrl+K` command palette open/close, search filtering, basic navigation.
-
-**Requirements:** No Ollama required.
-
-### T04 — Tool Editor Tests
-
-**What it tests:** Tool editor panel opens, basic tool loading UI elements are present.
-
-**Requirements:** No Ollama required.
-
-### T05 — Agent Panel Tests
-
-**What it tests:** Agent panel layout, chat input presence, model badge, trust level pill.
-
-**Requirements:** No Ollama required for structural checks.
+This is why AutomationIds matter so much in the WPF shell.
 
 ---
 
-### T06 — Autonomous Build (End-to-End)
+## Why AutomationIds Matter
 
-**What it tests:** Single-agent Execute mode — the agent must autonomously write 6 Python
-files for OrcResearcher without human approval of each step.
+The docs should only mention AutomationIds that actually exist in the XAML because the UI suite depends on exact values.
 
-**Requirements:**
-- A capable model is currently selected (≥12B — `theorc-boss:gemma4`, `qwen2.5-coder:14b`)
-- Ollama running with the model loaded
-- Full Auto trust level or approved execution
-- This test writes actual files to a test workspace
+Examples visible in the current shell include:
 
-**Architecture:**
-- File-based IPC: test writes the prompt to `<workspace>/.flaui_cmd`
-- `MainWindow`'s `FileSystemWatcher` picks it up and calls `_agentPanel.AutoSend(prompt)`
-- This bypasses `IValueProvider.SetValue` which truncates long prompts at ~383 chars
-- Prompts embed full Python file contents so the model only needs to copy them
+- `Mode.Single`
+- `Mode.Swarm`
+- `Mode.Chat`
+- `StatusBar.Workspace`
+- `StatusBar.Branch`
+- `StatusBar.Build`
+- `StatusBar.Model`
 
-**Confirmed failures (small models):**
-- `nemotron-3-nano:4b-q8_0` — zero files written across 3 passes (JSON truncation confirmed)
-- Any model ≤4B — hard payload ceiling; will truncate long `write_file` JSON
-
-**What failure means:**
-If T06 fails with `opens > closes` in the agent log, the failure is a **model capability
-issue** — not an app logic or Ollama configuration problem.
-
-**Do not run T06 casually.** It is a live model test and takes several minutes.
+If you document or test a made-up AutomationId, you are testing fiction.
 
 ---
 
-### T07 — Swarm Board Tests
+## Model And Probe Testing
 
-**What it tests:** Swarm Board idle-state smoke tests — panel loads, idle controls are
-present and visible.
+The model tooling layer has dedicated UI and runtime surfaces:
 
-**Requirements:** No model execution required. Ollama not required for idle-state checks.
+- capability test dialog
+- tool-call probe window
+- Evolution tab for stored schema fitness
 
-**Key assertions:**
-- `Panel.SwarmBoard` is present and on-screen
-- `Swarm.GoalInput` and `Swarm.Launch` are present in idle state
-- Model picker elements are accessible
-
-**What it does NOT test:**
-- Active-state swarm nodes (they are `Visibility.Collapsed` at idle)
-- Live swarm runs (requires Ollama with `OLLAMA_NUM_PARALLEL`)
+These surfaces matter because TheOrc actively changes runtime behavior based on probe results and local model evidence.
 
 ---
 
-### T08 — Model Wiki Tests
+## Training Pit Script Tests
 
-**What it tests:** Model Wiki / Lab window — open, filter chips, model list, detail pane,
-capability test dialog.
+The Training Pit has Python tests under `training_pit/tests`.
 
-**Requirements:** Ollama running (for model list population). No model execution for
-most tests. The RunCapabilityTest tests briefly open and close the dialog.
+These are important because the data pipeline is designed to fail closed. Script regressions can corrupt trust in the dataset even if the shell still looks healthy.
 
-**Key AutomationIds used:**
-- `Menu.Models` — Models menu
-- `Menu.ModelWiki` — Model Wiki / Lab… menu item
-- `ModelWiki.Root` — Model Wiki window root
-- `ModelWiki.Search` — Search box
-- `ModelWiki.ModelList` — Model list
-- `ModelWiki.Detail` — Detail pane
-- `ModelWiki.RunCapabilityTest` — Run capability test button
-- `ModelCapTest.Root` — Capability test dialog root
-- `ModelCapTest.Cancel` — Stop button
-- `ModelCapTest.Close` — Close button
+Core checks include:
 
-**What it tests:**
-- Window opens from menu (Menu.Models → Menu.ModelWiki)
-- Window is single-instance (second open activates existing window)
-- Search box filters model list
-- Filter chips are present (Installed, Boss, Coder, Researcher, Tester, etc.)
-- Detail pane loads content on model selection
-- Run Capability Test button opens the dialog
-- Capability test dialog closes cleanly
+- review workflow behavior
+- preflight behavior
+- dataset safety invariants
 
 ---
 
-## AutomationId Reference
+## Good Testing Order
 
-Key AutomationIds used across the test suite:
+When making shell or model-surface changes:
 
-| AutomationId | Element |
-|---|---|
-| `MainWindow` | Application root window |
-| `Mode.Single` | Single mode button |
-| `Mode.Swarm` | Swarm mode button |
-| `Mode.Chat` | Chat mode button |
-| `StatusBar.Workspace` | Workspace badge in status bar |
-| `Panel.SwarmBoard` | Swarm Board UserControl |
-| `Swarm.GoalInput` | Goal text input |
-| `Swarm.Launch` | Launch Swarm button |
-| `Menu.Models` | Models menu item |
-| `Menu.ModelWiki` | Model Wiki / Lab… menu item |
-| `Menu.ModelCapabilityTest` | Run Model Capability Test… menu item |
-| `ModelWiki.Root` | Model Wiki window |
-| `ModelWiki.Search` | Search box |
-| `ModelWiki.ModelList` | Model list |
-| `ModelWiki.Detail` | Detail ScrollViewer |
-| `ModelWiki.RunCapabilityTest` | Run Capability Test button |
-| `ModelCapTest.Root` | Capability Test dialog window |
-| `ModelCapTest.Cancel` | Stop/cancel button |
-| `ModelCapTest.Close` | Close button |
+1. build the app
+2. run targeted logic tests where possible
+3. run the relevant UI tests
+4. if Training Pit scripts changed, run the Python tests too
 
----
-
-## Adding a New Test
-
-1. Create `OrchestratorIDE.UITests/Tests/T<nn>_<Name>Tests.cs`
-2. Inherit from `RecordingTestBase`
-3. Use `AppFixture.FindById(automationId)` for element discovery
-4. Use `AppFixture.RequireById(automationId)` when the element must exist (throws if not found)
-5. Add AutomationIds to XAML elements before writing tests for them
-6. Tests that involve live model execution: document the model requirement and add a skip guard
-
----
-
-## Test Recordings
-
-FlaUI test failures save screen recordings to:
-```
-%APPDATA%\OrchestratorIDE\Recordings\
-```
-
-These are AVI files named by test and timestamp. Review them when a test fails in CI or
-on a machine where you can't observe the screen.
-
----
-
-## Training Pit Python Tests
-
-The Training Pit scripts have their own unittest suites under `training_pit/tests/`.
-These run without FlaUI, Ollama, or a live desktop — pure Python unit tests.
-
-```powershell
-# Run from the repo root
-
-# Phase 2.5 approval valve tests (31 tests)
-python training_pit/tests/test_review_captures.py
-
-# Phase 3 preflight guardrail tests (36 tests)
-python training_pit/tests/test_phase3_preflight.py
-```
-
-Both suites use isolated temp directories and do not read or modify the live
-`reviewed_v1.json` manifest or any staged captures.
-
-**Run both after any change to Training Pit scripts.** All tests must pass before committing.
+This gives you the shortest path to catching both UI breakage and dataset-pipeline regressions.
