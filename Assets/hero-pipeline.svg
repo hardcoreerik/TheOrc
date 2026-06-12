@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 200" font-family="Segoe UI, Arial">
+<rect width="920" height="200" fill="#0A0E0A"/>
+<text x="24" y="34" fill="#76B900" font-size="18" font-weight="bold">Training Pit — Data Pipeline</text>
+<g font-size="12">
+<rect x="24" y="64" width="120" height="56" rx="8" fill="#10140F" stroke="#2E5A1E"/><text x="84" y="88" fill="#D4D4D4" text-anchor="middle">Capture</text><text x="84" y="106" fill="#7A8A6A" text-anchor="middle" font-size="10">swarm plans</text>
+<rect x="172" y="64" width="120" height="56" rx="8" fill="#10140F" stroke="#2E5A1E"/><text x="232" y="88" fill="#D4D4D4" text-anchor="middle">Pre-screen</text><text x="232" y="106" fill="#7A8A6A" text-anchor="middle" font-size="10">deterministic</text>
+<rect x="320" y="64" width="120" height="56" rx="8" fill="#10140F" stroke="#2E5A1E"/><text x="380" y="88" fill="#D4D4D4" text-anchor="middle">Judge</text><text x="380" y="106" fill="#7A8A6A" text-anchor="middle" font-size="10">triage by risk</text>
+<rect x="468" y="64" width="120" height="56" rx="8" fill="#0E1A0A" stroke="#4E7A2E"/><text x="528" y="88" fill="#A8CC80" text-anchor="middle">Human review</text><text x="528" y="106" fill="#7A8A6A" text-anchor="middle" font-size="10">the valve</text>
+<rect x="616" y="64" width="120" height="56" rx="8" fill="#10140F" stroke="#2E5A1E"/><text x="676" y="88" fill="#D4D4D4" text-anchor="middle">Manifest</text><text x="676" y="106" fill="#7A8A6A" text-anchor="middle" font-size="10">JSONL export</text>
+<rect x="764" y="64" width="130" height="56" rx="8" fill="#241A0A" stroke="#E8A030"/><text x="829" y="88" fill="#E8C080" text-anchor="middle">ORC ACADEMY</text><text x="829" y="106" fill="#7A8A6A" text-anchor="middle" font-size="10">QLoRA train</text>
+<g stroke="#4E7A2E" stroke-width="2" fill="none"><path d="M144 92 H172"/><path d="M292 92 H320"/><path d="M440 92 H468"/><path d="M588 92 H616"/><path d="M736 92 H764"/></g>
+</g>
+<text x="24" y="172" fill="#7A8A6A" font-size="12">Live captures become a reviewed dataset, then a fine-tuned boss adapter — all on your own machine.</text>
+</svg>

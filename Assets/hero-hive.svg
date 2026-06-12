@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 240" font-family="Segoe UI, Arial">
+<rect width="920" height="240" fill="#0A0E0A"/>
+<text x="24" y="34" fill="#76B900" font-size="18" font-weight="bold">🐝 HIVE MIND — Distributed TheOrc</text>
+<g><circle cx="460" cy="135" r="46" fill="#121A0A" stroke="#76B900" stroke-width="2"/><text x="460" y="132" fill="#76B900" text-anchor="middle" font-size="13" font-weight="bold">This PC</text><text x="460" y="150" fill="#7A8A6A" text-anchor="middle" font-size="10">war-camp</text></g>
+<g stroke="#4EC94E" stroke-width="2"><path d="M414 135 H250"/><path d="M506 135 H670"/><path d="M460 89 V64"/></g>
+<g font-size="12">
+<rect x="110" y="108" width="140" height="56" rx="8" fill="#10140F" stroke="#4EC94E"/><text x="180" y="132" fill="#4EC94E" text-anchor="middle">BIGRIG</text><text x="180" y="150" fill="#7A8A6A" text-anchor="middle" font-size="10">16GB · academy</text>
+<rect x="670" y="108" width="150" height="56" rx="8" fill="#10140F" stroke="#4EC94E"/><text x="745" y="132" fill="#4EC94E" text-anchor="middle">HARDCOREPC</text><text x="745" y="150" fill="#7A8A6A" text-anchor="middle" font-size="10">6GB · farm/judge/scout</text>
+<rect x="390" y="24" width="140" height="40" rx="8" fill="#10140F" stroke="#555"/><text x="460" y="49" fill="#999" text-anchor="middle" font-size="11">offline node</text>
+</g>
+<text x="24" y="216" fill="#7A8A6A" font-size="12">Every PC running TheOrc auto-joins the roster. Tasks run on whichever node''s hardware fits — capability-aware.</text>
+</svg>
