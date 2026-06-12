@@ -1,0 +1,84 @@
+<svg width="1600" height="920" viewBox="0 0 1600 920" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg3" x1="0" y1="0" x2="1600" y2="920" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#04070D"/>
+      <stop offset="1" stop-color="#09141C"/>
+    </linearGradient>
+    <linearGradient id="accent3" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#86FF48"/>
+      <stop offset="1" stop-color="#0BE0C3"/>
+    </linearGradient>
+    <filter id="glow3" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="920" rx="36" fill="url(#bg3)"/>
+  <rect x="28" y="28" width="1544" height="864" rx="28" stroke="#153B2A" stroke-width="2"/>
+
+  <text x="100" y="120" fill="#F4F8FB" font-family="Segoe UI, Arial, sans-serif" font-size="60" font-weight="700">HIVE MIND</text>
+  <text x="100" y="170" fill="#8DEDB6" font-family="Segoe UI, Arial, sans-serif" font-size="26">Distributed TheOrc: Phase A host routing shipped, discovery and remote jobs planned</text>
+
+  <g opacity="0.18" stroke="#1C825C" stroke-width="2">
+    <path d="M180 650H1420"/>
+    <path d="M800 180V760"/>
+  </g>
+
+  <g filter="url(#glow3)">
+    <circle cx="800" cy="460" r="130" fill="#0A141B" stroke="url(#accent3)" stroke-width="4"/>
+    <text x="725" y="435" fill="#86FF48" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700">This PC</text>
+    <text x="690" y="475" fill="#E8F2EE" font-family="Segoe UI, Arial, sans-serif" font-size="22">single-agent</text>
+    <text x="690" y="505" fill="#E8F2EE" font-family="Segoe UI, Arial, sans-serif" font-size="22">swarm control</text>
+    <text x="690" y="535" fill="#E8F2EE" font-family="Segoe UI, Arial, sans-serif" font-size="22">local Academy</text>
+
+    <rect x="170" y="250" width="300" height="150" rx="24" fill="#0A141B" stroke="url(#accent3)" stroke-width="3"/>
+    <text x="200" y="300" fill="#86FF48" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700">BIGRIG</text>
+    <text x="200" y="338" fill="#E8F2EE" font-family="Segoe UI, Arial, sans-serif" font-size="22">remote Ollama host</text>
+    <text x="200" y="368" fill="#E8F2EE" font-family="Segoe UI, Arial, sans-serif" font-size="22">best for heavy inference</text>
+
+    <rect x="1110" y="250" width="320" height="150" rx="24" fill="#0A141B" stroke="url(#accent3)" stroke-width="3"/>
+    <text x="1140" y="300" fill="#86FF48" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700">HARDCOREPC</text>
+    <text x="1140" y="338" fill="#E8F2EE" font-family="Segoe UI, Arial, sans-serif" font-size="22">reachability probe</text>
+    <text x="1140" y="368" fill="#E8F2EE" font-family="Segoe UI, Arial, sans-serif" font-size="22">model list + lane fit</text>
+
+    <rect x="240" y="600" width="280" height="150" rx="24" fill="#0A141B" stroke="#1AD6FF" stroke-width="3"/>
+    <text x="270" y="650" fill="#86FF48" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700">Phase A</text>
+    <text x="270" y="688" fill="#E8F2EE" font-family="Segoe UI, Arial, sans-serif" font-size="22">named hosts</text>
+    <text x="270" y="718" fill="#E8F2EE" font-family="Segoe UI, Arial, sans-serif" font-size="22">manual routing</text>
+
+    <rect x="660" y="690" width="280" height="130" rx="24" fill="#0A141B" stroke="#1AD6FF" stroke-width="3"/>
+    <text x="690" y="740" fill="#86FF48" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700">H1 / H2</text>
+    <text x="690" y="778" fill="#E8F2EE" font-family="Segoe UI, Arial, sans-serif" font-size="22">discovery + roster</text>
+    <text x="690" y="808" fill="#E8F2EE" font-family="Segoe UI, Arial, sans-serif" font-size="22">capability scheduling</text>
+
+    <rect x="1080" y="600" width="290" height="150" rx="24" fill="#0A141B" stroke="#1AD6FF" stroke-width="3"/>
+    <text x="1110" y="650" fill="#86FF48" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700">H3</text>
+    <text x="1110" y="688" fill="#E8F2EE" font-family="Segoe UI, Arial, sans-serif" font-size="22">remote farm / judge</text>
+    <text x="1110" y="718" fill="#E8F2EE" font-family="Segoe UI, Arial, sans-serif" font-size="22">Academy jobs + artifacts</text>
+  </g>
+
+  <g stroke="#86FF48" stroke-width="5" stroke-linecap="round">
+    <path d="M470 325L680 410"/>
+    <path d="M1110 325L920 410"/>
+    <path d="M520 670L690 590"/>
+    <path d="M910 590L1080 670"/>
+    <path d="M800 590V690"/>
+  </g>
+
+  <g fill="#86FF48">
+    <circle cx="470" cy="325" r="8"/>
+    <circle cx="680" cy="410" r="8"/>
+    <circle cx="1110" cy="325" r="8"/>
+    <circle cx="920" cy="410" r="8"/>
+    <circle cx="520" cy="670" r="8"/>
+    <circle cx="690" cy="590" r="8"/>
+    <circle cx="910" cy="590" r="8"/>
+    <circle cx="1080" cy="670" r="8"/>
+    <circle cx="800" cy="590" r="8"/>
+    <circle cx="800" cy="690" r="8"/>
+  </g>
+</svg>
