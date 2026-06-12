@@ -47,15 +47,38 @@ public partial class SwarmBoardPanel : UserControl
         if (CbRunOn.SelectedIndex < 0 && CbRunOn.Items.Count > 0) CbRunOn.SelectedIndex = 0;
     }
 
-    private void CbRunOn_SelectionChanged(object s, System.Windows.Controls.SelectionChangedEventArgs e)
+    private async void CbRunOn_SelectionChanged(object s, System.Windows.Controls.SelectionChangedEventArgs e)
     {
-        if (CbRunOn.SelectedItem is System.Windows.Controls.ComboBoxItem { Tag: Services.Hive.HiveHost h })
+        if (CbRunOn.SelectedItem is not System.Windows.Controls.ComboBoxItem { Tag: Services.Hive.HiveHost h })
+            return;
+
+        _runOnName = h.Name;
+        _runOnUrl  = h.Name == "This PC" ? null : h.Url;
+
+        if (_runOnUrl is null)
         {
-            _runOnName = h.Name;
-            _runOnUrl  = h.Name == "This PC" ? null : h.Url;
-            StatusChanged?.Invoke(_runOnUrl is null
-                ? "Swarm runs on This PC"
-                : $"Swarm will run on {h.Name} ({h.Url})");
+            // Back to This PC — restore local models.
+            RepopulateModels(_localModels);
+            StatusChanged?.Invoke("Swarm runs on This PC");
+            return;
+        }
+
+        // Remote node: the model pickers MUST reflect THAT node's installed
+        // models, not This PC's — otherwise the boss model (e.g. the local 12B)
+        // gets sent to a node that doesn't have it (the 2026-06 hardcorepc 404).
+        StatusChanged?.Invoke($"Querying {h.Name}'s models…");
+        await Services.Hive.HiveHosts.ProbeAsync(h);
+        if (h.Reachable == true && h.Models.Count > 0)
+        {
+            RepopulateModels(h.Models);
+            StatusChanged?.Invoke(
+                $"Swarm will run on {h.Name} — {h.Models.Count} models there. " +
+                "Pick ones that fit its GPU.");
+        }
+        else
+        {
+            StatusChanged?.Invoke(
+                $"⚠ {h.Name} is unreachable or has no models — swarm may fail. Re-pick a node.");
         }
     }
 
@@ -89,6 +112,27 @@ public partial class SwarmBoardPanel : UserControl
 
         _workerModel     = workerModel;
         _researcherModel = string.IsNullOrWhiteSpace(researcherModel) ? workerModel : researcherModel;
+        _localModels     = models;   // remembered so RUN ON can restore "This PC"
+    }
+
+    private IReadOnlyList<string> _localModels = [];
+
+    /// <summary>
+    /// Repopulates the three model pickers from a specific list (a remote node's
+    /// models when running there, or the local list for This PC). Keeps the
+    /// current selection if it still exists, else picks the first available.
+    /// </summary>
+    private void RepopulateModels(IReadOnlyList<string> models)
+    {
+        void Fill(System.Windows.Controls.ComboBox cb)
+        {
+            var keep = cb.SelectedItem as string;
+            cb.Items.Clear();
+            foreach (var m in models) cb.Items.Add(m);
+            var idx = keep != null ? models.ToList().IndexOf(keep) : -1;
+            cb.SelectedIndex = idx >= 0 ? idx : (models.Count > 0 ? 0 : -1);
+        }
+        Fill(CbBossModel); Fill(CbWorkerModel); Fill(CbResearcherModel);
     }
 
     // ── Runtime state ─────────────────────────────────────────────────────────
