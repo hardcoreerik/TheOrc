@@ -65,7 +65,24 @@ feedback loops and self-directed improvement.
 
 ---
 
-## v1.3 — Cross-Platform (Docker + Blazor) (Planned)
+## v1.3 — 🐝 HIVE MIND: Distributed TheOrc (Priority)
+
+> Every PC on the network running TheOrc auto-joins a roster; tasks run on
+> whichever node''s hardware fits. Full spec: [HIVE_MIND_SPEC.md](HIVE_MIND_SPEC.md)
+
+- [ ] **Phase A — remote Ollama routing**: named hosts in settings, host-aware
+  swarm model pickers, per-host reachability (fast win; manual hosts OK here)
+- [ ] **Phase H1 — discovery + roster**: UDP beacon + gossip for Tailscale,
+  embedded node API (/hive/info: GPU, VRAM, models, load, lanes), live HIVE
+  MIND roster panel, one-click two-sided pairing (ed25519)
+- [ ] **Phase H2 — capability-aware remote inference**: roster-driven pickers,
+  lane gating with reasons ("needs ~9 GB, node has 6")
+- [ ] **Phase H3 — remote jobs**: farm/judge/academy/probe over the node API,
+  heartbeat served via HTTP (remote feels local), automatic artifact return
+- [ ] **Scout lane**: ~4B boss adapter training for 6 GB-class nodes (the
+  HARDCOREPC lane) — also the staged "next model" decision
+
+## v1.3.5 — Cross-Platform (Docker + Blazor) (Planned)
 
 > The Avalonia port is parked. Docker + Blazor Server ships cross-platform faster and avoids
 > porting 15+ WPF panels.
