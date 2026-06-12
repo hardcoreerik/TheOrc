@@ -127,8 +127,14 @@ public partial class TrainingPitPanel : UserControl
 
                 var parts = line.Split(',');
                 if (parts.Length < 2 ||
-                    !double.TryParse(parts[0].Trim(), out var used) ||
-                    !double.TryParse(parts[1].Trim(), out var total) || total <= 0) return;
+                    !double.TryParse(parts[0].Trim(), System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var used) ||
+                    !double.TryParse(parts[1].Trim(), System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var total) || total <= 0) return;
+
+                // The driver returns garbage (e.g. 17592181866194 MiB) under heavy
+                // memory pressure — discard impossible samples, keep the last sane one.
+                if (used < 0 || used > total * 1.05 || total > 512 * 1024) return;
 
                 var pct = used / total * 100;
                 Dispatcher.BeginInvoke(() =>
@@ -675,7 +681,15 @@ public partial class TrainingPitPanel : UserControl
         if (!File.Exists(ProgressPath)) return;
         try
         {
+            // Liveness = freshest of heartbeat OR trainer log output: evaluation
+            // phases beat rarely but stream tqdm into forge.log constantly
+            // (false "possibly hung" observed during the 87-example eval).
             var beatAge = DateTime.Now - File.GetLastWriteTime(ProgressPath);
+            if (File.Exists(ForgeLogPath))
+            {
+                var logAge = DateTime.Now - File.GetLastWriteTime(ForgeLogPath);
+                if (logAge < beatAge) beatAge = logAge;
+            }
             var p = System.Text.Json.JsonDocument.Parse(File.ReadAllText(ProgressPath)).RootElement;
             var status = p.GetProperty("status").GetString() ?? "?";
 
