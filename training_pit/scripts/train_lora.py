@@ -12,8 +12,11 @@ Windows support is too fragile to gate Phase 3 on).
 Outputs the adapter to training_pit/outputs/lora_v1/adapter (+ a training
 summary JSON beside it). GGUF export/Ollama deploy is Phase 4 — not done here.
 """
-import argparse, json, time
+import argparse, json, os, time
 from pathlib import Path
+
+# Reduce fragmentation on the 16 GB card (must be set before torch import)
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 
 def main():
@@ -25,7 +28,7 @@ def main():
     ap.add_argument("--out",   default="training_pit/outputs/lora_v1/adapter")
     ap.add_argument("--epochs", type=float, default=3)
     ap.add_argument("--lr", type=float, default=2e-4)
-    ap.add_argument("--max-seq", type=int, default=2048)
+    ap.add_argument("--max-seq", type=int, default=1536)   # examples are ~600-1200 tokens
     ap.add_argument("--dry-run", action="store_true",
                     help="verify model+data load and a single forward step, then exit")
     args = ap.parse_args()
@@ -60,6 +63,8 @@ def main():
         args.base, quantization_config=bnb, device_map="auto",
         dtype=torch.bfloat16, attn_implementation="eager")
     model.config.use_cache = False  # incompatible with gradient checkpointing
+    print(f"model footprint: {model.get_memory_footprint() / 2**30:.1f} GB "
+          f"(4-bit applied: {'yes' if model.get_memory_footprint() < 12 * 2**30 else 'NO — investigate'})")
 
     # ── LoRA per lora_job_template.json ───────────────────────────────────────
     lora = LoraConfig(
@@ -77,6 +82,7 @@ def main():
         num_train_epochs=0.01 if args.dry_run else args.epochs,
         learning_rate=args.lr,
         per_device_train_batch_size=1,          # 16 GB card: bs1 + accum 8
+        per_device_eval_batch_size=1,           # default 8 OOMs: 262k-vocab logits
         gradient_accumulation_steps=8,
         gradient_checkpointing=True,
         warmup_steps=10,
