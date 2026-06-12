@@ -159,7 +159,13 @@
                         <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
                             <TextBlock Text="VRAM cap" FontSize="11" Foreground="#999999" VerticalAlignment="Center"/>
                             <ComboBox x:Name="CbVramCap" Width="110" Margin="6,0,14,0" FontSize="11"
+                                      Foreground="#1A1A1A"
                                       AutomationProperties.AutomationId="TrainingPit.ForgeVramCap">
+                                <ComboBox.ItemContainerStyle>
+                                    <Style TargetType="ComboBoxItem">
+                                        <Setter Property="Foreground" Value="Black"/>
+                                    </Style>
+                                </ComboBox.ItemContainerStyle>
                                 <ComboBoxItem Content="No cap" IsSelected="True" Tag="0"/>
                                 <ComboBoxItem Content="12 GB" Tag="12"/>
                                 <ComboBoxItem Content="10 GB" Tag="10"/>

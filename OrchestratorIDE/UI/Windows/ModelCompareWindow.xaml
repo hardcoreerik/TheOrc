@@ -36,11 +36,25 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <ComboBox x:Name="CbLeft"  Grid.Column="1" Margin="0,0,6,0" Padding="6,4"
+                      Foreground="#1A1A1A"
                       SelectionChanged="Picker_SelectionChanged"
-                      AutomationProperties.AutomationId="ModelCompare.Left"/>
+                      AutomationProperties.AutomationId="ModelCompare.Left">
+                <ComboBox.ItemContainerStyle>
+                    <Style TargetType="ComboBoxItem">
+                        <Setter Property="Foreground" Value="Black"/>
+                    </Style>
+                </ComboBox.ItemContainerStyle>
+            </ComboBox>
             <ComboBox x:Name="CbRight" Grid.Column="2" Margin="6,0,0,0" Padding="6,4"
+                      Foreground="#1A1A1A"
                       SelectionChanged="Picker_SelectionChanged"
-                      AutomationProperties.AutomationId="ModelCompare.Right"/>
+                      AutomationProperties.AutomationId="ModelCompare.Right">
+                <ComboBox.ItemContainerStyle>
+                    <Style TargetType="ComboBoxItem">
+                        <Setter Property="Foreground" Value="Black"/>
+                    </Style>
+                </ComboBox.ItemContainerStyle>
+            </ComboBox>
         </Grid>
 
         <!-- Comparison rows (built in code-behind) -->
