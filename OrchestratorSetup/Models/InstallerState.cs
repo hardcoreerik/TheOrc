@@ -74,6 +74,13 @@ public class InstallerState
     public bool OllamaRunning        { get; set; } = false;
 
     /// <summary>
+    /// HIVE MIND enrollment (spec §8): expose this PC''s AI to other TheOrc
+    /// machines on the same private network. Sets OLLAMA_HOST=0.0.0.0 and adds
+    /// Private-profile firewall rules for Ollama (11434) + the hive port (7077).
+    /// </summary>
+    public bool JoinHiveMind         { get; set; } = true;
+
+    /// <summary>
     /// true  → use Ollama as the backend (existing OR freshly installed).
     /// false → install llama.cpp and ignore Ollama.
     /// </summary>

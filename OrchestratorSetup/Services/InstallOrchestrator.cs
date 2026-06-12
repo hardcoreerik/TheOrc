@@ -252,6 +252,19 @@ public sealed class InstallOrchestrator : IDisposable
                 Log("Using existing Ollama service — skipping runtime and model download.");
             }
 
+            // ── HIVE MIND enrollment (spec §8) ──────────────────────────────
+            if (_state.JoinHiveMind)
+            {
+                await Step("Joining HIVE MIND", () => Task.Run(() =>
+                {
+                    HiveEnroller.Enroll(Log);
+                }, ct), ct);
+            }
+            else
+            {
+                Log("HIVE MIND enrollment skipped (unchecked).");
+            }
+
             // ── Step N-1: Write settings.json + .agent.md ──────────────────
             await Step("Writing configuration", () => Task.Run(() =>
             {

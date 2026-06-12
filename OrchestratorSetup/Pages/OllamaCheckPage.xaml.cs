@@ -175,6 +175,9 @@ public partial class OllamaCheckPage : UserControl, IInstallerPage
         radio.Stroke      = (SolidColorBrush)FindResource(
             selected ? "Accent"       : "TextMuted");
     }
+    private void ChkJoinHive_Changed(object sender, RoutedEventArgs e)
+        => _vm.State.JoinHiveMind = ChkJoinHive.IsChecked == true;
+
 
     public bool CanLeave() => true;
 }

@@ -141,7 +141,20 @@
                     </StackPanel>
                 </Grid>
             </Border>
+            <!-- HIVE MIND enrollment (spec section 8) -->
+            <Border Background="#0E120E" BorderBrush="#2A5A00" BorderThickness="1"
+                    CornerRadius="6" Padding="14,10" Margin="0,10,0,0">
+                <StackPanel>
+                    <CheckBox x:Name="ChkJoinHive" IsChecked="True"
+                              Checked="ChkJoinHive_Changed" Unchecked="ChkJoinHive_Changed">
+                        <TextBlock Text="🐝 Join HIVE MIND — let other PCs running TheOrc on your home network use this computer's AI"
+                                   FontFamily="Segoe UI" FontSize="13" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimary}" TextWrapping="Wrap"/>
+                    </CheckBox>
+                    <TextBlock Style="{StaticResource TextSubtitle}" FontSize="11" Margin="24,4,0,0" TextWrapping="Wrap"
+                               Text="Configures Ollama to listen on your local network and adds a Windows Firewall rule for PRIVATE networks only. Never exposed to public Wi-Fi or the internet. You can change this later in TheOrc settings."/>
+                </StackPanel>
+            </Border>
 
-        </StackPanel>
-    </Grid>
+        </StackPanel>    </Grid>
 </UserControl>
