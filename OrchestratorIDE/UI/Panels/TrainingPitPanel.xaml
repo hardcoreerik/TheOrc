@@ -159,8 +159,42 @@
                         <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
                             <TextBlock Text="VRAM cap" FontSize="11" Foreground="#999999" VerticalAlignment="Center"/>
                             <ComboBox x:Name="CbVramCap" Width="110" Margin="6,0,14,0" FontSize="11"
-                                      Foreground="#1A1A1A"
                                       AutomationProperties.AutomationId="TrainingPit.ForgeVramCap">
+                                <!-- Fully self-templated: the default/Fluent theme renders the
+                                     closed box dark with washed-out text and ignores Foreground.
+                                     This template guarantees black-on-light in every state. -->
+                                <ComboBox.Template>
+                                    <ControlTemplate TargetType="ComboBox">
+                                        <Grid>
+                                            <ToggleButton ClickMode="Press" Focusable="False"
+                                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay,
+                                                                      RelativeSource={RelativeSource TemplatedParent}}">
+                                                <ToggleButton.Template>
+                                                    <ControlTemplate TargetType="ToggleButton">
+                                                        <Border Background="#ECECEC" BorderBrush="#555555"
+                                                                BorderThickness="1" CornerRadius="3">
+                                                            <Path Data="M0,0 L4,4 8,0" Stroke="#1A1A1A" StrokeThickness="1.5"
+                                                                  HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                                  Margin="0,0,8,0"/>
+                                                        </Border>
+                                                    </ControlTemplate>
+                                                </ToggleButton.Template>
+                                            </ToggleButton>
+                                            <ContentPresenter Content="{TemplateBinding SelectionBoxItem}"
+                                                              Margin="8,3,22,3" VerticalAlignment="Center"
+                                                              TextElement.Foreground="Black"
+                                                              TextElement.FontWeight="SemiBold"
+                                                              IsHitTestVisible="False"/>
+                                            <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
+                                                   AllowsTransparency="True" StaysOpen="False">
+                                                <Border Background="White" BorderBrush="#555555" BorderThickness="1"
+                                                        CornerRadius="3" MinWidth="{TemplateBinding ActualWidth}">
+                                                    <ItemsPresenter/>
+                                                </Border>
+                                            </Popup>
+                                        </Grid>
+                                    </ControlTemplate>
+                                </ComboBox.Template>
                                 <ComboBoxItem Content="No cap" IsSelected="True" Tag="0" Foreground="Black" FontWeight="SemiBold"/>
                                 <ComboBoxItem Content="12 GB" Tag="12" Foreground="Black" FontWeight="SemiBold"/>
                                 <ComboBoxItem Content="10 GB" Tag="10" Foreground="Black" FontWeight="SemiBold"/>
