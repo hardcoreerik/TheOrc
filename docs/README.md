@@ -1,84 +1,70 @@
 # TheOrc — Documentation Index
 
-> **Windows-first local AI coding and orchestration tool.**
-> Runs 100% on your GPU. No cloud. No subscription.
+> Start with [ARCHITECTURE.md](ARCHITECTURE.md) if you want the system-level picture, then use the guides below for operator workflow and subsystem detail.
+
+---
+
+## Foundation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) explains how the WPF shell, agent runtime, GOBLIN MIND, swarm lifecycle, Training Pit, and planned HIVE MIND layer fit together.
+- [GLOSSARY.md](GLOSSARY.md) defines the project vocabulary once: TheOrc, goblins, ORC ACADEMY, GOBLIN HARVEST, lanes, captures, manifest, and related terms.
+- [ROADMAP.md](ROADMAP.md) separates what is already shipped from what is still planned.
 
 ---
 
 ## Getting Started
 
-| Doc | What it covers |
-|---|---|
-| [QUICK_START.md](QUICK_START.md) | First run in 10 steps — Ollama, model, workspace, first agent run |
-| [INSTALLATION.md](INSTALLATION.md) | Requirements, build from source, VS/VS Code notes, common setup problems |
-| [USER_GUIDE.md](USER_GUIDE.md) | App concepts — modes, Plan/Execute, approvals, workspace, output |
+- [QUICK_START.md](QUICK_START.md) is the shortest path from install to first successful run.
+- [INSTALLATION.md](INSTALLATION.md) covers installer, portable, source build, and Training Pit prerequisites.
+- [USER_GUIDE.md](USER_GUIDE.md) explains the shell, modes, approvals, help system, status bar, and where the major features live.
 
 ---
 
-## Features
+## Execution Modes
 
-| Doc | What it covers |
-|---|---|
-| [SINGLE_AGENT_GUIDE.md](SINGLE_AGENT_GUIDE.md) | Single Agent mode, Plan vs Execute, write_file behavior, T06 |
-| [SWARM_GUIDE.md](SWARM_GUIDE.md) | Goblin Swarm — Boss, Researcher, Coder, UIDeveloper, Tester roles |
-| [MODEL_GUIDE.md](MODEL_GUIDE.md) | Model scores, role recommendations, local model behavior facts |
-| [MODEL_WIKI_AND_LAB.md](MODEL_WIKI_AND_LAB.md) | Model Wiki / Lab window, capability test dialog, result schemas |
+- [SINGLE_AGENT_GUIDE.md](SINGLE_AGENT_GUIDE.md) explains the plan-then-execute loop and how approvals, tool dispatch, and verification work in one-agent mode.
+- [SWARM_GUIDE.md](SWARM_GUIDE.md) explains the boss plus four-role swarm, capability-aware steering, badges, metrics history, and co-work follow-ups.
 
 ---
 
-## Models and Hardware
+## Models And Hardware
 
-| Doc | What it covers |
-|---|---|
-| [HARDWARE_GUIDE.md](HARDWARE_GUIDE.md) | VRAM tiers, expected model classes, NVIDIA/AMD/Intel notes |
-| [SPONSOR_TEST_LAB.md](SPONSOR_TEST_LAB.md) | Hardware vendor and sponsor program — compatibility testing offer |
+- [MODEL_GUIDE.md](MODEL_GUIDE.md) explains built-in profile scores, long-`write_file` caveats, and where model suitability comes from.
+- [MODEL_WIKI_AND_LAB.md](MODEL_WIKI_AND_LAB.md) covers the in-app model intelligence surface, trends strip, comparison view, capability tests, and export.
+- [HARDWARE_GUIDE.md](HARDWARE_GUIDE.md) maps hardware tiers to practical TheOrc behavior for both inference and training.
 
 ---
 
 ## Training Pit
 
-| Doc | What it covers |
-|---|---|
-| [TRAINING_PIT_GUIDE.md](TRAINING_PIT_GUIDE.md) | What the Training Pit is, current phase status, Phase 3 gate |
-| [DATASET_REVIEW_WORKFLOW.md](DATASET_REVIEW_WORKFLOW.md) | Capture → review → validate → promote workflow (Phase 2.5) |
+- [TRAINING_PIT_GUIDE.md](TRAINING_PIT_GUIDE.md) covers the end-to-end dataset and adapter pipeline, including ORC ACADEMY.
+- [DATASET_REVIEW_WORKFLOW.md](DATASET_REVIEW_WORKFLOW.md) focuses on capture review, manifest decisions, exports, and preflight safety.
 
 ---
 
-## Development
+## Reliability And Support
 
-| Doc | What it covers |
-|---|---|
-| [TESTING_GUIDE.md](TESTING_GUIDE.md) | Build commands, T07/T08 test filter, FlaUI requirements, diagnostics |
-| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Real issues observed — Ollama, model, FlaUI, swarm, training |
-| [DOCUMENTATION_STANDARD.md](DOCUMENTATION_STANDARD.md) | Required checklist for all future code and docs passes |
+- [TESTING_GUIDE.md](TESTING_GUIDE.md) covers FlaUI UI coverage, Training Pit script tests, and the automation surfaces the suite depends on.
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) covers common failures in shell startup, models, swarm execution, and training.
+- [FAQ.md](FAQ.md) answers recurring operator questions without duplicating the longer guides.
 
 ---
 
-## Project
+## Reference Paths
 
-| Doc | What it covers |
-|---|---|
-| [ROADMAP.md](ROADMAP.md) | Current milestones, active work, backlog |
-| [FAQ.md](FAQ.md) | Common questions about TheOrc, Ollama, Training Pit, models |
+These are source-level references rather than end-user guides:
 
----
-
-## Source Docs (training_pit/)
-
-Detailed technical references live alongside the training pipeline:
-
-| File | What it covers |
-|---|---|
-| `training_pit/README.md` | Training Pit phase status and file inventory |
-| `training_pit/DATASET_STRATEGY.md` | Three-tier source strategy, Phase 3 gate conditions |
-| `training_pit/ROLE_ARCHITECTURE.md` | Logical vs execution roles, alias map, dataset implications |
-| `training_pit/MODEL_COMPATIBILITY.md` | Base model compat states, Gemma 4 12B architecture facts |
-| `training_pit/HARDWARE_GUIDE.md` | Training-specific VRAM tiers, QLoRA config, WSL2 setup |
-| `training_pit/ARCHITECTURE.md` | Full training system design |
-| `training_pit/DATASET_SCHEMA.md` | Canonical chat-JSONL training format |
-| `training_pit/EVAL_RUBRIC.md` | Plan quality and boss behavior rubrics |
-| `training_pit/datasets/CONTRIBUTING.md` | How to add training examples |
+- `training_pit/ARCHITECTURE.md`
+- `training_pit/PLAN_CAPTURE_SCHEMA.md`
+- `training_pit/DATASET_SCHEMA.md`
+- `training_pit/HARDWARE_GUIDE.md`
+- `training_pit/README.md`
 
 ---
 
-*All docs describe the current implementation unless explicitly marked **Planned**.*
+## Contributor Docs
+
+These stay out of the in-app help list on purpose:
+
+- [DOCUMENTATION_STANDARD.md](DOCUMENTATION_STANDARD.md)
+- [SPONSOR_TEST_LAB.md](SPONSOR_TEST_LAB.md)

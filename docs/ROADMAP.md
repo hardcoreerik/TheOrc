@@ -1,165 +1,126 @@
 # TheOrc — Roadmap
 
-> This roadmap reflects the current development state. Items move from Planned → In Progress
-> → Stable as work completes. See the [GitHub issues](https://github.com/hardcoreerik/The-Orchestrator/issues)
-> for the active backlog.
+> This roadmap reflects what is shipped in the current codebase versus what is still only specified. For the current system shape, start with [ARCHITECTURE.md](ARCHITECTURE.md) and [GLOSSARY.md](GLOSSARY.md).
 
 ---
 
-## v1.1 — GOBLIN MIND ✅ Complete
+## Current State
 
-The Goblin Mind initiative teaches the swarm to understand itself at runtime.
+TheOrc already ships more of the recent roadmap than the older docs implied. The codebase now includes:
 
-- [x] **Phase 1: Behavioral Format Fingerprinting** — Probe each model's preferred tool-call
-  format (OpenAI JSON / Hermes XML / bare JSON / Python-style / YAML). Store as `FormatFingerprint`.
-  `AgentLoop` shapes tool schemas to the model's native format.
-- [x] **Phase 2: Category Boundary Mapping** — 14-query capability taxonomy per model
-  (7 categories × 2 tests). Task routing is gated on actual model capability.
-- [x] **Phase 3: Adaptive Schema Generation** — Confirmed tool schemas per model.
-  Few-shot bootstrapping from successful probe outputs.
-- [x] **Phase 4: Schema Reduction Middleware** — Transparent `AgentLoop` middleware that
-  simplifies schemas for models that fail on complexity.
-- [x] **Phase 6: Steering Integration** — Boss reads capability profiles to steer the swarm.
-  Task routing is capability-driven, not config-driven.
-- [ ] **Phase 5: Evolutionary Schema Search** — On-demand mutation engine exploring schema
-  space per model. CLI `tool-probe evolve` available; GUI integration pending.
+- in-app help and embedded docs
+- status-bar build stamp
+- Swarm Board capability badges and per-configuration metrics history
+- Model Wiki trends, comparison view, export, and capability test surfaces
+- ORC ACADEMY training GUI with heartbeat, VRAM cap, resume, and re-attach
+- Training Pit preflight gates with the current dataset thresholds already met
+- scripted support tools such as `codex-review.ps1` and `harvest_marker_watch.ps1`
 
 ---
 
-## v1.2 — Swarm Tuning & Self-Improvement (Active)
+## Shipped
 
-Steering and correction are working. This milestone makes the swarm smarter through live
-feedback loops and self-directed improvement.
+### Core Shell
 
-- [x] **Steering test suite** — T11_SteeringTests (15 pure-logic NUnit tests) pins the
-  capability-routing contract: unprobed models trusted, deficient primaries fall back
-  with exact missing-category reporting, role requirements fixed (TESTER never needs
-  FileOps), boss-prompt capability map verified. Routing extracted to SwarmSteering
-  for testability. Built 2026-06-11
-- [x] **Live capability badges** — Swarm Board shows mode | format | categories | schema |
-  probe-age per model slot, with "Probe Now" button opening the probe window. Built 2026-06-10
-- [x] **Fitness map GUI** — ToolCallTestWindow "Evolution" tab lists fitness records
-  (variants, win rate, best mutation); Promote Winners saves to SchemaLibrary. Built 2026-06-11
-- [ ] **Self-improve loop** — GitHub issue scanner → Agent panel injection → TheOrc proposes
-  and applies fixes to itself via source clone
-- [x] **GOBLIN HARVEST — autonomous dataset farming** — swarmcli batch runner
-  (`farm_batch.ps1`) → deterministic rubric rejections (`prescreen_captures.py`:
-  wrong-stack, TESTER-write, single-task, low-rubric) → local judge-model triage
-  (`judge_captures.py`, qwen2.5-coder:14b — never the boss model judging itself) →
-  human approves only final train candidates. Built 2026-06-11.
-- [x] **NIGHT HARVEST — train till dawn** — `night_harvest.ps1` loops the full GOBLIN
-  HARVEST pipeline overnight: a local model authors fresh goal tranches from
-  PROMPT_AUTHORING_GUIDE.md (`generate_goals.py`, linted + deduped in code), farms,
-  pre-screens, judge-triages; ends at dawn, after -Hours, -UntilStopped, or via the
-  .orc/swarm/HARVEST_STOP file. Never approves, never trains. First live run
-  2026-06-10→11: 34 cycles · 850 goals farmed · 608 survivors · 162 auto-rejected,
-  zero crashes over ~9 h unattended
-- [x] **Parallel slots live gate** — `OllamaParallelHelper` detects user/machine/process
-  env; swarm start blocked below 3 slots with fix-it message + slot picker; settings
-  panel writes and reports the value (was already complete; roadmap entry was stale)
-- [x] **Wire `TotalVramGb`** in SwarmSession — DetectHardwareAsync() runs at swarm
-  start and feeds run metrics (was already complete; roadmap entry was stale)
-- [x] **In-app Help window** — F1 / Help menu opens an embedded documentation
-  browser: all 17 guides ship inside the exe (works on published installs with
-  no docs/ folder), full-text search, cross-guide link navigation. Built 2026-06-10
+- Single, Swarm, and Chat modes are implemented in the WPF shell.
+- `F1` opens the in-app Help window.
+- The status bar shows workspace, branch, build stamp, model, and status text.
+- The token cost estimator is active in the main window context display.
 
----
+### Single-Agent Runtime
 
-## v1.3 — 🐝 HIVE MIND: Distributed TheOrc (Priority)
+- `AgentLoop` supports plan-only review and execute mode.
+- Git checkpoints are created before execution.
+- Tool calls flow through approval-aware `ToolRegistry` handlers.
+- refusal nudging and text-format tool-call fallback are implemented.
 
-> Every PC on the network running TheOrc auto-joins a roster; tasks run on
-> whichever node''s hardware fits. Full spec: [HIVE_MIND_SPEC.md](HIVE_MIND_SPEC.md)
+### Swarm Runtime
 
-- [ ] **Phase A — remote Ollama routing**: named hosts in settings, host-aware
-  swarm model pickers, per-host reachability (fast win; manual hosts OK here)
-- [ ] **Phase H1 — discovery + roster**: UDP beacon + gossip for Tailscale,
-  embedded node API (/hive/info: GPU, VRAM, models, load, lanes), live HIVE
-  MIND roster panel, one-click two-sided pairing (ed25519)
-- [ ] **Phase H2 — capability-aware remote inference**: roster-driven pickers,
-  lane gating with reasons ("needs ~9 GB, node has 6")
-- [ ] **Phase H3 — remote jobs**: farm/judge/academy/probe over the node API,
-  heartbeat served via HTTP (remote feels local), automatic artifact return
-- [ ] **Scout lane**: ~4B boss adapter training for 6 GB-class nodes (the
-  HARDCOREPC lane) — also the staged "next model" decision
+- the four worker roles are implemented: `RESEARCHER`, `CODER`, `UIDEVELOPER`, `TESTER`
+- capability-aware fallback decisions are implemented in `SwarmSteering`
+- co-work pauses, steering, and worker continuation are implemented
+- Swarm Board capability badges are live
+- Swarm Board metrics history is live
 
-## v1.3.5 — Cross-Platform (Docker + Blazor) (Planned)
+### GOBLIN MIND
 
-> The Avalonia port is parked. Docker + Blazor Server ships cross-platform faster and avoids
-> porting 15+ WPF panels.
+- format fingerprinting is implemented
+- category boundary mapping is implemented
+- adaptive schema generation is implemented
+- schema reduction middleware is implemented
+- evolutionary fitness storage and GUI surfacing are implemented
+- steering consumes capability data at runtime
 
-- [ ] ASP.NET Core API backend wrapping AgentLoop + ToolRegistry
-- [ ] Blazor Server UI — same feature set as WPF app
-- [ ] Docker image: llama.cpp + backend server in one container
-- [ ] macOS Metal build of llama.cpp bundled
-- [ ] Linux AppImage / `.deb` packaging
+### Model Intelligence
 
-The WPF app remains the primary Windows-native experience indefinitely.
+- Model Wiki / Lab is implemented
+- local capability test results are persisted
+- trends strip is implemented
+- model comparison window is implemented
+- capability matrix export is implemented
+
+### Training Pit
+
+- boss-plan auto-capture is implemented
+- manifest-driven review is implemented
+- prescreen and judge triage tooling exist
+- preflight gate checking exists
+- ORC ACADEMY training GUI exists
+- `train_lora.py` supports dry run, VRAM cap, checkpoints, resume, and progress heartbeat
 
 ---
 
-## v1.4 — Backlog (Future)
+## Active Work
 
-- [ ] Inline diff editing (edit proposed diff before approving)
-- [ ] Background agent (fire task, get notified when done)
-- [x] Token cost estimator — live next-request token + ETA estimate on the ctx badge, T13 tests, codex-reviewed (2026-06-11)
-- [ ] Multi-workspace support
-- [x] SwarmBoard metrics history tab (ConfigStats per configuration) — lazy expander, quality-sorted, codex-reviewed (2026-06-11)
-- [x] Model Wiki: model comparison view (side-by-side) — ModelCompareWindow, winner highlighting, codex CLEAN (2026-06-11)
-- [x] Model Wiki: historical result trends chart — C2 trends strip + pass-rate trend, codex-reviewed (2026-06-11)
-- [x] Model Wiki: export capability matrix to Markdown — Export Matrix button, ModelWikiExporter + T12 tests (2026-06-11)
-- [x] Model Wiki: filter chips for GOBLIN MIND category scores — 7 probe-category chips, unprobed models excluded (2026-06-11)
-- [x] Model Wiki: "Probe Now" button in detail pane — opens probe window, detail refreshes on close (2026-06-11)
+### Documentation
 
----
+The docs are being normalized around the current implementation, especially:
 
-## Training Pit Phases (Separate Track)
+- the architecture narrative
+- glossary-backed terminology
+- recent UI and Training Pit features
 
-The Training Pit is on its own milestone track, not tied to app version numbers.
+### Data Scale
 
-| Phase | Status | Description |
-|---|---|---|
-| Phase 1 | ✅ Done | Scaffolding — schemas, rubrics, configs, scripts |
-| Phase 2 | ✅ Done | Data collection — auto-capture via DatasetCapture.cs |
-| Phase 2.5 | ✅ Gate met | Dataset Accumulation — ALL GATES MET 2026-06-11 (163/150 train ✅ · 20/20 eval ✅ · 25/25 negative ✅); farming continues toward ~1,000 |
-| Phase 3 | 🟢 Ready | Training — WARCHIEF FORGE GUI in the Training Pit panel + train_lora.py QLoRA runner; dataset 900/87/25; awaiting GPU window |
-| Phase 4 | 🔲 Future | Deployment — A/B path in SwarmSession |
+The v1 Phase 3 minimum gate is already satisfied, but the longer-term dataset target still matters. The Training Pit panel and docs now treat roughly 1,000 train and 200 eval examples as the next quality target after minimum readiness.
 
-**Phase 3 gate:** ≥150 reviewed positive examples + ≥25 negative examples + ≥20 eval.
-**Long-term dataset goal (agreed 2026-06-10):** ~1,000 train / ~200 eval for a
-production-quality adapter; 150 is the proof-of-concept starting line. Five-nines
-reliability comes from the system (rubric + validation + retry), not dataset size.
-See TRAINING_PIT_GUIDE.md "Dataset Size Targets".
-Current count: **163/150 train ✅, 25/25 negative ✅, 20/20 eval ✅ — ALL GATES MET 2026-06-11.**
-Run `python training_pit/scripts/review_captures.py --status` for live counters.
-See `training_pit/BATCH_CAPTURE_PLAN_V2.md` for the active capture batch
-(v1 plan is fully dispositioned).
+### Distributed Design
 
-See [TRAINING_PIT_GUIDE.md](TRAINING_PIT_GUIDE.md) for the full roadmap.
+HIVE MIND is still a spec, not a shipped feature. The current work is architectural preparation rather than implementation.
 
 ---
 
-## Current Stable Features
+## Planned
 
-| Feature | Status |
-|---|---|
-| WPF shell, file explorer, code editor | ✅ Stable |
-| Ollama + llama.cpp inference | ✅ Stable |
-| Model selection and profiles | ✅ Stable |
-| Single-agent Plan → Execute + approval gates | ✅ Stable |
-| Git auto-checkpoint | ✅ Stable |
-| GOBLIN MIND tool-call probing (CLI + GUI) | ⚠️ Beta |
-| Goblin Swarm multi-agent routing | ⚠️ Beta |
-| Self-improve / Scan GitHub loop | 🔬 Experimental |
-| Hot-load C# tools (Roslyn) | 🔬 Experimental |
-| llama.cpp direct backend | 🔬 Experimental |
-| FlaUI UI automation suite | 🔬 In progress |
-| CI / release automation | 🔲 Planned |
+### HIVE MIND
+
+Planned in [HIVE_MIND_SPEC.md](HIVE_MIND_SPEC.md):
+
+- multi-node discovery
+- remote Ollama host routing
+- capability-aware job placement
+- remote harvest and academy execution with artifact return
+
+### Broader Platform Expansion
+
+The repository still contains the design direction for a cross-platform layer, but the current production experience remains the Windows WPF application.
+
+### Further Model And Training Work
+
+Still-open follow-up opportunities visible from the current code shape include:
+
+- broader automated probe coverage
+- more reviewed data for future adapters
+- additional operator tooling around remote or distributed training
 
 ---
 
-## How to Contribute
+## Reading Order
 
-See [INSTALLATION.md](INSTALLATION.md) for build instructions.
+If you are new to the project, read in this order:
 
-For feature requests and bug reports, open a GitHub issue.
-For hardware sponsor opportunities, see [SPONSOR_TEST_LAB.md](SPONSOR_TEST_LAB.md).
+1. [ARCHITECTURE.md](ARCHITECTURE.md)
+2. [GLOSSARY.md](GLOSSARY.md)
+3. [USER_GUIDE.md](USER_GUIDE.md)
+4. [TRAINING_PIT_GUIDE.md](TRAINING_PIT_GUIDE.md)
+5. [HIVE_MIND_SPEC.md](HIVE_MIND_SPEC.md)
