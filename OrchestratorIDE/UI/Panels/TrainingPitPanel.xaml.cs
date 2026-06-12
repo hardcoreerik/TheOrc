@@ -23,6 +23,8 @@ namespace OrchestratorIDE.UI.Panels;
 public partial class TrainingPitPanel : UserControl
 {
     private const int TrainGate = 150, EvalGate = 20, NegGate = 25;
+    // Long-term professional targets (TRAINING_PIT_GUIDE "Dataset Size Targets")
+    private const int TrainGoal = 1000, EvalGoal = 200;
 
     public string WorkspaceRoot { get; set; } = "";
 
@@ -206,11 +208,34 @@ public partial class TrainingPitPanel : UserControl
 
             Dispatcher.Invoke(() =>
             {
-                TrainCount.Text = $"{train} of {TrainGate}";
-                EvalCount.Text  = $"{eval} of {EvalGate}" + (eval >= EvalGate ? " ✓" : "");
+                // Once the v1 gate is met, the cards graduate to the long-term
+                // professional targets (~1,000 train / ~200 eval per
+                // TRAINING_PIT_GUIDE "Dataset Size Targets") so "900 of 150"
+                // never reads like a bug.
+                if (train >= TrainGate)
+                {
+                    TrainCount.Text  = $"{train:N0} ✓  (goal ~{TrainGoal:N0})";
+                    TrainBar.Maximum = TrainGoal;
+                    TrainCount.Foreground = new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00));
+                }
+                else
+                {
+                    TrainCount.Text  = $"{train} of {TrainGate}";
+                    TrainBar.Maximum = TrainGate;
+                }
+                if (eval >= EvalGate)
+                {
+                    EvalCount.Text  = $"{eval} ✓  (goal ~{EvalGoal})";
+                    EvalBar.Maximum = EvalGoal;
+                }
+                else
+                {
+                    EvalCount.Text  = $"{eval} of {EvalGate}";
+                    EvalBar.Maximum = EvalGate;
+                }
                 NegCount.Text   = $"{neg} of {NegGate}"  + (neg  >= NegGate  ? " ✓" : "");
-                TrainBar.Maximum = TrainGate; TrainBar.Value = train;
-                EvalBar.Maximum  = EvalGate;  EvalBar.Value  = eval;
+                TrainBar.Value = train;
+                EvalBar.Value  = eval;
                 NegBar.Maximum   = NegGate;   NegBar.Value   = neg;
                 EvalCount.Foreground = new SolidColorBrush(eval >= EvalGate ? Color.FromRgb(0x76, 0xB9, 0x00) : Color.FromRgb(0xD4, 0xD4, 0xD4));
                 NegCount.Foreground  = new SolidColorBrush(neg  >= NegGate  ? Color.FromRgb(0x76, 0xB9, 0x00) : Color.FromRgb(0xD4, 0xD4, 0xD4));
