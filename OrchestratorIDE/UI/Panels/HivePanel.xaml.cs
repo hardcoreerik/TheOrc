@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Net.Http;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -42,6 +44,20 @@ public partial class HivePanel : UserControl
 
     private List<HiveHost> _hosts = [];
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromSeconds(8) };
+
+    /// <summary>
+    /// Warchief's base URL (e.g. "http://192.168.1.10:7079") so the This-PC
+    /// context menu can copy it for workers and fetch /hive/tasks/status.
+    /// Set by MainWindow after the HiveTaskQueue starts.
+    /// </summary>
+    public string? WarchiefBaseUrl { get; set; }
+
+    /// <summary>
+    /// Fired when the user picks "Set as Warchief target" on a peer node card.
+    /// Arg: "http://host:7079". MainWindow subscribes to update HiveWarchiefUrl
+    /// in settings and optionally restart the worker agent.
+    /// </summary>
+    public event Action<string>? OnWarchiefTargetSelected;
 
     /// <summary>
     /// HIVE MIND C2 — fired when the user clicks "⚡ Use RPC" on a node card.
@@ -266,7 +282,8 @@ public partial class HivePanel : UserControl
             Child = sp, Cursor = System.Windows.Input.Cursors.Hand,
             ToolTip = BuildTooltip(host, isCenter),
         };
-        card.MouseLeftButtonUp += (_, _) => ShowDetail(host);
+        card.MouseLeftButtonUp  += (_, _) => ShowDetail(host);
+        card.ContextMenu         = BuildContextMenu(host, isCenter);
         return card;
     }
 
@@ -282,27 +299,174 @@ public partial class HivePanel : UserControl
                (isCenter ? "" : "\n\nClick to view / remove this node.");
     }
 
+    // ── Context menus ──────────────────────────────────────────────────────
+
+    private ContextMenu BuildContextMenu(HiveHost host, bool isCenter)
+    {
+        bool alive = host.Reachable == true || isCenter;
+
+        var cm = new ContextMenu
+        {
+            Background      = new SolidColorBrush(Color.FromRgb(0x0C, 0x12, 0x0C)),
+            BorderBrush     = new SolidColorBrush(Color.FromRgb(0x2A, 0x4A, 0x2A)),
+            BorderThickness = new Thickness(1),
+            Foreground      = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)),
+        };
+
+        if (isCenter)
+        {
+            cm.Items.Add(CmItem("📋  Copy Warchief URL",
+                () => CopyText(WarchiefBaseUrl ?? "", "Warchief URL copied — paste in worker settings")));
+            cm.Items.Add(CmItem("📊  View queue status",
+                () => _ = ShowQueueStatusAsync(), WarchiefBaseUrl is not null));
+            cm.Items.Add(CmItem("🧹  Clear event log",
+                () => ClearEventLog()));
+            cm.Items.Add(new Separator());
+            cm.Items.Add(CmItem("⟳  Probe all nodes",
+                () => _ = ProbeAndDraw()));
+        }
+        else
+        {
+            cm.Items.Add(CmItem("📋  Copy URL",
+                () => CopyText(host.Url, $"{host.Name} URL copied")));
+            cm.Items.Add(CmItem("🌐  Open Ollama in browser",
+                () => OpenUrl(host.Url + "/api/tags")));
+            cm.Items.Add(new Separator());
+            cm.Items.Add(CmItem("⚡  Use as RPC worker",
+                () => ApplyRpcWorker(host),
+                host.RpcPort > 0 && alive));
+            cm.Items.Add(CmItem("🎯  Set as Warchief target",
+                () => SetAsWarchiefTarget(host)));
+            cm.Items.Add(new Separator());
+            cm.Items.Add(CmItem("⟳  Probe now",
+                () => _ = ProbeOneAndDrawAsync(host)));
+            cm.Items.Add(new Separator());
+            cm.Items.Add(CmItem("✕  Remove from hive",
+                () => RemoveHost(host)));
+        }
+
+        return cm;
+    }
+
+    private static MenuItem CmItem(string header, Action action, bool enabled = true)
+    {
+        var item = new MenuItem
+        {
+            Header      = header,
+            IsEnabled   = enabled,
+            FontFamily  = new FontFamily("Segoe UI"),
+            FontSize    = 12,
+            Foreground  = new SolidColorBrush(enabled
+                ? Color.FromRgb(0xCC, 0xCC, 0xCC) : Color.FromRgb(0x55, 0x55, 0x55)),
+            Background  = Brushes.Transparent,
+        };
+        item.Click += (_, _) => action();
+        return item;
+    }
+
+    // ── Context menu actions ───────────────────────────────────────────────
+
+    private static void CopyText(string text, string confirmMsg)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        Clipboard.SetText(text);
+        MessageBox.Show(confirmMsg, "HIVE MIND", MessageBoxButton.OK, MessageBoxImage.None);
+    }
+
+    private static void OpenUrl(string url)
+    {
+        try { Process.Start(new ProcessStartInfo { UseShellExecute = true, FileName = url }); }
+        catch (Exception ex)
+        { MessageBox.Show($"Could not open browser: {ex.Message}", "HIVE MIND", MessageBoxButton.OK, MessageBoxImage.Warning); }
+    }
+
+    private async Task ShowQueueStatusAsync()
+    {
+        if (WarchiefBaseUrl is null) return;
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            var json   = await http.GetStringAsync($"{WarchiefBaseUrl}/hive/tasks/status");
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var r      = doc.RootElement;
+            int total  = r.TryGetProperty("total",      out var v) ? v.GetInt32() : 0;
+            int pending= r.TryGetProperty("pending",    out v)     ? v.GetInt32() : 0;
+            int active = r.TryGetProperty("inProgress", out v)     ? v.GetInt32() : 0;
+            int done   = r.TryGetProperty("completed",  out v)     ? v.GetInt32() : 0;
+            int failed = r.TryGetProperty("failed",     out v)     ? v.GetInt32() : 0;
+            MessageBox.Show(
+                $"Queue on {WarchiefBaseUrl}\n\n" +
+                $"  Total     {total}\n" +
+                $"  Pending   {pending}\n" +
+                $"  Active    {active}\n" +
+                $"  Completed {done}\n" +
+                $"  Failed    {failed}",
+                "HIVE MIND — Queue Status", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Could not reach queue: {ex.Message}",
+                "HIVE MIND", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void ClearEventLog()
+    {
+        IcEventLog.Items.Clear();
+        _eventSeq    = _eventBus?.HeadSeq ?? -1;
+        TbEventCount.Text = "(0)";
+    }
+
+    private void SetAsWarchiefTarget(HiveHost host)
+    {
+        var targetUri = new UriBuilder(host.Url) { Port = HiveTaskQueue.QueuePort }.ToString().TrimEnd('/');
+        var result = MessageBox.Show(
+            $"Set {host.Name} as this machine's Warchief?\n\n" +
+            $"  {targetUri}\n\n" +
+            "This machine will switch to Worker mode and send all swarm tasks to " +
+            $"{host.Name} for distribution.",
+            "HIVE MIND — Set Warchief Target",
+            MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (result == MessageBoxResult.Yes)
+            OnWarchiefTargetSelected?.Invoke(targetUri);
+    }
+
+    private void RemoveHost(HiveHost host)
+    {
+        var r = MessageBox.Show(
+            $"Remove {host.Name} ({host.Url}) from the hive?",
+            "HIVE MIND — Remove Node", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (r != MessageBoxResult.Yes) return;
+        _hosts.RemoveAll(x => x.Name == host.Name && x.Url == host.Url);
+        HiveHosts.Save(_hosts);
+        DrawConstellation();
+    }
+
+    private async Task ProbeOneAndDrawAsync(HiveHost host)
+    {
+        await HiveHosts.ProbeAsync(host);
+        if (host.Reachable == true && host.Name != "This PC")
+            await HiveHosts.ProbeHiveApiAsync(host);
+        DrawConstellation();
+    }
+
     // ── Actions ────────────────────────────────────────────────────────────
 
     private void ShowDetail(HiveHost host)
     {
-        if (host.Name == "This PC")
-        {
-            MessageBox.Show($"This PC\n{host.Url}\n\n{host.Models.Count} models available to the hive.",
-                "HIVE MIND — This PC", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
-        var r = MessageBox.Show(
-            $"{host.Name}\n{host.Url}\n" +
-            (host.Reachable == false ? "Offline" : $"{host.Models.Count} models online") +
-            "\n\nRemove this node from the hive?",
-            "HIVE MIND — Node", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (r == MessageBoxResult.Yes)
-        {
-            _hosts.RemoveAll(x => x.Name == host.Name && x.Url == host.Url);
-            HiveHosts.Save(_hosts);
-            DrawConstellation();
-        }
+        var models = host.Models.Count > 0
+            ? $"\n\nModels ({host.Models.Count}):\n" +
+              string.Join(", ", host.Models.Take(10)) +
+              (host.Models.Count > 10 ? $"\n(+{host.Models.Count - 10} more)" : "")
+            : "";
+        var vram = host.VramFreeMb > 0 ? $"\nVRAM free: {host.VramFreeMb / 1024.0:F1} GB" : "";
+        var rpc  = host.RpcPort > 0   ? $"\nRPC: :{host.RpcPort}" : "";
+        MessageBox.Show(
+            $"{host.Name}\n{host.Url}" +
+            $"\nStatus: {(host.Reachable == false ? "offline" : "online")}" +
+            vram + rpc + models +
+            (host.Name == "This PC" ? "" : "\n\nRight-click for actions."),
+            $"HIVE MIND — {host.Name}", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     // ── Discovery: beacon callbacks + LAN scan ────────────────────────────────

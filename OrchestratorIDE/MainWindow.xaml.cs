@@ -531,8 +531,12 @@ public partial class MainWindow : Window
 
                     // Wire the queue into the swarm panel so new sessions get it
                     Dispatcher.InvokeAsync(() => _swarmPanel.HiveTaskQueue = _hiveTaskQueue);
-                    // Wire event bus into HivePanel for live task monitoring
-                    Dispatcher.InvokeAsync(() => _hivePanel.EventBus = _hiveTaskQueue?.Events);
+                    // Wire event bus + Warchief URL into HivePanel for live task monitoring
+                    Dispatcher.InvokeAsync(() =>
+                    {
+                        _hivePanel.EventBus        = _hiveTaskQueue?.Events;
+                        _hivePanel.WarchiefBaseUrl  = _hiveTaskQueue?.BaseUrl;
+                    });
                 }
 
                 // HIVE MIND Phase 3A: Worker — poll a Warchief's task queue
@@ -1514,8 +1518,10 @@ public partial class MainWindow : Window
             _hivePanel.LocalUrl = _settings.OllamaHost;
             _hivePanel.Refresh();
             // Wire RPC apply once (guard against double-subscribe on re-entry).
-            _hivePanel.OnApplyRpcWorkers -= OnApplyRpcWorkers;
-            _hivePanel.OnApplyRpcWorkers += OnApplyRpcWorkers;
+            _hivePanel.OnApplyRpcWorkers         -= OnApplyRpcWorkers;
+            _hivePanel.OnApplyRpcWorkers         += OnApplyRpcWorkers;
+            _hivePanel.OnWarchiefTargetSelected  -= OnWarchiefTargetSelected;
+            _hivePanel.OnWarchiefTargetSelected  += OnWarchiefTargetSelected;
             MainContent.Content    = _hivePanel;
             SidebarContent.Content = _explorerPanel;
         }
@@ -1877,6 +1883,21 @@ public partial class MainWindow : Window
     }
 
     private void AgentMode_Changed(object sender, RoutedEventArgs e) { }
+
+    // ── HIVE MIND: Set Warchief target ─────────────────────────────────────────
+
+    private void OnWarchiefTargetSelected(string url)
+    {
+        _settings.HiveWarchiefUrl = url;
+        _settings.HiveWorkerMode  = true;
+        _settings.Save();
+        AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE MIND",
+            $"🎯 Warchief target set to {url}. Worker mode enabled. Restart TheOrc to connect.", DateTime.Now));
+        MessageBox.Show(
+            $"Warchief target set to:\n  {url}\n\n" +
+            "Worker mode has been enabled. Restart TheOrc for the worker agent to connect.",
+            "HIVE MIND — Warchief Target", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
 
     private void SbModel_Click(object sender, MouseButtonEventArgs e)
     {
