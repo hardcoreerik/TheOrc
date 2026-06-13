@@ -1,224 +1,169 @@
-![TheOrc Banner](Assets/banner.png)
-
-**TheOrc is a 100% local, multi-agent AI coding assistant for Windows**: a guarded coding shell, a coordinated "goblin swarm," and a built-in training pipeline that stays on your own hardware. It runs free local models, helps you plan before you act, and can turn reviewed swarm output into fine-tuning data for its own next adapter. If you want AI-assisted coding without giving up your repo, prompts, or workflow to a cloud subscription, that is the lane TheOrc is built for.
-
 <div align="center">
+
+![TheOrc Banner](Assets/banner.png)
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0B6DFF?style=for-the-badge&logo=windows)](https://github.com/hardcoreerik/TheOrc/releases)
 [![.NET](https://img.shields.io/badge/.NET-10.0-6B38FB?style=for-the-badge&logo=dotnet)](https://dotnet.microsoft.com/download/dotnet/10.0)
-[![Mode](https://img.shields.io/badge/local-first-100%25_local-21C55D?style=for-the-badge)](#what-theorc-is)
-[![Swarm](https://img.shields.io/badge/multi--agent-goblin_swarm-39FF6A?style=for-the-badge)](#whats-new-since-v120)
-[![Training](https://img.shields.io/badge/training-ORC_ACADEMY-13E9B4?style=for-the-badge)](#training-pit--orc-academy)
-[![Docs](https://img.shields.io/badge/docs-help_%2B_guides-8AFD66?style=for-the-badge)](#documentation)
+[![Local](https://img.shields.io/badge/100%25-local-21C55D?style=for-the-badge)](#quick-start)
+[![License](https://img.shields.io/badge/license-MIT-39FF6A?style=for-the-badge)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/hardcoreerik/TheOrc?style=for-the-badge&color=13E9B4)](https://github.com/hardcoreerik/TheOrc/releases)
 
-[**Download Setup**](https://github.com/hardcoreerik/The-Orchestrator/releases) · [**Architecture**](docs/ARCHITECTURE.md) · [**User Guide**](docs/USER_GUIDE.md) · [**Training Pit**](docs/TRAINING_PIT_GUIDE.md) · [**Roadmap**](docs/ROADMAP.md)
+**You already use AI to write code. TheOrc is what happens when you let it run.**
+
+[**Download**](https://github.com/hardcoreerik/TheOrc/releases) · [**Docs**](docs/ARCHITECTURE.md) · [**User Guide**](docs/USER_GUIDE.md) · [**Roadmap**](docs/ROADMAP.md)
 
 </div>
 
-## What TheOrc Is
+---
 
-The current product combines several layers in one repo:
+## What it is
 
-- a WPF coding shell with approval-aware file and shell operations
-- a local-first agent runtime that can stay single-agent or switch into swarm mode
-- GOBLIN MIND model steering, so tool-call and routing behavior is based on observed capability instead of guesswork
-- a Training Pit pipeline that captures good swarm plans, routes them through review, and feeds ORC ACADEMY for local QLoRA training
+GitHub Copilot helps you write the next line. Cursor rewrites the current file. ChatGPT gives you code to paste.
 
-![Architecture hero slot](Assets/hero-architecture.svg)
-*Image slot: landing-page architecture overview for shell, swarm, GOBLIN MIND, and training flow.*
+TheOrc receives a **goal** — *"build a Python CSV cleaner with a GUI"* — breaks it into parallel tasks, and sends each one to a specialist AI agent. While you wait, a Researcher is reading the pandas docs, two Coders are writing separate files, and a UIDeveloper is writing the README. When they're done, your workspace has the project.
 
-## What's New Since v1.2.0
+Everything runs on your machine. No API key. No subscription. No code leaves your network.
 
-The `v1.2.3` README was a strong base, but current `master` has moved beyond it in several visible areas.
+---
 
-### Training Pit Dataset Pipeline
+## The Goblin Swarm
 
-The Training Pit is no longer just an idea or a notes section. Current source shows:
+<div align="center">
 
-- a dedicated Training Pit panel in the app
-- boss-plan capture and review workflow
-- deterministic pre-screening via `prescreen_captures.py`
-- second-pass judge triage via `judge_captures.py`
-- human manifest decisions as the source of truth
-- export and preflight tooling around the reviewed dataset
+![Goblin Swarm](Assets/goblin%20swarm.png)
 
-I am intentionally **not** putting a hard exported-dataset number in this README, because this merged worktree proves the reviewed manifest counts but does not currently contain the exported JSONL files.
+</div>
 
-### ORC ACADEMY In-App QLoRA Training
-
-ORC ACADEMY is now the operator-facing Phase 3 training surface in the app. Verified in current source:
-
-- the Training Pit UI labels the training area as `ORC ACADEMY`
-- `train_lora.py` is the local QLoRA trainer entrypoint
-- the panel exposes a VRAM cap
-- training progress is heartbeat-driven
-- the app can resume and re-attach after restart
-- the panel includes a hang watchdog instead of assuming the trainer is healthy forever
-
-### GOBLIN HARVEST And NIGHT HARVEST
-
-Autonomous data farming is now part of the story:
-
-- `prescreen_captures.py` is explicitly the first pass of **GOBLIN HARVEST**
-- `judge_captures.py` is explicitly the second pass of **GOBLIN HARVEST**
-- `night_harvest.ps1` runs autonomous overnight farming loops
-- `Tools/harvest_marker_watch.ps1` can plant the stop marker once the target threshold is approached
-
-### White-Paper Docs And In-App Help
-
-The documentation layer is much stronger than it was at `v1.2.0`:
-
-- the repo now includes [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) as the white-paper-style system overview
-- [docs/GLOSSARY.md](docs/GLOSSARY.md) centralizes the project language
-- the Help window is in the app and opens on `F1`
-- guide links are routed inside the embedded Markdown help flow
-
-### Capability Badges, Build Stamp, And Operator Clarity
-
-Current `master` also adds several operator-facing quality-of-life surfaces:
-
-- status-bar build stamp showing the running build and git suffix
-- GOBLIN MIND capability badges under Swarm Board model pickers
-- Model Wiki compare and export surfaces
-- trends rendering in the Model Wiki detail view
-- next-request token-cost estimation on the context badge
-
-### HIVE MIND On Master
-
-This is the biggest change versus the earlier README drafts: HIVE MIND is no longer just a distant spec item.
-
-Verified in current `master`:
-
-- installer-side **HIVE MIND enrollment** is present in `OrchestratorSetup/Services/HiveEnroller.cs`
-- the installer flow includes a **Join HIVE MIND** option in `OrchestratorSetup/Pages/OllamaCheckPage.xaml`
-- the main app now has a **HIVE panel** wired in `MainWindow`
-- `OrchestratorIDE/UI/Panels/HivePanel.xaml.cs` implements the war-camp / constellation visualizer panel
-
-What I am **not** claiming yet: full distributed remote-job execution as a finished shipped subsystem. The verified current state is enrollment, host groundwork, and a HIVE panel/visualizer on master, with broader distributed behavior still in active buildout.
-
-![Pipeline hero slot](Assets/hero-pipeline.svg)
-*Image slot: landing-page view of capture, review, manifest, preflight, and ORC ACADEMY training.*
-
-## Goblin Swarm
-
-TheOrc can stay in a single-agent loop, but the product identity is the **Goblin Swarm**:
+TheOrc is the boss. It decomposes your goal, assigns work, and keeps the agents honest. The swarm handles the rest in parallel.
 
 | Role | What it does |
 |---|---|
-| **TheOrc (Boss)** | Breaks down goals, routes work, retries weak outputs, and synthesizes the final result. |
-| **Coder Goblin** | Handles implementation-heavy coding tasks. |
-| **UIDeveloper Goblin** | Focuses on WPF, XAML, styles, and presentation layers. |
-| **Researcher Goblin** | Investigates docs and APIs without writing production files. |
-| **Tester Goblin** | Runs tests and inspects logs without `write_file` access. |
+| **TheOrc** | Reads your goal, writes the plan, routes each task to the right specialist |
+| **Researcher** | Reads docs, APIs, and libraries — never writes production code |
+| **Coder** | Writes implementation files based on the Researcher's findings |
+| **UIDeveloper** | Handles UI code, XAML, WPF, HTML/CSS, and styling |
+| **Tester** | Runs tests and reads logs — no write access to your project files |
 
-Current source also verifies that swarm model routing is no longer purely manual: `SwarmSteering` and the capability-badge plumbing use persisted GOBLIN MIND results to make those decisions more explicit.
+The boss model is now a **fine-tuned local Gemma 4 12B** (`theorc-boss:gemma4-ft`), trained by TheOrc's own pipeline on 900 reviewed swarm plans. It scores 99.3% on structured planning evals vs 94.5% for the base model.
 
-## Training Pit & ORC ACADEMY
+---
 
-TheOrc is trying to close the loop between "used the product" and "improved the product."
+## How it fits your workflow
 
-That loop now looks like this:
+<div align="center">
 
-1. Swarm runs capture boss plans.
-2. The Training Pit pipeline triages and reviews those captures.
-3. The reviewed manifest becomes the source of truth for exports.
-4. ORC ACADEMY launches the Phase 3 local QLoRA training path.
+![TheOrc at work](Assets/badge1.png)
 
-What I can verify directly from current source:
+</div>
 
-- the manifest-driven review pipeline is real
-- the in-app training surface is real
-- the restart/re-attach behavior is real
-- the trainer heartbeat and watchdog behavior are real
+TheOrc runs **beside your IDE**, not inside it. You keep using VS Code, Visual Studio, or whatever editor you prefer.
 
-## HIVE MIND
+```
+1. Open a workspace folder in TheOrc
+2. Describe what you want to build
+3. Watch the swarm plan and execute
+4. Review the output — approve, reject, or steer
+5. Commit the result in your normal editor
+```
 
-HIVE MIND is now the `v1.3` headline priority for the landing page, because parts of it are already on `master` and the rest has a concrete shape.
+You stay in control at every step. The approval-aware tool system means no file gets written, no shell command runs, and no git operation executes without going through the review flow you configure.
 
-Current verified state:
+---
 
-- installer enrollment exists
-- the main app includes a HIVE button and HIVE panel
-- the panel renders a war-camp / constellation style view for local and peer nodes
+## vs the tools you're already using
 
-Still planned or in progress:
+| | GitHub Copilot | Cursor | ChatGPT | **TheOrc** |
+|---|:---:|:---:|:---:|:---:|
+| Runs locally | ❌ | ❌ | ❌ | ✅ |
+| Your code stays on your machine | ❌ | ❌ | ❌ | ✅ |
+| Multi-agent parallel execution | ❌ | ❌ | ❌ | ✅ |
+| Writes files autonomously | ❌ | Partial | Copy-paste | ✅ |
+| Monthly subscription | $10–19 | $20 | $20 | **Free** |
+| Can train its own boss model | ❌ | ❌ | ❌ | ✅ |
 
-- broader discovery and roster maturity
-- richer lane/job data from remote nodes
-- distributed remote work such as farm, judge, and academy jobs across machines
+TheOrc is not trying to replace your editor. It's the AI **project runner** that sits next to it.
 
-![HIVE hero slot](Assets/hero-hive.svg)
-*Image slot: landing-page visual for HIVE MIND enrollment, peer nodes, and the war-camp panel.*
+---
+
+## ORC ACADEMY — TheOrc trains itself
+
+TheOrc closes the loop between using the product and improving it.
+
+Every good swarm run captures the boss's plan. Those captures go through a review pipeline. When you have enough reviewed examples, ORC ACADEMY trains a LoRA adapter on your own GPU. The new boss model is better at planning the next run.
+
+**v1 shipped (June 2026):**
+- 900 reviewed boss plans harvested overnight via GOBLIN HARVEST
+- LoRA trained locally in 148 minutes on an RTX 5070 Ti
+- Result: **99.3% structured planning pass rate** — up from 94.5% on the base model
+- Deployed as `theorc-boss:gemma4-ft` and distributed as a 125 MB GGUF LoRA
+
+This loop — run → capture → review → train → deploy — is the core of what makes TheOrc different from a model wrapper. The pipeline is part of the product.
+
+---
 
 ## Quick Start
 
-### Option 1: One-click installer
+### One-click installer
 
-1. Download `OrchestratorSetup.exe` from [Releases](https://github.com/hardcoreerik/The-Orchestrator/releases).
-2. Let the installer detect your GPU and backend path.
-3. Pick a coding profile and model fit.
-4. Launch TheOrc and open a workspace.
-5. Press `F1` once to confirm the embedded Help flow is available.
+1. Download `OrchestratorSetup.exe` from [Releases](https://github.com/hardcoreerik/TheOrc/releases)
+2. The installer detects your GPU and walks you through Ollama setup
+3. Launch TheOrc, open a workspace folder, and run your first goal
 
-### Option 2: Build from source
+### Build from source
 
 ```powershell
-git clone https://github.com/hardcoreerik/The-Orchestrator.git
-cd The-Orchestrator
+git clone https://github.com/hardcoreerik/TheOrc.git
+cd TheOrc
 dotnet run --project OrchestratorIDE/OrchestratorIDE.csproj
 ```
 
-### First-run checklist
+**Requirements:** Windows 10/11 · .NET 10 · [Ollama](https://ollama.com) · 8 GB VRAM minimum (16 GB recommended for swarm)
 
-- start your local inference backend first
-- try a small task in `Single` mode before moving to `Swarm`
-- glance at the status bar for the active model and build stamp
-- open the Model Wiki / Lab if you want to compare or probe models
-- open the Training Pit if you are reviewing captures or running ORC ACADEMY
+### Grab a model and go
+
+```powershell
+# Recommended starting stack
+ollama pull theorc-boss:gemma4-ft   # fine-tuned boss (125 MB LoRA over Gemma 4 12B QAT)
+ollama pull qwen2.5-coder:14b       # coder workers
+```
+
+> Don't have a GPU? TheOrc can run with CPU-only Ollama, just slower. 7B coder models work fine at CPU speeds for most tasks.
+
+---
 
 ## Documentation
 
-The docs suite is now part of the product, not an afterthought.
-
-| Start here | Why |
+| | |
 |---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | White-paper overview of the shell, runtime, GOBLIN MIND, swarm lifecycle, Training Pit, and HIVE direction. |
-| [docs/GLOSSARY.md](docs/GLOSSARY.md) | Central vocabulary for TheOrc, goblins, ORC ACADEMY, GOBLIN HARVEST, captures, manifests, and HIVE terms. |
-| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | Best day-one operator guide. |
-| [docs/SWARM_GUIDE.md](docs/SWARM_GUIDE.md) | How goals become swarm work. |
-| [docs/TRAINING_PIT_GUIDE.md](docs/TRAINING_PIT_GUIDE.md) | How swarm work becomes reviewed data and then a training artifact. |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Repo-verified shipped work, active work, and planned work. |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the shell, swarm, GOBLIN MIND, and Training Pit connect |
+| [USER_GUIDE.md](docs/USER_GUIDE.md) | Day-one operator guide — modes, approvals, workspaces |
+| [SWARM_GUIDE.md](docs/SWARM_GUIDE.md) | How goals become swarm plans and how to steer them |
+| [TRAINING_PIT_GUIDE.md](docs/TRAINING_PIT_GUIDE.md) | Capture → review → ORC ACADEMY training walkthrough |
+| [GLOSSARY.md](docs/GLOSSARY.md) | Every TheOrc term defined in one place |
+| [ROADMAP.md](docs/ROADMAP.md) | What's shipped, what's active, what's next |
 
-## Roadmap Snapshot
+---
 
-### v1.2: Landed Or Largely Landed
+## Releasing
 
-- Training Pit review pipeline
-- ORC ACADEMY in-app Phase 3 training surface
-- GOBLIN HARVEST / NIGHT HARVEST farming tooling
-- white-paper docs suite and glossary
-- Help window with `F1`
-- capability badges and better operator status surfaces
+<div align="center">
 
-### v1.3: HIVE MIND Priority
+![Build Complete](Assets/release.png)
 
-- installer enrollment and private-network setup
-- HIVE war-camp visualizer panel in the app
-- node discovery, roster maturity, and richer lane data
-- distributed execution across multiple TheOrc machines
+</div>
 
-### Beyond
+---
 
-- cross-platform backend and UI path
-- more model-intelligence surfaces
-- deeper quality-of-life work for long-running autonomous use
+## Support the project
 
-## Support TheOrc
+TheOrc is free, open source, and local-first. If it saves you a subscription:
 
-TheOrc is free, open source, and local-first. If it saves you a subscription bill, consider supporting the project:
+<div align="center">
 
-- [Ko-fi](https://ko-fi.com/hardcoreerik)
-- [PayPal](https://paypal.me/hardcoreerik)
-- [GitHub Sponsors](https://github.com/sponsors/hardcoreerik)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?style=for-the-badge&logo=ko-fi)](https://ko-fi.com/hardcoreerik)
+[![PayPal](https://img.shields.io/badge/PayPal-donate-003087?style=for-the-badge&logo=paypal)](https://paypal.me/hardcoreerik)
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub-sponsor-EA4AAA?style=for-the-badge&logo=githubsponsors)](https://github.com/sponsors/hardcoreerik)
 
-Hardware vendors and test-lab contributors should also see [docs/SPONSOR_TEST_LAB.md](docs/SPONSOR_TEST_LAB.md).
+</div>
+
+Hardware vendors and test-lab contributors: [docs/SPONSOR_TEST_LAB.md](docs/SPONSOR_TEST_LAB.md)

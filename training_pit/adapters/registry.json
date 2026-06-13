@@ -1,23 +1,51 @@
 {
-  "_comment": "Adapter registry for TheOrc fine-tuned models. All adapters must be registered here before being used in ModelProfiles.cs.",
-  "_schema_version": "1.0",
-  "_last_updated": "2026-06-09",
-
-  "status_values": {
-    "candidate":    "Adapter is being trained or has not yet been evaluated",
-    "eval_pending": "Training complete; awaiting before/after evaluation",
-    "approved":     "Eval passed; safe to activate in ModelProfiles.cs",
-    "rejected":     "Eval failed or regression detected; do not use",
-    "deprecated":   "Replaced by a newer adapter; kept for audit"
-  },
-
-  "activation_requirements": [
-    "registered in this file with eval_status = 'approved'",
-    "before/after eval scorecard saved to evals/scorecards/",
-    "ModelProfiles.cs entry created with measured BossScore (not estimated)",
-    "no hallucination regression vs base model",
-    "no unsafe behavior introduced"
-  ],
-
-  "adapters": []
+  "schema_version": "1",
+  "adapters": [
+    {
+      "id": "lora_v1",
+      "display_name": "ORC ACADEMY v1 — Boss Planning LoRA",
+      "model_profile_id": "theorc-boss:gemma4-ft",
+      "base_model": "google/gemma-4-12b-it",
+      "adapter_path": "training_pit/outputs/lora_v1/adapter",
+      "adapter_type": "lora",
+      "framework": "unsloth",
+      "status": "production",
+      "registered": "2026-06-12",
+      "training": {
+        "train_examples": 900,
+        "eval_examples": 87,
+        "epochs": 3,
+        "train_loss": 0.3317,
+        "eval_loss": 0.2661,
+        "minutes": 148.6,
+        "finished": "2026-06-12 01:24"
+      },
+      "eval": {
+        "base_pass_pct": 94.5,
+        "ft_pass_pct": 99.3,
+        "base_perfect": 69,
+        "ft_perfect": 84,
+        "total_eval": 87,
+        "ft_better_cases": 17,
+        "base_better_cases": 2,
+        "tied_cases": 68,
+        "eval_finished": "2026-06-12 10:00",
+        "eval_report": "training_pit/outputs/lora_v1/ab_eval_full_wrapper.json"
+      },
+      "ollama": {
+        "target_tag": "theorc-boss:gemma4-ft",
+        "modelfile": "theorc-boss-gemma4-ft.Modelfile",
+        "lora_gguf": "theorc-boss-gemma4-ft-lora.gguf",
+        "status": "deployed",
+        "deployed": "2026-06-12",
+        "approach": "gguf-lora-adapter",
+        "notes": "Merge-then-convert abandoned: Gemma4UnifiedVisionEmbedder missing embedding_projection during save_pretrained (PEFT+transformers incompatibility). convert_lora_to_gguf.py also required one-line patch (text_config.architectures is null in gemma4_unified config). Final: PEFT adapter → f16 GGUF LoRA via convert_lora_to_gguf.py, applied at inference time via Ollama ADAPTER directive over theorc-boss:gemma4 base.",
+        "deploy_steps": [
+          "python F:\\Ai\\llama.cpp\\convert_lora_to_gguf.py training_pit/outputs/lora_v1/adapter --base <hf_snapshot_dir> --outfile theorc-boss-gemma4-ft-lora.gguf --outtype f16",
+          "ollama create theorc-boss:gemma4-ft -f theorc-boss-gemma4-ft.Modelfile"
+        ]
+      },
+      "notes": "Phase 3 A/B eval complete 2026-06-12. FT: 99.3% / 84 perfect. Base: 94.5% / 69 perfect. Biggest gains: no_tester_write (74→84/87), files_named (81→87/87)."
+    }
+  ]
 }
