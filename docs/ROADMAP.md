@@ -68,6 +68,15 @@ TheOrc already ships more of the recent roadmap than the older docs implied. The
 - ORC ACADEMY training GUI exists
 - `train_lora.py` supports dry run, VRAM cap, checkpoints, resume, and progress heartbeat
 
+### ORC ACADEMY v1 — Boss Adapter (Shipped 2026-06-12)
+
+- 900 reviewed boss plans harvested via GOBLIN HARVEST / NIGHT HARVEST
+- LoRA v1 trained locally on Gemma 4 12B (148 min, RTX 5070 Ti)
+- A/B eval: 99.3% pass rate / 84 perfect plans vs 94.5% / 69 base (87 blind cases)
+- Adapter deployed as `theorc-boss:gemma4-ft` in Ollama via GGUF LoRA + ADAPTER directive
+- `tools/merge_lora.py` and `training_pit/adapters/registry.json` added
+- `theorc-boss-gemma4-ft.Modelfile` is the production deployment spec
+
 ---
 
 ## Active Work
@@ -82,7 +91,7 @@ The docs are being normalized around the current implementation, especially:
 
 ### Data Scale
 
-The v1 Phase 3 minimum gate is already satisfied, but the longer-term dataset target still matters. The Training Pit panel and docs now treat roughly 1,000 train and 200 eval examples as the next quality target after minimum readiness.
+The 1,000 train example target is met (1,009 harvested, 900 reviewed and used for v1 training). Next dataset milestone: extend to ~2,000 diverse examples covering edge-case goal types for a v2 adapter.
 
 ### Distributed Design
 
@@ -107,11 +116,11 @@ The repository still contains the design direction for a cross-platform layer, b
 
 ### Further Model And Training Work
 
-Still-open follow-up opportunities visible from the current code shape include:
+ORC ACADEMY v1 is complete. Open follow-up work:
 
-- broader automated probe coverage
-- more reviewed data for future adapters
-- additional operator tooling around remote or distributed training
+- v2 adapter: broader goal coverage, edge-case plans, ~2,000 train examples
+- automated eval harness integrated into the Training Pit UI
+- explore on-platform adapter iteration (TheOrc writes its own training goals)
 
 ---
 

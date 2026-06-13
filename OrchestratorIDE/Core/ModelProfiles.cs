@@ -286,6 +286,29 @@ Always follow that structure. Each task MUST have a non-empty description of at 
             BossScore: 6, CoderScore: 8, ResearcherScore: 8, TesterScore: 8
         ),
 
+        // ── TheOrc custom boss model — gemma4-ft (LoRA fine-tuned, ORC ACADEMY v1) ─
+        // Base: theorc-boss-gemma4-ft.Q4_0.gguf (LoRA merged + Q4_0 GGUF)
+        //   Merge: python tools/merge_lora.py (lora_v1 adapter → google/gemma-4-12b-it)
+        //   GGUF:  llama.cpp/convert_hf_to_gguf.py --outtype q4_0
+        //   Install: ollama create theorc-boss:gemma4-ft -f theorc-boss-gemma4-ft.Modelfile
+        //
+        // ORC ACADEMY v1 training (2026-06-12):
+        //   Train: 900 examples  |  Epochs: 3  |  Loss: 0.3317 → 0.2661
+        //
+        // A/B eval vs gemma4 QAT base (87 blind cases, 2026-06-12):
+        //   FT  99.3% pass / 84 perfect plans  (vs base 94.5% / 69)
+        //   Biggest gains: no_tester_write 74→84  ·  files_named 81→87
+        //   Registry: training_pit/adapters/registry.json (id: lora_v1)
+        ["theorc-boss:gemma4-ft"] = new(
+            "theorc-boss:gemma4-ft", "TheOrc Boss — Gemma 4 12B FT (ORC ACADEMY v1)", 16_384, true,
+            ["coding", "reasoning", "planning", "research", "boss"],
+            ToolSet.Full, PromptStyle.Agent,
+            MaxSteps: 22, Temperature: 0.2, TimeoutSeconds: 90, AutoVerify: true,
+            Description: "Gemma 4 12B FT boss — LoRA v1 merged. 99.3% pass / 84/87 perfect plans (vs 94.5% / 69 base). Gains on tester-write exclusion and file naming. temp=0.2, think=false, 16K ctx. Install: theorc-boss-gemma4-ft.Modelfile",
+            MinVramGb: 7, ParamsBillions: 12, Speed: SpeedTier.Fast,
+            BossScore: 9, CoderScore: 8, ResearcherScore: 8, TesterScore: 9
+        ),
+
         // ── Raw QAT base — available for use as worker (coder/researcher) ────────
         // Direct HF GGUF pull: ollama pull hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0
         // This is the same base as theorc-boss:gemma4 but without the boss-planning tuning.

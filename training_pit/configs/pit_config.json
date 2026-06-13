@@ -1,0 +1,72 @@
+{
+  "_doc": "ORC ACADEMY Training Pit — master config. Edit freely; pit_manager.py reads this on every start.",
+
+  "pipeline": {
+    "adapter_name": "lora_v2",
+    "workspace": "F:\\Ai\\OrchestratorIDE",
+    "phases": ["collect", "review", "train", "eval", "deploy"]
+  },
+
+  "collection": {
+    "goals_per_batch": 60,
+    "max_goals_per_run": 300,
+    "gen_model": "qwen2.5-coder:14b",
+    "farm_timeout_sec": 300,
+    "farm_plan_only": true,
+    "min_score_good": 70,
+    "max_score_bad": 39,
+    "target_train_examples": 1000,
+    "target_eval_examples": 200,
+    "target_negative_examples": 50
+  },
+
+  "harvest": {
+    "start_hour": 22,
+    "stop_hour": 6,
+    "max_hours": 8,
+    "goals_per_cycle": 25,
+    "max_cycles": 20,
+    "gen_model": "qwen2.5-coder:14b",
+    "judge_model": "qwen2.5-coder:14b",
+    "auto_stop_marker": 1000,
+    "marker_poll_minutes": 10
+  },
+
+  "review": {
+    "auto_prescreen": true,
+    "auto_judge": true,
+    "require_human_approval": true,
+    "min_approved_before_train": 150
+  },
+
+  "training": {
+    "base_model": "google/gemma-4-12b-it",
+    "epochs": 3,
+    "lora_rank": 16,
+    "lora_alpha": 32,
+    "lora_dropout": 0.05,
+    "batch_size": 2,
+    "gradient_accumulation_steps": 8,
+    "max_seq_length": 1536,
+    "learning_rate": 2e-4,
+    "warmup_ratio": 0.05,
+    "use_4bit": true,
+    "use_double_quant": true,
+    "max_train_hours": 6,
+    "vram_budget_gb": 12
+  },
+
+  "eval": {
+    "max_new_tokens": 1024,
+    "platform_coherence_check": true,
+    "semantic_sample_size": 20,
+    "min_ft_pass_pct_to_deploy": 97.0,
+    "min_perfect_plan_pct_to_deploy": 90.0
+  },
+
+  "deployment": {
+    "ollama_model_tag": "theorc-boss:gemma4-ft",
+    "require_manual_approval": true,
+    "register_in_model_profiles": true
+  }
+}

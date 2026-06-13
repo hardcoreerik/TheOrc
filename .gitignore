@@ -75,6 +75,16 @@ training_pit/datasets/staging/
 # Training outputs (LoRA adapters, GGUFs — large binary artifacts)
 training_pit/outputs/
 
+# Training Pit harvest batch files (auto-generated per-run capture batches)
+training_pit/batch_*.csv
+training_pit/batch_*.psv
+training_pit/batch_*.tsv
+training_pit/review_sweep.tsv
+training_pit/flag_review.txt
+
+# GGUF model files — binary artifacts, host on HuggingFace or Ollama registry
+*.gguf
+
 # Swarm dataset staging (auto-generated plan captures from DatasetCapture.cs)
 # Files require human review before moving to training_pit/datasets/
 .orc/swarm/dataset-staging/

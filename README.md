@@ -115,21 +115,22 @@ Current source also verifies that swarm model routing is no longer purely manual
 
 ## Training Pit & ORC ACADEMY
 
-TheOrc is trying to close the loop between "used the product" and "improved the product."
+TheOrc closes the loop between "used the product" and "improved the product."
 
-That loop now looks like this:
+That loop is now complete for v1:
 
-1. Swarm runs capture boss plans.
-2. The Training Pit pipeline triages and reviews those captures.
-3. The reviewed manifest becomes the source of truth for exports.
-4. ORC ACADEMY launches the Phase 3 local QLoRA training path.
+1. Swarm runs capture boss plans via GOBLIN HARVEST / NIGHT HARVEST.
+2. The Training Pit pipeline triages, reviews, and manifests those captures.
+3. ORC ACADEMY trains a LoRA adapter locally on your own GPU.
+4. The adapter deploys into Ollama — TheOrc runs its own fine-tuned boss.
 
-What I can verify directly from current source:
+**ORC ACADEMY v1 shipped (2026-06-12):**
 
-- the manifest-driven review pipeline is real
-- the in-app training surface is real
-- the restart/re-attach behavior is real
-- the trainer heartbeat and watchdog behavior are real
+- 900 reviewed boss plans → LoRA trained on Gemma 4 12B in 148 min on an RTX 5070 Ti
+- A/B eval: **99.3% pass / 84 perfect plans** vs 94.5% / 69 for the base model (87 blind cases)
+- Biggest gains: tester-write exclusion (74→84) and file naming (81→87 out of 87)
+- Deployed as `theorc-boss:gemma4-ft` — 125 MB GGUF LoRA, applied at inference via Ollama ADAPTER directive
+- The loop from swarm run → reviewed data → trained adapter → deployed boss is real and repeatable
 
 ## HIVE MIND
 
@@ -191,7 +192,7 @@ The docs suite is now part of the product, not an afterthought.
 
 ## Roadmap Snapshot
 
-### v1.2: Landed Or Largely Landed
+### v1.2: Landed
 
 - Training Pit review pipeline
 - ORC ACADEMY in-app Phase 3 training surface
@@ -199,6 +200,12 @@ The docs suite is now part of the product, not an afterthought.
 - white-paper docs suite and glossary
 - Help window with `F1`
 - capability badges and better operator status surfaces
+
+### v1.2 → v1.3 Milestone: ORC ACADEMY v1 Adapter Shipped
+
+- 900 reviewed boss plans harvested and trained locally
+- `theorc-boss:gemma4-ft` deployed: 99.3% eval pass rate, 84/87 perfect plans
+- full loop from swarm capture to fine-tuned boss now complete and repeatable
 
 ### v1.3: HIVE MIND Priority
 
