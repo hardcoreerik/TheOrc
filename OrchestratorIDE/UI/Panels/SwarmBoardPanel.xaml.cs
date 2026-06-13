@@ -27,6 +27,9 @@ public partial class SwarmBoardPanel : UserControl
     // ── Dependencies (set by MainWindow) ──────────────────────────────────────
     public OllamaClient? Ollama        { get; set; }
 
+    /// <summary>HIVE MIND Phase 3: running task queue to attach to new SwarmSessions.</summary>
+    public Services.Hive.HiveTaskQueue? HiveTaskQueue { get; set; }
+
     /// <summary>HIVE MIND: Ollama base URL the swarm runs against. null = This PC.</summary>
     private string? _runOnUrl;
     private string  _runOnName = "This PC";
@@ -839,6 +842,13 @@ public partial class SwarmBoardPanel : UserControl
                     }
                 });
             }
+        }
+
+        // HIVE MIND Phase 3: attach distributed task queue if running as Warchief
+        if (HiveTaskQueue?.IsListening == true)
+        {
+            _session.SetDistributedQueue(HiveTaskQueue);
+            OnActivity?.Invoke($"🐝 HIVE MIND distributed mode — Warchief task queue active on {HiveTaskQueue.BaseUrl}");
         }
 
         _session.OnBossToken     += OnBossToken;
@@ -1699,6 +1709,31 @@ public partial class SwarmBoardPanel : UserControl
         stack.Children.Add(statusText);
         stack.Children.Add(roleLabel);
 
+        // Node badge — shows which machine executed this task (Phase 3 distributed)
+        // or which node it was assigned to (Phase B routing)
+        var nodeName = task.ExecutedByNodeId ?? task.TargetNodeName;
+        if (!string.IsNullOrEmpty(nodeName) && nodeName != "This PC")
+        {
+            var nodeBadge = new Border
+            {
+                Background      = new SolidColorBrush(Color.FromArgb(0x30, 0x76, 0xB9, 0x00)),
+                BorderBrush     = new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00)),
+                BorderThickness = new Thickness(1),
+                CornerRadius    = new CornerRadius(3),
+                Padding         = new Thickness(4, 1, 4, 1),
+                Margin          = new Thickness(0, 3, 0, 0),
+                Child           = new TextBlock
+                {
+                    Text       = $"🖥 {nodeName}",
+                    FontSize   = 9,
+                    FontFamily = new FontFamily("Segoe UI"),
+                    Foreground = new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00)),
+                },
+                Name = "NodeBadge",
+            };
+            stack.Children.Add(nodeBadge);
+        }
+
         var card = new Border
         {
             Tag             = task.Id,
@@ -1736,6 +1771,41 @@ public partial class SwarmBoardPanel : UserControl
             SwarmTaskStatus.Error      => new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47)),
             _                          => new SolidColorBrush(Color.FromRgb(0x2A, 0x3A, 0x2A)),
         };
+
+        // Add or update node badge when a worker claims the task (ExecutedByNodeId arrives)
+        var nodeName = task.ExecutedByNodeId ?? task.TargetNodeName;
+        if (string.IsNullOrEmpty(nodeName) || nodeName == "This PC") return;
+
+        // Check if badge already exists (Name="NodeBadge" set in BuildTaskCard)
+        var existingBadge = sp.Children.OfType<Border>()
+            .FirstOrDefault(b => b.Name == "NodeBadge");
+
+        if (existingBadge is not null)
+        {
+            // Update text (node may have changed from assigned to actual executor)
+            if (existingBadge.Child is TextBlock tb) tb.Text = $"🖥 {nodeName}";
+        }
+        else
+        {
+            // Add badge — happens when ExecutedByNodeId is set after task completion
+            sp.Children.Add(new Border
+            {
+                Background      = new SolidColorBrush(Color.FromArgb(0x30, 0x76, 0xB9, 0x00)),
+                BorderBrush     = new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00)),
+                BorderThickness = new Thickness(1),
+                CornerRadius    = new CornerRadius(3),
+                Padding         = new Thickness(4, 1, 4, 1),
+                Margin          = new Thickness(0, 3, 0, 0),
+                Name            = "NodeBadge",
+                Child           = new TextBlock
+                {
+                    Text       = $"🖥 {nodeName}",
+                    FontSize   = 9,
+                    FontFamily = new FontFamily("Segoe UI"),
+                    Foreground = new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00)),
+                },
+            });
+        }
     }
 
     // ── Agent activity columns ────────────────────────────────────────────────

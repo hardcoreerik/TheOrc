@@ -28,9 +28,11 @@ public partial class MainWindow : Window
     private readonly SessionStore       _store;
     private          LlamaServerManager?  _llamaServer;
     private          ModelStatusService?  _modelStatus;
-    private          Services.Hive.HiveBeacon?     _hiveBeacon;
-    private          Services.Hive.HiveNodeServer? _hiveNodeServer;
-    private          Services.Hive.HiveRpcWorker?  _hiveRpcWorker;
+    private          Services.Hive.HiveBeacon?      _hiveBeacon;
+    private          Services.Hive.HiveNodeServer?  _hiveNodeServer;
+    private          Services.Hive.HiveRpcWorker?   _hiveRpcWorker;
+    private          Services.Hive.HiveTaskQueue?   _hiveTaskQueue;
+    private          Services.Hive.HiveWorkerAgent? _hiveWorkerAgent;
 
     // ── State ─────────────────────────────────────────────────────────────
     private ProjectSession           _session;
@@ -78,6 +80,8 @@ public partial class MainWindow : Window
             _hiveBeacon?.Dispose();
             _hiveNodeServer?.Dispose();
             _hiveRpcWorker?.Dispose();
+            _hiveTaskQueue?.Dispose();
+            _hiveWorkerAgent?.Dispose();
         };
 
         // Recorder events → status bar
@@ -500,10 +504,52 @@ public partial class MainWindow : Window
                     if (_hivePanel.IsLoaded) _hivePanel.OnBeaconNodeSeen(msg);
                 });
 
+                // HIVE MIND Phase 3A: Warchief — open task queue for distributed swarm
+                if (_settings.HiveDistributedSwarm)
+                {
+                    _hiveTaskQueue = new Services.Hive.HiveTaskQueue();
+                    _hiveTaskQueue.OnLog += msg => AddActivity(
+                        new ActivityEvent(ActivityKind.Info, "HIVE Queue", msg, DateTime.Now));
+                    _hiveTaskQueue.Start(new Services.Hive.HiveSessionContext
+                    {
+                        SessionId = name,
+                        ProjectGoal = "",
+                    }, _settings.HiveTaskQueuePort);
+
+                    // Wire the queue into the swarm panel so new sessions get it
+                    Dispatcher.InvokeAsync(() => _swarmPanel.HiveTaskQueue = _hiveTaskQueue);
+                }
+
+                // HIVE MIND Phase 3A: Worker — poll a Warchief's task queue
+                if (_settings.HiveWorkerMode && !string.IsNullOrEmpty(_settings.HiveWarchiefUrl))
+                {
+                    var workerOllama = new Core.OllamaClient(_settings.OllamaHost);
+                    _hiveWorkerAgent = new Services.Hive.HiveWorkerAgent
+                    {
+                        WorkerId      = name,
+                        WorkerUrl     = _settings.OllamaHost,
+                        WarchiefUrl   = _settings.HiveWarchiefUrl,
+                        Lanes         = string.IsNullOrWhiteSpace(_settings.HiveWorkerLanes)
+                                            ? []
+                                            : _settings.HiveWorkerLanes
+                                                .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                                .Select(l => l.Trim())
+                                                .ToArray(),
+                        Ollama         = workerOllama,
+                        CoderModel     = _settings.LastWorkerModel,
+                        ResearcherModel = _settings.LastResearcherModel,
+                    };
+                    _hiveWorkerAgent.OnLog += msg => AddActivity(
+                        new ActivityEvent(ActivityKind.Info, "HIVE Worker", msg, DateTime.Now));
+                    _hiveWorkerAgent.Start();
+                }
+
                 await Task.CompletedTask;
-                var rpcNote = rpcPort > 0 ? $" · RPC worker on :{rpcPort}" : "";
+                var rpcNote    = rpcPort > 0                    ? $" · RPC :{rpcPort}"                       : "";
+                var queueNote  = _settings.HiveDistributedSwarm ? $" · Warchief :{_settings.HiveTaskQueuePort}" : "";
+                var workerNote = _settings.HiveWorkerMode        ? $" · Worker→{_settings.HiveWarchiefUrl}"     : "";
                 AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE MIND",
-                    $"Active as {name}{rpcNote}", DateTime.Now));
+                    $"Active as {name}{rpcNote}{queueNote}{workerNote}", DateTime.Now));
             });
 
         // ── CLI overrides (--workspace, --autotest) ───────────────────────

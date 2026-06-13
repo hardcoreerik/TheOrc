@@ -56,6 +56,10 @@ public class SwarmSession
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, OllamaClient>
         _nodeClients = new();
 
+    // ── HIVE MIND: distributed swarm queue (Phase 3) ──────────────────────────
+    private Services.Hive.HiveTaskQueue? _distributedQueue;
+    private string _currentUserGoal = "";
+
     // ── Events ────────────────────────────────────────────────────────────────
     public event Action?                         OnStarted;
     public event Action?                         OnStopped;
@@ -113,6 +117,14 @@ public class SwarmSession
     // ── HIVE MIND API ─────────────────────────────────────────────────────────
 
     /// <summary>
+    /// Attach a running HiveTaskQueue so SwarmSession dispatches tasks to remote
+    /// workers instead of executing them locally. Call before RunAsync.
+    /// When set, all worker phases use distributed dispatch.
+    /// </summary>
+    public void SetDistributedQueue(Services.Hive.HiveTaskQueue queue)
+        => _distributedQueue = queue;
+
+    /// <summary>
     /// Provide the full list of probed hive hosts so tasks can be routed to remote nodes.
     /// Call before RunAsync. If not called, all tasks run on the local node (_ollama).
     /// </summary>
@@ -149,6 +161,7 @@ public class SwarmSession
     {
         _cts?.Cancel();
         _cts = null;
+        _distributedQueue?.CancelAll();
         OnStopped?.Invoke();
     }
 
@@ -216,12 +229,13 @@ public class SwarmSession
 
     private async Task RunInternalAsync(string userGoal)
     {
-        _cts            = new CancellationTokenSource();
-        var ct          = _cts.Token;
-        Tasks           = [];
+        _cts             = new CancellationTokenSource();
+        var ct           = _cts.Token;
+        Tasks            = [];
         var runStartedAt = DateTime.UtcNow;
-        _runId          = runStartedAt.ToString("yyyyMMdd_HHmmss");
-        _targetLanguage = DetectTargetLanguage(userGoal);
+        _runId           = runStartedAt.ToString("yyyyMMdd_HHmmss");
+        _targetLanguage  = DetectTargetLanguage(userGoal);
+        _currentUserGoal = userGoal;
 
         // Detect hardware VRAM so run metrics are accurate
         var hw = await OrchestratorIDE.Services.Swarm.SwarmConfigAdvisor.DetectHardwareAsync();
@@ -267,7 +281,22 @@ public class SwarmSession
             Activity($"Planned {Tasks.Count} task(s): {string.Join(", ", Tasks.Select(t => t.Title))}", "boss");
             OnTasksPlanned?.Invoke(Tasks);
 
-            // HIVE MIND: assign tasks to remote nodes when multiple nodes are alive.
+            // HIVE MIND Phase 3: update session context now that we know models + language.
+            if (_distributedQueue is not null)
+            {
+                _distributedQueue.UpdateSessionContext(new Services.Hive.HiveSessionContext
+                {
+                    SessionId       = _runId,
+                    ProjectGoal     = userGoal,
+                    TargetLanguage  = _targetLanguage,
+                    CoderModel      = _coderModel,
+                    ResearcherModel = _researcherModel,
+                });
+                var activeWorkers = _distributedQueue.IsListening ? "queue open" : "queue not listening";
+                Activity($"🐝 HIVE MIND distributed mode — {activeWorkers}. Tasks will be dispatched to worker nodes.", "boss");
+            }
+
+            // HIVE MIND Phase B: assign tasks to remote nodes when multiple nodes are alive.
             if (_hiveHosts is { Count: > 1 } && !string.IsNullOrEmpty(_localOllamaUrl))
             {
                 Services.Hive.HiveScheduler.AssignNodes(Tasks, _hiveHosts, _localOllamaUrl);
@@ -295,7 +324,10 @@ public class SwarmSession
             {
                 Activity($"Research phase — {researchers.Count} researcher(s) running", "boss");
                 _trace.WriteEvent("phase_start", $"Research phase: {researchers.Count} researcher(s)");
-                await Task.WhenAll(researchers.Select(t => RunWorkerAsync(t, [], ct)));
+                if (_distributedQueue is not null)
+                    await Task.WhenAll(researchers.Select(t => DispatchToQueueAsync(t, [], ct)));
+                else
+                    await Task.WhenAll(researchers.Select(t => RunWorkerAsync(t, [], ct)));
 
                 // Extract any files researchers wrote (documentation, sample data)
                 foreach (var t in researchers.Where(t => t.Status == SwarmTaskStatus.Done && t.Result is not null))
@@ -374,7 +406,10 @@ public class SwarmSession
                 };
                 Activity($"Coder phase — {phaseDesc} running concurrently", "boss");
                 _trace?.WriteEvent("phase_start", $"Coder/UIDev/Tester phase: {others.Count} worker(s)");
-                await Task.WhenAll(others.Select(t => RunWorkerAsync(t, findings, ct)));
+                if (_distributedQueue is not null)
+                    await Task.WhenAll(others.Select(t => DispatchToQueueAsync(t, findings, ct)));
+                else
+                    await Task.WhenAll(others.Select(t => RunWorkerAsync(t, findings, ct)));
 
                 var totalFiles = 0;
                 foreach (var t in others.Where(t => t.Status == SwarmTaskStatus.Done && t.Result is not null))
@@ -1514,6 +1549,108 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
     {
         var m = model.ToLowerInvariant();
         return m.Contains("nemotron") || m.Contains("qwen3") || m.Contains("deepseek-r");
+    }
+
+    // ── HIVE MIND Phase 3: distributed dispatch ───────────────────────────────
+
+    /// <summary>
+    /// Dispatches a SwarmTask to the distributed HiveTaskQueue.
+    /// Builds a self-contained HiveTaskBundle (system prompt + user message +
+    /// upstream artifacts), enqueues it, and awaits a remote worker's result.
+    /// Integrates the result back into session state exactly as local execution does.
+    /// Falls back to local execution if dispatch fails.
+    /// </summary>
+    private async Task DispatchToQueueAsync(
+        SwarmTask task,
+        List<(string title, string result)> findings,
+        CancellationToken ct)
+    {
+        task.Status    = SwarmTaskStatus.InProgress;
+        task.StartedAt = DateTime.UtcNow;
+        OnTaskChanged?.Invoke(task);
+        Activity($"{task.RoleIcon} {task.Title} — dispatching to HIVE queue", AgentKey(task.Role));
+
+        // Emit a waiting indicator to the stream tab so the UI isn't blank
+        OnWorkerToken?.Invoke(task.Id,
+            $"⏳ Task dispatched to HIVE MIND distributed queue.\n" +
+            $"Waiting for a worker node to claim [{task.Role}] '{task.Title}'…\n");
+
+        try
+        {
+            var bundle = BuildTaskBundle(task, findings);
+            var result = await _distributedQueue!.EnqueueAndWaitAsync(task.Id, bundle, ct);
+
+            if (result is null)
+            {
+                // Session cancelled — propagate as OperationCanceledException
+                ct.ThrowIfCancellationRequested();
+                // If not cancelled, no worker claimed in time — fall back to local
+                Activity($"⚠ No worker claimed '{task.Title}' — falling back to local execution", "boss");
+                await RunWorkerAsync(task, findings, ct);
+                return;
+            }
+
+            if (result.Status == "failed")
+            {
+                task.Status       = SwarmTaskStatus.Error;
+                task.ErrorMessage = result.ErrorMsg ?? "Worker reported failure";
+                task.ExecutedByNodeId = result.WorkerId;
+                Activity($"⚠ {task.RoleIcon} {task.Title} — worker {result.WorkerId} reported failure", AgentKey(task.Role));
+                OnTaskChanged?.Invoke(task);
+                return;
+            }
+
+            task.Result           = result.Result;
+            task.ExecutedByNodeId = result.WorkerId;
+            task.Status           = SwarmTaskStatus.Done;
+            task.CompletedAt      = DateTime.UtcNow;
+
+            // Show full result in the stream tab + completion banner
+            OnWorkerToken?.Invoke(task.Id,
+                $"\n✅ Completed by {result.WorkerId} in {result.DurationMs / 1000.0:F1}s\n\n" +
+                result.Result);
+
+            _trace?.WriteAssistantMessage(result.Result, agent: task.Role.ToString().ToLower(), model: "hive-worker");
+            await SaveTaskResultAsync(task);
+            Activity($"{task.RoleIcon} {task.Title} — ✅ completed by {result.WorkerId}", AgentKey(task.Role));
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            task.Status       = SwarmTaskStatus.Error;
+            task.ErrorMessage = ex.Message;
+            Activity($"⚠ HIVE dispatch error for '{task.Title}': {ex.Message} — falling back to local", "boss");
+            // Non-fatal — fall back to local execution
+            await RunWorkerAsync(task, findings, ct);
+            return;
+        }
+
+        OnTaskChanged?.Invoke(task);
+    }
+
+    private Services.Hive.HiveTaskBundle BuildTaskBundle(
+        SwarmTask task,
+        List<(string title, string result)> findings)
+    {
+        return new Services.Hive.HiveTaskBundle
+        {
+            TaskId       = task.Id,
+            SessionId    = _runId,
+            Role         = task.Role.ToString(),
+            Title        = task.Title,
+            Spec         = BuildWorkerUserMessage(task, findings, _targetLanguage, Tasks),
+            ProjectGoal  = _currentUserGoal,
+            TargetLanguage = _targetLanguage,
+            ModelHint    = task.Role == SwarmWorkerRole.Researcher ? _researcherModel : _coderModel,
+            WarchiefUrl  = _distributedQueue!.BaseUrl,
+            TimeoutMs    = 300_000,
+            UpstreamArtifacts = findings.Select(f => new Services.Hive.HiveArtifact
+            {
+                Source  = f.title,
+                Role    = "Researcher",
+                Content = f.result,
+            }).ToList(),
+        };
     }
 
     // ── Worker execution ──────────────────────────────────────────────────────

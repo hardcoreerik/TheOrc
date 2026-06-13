@@ -17,6 +17,7 @@ public static class HiveEnroller
     public const int OllamaPort    = 11434;
     public const int HivePort      = 7077;   // UDP beacon
     public const int HiveApiPort   = 7078;   // HTTP node-info endpoint
+    public const int TaskQueuePort = 7079;   // Warchief distributed task queue (Phase 3)
     public const int RpcPort       = 50052;  // llama.cpp RPC worker (C2)
 
     /// <summary>Runs enrollment; logs progress; returns true if fully applied.</summary>
@@ -36,6 +37,7 @@ public static class HiveEnroller
                  { ("TheOrc Hive - Ollama",  OllamaPort),
                    ("TheOrc Hive - Beacon",  HivePort),
                    ("TheOrc Hive - API",     HiveApiPort),
+                   ("TheOrc Hive - Queue",   TaskQueuePort),
                    ("TheOrc Hive - RPC",     RpcPort) })
         {
             log($"  Firewall rule '{name}' (TCP {port}, Private profile)…");

@@ -64,6 +64,13 @@ public class SwarmTask : INotifyPropertyChanged
     /// <summary>Display name of the assigned node (e.g. "BIGRIG"). Null = This PC.</summary>
     public string? TargetNodeName { get; set; }
 
+    // ── HIVE MIND Phase 3 — Distributed Swarm ────────────────────────────────
+    /// <summary>
+    /// Machine name of the worker node that actually executed this task.
+    /// Null = ran locally on the Warchief. Set when a remote worker POSTs /complete.
+    /// </summary>
+    public string? ExecutedByNodeId { get; set; }
+
     /// <summary>Files written directly via write_file tool calls (vs ### FILE: markers).</summary>
     public int     ToolFilesWritten   { get; set; }
     /// <summary>Files extracted from ### FILE: markers in the worker's text output (vs write_file calls).</summary>

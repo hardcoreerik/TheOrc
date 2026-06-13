@@ -196,6 +196,35 @@ public class AppSettings
     /// </summary>
     public bool HiveMindEnabled { get; set; } = false;
 
+    /// <summary>
+    /// Phase 3 — Distributed Swarm. When true AND HiveMindEnabled, this machine
+    /// acts as a Warchief: it opens a HiveTaskQueue (port 7079) and distributes
+    /// SwarmTasks to worker nodes instead of running them all locally.
+    /// </summary>
+    public bool HiveDistributedSwarm { get; set; } = false;
+
+    /// <summary>
+    /// Phase 3 — Worker Mode. When true, this machine runs a HiveWorkerAgent
+    /// that polls the Warchief's task queue and executes tasks using its local Ollama.
+    /// A machine can be both Warchief and Worker (default) or Worker-only.
+    /// </summary>
+    public bool HiveWorkerMode { get; set; } = false;
+
+    /// <summary>
+    /// Warchief URL this worker polls (e.g. "http://192.168.1.10:7079").
+    /// Only used when HiveWorkerMode is true. Empty = auto-discover via beacon.
+    /// </summary>
+    public string HiveWarchiefUrl { get; set; } = "";
+
+    /// <summary>
+    /// Comma-separated task roles this worker accepts (e.g. "researcher,coder").
+    /// Empty = accept all roles. Used by HiveWorkerAgent lane filter.
+    /// </summary>
+    public string HiveWorkerLanes { get; set; } = "";
+
+    /// <summary>Port for the Warchief's HiveTaskQueue service. Default: 7079.</summary>
+    public int HiveTaskQueuePort { get; set; } = 7079;
+
     // ── Updates ───────────────────────────────────────────────────────────
     /// <summary>Whether to silently check GitHub for newer releases on startup.</summary>
     public bool      CheckForUpdates        { get; set; } = true;
