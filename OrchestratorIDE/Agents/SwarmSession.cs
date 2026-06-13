@@ -61,19 +61,22 @@ public class SwarmSession
     private string _currentUserGoal = "";
 
     // ── Events ────────────────────────────────────────────────────────────────
-    public event Action?                         OnStarted;
-    public event Action?                         OnStopped;
-    public event Action<string>?                 OnBossToken;
-    public event Action<string, string>?         OnWorkerToken;    // taskId, token
-    public event Action<List<SwarmTask>>?        OnTasksPlanned;
-    public event Action<SwarmTask>?              OnTaskChanged;
-    public event Action<string>?                 OnSwarmComplete;  // merged result
-    public event Action<string>?                 OnError;
-    public event Action<string, string>?         OnActivity;       // agentKey, message
+    public event Action?                                              OnStarted;
+    public event Action?                                              OnStopped;
+    public event Action<string>?                                      OnBossToken;
+    public event Action<string, string>?                              OnWorkerToken;    // taskId, token
+    public event Action<List<SwarmTask>>?                             OnTasksPlanned;
+    public event Action<SwarmTask>?                                   OnTaskChanged;
+    public event Action<string>?                                      OnSwarmComplete;  // merged result
+    public event Action<string>?                                      OnError;
+    public event Action<string, string>?                              OnActivity;       // agentKey, message
+    public event Action<Services.Swarm.ReviewGateService.GateResult>? OnGateResult;
 
     // ── Public state ──────────────────────────────────────────────────────────
-    public List<SwarmTask> Tasks   { get; private set; } = [];
-    public bool            IsRunning => _cts is { IsCancellationRequested: false };
+    public List<SwarmTask> Tasks              { get; private set; } = [];
+    public bool            IsRunning          => _cts is { IsCancellationRequested: false };
+    /// <summary>When true, runs the Reviewer Quality Gate (Codex CLI) on staged output after the swarm completes.</summary>
+    public bool            ReviewGateEnabled  { get; set; } = false;
 
     public SwarmSession(OllamaClient ollama, string bossModel, string? workspaceRoot,
         string? workerModel = null, string? researcherModel = null)
@@ -576,6 +579,35 @@ public class SwarmSession
                 OnStagingReady?.Invoke(_runId, OutputProjectDir, stagedFiles);
 
             Activity($"Swarm complete — {stagedFiles.Length} file(s) staged for review in .orc/swarm/runs/{_runId}/staging", "boss");
+
+            // ── Reviewer Quality Gate ─────────────────────────────────────────
+            if (ReviewGateEnabled && stagedFiles.Length > 0 && !string.IsNullOrEmpty(_workspaceRoot))
+            {
+                Activity("🔍 Reviewer Gate — Codex reviewing staged output…", "boss");
+                _trace?.WriteEvent("gate_start", $"Reviewing {stagedFiles.Length} file(s)");
+                try
+                {
+                    var gateResult = await Services.Swarm.ReviewGateService.RunAsync(
+                        OutputProjectDir, _workspaceRoot, ct: ct);
+                    if (gateResult is not null)
+                    {
+                        _trace?.WriteEvent("gate_verdict",
+                            $"{gateResult.Verdict} — {gateResult.Findings.Count} finding(s)");
+                        Activity($"🔍 Gate: {gateResult.Verdict} — {gateResult.Findings.Count} finding(s)", "boss");
+                        OnGateResult?.Invoke(gateResult);
+                    }
+                    else
+                    {
+                        Activity("🔍 Gate skipped — Codex CLI not available (npm i -g @openai/codex to enable)", "boss");
+                    }
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    Activity($"⚠ Gate review failed: {ex.Message}", "boss");
+                    _trace?.WriteEvent("gate_error", ex.Message);
+                }
+            }
 
             // ── Emit run metrics (non-blocking, non-fatal) ────────────────────
             var tvEnum = testerVerdict switch

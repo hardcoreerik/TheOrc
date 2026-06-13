@@ -1448,6 +1448,32 @@
                                 </ScrollViewer>
                             </Border>
 
+                            <!-- Reviewer Gate result (shown after Codex reviews staged output) -->
+                            <Border x:Name="BdrGateResult"
+                                    DockPanel.Dock="Top"
+                                    Visibility="Collapsed"
+                                    Background="#0A0A0F"
+                                    BorderBrush="#2A2A4A"
+                                    BorderThickness="0,1,0,1"
+                                    Padding="10,8"
+                                    AutomationProperties.AutomationId="Swarm.GateResult">
+                                <DockPanel>
+                                    <TextBlock x:Name="TbGateBadge"
+                                               DockPanel.Dock="Left"
+                                               FontSize="11" FontWeight="Bold"
+                                               VerticalAlignment="Top"
+                                               Margin="0,0,10,0"/>
+                                    <ScrollViewer MaxHeight="80" VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled">
+                                        <TextBlock x:Name="TbGateFindings"
+                                                   FontSize="10"
+                                                   FontFamily="Consolas"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="#AAAAAA"/>
+                                    </ScrollViewer>
+                                </DockPanel>
+                            </Border>
+
                             <!-- Error bar (hidden until run fails) -->
                             <Border x:Name="BdrRunError"
                                     DockPanel.Dock="Top"

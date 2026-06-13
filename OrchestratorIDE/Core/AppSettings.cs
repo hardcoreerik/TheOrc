@@ -236,6 +236,14 @@ public class AppSettings
     /// </summary>
     public bool HiveWorktreeIsolation { get; set; } = false;
 
+    /// <summary>
+    /// When true, SwarmSession runs the Reviewer Quality Gate (via Codex CLI) on
+    /// staged output before the user applies it to the workspace. BLOCKER findings
+    /// are surfaced in the Launch Pad; the user still decides whether to apply.
+    /// Requires Codex CLI (npm i -g @openai/codex). Silently skipped if not installed.
+    /// </summary>
+    public bool SwarmReviewGateEnabled { get; set; } = true;
+
     // ── Updates ───────────────────────────────────────────────────────────
     /// <summary>Whether to silently check GitHub for newer releases on startup.</summary>
     public bool      CheckForUpdates        { get; set; } = true;

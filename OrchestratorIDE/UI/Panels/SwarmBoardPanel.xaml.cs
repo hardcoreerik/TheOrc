@@ -867,6 +867,9 @@ public partial class SwarmBoardPanel : UserControl
         });
         _session.OnStagingReady  += (runId, stagingDir, files) =>
             Dispatcher.InvokeAsync(() => OnStagingReady(runId, stagingDir, files));
+        _session.OnGateResult    += result =>
+            Dispatcher.InvokeAsync(() => ShowGateResult(result));
+        _session.ReviewGateEnabled = Settings?.SwarmReviewGateEnabled ?? true;
 
         _ = _session.RunAsync(goal);
         StatusChanged?.Invoke("Swarm active");
@@ -1443,6 +1446,12 @@ public partial class SwarmBoardPanel : UserControl
 
     private void OnStagingReady(string runId, string stagingDir, IReadOnlyList<string> files)
     {
+        // Reset gate panel for this run
+        BdrGateResult.Visibility = Visibility.Collapsed;
+        TbGateFindings.Text      = "";
+        BtnApplyToWorkspace.Content   = "✓  Apply to Workspace";
+        BtnApplyToWorkspace.Foreground = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88));
+
         // Store for Launch Pad
         _lastStagingDir  = stagingDir;
         _lastStagedFiles = files;
@@ -1489,6 +1498,68 @@ public partial class SwarmBoardPanel : UserControl
         _streams["boss"] += summary.ToString();
         if (_activeTab == "boss") TbStream.Text = _streams["boss"];
         StatusChanged?.Invoke($"Swarm staged {files.Count} file(s) — Results tab ready");
+    }
+
+    private void ShowGateResult(Services.Swarm.ReviewGateService.GateResult result)
+    {
+        var isBlocker = result.Verdict == Services.Swarm.ReviewGateService.GateVerdict.Blocker;
+        var isMinor   = result.Verdict == Services.Swarm.ReviewGateService.GateVerdict.Minor;
+
+        // Panel background + border
+        BdrGateResult.Background = isBlocker
+            ? new SolidColorBrush(Color.FromRgb(0x1A, 0x05, 0x05))
+            : isMinor
+                ? new SolidColorBrush(Color.FromRgb(0x12, 0x0F, 0x00))
+                : new SolidColorBrush(Color.FromRgb(0x05, 0x10, 0x05));
+        BdrGateResult.BorderBrush = isBlocker
+            ? new SolidColorBrush(Color.FromRgb(0x5A, 0x1A, 0x1A))
+            : isMinor
+                ? new SolidColorBrush(Color.FromRgb(0x4A, 0x3A, 0x00))
+                : new SolidColorBrush(Color.FromRgb(0x1A, 0x4A, 0x1A));
+
+        // Badge
+        var (badgeText, badgeColor) = isBlocker ? ("⛔ BLOCKER  Gate", Color.FromRgb(0xF4, 0x47, 0x47))
+                                    : isMinor   ? ("⚠  MINOR  Gate",  Color.FromRgb(0xD4, 0xA0, 0x17))
+                                    :             ("✓  CLEAN  Gate",   Color.FromRgb(0x76, 0xB9, 0x00));
+        TbGateBadge.Text      = badgeText;
+        TbGateBadge.Foreground = new SolidColorBrush(badgeColor);
+
+        TbGateFindings.Text = result.Findings.Count > 0
+            ? string.Join("\n", result.Findings.Select(f => $"{f.Severity}  {f.Location} — {f.Message}"))
+            : "No findings.";
+        TbGateFindings.Foreground = new SolidColorBrush(badgeColor);
+
+        BdrGateResult.Visibility = Visibility.Visible;
+
+        // Color the Apply button to reflect gate severity; user always decides
+        if (result.Verdict == Services.Swarm.ReviewGateService.GateVerdict.Blocker)
+        {
+            BtnApplyToWorkspace.Content    = "⚠  Apply anyway (BLOCKER found)";
+            BtnApplyToWorkspace.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x47, 0x47));
+        }
+        else if (result.Verdict == Services.Swarm.ReviewGateService.GateVerdict.Minor)
+        {
+            BtnApplyToWorkspace.Content    = "✓  Apply to Workspace";
+            BtnApplyToWorkspace.Foreground = new SolidColorBrush(Color.FromRgb(0xD4, 0xA0, 0x17));
+        }
+        else
+        {
+            BtnApplyToWorkspace.Content    = "✓  Apply to Workspace";
+            BtnApplyToWorkspace.Foreground = new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00));
+        }
+
+        // Echo to boss stream
+        var log = new System.Text.StringBuilder();
+        log.AppendLine();
+        log.AppendLine($"──── REVIEWER GATE: {result.Verdict.ToString().ToUpperInvariant()} ────");
+        foreach (var f in result.Findings)
+            log.AppendLine($"  {f.Severity}  {f.Location} — {f.Message}");
+        if (result.Findings.Count == 0) log.AppendLine("  No findings.");
+        _streams["boss"] += log.ToString();
+        if (_activeTab == "boss") TbStream.Text = _streams["boss"];
+
+        StatusChanged?.Invoke($"Gate: {result.Verdict}" +
+            (result.Findings.Count > 0 ? $" — {result.Findings.Count} finding(s)" : ""));
     }
 
     // ── Tab switching ─────────────────────────────────────────────────────────

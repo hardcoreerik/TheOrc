@@ -3,22 +3,24 @@
 # The "perpetual capture" pattern: instead of calling review-capture.ps1 manually
 # with an explicit range, call this script after any meaningful commit. It reads
 # .orc/capture-marker.json, computes the range since the last captured SHA, runs
-# the full Codex + TheOrc review-capture pipeline on that range, then advances
-# the marker. Over time this builds a continuously-growing, multi-purpose dataset:
+# the Codex review-capture pipeline on that range, then advances the marker.
+# Over time this builds a continuously-growing, multi-purpose dataset:
 #
 #   reviewer       — teaches theorc-reviewer:v1 to match Codex findings
 #   worker-quality — CLEAN Codex verdict on a swarm task's diff = positive training
 #   boss-closure   — links plan → code → review outcome (boss adapter v3+)
 #
-# The capture JSON is identical to review-capture.ps1 output and lands in
-# .orc/swarm/review-staging/ alongside manually-triggered captures. The
-# Training Pit UI reads the same directory for its progress bar.
+# TheOrc review is opt-in via -IncludeTheOrc (requires local Ollama + VRAM).
+# By default only Codex runs — no GPU required during normal development.
+#
+# The capture JSON lands in .orc/swarm/review-staging/ alongside manually-triggered
+# captures. The Training Pit UI reads the same directory for its progress bar.
 #
 # Usage:
-#   tools\auto-capture.ps1                          # capture all commits since last marker
-#   tools\auto-capture.ps1 -SourceRole coder        # tag diff as worker output
-#   tools\auto-capture.ps1 -SessionLabel "phase1-worktree" -SkipTheOrc
-#   tools\auto-capture.ps1 -Model qwen2.5-coder:32b  # override reviewer model
+#   tools\auto-capture.ps1                            # Codex only, all commits since last marker
+#   tools\auto-capture.ps1 -SourceRole coder          # tag diff as worker output
+#   tools\auto-capture.ps1 -IncludeTheOrc             # Codex + TheOrc side-by-side
+#   tools\auto-capture.ps1 -Model qwen2.5-coder:32b -IncludeTheOrc  # override model
 #
 # Exit codes (mirrors review-capture.ps1):
 #   0  = capture saved, marker advanced
@@ -32,7 +34,8 @@ param(
     [string]  $Focus          = "",
     [int]     $TimeoutSec     = 600,
     [switch]  $SkipCodex,
-    [switch]  $SkipTheOrc,
+    [switch]  $SkipTheOrc,      # legacy no-op — TheOrc is now off by default
+    [switch]  $IncludeTheOrc,   # opt-in: run TheOrc alongside Codex (requires Ollama + VRAM)
     [string]  $SourceRole     = "human",
     [string[]]$TrainingTargets = @("reviewer"),
     [string]  $SessionLabel   = ""
@@ -96,9 +99,9 @@ $captureArgs = @(
     "-TrainingTargets", ($TrainingTargets -join " "),
     "-SessionLabel", $SessionLabel
 )
-if ($Focus)      { $captureArgs += @("-Focus",     $Focus)     }
-if ($SkipCodex)  { $captureArgs += "-SkipCodex"               }
-if ($SkipTheOrc) { $captureArgs += "-SkipTheOrc"              }
+if ($Focus)        { $captureArgs += @("-Focus", $Focus) }
+if ($SkipCodex)    { $captureArgs += "-SkipCodex"         }
+if ($IncludeTheOrc){ $captureArgs += "-IncludeTheOrc"     }
 
 & pwsh -NoProfile -ExecutionPolicy Bypass @captureArgs
 $captureExit = $LASTEXITCODE

@@ -1,16 +1,16 @@
-# review-capture.ps1 — run Codex + TheOrc reviews side by side and stage
-# the pair as a training example for the future theorc-reviewer adapter.
+# review-capture.ps1 — run Codex (and optionally TheOrc) reviews and stage
+# the result as a training example for the future theorc-reviewer adapter.
 #
 # This is the passive-capture pattern: every time you'd normally run a
-# code review, run THIS instead. Codex acts as the gold reference;
-# TheOrc's current attempt is captured so we can measure agreement
-# and (eventually) fine-tune a reviewer adapter that closes the gap.
+# code review, run THIS instead. Codex acts as the gold reference.
+# TheOrc is opt-in via -IncludeTheOrc; by default only Codex runs so no
+# local GPU is required during normal development.
 #
 # Usage:
-#   tools\review-capture.ps1                            # both, staged diff
-#   tools\review-capture.ps1 -Range "HEAD~3..HEAD"      # both, commit range
-#   tools\review-capture.ps1 -SkipTheOrc                # Codex only (still capture)
-#   tools\review-capture.ps1 -Model qwen2.5-coder:14b   # override TheOrc model
+#   tools\review-capture.ps1                              # Codex only, staged diff
+#   tools\review-capture.ps1 -Range "HEAD~3..HEAD"        # Codex only, commit range
+#   tools\review-capture.ps1 -IncludeTheOrc               # Codex + TheOrc side-by-side
+#   tools\review-capture.ps1 -Model qwen2.5-coder:14b     # override TheOrc model (implies -IncludeTheOrc)
 #
 # Output: a JSON capture in .orc\swarm\review-staging\review_<timestamp>.json
 # plus the two raw .md verdict files in .orc\reviews\. Exit codes:
@@ -24,7 +24,8 @@ param(
     [string]  $OllamaHost     = "http://localhost:11434",
     [int]     $TimeoutSec     = 600,
     [switch]  $SkipCodex,
-    [switch]  $SkipTheOrc,
+    [switch]  $SkipTheOrc,      # legacy — kept for backwards compat; superseded by -IncludeTheOrc
+    [switch]  $IncludeTheOrc,   # opt-in: run TheOrc alongside Codex (requires local Ollama + VRAM)
     # ── Training metadata ──────────────────────────────────────────────────
     # Who produced the diff being reviewed.
     #   "human"    — code written directly by the developer (default)
@@ -80,10 +81,12 @@ if (-not $SkipCodex) {
     if ($newCodex) { $codexVerdict = Get-Content $newCodex.FullName -Raw }
 }
 
-# ── Run TheOrc (the apprentice) ───────────────────────────────────────────
+# ── Run TheOrc (opt-in apprentice) ───────────────────────────────────────
+# TheOrc is off by default — use -IncludeTheOrc to enable (requires local Ollama + VRAM).
+# -SkipTheOrc is the legacy no-op (was previously the default-on switch).
 $theorcVerdict = $null
 $theorcFailed  = $false
-if (-not $SkipTheOrc) {
+if ($IncludeTheOrc -and -not $SkipTheOrc) {
     Write-Host ""
     Write-Host "── TheOrc review ──────────────────────────────" -ForegroundColor Cyan
     $theorcArgs = @("-File", "$PSScriptRoot\theorc-review.ps1",
