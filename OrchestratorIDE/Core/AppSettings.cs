@@ -226,6 +226,16 @@ public class AppSettings
     /// <summary>Port for the Warchief's HiveTaskQueue service. Default: 7079.</summary>
     public int HiveTaskQueuePort { get; set; } = 7079;
 
+    /// <summary>
+    /// Phase 1 — Worktree-per-task isolation (opt-in, default off).
+    /// When true, SwarmSession routes each task's output through its own isolated
+    /// git worktree (repo mode) or plain directory (greenfield mode), and merges
+    /// back into a per-run integration tree. Enforced by WorktreeManager +
+    /// FileOwnershipLedger. When false the existing flat-staging path is used.
+    /// See docs/WORKTREE_ISOLATION_DESIGN.md for the full design.
+    /// </summary>
+    public bool HiveWorktreeIsolation { get; set; } = false;
+
     // ── Updates ───────────────────────────────────────────────────────────
     /// <summary>Whether to silently check GitHub for newer releases on startup.</summary>
     public bool      CheckForUpdates        { get; set; } = true;
