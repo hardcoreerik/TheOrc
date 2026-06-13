@@ -75,7 +75,7 @@
 
                 <!-- Version footer -->
                 <TextBlock DockPanel.Dock="Bottom"
-                           Text="v1.0.0"
+                           Text="v1.4.0"
                            Style="{StaticResource TextSubtitle}"
                            FontSize="10"
                            Margin="24,0,24,20"

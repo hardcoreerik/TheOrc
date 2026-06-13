@@ -42,7 +42,7 @@ public static class UninstallService
             key.SetValue("DisplayName",    "TheOrc — AI Coding Assistant");
             key.SetValue("UninstallString",$"\"{uninstallExe}\" --uninstall");
             key.SetValue("QuietUninstallString", $"\"{uninstallExe}\" --uninstall --quiet");
-            key.SetValue("DisplayVersion", "1.3.3");
+            key.SetValue("DisplayVersion", "1.4.0");
             key.SetValue("Publisher",      "hardcoreerik");
             key.SetValue("InstallLocation", state.AppInstallPath);
             key.SetValue("DisplayIcon",    $"{state.AppExePath},0");
