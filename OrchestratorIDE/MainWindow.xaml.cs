@@ -490,14 +490,27 @@ public partial class MainWindow : Window
                     ? new[] { "inference", "coder", "researcher", "rpc_worker" }
                     : new[] { "inference", "coder", "researcher" };
 
+                // Replace localhost/127.0.0.1 with the LAN IP so peers that discover
+                // this node via beacon save a routable address, not a loopback URL.
+                var ollamaUrlForPeers = _settings.OllamaHost;
+                if (ollamaUrlForPeers.Contains("localhost") || ollamaUrlForPeers.Contains("127.0.0.1"))
+                {
+                    var lanIp = Services.Hive.HiveRpcWorker.LocalAddresses().FirstOrDefault();
+                    if (lanIp is not null)
+                    {
+                        var ollamaPort = new Uri(ollamaUrlForPeers).Port;
+                        ollamaUrlForPeers = $"http://{lanIp}:{ollamaPort}";
+                    }
+                }
+
                 var info = new Services.Hive.HiveNodeInfo(
-                    name, _settings.OllamaHost, [.. models], vramMb, vramMb, lanes, rpcPort);
+                    name, ollamaUrlForPeers, [.. models], vramMb, vramMb, lanes, rpcPort);
 
                 _hiveNodeServer = new Services.Hive.HiveNodeServer();
                 _hiveNodeServer.Start(info);
 
                 _hiveBeacon = new Services.Hive.HiveBeacon();
-                _hiveBeacon.Start(name, _settings.OllamaHost, models, vramMb);
+                _hiveBeacon.Start(name, ollamaUrlForPeers, models, vramMb);
 
                 _hiveBeacon.OnNodeSeen += msg => Dispatcher.InvokeAsync(() =>
                 {
@@ -521,7 +534,20 @@ public partial class MainWindow : Window
                 }
 
                 // HIVE MIND Phase 3A: Worker — poll a Warchief's task queue
-                if (_settings.HiveWorkerMode && !string.IsNullOrEmpty(_settings.HiveWarchiefUrl))
+                if (_settings.HiveWorkerMode && string.IsNullOrEmpty(_settings.HiveWarchiefUrl))
+                {
+                    AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
+                        "⚠ Worker mode is enabled but Warchief URL is empty — set it in Settings → HIVE MIND.", DateTime.Now));
+                }
+                // Worker mode requires Ollama for inference; llama.cpp backend is not supported
+                // in Phase 3A (HiveWorkerAgent uses the Ollama API, not the OpenAI-compat endpoint).
+                if (_settings.HiveWorkerMode && _settings.Backend == InferenceBackend.LlamaCpp)
+                {
+                    AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
+                        "⚠ Worker mode requires Ollama to be running. llama.cpp backend is not supported for distributed workers in Phase 3A. Run Ollama alongside llama.cpp to use worker mode.", DateTime.Now));
+                }
+                if (_settings.HiveWorkerMode && !string.IsNullOrEmpty(_settings.HiveWarchiefUrl)
+                    && _settings.Backend != InferenceBackend.LlamaCpp)
                 {
                     var workerOllama = new Core.OllamaClient(_settings.OllamaHost);
                     _hiveWorkerAgent = new Services.Hive.HiveWorkerAgent
@@ -1825,6 +1851,8 @@ public partial class MainWindow : Window
         AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE MIND",
             $"Applying RPC workers: {string.Join(", ", endpoints)}", DateTime.Now));
 
+        // Save previous config so we can roll back if the new chain fails to start.
+        var previousEndpoints = _llamaServer.RpcEndpoints.ToArray();
         _llamaServer.Stop();
         _llamaServer.RpcEndpoints = [.. endpoints];
 
@@ -1836,8 +1864,12 @@ public partial class MainWindow : Window
         }
         else
         {
+            // Roll back to previous config so local inference stays available.
+            _llamaServer.Stop();
+            _llamaServer.RpcEndpoints = [.. previousEndpoints];
+            _ = _llamaServer.StartAsync();
             AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE MIND",
-                "RPC chain failed — check worker nodes are reachable and firewall allows port 50052.", DateTime.Now));
+                "RPC chain failed — restored previous configuration. Check worker nodes are reachable and firewall allows port 50052.", DateTime.Now));
         }
     }
 

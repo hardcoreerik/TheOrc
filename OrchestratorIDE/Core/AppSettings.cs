@@ -212,7 +212,8 @@ public class AppSettings
 
     /// <summary>
     /// Warchief URL this worker polls (e.g. "http://192.168.1.10:7079").
-    /// Only used when HiveWorkerMode is true. Empty = auto-discover via beacon.
+    /// Only used when HiveWorkerMode is true. Must be set to enable worker polling;
+    /// leaving it empty disables the worker agent and logs a warning at startup.
     /// </summary>
     public string HiveWarchiefUrl { get; set; } = "";
 

@@ -299,7 +299,8 @@ public class SwarmSession
             // HIVE MIND Phase B: assign tasks to remote nodes when multiple nodes are alive.
             if (_hiveHosts is { Count: > 1 } && !string.IsNullOrEmpty(_localOllamaUrl))
             {
-                Services.Hive.HiveScheduler.AssignNodes(Tasks, _hiveHosts, _localOllamaUrl);
+                Services.Hive.HiveScheduler.AssignNodes(Tasks, _hiveHosts, _localOllamaUrl,
+                    _researcherModel, _coderModel);
                 var routed = Tasks.Count(t => !string.IsNullOrEmpty(t.TargetNodeUrl)
                                            && t.TargetNodeUrl != _localOllamaUrl);
                 if (routed > 0)

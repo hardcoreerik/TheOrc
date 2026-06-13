@@ -33,15 +33,15 @@ public static class HiveEnroller
         }
         catch (Exception ex) { log($"  ⚠ env var failed: {ex.Message}"); ok = false; }
 
-        foreach (var (name, port) in new[]
-                 { ("TheOrc Hive - Ollama",  OllamaPort),
-                   ("TheOrc Hive - Beacon",  HivePort),
-                   ("TheOrc Hive - API",     HiveApiPort),
-                   ("TheOrc Hive - Queue",   TaskQueuePort),
-                   ("TheOrc Hive - RPC",     RpcPort) })
+        foreach (var (name, port, proto) in new[]
+                 { ("TheOrc Hive - Ollama",  OllamaPort,    "TCP"),
+                   ("TheOrc Hive - Beacon",  HivePort,      "UDP"),   // UDP beacon
+                   ("TheOrc Hive - API",     HiveApiPort,   "TCP"),
+                   ("TheOrc Hive - Queue",   TaskQueuePort, "TCP"),
+                   ("TheOrc Hive - RPC",     RpcPort,       "TCP") })
         {
-            log($"  Firewall rule '{name}' (TCP {port}, Private profile)…");
-            if (!AddFirewallRule(name, port, log)) ok = false;
+            log($"  Firewall rule '{name}' ({proto} {port}, Private profile)…");
+            if (!AddFirewallRule(name, port, proto, log)) ok = false;
         }
 
         log(ok ? "  ✓ HIVE MIND enrollment complete (restart Ollama to apply)."
@@ -49,7 +49,7 @@ public static class HiveEnroller
         return ok;
     }
 
-    private static bool AddFirewallRule(string name, int port, Action<string> log)
+    private static bool AddFirewallRule(string name, int port, string protocol, Action<string> log)
     {
         try
         {
@@ -57,7 +57,7 @@ public static class HiveEnroller
             RunNetsh($"advfirewall firewall delete rule name=\"{name}\"");
             var exit = RunNetsh(
                 $"advfirewall firewall add rule name=\"{name}\" dir=in action=allow " +
-                $"protocol=TCP localport={port} profile=private");
+                $"protocol={protocol} localport={port} profile=private");
             if (exit != 0)
             {
                 log($"  ⚠ netsh exited {exit} (needs administrator) — rule not added.");

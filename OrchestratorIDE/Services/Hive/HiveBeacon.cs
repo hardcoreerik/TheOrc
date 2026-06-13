@@ -24,6 +24,7 @@ public sealed class HiveBeacon : IDisposable
     public const int BeaconPort = 7077;
 
     private UdpClient?  _broadcaster;
+    private UdpClient?  _listenerSocket;   // closed in Dispose to unblock ReceiveAsync
     private Timer?      _broadcastTimer;
     private string      _payload    = "";
     private bool        _disposed;
@@ -82,7 +83,10 @@ public sealed class HiveBeacon : IDisposable
         using var udp = new UdpClient();
         udp.EnableBroadcast = true;
 
-        // Try to bind the listener first so we don't miss immediate replies.
+        // Try to bind to BeaconPort to receive broadcast beacons.
+        // If port is already owned (our long-lived listener is running), bind to an
+        // ephemeral port instead — ListenAsync will send a unicast reply to our
+        // ephemeral port in response to the probe, so we still collect fast answers.
         using var listener = new UdpClient();
         try
         {
@@ -92,9 +96,8 @@ public sealed class HiveBeacon : IDisposable
         }
         catch
         {
-            // Port already bound (our own Start() listener is running) — that's fine,
-            // OnNodeSeen will capture the replies and we return what we already know.
-            return [];
+            try { listener.Client.Bind(new IPEndPoint(IPAddress.Any, 0)); }
+            catch { return []; }
         }
 
         // Send a minimal probe so other nodes reply on their next broadcast tick.
@@ -140,14 +143,15 @@ public sealed class HiveBeacon : IDisposable
 
     private async Task ListenAsync()
     {
-        using var udp = new UdpClient();
+        var udp = new UdpClient();
+        _listenerSocket = udp;
         try
         {
             udp.Client.SetSocketOption(SocketOptionLevel.Socket,
                                        SocketOptionName.ReuseAddress, true);
             udp.Client.Bind(new IPEndPoint(IPAddress.Any, BeaconPort));
         }
-        catch { _listening = false; return; }
+        catch { _listening = false; udp.Dispose(); _listenerSocket = null; return; }
 
         while (!_disposed)
         {
@@ -155,13 +159,29 @@ public sealed class HiveBeacon : IDisposable
             {
                 var result = await udp.ReceiveAsync();
                 var json   = Encoding.UTF8.GetString(result.Buffer);
-                var msg    = JsonSerializer.Deserialize<HiveBeaconMessage>(json);
+
+                // Respond immediately to probe packets so ScanAsync gets a fast reply
+                // without waiting for the next 5-second broadcast tick.
+                if (json.Contains("\"probe\"") && _payload.Length > 0)
+                {
+                    try
+                    {
+                        var reply = Encoding.UTF8.GetBytes(_payload);
+                        udp.Send(reply, reply.Length, result.RemoteEndPoint);
+                    }
+                    catch { /* non-fatal */ }
+                    continue;
+                }
+
+                var msg = JsonSerializer.Deserialize<HiveBeaconMessage>(json);
                 if (msg is { Name.Length: > 0 })
                     OnNodeSeen?.Invoke(msg);
             }
             catch { /* parse error or socket reset */ }
         }
         _listening = false;
+        udp.Dispose();
+        _listenerSocket = null;
     }
 
     public void Dispose()
@@ -169,6 +189,7 @@ public sealed class HiveBeacon : IDisposable
         _disposed = true;
         _broadcastTimer?.Dispose();
         _broadcaster?.Dispose();
+        try { _listenerSocket?.Close(); } catch { }   // unblocks ReceiveAsync
     }
 }
 

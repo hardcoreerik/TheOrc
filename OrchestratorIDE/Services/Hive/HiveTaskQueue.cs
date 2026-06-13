@@ -13,32 +13,48 @@ namespace OrchestratorIDE.Services.Hive;
 /// claims it, executes it, and POSTs the result back. The TCS resolves and
 /// SwarmSession continues exactly as if the task ran locally.
 ///
-/// Heartbeat watchdog: tasks claimed but silent for >45s are re-queued so
-/// another worker can pick them up (crash recovery, network drop).
+/// Timeout and re-queue rules:
+///   • Pending timeout: 60s — if no worker claims, TCS resolves with null so
+///     SwarmSession can fall back to local execution.
+///   • Heartbeat timeout: 45s — if a claimed task stops heartbeating, it is
+///     re-queued (new claim token) so another worker can pick it up.
+///   • Stale /complete guard: a /complete or /fail is only accepted from the
+///     worker currently holding the claim token; stale workers get 409.
 ///
 /// Endpoint map (all under /hive/):
 ///   GET  /hive/tasks/next?lanes=researcher,coder   → next claimable bundle (204 if empty)
 ///   POST /hive/tasks/{id}/claim                    → atomic claim (409 if already claimed)
 ///   POST /hive/tasks/{id}/heartbeat                → keep-alive signal
-///   POST /hive/tasks/{id}/complete                 → submit result
-///   POST /hive/tasks/{id}/fail                     → report failure
+///   POST /hive/tasks/{id}/complete                 → submit result (409 if stale worker)
+///   POST /hive/tasks/{id}/fail                     → report failure  (409 if stale worker)
 ///   GET  /hive/tasks/status                        → full queue snapshot
 ///   GET  /hive/session/context                     → session context for workers
 /// </summary>
 public sealed class HiveTaskQueue : IDisposable
 {
-    public const int QueuePort = 7079;
+    public const int QueuePort             = 7079;
+    private const int PendingTimeoutSec    = 60;   // no-claim → fallback to local
+    private const int HeartbeatTimeoutSec  = 45;   // claimed but silent → re-queue
 
     // ── Internal queue state ─────────────────────────────────────────────────
 
     private sealed class QueuedTask
     {
-        public HiveTaskBundle                    Bundle          { get; init; } = null!;
-        public string                            Status          { get; set; } = "pending";
-        public string?                           ClaimedBy       { get; set; }
-        public string?                           ClaimedByUrl    { get; set; }
-        public DateTime?                         ClaimedAt       { get; set; }
-        public DateTime?                         LastHeartbeat   { get; set; }
+        public HiveTaskBundle                       Bundle        { get; init; } = null!;
+        public string                               Status        { get; set; } = "pending";
+        public string?                              ClaimedBy     { get; set; }
+        public string?                              ClaimedByUrl  { get; set; }
+        public DateTime?                            ClaimedAt     { get; set; }
+        public DateTime?                            LastHeartbeat { get; set; }
+        public DateTime                             EnqueuedAt    { get; init; } = DateTime.UtcNow;
+
+        /// <summary>
+        /// Rotates on every claim (including re-claim after watchdog re-queue).
+        /// Workers MUST include this in /complete and /fail; a mismatch means the
+        /// result is from a stale/re-queued worker and is rejected with 409.
+        /// </summary>
+        public string                               ClaimToken    { get; set; } = "";
+
         public TaskCompletionSource<HiveTaskResult?> CompletionTcs { get; init; } = new();
     }
 
@@ -54,7 +70,11 @@ public sealed class HiveTaskQueue : IDisposable
 
     public event Action<string>? OnLog;
 
-    /// <summary>Base URL workers POST results to (e.g. "http://192.168.1.10:7079").</summary>
+    /// <summary>
+    /// Base URL workers POST results to (e.g. "http://192.168.1.10:7079").
+    /// Set after bind so it accurately reflects which address is actually reachable.
+    /// Falls back to localhost when the wildcard prefix binding fails (non-elevated).
+    /// </summary>
     public string BaseUrl { get; private set; } = "";
 
     public bool IsListening => _listener?.IsListening == true;
@@ -64,22 +84,33 @@ public sealed class HiveTaskQueue : IDisposable
     public HiveTaskQueue()
     {
         _watchdog = new System.Threading.Timer(
-            CheckHeartbeats, null,
-            TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
+            CheckTimeouts, null,
+            TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
     }
 
     public void Start(HiveSessionContext sessionCtx, int port = QueuePort)
     {
         _sessionCtx = sessionCtx;
+        _listener   = new HttpListener();
 
-        // Determine the reachable IP so workers on other machines can POST back
-        var ip = HiveRpcWorker.LocalAddresses().FirstOrDefault() ?? "127.0.0.1";
-        BaseUrl = $"http://{ip}:{port}";
+        // Try wildcard bind (requires admin or a netsh ACL entry from the installer).
+        // BLOCKER-2 fix: BaseUrl is set AFTER we know which binding succeeded, so
+        // remote workers are not handed a LAN IP that resolves to localhost only.
+        var lanIp        = HiveRpcWorker.LocalAddresses().FirstOrDefault() ?? "127.0.0.1";
+        var wideSucceeded = TryBind($"http://+:{port}/hive/");
 
-        _listener = new HttpListener();
-        var started = TryBind($"http://+:{port}/hive/");
-        if (!started)
-            TryBind($"http://localhost:{port}/hive/");
+        if (wideSucceeded)
+        {
+            BaseUrl = $"http://{lanIp}:{port}";
+        }
+        else if (TryBind($"http://localhost:{port}/hive/"))
+        {
+            // Bound to loopback only — workers must be on the same machine
+            BaseUrl = $"http://localhost:{port}";
+            Log($"⚠ HiveTaskQueue bound to localhost only (no admin ACL). " +
+                $"Workers on remote machines cannot connect. " +
+                $"Run OrchestratorSetup to open the firewall/ACL for port {port}.");
+        }
 
         if (_listener.IsListening)
         {
@@ -98,8 +129,10 @@ public sealed class HiveTaskQueue : IDisposable
 
     /// <summary>
     /// Enqueues a task bundle and awaits its completion by a remote worker.
-    /// Returns the worker's result, or null if the session was cancelled.
-    /// This is the main integration point for SwarmSession distributed mode.
+    /// Returns the worker's result, or null when:
+    ///   • the session CancellationToken fires (SwarmSession.Stop()), or
+    ///   • no worker claims the task within PendingTimeoutSec (60s) →
+    ///     SwarmSession.DispatchToQueueAsync() then falls back to local execution.
     /// </summary>
     public async Task<HiveTaskResult?> EnqueueAndWaitAsync(
         string taskId, HiveTaskBundle bundle, CancellationToken ct)
@@ -108,15 +141,16 @@ public sealed class HiveTaskQueue : IDisposable
         if (!_tasks.TryAdd(taskId, entry))
             throw new InvalidOperationException($"Task {taskId} already in queue");
 
+        // Session stop cancels all waits immediately
         using var reg = ct.Register(() => entry.CompletionTcs.TrySetResult(null));
 
+        // Pending timeout is enforced by CheckTimeouts() watchdog — no inline timer
+        // needed here; the watchdog fires every 10s and resolves TCS with null when
+        // the task has been pending > PendingTimeoutSec with no claim.
         return await entry.CompletionTcs.Task;
     }
 
-    /// <summary>
-    /// Cancels all pending tasks (called on SwarmSession.Stop()).
-    /// Waiting EnqueueAndWaitAsync calls return null immediately.
-    /// </summary>
+    /// <summary>Cancels all pending tasks (called on SwarmSession.Stop()).</summary>
     public void CancelAll()
     {
         foreach (var entry in _tasks.Values)
@@ -160,19 +194,15 @@ public sealed class HiveTaskQueue : IDisposable
             var method = ctx.Request.HttpMethod.ToUpperInvariant();
             var path   = ctx.Request.Url?.AbsolutePath.TrimEnd('/') ?? "";
 
-            // GET /hive/tasks/next
-            if (method == "GET" && path == "/hive/tasks/next")
+            if (method == "GET"  && path == "/hive/tasks/next")
             { await HandleGetNextAsync(ctx); return; }
 
-            // GET /hive/tasks/status
-            if (method == "GET" && path == "/hive/tasks/status")
+            if (method == "GET"  && path == "/hive/tasks/status")
             { await HandleGetStatusAsync(ctx); return; }
 
-            // GET /hive/session/context
-            if (method == "GET" && path == "/hive/session/context")
+            if (method == "GET"  && path == "/hive/session/context")
             { await HandleGetContextAsync(ctx); return; }
 
-            // POST /hive/tasks/{id}/{action}
             var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
             if (method == "POST" && parts.Length == 4
                 && parts[0] == "hive" && parts[1] == "tasks")
@@ -238,14 +268,17 @@ public sealed class HiveTaskQueue : IDisposable
             }
 
             var req = await ReadJsonAsync<HiveClaimRequest>(ctx.Request);
+
+            // Rotate claim token on every (re-)claim so stale /complete calls can be rejected
+            entry.ClaimToken    = Guid.NewGuid().ToString("N")[..12];
             entry.Status        = "claimed";
             entry.ClaimedBy     = req?.WorkerId ?? "unknown";
             entry.ClaimedByUrl  = req?.WorkerUrl ?? "";
             entry.ClaimedAt     = DateTime.UtcNow;
             entry.LastHeartbeat = DateTime.UtcNow;
 
-            Log($"🐝 [{entry.Bundle.Role}] '{entry.Bundle.Title}' claimed by {entry.ClaimedBy}");
-            WriteJson(ctx, new { taskId, status = "claimed" });
+            Log($"🐝 [{entry.Bundle.Role}] '{entry.Bundle.Title}' claimed by {entry.ClaimedBy} (token={entry.ClaimToken})");
+            WriteJson(ctx, new { taskId, status = "claimed", claimToken = entry.ClaimToken });
         }
         finally
         {
@@ -253,13 +286,29 @@ public sealed class HiveTaskQueue : IDisposable
         }
     }
 
-    private Task HandleHeartbeatAsync(HttpListenerContext ctx, string taskId)
+    private async Task HandleHeartbeatAsync(HttpListenerContext ctx, string taskId)
     {
-        if (_tasks.TryGetValue(taskId, out var entry) && entry.Status == "claimed")
-            entry.LastHeartbeat = DateTime.UtcNow;
+        if (!_tasks.TryGetValue(taskId, out var entry) || entry.Status != "claimed")
+        {
+            WriteJson(ctx, new { taskId, status = "not-claimed" });
+            return;
+        }
 
+        var hb = await ReadJsonAsync<HiveHeartbeatRequest>(ctx.Request);
+
+        // Reject heartbeats that don't carry the current claim token.
+        // This prevents a stale worker (whose claim was superseded) from keeping
+        // the task alive and defeating the watchdog re-queue path.
+        if (!string.IsNullOrEmpty(entry.ClaimToken)
+            && (hb is null || hb.ClaimToken != entry.ClaimToken))
+        {
+            ctx.Response.StatusCode = 409;
+            WriteJson(ctx, new { taskId, status = "stale" });
+            return;
+        }
+
+        entry.LastHeartbeat = DateTime.UtcNow;
         WriteJson(ctx, new { taskId, status = "alive" });
-        return Task.CompletedTask;
     }
 
     private async Task HandleCompleteAsync(HttpListenerContext ctx, string taskId)
@@ -270,9 +319,10 @@ public sealed class HiveTaskQueue : IDisposable
             return;
         }
 
-        // Idempotent: if already completed (e.g. a re-queued task that was re-run),
-        // the second completion is silently ignored.
-        if (entry.Status == "completed")
+        // Only a currently claimed task can be completed; reject all other states.
+        // This closes the ownership-fails-open gap where a worker that bypassed /claim
+        // could submit a result while the task is still pending or already done.
+        if (entry.Status is not "claimed")
         {
             ctx.Response.StatusCode = 409;
             return;
@@ -282,6 +332,15 @@ public sealed class HiveTaskQueue : IDisposable
         if (result is null)
         {
             ctx.Response.StatusCode = 400;
+            return;
+        }
+
+        // Reject /complete from a stale worker whose claim was superseded.
+        if (!string.IsNullOrEmpty(entry.ClaimToken) && result.ClaimToken != entry.ClaimToken)
+        {
+            Log($"⚠ Stale /complete for '{entry.Bundle.Title}' from {result.WorkerId} " +
+                $"(token mismatch — re-queued task already claimed by {entry.ClaimedBy})");
+            ctx.Response.StatusCode = 409;
             return;
         }
 
@@ -302,15 +361,30 @@ public sealed class HiveTaskQueue : IDisposable
             return;
         }
 
-        var result = await ReadJsonAsync<HiveTaskResult>(ctx.Request);
-        entry.Status = "failed";
+        // Same ownership check as /complete.
+        if (entry.Status is not "claimed")
+        {
+            ctx.Response.StatusCode = 409;
+            return;
+        }
 
+        var result = await ReadJsonAsync<HiveTaskResult>(ctx.Request);
+
+        // Reject /fail from a stale worker whose claim was superseded.
+        if (result is not null && !string.IsNullOrEmpty(entry.ClaimToken)
+            && result.ClaimToken != entry.ClaimToken)
+        {
+            ctx.Response.StatusCode = 409;
+            return;
+        }
+
+        entry.Status = "failed";
         var failResult = result ?? new HiveTaskResult
         {
-            TaskId   = taskId,
-            WorkerId = entry.ClaimedBy ?? "unknown",
-            Status   = "failed",
-            ErrorMsg = "Worker reported failure with no details"
+            TaskId    = taskId,
+            WorkerId  = entry.ClaimedBy ?? "unknown",
+            Status    = "failed",
+            ErrorMsg  = "Worker reported failure with no details",
         };
         entry.CompletionTcs.TrySetResult(failResult);
 
@@ -349,36 +423,70 @@ public sealed class HiveTaskQueue : IDisposable
         return Task.CompletedTask;
     }
 
-    // ── Heartbeat watchdog ────────────────────────────────────────────────────
+    // ── Timeout watchdog ──────────────────────────────────────────────────────
 
-    private void CheckHeartbeats(object? _)
+    private void CheckTimeouts(object? _)
     {
-        var timeout = TimeSpan.FromSeconds(45);
-        var now     = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
+
+        var toEvict = new List<string>();
 
         foreach (var (id, entry) in _tasks)
         {
-            if (entry.Status != "claimed") continue;
-            if (entry.LastHeartbeat is null || now - entry.LastHeartbeat.Value > timeout)
+            switch (entry.Status)
             {
-                var who = entry.ClaimedBy ?? "unknown";
-                entry.Status        = "pending";
-                entry.ClaimedBy     = null;
-                entry.ClaimedByUrl  = null;
-                entry.ClaimedAt     = null;
-                entry.LastHeartbeat = null;
-                Log($"⚠ Task '{entry.Bundle.Title}' heartbeat timeout from {who} — re-queued");
+                // BLOCKER-1 fix: pending tasks with no claim expire → TCS resolves null
+                // so SwarmSession.DispatchToQueueAsync() triggers local fallback.
+                case "pending":
+                    if (now - entry.EnqueuedAt > TimeSpan.FromSeconds(PendingTimeoutSec))
+                    {
+                        Log($"⚠ Task '{entry.Bundle.Title}' unclaimed after {PendingTimeoutSec}s — " +
+                            $"resolving for local fallback");
+                        entry.Status = "timeout";
+                        entry.CompletionTcs.TrySetResult(null);
+                    }
+                    break;
+
+                // Claimed tasks that stop heartbeating are re-queued (crash recovery)
+                case "claimed":
+                    if (entry.LastHeartbeat is null ||
+                        now - entry.LastHeartbeat.Value > TimeSpan.FromSeconds(HeartbeatTimeoutSec))
+                    {
+                        var who = entry.ClaimedBy ?? "unknown";
+                        // Re-queue: clear claim fields (ClaimToken rotates on next claim)
+                        entry.Status        = "pending";
+                        entry.ClaimedBy     = null;
+                        entry.ClaimedByUrl  = null;
+                        entry.ClaimedAt     = null;
+                        entry.LastHeartbeat = null;
+                        // Rotate token on re-queue — old worker's token no longer valid.
+                        // /complete and /fail guards reject any result with a stale token.
+                        entry.ClaimToken    = Guid.NewGuid().ToString();
+                        Log($"⚠ Task '{entry.Bundle.Title}' heartbeat timeout from {who} — re-queued");
+                    }
+                    break;
+
+                // Evict terminal entries after 5 minutes to prevent unbounded growth.
+                case "completed":
+                case "failed":
+                case "timeout":
+                    if (now - entry.EnqueuedAt > TimeSpan.FromMinutes(5))
+                        toEvict.Add(id);
+                    break;
             }
         }
+
+        foreach (var id in toEvict)
+            _tasks.TryRemove(id, out var __evicted);
     }
 
     // ── JSON helpers ──────────────────────────────────────────────────────────
 
     private static readonly JsonSerializerOptions _json = new()
     {
-        PropertyNamingPolicy         = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition       = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
-        WriteIndented                = false,
+        PropertyNamingPolicy   = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+        WriteIndented          = false,
     };
 
     private static void WriteJson(HttpListenerContext ctx, object obj)

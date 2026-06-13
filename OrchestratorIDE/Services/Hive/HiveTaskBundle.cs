@@ -67,6 +67,19 @@ public sealed class HiveTaskResult
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ErrorMsg   { get; set; }
     public int     DurationMs { get; set; }
+    /// <summary>
+    /// Claim token received from /claim response. Must match Warchief's current
+    /// token or the /complete|/fail call is rejected (stale-worker guard).
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ClaimToken { get; set; }
+}
+
+/// <summary>Body of POST /hive/tasks/{id}/heartbeat.</summary>
+public sealed class HiveHeartbeatRequest
+{
+    public string WorkerId   { get; set; } = "";
+    public string ClaimToken { get; set; } = "";
 }
 
 /// <summary>Body of POST /hive/tasks/{id}/claim.</summary>

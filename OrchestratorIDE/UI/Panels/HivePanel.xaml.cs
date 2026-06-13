@@ -46,8 +46,11 @@ public partial class HivePanel : UserControl
 
     private async Task ProbeAndDraw()
     {
-        // Probe every host (This PC included) off the UI thread, then redraw.
+        // Probe reachability, then HIVE API (VRAM/RpcPort/models) for alive remote nodes.
         await Task.WhenAll(_hosts.Select(h => HiveHosts.ProbeAsync(h)));
+        await Task.WhenAll(_hosts
+            .Where(h => h.Reachable == true && h.Name != "This PC")
+            .Select(h => HiveHosts.ProbeHiveApiAsync(h)));
         var up = _hosts.Count(h => h.Reachable == true);
         HiveSummary.Text = $"{up}/{_hosts.Count} node{(_hosts.Count == 1 ? "" : "s")} online";
         DrawConstellation();
@@ -176,6 +179,7 @@ public partial class HivePanel : UserControl
                 Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xC0, 0x40)),
                 VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0),
             });
+            var safeName = System.Text.RegularExpressions.Regex.Replace(host.Name, @"[^\w\-]", "_");
             var rpcBtn = new Button
             {
                 Content = "Use RPC", FontSize = 9, Padding = new Thickness(6, 2, 6, 2),
@@ -184,6 +188,7 @@ public partial class HivePanel : UserControl
                 Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xC0, 0x40)),
                 BorderThickness = new Thickness(1), Cursor = System.Windows.Input.Cursors.Hand,
             };
+            System.Windows.Automation.AutomationProperties.SetAutomationId(rpcBtn, $"Hive.UseRpc.{safeName}");
             rpcBtn.Click += (_, _) => ApplyRpcWorker(host);
             rpcRow.Children.Add(rpcBtn);
             sp.Children.Add(rpcRow);
@@ -248,10 +253,24 @@ public partial class HivePanel : UserControl
     public void OnBeaconNodeSeen(Services.Hive.HiveBeaconMessage msg)
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.InvokeAsync(() => OnBeaconNodeSeen(msg)); return; }
-        // Skip nodes we already have in the hive.
+        // Skip nodes we already have in the hive (exact URL match).
         if (_hosts.Any(h => string.Equals(h.Url, msg.OllamaUrl, StringComparison.OrdinalIgnoreCase))) return;
+        // Skip this machine's own beacon — it may advertise a LAN IP while stored as localhost.
+        if (IsSelfUrl(msg.OllamaUrl)) return;
         _discovered[msg.OllamaUrl] = msg;
         RefreshDiscoveredStrip();
+    }
+
+    private static bool IsSelfUrl(string url)
+    {
+        try
+        {
+            var host = new Uri(url).Host;
+            if (host is "localhost" or "127.0.0.1") return true;
+            var localIps = Services.Hive.HiveRpcWorker.LocalAddresses();
+            return localIps.Any(ip => string.Equals(ip, host, StringComparison.OrdinalIgnoreCase));
+        }
+        catch { return false; }
     }
 
     private async void BtnScanLan_Click(object s, RoutedEventArgs e)
@@ -267,7 +286,10 @@ public partial class HivePanel : UserControl
                 _discovered[msg.OllamaUrl] = msg;
             }
             RefreshDiscoveredStrip();
-            if (found.Count == 0)
+            // Suppress the "nothing found" dialog when our own beacon is running —
+            // ScanAsync returns [] when it can't bind the port, but OnBeaconNodeSeen
+            // already populates _discovered via the long-lived listener.
+            if (found.Count == 0 && _discovered.Count == 0)
                 MessageBox.Show(
                     "No HIVE MIND nodes found on the LAN.\n\n" +
                     "Make sure TheOrc is installed and HIVE MIND is enabled on the other machine, " +
@@ -304,14 +326,16 @@ public partial class HivePanel : UserControl
             Foreground = new SolidColorBrush(Color.FromRgb(0xC8, 0xC8, 0x40)),
             VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0),
         });
+        var hostLabel = SafeUriHost(msg.OllamaUrl);
         sp.Children.Add(new TextBlock
         {
-            Text       = $"{new Uri(msg.OllamaUrl).Host} · {msg.Models.Length} models",
+            Text       = $"{hostLabel} · {msg.Models.Length} models",
             FontFamily = new FontFamily("Segoe UI"), FontSize = 10,
             Foreground = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)),
             VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
         });
 
+        var safeName = System.Text.RegularExpressions.Regex.Replace(msg.Name, @"[^\w\-]", "_");
         var addBtn = new Button
         {
             Content = "⊕ Trust & Add", FontSize = 10, Padding = new Thickness(8, 3, 8, 3),
@@ -320,6 +344,7 @@ public partial class HivePanel : UserControl
             Foreground = new SolidColorBrush(Color.FromRgb(0xA8, 0xCC, 0x80)),
             BorderThickness = new Thickness(1), Cursor = System.Windows.Input.Cursors.Hand,
         };
+        System.Windows.Automation.AutomationProperties.SetAutomationId(addBtn, $"Hive.TrustAndAdd.{safeName}");
         addBtn.Click += (_, _) => TrustAndAdd(msg);
         sp.Children.Add(addBtn);
 
@@ -410,6 +435,12 @@ public partial class HivePanel : UserControl
     }
 
     private void BtnRescan_Click(object s, RoutedEventArgs e) => _ = ProbeAndDraw();
+
+    private static string SafeUriHost(string url)
+    {
+        try { return new Uri(url).Host; }
+        catch { return url.Replace("http://", "").Split(':')[0]; }
+    }
 
     // ── RPC worker activation ─────────────────────────────────────────────────
 

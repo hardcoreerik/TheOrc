@@ -739,7 +739,7 @@ public partial class SwarmBoardPanel : UserControl
         StartSwarm(goal);
     }
 
-    private void StartSwarm(string goal)
+    private async void StartSwarm(string goal)
     {
         _lastRunGoal = goal;
 
@@ -826,21 +826,23 @@ public partial class SwarmBoardPanel : UserControl
             var remoteHosts = hiveHosts.Where(h => h.Name != "This PC").ToList();
             if (remoteHosts.Count > 0)
             {
-                // Probe remote nodes asynchronously — don't block swarm start.
-                _ = Task.Run(async () =>
+                // Probe before starting so SetHiveHosts reaches the session before Phase 2 dispatches tasks.
+                try
                 {
-                    await Task.WhenAll(hiveHosts.Select(h => Services.Hive.HiveHosts.ProbeAsync(h, 2)));
-                    await Task.WhenAll(hiveHosts
-                        .Where(h => h.Reachable == true)
-                        .Select(h => Services.Hive.HiveHosts.ProbeHiveApiAsync(h)));
-                    var alive = hiveHosts.Count(h => h.Reachable == true && h.Name != "This PC");
-                    if (alive > 0)
-                    {
-                        _session.SetHiveHosts(hiveHosts, localUrl);
-                        _ = Dispatcher.InvokeAsync(() =>
-                            OnActivity?.Invoke($"🐝 HIVE MIND: {alive} remote node(s) online — per-task routing enabled"));
-                    }
-                });
+                    await Task.WhenAll(hiveHosts.Select(h => Services.Hive.HiveHosts.ProbeAsync(h, 2)))
+                              .WaitAsync(TimeSpan.FromSeconds(3));
+                    await Task.WhenAll(hiveHosts.Where(h => h.Reachable == true)
+                                                 .Select(h => Services.Hive.HiveHosts.ProbeHiveApiAsync(h)))
+                              .WaitAsync(TimeSpan.FromSeconds(2));
+                }
+                catch { /* timeout — proceed with whatever reachability data we have */ }
+
+                var alive = hiveHosts.Count(h => h.Reachable == true && h.Name != "This PC");
+                if (alive > 0)
+                {
+                    _session.SetHiveHosts(hiveHosts, localUrl);
+                    OnActivity?.Invoke($"🐝 HIVE MIND: {alive} remote node(s) online — per-task routing enabled");
+                }
             }
         }
 

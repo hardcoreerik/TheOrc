@@ -25,7 +25,9 @@ public static class HiveScheduler
     public static void AssignNodes(
         IReadOnlyList<SwarmTask> tasks,
         IReadOnlyList<HiveHost>  hosts,
-        string                   localUrl)
+        string                   localUrl,
+        string?                  researcherModel = null,
+        string?                  coderModel      = null)
     {
         // Only remote nodes participate in routing (local node is always available).
         var remote = hosts
@@ -35,44 +37,38 @@ public static class HiveScheduler
 
         if (remote.Count == 0) return;   // no alive remote nodes — nothing to route
 
-        // Build the full pool: local first (best model quality), then remotes.
-        var local = hosts.FirstOrDefault(h => h.Name == "This PC")
-                    ?? new HiveHost { Name = "This PC", Url = localUrl };
-        local.Url = localUrl;
-
-        var pool = new List<HiveHost> { local };
-        pool.AddRange(remote);
-
         int remoteIdx = 0;   // round-robin index through remote nodes
 
         foreach (var task in tasks)
         {
             if (!string.IsNullOrEmpty(task.TargetNodeUrl)) continue;
 
-            // Boss always stays local — it needs the highest-capability model.
-            // (Boss tasks never pass through AssignNodes in normal flow, but guard anyway.)
-            // Researcher: prefer the node with the matching researcher model or most VRAM.
-            // Coder/UIDev/Tester: round-robin across remote nodes so work spreads.
-            HiveHost chosen;
-            if (task.Role == SwarmWorkerRole.Researcher && remote.Count > 0)
+            // For each role prefer a node that already has the right model loaded.
+            // Falls back to the node with the most free VRAM, then to the round-robin remote.
+            var modelHint = task.Role == SwarmWorkerRole.Researcher ? researcherModel : coderModel;
+            HiveHost target;
+            if (!string.IsNullOrWhiteSpace(modelHint))
             {
-                // Pick the remote node that has the most free VRAM for research.
-                chosen = remote[0];
-            }
-            else if (remote.Count > 0)
-            {
-                // Round-robin: each successive task goes to the next remote node.
-                // This naturally balances load when nodes have similar hardware.
-                chosen = remote[remoteIdx % remote.Count];
-                remoteIdx++;
+                var bestUrl = GetUrlForModel(modelHint, hosts, localUrl);
+
+                // Best match is local — leave task unassigned so it runs on This PC.
+                if (string.Equals(bestUrl, localUrl, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // Best match is a specific remote — use it; fallback to highest-VRAM.
+                var matched = remote.FirstOrDefault(h =>
+                    string.Equals(h.Url, bestUrl, StringComparison.OrdinalIgnoreCase));
+                target = matched ?? remote[0];
             }
             else
             {
-                continue;   // only local — no routing
+                // No model hint — round-robin across remotes ordered by VRAM.
+                target = remote[remoteIdx % remote.Count];
+                remoteIdx++;
             }
 
-            task.TargetNodeUrl  = chosen.Url;
-            task.TargetNodeName = chosen.Name;
+            task.TargetNodeUrl  = target.Url;
+            task.TargetNodeName = target.Name;
         }
     }
 

@@ -132,8 +132,8 @@ public sealed class HiveWorkerAgent : IDisposable
 
     private async Task ClaimAndExecuteAsync(HiveTaskBundle bundle, CancellationToken ct)
     {
-        var claimed = await ClaimTaskAsync(bundle, ct);
-        if (!claimed)
+        var claimToken = await ClaimTaskAsync(bundle, ct);
+        if (claimToken is null)
         {
             Log($"🐝 [{bundle.Role}] '{bundle.Title}' — already claimed by another worker");
             return;
@@ -145,7 +145,7 @@ public sealed class HiveWorkerAgent : IDisposable
         string? errorMsg = null;
 
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var heartbeatTask      = HeartbeatLoopAsync(bundle, heartbeatCts.Token);
+        var heartbeatTask      = HeartbeatLoopAsync(bundle, claimToken ?? "", heartbeatCts.Token);
 
         try
         {
@@ -173,16 +173,18 @@ public sealed class HiveWorkerAgent : IDisposable
             Status     = status,
             ErrorMsg   = errorMsg,
             DurationMs = (int)(DateTime.UtcNow - startedAt).TotalMilliseconds,
+            ClaimToken = claimToken,
         };
 
-        await PostResultAsync(bundle.TaskId, "complete", taskResult, ct);
+        var action = status == "completed" ? "complete" : "fail";
+        await PostResultAsync(bundle.TaskId, action, taskResult, ct);
         TaskActivity(bundle.TaskId,
             status == "completed"
                 ? $"✅ Sent to Warchief ({taskResult.DurationMs / 1000.0:F1}s, {result?.Length ?? 0} chars)"
                 : $"⚠ Failure reported to Warchief: {errorMsg}");
     }
 
-    private async Task<bool> ClaimTaskAsync(HiveTaskBundle bundle, CancellationToken ct)
+    private async Task<string?> ClaimTaskAsync(HiveTaskBundle bundle, CancellationToken ct)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         var url  = $"{WarchiefUrl.TrimEnd('/')}/hive/tasks/{bundle.TaskId}/claim";
@@ -195,11 +197,28 @@ public sealed class HiveWorkerAgent : IDisposable
 
         var resp = await http.PostAsync(url,
             new StringContent(body, Encoding.UTF8, "application/json"), ct);
-        return resp.IsSuccessStatusCode;
+        if (!resp.IsSuccessStatusCode) return null;
+
+        // Extract claimToken from response so we can prove we own this task on /complete.
+        var json = await resp.Content.ReadAsStringAsync(ct);
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("claimToken", out var tok))
+                return tok.GetString();
+        }
+        catch { }
+        return "";   // claimed but no token in response — allow (backward-compat)
     }
 
-    private async Task HeartbeatLoopAsync(HiveTaskBundle bundle, CancellationToken ct)
+    private async Task HeartbeatLoopAsync(HiveTaskBundle bundle, string claimToken, CancellationToken ct)
     {
+        var hbBody = JsonSerializer.Serialize(new HiveHeartbeatRequest
+        {
+            WorkerId   = WorkerId,
+            ClaimToken = claimToken,
+        }, _json);
+
         while (!ct.IsCancellationRequested)
         {
             try { await Task.Delay(10_000, ct); } catch { break; }
@@ -209,7 +228,7 @@ public sealed class HiveWorkerAgent : IDisposable
             {
                 using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
                 var url = $"{WarchiefUrl.TrimEnd('/')}/hive/tasks/{bundle.TaskId}/heartbeat";
-                await http.PostAsync(url, new StringContent("{}", Encoding.UTF8, "application/json"), ct);
+                await http.PostAsync(url, new StringContent(hbBody, Encoding.UTF8, "application/json"), ct);
             }
             catch { /* non-fatal — watchdog will re-queue if too many misses */ }
         }
