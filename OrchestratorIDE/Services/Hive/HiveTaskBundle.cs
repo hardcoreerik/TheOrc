@@ -126,3 +126,33 @@ public sealed class HiveSessionContext
     public string CoderModel      { get; set; } = "";
     public string ResearcherModel { get; set; } = "";
 }
+
+/// <summary>
+/// A single task lifecycle event stored in HiveEventBus and served at
+/// GET /hive/events. Warchief emits claim/complete/fail/timeout events
+/// internally; workers POST task_executing events via POST /hive/events.
+/// </summary>
+public sealed class HiveEvent
+{
+    public long     Seq       { get; set; }
+    public DateTime Ts        { get; set; }
+    /// <summary>
+    /// task_queued | task_claimed | task_executing | task_complete |
+    /// task_failed | task_timeout | task_requeued
+    /// </summary>
+    public string   Type      { get; set; } = "";
+    public string   Msg       { get; set; } = "";
+    public string   TaskId    { get; set; } = "";
+    public string   WorkerId  { get; set; } = "";
+    public string   SessionId { get; set; } = "";
+}
+
+/// <summary>Body of POST /hive/events — workers push lifecycle events to Warchief.</summary>
+public sealed class HiveEventPost
+{
+    public string Type      { get; set; } = "";
+    public string Msg       { get; set; } = "";
+    public string TaskId    { get; set; } = "";
+    public string WorkerId  { get; set; } = "";
+    public string SessionId { get; set; } = "";
+}

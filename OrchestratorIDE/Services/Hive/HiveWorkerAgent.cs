@@ -271,6 +271,8 @@ public sealed class HiveWorkerAgent : IDisposable
 
         Log($"🐝 Executing [{bundle.Role}] '{bundle.Title}' with {model}…");
         TaskActivity(bundle.TaskId, $"⚡ Running on {WorkerId} with {model}");
+        await PostEventAsync("task_executing",
+            $"⚡ {WorkerId} · [{bundle.Role}] {bundle.Title} · {model}", bundle.TaskId, ct);
 
         var result = new StringBuilder();
         await foreach (var token in Ollama.StreamCompletionAsync(model, messages, ct: ct))
@@ -345,6 +347,34 @@ public sealed class HiveWorkerAgent : IDisposable
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    // ── Event side-channel ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// POSTs a lifecycle event to the Warchief's /hive/events endpoint.
+    /// Non-fatal: network errors are swallowed (the main task channel is the
+    /// source of truth; events are best-effort observability only).
+    /// "Zero idle chatter": only call this for meaningful state transitions,
+    /// never for heartbeats or polling no-ops.
+    /// </summary>
+    private async Task PostEventAsync(string type, string msg, string taskId, CancellationToken ct)
+    {
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            var url  = $"{WarchiefUrl.TrimEnd('/')}/hive/events";
+            var body = JsonSerializer.Serialize(new HiveEventPost
+            {
+                Type     = type,
+                Msg      = msg,
+                TaskId   = taskId,
+                WorkerId = WorkerId,
+            }, _json);
+            using var content = new StringContent(body, Encoding.UTF8, "application/json");
+            await http.PostAsync(url, content, ct);
+        }
+        catch { /* non-fatal — observability must not break execution */ }
+    }
 
     private void Log(string msg)          => OnLog?.Invoke(msg);
     private void TaskActivity(string id, string msg) => OnTaskActivity?.Invoke(id, msg);

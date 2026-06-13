@@ -20,6 +20,26 @@ public partial class HivePanel : UserControl
 {
     public string LocalUrl { get; set; } = "http://localhost:11434";
 
+    // ── Event log ─────────────────────────────────────────────────────────────
+
+    private HiveEventBus? _eventBus;
+    private long _eventSeq = -1;
+    private const int MaxEventRows = 150;
+    private readonly DispatcherTimer _eventPoll = new() { Interval = TimeSpan.FromSeconds(2) };
+
+    public HiveEventBus? EventBus
+    {
+        get => _eventBus;
+        set
+        {
+            _eventBus = value;
+            if (value is not null)
+                _eventPoll.Start();
+            else
+                _eventPoll.Stop();
+        }
+    }
+
     private List<HiveHost> _hosts = [];
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromSeconds(8) };
 
@@ -34,8 +54,9 @@ public partial class HivePanel : UserControl
     {
         InitializeComponent();
         _poll.Tick += async (_, _) => await ProbeAndDraw();
+        _eventPoll.Tick += (_, _) => PollEvents();
         Loaded   += async (_, _) => { Refresh(); await ProbeAndDraw(); _poll.Start(); };
-        Unloaded += (_, _) => _poll.Stop();
+        Unloaded += (_, _) => { _poll.Stop(); _eventPoll.Stop(); };
     }
 
     public void Refresh()
@@ -55,6 +76,46 @@ public partial class HivePanel : UserControl
         HiveSummary.Text = $"{up}/{_hosts.Count} node{(_hosts.Count == 1 ? "" : "s")} online";
         DrawConstellation();
     }
+
+    // ── Event log rendering ────────────────────────────────────────────────
+
+    private void PollEvents()
+    {
+        if (_eventBus is null) return;
+        var events = _eventBus.Since(_eventSeq);
+        if (events.Length == 0) return;
+
+        foreach (var ev in events)
+        {
+            _eventSeq = Math.Max(_eventSeq, ev.Seq);
+            var color  = EventColor(ev.Type);
+            var prefix = ev.Ts.ToLocalTime().ToString("HH:mm:ss");
+            var worker = ev.WorkerId.Length > 0 ? $" {ev.WorkerId} ·" : "";
+            var row    = new EventRow($"[{prefix}]{worker} {ev.Msg}", color);
+            IcEventLog.Items.Add(row);
+        }
+
+        // Trim to MaxEventRows
+        while (IcEventLog.Items.Count > MaxEventRows)
+            IcEventLog.Items.RemoveAt(0);
+
+        TbEventCount.Text = $"({IcEventLog.Items.Count})";
+        SvEventLog.ScrollToEnd();
+    }
+
+    private static SolidColorBrush EventColor(string type) => type switch
+    {
+        "task_queued"    => new SolidColorBrush(Color.FromRgb(0xC8, 0xC8, 0x40)),
+        "task_claimed"   => new SolidColorBrush(Color.FromRgb(0x4E, 0xC9, 0xE0)),
+        "task_executing" => new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00)),
+        "task_complete"  => new SolidColorBrush(Color.FromRgb(0xA8, 0xCC, 0x80)),
+        "task_failed"    => new SolidColorBrush(Color.FromRgb(0xFF, 0x60, 0x60)),
+        "task_timeout"   => new SolidColorBrush(Color.FromRgb(0xFF, 0xA0, 0x40)),
+        "task_requeued"  => new SolidColorBrush(Color.FromRgb(0xFF, 0xA0, 0x40)),
+        _                => new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)),
+    };
+
+    private sealed record EventRow(string Text, SolidColorBrush Color);
 
     // ── Constellation rendering ────────────────────────────────────────────
 

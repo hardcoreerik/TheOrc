@@ -531,6 +531,8 @@ public partial class MainWindow : Window
 
                     // Wire the queue into the swarm panel so new sessions get it
                     Dispatcher.InvokeAsync(() => _swarmPanel.HiveTaskQueue = _hiveTaskQueue);
+                    // Wire event bus into HivePanel for live task monitoring
+                    Dispatcher.InvokeAsync(() => _hivePanel.EventBus = _hiveTaskQueue?.Events);
                 }
 
                 // HIVE MIND Phase 3A: Worker — poll a Warchief's task queue

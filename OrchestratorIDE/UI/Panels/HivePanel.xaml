@@ -7,6 +7,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="130"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
@@ -48,8 +49,35 @@
                     AutomationProperties.AutomationId="Hive.Canvas"/>
         </Border>
 
+        <!-- Event log strip -->
+        <Border Grid.Row="2" Margin="0,8,0,0"
+                Background="#070D07" BorderBrush="#1A2A1A" BorderThickness="1"
+                CornerRadius="6" ClipToBounds="True"
+                AutomationProperties.AutomationId="Hive.EventLog">
+            <DockPanel>
+                <DockPanel DockPanel.Dock="Top" Margin="8,5,8,4">
+                    <TextBlock Text="⚡ EVENTS" FontSize="9" FontWeight="Bold"
+                               Foreground="#4A6A4A" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="TbEventCount" Text="" FontSize="9"
+                               Foreground="#3A4A3A" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                </DockPanel>
+                <ScrollViewer x:Name="SvEventLog" VerticalScrollBarVisibility="Hidden"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <ItemsControl x:Name="IcEventLog" Margin="8,0,8,6">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Text}" Foreground="{Binding Color}"
+                                           FontFamily="Consolas" FontSize="10"
+                                           TextTrimming="CharacterEllipsis" Margin="0,0,0,1"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
         <!-- Discovered nodes strip (auto-hidden when empty) -->
-        <Border x:Name="BdrDiscovered" Grid.Row="2" Margin="0,8,0,0"
+        <Border x:Name="BdrDiscovered" Grid.Row="3" Margin="0,8,0,0"
                 Background="#0D1A0D" BorderBrush="#2A4A2A" BorderThickness="1"
                 CornerRadius="6" Padding="10,8"
                 Visibility="Collapsed"
@@ -64,7 +92,7 @@
             </DockPanel>
         </Border>
 
-        <TextBlock Grid.Row="3" Margin="2,8,0,0" FontSize="10" Foreground="#666666"
+        <TextBlock Grid.Row="4" Margin="2,8,0,0" FontSize="10" Foreground="#666666"
                    Text="This PC sits at the center. Reachable nodes glow green and pulse; lines carry work. Click a node for detail. Use 📡 Scan LAN to find nodes running HIVE MIND."/>
     </Grid>
 </UserControl>

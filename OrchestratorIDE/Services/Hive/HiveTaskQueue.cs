@@ -29,6 +29,8 @@ namespace OrchestratorIDE.Services.Hive;
 ///   POST /hive/tasks/{id}/fail                     → report failure  (409 if stale worker)
 ///   GET  /hive/tasks/status                        → full queue snapshot
 ///   GET  /hive/session/context                     → session context for workers
+///   POST /hive/events                              → worker pushes a lifecycle event
+///   GET  /hive/events?since=&lt;seq&gt;               → poll events after seq (-1 = tail)
 /// </summary>
 public sealed class HiveTaskQueue : IDisposable
 {
@@ -69,6 +71,12 @@ public sealed class HiveTaskQueue : IDisposable
     // ── Public surface ────────────────────────────────────────────────────────
 
     public event Action<string>? OnLog;
+
+    /// <summary>
+    /// In-memory ring buffer of task lifecycle events. UI polls this directly
+    /// (same process); remote monitors use GET /hive/events?since=&lt;seq&gt;.
+    /// </summary>
+    public HiveEventBus Events { get; } = new();
 
     /// <summary>
     /// Base URL workers POST results to (e.g. "http://192.168.1.10:7079").
@@ -141,6 +149,9 @@ public sealed class HiveTaskQueue : IDisposable
         if (!_tasks.TryAdd(taskId, entry))
             throw new InvalidOperationException($"Task {taskId} already in queue");
 
+        Events.Append("task_queued", $"[{bundle.Role}] {bundle.Title}",
+            taskId, sessionId: _sessionCtx.SessionId);
+
         // Session stop cancels all waits immediately
         using var reg = ct.Register(() => entry.CompletionTcs.TrySetResult(null));
 
@@ -202,6 +213,12 @@ public sealed class HiveTaskQueue : IDisposable
 
             if (method == "GET"  && path == "/hive/session/context")
             { await HandleGetContextAsync(ctx); return; }
+
+            if (method == "POST" && path == "/hive/events")
+            { await HandlePostEventAsync(ctx); return; }
+
+            if (method == "GET"  && path == "/hive/events")
+            { HandleGetEventsAsync(ctx); return; }
 
             var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
             if (method == "POST" && parts.Length == 4
@@ -278,6 +295,9 @@ public sealed class HiveTaskQueue : IDisposable
             entry.LastHeartbeat = DateTime.UtcNow;
 
             Log($"🐝 [{entry.Bundle.Role}] '{entry.Bundle.Title}' claimed by {entry.ClaimedBy} (token={entry.ClaimToken})");
+            Events.Append("task_claimed",
+                $"[{entry.Bundle.Role}] {entry.Bundle.Title} → {entry.ClaimedBy}",
+                taskId, entry.ClaimedBy ?? "");
             WriteJson(ctx, new { taskId, status = "claimed", claimToken = entry.ClaimToken });
         }
         finally
@@ -349,6 +369,9 @@ public sealed class HiveTaskQueue : IDisposable
 
         Log($"🐝 [{entry.Bundle.Role}] '{entry.Bundle.Title}' ✅ completed by {result.WorkerId} " +
             $"({result.DurationMs / 1000.0:F1}s, {result.Result.Length} chars)");
+        Events.Append("task_complete",
+            $"[{result.WorkerId}] {entry.Bundle.Title} ✓ {result.DurationMs / 1000.0:F1}s · {result.Result.Length} chars",
+            taskId, result.WorkerId);
 
         WriteJson(ctx, new { taskId, status = "completed" });
     }
@@ -389,6 +412,9 @@ public sealed class HiveTaskQueue : IDisposable
         entry.CompletionTcs.TrySetResult(failResult);
 
         Log($"⚠ [{entry.Bundle.Role}] '{entry.Bundle.Title}' failed by {failResult.WorkerId}: {failResult.ErrorMsg}");
+        Events.Append("task_failed",
+            $"[{failResult.WorkerId}] {entry.Bundle.Title} ✗ {failResult.ErrorMsg}",
+            taskId, failResult.WorkerId);
         WriteJson(ctx, new { taskId, status = "failed" });
     }
 
@@ -444,6 +470,8 @@ public sealed class HiveTaskQueue : IDisposable
                             $"resolving for local fallback");
                         entry.Status = "timeout";
                         entry.CompletionTcs.TrySetResult(null);
+                        Events.Append("task_timeout",
+                            $"{entry.Bundle.Title} unclaimed after {PendingTimeoutSec}s → local fallback", id);
                     }
                     break;
 
@@ -463,6 +491,8 @@ public sealed class HiveTaskQueue : IDisposable
                         // /complete and /fail guards reject any result with a stale token.
                         entry.ClaimToken    = Guid.NewGuid().ToString();
                         Log($"⚠ Task '{entry.Bundle.Title}' heartbeat timeout from {who} — re-queued");
+                        Events.Append("task_requeued",
+                            $"{entry.Bundle.Title} lost heartbeat from {who} → re-queued", id, who);
                     }
                     break;
 
@@ -478,6 +508,23 @@ public sealed class HiveTaskQueue : IDisposable
 
         foreach (var id in toEvict)
             _tasks.TryRemove(id, out var __evicted);
+    }
+
+    // ── Event endpoints ───────────────────────────────────────────────────────
+
+    private async Task HandlePostEventAsync(HttpListenerContext ctx)
+    {
+        var ev = await ReadJsonAsync<HiveEventPost>(ctx.Request);
+        if (ev is null) { ctx.Response.StatusCode = 400; return; }
+        Events.Append(ev.Type, ev.Msg, ev.TaskId, ev.WorkerId, ev.SessionId);
+        WriteJson(ctx, new { status = "ok", seq = Events.HeadSeq });
+    }
+
+    private void HandleGetEventsAsync(HttpListenerContext ctx)
+    {
+        var sinceStr = ctx.Request.QueryString["since"] ?? "-1";
+        long.TryParse(sinceStr, out var since);
+        WriteJson(ctx, Events.Since(since));
     }
 
     // ── JSON helpers ──────────────────────────────────────────────────────────
