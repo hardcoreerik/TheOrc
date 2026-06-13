@@ -40,9 +40,16 @@ public partial class TrainingPitPanel : UserControl
     private string _pitRoot = "";
     private Process? _harvestProcess;
     private FileSystemWatcher? _stagingWatcher;
+    private FileSystemWatcher? _manifestWatcher;
     private DispatcherTimer? _liveTimer;
+    private DispatcherTimer? _registryTimer;
     private DateTime _lastCaptureTime = DateTime.MinValue;
+    private DateTime _lastManifestRefresh = DateTime.MinValue;
     private bool _liveActive;
+
+    /// <summary>Ollama host pulled from AppSettings; refreshed on each load so
+    /// changes propagate without restarting the panel.</summary>
+    public string OllamaHost { get; set; } = "http://localhost:11434";
 
     public TrainingPitPanel()
     {
@@ -89,11 +96,40 @@ public partial class TrainingPitPanel : UserControl
                 .Max();
         }
 
+        // Manifest changes (CLI approve/reject from review_captures.py or
+        // Codex external runs) must show up without a manual Refresh click —
+        // that was the "UI stuck at 900" bug from the morning of 2026-06-13.
+        var manifestDir = Path.Combine(_pitRoot, "training_pit", "datasets", "manifests");
+        if (_manifestWatcher is null && Directory.Exists(manifestDir))
+        {
+            _manifestWatcher = new FileSystemWatcher(manifestDir, "reviewed_v1.json")
+            {
+                NotifyFilter        = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.CreationTime,
+                EnableRaisingEvents = true,
+            };
+            // Debounce — atomic writes fire several events in quick succession.
+            _manifestWatcher.Changed += (_, _) => Dispatcher.BeginInvoke(() =>
+            {
+                if (DateTime.Now - _lastManifestRefresh < TimeSpan.FromSeconds(1)) return;
+                _lastManifestRefresh = DateTime.Now;
+                Refresh();
+            });
+        }
+
         if (_liveTimer is null)
         {
             _liveTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
             _liveTimer.Tick += (_, _) => UpdateLiveState();
             _liveTimer.Start();
+        }
+
+        // Models list comes from Ollama HTTP, not the filesystem — poll on a
+        // slow timer so models added via `ollama pull` show up without restart.
+        if (_registryTimer is null)
+        {
+            _registryTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+            _registryTimer.Tick += async (_, _) => await ReloadModelsAsync();
+            _registryTimer.Start();
         }
         UpdateLiveState();
     }
@@ -262,43 +298,18 @@ public partial class TrainingPitPanel : UserControl
             var triage = LoadTriage();
             var items  = LoadQueue(decided, triage);
 
+            // Datasets + adapters from disk; models hit Ollama HTTP (slow path).
+            var datasets = Services.TrainingPitRegistry.LoadDatasets(_pitRoot);
+            var adapters = Services.TrainingPitRegistry.LoadAdapters(_pitRoot);
+
             Dispatcher.Invoke(() =>
             {
-                // Once the v1 gate is met, the cards graduate to the long-term
-                // professional targets (~1,000 train / ~200 eval per
-                // TRAINING_PIT_GUIDE "Dataset Size Targets") so "900 of 150"
-                // never reads like a bug.
-                if (train >= TrainGate)
-                {
-                    TrainCount.Text  = $"{train:N0} ✓  (goal ~{TrainGoal:N0})";
-                    TrainBar.Maximum = TrainGoal;
-                    TrainCount.Foreground = new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00));
-                }
-                else
-                {
-                    TrainCount.Text  = $"{train} of {TrainGate}";
-                    TrainBar.Maximum = TrainGate;
-                }
-                if (eval >= EvalGate)
-                {
-                    EvalCount.Text  = $"{eval} ✓  (goal ~{EvalGoal})";
-                    EvalBar.Maximum = EvalGoal;
-                }
-                else
-                {
-                    EvalCount.Text  = $"{eval} of {EvalGate}";
-                    EvalBar.Maximum = EvalGate;
-                }
-                NegCount.Text   = $"{neg} of {NegGate}"  + (neg  >= NegGate  ? " ✓" : "");
-                TrainBar.Value = train;
-                EvalBar.Value  = eval;
-                NegBar.Maximum   = NegGate;   NegBar.Value   = neg;
-                EvalCount.Foreground = new SolidColorBrush(eval >= EvalGate ? Color.FromRgb(0x76, 0xB9, 0x00) : Color.FromRgb(0xD4, 0xD4, 0xD4));
-                NegCount.Foreground  = new SolidColorBrush(neg  >= NegGate  ? Color.FromRgb(0x76, 0xB9, 0x00) : Color.FromRgb(0xD4, 0xD4, 0xD4));
-
                 PhaseText.Text = train >= TrainGate && eval >= EvalGate && neg >= NegGate
-                    ? "All gates met — ready for Phase 3 preflight"
-                    : "Collecting examples — training not started";
+                    ? $"All gates met — {train:N0} train · {eval} eval · {neg} neg"
+                    : $"Collecting — {train} of {TrainGate} train · {eval} of {EvalGate} eval · {neg} of {NegGate} neg";
+
+                RenderDatasets(datasets);
+                RenderAdapters(adapters);
 
                 Queue.Clear();
                 foreach (var it in items) Queue.Add(it);
@@ -306,6 +317,9 @@ public partial class TrainingPitPanel : UserControl
 
                 UpdateHarvestUi();
             });
+
+            // Models load is async — don't block the rest of the panel on it.
+            _ = ReloadModelsAsync();
         }
         catch (Exception ex)
         {
@@ -773,6 +787,92 @@ public partial class TrainingPitPanel : UserControl
 
     private static string Truncate(string s, int max) =>
         s.Length <= max ? s : s[..max] + "…";
+
+    // ── Registry rendering (Datasets / Adapters / Models row) ─────────────
+
+    private void RenderDatasets(List<Services.TrainingPitRegistry.DatasetInfo> datasets)
+    {
+        DatasetList.ItemsSource = datasets;
+        DatasetCount.Text = datasets.Count.ToString();
+        DatasetEmpty.Visibility = datasets.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void RenderAdapters(List<Services.TrainingPitRegistry.AdapterInfo> adapters)
+    {
+        var rows = adapters.Select(a => new AdapterRow(a)).ToList();
+        AdapterList.ItemsSource = rows;
+        AdapterCount.Text = adapters.Count.ToString();
+        AdapterEmpty.Visibility = adapters.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async Task ReloadModelsAsync()
+    {
+        var models = await Services.TrainingPitRegistry.LoadModelsAsync(OllamaHost);
+        Dispatcher.Invoke(() =>
+        {
+            var rows = models.Select(m => new ModelRow(m)).ToList();
+            ModelList.ItemsSource = rows;
+            ModelCount.Text = models.Count.ToString();
+            ModelEmpty.Visibility = models.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        });
+    }
+}
+
+/// <summary>View-model wrapper around AdapterInfo: precomputes display
+/// strings and tier badge colors so the XAML stays simple.</summary>
+public class AdapterRow
+{
+    public string Name { get; }
+    public string BaseModelShort { get; }
+    public string MetricsLine { get; }
+    public string Tier { get; }
+    public Brush  TierBg { get; }
+    public Brush  TierFg { get; }
+
+    public AdapterRow(Services.TrainingPitRegistry.AdapterInfo a)
+    {
+        Name = a.Name;
+        var bm = a.BaseModel;
+        // Strip org prefix so "google/gemma-4-12b-it" reads as "gemma-4-12b-it".
+        var slash = bm.LastIndexOf('/');
+        BaseModelShort = "base: " + (slash >= 0 ? bm[(slash + 1)..] : bm);
+
+        var loss = a.EvalLoss is double l ? $"loss {l:F3}" : "no eval";
+        var when = a.Finished == default ? "" : a.Finished.ToString("MM-dd HH:mm");
+        MetricsLine = $"{a.TrainExamples} ex · {loss} · {when}";
+
+        Tier = a.Tier;
+        (TierBg, TierFg) = a.Tier switch
+        {
+            "Trusted"    => (BrushFromHex("#1F3D00"), BrushFromHex("#76B900")),
+            "Promoted"   => (BrushFromHex("#1A2A00"), BrushFromHex("#CCA700")),
+            _            => (BrushFromHex("#1A1A1A"), BrushFromHex("#999999")),
+        };
+    }
+
+    private static SolidColorBrush BrushFromHex(string hex) =>
+        (SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;
+}
+
+/// <summary>View-model wrapper around OllamaModelInfo.</summary>
+public class ModelRow
+{
+    public string NameShort { get; }
+    public string SizeText { get; }
+
+    public ModelRow(Services.TrainingPitRegistry.OllamaModelInfo m)
+    {
+        // hf.co/org/repo:tag is the long form Ollama uses for HF pulls.
+        // Show the last meaningful segment so the list stays readable.
+        var name = m.Name;
+        if (name.StartsWith("hf.co/", StringComparison.OrdinalIgnoreCase))
+        {
+            var lastSlash = name.LastIndexOf('/');
+            if (lastSlash >= 0) name = "hf:" + name[(lastSlash + 1)..];
+        }
+        NameShort = name;
+        SizeText = $"{m.SizeGb:F1} GB";
+    }
 }
 
 /// <summary>One undecided capture in the review queue.</summary>

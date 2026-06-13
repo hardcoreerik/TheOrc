@@ -71,40 +71,157 @@
             </StackPanel>
         </DockPanel>
 
-        <!-- ── Gate cards ─────────────────────────────────────────────── -->
-        <UniformGrid Grid.Row="1" Columns="3" Margin="0,0,0,12">
-            <Border Background="#141814" CornerRadius="6" Padding="12,10" Margin="0,0,6,0"
-                    ToolTip="The 'train' split — the textbook the model studies during fine-tuning.">
-                <StackPanel>
-                    <TextBlock Text="Lessons" FontSize="12" Foreground="#D4D4D4"/>
-                    <TextBlock Text="good plans the model learns from" FontSize="10" Foreground="#999999"/>
-                    <TextBlock x:Name="TrainCount" Text="—" FontSize="20" Foreground="#D4D4D4" Margin="0,4,0,4"
-                               AutomationProperties.AutomationId="TrainingPit.TrainCount"/>
-                    <ProgressBar x:Name="TrainBar" Height="6" BorderThickness="0"
-                                 Background="#111111" Foreground="#CCA700"/>
-                </StackPanel>
+        <!-- ── Inventory row: Datasets | Adapters | Models ───────────────── -->
+        <Grid Grid.Row="1" Margin="0,0,0,12" Height="180">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Datasets -->
+            <Border Grid.Column="0" Background="#141814" CornerRadius="6" Padding="10,8" Margin="0,0,6,0"
+                    BorderBrush="#2A2A2A" BorderThickness="1"
+                    ToolTip="Datasets on disk in training_pit/datasets/. The textbook(s) the model learns from.">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <TextBlock Text="📚" FontSize="13" VerticalAlignment="Center"/>
+                        <TextBlock Text="DATASETS" FontSize="11" FontWeight="Bold" Foreground="#A8CC80"
+                                   Margin="6,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="DatasetCount" Text="0" FontSize="11" Foreground="#666666"
+                                   VerticalAlignment="Center"
+                                   AutomationProperties.AutomationId="TrainingPit.DatasetCount"/>
+                    </DockPanel>
+                    <TextBlock x:Name="DatasetEmpty" DockPanel.Dock="Bottom" Text="no datasets yet"
+                               FontSize="10" Foreground="#666666" FontStyle="Italic" Margin="2,4,0,0"
+                               Visibility="Collapsed"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="DatasetList"
+                                      AutomationProperties.AutomationId="TrainingPit.DatasetList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#0E120E" BorderBrush="#2A2A2A" BorderThickness="1"
+                                            CornerRadius="3" Padding="8,5" Margin="0,0,0,4">
+                                        <StackPanel>
+                                            <DockPanel>
+                                                <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold"
+                                                           Foreground="#D4D4D4"/>
+                                                <TextBlock Text="{Binding TrainCount, StringFormat={}{0:N0}}"
+                                                           FontSize="12" Foreground="#A8CC80" FontFamily="Consolas"
+                                                           HorizontalAlignment="Right" DockPanel.Dock="Right"/>
+                                            </DockPanel>
+                                            <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                                <Border Background="#1F3D00" CornerRadius="2" Padding="4,1" Margin="0,0,4,0">
+                                                    <TextBlock FontSize="9" Foreground="#A8CC80">
+                                                        <Run Text="train "/><Run Text="{Binding TrainCount}"/>
+                                                    </TextBlock>
+                                                </Border>
+                                                <Border Background="#1A2A00" CornerRadius="2" Padding="4,1" Margin="0,0,4,0">
+                                                    <TextBlock FontSize="9" Foreground="#CCA700">
+                                                        <Run Text="eval "/><Run Text="{Binding EvalCount}"/>
+                                                    </TextBlock>
+                                                </Border>
+                                                <Border Background="#2A0A0A" CornerRadius="2" Padding="4,1">
+                                                    <TextBlock FontSize="9" Foreground="#F09090">
+                                                        <Run Text="neg "/><Run Text="{Binding NegCount}"/>
+                                                    </TextBlock>
+                                                </Border>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
             </Border>
-            <Border Background="#141814" CornerRadius="6" Padding="12,10" Margin="3,0,3,0"
-                    ToolTip="The 'eval' split — held-back exam questions the model never trains on.">
-                <StackPanel>
-                    <TextBlock Text="Exam" FontSize="12" Foreground="#D4D4D4"/>
-                    <TextBlock Text="held back to test it after training" FontSize="10" Foreground="#999999"/>
-                    <TextBlock x:Name="EvalCount" Text="—" FontSize="20" Foreground="#D4D4D4" Margin="0,4,0,4"/>
-                    <ProgressBar x:Name="EvalBar" Height="6" BorderThickness="0"
-                                 Background="#111111" Foreground="#76B900"/>
-                </StackPanel>
+
+            <!-- Adapters -->
+            <Border Grid.Column="1" Background="#141014" CornerRadius="6" Padding="10,8" Margin="3,0,3,0"
+                    BorderBrush="#2A2A2A" BorderThickness="1"
+                    ToolTip="Trained LoRA adapters in training_pit/outputs/. Each can be applied to a base model via Ollama.">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <TextBlock Text="🧬" FontSize="13" VerticalAlignment="Center"/>
+                        <TextBlock Text="ADAPTERS" FontSize="11" FontWeight="Bold" Foreground="#E8A030"
+                                   Margin="6,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="AdapterCount" Text="0" FontSize="11" Foreground="#666666"
+                                   VerticalAlignment="Center"
+                                   AutomationProperties.AutomationId="TrainingPit.AdapterCount"/>
+                    </DockPanel>
+                    <TextBlock x:Name="AdapterEmpty" DockPanel.Dock="Bottom"
+                               Text="no adapters yet — train one below"
+                               FontSize="10" Foreground="#666666" FontStyle="Italic" Margin="2,4,0,0"
+                               Visibility="Collapsed"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="AdapterList"
+                                      AutomationProperties.AutomationId="TrainingPit.AdapterList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#120E0A" BorderBrush="#2A2A2A" BorderThickness="1"
+                                            CornerRadius="3" Padding="8,5" Margin="0,0,0,4">
+                                        <StackPanel>
+                                            <DockPanel>
+                                                <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold"
+                                                           Foreground="#E8C080"/>
+                                                <Border Background="{Binding TierBg}" CornerRadius="2"
+                                                        Padding="5,1" HorizontalAlignment="Right" DockPanel.Dock="Right">
+                                                    <TextBlock Text="{Binding Tier}" FontSize="9"
+                                                               Foreground="{Binding TierFg}"/>
+                                                </Border>
+                                            </DockPanel>
+                                            <TextBlock Text="{Binding BaseModelShort}" FontSize="10" Foreground="#999999"
+                                                       Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding MetricsLine}" FontSize="9" Foreground="#A8CC80"
+                                                       FontFamily="Consolas" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
             </Border>
-            <Border Background="#141814" CornerRadius="6" Padding="12,10" Margin="6,0,0,0"
-                    ToolTip="The 'negative' split — bad plans kept to verify the trained model stops making them.">
-                <StackPanel>
-                    <TextBlock Text="Mistakes" FontSize="12" Foreground="#D4D4D4"/>
-                    <TextBlock Text="bad plans it must stop making" FontSize="10" Foreground="#999999"/>
-                    <TextBlock x:Name="NegCount" Text="—" FontSize="20" Foreground="#D4D4D4" Margin="0,4,0,4"/>
-                    <ProgressBar x:Name="NegBar" Height="6" BorderThickness="0"
-                                 Background="#111111" Foreground="#76B900"/>
-                </StackPanel>
+
+            <!-- Models -->
+            <Border Grid.Column="2" Background="#101414" CornerRadius="6" Padding="10,8" Margin="6,0,0,0"
+                    BorderBrush="#2A2A2A" BorderThickness="1"
+                    ToolTip="Ollama models on this host. Targets for training or fine-tune output.">
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                        <TextBlock Text="🧠" FontSize="13" VerticalAlignment="Center"/>
+                        <TextBlock Text="MODELS" FontSize="11" FontWeight="Bold" Foreground="#80C0E0"
+                                   Margin="6,0,8,0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="ModelCount" Text="0" FontSize="11" Foreground="#666666"
+                                   VerticalAlignment="Center"
+                                   AutomationProperties.AutomationId="TrainingPit.ModelCount"/>
+                    </DockPanel>
+                    <TextBlock x:Name="ModelEmpty" DockPanel.Dock="Bottom"
+                               Text="Ollama not reachable"
+                               FontSize="10" Foreground="#666666" FontStyle="Italic" Margin="2,4,0,0"
+                               Visibility="Collapsed"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="ModelList"
+                                      AutomationProperties.AutomationId="TrainingPit.ModelList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#0E1214" BorderBrush="#2A2A2A" BorderThickness="1"
+                                            CornerRadius="3" Padding="8,4" Margin="0,0,0,3">
+                                        <DockPanel>
+                                            <TextBlock Text="{Binding NameShort}" FontSize="11" Foreground="#D4D4D4"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding SizeText}" FontSize="10" Foreground="#80A0B0"
+                                                       FontFamily="Consolas" HorizontalAlignment="Right"
+                                                       DockPanel.Dock="Right"/>
+                                        </DockPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
             </Border>
-        </UniformGrid>
+        </Grid>
 
         <!-- ── Night harvest bar ──────────────────────────────────────── -->
         <Border Grid.Row="2" Background="#101410" BorderBrush="#2A2A2A" BorderThickness="1"

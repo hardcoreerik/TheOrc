@@ -1521,6 +1521,7 @@ public partial class MainWindow : Window
         {
             // ── Training Pit: dataset dashboard, no model switch needed ────────
             _pitPanel.WorkspaceRoot = _session.WorkspaceRoot;
+            _pitPanel.OllamaHost    = _settings.OllamaHost;
             _pitPanel.Refresh();
 
             MainContent.Content    = _pitPanel;
