@@ -103,12 +103,52 @@ HIVE MIND is still a spec, not a shipped feature. The current work is architectu
 
 ### HIVE MIND
 
-Planned in [HIVE_MIND_SPEC.md](HIVE_MIND_SPEC.md):
+Phase 3A (distributed swarm) **shipped in v1.4.0** (2026-06-12): HiveTaskQueue,
+worker polling, model-aware scheduling, LAN beacon discovery. See
+[HIVE_MIND_SPEC.md](HIVE_MIND_SPEC.md). Remaining planned work:
 
-- multi-node discovery
-- remote Ollama host routing
-- capability-aware job placement
+- capability-aware job placement refinements
 - remote harvest and academy execution with artifact return
+- `/events` lifecycle side-channel (monitor pane/task lifecycle without
+  polluting task semantics — SigmaLink mailbox-back-channel pattern)
+- "zero idle chatter" message discipline (HiveTask messages must carry progress
+  or block info; no bare status pings)
+
+### Orchestration Hardening (SigmaLink-inspired)
+
+Patterns absorbed from the SigmaLink comparison (2026-06-13), in priority order.
+Two are designed; two are deferred with rationale.
+
+| Item | Target | Status | Design |
+|---|---|---|---|
+| **Worktree-per-task isolation** | v1.5 | Designed | [WORKTREE_ISOLATION_DESIGN.md](WORKTREE_ISOLATION_DESIGN.md) |
+| **Reviewer Quality Gate** | v1.5 | Formalized | [REVIEWER_QUALITY_GATE.md](REVIEWER_QUALITY_GATE.md) |
+| **SQLite task board** | v1.6 | Deferred | — |
+| **Skills system (Anthropic Skills spec)** | v1.5+ | Deferred | — |
+
+**Worktree-per-task isolation** — each swarm task works in its own git worktree
+with strict file ownership, making parallel runs conflict-free by construction.
+Replaces today's last-write-wins flat staging. Composes with HIVE (isolation is
+Warchief-side; workers stay stateless). Phased, opt-in, non-breaking.
+
+**Reviewer Quality Gate** — swarm output is not authoritative until a Reviewer
+passes it. Runs at the worktree merge step. The gate's judge follows a trust
+ladder: human → Codex → TheOrc (once `theorc-reviewer:v1` earns it). Machinery
+(`review-capture.ps1`) already exists; this formalizes its authority and home.
+
+**SQLite task board** (deferred to v1.6) — replace the JSON manifests +
+filesystem-walk counting with a SQLite system-of-record. Rationale for waiting:
+the JSON path works today and a concurrent-write race (hit once in the night
+harvest) is the only pressing motivation; not worth the migration cost until the
+worktree + gate work lands and the schema stabilizes. Enables cross-restart
+session resume and queryable run history.
+
+**Skills system** (deferred to v1.5+) — drag-and-drop Anthropic Skills
+frontmatter to load reviewer/domain skills (security, performance,
+accessibility) instead of hard-coding prompts in scripts. Rationale for
+waiting: needs a UI surface to be useful, and the reviewer prompt is still
+churning (B-3 series, certificate template). Premature to externalize a prompt
+we are actively redesigning.
 
 ### Broader Platform Expansion
 
