@@ -37,8 +37,8 @@ public partial class HelpWindow : Window
         "QUICK_START.md", "INSTALLATION.md", "USER_GUIDE.md", "FAQ.md",
         "SINGLE_AGENT_GUIDE.md", "SWARM_GUIDE.md", "MODEL_GUIDE.md",
         "MODEL_WIKI_AND_LAB.md", "HARDWARE_GUIDE.md", "TRAINING_PIT_GUIDE.md",
-        "DATASET_REVIEW_WORKFLOW.md", "TESTING_GUIDE.md", "TROUBLESHOOTING.md",
-        "ROADMAP.md",
+        "DATASET_REVIEW_WORKFLOW.md", "REVIEWER_ADAPTER_GUIDE.md",
+        "TESTING_GUIDE.md", "TROUBLESHOOTING.md", "ROADMAP.md",
     ];
 
     private HelpWindow()

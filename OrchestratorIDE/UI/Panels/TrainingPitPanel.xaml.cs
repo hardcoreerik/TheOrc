@@ -39,7 +39,9 @@ public partial class TrainingPitPanel : UserControl
 
     private string _pitRoot = "";
     private Process? _harvestProcess;
+    private Process? _reviewProcess;
     private FileSystemWatcher? _stagingWatcher;
+    private FileSystemWatcher? _reviewStagingWatcher;
     private FileSystemWatcher? _manifestWatcher;
     private DispatcherTimer? _liveTimer;
     private DispatcherTimer? _registryTimer;
@@ -94,6 +96,25 @@ public partial class TrainingPitPanel : UserControl
                 .Select(File.GetLastWriteTime)
                 .DefaultIfEmpty(DateTime.MinValue)
                 .Max();
+        }
+
+        // Review captures land in review-staging/ from tools/review-capture.ps1.
+        // Watch the folder so the count + latest line updates in real time.
+        var reviewStaging = Path.Combine(_pitRoot, ".orc", "swarm", "review-staging");
+        if (_reviewStagingWatcher is null)
+        {
+            // Create the dir if missing so the watcher has something to attach
+            // to even before the first capture lands.
+            try { Directory.CreateDirectory(reviewStaging); } catch { }
+            if (Directory.Exists(reviewStaging))
+            {
+                _reviewStagingWatcher = new FileSystemWatcher(reviewStaging, "review_capture_*.json")
+                {
+                    EnableRaisingEvents = true,
+                };
+                _reviewStagingWatcher.Created += (_, _) => Dispatcher.BeginInvoke(RefreshReviewCaptures);
+                _reviewStagingWatcher.Changed += (_, _) => Dispatcher.BeginInvoke(RefreshReviewCaptures);
+            }
         }
 
         // Manifest changes (CLI approve/reject from review_captures.py or
@@ -310,6 +331,7 @@ public partial class TrainingPitPanel : UserControl
 
                 RenderDatasets(datasets);
                 RenderAdapters(adapters);
+                RefreshReviewCaptures();
 
                 Queue.Clear();
                 foreach (var it in items) Queue.Add(it);
@@ -472,23 +494,246 @@ public partial class TrainingPitPanel : UserControl
             HarvestStatus.Text = "refused — academy is training on the GPU";
             return;
         }
+        if (ReviewRunning)
+        {
+            OnActivity?.Invoke("Not starting night harvest — a review is using Ollama/GPU.");
+            HarvestStatus.Text = "refused — review is using the GPU";
+            return;
+        }
         if (_liveActive)
         {
             // Belt-and-braces: the button should already be disabled in this state.
             OnActivity?.Invoke("Not starting night harvest — captures are already arriving from another run.");
             return;
         }
+
+        // Read picker values; fall back to script defaults when the dropdowns
+        // are still loading (Ollama may not have answered yet on a fast click).
+        var gen   = (CbGenModel.SelectedItem   as HarvestModelOption)?.Name ?? "qwen2.5-coder:14b";
+        var judge = (CbJudgeModel.SelectedItem as HarvestModelOption)?.Name ?? "qwen2.5-coder:14b";
+
+        if (!int.TryParse(TbGoalsPerCycle.Text, out var goals) || goals < 1 || goals > 200)
+        {
+            OnActivity?.Invoke("Night harvest: goals/cycle must be a number between 1 and 200.");
+            HarvestStatus.Text = "invalid goals/cycle — must be 1–200";
+            return;
+        }
+
+        var duration = (CbHarvestDuration.SelectedItem as ComboBoxItem)?.Tag as string ?? "dawn";
+        var durationFlag = duration switch
+        {
+            "stopped" => "-UntilStopped",
+            "2"       => "-Hours 2",
+            "4"       => "-Hours 4",
+            "8"       => "-Hours 8",
+            _         => "",                  // empty = script default "until dawn"
+        };
+
         var script = Path.Combine(_pitRoot, "training_pit", "scripts", "night_harvest.ps1");
+        var args   = $"-ExecutionPolicy Bypass -File \"{script}\" " +
+                     $"-GenModel \"{gen}\" -JudgeModel \"{judge}\" -GoalsPerCycle {goals} {durationFlag}";
+
         _harvestProcess = Process.Start(new ProcessStartInfo
         {
             FileName         = "pwsh",
-            Arguments        = $"-ExecutionPolicy Bypass -File \"{script}\"",
+            Arguments        = args,
             WorkingDirectory = _pitRoot,
             UseShellExecute  = false,
             CreateNoWindow   = true,
         });
-        OnActivity?.Invoke("Night harvest started — runs until dawn or until stopped");
+
+        var label = duration switch
+        {
+            "stopped" => "until stopped",
+            "2" or "4" or "8" => $"for {duration} hours",
+            _ => "until dawn",
+        };
+        OnActivity?.Invoke($"Night harvest started — gen={gen}, judge={judge}, {goals}/cycle, {label}");
         UpdateHarvestUi();
+    }
+
+    // ── Harvest picker population ─────────────────────────────────────────
+    //
+    // Generator dropdown blocks boss/gemma families (generate_goals.py refuses
+    // those — the boss would feed itself its own distribution). Judge dropdown
+    // is unrestricted. Duration dropdown is static and only built once.
+
+    private bool _harvestDurationInit;
+
+    private void PopulateHarvestPickers(List<Services.TrainingPitRegistry.OllamaModelInfo> models)
+    {
+        if (!_harvestDurationInit)
+        {
+            CbHarvestDuration.Items.Add(new ComboBoxItem { Content = "Dawn (06:00)", Tag = "dawn", IsSelected = true });
+            CbHarvestDuration.Items.Add(new ComboBoxItem { Content = "2 hours",      Tag = "2"    });
+            CbHarvestDuration.Items.Add(new ComboBoxItem { Content = "4 hours",      Tag = "4"    });
+            CbHarvestDuration.Items.Add(new ComboBoxItem { Content = "8 hours",      Tag = "8"    });
+            CbHarvestDuration.Items.Add(new ComboBoxItem { Content = "Stop manually", Tag = "stopped" });
+            _harvestDurationInit = true;
+        }
+
+        var prevGen   = (CbGenModel.SelectedItem   as HarvestModelOption)?.Name;
+        var prevJudge = (CbJudgeModel.SelectedItem as HarvestModelOption)?.Name;
+
+        var genOpts = models.Select(m => new HarvestModelOption
+        {
+            Name      = m.Name,
+            SizeText  = $"{m.SizeGb:F1} GB",
+            IsBlocked = IsBossFamily(m.Name),
+        }).ToList();
+
+        var judgeOpts = models.Select(m => new HarvestModelOption
+        {
+            Name      = m.Name,
+            SizeText  = $"{m.SizeGb:F1} GB",
+            IsBlocked = false,           // judge can be anything
+        }).ToList();
+
+        CbGenModel.ItemsSource   = genOpts;
+        CbJudgeModel.ItemsSource = judgeOpts;
+
+        // Restore previous selection if still present, else prefer
+        // qwen2.5-coder:14b (the project's blessed default), else the first
+        // non-blocked entry.
+        CbGenModel.SelectedItem = genOpts.FirstOrDefault(o => o.Name == prevGen && !o.IsBlocked)
+                               ?? genOpts.FirstOrDefault(o => o.Name == "qwen2.5-coder:14b")
+                               ?? genOpts.FirstOrDefault(o => !o.IsBlocked);
+        CbJudgeModel.SelectedItem = judgeOpts.FirstOrDefault(o => o.Name == prevJudge)
+                                 ?? judgeOpts.FirstOrDefault(o => o.Name == "qwen2.5-coder:14b")
+                                 ?? judgeOpts.FirstOrDefault();
+    }
+
+    /// <summary>Same rule as generate_goals.py: refuse the boss family so the
+    /// generator can't seed the dataset with its own output distribution.</summary>
+    private static bool IsBossFamily(string modelName) =>
+        modelName.Contains("boss", StringComparison.OrdinalIgnoreCase) ||
+        modelName.Contains("gemma", StringComparison.OrdinalIgnoreCase);
+
+    private void CbGenModel_SelectionChanged(object s, SelectionChangedEventArgs e)
+    {
+        // Defensive: if the user opens the dropdown via keyboard and lands on
+        // a blocked item, snap back to the previous valid selection.
+        if (CbGenModel.SelectedItem is HarvestModelOption opt && opt.IsBlocked)
+        {
+            OnActivity?.Invoke($"{opt.Name} can't be the generator — boss family is excluded by design.");
+            var fallback = CbGenModel.ItemsSource?.Cast<HarvestModelOption>().FirstOrDefault(o => !o.IsBlocked);
+            CbGenModel.SelectedItem = fallback;
+        }
+    }
+
+    // ── Forge picker population ──────────────────────────────────────────
+    //
+    // Base model dropdown carries Ollama names + their HF repo mapping.
+    // Selecting one auto-fills TbHfRepo; the user can override the box
+    // directly to use any HF repo (no mapping required).
+    //
+    // Dataset dropdown shows the JSONLs grouped by version stem (v1, v2…).
+    // Picking one auto-suggests an output adapter name in TbOutputName.
+
+    private void PopulateForgePickers(
+        List<Services.TrainingPitRegistry.OllamaModelInfo> models,
+        List<Services.TrainingPitRegistry.DatasetInfo>     datasets)
+    {
+        // Base models — option carries HF mapping; untrainable ones are
+        // greyed out (GGUF quants, models with no HF equivalent yet).
+        var prevBase = (CbBaseModel.SelectedItem as BaseModelOption)?.OllamaName;
+        var baseOpts = models.Select(m => new BaseModelOption
+        {
+            OllamaName = m.Name,
+            HfRepo     = MapOllamaToHfRepo(m.Name),
+            Reason     = ReasonForUntrainable(m.Name),
+        }).ToList();
+        CbBaseModel.ItemsSource = baseOpts;
+        CbBaseModel.SelectedItem = baseOpts.FirstOrDefault(o => o.OllamaName == prevBase && o.HfRepo.Length > 0)
+                                ?? baseOpts.FirstOrDefault(o => o.OllamaName == "gemma4:12b")
+                                ?? baseOpts.FirstOrDefault(o => o.HfRepo.Length > 0);
+
+        // Datasets — option carries derived train/eval paths.
+        var prevDs = (CbDataset.SelectedItem as DatasetOption)?.Name;
+        var dsOpts = datasets.Select(d => new DatasetOption(d, Path.Combine(_pitRoot, "training_pit", "datasets"))).ToList();
+        CbDataset.ItemsSource = dsOpts;
+        CbDataset.SelectedItem = dsOpts.FirstOrDefault(o => o.Name == prevDs) ?? dsOpts.FirstOrDefault();
+    }
+
+    private void CbBaseModel_SelectionChanged(object s, SelectionChangedEventArgs e)
+    {
+        if (CbBaseModel.SelectedItem is not BaseModelOption opt) return;
+        if (opt.HfRepo.Length == 0)
+        {
+            // No mapping — leave the box at whatever the user had so they can
+            // type a repo themselves. Hint that this model isn't auto-mapped.
+            OnActivity?.Invoke($"{opt.OllamaName}: {opt.Reason} Type a HF repo path in the box to override.");
+            return;
+        }
+        TbHfRepo.Text = opt.HfRepo;
+        SuggestOutputName();
+    }
+
+    private void CbDataset_SelectionChanged(object s, SelectionChangedEventArgs e)
+    {
+        SuggestOutputName();
+        // Provenance line + dataset counts inside ORC ACADEMY follow the
+        // selection so picking v2 doesn't keep showing v1 numbers.
+        RefreshForge();
+    }
+
+    /// <summary>Pick an output folder name from the active base + dataset
+    /// pickers, but only when the user hasn't already typed something custom.
+    /// Avoids stomping a hand-edited name on every selection change.</summary>
+    private void SuggestOutputName()
+    {
+        var current = TbOutputName.Text.Trim();
+        if (current.Length > 0 && current != "lora_v1" && !current.StartsWith("lora_", StringComparison.Ordinal))
+            return;
+
+        var ds   = CbDataset.SelectedItem   as DatasetOption;
+        var bm   = CbBaseModel.SelectedItem as BaseModelOption;
+        if (ds is null) return;
+
+        var baseTag = bm?.OllamaName?.Split(':')[0].Replace('.', '_').Replace('/', '_') ?? "";
+        TbOutputName.Text = baseTag.Length > 0 ? $"lora_{ds.Name}_{baseTag}" : $"lora_{ds.Name}";
+    }
+
+    /// <summary>Best-effort Ollama→HuggingFace mapping for common open
+    /// instruction-tuned models. Returns "" if the model isn't trainable as
+    /// a HF base (GGUF quants, missing repo, custom local builds).</summary>
+    private static string MapOllamaToHfRepo(string ollama)
+    {
+        // hf.co/org/repo:tag → org/repo, but only if it's not a GGUF quant.
+        if (ollama.StartsWith("hf.co/", StringComparison.OrdinalIgnoreCase))
+        {
+            if (ollama.Contains("gguf", StringComparison.OrdinalIgnoreCase) ||
+                ollama.Contains("-qat-",  StringComparison.OrdinalIgnoreCase)) return "";
+            var withoutTag = ollama.Split(':')[0];               // hf.co/org/repo
+            var parts      = withoutTag.Split('/', 3);
+            return parts.Length == 3 ? $"{parts[1]}/{parts[2]}" : "";
+        }
+
+        // Common Ollama hub names → canonical HF repos.
+        var name = ollama.ToLowerInvariant();
+        return name switch
+        {
+            "gemma4:12b"            => "google/gemma-4-12b-it",
+            "gemma4:e4b"            => "google/gemma-4-e4b-it",
+            "qwen2.5-coder:14b"     => "Qwen/Qwen2.5-Coder-14B-Instruct",
+            "qwen2.5-coder:7b"      => "Qwen/Qwen2.5-Coder-7B-Instruct",
+            "qwen2.5:14b-instruct"  => "Qwen/Qwen2.5-14B-Instruct",
+            "llama3.1:8b"           => "meta-llama/Llama-3.1-8B-Instruct",
+            "mistral-small:latest"  => "mistralai/Mistral-Small-Instruct-2409",
+            "deepseek-coder-v2:16b" => "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
+            "phi4-mini:latest"      => "microsoft/Phi-4-mini-instruct",
+            "nemotron-3-nano:4b"    => "nvidia/Nemotron-Mini-4B-Instruct",
+            _                       => "",
+        };
+    }
+
+    private static string ReasonForUntrainable(string ollama)
+    {
+        if (ollama.Contains("gguf", StringComparison.OrdinalIgnoreCase) ||
+            ollama.Contains("-qat-",  StringComparison.OrdinalIgnoreCase)) return "GGUF quant — not trainable as a HF base.";
+        if (ollama.StartsWith("theorc-", StringComparison.OrdinalIgnoreCase)) return "custom local build — no HF source.";
+        if (ollama.Contains("nomic-embed", StringComparison.OrdinalIgnoreCase)) return "embedding model — not a chat base.";
+        return "no HF mapping yet.";
     }
 
     private void BtnStopHarvest_Click(object s, RoutedEventArgs e)
@@ -504,7 +749,13 @@ public partial class TrainingPitPanel : UserControl
     private DispatcherTimer? _forgeTimer;
     private bool _forgeDotOn;
 
-    private string ForgeOutDir   => Path.Combine(_pitRoot, "training_pit", "outputs", "lora_v1");
+    /// <summary>Folder under training_pit/outputs/ that the panel currently
+    /// tracks. Defaults to the legacy "lora_v1" name so refreshing without a
+    /// new run still shows the existing adapter. StartForge updates this when
+    /// the user picks a different output name.</summary>
+    private string _forgeOutName = "lora_v1";
+
+    private string ForgeOutDir   => Path.Combine(_pitRoot, "training_pit", "outputs", _forgeOutName);
     private string ProgressPath  => Path.Combine(ForgeOutDir, "progress.json");
     private string SummaryPath   => Path.Combine(ForgeOutDir, "training_summary.json");
     private string ForgeLogPath  => Path.Combine(ForgeOutDir, "forge.log");
@@ -525,15 +776,20 @@ public partial class TrainingPitPanel : UserControl
                 var p = Path.Combine(_pitRoot, "training_pit", "datasets", name);
                 return File.Exists(p) ? File.ReadLines(p).Count(l => l.Length > 0) : 0;
             }
+
+            // Follow whichever dataset is selected in the picker. The manifest
+            // is per-version (reviewed_v1.json, reviewed_v2.json …) so the
+            // decision count tracks the same selection.
+            var version = (CbDataset.SelectedItem as DatasetOption)?.Name ?? "v1";
             int decided = 0;
-            var manifest = Path.Combine(_pitRoot, "training_pit", "datasets", "manifests", "reviewed_v1.json");
+            var manifest = Path.Combine(_pitRoot, "training_pit", "datasets", "manifests", $"reviewed_{version}.json");
             if (File.Exists(manifest))
                 decided = System.Text.Json.JsonDocument.Parse(File.ReadAllText(manifest))
                     .RootElement.GetProperty("entries").EnumerateObject().Count();
 
             ForgeDataset.Text =
-                $"Dataset: {Lines("train_v1.jsonl"):N0} train · {Lines("eval_v1.jsonl")} eval · " +
-                $"{Lines("negative_v1.jsonl")} negative  —  {decided:N0} human-reviewed decisions in the manifest";
+                $"Dataset {version}: {Lines($"train_{version}.jsonl"):N0} train · {Lines($"eval_{version}.jsonl")} eval · " +
+                $"{Lines($"negative_{version}.jsonl")} negative  —  {decided:N0} human-reviewed decisions in the manifest";
         }
         catch (Exception ex) { ForgeDataset.Text = $"Dataset: unavailable ({ex.Message})"; }
 
@@ -590,13 +846,51 @@ public partial class TrainingPitPanel : UserControl
             ForgeStatus.Text = "Refused — harvest owns the GPU. Stop the harvest first.";
             return;
         }
+        if (ReviewRunning)
+        {
+            OnActivity?.Invoke("🏛 Academy refused: a branch review is using Ollama/GPU. Wait for it to finish.");
+            ForgeStatus.Text = "Refused — review owns the GPU. Wait for it to finish.";
+            return;
+        }
 
+        // ── Read picker selections ────────────────────────────────────────
+        // HF repo is the source of truth for which base model gets fine-tuned.
+        // Pickers auto-fill it, but the user can override directly in the box.
+        var hfRepo = TbHfRepo.Text.Trim();
+        if (hfRepo.Length == 0)
+        {
+            OnActivity?.Invoke("🏛 Academy refused: HF repo path is empty. Pick a base model or type a repo.");
+            ForgeStatus.Text = "Refused — HF repo is empty";
+            return;
+        }
+
+        var outputName = TbOutputName.Text.Trim();
+        if (outputName.Length == 0 || outputName.Contains(' ') || outputName.Contains('/') || outputName.Contains('\\'))
+        {
+            OnActivity?.Invoke("🏛 Academy refused: output name must be a single folder name (no spaces, no slashes).");
+            ForgeStatus.Text = "Refused — invalid output name";
+            return;
+        }
+
+        var dataset = CbDataset.SelectedItem as DatasetOption;
+        var trainJsonl = dataset?.TrainPath
+            ?? Path.Combine(_pitRoot, "training_pit", "datasets", "train_v1.jsonl");
+        var evalJsonl  = dataset?.EvalPath
+            ?? Path.Combine(_pitRoot, "training_pit", "datasets", "eval_v1.jsonl");
+
+        // Point all ForgeOutDir-derived paths at the user's chosen output name.
+        _forgeOutName = outputName;
+        var adapterDir = Path.Combine(ForgeOutDir, "adapter");
         Directory.CreateDirectory(ForgeOutDir);
         try { File.Delete(ProgressPath); } catch { }
         if (!resume) { try { File.Delete(SummaryPath); } catch { } }
 
-        var cap = (CbVramCap.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "0";
-        var args = $"-u \"{Path.Combine(_pitRoot, "training_pit", "scripts", "train_lora.py")}\"";
+        var cap  = (CbVramCap.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "0";
+        var args = $"-u \"{Path.Combine(_pitRoot, "training_pit", "scripts", "train_lora.py")}\"" +
+                   $" --base \"{hfRepo}\"" +
+                   $" --train \"{trainJsonl}\"" +
+                   $" --eval \"{evalJsonl}\"" +
+                   $" --out \"{adapterDir}\"";
         if (ChkDryRun.IsChecked == true) args += " --dry-run";
         if (cap != "0")                  args += $" --vram-cap {cap}";
         if (resume)                      args += " --resume";
@@ -795,6 +1089,24 @@ public partial class TrainingPitPanel : UserControl
         DatasetList.ItemsSource = datasets;
         DatasetCount.Text = datasets.Count.ToString();
         DatasetEmpty.Visibility = datasets.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        // Forge dataset picker shares this source.
+        _cachedDatasets = datasets;
+        PopulateForgePickersIfReady();
+    }
+
+    private List<Services.TrainingPitRegistry.DatasetInfo>     _cachedDatasets = new();
+    private List<Services.TrainingPitRegistry.OllamaModelInfo> _cachedModels   = new();
+
+    private void PopulateForgePickersIfReady()
+    {
+        // Dataset picker must populate even when Ollama is unreachable — if
+        // we gated both on models being loaded, StartForge would silently
+        // fall back to the hardcoded train_v1.jsonl/eval_v1.jsonl defaults
+        // and train on the wrong (or missing) dataset (Codex review,
+        // 2026-06-13). Each picker fills as soon as ITS data source is ready.
+        if (_cachedDatasets.Count > 0)
+            PopulateForgePickers(_cachedModels, _cachedDatasets);
     }
 
     private void RenderAdapters(List<Services.TrainingPitRegistry.AdapterInfo> adapters)
@@ -803,6 +1115,165 @@ public partial class TrainingPitPanel : UserControl
         AdapterList.ItemsSource = rows;
         AdapterCount.Text = adapters.Count.ToString();
         AdapterEmpty.Visibility = adapters.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // ── Review captures ──────────────────────────────────────────────────
+    //
+    // Counts review_capture_*.json files in .orc/swarm/review-staging and
+    // shows progress toward two thresholds:
+    //   50  → enough to start an experimental fine-tune
+    //   200 → enough for the real theorc-reviewer:v1 adapter
+    //
+    // No conversion or training is triggered from this UI — that's a manual
+    // step (review_dataset.py + train_lora.py) once the count is high enough.
+
+    private const int ReviewExperimentalGate = 50;
+    private const int ReviewProductionGate   = 200;
+
+    private void RefreshReviewCaptures()
+    {
+        if (_pitRoot.Length == 0) return;
+        var info = Services.TrainingPitRegistry.LoadReviewCaptures(_pitRoot);
+
+        ReviewProgressBar.Maximum = info.Count >= ReviewExperimentalGate
+            ? ReviewProductionGate
+            : ReviewExperimentalGate;
+        ReviewProgressBar.Value = Math.Min(info.Count, (int)ReviewProgressBar.Maximum);
+
+        var sinceText = info.Count == 0
+            ? "never"
+            : HumanizeAge(DateTime.Now - info.LatestAt) + " ago";
+        ReviewStatus.Text = $"{info.Count} staged · last: {sinceText}";
+
+        ReviewThreshold.Text = info.Count >= ReviewProductionGate
+            ? $"{info.Count} captures — ready for the real reviewer adapter"
+            : info.Count >= ReviewExperimentalGate
+                ? $"{info.Count} of {ReviewProductionGate} toward the production adapter"
+                : $"{info.Count} of {ReviewExperimentalGate} toward an experimental adapter";
+
+        ReviewLatest.Text = info.LatestSummary.Length > 0
+            ? $"latest: {info.LatestSummary}"
+            : "";
+
+        // Button states: disable Review-now while a review is already running
+        // OR the GPU is busy with harvest/forge (both would oversubscribe).
+        BtnReviewNow.IsEnabled = !ReviewRunning && !HarvestRunning && !ForgeRunning;
+        BtnReviewNow.ToolTip   = !BtnReviewNow.IsEnabled
+            ? (ReviewRunning ? "Review already running."
+                             : "Harvest or training is using the GPU — wait for it to finish.")
+            : "Runs Codex + TheOrc on the current branch's diff and stages both verdicts.";
+    }
+
+    private bool ReviewRunning => _reviewProcess is { HasExited: false };
+
+    /// <summary>Best-effort range for "current branch vs remote upstream".
+    /// Returns "" when the workspace isn't a git repo, has no remote, or no
+    /// upstream is set — in which case the caller should fall back to
+    /// reviewing the staged diff.</summary>
+    private string DetectBranchRange()
+    {
+        try
+        {
+            // Resolve the upstream of the current branch (e.g. origin/master).
+            // If the user is on detached HEAD or has no upstream, this fails
+            // and we return "" — caller falls back to staged review.
+            var psi = new ProcessStartInfo("git", "rev-parse --abbrev-ref --symbolic-full-name @{u}")
+            {
+                WorkingDirectory       = _pitRoot,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+            };
+            using var p = Process.Start(psi);
+            if (p is null) return "";
+            var upstream = p.StandardOutput.ReadToEnd().Trim();
+            p.WaitForExit(2000);
+            if (p.ExitCode != 0 || upstream.Length == 0) return "";
+
+            // upstream..HEAD reviews "what this branch adds beyond origin".
+            return $"{upstream}..HEAD";
+        }
+        catch { return ""; }
+    }
+
+    private static string HumanizeAge(TimeSpan age)
+    {
+        if (age.TotalSeconds < 60) return $"{(int)age.TotalSeconds}s";
+        if (age.TotalMinutes < 60) return $"{(int)age.TotalMinutes}m";
+        if (age.TotalHours < 24)   return $"{(int)age.TotalHours}h";
+        return $"{(int)age.TotalDays}d";
+    }
+
+    private void BtnReviewNow_Click(object s, RoutedEventArgs e)
+    {
+        if (ReviewRunning) return;
+        if (HarvestRunning || ForgeRunning)
+        {
+            OnActivity?.Invoke("🔍 Review refused — harvest or training is using the GPU.");
+            return;
+        }
+
+        var script = Path.Combine(_pitRoot, "tools", "review-capture.ps1");
+        if (!File.Exists(script))
+        {
+            OnActivity?.Invoke($"🔍 Review tool missing — expected {script}");
+            return;
+        }
+
+        // Fire-and-forget. The FileSystemWatcher on review-staging picks up
+        // the new capture when it lands, so we don't need to wait or stream.
+        BtnReviewNow.IsEnabled = false;
+        BtnReviewNow.Content   = "🔍 Reviewing…";
+
+        // Honor what the button label says: "Review current branch" means
+        // diff the current branch against its remote tracking branch (origin
+        // default). Without -Range, review-capture.ps1 only reviews
+        // `git diff --cached`, silently ignoring unstaged + branch changes
+        // (Codex review, 2026-06-13). Falls back to staged when no remote
+        // branch range applies (detached HEAD, no upstream).
+        var range = DetectBranchRange();
+        var args  = range.Length > 0
+            ? $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" -Range \"{range}\""
+            : $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\"";
+        OnActivity?.Invoke(range.Length > 0
+            ? $"🔍 Review started — Codex + TheOrc on {range}."
+            : "🔍 Review started — Codex + TheOrc on staged changes (no branch range detected).");
+
+        try
+        {
+            _reviewProcess = Process.Start(new ProcessStartInfo
+            {
+                FileName         = "pwsh",
+                Arguments        = args,
+                WorkingDirectory = _pitRoot,
+                UseShellExecute  = false,
+                CreateNoWindow   = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            OnActivity?.Invoke($"🔍 Review launch failed: {ex.Message}");
+            BtnReviewNow.IsEnabled = true;
+            BtnReviewNow.Content   = "▶ Review current branch";
+            return;
+        }
+
+        if (_reviewProcess is null)
+        {
+            BtnReviewNow.IsEnabled = true;
+            BtnReviewNow.Content   = "▶ Review current branch";
+            return;
+        }
+
+        // Restore button text when the process exits, regardless of outcome.
+        _reviewProcess.EnableRaisingEvents = true;
+        _reviewProcess.Exited += (_, _) => Dispatcher.BeginInvoke(() =>
+        {
+            BtnReviewNow.Content = "▶ Review current branch";
+            RefreshReviewCaptures();
+            OnActivity?.Invoke($"🔍 Review finished (exit {_reviewProcess?.ExitCode}).");
+        });
     }
 
     private async Task ReloadModelsAsync()
@@ -814,7 +1285,66 @@ public partial class TrainingPitPanel : UserControl
             ModelList.ItemsSource = rows;
             ModelCount.Text = models.Count.ToString();
             ModelEmpty.Visibility = models.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            // Harvest pickers reuse the same model list.
+            PopulateHarvestPickers(models);
+
+            // Forge base-model picker also consumes the same list; defer
+            // population until both models AND datasets are loaded so the
+            // output-name suggestion has both sides to work with.
+            _cachedModels = models;
+            PopulateForgePickersIfReady();
         });
+    }
+}
+
+/// <summary>Option in the harvest generator/judge dropdowns. Carries an
+/// IsBlocked flag so the gen picker can disable boss/gemma entries.</summary>
+public class HarvestModelOption
+{
+    public string Name { get; init; } = "";
+    public string SizeText { get; init; } = "";
+    public bool   IsBlocked { get; init; }
+
+    public string Display => IsBlocked ? $"{Name}  (boss family — excluded)" : Name;
+    public Brush  TextBrush => IsBlocked
+        ? (Brush)new BrushConverter().ConvertFromString("#666666")!
+        : (Brush)new BrushConverter().ConvertFromString("#D4D4D4")!;
+}
+
+/// <summary>Option in the Forge base-model dropdown. Maps an Ollama name to
+/// its HuggingFace repo (empty when no mapping exists yet — the user can
+/// still type a repo in the override box).</summary>
+public class BaseModelOption
+{
+    public string OllamaName { get; init; } = "";
+    public string HfRepo { get; init; } = "";
+    public string Reason { get; init; } = "";
+
+    public string Display => HfRepo.Length > 0
+        ? $"{OllamaName}  →  {HfRepo}"
+        : $"{OllamaName}  ({Reason})";
+    public Brush TextBrush => HfRepo.Length > 0
+        ? (Brush)new BrushConverter().ConvertFromString("#D4D4D4")!
+        : (Brush)new BrushConverter().ConvertFromString("#666666")!;
+}
+
+/// <summary>Option in the Forge dataset dropdown. Holds the derived
+/// train/eval JSONL paths so StartForge can pass them straight to
+/// train_lora.py without re-deriving from the version stem.</summary>
+public class DatasetOption
+{
+    public string Name { get; }
+    public string TrainPath { get; }
+    public string EvalPath { get; }
+    public string CountsText { get; }
+
+    public DatasetOption(Services.TrainingPitRegistry.DatasetInfo info, string datasetsDir)
+    {
+        Name      = info.Name;
+        TrainPath = Path.Combine(datasetsDir, $"train_{info.Name}.jsonl");
+        EvalPath  = Path.Combine(datasetsDir, $"eval_{info.Name}.jsonl");
+        CountsText = $"{info.TrainCount:N0} train · {info.EvalCount} eval";
     }
 }
 

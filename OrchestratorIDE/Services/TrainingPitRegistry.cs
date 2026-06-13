@@ -45,6 +45,13 @@ public static class TrainingPitRegistry
         public DateTime Modified { get; init; }
     }
 
+    public sealed class ReviewCapturesInfo
+    {
+        public int Count { get; init; }
+        public DateTime LatestAt { get; init; }
+        public string LatestSummary { get; init; } = "";
+    }
+
     // ── Loaders ──────────────────────────────────────────────────────────
 
     /// <summary>Scan training_pit/datasets for *.jsonl files, group by
@@ -165,6 +172,38 @@ public static class TrainingPitRegistry
             return list.OrderByDescending(m => m.Modified).ToList();
         }
         catch { return []; }
+    }
+
+    /// <summary>Scan .orc/swarm/review-staging for review_capture_*.json files
+    /// produced by tools/review-capture.ps1. Each file is one paired
+    /// (Codex verdict, TheOrc verdict) training example for the future
+    /// theorc-reviewer adapter.</summary>
+    public static ReviewCapturesInfo LoadReviewCaptures(string pitRoot)
+    {
+        var dir = System.IO.Path.Combine(pitRoot, ".orc", "swarm", "review-staging");
+        if (!Directory.Exists(dir)) return new ReviewCapturesInfo();
+
+        var files = Directory.GetFiles(dir, "review_capture_*.json");
+        if (files.Length == 0) return new ReviewCapturesInfo();
+
+        var latestFile = files.Select(f => new FileInfo(f)).OrderByDescending(f => f.LastWriteTime).First();
+        var summary = "";
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(latestFile.FullName));
+            var root = doc.RootElement;
+            var stats = root.TryGetProperty("stats", out var s) ? s.GetString() ?? "" : "";
+            var range = root.TryGetProperty("range", out var r) ? r.GetString() ?? "" : "";
+            summary = range.Length > 0 ? $"{range} — {stats}" : stats;
+        }
+        catch { /* unreadable — leave summary blank */ }
+
+        return new ReviewCapturesInfo
+        {
+            Count         = files.Length,
+            LatestAt      = latestFile.LastWriteTime,
+            LatestSummary = summary,
+        };
     }
 
     // ── Trust tier sidecar ───────────────────────────────────────────────

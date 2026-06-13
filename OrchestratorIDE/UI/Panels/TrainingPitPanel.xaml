@@ -36,12 +36,13 @@
 
     <Grid Margin="14">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>  <!-- WARCHIEF FORGE -->
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>  <!-- 0: header -->
+            <RowDefinition Height="Auto"/>  <!-- 1: inventory row -->
+            <RowDefinition Height="Auto"/>  <!-- 2: night harvest -->
+            <RowDefinition Height="Auto"/>  <!-- 3: review captures -->
+            <RowDefinition Height="Auto"/>  <!-- 4: WARCHIEF FORGE -->
+            <RowDefinition Height="Auto"/>  <!-- 5: queue header -->
+            <RowDefinition Height="*"/>     <!-- 6: queue list -->
         </Grid.RowDefinitions>
 
         <!-- ── Header ─────────────────────────────────────────────────── -->
@@ -223,35 +224,134 @@
             </Border>
         </Grid>
 
-        <!-- ── Night harvest bar ──────────────────────────────────────── -->
+        <!-- ── Night harvest section ──────────────────────────────────── -->
         <Border Grid.Row="2" Background="#101410" BorderBrush="#2A2A2A" BorderThickness="1"
                 CornerRadius="6" Padding="12,8" Margin="0,0,0,12">
-            <DockPanel>
-                <Ellipse x:Name="LiveDot" Width="9" Height="9" Fill="#76B900"
-                         VerticalAlignment="Center" Visibility="Collapsed" Margin="0,0,8,0"
-                         AutomationProperties.AutomationId="TrainingPit.LiveDot"/>
-                <TextBlock Text="🌙" FontSize="14" VerticalAlignment="Center"/>
-                <TextBlock Text="Night harvest" FontSize="12" FontWeight="SemiBold"
-                           Foreground="#D4D4D4" Margin="8,0,10,0" VerticalAlignment="Center"/>
-                <TextBlock x:Name="HarvestStatus" Text="not running" FontSize="11"
-                           Foreground="#999999" VerticalAlignment="Center"
-                           AutomationProperties.AutomationId="TrainingPit.HarvestStatus"/>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
-                    <Button x:Name="BtnStartHarvest" Style="{StaticResource PitButton}"
-                            Background="#1F3D00" BorderBrush="#76B900" Foreground="#A8CC80"
-                            Content="▶ Start (until dawn)" Click="BtnStartHarvest_Click"
-                            AutomationProperties.AutomationId="TrainingPit.HarvestStart"/>
-                    <Button x:Name="BtnStopHarvest" Style="{StaticResource PitButton}"
-                            Background="#1A2A00" BorderBrush="#CCA700" Foreground="#CCA700"
-                            Content="⏸ Finish current plan, then stop" Margin="8,0,0,0"
-                            Click="BtnStopHarvest_Click" IsEnabled="False"
-                            AutomationProperties.AutomationId="TrainingPit.HarvestStop"/>
-                </StackPanel>
-            </DockPanel>
+            <StackPanel>
+                <!-- Header row: dot + title + status + buttons -->
+                <DockPanel>
+                    <Ellipse x:Name="LiveDot" Width="9" Height="9" Fill="#76B900"
+                             VerticalAlignment="Center" Visibility="Collapsed" Margin="0,0,8,0"
+                             AutomationProperties.AutomationId="TrainingPit.LiveDot"/>
+                    <TextBlock Text="🌙" FontSize="14" VerticalAlignment="Center"/>
+                    <TextBlock Text="Night harvest" FontSize="12" FontWeight="SemiBold"
+                               Foreground="#D4D4D4" Margin="8,0,10,0" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="HarvestStatus" Text="not running" FontSize="11"
+                               Foreground="#999999" VerticalAlignment="Center"
+                               AutomationProperties.AutomationId="TrainingPit.HarvestStatus"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
+                        <Button x:Name="BtnStartHarvest" Style="{StaticResource PitButton}"
+                                Background="#1F3D00" BorderBrush="#76B900" Foreground="#A8CC80"
+                                Content="▶ Start harvest" Click="BtnStartHarvest_Click"
+                                AutomationProperties.AutomationId="TrainingPit.HarvestStart"/>
+                        <Button x:Name="BtnStopHarvest" Style="{StaticResource PitButton}"
+                                Background="#1A2A00" BorderBrush="#CCA700" Foreground="#CCA700"
+                                Content="⏸ Finish current plan, then stop" Margin="8,0,0,0"
+                                Click="BtnStopHarvest_Click" IsEnabled="False"
+                                AutomationProperties.AutomationId="TrainingPit.HarvestStop"/>
+                    </StackPanel>
+                </DockPanel>
+
+                <!-- Picker row: generator + judge + goals/cycle + run-until -->
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="80"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="120"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0" Text="Generator" FontSize="11" Foreground="#999999"
+                               VerticalAlignment="Center" Margin="0,0,6,0"
+                               ToolTip="Model that authors new goal prompts. Must not be a boss/gemma family — the boss can't feed itself its own distribution."/>
+                    <ComboBox Grid.Column="1" x:Name="CbGenModel" FontSize="11" Margin="0,0,14,0"
+                              SelectionChanged="CbGenModel_SelectionChanged"
+                              AutomationProperties.AutomationId="TrainingPit.HarvestGenModel">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Display}" Foreground="{Binding TextBrush}" FontSize="11"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+
+                    <TextBlock Grid.Column="2" Text="Judge" FontSize="11" Foreground="#999999"
+                               VerticalAlignment="Center" Margin="0,0,6,0"
+                               ToolTip="Model that triages farmed captures for fabrication risk."/>
+                    <ComboBox Grid.Column="3" x:Name="CbJudgeModel" FontSize="11" Margin="0,0,14,0"
+                              AutomationProperties.AutomationId="TrainingPit.HarvestJudgeModel">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Display}" Foreground="{Binding TextBrush}" FontSize="11"/>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+
+                    <TextBlock Grid.Column="4" Text="Goals/cycle" FontSize="11" Foreground="#999999"
+                               VerticalAlignment="Center" Margin="0,0,6,0"
+                               ToolTip="How many goals each cycle authors before farming. 25 is a balanced default."/>
+                    <TextBox Grid.Column="5" x:Name="TbGoalsPerCycle" Text="25" FontSize="11"
+                             Background="#0E0E0E" Foreground="#D4D4D4" BorderBrush="#555555"
+                             Padding="4,3" Margin="0,0,14,0"
+                             AutomationProperties.AutomationId="TrainingPit.HarvestGoalsPerCycle"/>
+
+                    <TextBlock Grid.Column="6" Text="Run until" FontSize="11" Foreground="#999999"
+                               VerticalAlignment="Center" Margin="0,0,6,0"
+                               ToolTip="When the harvest stops on its own. 'Stop manually' = runs until you click Stop or the stop file is created."/>
+                    <ComboBox Grid.Column="7" x:Name="CbHarvestDuration" FontSize="11"
+                              AutomationProperties.AutomationId="TrainingPit.HarvestDuration"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- ── Review captures — the reviewer dataset, growing passively ── -->
+        <Border Grid.Row="3" Background="#101014" BorderBrush="#2A2A2A" BorderThickness="1"
+                CornerRadius="6" Padding="12,8" Margin="0,0,0,12"
+                ToolTip="Each capture is a paired (Codex verdict, TheOrc verdict) example. Builds the dataset for the future theorc-reviewer:v1 adapter on qwen2.5-coder:14b.">
+            <StackPanel>
+                <!-- Header row: title + counts + Review now button -->
+                <DockPanel>
+                    <TextBlock Text="🔍" FontSize="14" VerticalAlignment="Center"/>
+                    <TextBlock Text="Review captures" FontSize="12" FontWeight="SemiBold"
+                               Foreground="#D4D4D4" Margin="8,0,10,0" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="ReviewStatus" Text="0 staged · last: never"
+                               FontSize="11" Foreground="#999999" VerticalAlignment="Center"
+                               AutomationProperties.AutomationId="TrainingPit.ReviewStatus"/>
+                    <Button x:Name="BtnReviewNow" Style="{StaticResource PitButton}"
+                            Background="#1A1F3D" BorderBrush="#80A0E0" Foreground="#A0C0F0"
+                            Content="▶ Review current branch" HorizontalAlignment="Right"
+                            DockPanel.Dock="Right" Click="BtnReviewNow_Click"
+                            AutomationProperties.AutomationId="TrainingPit.ReviewNow"/>
+                </DockPanel>
+
+                <!-- Progress bar + threshold callout -->
+                <Grid Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <ProgressBar Grid.Column="0" x:Name="ReviewProgressBar" Height="6"
+                                 BorderThickness="0" Background="#111111" Foreground="#80A0E0"
+                                 Maximum="50" Value="0" VerticalAlignment="Center"
+                                 AutomationProperties.AutomationId="TrainingPit.ReviewProgress"/>
+                    <TextBlock Grid.Column="1" x:Name="ReviewThreshold"
+                               Text="0 of 50 toward an experimental adapter"
+                               FontSize="10" Foreground="#80A0B0" FontFamily="Consolas"
+                               Margin="10,0,0,0" VerticalAlignment="Center"/>
+                </Grid>
+
+                <!-- Latest capture line -->
+                <TextBlock x:Name="ReviewLatest" Text="" FontSize="10" Foreground="#666666"
+                           FontStyle="Italic" Margin="0,6,0,0" TextTrimming="CharacterEllipsis"
+                           AutomationProperties.AutomationId="TrainingPit.ReviewLatest"/>
+            </StackPanel>
         </Border>
 
         <!-- ── WARCHIEF FORGE — Phase 3 training ──────────────────────── -->
-        <Expander Grid.Row="3" x:Name="ExpForge" Margin="0,0,0,12"
+        <Expander Grid.Row="4" x:Name="ExpForge" Margin="0,0,0,12"
                   AutomationProperties.AutomationId="TrainingPit.Forge"
                   Expanded="ExpForge_Expanded">
             <Expander.Header>
@@ -281,6 +381,69 @@
                                        Text="What it is: goal → plan examples teaching the boss (theorc-boss:gemma4) to decompose one-sentence coding goals into 2–4 task swarm plans with correct roles and concrete files.&#x0a;How it was made: live swarm captures → auto-scoring rubric → deterministic pre-screen → local judge triage → human review (every approval and rejection logged in reviewed_v1.json).&#x0a;Intended use: QLoRA adapter (r16/α32, 4-bit NF4 base) for the orchestration role only — workers are unaffected. Output: training_pit/outputs/lora_v1/."/>
                         </StackPanel>
                     </Border>
+
+                    <!-- ── Base model + dataset + output name pickers ──────────────────── -->
+                    <Grid Margin="0,0,0,10">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="6"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="280"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Row 0: Base model picker + HF repo override -->
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Base model" FontSize="11"
+                                   Foreground="#999999" VerticalAlignment="Center" Margin="0,0,6,0"
+                                   ToolTip="Ollama model to fine-tune. Picking one auto-fills its HF repo to the right."/>
+                        <ComboBox Grid.Row="0" Grid.Column="1" x:Name="CbBaseModel" FontSize="11"
+                                  Margin="0,0,14,0" SelectionChanged="CbBaseModel_SelectionChanged"
+                                  AutomationProperties.AutomationId="TrainingPit.ForgeBaseModel">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Display}" Foreground="{Binding TextBrush}" FontSize="11"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+
+                        <TextBlock Grid.Row="0" Grid.Column="2" Text="HF repo" FontSize="11"
+                                   Foreground="#999999" VerticalAlignment="Center" Margin="0,0,6,0"
+                                   ToolTip="HuggingFace repo passed to train_lora.py --base. Edit to override the auto-fill."/>
+                        <TextBox Grid.Row="0" Grid.Column="3" x:Name="TbHfRepo" Text="google/gemma-4-12b-it"
+                                 FontSize="11" Background="#0E0E0E" Foreground="#D4D4D4"
+                                 BorderBrush="#555555" Padding="4,3" FontFamily="Consolas"
+                                 AutomationProperties.AutomationId="TrainingPit.ForgeHfRepo"/>
+
+                        <!-- Row 2: Dataset picker + Output name -->
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Dataset" FontSize="11"
+                                   Foreground="#999999" VerticalAlignment="Center" Margin="0,0,6,0"
+                                   ToolTip="Which reviewed dataset to train on. Each version has its own train/eval/negative splits."/>
+                        <ComboBox Grid.Row="2" Grid.Column="1" x:Name="CbDataset" FontSize="11"
+                                  Margin="0,0,14,0" SelectionChanged="CbDataset_SelectionChanged"
+                                  AutomationProperties.AutomationId="TrainingPit.ForgeDatasetPicker">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding Name}" Foreground="#D4D4D4" FontSize="11"/>
+                                        <TextBlock Text="{Binding CountsText}" Foreground="#A8CC80"
+                                                   FontSize="10" FontFamily="Consolas" Margin="8,0,0,0"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+
+                        <TextBlock Grid.Row="2" Grid.Column="2" Text="Output" FontSize="11"
+                                   Foreground="#999999" VerticalAlignment="Center" Margin="0,0,6,0"
+                                   ToolTip="Folder name under training_pit/outputs/ where the adapter is written."/>
+                        <TextBox Grid.Row="2" Grid.Column="3" x:Name="TbOutputName" Text="lora_v1"
+                                 FontSize="11" Background="#0E0E0E" Foreground="#D4D4D4"
+                                 BorderBrush="#555555" Padding="4,3" FontFamily="Consolas"
+                                 AutomationProperties.AutomationId="TrainingPit.ForgeOutputName"/>
+                    </Grid>
 
                     <!-- Controls row -->
                     <DockPanel Margin="0,0,0,8">
@@ -371,7 +534,7 @@
         </Expander>
 
         <!-- ── Queue header ───────────────────────────────────────────── -->
-        <DockPanel Grid.Row="4" Margin="0,0,0,6">
+        <DockPanel Grid.Row="5" Margin="0,0,0,6">
             <TextBlock Text="Your review queue" FontSize="12" FontWeight="SemiBold" Foreground="#D4D4D4"/>
             <TextBlock Text="  — riskiest first. You make the final call." FontSize="11" Foreground="#999999"
                        VerticalAlignment="Bottom"/>
@@ -381,7 +544,7 @@
         </DockPanel>
 
         <!-- ── Review queue ───────────────────────────────────────────── -->
-        <Border Grid.Row="5" BorderBrush="#2A2A2A" BorderThickness="1" CornerRadius="6">
+        <Border Grid.Row="6" BorderBrush="#2A2A2A" BorderThickness="1" CornerRadius="6">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="QueueList" AutomationProperties.AutomationId="TrainingPit.Queue">
                     <ItemsControl.ItemTemplate>
