@@ -186,9 +186,14 @@ public partial class HelpWindow : Window
 
     private void SelectGuide(string fileName)
     {
+        // Links may arrive as full relative paths (e.g. "reviewer-adapter/00-index.md")
+        // or as plain filenames ("USER_GUIDE.md"). Try both so cross-directory links
+        // work after the orcdoc:// rewrite preserves the full path.
+        var basename = Path.GetFileName(fileName);
         var item = LstGuides.Items.Cast<ListBoxItem>()
             .FirstOrDefault(i => i.Tag is Guide g &&
-                g.FileName.Equals(fileName, StringComparison.OrdinalIgnoreCase));
+                (g.FileName.Equals(fileName, StringComparison.OrdinalIgnoreCase) ||
+                 g.FileName.Equals(basename,  StringComparison.OrdinalIgnoreCase)));
         if (item is not null) item.IsSelected = true;
         else if (LstGuides.Items.Count > 0) ((ListBoxItem)LstGuides.Items[0]).IsSelected = true;
     }
@@ -206,7 +211,7 @@ public partial class HelpWindow : Window
         string md = System.Text.RegularExpressions.Regex.Replace(
             g.Content,
             @"\]\((?!https?://|orcdoc://|#|mailto:)([\w./-]+?\.md)(#[\w-]*)?\)",
-            m => $"](orcdoc://{Path.GetFileName(m.Groups[1].Value.Replace('\\', '/'))})");
+            m => $"](orcdoc://{m.Groups[1].Value.Replace('\\', '/')})");
 
         DocViewer.Document = MarkdownFlowDocument.Parse(md);
         DocViewer.Document.PagePadding = new Thickness(0);

@@ -107,19 +107,35 @@ public sealed class WorktreeManager : IDisposable
             }
         }
 
-        // Copy actual files into the integration directory
-        var merged = new List<string>();
-        foreach (var file in actualFiles)
+        // Apply actual file changes into the integration directory.
+        // Repo mode: git merge handles the file application; just track the list.
+        // Greenfield: copy additions/modifications, propagate deletions.
+        List<string> merged;
+        if (RepoMode)
         {
-            var relPath = file.Replace('/', Path.DirectorySeparatorChar);
-            var src = Path.Combine(handle.Path, relPath);
-            var dst = Path.Combine(_integrationDir, relPath);
+            merged = actualFiles;
+        }
+        else
+        {
+            merged = new List<string>(actualFiles.Count);
+            foreach (var file in actualFiles)
+            {
+                var relPath = file.Replace('/', Path.DirectorySeparatorChar);
+                var src     = Path.Combine(handle.Path, relPath);
+                var dst     = Path.Combine(_integrationDir, relPath);
 
-            if (!File.Exists(src)) continue;
-
-            Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
-            File.Copy(src, dst, overwrite: true);
-            merged.Add(file);
+                if (File.Exists(src))
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+                    File.Copy(src, dst, overwrite: true);
+                }
+                else if (File.Exists(dst))
+                {
+                    // File was deleted in the task — propagate to integration.
+                    File.Delete(dst);
+                }
+                merged.Add(file); // count additions, modifications, and deletions
+            }
         }
 
         if (merged.Count > 0)
@@ -152,9 +168,13 @@ public sealed class WorktreeManager : IDisposable
                     Directory.Delete(handle.Path, recursive: true);
             }
         }
-        else if (force && Directory.Exists(handle.Path))
+        else
         {
-            Directory.Delete(handle.Path, recursive: true);
+            // Greenfield: task directories are temporary scratch space; outputs live
+            // in the integration dir after Merge. Clean up unconditionally — callers
+            // that want to preserve a failed task dir should simply not call Release().
+            if (Directory.Exists(handle.Path))
+                Directory.Delete(handle.Path, recursive: true);
         }
     }
 

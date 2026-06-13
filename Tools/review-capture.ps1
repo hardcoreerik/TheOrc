@@ -37,7 +37,8 @@ param(
     #   reviewer       — teaches TheOrc to match Codex findings
     #   worker-quality — scores worker-produced code; CLEAN=good worker signal
     #   boss-closure   — links back to the boss plan that produced this task
-    [string[]]$TrainingTargets = @("reviewer"),
+    # Space- or comma-delimited when called from auto-capture.ps1 via argument string.
+    [string]  $TrainingTargets = "reviewer",
     # Free-text tag for grouping captures by work session or feature.
     [string]  $SessionLabel   = ""
 )
@@ -143,7 +144,7 @@ $capture = [ordered]@{
     #     boss-closure   → links review outcome back to the boss plan
     # session_label  — free-text tag for grouping by feature or work session
     source_role      = $SourceRole
-    training_targets = $TrainingTargets
+    training_targets = @($TrainingTargets -split "[,\s]+" | Where-Object { $_ })
     session_label    = $SessionLabel
     versions         = [ordered]@{
         theorc_app    = (Select-String -Path OrchestratorIDE\OrchestratorIDE.csproj -Pattern '<Version>(.+)</Version>' |

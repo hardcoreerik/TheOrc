@@ -93,7 +93,7 @@ $captureArgs = @(
     "-OllamaHost", $OllamaHost,
     "-TimeoutSec", $TimeoutSec,
     "-SourceRole", $SourceRole,
-    "-TrainingTargets", ($TrainingTargets -join ","),
+    "-TrainingTargets", ($TrainingTargets -join " "),
     "-SessionLabel", $SessionLabel
 )
 if ($Focus)      { $captureArgs += @("-Focus",     $Focus)     }
