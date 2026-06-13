@@ -1155,13 +1155,64 @@ public partial class TrainingPitPanel : UserControl
             ? $"latest: {info.LatestSummary}"
             : "";
 
-        // Button states: disable Review-now while a review is already running
-        // OR the GPU is busy with harvest/forge (both would oversubscribe).
-        BtnReviewNow.IsEnabled = !ReviewRunning && !HarvestRunning && !ForgeRunning;
-        BtnReviewNow.ToolTip   = !BtnReviewNow.IsEnabled
-            ? (ReviewRunning ? "Review already running."
-                             : "Harvest or training is using the GPU — wait for it to finish.")
-            : "Runs Codex + TheOrc on the current branch's diff and stages both verdicts.";
+        // Button states: disable both review buttons while GPU is in use.
+        var gpuFree = !ReviewRunning && !HarvestRunning && !ForgeRunning;
+        BtnReviewNow.IsEnabled        = gpuFree;
+        BtnCaptureIncrement.IsEnabled = gpuFree;
+        if (!gpuFree)
+        {
+            var reason = ReviewRunning   ? "Review already running."
+                       : HarvestRunning ? "Harvest is using the GPU — wait for it to finish."
+                                        : "Training is using the GPU — wait for it to finish.";
+            BtnReviewNow.ToolTip        = reason;
+            BtnCaptureIncrement.ToolTip = reason;
+        }
+
+        // Update the uncaptured-commits indicator from the capture marker.
+        RefreshCaptureMarkerStatus();
+    }
+
+    /// <summary>
+    /// Reads .orc/capture-marker.json and shows how many commits have
+    /// landed since the last captured SHA.
+    /// </summary>
+    private void RefreshCaptureMarkerStatus()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(_pitRoot)) return;
+            var markerPath = Path.Combine(_pitRoot, ".orc", "capture-marker.json");
+            if (!File.Exists(markerPath)) { CaptureMarkerStatus.Text = ""; return; }
+
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(markerPath));
+            var lastSha = doc.RootElement.TryGetProperty("last_captured_sha", out var sha)
+                ? sha.GetString() ?? "" : "";
+            var total   = doc.RootElement.TryGetProperty("total_captures", out var t)
+                ? t.GetInt32() : 0;
+
+            if (string.IsNullOrEmpty(lastSha)) { CaptureMarkerStatus.Text = ""; return; }
+
+            var psi = new ProcessStartInfo("git", $"rev-list --count {lastSha}..HEAD")
+            {
+                WorkingDirectory       = _pitRoot,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+            };
+            using var p = Process.Start(psi);
+            if (p is null) { CaptureMarkerStatus.Text = ""; return; }
+            var countStr = p.StandardOutput.ReadToEnd().Trim();
+            p.WaitForExit();
+
+            if (!int.TryParse(countStr, out var uncaptured))
+            { CaptureMarkerStatus.Text = ""; return; }
+
+            CaptureMarkerStatus.Text = uncaptured == 0
+                ? $"marker: {lastSha} · all commits captured ({total} total)"
+                : $"marker: {lastSha} · {uncaptured} new commit{(uncaptured == 1 ? "" : "s")} since last capture → ⬇ to capture";
+        }
+        catch { CaptureMarkerStatus.Text = ""; }
     }
 
     private bool ReviewRunning => _reviewProcess is { HasExited: false };
@@ -1255,14 +1306,14 @@ public partial class TrainingPitPanel : UserControl
         {
             OnActivity?.Invoke($"🔍 Review launch failed: {ex.Message}");
             BtnReviewNow.IsEnabled = true;
-            BtnReviewNow.Content   = "▶ Review current branch";
+            BtnReviewNow.Content   = "▶ Review branch";
             return;
         }
 
         if (_reviewProcess is null)
         {
             BtnReviewNow.IsEnabled = true;
-            BtnReviewNow.Content   = "▶ Review current branch";
+            BtnReviewNow.Content   = "▶ Review branch";
             return;
         }
 
@@ -1270,9 +1321,83 @@ public partial class TrainingPitPanel : UserControl
         _reviewProcess.EnableRaisingEvents = true;
         _reviewProcess.Exited += (_, _) => Dispatcher.BeginInvoke(() =>
         {
-            BtnReviewNow.Content = "▶ Review current branch";
+            BtnReviewNow.Content = "▶ Review branch";
             RefreshReviewCaptures();
             OnActivity?.Invoke($"🔍 Review finished (exit {_reviewProcess?.ExitCode}).");
+        });
+    }
+
+    /// <summary>
+    /// Calls auto-capture.ps1 — computes range from the capture marker
+    /// (.orc/capture-marker.json) and runs Codex + TheOrc on commits
+    /// since the last captured SHA.
+    /// </summary>
+    private void BtnCaptureIncrement_Click(object s, RoutedEventArgs e)
+    {
+        if (ReviewRunning) return;
+        if (HarvestRunning || ForgeRunning)
+        {
+            OnActivity?.Invoke("⬇ Capture refused — harvest or training is using the GPU.");
+            return;
+        }
+
+        var script = Path.Combine(_pitRoot, "tools", "auto-capture.ps1");
+        if (!File.Exists(script))
+        {
+            OnActivity?.Invoke("⬇ auto-capture.ps1 not found — check tools\\auto-capture.ps1.");
+            return;
+        }
+
+        BtnCaptureIncrement.Content   = "⬇ Capturing…";
+        BtnCaptureIncrement.IsEnabled = false;
+        BtnReviewNow.IsEnabled        = false;
+
+        var args = $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" -OllamaHost \"{OllamaHost}\"";
+        OnActivity?.Invoke("⬇ Capture increment started — Codex + TheOrc on commits since last marker.");
+
+        try
+        {
+            _reviewProcess = Process.Start(new ProcessStartInfo
+            {
+                FileName         = "pwsh",
+                Arguments        = args,
+                WorkingDirectory = _pitRoot,
+                UseShellExecute  = false,
+                CreateNoWindow   = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            OnActivity?.Invoke($"⬇ Capture launch failed: {ex.Message}");
+            BtnCaptureIncrement.Content   = "⬇ Capture increment";
+            BtnCaptureIncrement.IsEnabled = true;
+            BtnReviewNow.IsEnabled        = true;
+            return;
+        }
+
+        if (_reviewProcess is null)
+        {
+            BtnCaptureIncrement.Content   = "⬇ Capture increment";
+            BtnCaptureIncrement.IsEnabled = true;
+            BtnReviewNow.IsEnabled        = true;
+            return;
+        }
+
+        _reviewProcess.EnableRaisingEvents = true;
+        _reviewProcess.Exited += (_, _) => Dispatcher.BeginInvoke(() =>
+        {
+            var exitCode = _reviewProcess?.ExitCode ?? -1;
+            BtnCaptureIncrement.Content = "⬇ Capture increment";
+            RefreshReviewCaptures();
+            RefreshCaptureMarkerStatus();
+            OnActivity?.Invoke(exitCode switch
+            {
+                0 => "⬇ Capture complete — marker advanced.",
+                1 => "⬇ No new commits since last capture — nothing to do.",
+                2 => "⬇ Partial capture saved (one reviewer failed).",
+                3 => "⬇ Both reviewers failed — marker NOT advanced.",
+                _ => $"⬇ Capture finished (exit {exitCode})."
+            });
         });
     }
 

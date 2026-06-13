@@ -18,13 +18,28 @@
 #   2 = exactly one reviewer failed for any reason (partial capture still saved)
 #   3 = both reviewers failed
 param(
-    [string]$Range      = "",
-    [string]$Focus      = "",
-    [string]$Model      = "qwen2.5-coder:14b",
-    [string]$OllamaHost = "http://localhost:11434",
-    [int]   $TimeoutSec = 600,
-    [switch]$SkipCodex,
-    [switch]$SkipTheOrc
+    [string]  $Range          = "",
+    [string]  $Focus          = "",
+    [string]  $Model          = "qwen2.5-coder:14b",
+    [string]  $OllamaHost     = "http://localhost:11434",
+    [int]     $TimeoutSec     = 600,
+    [switch]  $SkipCodex,
+    [switch]  $SkipTheOrc,
+    # ── Training metadata ──────────────────────────────────────────────────
+    # Who produced the diff being reviewed.
+    #   "human"    — code written directly by the developer (default)
+    #   "coder"    — output from a CODER swarm task
+    #   "ui-dev"   — output from a UIDEVELOPER swarm task
+    #   "tester"   — output from a TESTER swarm task
+    #   "boss"     — boss plan output (meta-review)
+    [string]  $SourceRole     = "human",
+    # Which training pipelines this capture feeds. Any combination of:
+    #   reviewer       — teaches TheOrc to match Codex findings
+    #   worker-quality — scores worker-produced code; CLEAN=good worker signal
+    #   boss-closure   — links back to the boss plan that produced this task
+    [string[]]$TrainingTargets = @("reviewer"),
+    # Free-text tag for grouping captures by work session or feature.
+    [string]  $SessionLabel   = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -103,14 +118,14 @@ $diffArgs = if ($Range) {
 $diffText = & git @diffArgs 2>&1 | Out-String
 
 $capture = [ordered]@{
-    example_id   = $exampleId
-    captured_at  = (Get-Date).ToString("o")
-    scope        = if ($Range) { "range" } else { "staged" }
-    range        = $Range
-    focus        = $Focus
-    stats        = $stat.Trim()
-    diff         = $diffText
-    verdicts     = [ordered]@{
+    example_id       = $exampleId
+    captured_at      = (Get-Date).ToString("o")
+    scope            = if ($Range) { "range" } else { "staged" }
+    range            = $Range
+    focus            = $Focus
+    stats            = $stat.Trim()
+    diff             = $diffText
+    verdicts         = [ordered]@{
         codex  = $codexVerdict
         theorc = $theorcVerdict
         # Claude verdict slot reserved — a future capture in TheOrc UI will
@@ -118,9 +133,19 @@ $capture = [ordered]@{
         # Claude. Leaving the field present keeps the schema stable.
         claude = $null
     }
-    gold         = "codex"   # which verdict is the training target
-    review_model = $Model
-    versions     = [ordered]@{
+    gold             = "codex"   # which verdict is the training target
+    review_model     = $Model
+    # ── Training routing metadata ─────────────────────────────────────────
+    # source_role    — who produced the diff (human / coder / ui-dev / etc.)
+    # training_targets — which fine-tune pipelines consume this capture:
+    #     reviewer       → teaches TheOrc to find what Codex finds
+    #     worker-quality → CLEAN verdict = positive worker-quality signal
+    #     boss-closure   → links review outcome back to the boss plan
+    # session_label  — free-text tag for grouping by feature or work session
+    source_role      = $SourceRole
+    training_targets = $TrainingTargets
+    session_label    = $SessionLabel
+    versions         = [ordered]@{
         theorc_app    = (Select-String -Path OrchestratorIDE\OrchestratorIDE.csproj -Pattern '<Version>(.+)</Version>' |
                          Select-Object -First 1).Matches.Groups[1].Value
         git_head      = (git rev-parse --short HEAD 2>$null)

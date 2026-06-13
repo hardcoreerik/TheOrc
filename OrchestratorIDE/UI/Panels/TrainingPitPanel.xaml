@@ -312,7 +312,7 @@
                 CornerRadius="6" Padding="12,8" Margin="0,0,0,12"
                 ToolTip="Each capture is a paired (Codex verdict, TheOrc verdict) example. Builds the dataset for the future theorc-reviewer:v1 adapter on qwen2.5-coder:14b.">
             <StackPanel>
-                <!-- Header row: title + counts + Review now button -->
+                <!-- Header row: title + counts + action buttons -->
                 <DockPanel>
                     <TextBlock Text="🔍" FontSize="14" VerticalAlignment="Center"/>
                     <TextBlock Text="Review captures" FontSize="12" FontWeight="SemiBold"
@@ -320,15 +320,31 @@
                     <TextBlock x:Name="ReviewStatus" Text="0 staged · last: never"
                                FontSize="11" Foreground="#999999" VerticalAlignment="Center"
                                AutomationProperties.AutomationId="TrainingPit.ReviewStatus"/>
+                    <!-- Capture increment: calls auto-capture.ps1 (marker-based range) -->
+                    <Button x:Name="BtnCaptureIncrement" Style="{StaticResource PitButton}"
+                            Background="#1A2D1A" BorderBrush="#60A060" Foreground="#80C080"
+                            Content="⬇ Capture increment" HorizontalAlignment="Right"
+                            DockPanel.Dock="Right" Click="BtnCaptureIncrement_Click"
+                            Margin="0,0,6,0"
+                            AutomationProperties.AutomationId="TrainingPit.CaptureIncrement"
+                            ToolTip="Run Codex + TheOrc on commits since the last capture and save the pair as a training example. Advances the capture marker."/>
+                    <!-- Review branch: full branch vs upstream, no marker update -->
                     <Button x:Name="BtnReviewNow" Style="{StaticResource PitButton}"
                             Background="#1A1F3D" BorderBrush="#80A0E0" Foreground="#A0C0F0"
-                            Content="▶ Review current branch" HorizontalAlignment="Right"
+                            Content="▶ Review branch" HorizontalAlignment="Right"
                             DockPanel.Dock="Right" Click="BtnReviewNow_Click"
-                            AutomationProperties.AutomationId="TrainingPit.ReviewNow"/>
+                            AutomationProperties.AutomationId="TrainingPit.ReviewNow"
+                            ToolTip="Run Codex + TheOrc on the full branch diff vs upstream. Does not advance the capture marker."/>
                 </DockPanel>
 
+                <!-- Uncaptured-commits indicator -->
+                <TextBlock x:Name="CaptureMarkerStatus"
+                           Text="" FontSize="10" Foreground="#60A060" FontFamily="Consolas"
+                           Margin="0,4,0,0"
+                           AutomationProperties.AutomationId="TrainingPit.CaptureMarkerStatus"/>
+
                 <!-- Progress bar + threshold callout -->
-                <Grid Margin="0,8,0,0">
+                <Grid Margin="0,6,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
