@@ -203,6 +203,115 @@ public partial class HivePanel : UserControl
         }
     }
 
+    // ── Discovery: beacon callbacks + LAN scan ────────────────────────────────
+
+    // Nodes seen via UDP beacon but not yet trusted (not in hive-hosts.json).
+    private readonly Dictionary<string, Services.Hive.HiveBeaconMessage> _discovered = [];
+
+    /// <summary>Called by MainWindow when its HiveBeacon fires OnNodeSeen.</summary>
+    public void OnBeaconNodeSeen(Services.Hive.HiveBeaconMessage msg)
+    {
+        if (!Dispatcher.CheckAccess()) { Dispatcher.InvokeAsync(() => OnBeaconNodeSeen(msg)); return; }
+        // Skip nodes we already have in the hive.
+        if (_hosts.Any(h => string.Equals(h.Url, msg.OllamaUrl, StringComparison.OrdinalIgnoreCase))) return;
+        _discovered[msg.OllamaUrl] = msg;
+        RefreshDiscoveredStrip();
+    }
+
+    private async void BtnScanLan_Click(object s, RoutedEventArgs e)
+    {
+        BtnScanLan.IsEnabled = false;
+        BtnScanLan.Content   = "📡 Scanning…";
+        try
+        {
+            var found = await Services.Hive.HiveBeacon.ScanAsync(durationMs: 3000);
+            foreach (var msg in found)
+            {
+                if (_hosts.Any(h => string.Equals(h.Url, msg.OllamaUrl, StringComparison.OrdinalIgnoreCase))) continue;
+                _discovered[msg.OllamaUrl] = msg;
+            }
+            RefreshDiscoveredStrip();
+            if (found.Count == 0)
+                MessageBox.Show(
+                    "No HIVE MIND nodes found on the LAN.\n\n" +
+                    "Make sure TheOrc is installed and HIVE MIND is enabled on the other machine, " +
+                    "then try again.",
+                    "HIVE MIND — LAN Scan", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        finally
+        {
+            BtnScanLan.IsEnabled = true;
+            BtnScanLan.Content   = "📡 Scan LAN";
+        }
+    }
+
+    private void RefreshDiscoveredStrip()
+    {
+        PnlDiscoveredNodes.Children.Clear();
+        foreach (var msg in _discovered.Values)
+        {
+            var chip = BuildDiscoveredChip(msg);
+            PnlDiscoveredNodes.Children.Add(chip);
+        }
+        BdrDiscovered.Visibility = _discovered.Count > 0
+            ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private Border BuildDiscoveredChip(Services.Hive.HiveBeaconMessage msg)
+    {
+        var sp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 8, 0) };
+
+        sp.Children.Add(new TextBlock
+        {
+            Text       = $"⬡ {msg.Name}",
+            FontFamily = new FontFamily("Consolas"), FontSize = 11,
+            Foreground = new SolidColorBrush(Color.FromRgb(0xC8, 0xC8, 0x40)),
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0),
+        });
+        sp.Children.Add(new TextBlock
+        {
+            Text       = $"{new Uri(msg.OllamaUrl).Host} · {msg.Models.Length} models",
+            FontFamily = new FontFamily("Segoe UI"), FontSize = 10,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)),
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
+        });
+
+        var addBtn = new Button
+        {
+            Content = "⊕ Trust & Add", FontSize = 10, Padding = new Thickness(8, 3, 8, 3),
+            Background = new SolidColorBrush(Color.FromRgb(0x1F, 0x3D, 0x00)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00)),
+            Foreground = new SolidColorBrush(Color.FromRgb(0xA8, 0xCC, 0x80)),
+            BorderThickness = new Thickness(1), Cursor = System.Windows.Input.Cursors.Hand,
+        };
+        addBtn.Click += (_, _) => TrustAndAdd(msg);
+        sp.Children.Add(addBtn);
+
+        return new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(0x12, 0x1A, 0x08)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x00)),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5),
+            Padding = new Thickness(8, 4, 8, 4), Child = sp,
+        };
+    }
+
+    private async void TrustAndAdd(Services.Hive.HiveBeaconMessage msg)
+    {
+        _discovered.Remove(msg.OllamaUrl);
+        RefreshDiscoveredStrip();
+
+        var host = new Services.Hive.HiveHost
+        {
+            Name   = msg.Name,
+            Url    = msg.OllamaUrl,
+            Source = "lan",
+        };
+        _hosts.Add(host);
+        HiveHosts.Save(_hosts.Where(h => h.Name != "This PC"));
+        await ProbeAndDraw();
+    }
+
     private async void BtnAddNode_Click(object s, RoutedEventArgs e)
     {
         var dlg = new UI.Controls.UserInputDialog(

@@ -84,6 +84,8 @@ public partial class SwarmBoardPanel : UserControl
 
     public string        ActiveModel   { get; set; } = "";
     public string?       WorkspaceRoot { get; set; }
+    /// <summary>Local Ollama base URL (e.g. "http://localhost:11434"). Used for HIVE MIND host loading.</summary>
+    public string?       LocalUrl      { get; set; }
     public AppSettings?  Settings      { get; set; }   // for opening the probe window
 
     // ── Worker models (separate from boss/orchestrator model) ────────────────
@@ -810,6 +812,34 @@ public partial class SwarmBoardPanel : UserControl
         if (_runOnUrl is not null)
             OnActivity?.Invoke($"🐝 Running this swarm on {_runOnName} ({_runOnUrl})");
         _session = new SwarmSession(swarmOllama, ActiveModel, WorkspaceRoot, coderModel, researcherModel);
+
+        // HIVE MIND Phase B: probe alive nodes and wire per-task routing.
+        // Only runs when _runOnUrl is null (whole-swarm routing and per-task routing
+        // are mutually exclusive — if the user picked a specific node, use that).
+        if (_runOnUrl is null)
+        {
+            var localUrl = LocalUrl ?? "http://localhost:11434";
+            var hiveHosts = Services.Hive.HiveHosts.Load(localUrl);
+            var remoteHosts = hiveHosts.Where(h => h.Name != "This PC").ToList();
+            if (remoteHosts.Count > 0)
+            {
+                // Probe remote nodes asynchronously — don't block swarm start.
+                _ = Task.Run(async () =>
+                {
+                    await Task.WhenAll(hiveHosts.Select(h => Services.Hive.HiveHosts.ProbeAsync(h, 2)));
+                    await Task.WhenAll(hiveHosts
+                        .Where(h => h.Reachable == true)
+                        .Select(h => Services.Hive.HiveHosts.ProbeHiveApiAsync(h)));
+                    var alive = hiveHosts.Count(h => h.Reachable == true && h.Name != "This PC");
+                    if (alive > 0)
+                    {
+                        _session.SetHiveHosts(hiveHosts, localUrl);
+                        _ = Dispatcher.InvokeAsync(() =>
+                            OnActivity?.Invoke($"🐝 HIVE MIND: {alive} remote node(s) online — per-task routing enabled"));
+                    }
+                });
+            }
+        }
 
         _session.OnBossToken     += OnBossToken;
         _session.OnWorkerToken   += OnWorkerToken;

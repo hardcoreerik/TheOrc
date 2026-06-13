@@ -187,6 +187,15 @@ public class AppSettings
     /// <summary>Set to true once the first-run personalisation wizard has completed.</summary>
     public bool   FirstRunComplete    { get; set; } = false;
 
+    // ── HIVE MIND ─────────────────────────────────────────────────────────
+    /// <summary>
+    /// When true, this machine broadcasts its presence on the LAN (UDP port 7077)
+    /// and serves a capability endpoint (HTTP port 7078) so other HIVE MIND nodes
+    /// can discover it and route tasks to it.
+    /// Set to true by the installer when the user checks "Join HIVE MIND".
+    /// </summary>
+    public bool HiveMindEnabled { get; set; } = false;
+
     // ── Updates ───────────────────────────────────────────────────────────
     /// <summary>Whether to silently check GitHub for newer releases on startup.</summary>
     public bool      CheckForUpdates        { get; set; } = true;

@@ -8,6 +8,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- Header -->
@@ -17,12 +18,17 @@
             <TextBlock x:Name="HiveSummary" Text="" FontSize="11" Foreground="#999999"
                        Margin="12,0,0,0" VerticalAlignment="Bottom"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
+                <Button x:Name="BtnScanLan" Content="📡 Scan LAN" Click="BtnScanLan_Click"
+                        Padding="10,4" Margin="0,0,8,0" Cursor="Hand"
+                        Background="#1A1A00" BorderBrush="#888800" Foreground="#C8C840"
+                        BorderThickness="1" FontFamily="Segoe UI" FontSize="11"
+                        AutomationProperties.AutomationId="Hive.ScanLan"/>
                 <Button x:Name="BtnFindTailscale" Content="🔗 Find Tailscale nodes" Click="BtnFindTailscale_Click"
                         Padding="10,4" Margin="0,0,8,0" Cursor="Hand"
                         Background="#0A1A2A" BorderBrush="#4A9FD9" Foreground="#8FC9F0"
                         BorderThickness="1" FontFamily="Segoe UI" FontSize="11"
                         AutomationProperties.AutomationId="Hive.FindTailscale"/>
-                <Button x:Name="BtnAddNode" Content="➕ Join a node" Click="BtnAddNode_Click"
+                <Button x:Name="BtnAddNode" Content="➕ Add node" Click="BtnAddNode_Click"
                         Padding="10,4" Margin="0,0,8,0" Cursor="Hand"
                         Background="#1F3D00" BorderBrush="#76B900" Foreground="#A8CC80"
                         BorderThickness="1" FontFamily="Segoe UI" FontSize="11"
@@ -42,7 +48,23 @@
                     AutomationProperties.AutomationId="Hive.Canvas"/>
         </Border>
 
-        <TextBlock Grid.Row="2" Margin="2,8,0,0" FontSize="10" Foreground="#666666"
-                   Text="This PC sits at the center. Reachable nodes glow green and pulse; lines carry work. Click a node for detail."/>
+        <!-- Discovered nodes strip (auto-hidden when empty) -->
+        <Border x:Name="BdrDiscovered" Grid.Row="2" Margin="0,8,0,0"
+                Background="#0D1A0D" BorderBrush="#2A4A2A" BorderThickness="1"
+                CornerRadius="6" Padding="10,8"
+                Visibility="Collapsed"
+                AutomationProperties.AutomationId="Hive.DiscoveredStrip">
+            <DockPanel>
+                <TextBlock Text="📡 DISCOVERED" FontSize="10" FontWeight="Bold"
+                           Foreground="#888800" VerticalAlignment="Center" Margin="0,0,10,0"
+                           DockPanel.Dock="Left"/>
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="PnlDiscoveredNodes" Orientation="Horizontal" Margin="0,0,0,0"/>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
+        <TextBlock Grid.Row="3" Margin="2,8,0,0" FontSize="10" Foreground="#666666"
+                   Text="This PC sits at the center. Reachable nodes glow green and pulse; lines carry work. Click a node for detail. Use 📡 Scan LAN to find nodes running HIVE MIND."/>
     </Grid>
 </UserControl>

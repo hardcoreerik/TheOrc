@@ -121,6 +121,7 @@ public static class ProfileMerger
             defaultWorkspace     = "",
             showActivityLog      = true,
             activityLogHeight    = 180.0,
+            hiveMindEnabled      = state.JoinHiveMind,
         };
 
         var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions

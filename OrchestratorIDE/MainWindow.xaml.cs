@@ -28,6 +28,8 @@ public partial class MainWindow : Window
     private readonly SessionStore       _store;
     private          LlamaServerManager?  _llamaServer;
     private          ModelStatusService?  _modelStatus;
+    private          Services.Hive.HiveBeacon?     _hiveBeacon;
+    private          Services.Hive.HiveNodeServer? _hiveNodeServer;
 
     // ── State ─────────────────────────────────────────────────────────────
     private ProjectSession           _session;
@@ -72,6 +74,8 @@ public partial class MainWindow : Window
             _recorder.Stop();
             _modelStatus?.Stop();
             _modelStatus?.Dispose();
+            _hiveBeacon?.Dispose();
+            _hiveNodeServer?.Dispose();
         };
 
         // Recorder events → status bar
@@ -450,6 +454,42 @@ public partial class MainWindow : Window
                 ? Visibility.Collapsed : Visibility.Visible;
         });
         _modelStatus.Start(TimeSpan.FromSeconds(8));
+
+        // ── HIVE MIND: start beacon + node server if enrolled ─────────────────
+        if (_settings.HiveMindEnabled)
+            _ = Task.Run(async () =>
+            {
+                // Get current model list and VRAM for the beacon payload.
+                var models = _installedModels.Count > 0 ? _installedModels : [];
+                var vramMb = (int)(_settings.DetectedVramGb * 1024);
+                var name   = Environment.MachineName;
+
+                // Node info served on GET /hive/info.
+                var info = new Services.Hive.HiveNodeInfo(
+                    name, _settings.OllamaHost, [.. models], vramMb, vramMb,
+                    ["inference", "coder", "researcher"]);
+
+                _hiveNodeServer = new Services.Hive.HiveNodeServer();
+                _hiveNodeServer.Start(info);
+
+                _hiveBeacon = new Services.Hive.HiveBeacon();
+                _hiveBeacon.Start(name, _settings.OllamaHost, models, vramMb);
+
+                // Auto-discover peers that are already broadcasting.
+                _hiveBeacon.OnNodeSeen += msg => Dispatcher.InvokeAsync(() =>
+                {
+                    // Update the Hive panel and badge when a new peer is seen.
+                    var badge = _installedModels.Count > 0
+                        ? Services.Hive.HiveHosts.Load(_settings.OllamaHost).Count(h => h.Reachable == true).ToString()
+                        : "";
+                    if (HiveNodeBadge != null) HiveNodeBadge.Text = badge.Length > 0 ? $"({badge})" : "";
+                    if (_hivePanel.IsLoaded) _hivePanel.OnBeaconNodeSeen(msg);
+                });
+
+                await Task.CompletedTask;
+                AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE MIND",
+                    $"Beacon active — broadcasting as {name}", DateTime.Now));
+            });
 
         // ── CLI overrides (--workspace, --autotest) ───────────────────────
         // Used by FlaUI / CI tests for headless autonomous runs.
@@ -1363,6 +1403,7 @@ public partial class MainWindow : Window
 
             _swarmPanel.ActiveModel   = _session.ActiveModel;
             _swarmPanel.WorkspaceRoot = _session.WorkspaceRoot;
+            _swarmPanel.LocalUrl      = _settings.OllamaHost;
             _swarmPanel.SetModels(_installedModels, _session.ActiveModel, _settings.LastWorkerModel, _settings.LastResearcherModel);
             _swarmPanel.SetHiveHosts(Services.Hive.HiveHosts.Load(_settings.OllamaHost));
             _swarmPanel.Refresh();

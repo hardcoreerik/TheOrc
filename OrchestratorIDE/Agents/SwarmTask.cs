@@ -52,6 +52,18 @@ public class SwarmTask : INotifyPropertyChanged
     }
 
     public string? ErrorMessage      { get; set; }
+
+    // ── HIVE MIND routing (Phase B) ───────────────────────────────────────────
+    /// <summary>
+    /// Ollama base URL for the hive node this task is routed to.
+    /// Null = run on the local node (default, Phase A behaviour).
+    /// Set by HiveScheduler.AssignNodes before workers start.
+    /// </summary>
+    public string? TargetNodeUrl  { get; set; }
+
+    /// <summary>Display name of the assigned node (e.g. "BIGRIG"). Null = This PC.</summary>
+    public string? TargetNodeName { get; set; }
+
     /// <summary>Files written directly via write_file tool calls (vs ### FILE: markers).</summary>
     public int     ToolFilesWritten   { get; set; }
     /// <summary>Files extracted from ### FILE: markers in the worker's text output (vs write_file calls).</summary>

@@ -33,6 +33,14 @@ public sealed class HiveHost
     [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlyList<string> Models { get; set; } = [];
 
+    /// <summary>Free VRAM in MB. 0 = unknown. Set by ProbeHiveApiAsync — not persisted.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int VramFreeMb { get; set; }
+
+    /// <summary>Lane labels reported by the node's /hive/info endpoint. Not persisted.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string[] Lanes { get; set; } = [];
+
     public override string ToString() => $"{Name} ({Url})";
 }
 
@@ -84,6 +92,27 @@ public static class HiveHosts
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         File.WriteAllText(storePath,
             JsonSerializer.Serialize(hosts.ToList(), _json));
+    }
+
+    /// <summary>
+    /// Probes the HIVE MIND node API (port 7078) to get VRAM + lanes.
+    /// Updates <see cref="HiveHost.VramFreeMb"/> and <see cref="HiveHost.Lanes"/>.
+    /// Best-effort — silently no-ops if the endpoint is unavailable (Phase A node).
+    /// </summary>
+    public static async Task ProbeHiveApiAsync(HiveHost host, int timeoutMs = 2000)
+    {
+        try
+        {
+            var addr = new Uri(host.Url).Host;
+            var info = await HiveNodeServer.ProbeAsync(addr, timeoutMs);
+            if (info is null) return;
+            host.VramFreeMb = info.VramFreeMb;
+            host.Lanes      = info.Lanes;
+            // Merge model list from hive API when Ollama probe missed some.
+            if (info.Models.Length > 0 && host.Models.Count == 0)
+                host.Models = info.Models;
+        }
+        catch { /* non-fatal */ }
     }
 
     /// <summary>

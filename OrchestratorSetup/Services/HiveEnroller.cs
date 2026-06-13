@@ -14,8 +14,9 @@ namespace OrchestratorSetup.Services;
 /// </summary>
 public static class HiveEnroller
 {
-    public const int OllamaPort = 11434;
-    public const int HivePort   = 7077;
+    public const int OllamaPort    = 11434;
+    public const int HivePort      = 7077;   // UDP beacon
+    public const int HiveApiPort   = 7078;   // HTTP node-info endpoint
 
     /// <summary>Runs enrollment; logs progress; returns true if fully applied.</summary>
     public static bool Enroll(Action<string> log)
@@ -31,7 +32,9 @@ public static class HiveEnroller
         catch (Exception ex) { log($"  ⚠ env var failed: {ex.Message}"); ok = false; }
 
         foreach (var (name, port) in new[]
-                 { ("TheOrc Hive - Ollama", OllamaPort), ("TheOrc Hive - Node", HivePort) })
+                 { ("TheOrc Hive - Ollama", OllamaPort),
+                   ("TheOrc Hive - Beacon", HivePort),
+                   ("TheOrc Hive - API",    HiveApiPort) })
         {
             log($"  Firewall rule '{name}' (TCP {port}, Private profile)…");
             if (!AddFirewallRule(name, port, log)) ok = false;

@@ -49,6 +49,13 @@ public class SwarmSession
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Generic.Queue<string>>
         _steerQueues = new();
 
+    // ── HIVE MIND: per-task node routing (Phase B) ────────────────────────────
+    private IReadOnlyList<Services.Hive.HiveHost>? _hiveHosts;
+    private string _localOllamaUrl = "";
+    // Cache OllamaClient per remote URL so we don't create a new one per task step.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, OllamaClient>
+        _nodeClients = new();
+
     // ── Events ────────────────────────────────────────────────────────────────
     public event Action?                         OnStarted;
     public event Action?                         OnStopped;
@@ -102,6 +109,30 @@ public class SwarmSession
     /// Args: (runId, stagingDir, files[]).
     /// </summary>
     public event Action<string, string, IReadOnlyList<string>>? OnStagingReady;
+
+    // ── HIVE MIND API ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Provide the full list of probed hive hosts so tasks can be routed to remote nodes.
+    /// Call before RunAsync. If not called, all tasks run on the local node (_ollama).
+    /// </summary>
+    public void SetHiveHosts(IReadOnlyList<Services.Hive.HiveHost> hosts, string localUrl)
+    {
+        _hiveHosts     = hosts;
+        _localOllamaUrl = localUrl;
+    }
+
+    /// <summary>
+    /// Returns the OllamaClient for the node assigned to this task.
+    /// Caches one client per unique remote URL to avoid reconnect overhead.
+    /// </summary>
+    private OllamaClient GetOllamaForTask(SwarmTask task)
+    {
+        var url = task.TargetNodeUrl;
+        if (string.IsNullOrEmpty(url) || url == _localOllamaUrl || string.IsNullOrEmpty(_localOllamaUrl))
+            return _ollama;
+        return _nodeClients.GetOrAdd(url, u => new OllamaClient(u));
+    }
 
     // ── Directive injection ───────────────────────────────────────────────────
     private readonly List<string> _directives = [];
@@ -170,7 +201,8 @@ public class SwarmSession
 
         try
         {
-            await RunWorkerLoopAsync(task, history, tools, model, noThink, agentKey, ct);
+            var nodeOllama = GetOllamaForTask(task);
+            await RunWorkerLoopAsync(task, history, tools, model, noThink, agentKey, ct, nodeOllama);
         }
         finally
         {
@@ -234,6 +266,21 @@ public class SwarmSession
 
             Activity($"Planned {Tasks.Count} task(s): {string.Join(", ", Tasks.Select(t => t.Title))}", "boss");
             OnTasksPlanned?.Invoke(Tasks);
+
+            // HIVE MIND: assign tasks to remote nodes when multiple nodes are alive.
+            if (_hiveHosts is { Count: > 1 } && !string.IsNullOrEmpty(_localOllamaUrl))
+            {
+                Services.Hive.HiveScheduler.AssignNodes(Tasks, _hiveHosts, _localOllamaUrl);
+                var routed = Tasks.Count(t => !string.IsNullOrEmpty(t.TargetNodeUrl)
+                                           && t.TargetNodeUrl != _localOllamaUrl);
+                if (routed > 0)
+                    Activity($"🐝 HIVE MIND: {routed} task(s) routed to remote node(s) — " +
+                             string.Join(", ", Tasks
+                                 .Where(t => !string.IsNullOrEmpty(t.TargetNodeName))
+                                 .Select(t => $"{t.Title} → {t.TargetNodeName}")
+                                 .Take(4)), "boss");
+            }
+
             await SavePlanJsonAsync(userGoal);
 
             // Honor Stop() requested during OnTasksPlanned (e.g. swarmcli --plan-only)
@@ -1509,7 +1556,12 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
             var tools        = GetWorkerTools(task.Role);
             var noThink      = ShouldDisableThinking(modelForRole);
 
-            await RunWorkerLoopAsync(task, history, tools, modelForRole, noThink, agentKey, ct);
+            // HIVE MIND: use the node assigned to this task (or local if unassigned)
+            var nodeOllama = GetOllamaForTask(task);
+            if (!string.IsNullOrEmpty(task.TargetNodeName))
+                Activity($"🐝 → {task.TargetNodeName}", agentKey);
+
+            await RunWorkerLoopAsync(task, history, tools, modelForRole, noThink, agentKey, ct, nodeOllama);
 
             // Preserve history so ContinueWorkerAsync can resume the conversation
             task.ConversationHistory = history;
@@ -1544,7 +1596,8 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         string                       model,
         bool                         noThink,
         string                       agentKey,
-        CancellationToken            ct)
+        CancellationToken            ct,
+        OllamaClient?                nodeOllama = null)
     {
         const int MaxWorkerSteps = 16;
         var finalSb = new StringBuilder();
@@ -1615,7 +1668,7 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
             var pendingTcs = new List<ToolCall>();
             var contentSb  = new StringBuilder();
 
-            await foreach (var token in _ollama.StreamCompletionAsync(
+            await foreach (var token in (nodeOllama ?? _ollama).StreamCompletionAsync(
                 model, history,
                 tools:       toolsPayload,
                 temperature: 0.25,
