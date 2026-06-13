@@ -41,6 +41,14 @@ public sealed class HiveHost
     [System.Text.Json.Serialization.JsonIgnore]
     public string[] Lanes { get; set; } = [];
 
+    /// <summary>
+    /// llama.cpp RPC port (default 50052) if the node is running llama-rpc-server.
+    /// 0 = RPC not available. Set by ProbeHiveApiAsync — not persisted.
+    /// When non-zero the coordinator can add this node to its --rpc chain.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int RpcPort { get; set; }
+
     public override string ToString() => $"{Name} ({Url})";
 }
 
@@ -108,6 +116,7 @@ public static class HiveHosts
             if (info is null) return;
             host.VramFreeMb = info.VramFreeMb;
             host.Lanes      = info.Lanes;
+            host.RpcPort    = info.RpcPort;
             // Merge model list from hive API when Ollama probe missed some.
             if (info.Models.Length > 0 && host.Models.Count == 0)
                 host.Models = info.Models;

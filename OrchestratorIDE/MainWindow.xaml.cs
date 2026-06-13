@@ -30,6 +30,7 @@ public partial class MainWindow : Window
     private          ModelStatusService?  _modelStatus;
     private          Services.Hive.HiveBeacon?     _hiveBeacon;
     private          Services.Hive.HiveNodeServer? _hiveNodeServer;
+    private          Services.Hive.HiveRpcWorker?  _hiveRpcWorker;
 
     // ── State ─────────────────────────────────────────────────────────────
     private ProjectSession           _session;
@@ -76,6 +77,7 @@ public partial class MainWindow : Window
             _modelStatus?.Dispose();
             _hiveBeacon?.Dispose();
             _hiveNodeServer?.Dispose();
+            _hiveRpcWorker?.Dispose();
         };
 
         // Recorder events → status bar
@@ -455,19 +457,37 @@ public partial class MainWindow : Window
         });
         _modelStatus.Start(TimeSpan.FromSeconds(8));
 
-        // ── HIVE MIND: start beacon + node server if enrolled ─────────────────
+        // ── HIVE MIND: start beacon + node server (+ optional RPC worker) ───────
         if (_settings.HiveMindEnabled)
             _ = Task.Run(async () =>
             {
-                // Get current model list and VRAM for the beacon payload.
                 var models = _installedModels.Count > 0 ? _installedModels : [];
                 var vramMb = (int)(_settings.DetectedVramGb * 1024);
                 var name   = Environment.MachineName;
 
-                // Node info served on GET /hive/info.
+                // HIVE MIND C2: start llama-rpc-server if the runtime is present.
+                // This lets a coordinator offload model layers onto this machine's GPU.
+                int rpcPort = 0;
+                if (!string.IsNullOrEmpty(_settings.LlamaCppRuntimePath))
+                {
+                    _hiveRpcWorker = new Services.Hive.HiveRpcWorker
+                    {
+                        RuntimePath = _settings.LlamaCppRuntimePath,
+                        Port        = Services.Hive.HiveRpcWorker.DefaultPort,
+                    };
+                    _hiveRpcWorker.OnLog += msg => AddActivity(
+                        new ActivityEvent(ActivityKind.Info, "RPC Worker", msg, DateTime.Now));
+
+                    if (_hiveRpcWorker.IsAvailable && _hiveRpcWorker.Start())
+                        rpcPort = Services.Hive.HiveRpcWorker.DefaultPort;
+                }
+
+                var lanes = rpcPort > 0
+                    ? new[] { "inference", "coder", "researcher", "rpc_worker" }
+                    : new[] { "inference", "coder", "researcher" };
+
                 var info = new Services.Hive.HiveNodeInfo(
-                    name, _settings.OllamaHost, [.. models], vramMb, vramMb,
-                    ["inference", "coder", "researcher"]);
+                    name, _settings.OllamaHost, [.. models], vramMb, vramMb, lanes, rpcPort);
 
                 _hiveNodeServer = new Services.Hive.HiveNodeServer();
                 _hiveNodeServer.Start(info);
@@ -475,20 +495,15 @@ public partial class MainWindow : Window
                 _hiveBeacon = new Services.Hive.HiveBeacon();
                 _hiveBeacon.Start(name, _settings.OllamaHost, models, vramMb);
 
-                // Auto-discover peers that are already broadcasting.
                 _hiveBeacon.OnNodeSeen += msg => Dispatcher.InvokeAsync(() =>
                 {
-                    // Update the Hive panel and badge when a new peer is seen.
-                    var badge = _installedModels.Count > 0
-                        ? Services.Hive.HiveHosts.Load(_settings.OllamaHost).Count(h => h.Reachable == true).ToString()
-                        : "";
-                    if (HiveNodeBadge != null) HiveNodeBadge.Text = badge.Length > 0 ? $"({badge})" : "";
                     if (_hivePanel.IsLoaded) _hivePanel.OnBeaconNodeSeen(msg);
                 });
 
                 await Task.CompletedTask;
+                var rpcNote = rpcPort > 0 ? $" · RPC worker on :{rpcPort}" : "";
                 AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE MIND",
-                    $"Beacon active — broadcasting as {name}", DateTime.Now));
+                    $"Active as {name}{rpcNote}", DateTime.Now));
             });
 
         // ── CLI overrides (--workspace, --autotest) ───────────────────────
@@ -1424,6 +1439,9 @@ public partial class MainWindow : Window
         {
             _hivePanel.LocalUrl = _settings.OllamaHost;
             _hivePanel.Refresh();
+            // Wire RPC apply once (guard against double-subscribe on re-entry).
+            _hivePanel.OnApplyRpcWorkers -= OnApplyRpcWorkers;
+            _hivePanel.OnApplyRpcWorkers += OnApplyRpcWorkers;
             MainContent.Content    = _hivePanel;
             SidebarContent.Content = _explorerPanel;
         }
@@ -1739,6 +1757,42 @@ public partial class MainWindow : Window
                 SetStatus(running ? "⚙ llama.cpp server running" : "⚠ llama.cpp server stopped"));
 
         return mgr;
+    }
+
+    // ── HIVE MIND C2: Apply RPC workers ──────────────────────────────────────
+
+    /// <summary>
+    /// Restarts llama-server with the supplied RPC endpoints so their GPUs contribute
+    /// VRAM to this machine's inference. Only applies when Backend == LlamaCpp.
+    /// </summary>
+    private async void OnApplyRpcWorkers(IReadOnlyList<string> endpoints)
+    {
+        if (_settings.Backend != InferenceBackend.LlamaCpp || _llamaServer is null)
+        {
+            MessageBox.Show(
+                "RPC VRAM chaining requires the llama.cpp backend.\n\n" +
+                "Switch to llama.cpp in Settings → Backend, then try again.",
+                "HIVE MIND — RPC", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE MIND",
+            $"Applying RPC workers: {string.Join(", ", endpoints)}", DateTime.Now));
+
+        _llamaServer.Stop();
+        _llamaServer.RpcEndpoints = [.. endpoints];
+
+        var ready = await _llamaServer.StartAsync();
+        if (ready)
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE MIND",
+                $"⚡ RPC chain active — {endpoints.Count} worker(s) contributing VRAM", DateTime.Now));
+        }
+        else
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE MIND",
+                "RPC chain failed — check worker nodes are reachable and firewall allows port 50052.", DateTime.Now));
+        }
     }
 
     private void AgentMode_Changed(object sender, RoutedEventArgs e) { }

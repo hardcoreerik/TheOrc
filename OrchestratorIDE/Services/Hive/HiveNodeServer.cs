@@ -122,4 +122,5 @@ public sealed record HiveNodeInfo(
     string[] Models,
     int      VramFreeMb,
     int      VramTotalMb,
-    string[] Lanes);
+    string[] Lanes,
+    int      RpcPort = 0);    // 0 = RPC not available; 50052 = llama-rpc-server running

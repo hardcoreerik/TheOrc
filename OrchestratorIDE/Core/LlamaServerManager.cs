@@ -57,6 +57,15 @@ public sealed class LlamaServerManager : IDisposable
     /// <summary>CPU inference threads. 0 = auto-detect (recommended).</summary>
     public int    Threads      { get; set; } = 0;
 
+    /// <summary>
+    /// HIVE MIND C2 — llama.cpp RPC worker endpoints to offload layers to.
+    /// Format: "ip:port" (e.g. "192.168.1.20:50052"). Empty = run locally only.
+    /// Each entry appends <c>--rpc ip:port</c> to the server arguments.
+    /// The coordinator's GPU handles the first N layers (up to its VRAM limit);
+    /// remaining layers are distributed across these remote workers in order.
+    /// </summary>
+    public List<string> RpcEndpoints { get; set; } = [];
+
     // ── State ────────────────────────────────────────────────────────────────
 
     public bool   IsRunning  => _process is { HasExited: false };
@@ -213,8 +222,14 @@ public sealed class LlamaServerManager : IDisposable
         // Disable memory-mapping for broader Windows compat
         sb.Append(" --no-mmap");
 
-        // Enable the /health endpoint logging (llama.cpp default, explicit for clarity)
-        sb.Append(" --log-disable");   // suppress verbose token logs in the process stderr
+        // HIVE MIND C2: chain remote RPC workers for VRAM expansion.
+        // Each --rpc endpoint receives overflow layers when the local GPU runs out.
+        foreach (var ep in RpcEndpoints)
+            if (!string.IsNullOrWhiteSpace(ep))
+                sb.Append($" --rpc \"{ep}\"");
+
+        // Suppress verbose token logs (health endpoint still works)
+        sb.Append(" --log-disable");
 
         return sb.ToString();
     }

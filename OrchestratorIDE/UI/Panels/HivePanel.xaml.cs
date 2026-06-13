@@ -23,6 +23,13 @@ public partial class HivePanel : UserControl
     private List<HiveHost> _hosts = [];
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromSeconds(8) };
 
+    /// <summary>
+    /// HIVE MIND C2 — fired when the user clicks "⚡ Use RPC" on a node card.
+    /// Args: list of "ip:port" strings to add to the coordinator's --rpc chain.
+    /// MainWindow subscribes and restarts LlamaServerManager with these endpoints.
+    /// </summary>
+    public event Action<IReadOnlyList<string>>? OnApplyRpcWorkers;
+
     public HivePanel()
     {
         InitializeComponent();
@@ -142,16 +149,45 @@ public partial class HivePanel : UserControl
                 ? Color.FromRgb(0x6A, 0x9A, 0xC8) : Color.FromRgb(0x77, 0x77, 0x77)),
             Margin = new Thickness(0, 1, 0, 3), TextTrimming = TextTrimming.CharacterEllipsis,
         });
-        // What this node offers / is doing (Phase A: model count; H1 adds GPU+lanes+job).
-        string status = host.Reachable == false ? "offline"
-                      : host.Models.Count > 0   ? $"{host.Models.Count} models ready"
-                      : isCenter                ? "this machine" : "online";
+        // Status line: model count + VRAM + RPC badge.
+        var statusParts = new List<string>();
+        if (host.Reachable == false)          statusParts.Add("offline");
+        else if (host.Models.Count > 0)       statusParts.Add($"{host.Models.Count} models");
+        else if (isCenter)                    statusParts.Add("this machine");
+        else                                  statusParts.Add("online");
+        if (host.VramFreeMb > 0)              statusParts.Add($"{host.VramFreeMb / 1024.0:F0}GB VRAM");
+
         sp.Children.Add(new TextBlock
         {
-            Text = status, FontFamily = new FontFamily("Segoe UI"), FontSize = 10,
+            Text = string.Join(" · ", statusParts),
+            FontFamily = new FontFamily("Segoe UI"), FontSize = 10,
             Foreground = new SolidColorBrush(alive
                 ? Color.FromRgb(0xA8, 0xCC, 0x80) : Color.FromRgb(0x88, 0x88, 0x88)),
         });
+
+        // ⚡ RPC badge + "Use RPC" button when the node runs llama-rpc-server.
+        if (!isCenter && host.RpcPort > 0 && alive)
+        {
+            var rpcRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
+            rpcRow.Children.Add(new TextBlock
+            {
+                Text = $"⚡ RPC :{host.RpcPort}",
+                FontFamily = new FontFamily("Consolas"), FontSize = 9,
+                Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xC0, 0x40)),
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0),
+            });
+            var rpcBtn = new Button
+            {
+                Content = "Use RPC", FontSize = 9, Padding = new Thickness(6, 2, 6, 2),
+                Background = new SolidColorBrush(Color.FromRgb(0x2A, 0x1A, 0x00)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0xC0, 0x40)),
+                Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xC0, 0x40)),
+                BorderThickness = new Thickness(1), Cursor = System.Windows.Input.Cursors.Hand,
+            };
+            rpcBtn.Click += (_, _) => ApplyRpcWorker(host);
+            rpcRow.Children.Add(rpcBtn);
+            sp.Children.Add(rpcRow);
+        }
 
         var card = new Border
         {
@@ -374,4 +410,43 @@ public partial class HivePanel : UserControl
     }
 
     private void BtnRescan_Click(object s, RoutedEventArgs e) => _ = ProbeAndDraw();
+
+    // ── RPC worker activation ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Called when the user clicks "Use RPC" on a single node card.
+    /// Collects ALL alive RPC-capable nodes (not just the one clicked) and fires
+    /// OnApplyRpcWorkers so the coordinator can restart llama-server with the full chain.
+    /// </summary>
+    private void ApplyRpcWorker(HiveHost clickedHost)
+    {
+        // Build the full list of alive RPC endpoints.
+        var endpoints = _hosts
+            .Where(h => h.RpcPort > 0 && h.Reachable == true && h.Name != "This PC")
+            .Select(h =>
+            {
+                var ip = new Uri(h.Url).Host;
+                return $"{ip}:{h.RpcPort}";
+            })
+            .ToList();
+
+        if (endpoints.Count == 0)
+        {
+            // Fallback: use the clicked host even if probe hasn't updated RpcPort yet.
+            var ip = new Uri(clickedHost.Url).Host;
+            endpoints = [$"{ip}:{clickedHost.RpcPort}"];
+        }
+
+        var summary = string.Join(", ", endpoints);
+        var result = MessageBox.Show(
+            $"Chain llama-server with {endpoints.Count} RPC worker(s):\n\n  {summary}\n\n" +
+            "This will RESTART llama-server with these RPC endpoints. " +
+            "The combined VRAM of all nodes will be available for one large model.\n\n" +
+            "Proceed?",
+            "HIVE MIND — Apply RPC Workers",
+            MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+        if (result == MessageBoxResult.Yes)
+            OnApplyRpcWorkers?.Invoke(endpoints);
+    }
 }
