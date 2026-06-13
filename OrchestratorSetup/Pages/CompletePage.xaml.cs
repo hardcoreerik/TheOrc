@@ -50,8 +50,6 @@ public partial class CompletePage : UserControl, IInstallerPage
 
     private void BtnFinish_Click(object sender, RoutedEventArgs e)
     {
-        // Phase G will implement shortcut creation.
-        // Phase E will have written the exe — for now just attempt to launch it.
         if (_vm.State.LaunchAfterInstall)
         {
             var exePath = Path.Combine(_vm.State.AppInstallPath, "OrchestratorIDE.exe");

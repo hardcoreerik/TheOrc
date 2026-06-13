@@ -142,6 +142,12 @@ public partial class SwarmBoardPanel : UserControl
     private bool                      _pulseOn;
     private string                    _lastOutputProjectDir = "";
 
+    // Launch Pad state
+    private string                    _lastStagingDir   = "";
+    private IReadOnlyList<string>     _lastStagedFiles  = [];
+    private string                    _lastRunGoal      = "";
+    private CancellationTokenSource? _runCts;
+
     // Per-tab output buffers (thinking stripped out)
     private readonly Dictionary<string, string> _streams = new()
     {
@@ -730,6 +736,8 @@ public partial class SwarmBoardPanel : UserControl
 
     private void StartSwarm(string goal)
     {
+        _lastRunGoal = goal;
+
         // Reset all stream / thinking buffers
         foreach (var key in _streams.Keys.ToList())
         {
@@ -906,7 +914,21 @@ public partial class SwarmBoardPanel : UserControl
         TabCoder.Visibility      = Visibility.Collapsed;
         TabUIDev.Visibility      = Visibility.Collapsed;
         TabTester.Visibility     = Visibility.Collapsed;
+        TabResults.Visibility    = Visibility.Collapsed;
         SelectTab("boss");
+
+        // Reset Launch Pad
+        _lastStagingDir  = "";
+        _lastStagedFiles = [];
+        _lastRunGoal     = "";
+        _runCts?.Cancel();
+        _runCts = null;
+        PnlResultFiles.Children.Clear();
+        TbRunOutput.Text       = "";
+        BdrRunError.Visibility = Visibility.Collapsed;
+        BtnApplyToWorkspace.Content   = "✓  Apply to Workspace";
+        BtnApplyToWorkspace.Foreground = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88));
+        BtnRunProject.IsEnabled = true;
 
         // Reset node status labels
         TbBossStatus.Text       = "idle";
@@ -1355,13 +1377,15 @@ public partial class SwarmBoardPanel : UserControl
             SetNodeDone(NodeBoss);
             StatusChanged?.Invoke("Swarm complete");
 
-            // Show launch button if there's a project directory to open
+            // Show launch button and Results tab
             _lastOutputProjectDir = _session?.GetOutputProjectDir() ?? "";
             if (!string.IsNullOrWhiteSpace(_lastOutputProjectDir) &&
                 System.IO.Directory.Exists(_lastOutputProjectDir))
             {
                 BtnLaunchProject.Visibility = Visibility.Visible;
             }
+            TabResults.Visibility = Visibility.Visible;
+            SelectTab("results");
         });
     }
 
@@ -1377,7 +1401,35 @@ public partial class SwarmBoardPanel : UserControl
 
     private void OnStagingReady(string runId, string stagingDir, IReadOnlyList<string> files)
     {
-        // Append a staging summary to the boss stream so the user knows what's ready
+        // Store for Launch Pad
+        _lastStagingDir  = stagingDir;
+        _lastStagedFiles = files;
+
+        // Populate Launch Pad file list
+        PnlResultFiles.Children.Clear();
+        foreach (var f in files.Take(50))
+        {
+            PnlResultFiles.Children.Add(new TextBlock
+            {
+                Text         = "  • " + f,
+                FontSize     = 10,
+                FontFamily   = new FontFamily("Consolas"),
+                Foreground   = new SolidColorBrush(Color.FromRgb(0x77, 0xB9, 0x77)),
+                Margin       = new Thickness(0, 1, 0, 1),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+        }
+        if (files.Count > 50)
+            PnlResultFiles.Children.Add(new TextBlock
+            {
+                Text       = $"  … and {files.Count - 50} more",
+                FontSize   = 10,
+                FontFamily = new FontFamily("Consolas"),
+                Foreground = new SolidColorBrush(Color.FromRgb(0x55, 0x77, 0x55)),
+                Margin     = new Thickness(0, 1, 0, 1),
+            });
+
+        // Append a staging summary to the boss stream
         var summary = new System.Text.StringBuilder();
         summary.AppendLine();
         summary.AppendLine("──── STAGED FILES READY FOR REVIEW ────");
@@ -1390,11 +1442,11 @@ public partial class SwarmBoardPanel : UserControl
         if (files.Count > 30)
             summary.AppendLine($"  … and {files.Count - 30} more");
         summary.AppendLine();
-        summary.AppendLine("Review the files above, then use File Explorer to copy them into your workspace.");
+        summary.AppendLine("Switch to the ▶ Results tab to run, inspect, and apply the output.");
 
         _streams["boss"] += summary.ToString();
         if (_activeTab == "boss") TbStream.Text = _streams["boss"];
-        StatusChanged?.Invoke($"Swarm staged {files.Count} file(s) — review before applying");
+        StatusChanged?.Invoke($"Swarm staged {files.Count} file(s) — Results tab ready");
     }
 
     // ── Tab switching ─────────────────────────────────────────────────────────
@@ -1408,9 +1460,15 @@ public partial class SwarmBoardPanel : UserControl
     private void SelectTab(string key)
     {
         _activeTab = key;
-        RefreshStreamDisplay(key);
 
-        // Highlight active tab button
+        // Results tab shows the Launch Pad; all others show the stream
+        bool isResults = key == "results";
+        PnlLaunchPad.Visibility = isResults ? Visibility.Visible  : Visibility.Collapsed;
+        StreamScroll.Visibility = isResults ? Visibility.Collapsed : Visibility.Visible;
+
+        if (!isResults) RefreshStreamDisplay(key);
+
+        // Highlight active tab buttons
         foreach (var btn in new[] { TabBoss, TabResearcher, TabCoder, TabUIDev, TabTester })
         {
             var isActive = btn.Tag as string == key;
@@ -1421,6 +1479,14 @@ public partial class SwarmBoardPanel : UserControl
                 ? new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00))
                 : (Brush)FindResource("Br.Text.Muted");
         }
+
+        // Results tab stays green-tinted even when not active (to signal results are ready)
+        TabResults.BorderBrush = isResults
+            ? new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00))
+            : new SolidColorBrush(Colors.Transparent);
+        TabResults.Foreground = isResults
+            ? new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00))
+            : new SolidColorBrush(Color.FromRgb(0x4A, 0x7A, 0x00));
     }
 
     // ── Node visual helpers ───────────────────────────────────────────────────
@@ -1680,79 +1746,226 @@ public partial class SwarmBoardPanel : UserControl
     // ── Launch project (post-completion) ─────────────────────────────────────
 
     private void BtnLaunchProject_Click(object sender, RoutedEventArgs e)
-        => LaunchOutputProject(_lastOutputProjectDir);
+        => SelectTab("results");
 
-    private static void LaunchOutputProject(string projectDir)
+    // ── Launch Pad: Run, Open, Apply, Fix ─────────────────────────────────────
+
+    private async void BtnRunProject_Click(object sender, RoutedEventArgs e)
+        => await RunProjectAsync();
+
+    private void BtnOpenResultFolder_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(projectDir) ||
-            !System.IO.Directory.Exists(projectDir))
-            return;
-
-        // Detect entry point in priority order
-        var candidates = new[]
-        {
-            // Python
-            System.IO.Path.Combine(projectDir, "main.py"),
-            System.IO.Path.Combine(projectDir, "app.py"),
-            System.IO.Path.Combine(projectDir, "run.py"),
-            System.IO.Path.Combine(projectDir, "src", "main.py"),
-            System.IO.Path.Combine(projectDir, "src", "app.py"),
-            // JavaScript / Node
-            System.IO.Path.Combine(projectDir, "index.js"),
-            System.IO.Path.Combine(projectDir, "src", "index.js"),
-            System.IO.Path.Combine(projectDir, "app.js"),
-        };
-
-        // Check for Python files first
-        foreach (var candidate in candidates)
-        {
-            if (!System.IO.File.Exists(candidate)) continue;
-
-            var ext = System.IO.Path.GetExtension(candidate).ToLowerInvariant();
-            if (ext == ".py")
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName        = "python",
-                    Arguments       = $"\"{candidate}\"",
-                    WorkingDirectory = projectDir,
-                    UseShellExecute = true,
-                });
-                return;
-            }
-            if (ext == ".js")
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName        = "node",
-                    Arguments       = $"\"{candidate}\"",
-                    WorkingDirectory = projectDir,
-                    UseShellExecute = true,
-                });
-                return;
-            }
-        }
-
-        // Look for an .exe in the project dir
-        var exeFiles = System.IO.Directory.GetFiles(projectDir, "*.exe",
-                           System.IO.SearchOption.TopDirectoryOnly);
-        if (exeFiles.Length > 0)
+        var dir = string.IsNullOrWhiteSpace(_lastStagingDir)
+            ? _lastOutputProjectDir
+            : _lastStagingDir;
+        if (!string.IsNullOrWhiteSpace(dir) && System.IO.Directory.Exists(dir))
         {
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
-                FileName        = exeFiles[0],
-                WorkingDirectory = projectDir,
-                UseShellExecute = true,
+                FileName = "explorer", Arguments = $"\"{dir}\"", UseShellExecute = true,
             });
+        }
+    }
+
+    private void BtnApplyToWorkspace_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_lastStagingDir) || string.IsNullOrWhiteSpace(WorkspaceRoot))
+        {
+            StatusChanged?.Invoke("No staging directory or workspace to apply to.");
+            return;
+        }
+        try
+        {
+            var files = System.IO.Directory.GetFiles(
+                _lastStagingDir, "*", System.IO.SearchOption.AllDirectories);
+            int copied = 0;
+            foreach (var src in files)
+            {
+                var rel = System.IO.Path.GetRelativePath(_lastStagingDir, src);
+                var dst = System.IO.Path.Combine(WorkspaceRoot, rel);
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(dst)!);
+                System.IO.File.Copy(src, dst, overwrite: true);
+                copied++;
+            }
+            BtnApplyToWorkspace.Content    = $"✓  {copied} files applied";
+            BtnApplyToWorkspace.Foreground = new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00));
+            StatusChanged?.Invoke($"Applied {copied} file(s) to workspace");
+        }
+        catch (Exception ex)
+        {
+            StatusChanged?.Invoke($"Apply failed: {ex.Message}");
+        }
+    }
+
+    private void BtnFixThis_Click(object sender, RoutedEventArgs e)
+    {
+        var output = TbRunOutput.Text;
+        if (output.Length > 3000) output = "…" + output[^3000..];
+
+        var fixGoal = $"Fix the runtime error in the project.\n" +
+                      $"Error: {TbRunError.Text}\n\n" +
+                      $"Program output:\n{output}";
+
+        // Switch to idle state and pre-fill the goal
+        BtnNewRun_Click(this, new RoutedEventArgs());
+        TbGoal.Text = fixGoal;
+    }
+
+    // ── Async run with output capture ─────────────────────────────────────────
+
+    private async Task RunProjectAsync()
+    {
+        var projectDir = string.IsNullOrWhiteSpace(_lastStagingDir)
+            ? _lastOutputProjectDir
+            : _lastStagingDir;
+
+        if (string.IsNullOrWhiteSpace(projectDir) || !System.IO.Directory.Exists(projectDir))
+        {
+            TbRunOutput.Text = "(No project directory found.)";
             return;
         }
 
-        // Fallback: open the folder in Explorer
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        TbRunOutput.Text       = "";
+        BdrRunError.Visibility = Visibility.Collapsed;
+        BtnRunProject.IsEnabled = false;
+
+        _runCts?.Cancel();
+        _runCts = new CancellationTokenSource();
+        var ct = _runCts.Token;
+
+        var entry = DetectEntryPoint(projectDir);
+        if (entry is null)
         {
-            FileName        = "explorer",
-            Arguments       = $"\"{projectDir}\"",
-            UseShellExecute = true,
-        });
+            AppendRunOutput("No runnable entry point detected — opening folder in Explorer.");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "explorer", Arguments = $"\"{projectDir}\"", UseShellExecute = true,
+            });
+            BtnRunProject.IsEnabled = true;
+            return;
+        }
+
+        if (!entry.CaptureOutput)
+        {
+            // GUI exe — launch and forget
+            AppendRunOutput($"▶ Launching {System.IO.Path.GetFileName(entry.Launcher)}");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = entry.Launcher, WorkingDirectory = projectDir, UseShellExecute = true,
+            });
+            BtnRunProject.IsEnabled = true;
+            return;
+        }
+
+        AppendRunOutput($"▶ {entry.Launcher} {entry.Args}");
+        AppendRunOutput($"  (in {projectDir})");
+        AppendRunOutput("");
+
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName               = entry.Launcher,
+            Arguments              = entry.Args,
+            WorkingDirectory       = projectDir,
+            UseShellExecute        = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError  = true,
+            CreateNoWindow         = true,
+        };
+
+        try
+        {
+            using var proc = System.Diagnostics.Process.Start(psi)!;
+
+            var stdoutTask = ReadStreamAsync(proc.StandardOutput,
+                line => Dispatcher.InvokeAsync(() => AppendRunOutput(line)), ct);
+            var stderrTask = ReadStreamAsync(proc.StandardError,
+                line => Dispatcher.InvokeAsync(() => AppendRunOutput(line, isError: true)), ct);
+
+            await Task.WhenAll(stdoutTask, stderrTask);
+            await proc.WaitForExitAsync(ct);
+
+            int code = proc.ExitCode;
+            AppendRunOutput("");
+            AppendRunOutput($"─── exited {(code == 0 ? "✓ ok" : $"✗ code {code}")} ───");
+
+            if (code != 0)
+                ShowRunError($"Process exited with code {code}");
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            AppendRunOutput($"\nError launching: {ex.Message}");
+            ShowRunError(ex.Message);
+        }
+        finally
+        {
+            _ = Dispatcher.InvokeAsync(() => BtnRunProject.IsEnabled = true);
+        }
+    }
+
+    private static async Task ReadStreamAsync(
+        System.IO.StreamReader reader,
+        Action<string> onLine,
+        CancellationToken ct)
+    {
+        try
+        {
+            string? line;
+            while ((line = await reader.ReadLineAsync(ct)) is not null
+                   && !ct.IsCancellationRequested)
+            {
+                onLine(line);
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private record EntryPoint(string Launcher, string Args, bool CaptureOutput);
+
+    private static EntryPoint? DetectEntryPoint(string projectDir)
+    {
+        // Python scripts — capture stdout/stderr
+        foreach (var name in new[] { "main.py", "app.py", "run.py" })
+        {
+            foreach (var sub in new[] { "", "src" })
+            {
+                var p = sub.Length > 0
+                    ? System.IO.Path.Combine(projectDir, sub, name)
+                    : System.IO.Path.Combine(projectDir, name);
+                if (System.IO.File.Exists(p))
+                    return new("python", $"\"{p}\"", CaptureOutput: true);
+            }
+        }
+        // Node scripts
+        foreach (var name in new[] { "index.js", "app.js" })
+        {
+            foreach (var sub in new[] { "", "src" })
+            {
+                var p = sub.Length > 0
+                    ? System.IO.Path.Combine(projectDir, sub, name)
+                    : System.IO.Path.Combine(projectDir, name);
+                if (System.IO.File.Exists(p))
+                    return new("node", $"\"{p}\"", CaptureOutput: true);
+            }
+        }
+        // Exe — launch without capture (may be a GUI app)
+        var exes = System.IO.Directory.GetFiles(
+            projectDir, "*.exe", System.IO.SearchOption.TopDirectoryOnly);
+        if (exes.Length > 0)
+            return new(exes[0], "", CaptureOutput: false);
+
+        return null;
+    }
+
+    private void AppendRunOutput(string line, bool isError = false)
+    {
+        TbRunOutput.Text += (isError ? "! " : "") + line + "\n";
+        RunOutputScroll.ScrollToBottom();
+    }
+
+    private void ShowRunError(string message)
+    {
+        TbRunError.Text        = message;
+        BdrRunError.Visibility = Visibility.Visible;
     }
 }

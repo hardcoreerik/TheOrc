@@ -282,6 +282,13 @@ public sealed class InstallOrchestrator : IDisposable
                 Log("  Desktop/Start Menu shortcuts created (if exe present).");
             }, ct), ct);
 
+            // ── Step N+1: Register uninstaller ──────────────────────────────
+            await Step("Registering uninstaller", () => Task.Run(() =>
+            {
+                UninstallService.Register(_state);
+                Log("  Uninstall entry registered in Apps & Features.");
+            }, ct), ct);
+
             // Done
             _state.InstallationComplete = true;
             FireOverall(1.0);
@@ -314,8 +321,8 @@ public sealed class InstallOrchestrator : IDisposable
 
     private int ComputeTotalSteps()
     {
-        // Base: create dirs + write config + shortcuts
-        int n = 3;
+        // Base: create dirs + write config + shortcuts + uninstall registration
+        int n = 4;
 
         // App exe download (only when it will actually run)
         if (!File.Exists(_state.AppExePath) && !string.IsNullOrEmpty(_state.AppDownloadUrl))

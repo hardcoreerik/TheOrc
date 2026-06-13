@@ -4,19 +4,33 @@ namespace OrchestratorSetup;
 
 public partial class App : Application
 {
-    protected override void OnStartup(StartupEventArgs e)
+    private void OnStartup(object sender, StartupEventArgs e)
     {
-        base.OnStartup(e);
         DispatcherUnhandledException += (_, ex) =>
         {
             MessageBox.Show(
                 $"An unexpected error occurred:\n\n{ex.Exception.Message}\n\n" +
                 "The installer will close. Please report this at:\n" +
-                "https://github.com/hardcoreerik/The-Orchestrator/issues",
+                "https://github.com/hardcoreerik/TheOrc/issues",
                 "OrchestratorSetup — Error",
                 MessageBoxButton.OK, MessageBoxImage.Error);
             ex.Handled = true;
             Shutdown(1);
         };
+
+        bool isUninstall = e.Args.Contains("--uninstall", StringComparer.OrdinalIgnoreCase);
+        if (isUninstall)
+        {
+            var win = new UninstallWindow();
+            MainWindow = win;
+            win.ShowDialog();
+            Shutdown(0);
+        }
+        else
+        {
+            var win = new MainWindow();
+            MainWindow = win;
+            win.Show();
+        }
     }
 }

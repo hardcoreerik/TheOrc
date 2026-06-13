@@ -1223,6 +1223,13 @@
                                         Click="Tab_Click" Tag="tester"
                                         Visibility="Collapsed"
                                         AutomationProperties.AutomationId="Swarm.TabTester"/>
+                                <Button x:Name="TabResults"
+                                        Content="▶ Results"
+                                        Style="{StaticResource StreamTab}"
+                                        Click="Tab_Click" Tag="results"
+                                        Foreground="#76B900"
+                                        Visibility="Collapsed"
+                                        AutomationProperties.AutomationId="Swarm.TabResults"/>
                             </StackPanel>
 
                             <!-- Font-size badge (right, shows current zoom) -->
@@ -1312,25 +1319,196 @@
                         </DockPanel>
                     </Border>
 
-                    <!-- Stream output -->
-                    <ScrollViewer x:Name="StreamScroll"
-                                  VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled"
-                                  PreviewMouseWheel="OnStreamWheel">
-                        <TextBox x:Name="TbStream"
-                                 Background="Transparent"
-                                 Foreground="#C8D4C8"
-                                 FontFamily="Cascadia Code, Consolas, monospace"
-                                 FontSize="12"
-                                 BorderThickness="0"
-                                 IsReadOnly="True"
-                                 TextWrapping="Wrap"
-                                 Padding="12,10"
-                                 AcceptsReturn="True"
-                                 VerticalScrollBarVisibility="Disabled"
-                                 HorizontalScrollBarVisibility="Disabled"
-                                 AutomationProperties.AutomationId="Swarm.Stream"/>
-                    </ScrollViewer>
+                    <!-- Stream output + Launch Pad (shared slot — one visible at a time) -->
+                    <Grid>
+                        <ScrollViewer x:Name="StreamScroll"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      PreviewMouseWheel="OnStreamWheel">
+                            <TextBox x:Name="TbStream"
+                                     Background="Transparent"
+                                     Foreground="#C8D4C8"
+                                     FontFamily="Cascadia Code, Consolas, monospace"
+                                     FontSize="12"
+                                     BorderThickness="0"
+                                     IsReadOnly="True"
+                                     TextWrapping="Wrap"
+                                     Padding="12,10"
+                                     AcceptsReturn="True"
+                                     VerticalScrollBarVisibility="Disabled"
+                                     HorizontalScrollBarVisibility="Disabled"
+                                     AutomationProperties.AutomationId="Swarm.Stream"/>
+                        </ScrollViewer>
+
+                        <!-- ── Launch Pad — shown when "Results" tab is active ─── -->
+                        <DockPanel x:Name="PnlLaunchPad"
+                                   Visibility="Collapsed"
+                                   Background="#050A05"
+                                   LastChildFill="True">
+
+                            <!-- Action buttons (top) -->
+                            <Border DockPanel.Dock="Top"
+                                    Background="#0A120A"
+                                    BorderBrush="#1A2A1A"
+                                    BorderThickness="0,0,0,1"
+                                    Padding="8,6">
+                                <StackPanel Orientation="Horizontal">
+                                    <Button x:Name="BtnRunProject"
+                                            Content="▶  Run"
+                                            Background="#1A3A00" Foreground="#76B900"
+                                            BorderBrush="#2A5A00" BorderThickness="1"
+                                            Padding="12,4" Margin="0,0,6,0"
+                                            FontSize="11" FontWeight="SemiBold"
+                                            Cursor="Hand"
+                                            Click="BtnRunProject_Click">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border x:Name="Bd"
+                                                        Background="{TemplateBinding Background}"
+                                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                                        CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="Bd" Property="Background" Value="#2A5A00"/>
+                                                    </Trigger>
+                                                    <Trigger Property="IsEnabled" Value="False">
+                                                        <Setter TargetName="Bd" Property="Background" Value="#0A1A00"/>
+                                                        <Setter TargetName="Bd" Property="BorderBrush" Value="#1A2A1A"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
+
+                                    <Button x:Name="BtnOpenResultFolder"
+                                            Content="📁  Open Folder"
+                                            Background="Transparent" Foreground="#888888"
+                                            BorderBrush="#2A3A2A" BorderThickness="1"
+                                            Padding="10,4" Margin="0,0,6,0"
+                                            FontSize="11" Cursor="Hand"
+                                            Click="BtnOpenResultFolder_Click">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border x:Name="Bd"
+                                                        Background="{TemplateBinding Background}"
+                                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                                        CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="Bd" Property="Background" Value="#1A2A1A"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
+
+                                    <Button x:Name="BtnApplyToWorkspace"
+                                            Content="✓  Apply to Workspace"
+                                            Background="Transparent" Foreground="#888888"
+                                            BorderBrush="#2A3A2A" BorderThickness="1"
+                                            Padding="10,4" Margin="0,0,0,0"
+                                            FontSize="11" Cursor="Hand"
+                                            Click="BtnApplyToWorkspace_Click">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border x:Name="Bd"
+                                                        Background="{TemplateBinding Background}"
+                                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                                        CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="Bd" Property="Background" Value="#1A2A1A"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Staged file list (top, max height ~130px) -->
+                            <Border DockPanel.Dock="Top"
+                                    Background="#080C08"
+                                    BorderBrush="#1A2A1A"
+                                    BorderThickness="0,0,0,1"
+                                    MaxHeight="130">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled">
+                                    <StackPanel x:Name="PnlResultFiles"
+                                                Margin="8,4"/>
+                                </ScrollViewer>
+                            </Border>
+
+                            <!-- Error bar (hidden until run fails) -->
+                            <Border x:Name="BdrRunError"
+                                    DockPanel.Dock="Top"
+                                    Visibility="Collapsed"
+                                    Background="#2A0A0A"
+                                    BorderBrush="#5A2020"
+                                    BorderThickness="0,1,0,1"
+                                    Padding="10,6">
+                                <DockPanel>
+                                    <Button x:Name="BtnFixThis"
+                                            DockPanel.Dock="Right"
+                                            Content="Fix this →"
+                                            Background="#3A1414" Foreground="#F48771"
+                                            BorderBrush="#5A2A2A" BorderThickness="1"
+                                            Padding="10,3" Margin="8,0,0,0"
+                                            FontSize="11" FontWeight="SemiBold" Cursor="Hand"
+                                            Click="BtnFixThis_Click">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border x:Name="Bd"
+                                                        Background="{TemplateBinding Background}"
+                                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                                        CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="Bd" Property="Background" Value="#5A2020"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
+                                    <TextBlock x:Name="TbRunError"
+                                               Foreground="#F48771" FontSize="11"
+                                               FontFamily="Segoe UI"
+                                               VerticalAlignment="Center"
+                                               TextWrapping="Wrap"/>
+                                </DockPanel>
+                            </Border>
+
+                            <!-- Run output terminal (fills remaining height) -->
+                            <ScrollViewer x:Name="RunOutputScroll"
+                                          VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Auto">
+                                <TextBox x:Name="TbRunOutput"
+                                         Background="#050A05"
+                                         Foreground="#B8D4B8"
+                                         FontFamily="Cascadia Code, Consolas, monospace"
+                                         FontSize="11"
+                                         BorderThickness="0"
+                                         IsReadOnly="True"
+                                         TextWrapping="NoWrap"
+                                         Padding="12,8"
+                                         AcceptsReturn="True"
+                                         VerticalScrollBarVisibility="Disabled"
+                                         HorizontalScrollBarVisibility="Disabled"/>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Grid>
                 </DockPanel>
 
                 <!-- ── Agent activity columns (Row 1 — spans all 3 columns) ─── -->
