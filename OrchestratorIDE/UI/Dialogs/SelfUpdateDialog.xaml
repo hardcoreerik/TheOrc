@@ -1,0 +1,170 @@
+<Window x:Class="OrchestratorIDE.UI.Dialogs.SelfUpdateDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Update TheOrc from GitHub"
+        Width="720" Height="520"
+        MinWidth="620" MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        Background="#141414"
+        Foreground="#CCCCCC"
+        BorderBrush="#2A4A2A"
+        BorderThickness="1"
+        ShowInTaskbar="False">
+
+    <Window.Resources>
+        <Style x:Key="StepBorder" TargetType="Border">
+            <Setter Property="CornerRadius"  Value="4"/>
+            <Setter Property="Padding"       Value="8,5"/>
+            <Setter Property="Margin"        Value="0,0,0,2"/>
+        </Style>
+        <Style x:Key="StepIcon" TargetType="TextBlock">
+            <Setter Property="FontFamily"    Value="Consolas"/>
+            <Setter Property="FontSize"      Value="12"/>
+            <Setter Property="Foreground"    Value="#555555"/>
+            <Setter Property="Width"         Value="16"/>
+            <Setter Property="TextAlignment" Value="Center"/>
+            <Setter Property="VerticalAlignment" Value="Top"/>
+            <Setter Property="Margin"        Value="0,1,6,0"/>
+        </Style>
+        <Style x:Key="StepLabel" TargetType="TextBlock">
+            <Setter Property="FontFamily"    Value="Segoe UI"/>
+            <Setter Property="FontSize"      Value="11"/>
+            <Setter Property="Foreground"    Value="#AAAAAA"/>
+            <Setter Property="TextWrapping"  Value="Wrap"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Height"          Value="30"/>
+            <Setter Property="Padding"         Value="16,0"/>
+            <Setter Property="FontSize"        Value="12"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor"          Value="Hand"/>
+            <Setter Property="FontFamily"      Value="Segoe UI"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#0C1A0C" BorderBrush="#2A5A2A" BorderThickness="0,0,0,1" Padding="16,12">
+            <DockPanel>
+                <TextBlock Text="⬆" FontSize="20" Foreground="#76B900" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="UPDATE THEORC FROM SOURCE" FontSize="13" FontWeight="Bold"
+                               Foreground="#76B900" FontFamily="Consolas"/>
+                    <TextBlock x:Name="TbVersionInfo" FontSize="10" Foreground="#888888"
+                               FontFamily="Consolas" Margin="0,2,0,0"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Content: steps + log -->
+        <Grid Grid.Row="1" Margin="14,12,14,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="170"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Step list -->
+            <StackPanel x:Name="StepPanels" Grid.Column="0" Margin="0,0,10,0">
+
+                <Border x:Name="StepBorder0" Style="{StaticResource StepBorder}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="StepIcon0" Tag="icon" Text="○" Style="{StaticResource StepIcon}"/>
+                        <TextBlock Text=".NET 10 SDK" Style="{StaticResource StepLabel}"/>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="StepBorder1" Style="{StaticResource StepBorder}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="StepIcon1" Tag="icon" Text="○" Style="{StaticResource StepIcon}"/>
+                        <TextBlock Text="Pull Source" Style="{StaticResource StepLabel}"/>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="StepBorder2" Style="{StaticResource StepBorder}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="StepIcon2" Tag="icon" Text="○" Style="{StaticResource StepIcon}"/>
+                        <TextBlock Text="Build &amp; Publish" Style="{StaticResource StepLabel}"/>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="StepBorder3" Style="{StaticResource StepBorder}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="StepIcon3" Tag="icon" Text="○" Style="{StaticResource StepIcon}"/>
+                        <TextBlock Text="Stage Exe" Style="{StaticResource StepLabel}"/>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="StepBorder4" Style="{StaticResource StepBorder}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="StepIcon4" Tag="icon" Text="○" Style="{StaticResource StepIcon}"/>
+                        <TextBlock Text="Relaunch" Style="{StaticResource StepLabel}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Info box at bottom of steps -->
+                <Border Background="#080E08" BorderBrush="#1A3A1A" BorderThickness="1"
+                        CornerRadius="4" Padding="8,6" Margin="0,16,0,0">
+                    <TextBlock TextWrapping="Wrap" FontFamily="Consolas" FontSize="9"
+                               Foreground="#4A6A4A" LineHeight="14">
+                        Source folder is set in Settings. The app will close and reopen automatically when done.
+                    </TextBlock>
+                </Border>
+            </StackPanel>
+
+            <!-- Build log -->
+            <Border Grid.Column="1" Background="#0A0A0A" BorderBrush="#252525"
+                    BorderThickness="1" CornerRadius="4" ClipToBounds="True">
+                <ScrollViewer x:Name="LogScroll" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <TextBox x:Name="TbLog"
+                             Background="Transparent"
+                             Foreground="#88C860"
+                             FontFamily="Consolas" FontSize="10"
+                             IsReadOnly="True"
+                             TextWrapping="Wrap"
+                             BorderThickness="0"
+                             Padding="10,8"
+                             VerticalScrollBarVisibility="Disabled"/>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <!-- Footer: progress bar + buttons -->
+        <Grid Grid.Row="2" Margin="14,0,14,12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <ProgressBar x:Name="UpdateProgress" Grid.Row="0"
+                         Height="3" Margin="0,0,0,10"
+                         Minimum="0" Maximum="100" Value="0"
+                         Foreground="#76B900" Background="#1A2A1A"
+                         BorderThickness="0"/>
+
+            <DockPanel Grid.Row="1">
+                <TextBlock x:Name="TbFinalStatus" VerticalAlignment="Center"
+                           FontFamily="Consolas" FontSize="10" Foreground="#666666"/>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button x:Name="BtnCancel"
+                            Content="Cancel"
+                            Background="#1A1A1A" Foreground="#888888"
+                            BorderBrush="#333333"
+                            Margin="0,0,8,0"
+                            Click="BtnCancel_Click"/>
+                    <Button x:Name="BtnStart"
+                            Content="⬆  Start Update"
+                            Background="#1A3A00" Foreground="#A8D070"
+                            BorderBrush="#4A7A20"
+                            Click="BtnStart_Click"/>
+                </StackPanel>
+            </DockPanel>
+        </Grid>
+    </Grid>
+</Window>

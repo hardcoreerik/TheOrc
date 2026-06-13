@@ -68,6 +68,11 @@ public class InstallerState
         => Path.Combine(ModelStoragePath,
                Path.GetFileName(model.Url.Length > 0 ? model.Url : $"{model.Id}.gguf"));
 
+    // ── .NET SDK ──────────────────────────────────────────────────────────────
+
+    /// <summary>True if dotnet --version returned 10.x at detection time.</summary>
+    public bool DotNetSdkDetected    { get; set; } = false;
+
     // ── Ollama handling ───────────────────────────────────────────────────────
 
     public bool OllamaDetected       { get; set; } = false;

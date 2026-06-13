@@ -15,15 +15,16 @@ public class InstallerViewModel : INotifyPropertyChanged
 
     public enum Page
     {
-        Welcome       = 0,
-        License       = 1,
-        HardwareDetect= 2,
-        InstallPath   = 3,
-        Profile       = 4,
-        ModelSelect   = 5,
-        OllamaCheck   = 6,
-        Download      = 7,
-        Complete      = 8,
+        Welcome        = 0,
+        License        = 1,
+        HardwareDetect = 2,
+        DotNetCheck    = 3,
+        InstallPath    = 4,
+        Profile        = 5,
+        ModelSelect    = 6,
+        OllamaCheck    = 7,
+        Download       = 8,
+        Complete       = 9,
     }
 
     private static readonly int PageCount = Enum.GetValues<Page>().Length;

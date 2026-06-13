@@ -2197,7 +2197,7 @@ public partial class MainWindow : Window
     }
 
     private void BdrUpdateBadge_Click(object sender, MouseButtonEventArgs e)
-        => UpdateChecker.OpenReleasePage(_pendingReleaseUrl);
+        => OpenSelfUpdateDialog(_settings.LastKnownLatestVersion ?? "");
 
     // ── Menu handlers — Help ──────────────────────────────────────────────
 
@@ -2228,19 +2228,23 @@ public partial class MainWindow : Window
                 $"A new version of TheOrc is available!\n\n" +
                 $"  Current:  v{result.CurrentVersion}\n" +
                 $"  Latest:   v{result.LatestVersion} — {result.ReleaseName}\n\n" +
-                "Open release page in browser?",
+                "Click Yes to auto-update from source (rebuild + relaunch).\n" +
+                "Click No to open the release page in your browser instead.",
                 "Update Available",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Information);
+                MessageBoxButton.YesNoCancel,
+                MessageBoxImage.Information,
+                MessageBoxResult.Yes);
 
             if (answer == MessageBoxResult.Yes)
-                UpdateChecker.OpenReleasePage(result.ReleaseUrl);
+                OpenSelfUpdateDialog(result.LatestVersion);   // auto-update from source
+            else if (answer == MessageBoxResult.No)
+                UpdateChecker.OpenReleasePage(result.ReleaseUrl);  // open browser (manual)
         }
         else
         {
             BdrUpdateBadge.Visibility = Visibility.Collapsed;
             SetStatus($"You're up to date — v{result.CurrentVersion}");
-            if (force) // only show the "up to date" dialog when the user explicitly clicked
+            if (force)
             {
                 MessageBox.Show(
                     $"TheOrc is up to date.\n\nVersion: v{result.CurrentVersion}",
@@ -2249,6 +2253,15 @@ public partial class MainWindow : Window
                     MessageBoxImage.Information);
             }
         }
+    }
+
+    private void OpenSelfUpdateDialog(string latestVersion)
+    {
+        var dlg = new UI.Dialogs.SelfUpdateDialog(_settings, latestVersion)
+        {
+            Owner = this,
+        };
+        dlg.ShowDialog();
     }
 
     private void Menu_ReleaseNotes(object sender, RoutedEventArgs e)

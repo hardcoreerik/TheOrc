@@ -1,0 +1,109 @@
+<UserControl x:Class="OrchestratorSetup.Pages.DotNetCheckPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgPanel}"
+             AutomationProperties.AutomationId="Page.DotNetCheck">
+
+    <Grid Margin="40,32">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <TextBlock Text=".NET 10 SDK" Style="{StaticResource TextPageTitle}"/>
+            <TextBlock Style="{StaticResource TextSubtitle}">
+                Required to build TheOrc from source (used by the auto-update feature).
+            </TextBlock>
+        </StackPanel>
+
+        <!-- Detection banner -->
+        <Border Grid.Row="1" Style="{StaticResource CardBorder}" Margin="0,0,0,16">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock x:Name="TxtSdkIcon" Text="⬜" FontSize="18"
+                           Margin="0,0,10,0" VerticalAlignment="Center"/>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock x:Name="TxtSdkStatus"
+                               Style="{StaticResource TextBody}"
+                               FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="TxtSdkDetail"
+                               Style="{StaticResource TextSubtitle}"
+                               FontSize="11" TextWrapping="Wrap"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Action area -->
+        <StackPanel Grid.Row="2">
+
+            <!-- Install card (only shown when SDK is missing) -->
+            <Border x:Name="CardInstall"
+                    Margin="0,0,0,10"
+                    Style="{StaticResource CardBorder}"
+                    BorderBrush="{StaticResource BorderAccent}"
+                    AutomationProperties.AutomationId="DotNet.InstallSdk">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Text="🔧" FontSize="22" VerticalAlignment="Top"
+                               Margin="0,2,12,0"/>
+
+                    <StackPanel Grid.Column="1">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <TextBlock Text="Install .NET 10 SDK"
+                                       FontFamily="Segoe UI" FontSize="13" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimary}"/>
+                            <Border Background="#1A2A4A" CornerRadius="3"
+                                    Padding="5,1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="OPTIONAL" FontSize="9" FontWeight="Bold"
+                                           Foreground="#6090C0"/>
+                            </Border>
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource TextSubtitle}" FontSize="12" TextWrapping="Wrap">
+                            Downloads dotnet-install.ps1 from Microsoft and installs the .NET 10 SDK.
+                            Requires ~200 MB download and internet access.
+                            You can also install it later from
+                            <Run FontWeight="SemiBold" Foreground="{StaticResource Accent}">dot.net/download</Run>.
+                        </TextBlock>
+                    </StackPanel>
+
+                    <Button x:Name="BtnInstall" Grid.Column="2"
+                            Content="Install Now"
+                            Margin="12,0,0,0"
+                            VerticalAlignment="Center"
+                            Click="BtnInstall_Click"
+                            AutomationProperties.AutomationId="DotNet.InstallNow"/>
+                </Grid>
+            </Border>
+
+            <!-- Log output -->
+            <Border Background="#080808" BorderBrush="#222222" BorderThickness="1"
+                    CornerRadius="4" Padding="10,8" Margin="0,4,0,0"
+                    Height="130">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <TextBlock x:Name="TbInstallLog"
+                               FontFamily="Consolas" FontSize="10"
+                               Foreground="#88C860" TextWrapping="Wrap"/>
+                </ScrollViewer>
+            </Border>
+
+            <!-- Skip note -->
+            <TextBlock Margin="0,10,0,0"
+                       FontFamily="Segoe UI" FontSize="10"
+                       Foreground="{StaticResource TextMuted}"
+                       TextWrapping="Wrap">
+                The .NET 10 SDK is not required to run TheOrc — it is only needed when you click
+                "Update from GitHub" inside the app to rebuild from source. You can skip this step
+                and install it later.
+            </TextBlock>
+
+        </StackPanel>
+    </Grid>
+</UserControl>
