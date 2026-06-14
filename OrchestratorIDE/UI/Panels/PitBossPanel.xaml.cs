@@ -24,12 +24,15 @@ public partial class PitBossPanel : UserControl
     public string OllamaModel   { get; set; } = "qwen2.5-coder:14b";
 
     // ── Events ────────────────────────────────────────────────────────────────
-    public event Action?               BackRequested;
-    public event Action<TrainingPlan>? PlanLaunched;
-    public event Action<string>?       StatusChanged;
+    public event Action?                           BackRequested;
+    /// <summary>Fires when Forge handoff is ready — MainWindow navigates to pit
+    /// and calls TrainingPitPanel.LaunchFromPlan(plan, datasetPath).</summary>
+    public event Action<TrainingPlan, string>?     ForgeHandoff;
+    public event Action<string>?                   StatusChanged;
 
     // ── Internal state ────────────────────────────────────────────────────────
     private PitBossService?                        _svc;
+    private PlanExecutorService?                   _executor;
     private readonly List<(string role, string text)> _history = [];
     private int                                    _round      = 0;
     private bool                                   _thinking   = false;
@@ -259,11 +262,46 @@ public partial class PitBossPanel : UserControl
     private void BtnLaunchPlan_Click(object sender, RoutedEventArgs e)
     {
         if (_plan is null) return;
-        PitBossService.SavePlan(_plan, WorkspaceRoot);
-        PlanLaunched?.Invoke(_plan);
-        AppendBotBubble("🚀  Training pipeline launched! Check the Training Pit for progress.");
-        SetStatus("Training launched.");
+
         BtnLaunchPlan.IsEnabled = false;
+        BtnSavePlan.IsEnabled   = false;
+        HideChips();
+
+        _executor = new PlanExecutorService();
+        _executor.ProgressUpdated += (written, total, phase) =>
+            Dispatcher.Invoke(() => OnGenProgress(written, total, phase));
+        _executor.DatasetReady += path =>
+            Dispatcher.Invoke(() =>
+            {
+                AppendBotBubble($"✅  Dataset ready: {Path.GetFileName(path)}\n\nHanding off to the Forge for LoRA training…");
+                SetStatus("Dataset complete — launching Forge…");
+            });
+        _executor.ForgeReady += (plan, datasetPath) =>
+            Dispatcher.Invoke(() => ForgeHandoff?.Invoke(plan, datasetPath));
+        _executor.Failed += msg =>
+            Dispatcher.Invoke(() =>
+            {
+                AppendBotBubble($"❌  {msg}");
+                SetStatus($"Failed: {msg}");
+                BtnLaunchPlan.IsEnabled = true;
+            });
+        _executor.LogLine += msg =>
+            Dispatcher.Invoke(() => SetStatus(msg));
+
+        AppendBotBubble(
+            $"🚀  Launching dataset generation ({_plan.DatasetTarget:N0} examples via {_plan.DatasetSource})…\n\n" +
+            $"This will take approximately {_plan.EstDatasetHours:F0} hour(s). " +
+            $"Progress updates appear here every 5 seconds. " +
+            $"You can navigate away — generation runs in the background.");
+        SetStatus("Dataset generation started…");
+
+        _ = _executor.StartAsync(_plan, WorkspaceRoot);
+    }
+
+    private void OnGenProgress(int written, int total, string phase)
+    {
+        var pct = total > 0 ? (int)(written * 100.0 / total) : 0;
+        SetStatus($"[gen] {written:N0}/{total:N0} examples  ({pct}%)  — {phase}");
     }
 
     // ── Chip factory ──────────────────────────────────────────────────────────

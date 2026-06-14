@@ -1570,13 +1570,14 @@ public partial class MainWindow : Window
         };
         _pitBossPanel.BackRequested += () => Dispatcher.Invoke(() => SetMode("pit"));
         _pitBossPanel.StatusChanged += msg => Dispatcher.Invoke(() => SetStatus(msg));
-        _pitBossPanel.PlanLaunched  += plan => Dispatcher.Invoke(() =>
+        _pitBossPanel.ForgeHandoff  += (plan, datasetPath) => Dispatcher.Invoke(() =>
         {
             AddActivity(new ActivityEvent(ActivityKind.Info, "Pit Boss",
-                $"Training plan launched: {plan.Goal}", DateTime.Now));
-            SetStatus($"Training plan launched: {plan.AdapterName}");
-            // Navigate back to the Pit so the user can watch progress
+                $"Dataset ready, launching Forge: {plan.Goal}", DateTime.Now));
+            SetStatus($"Handing off to Forge: {plan.AdapterName}");
+            // Navigate to pit and trigger Forge launch with the plan's settings
             SetMode("pit");
+            _pitPanel.LaunchFromPlan(plan, datasetPath);
         });
 
         MainContent.Content    = _pitBossPanel;

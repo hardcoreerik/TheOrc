@@ -284,6 +284,64 @@ public partial class TrainingPitPanel : UserControl
         return "";
     }
 
+    /// <summary>
+    /// Called by MainWindow after the Pit Boss wizard completes dataset generation.
+    /// Pre-fills the Forge section with plan settings and immediately starts training.
+    /// Safe to call before the panel is fully loaded — if the forge is already running
+    /// we surface a warning rather than double-launching.
+    /// </summary>
+    public void LaunchFromPlan(Models.TrainingPlan plan, string datasetPath)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            Refresh();
+
+            if (ForgeRunning)
+            {
+                OnActivity?.Invoke($"⚠️ Forge already running — plan '{plan.AdapterName}' queued manually.");
+                return;
+            }
+
+            // Pre-fill HF repo from plan base model
+            var hfRepo = MapOllamaToHfRepo(plan.BaseModel);
+            if (string.IsNullOrWhiteSpace(hfRepo))
+                hfRepo = plan.BaseModel; // use as-is (may be a full HF repo already)
+            TbHfRepo.Text = hfRepo;
+
+            // Pre-fill output name
+            TbOutputName.Text = plan.AdapterName.Length > 0 ? plan.AdapterName : $"lora_{plan.PlanId}";
+
+            // Pre-select the dataset in the combobox (match by file path or name)
+            if (!string.IsNullOrWhiteSpace(datasetPath))
+            {
+                var dsName = Path.GetFileNameWithoutExtension(datasetPath);
+                var match  = (CbDataset.ItemsSource as System.Collections.IEnumerable)?
+                    .OfType<DatasetOption>()
+                    .FirstOrDefault(d => d.TrainPath == datasetPath || d.Name == dsName);
+
+                if (match is not null)
+                    CbDataset.SelectedItem = match;
+                else
+                {
+                    // Dataset isn't in the list yet — refresh and try once more
+                    Task.Run(LoadAll).ContinueWith(_ => Dispatcher.Invoke(() =>
+                    {
+                        var m2 = (CbDataset.ItemsSource as System.Collections.IEnumerable)?
+                            .OfType<DatasetOption>()
+                            .FirstOrDefault(d => d.TrainPath == datasetPath || d.Name == dsName);
+                        if (m2 is not null) CbDataset.SelectedItem = m2;
+                    }));
+                }
+            }
+
+            OnActivity?.Invoke($"🚀 Pit Boss handed off to Forge: {plan.Goal}");
+
+            // Scroll Forge section into view and start
+            BtnForgeStart?.BringIntoView();
+            StartForge(resume: false);
+        });
+    }
+
     public void Refresh()
     {
         _pitRoot = ResolvePitRoot(WorkspaceRoot);
