@@ -15,6 +15,7 @@ internal static class Migrations
     [
         new Migration(1, "captures + triage", Sql001_CapturesTriage),
         new Migration(2, "plans + runs",       Sql002_PlansRuns),
+        new Migration(3, "datasets index",     Sql003_Datasets),
     ];
 
     // ── v1 — Phase 1: captures + triage ─────────────────────────────────────────
@@ -104,6 +105,30 @@ internal static class Migrations
             log_path      TEXT
         );
         CREATE INDEX ix_runs_plan ON runs(plan_id);
+        """;
+
+    // ── v3 — Phase 3: datasets registry index ────────────────────────────────────
+    // Cache/index over training_pit/datasets/*.jsonl. Files stay canonical.
+    // Populated by TrainingPitRegistry.LoadDatasets (dual-write) and MetadataImporter.
+    private const string Sql003_Datasets = """
+        CREATE TABLE datasets (
+            id                INTEGER PRIMARY KEY,
+            file_path         TEXT    NOT NULL UNIQUE,
+            name              TEXT    NOT NULL,
+            source            TEXT,
+            context           TEXT,
+            data_type         TEXT,
+            role              TEXT,
+            is_new_convention INTEGER,
+            in_progress       INTEGER,
+            train_count       INTEGER,
+            eval_count        INTEGER,
+            total_count       INTEGER,
+            last_modified     TEXT,
+            indexed_at        TEXT    NOT NULL
+        );
+        CREATE INDEX ix_datasets_source ON datasets(source);
+        CREATE INDEX ix_datasets_role   ON datasets(role);
         """;
 }
 

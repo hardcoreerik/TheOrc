@@ -68,6 +68,15 @@ public static class TrainingPitRegistry
         public string LatestSummary { get; init; } = "";
     }
 
+    // ── Phase 3 SQL index ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Optional SQL dataset-index target (Phase 3). Set once at app startup.
+    /// When non-null, every LoadDatasets scan also upserts each result row.
+    /// Best-effort: a DB failure never affects the file scan result.
+    /// </summary>
+    public static Data.DatasetRepository? DatasetRepo { get; set; }
+
     // ── Loaders ──────────────────────────────────────────────────────────
 
     /// <summary>
@@ -194,7 +203,40 @@ public static class TrainingPitRegistry
                 LastModified = g.last,
             });
 
-        return results.OrderByDescending(d => d.LastModified).ToList();
+        var sorted = results.OrderByDescending(d => d.LastModified).ToList();
+
+        // Phase 3 dual-write: index into SQL so callers can query without re-scanning.
+        TryIndexDatasets(sorted);
+
+        return sorted;
+    }
+
+    private static void TryIndexDatasets(List<DatasetInfo> list)
+    {
+        var repo = DatasetRepo;
+        if (repo is null) return;
+        var now = DateTime.UtcNow.ToString("o");
+        foreach (var di in list)
+        {
+            try
+            {
+                repo.Upsert(new Data.DatasetRecord(
+                    FilePath:        di.FilePath,
+                    Name:            di.Name,
+                    Source:          di.Source,
+                    Context:         di.Context,
+                    DataType:        di.DataType,
+                    Role:            di.Role,
+                    IsNewConvention: di.IsNewConvention,
+                    InProgress:      di.InProgress,
+                    TrainCount:      di.TrainCount,
+                    EvalCount:       di.EvalCount,
+                    TotalCount:      di.TotalCount,
+                    LastModified:    di.LastModified.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                    IndexedAt:       now));
+            }
+            catch { /* Best-effort — never affect the file scan result */ }
+        }
     }
 
     private static int CountLines(string path)

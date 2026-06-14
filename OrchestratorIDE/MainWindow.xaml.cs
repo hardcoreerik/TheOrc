@@ -33,9 +33,10 @@ public partial class MainWindow : Window
     private          Services.Hive.HiveRpcWorker?   _hiveRpcWorker;
     private          Services.Hive.HiveTaskQueue?   _hiveTaskQueue;
     private          Services.Hive.HiveWorkerAgent? _hiveWorkerAgent;
-    private          Services.Data.SqliteStore?     _sqlStore;
-    private          Services.Data.PlanRepository? _planRepo;
-    private          Services.Data.RunRepository?  _runRepo;
+    private          Services.Data.SqliteStore?       _sqlStore;
+    private          Services.Data.PlanRepository?   _planRepo;
+    private          Services.Data.RunRepository?    _runRepo;
+    private          Services.Data.DatasetRepository? _datasetRepo;
 
     // ── State ─────────────────────────────────────────────────────────────
     private ProjectSession           _session;
@@ -673,10 +674,12 @@ public partial class MainWindow : Window
 
         // Detach all dual-write targets before re-init. If the new workspace DB init
         // fails, these stay null rather than pointing at the previous workspace's DB.
-        Services.Swarm.DatasetCapture.Repository = null;
-        Services.PitBossService.PlanRepo         = null;
-        _planRepo = null;
-        _runRepo  = null;
+        Services.Swarm.DatasetCapture.Repository    = null;
+        Services.PitBossService.PlanRepo            = null;
+        Services.TrainingPitRegistry.DatasetRepo    = null;
+        _planRepo    = null;
+        _runRepo     = null;
+        _datasetRepo = null;
 
         try
         {
@@ -687,11 +690,14 @@ public partial class MainWindow : Window
             var triage   = new Services.Data.TriageRepository(_sqlStore);
             _planRepo    = new Services.Data.PlanRepository(_sqlStore);
             _runRepo     = new Services.Data.RunRepository(_sqlStore);
+            _datasetRepo = new Services.Data.DatasetRepository(_sqlStore);
 
             // Live captures now mirror into SQL (file stays canonical).
             Services.Swarm.DatasetCapture.Repository = captures;
             // Live plan saves mirror into SQL.
             Services.PitBossService.PlanRepo = _planRepo;
+            // TrainingPitPanel dataset scans mirror into SQL.
+            Services.TrainingPitRegistry.DatasetRepo = _datasetRepo;
 
             // Mark any runs that were "running" at last shutdown as stale — they
             // can never complete now. Surfaces in ByPlan queries rather than silently
@@ -705,11 +711,12 @@ public partial class MainWindow : Window
             {
                 try
                 {
-                    var r = new Services.Data.MetadataImporter(workspaceRoot, captures, triage, planRepo).ImportAll();
+                    var datasetRepo = _datasetRepo;
+                    var r = new Services.Data.MetadataImporter(workspaceRoot, captures, triage, planRepo, datasetRepo).ImportAll();
                     Dispatcher.InvokeAsync(() => AddActivity(new ActivityEvent(ActivityKind.Info, "Data",
-                        $"SQLite ready — {r.Captures} captures, {r.Triage} triage rows, {r.Plans} plans indexed" +
-                        (r.CaptureErrors + r.TriageErrors + r.PlanErrors > 0
-                            ? $" ({r.CaptureErrors + r.TriageErrors + r.PlanErrors} skipped)" : ""),
+                        $"SQLite ready — {r.Captures} captures, {r.Triage} triage rows, {r.Plans} plans, {r.Datasets} datasets indexed" +
+                        (r.CaptureErrors + r.TriageErrors + r.PlanErrors + r.DatasetErrors > 0
+                            ? $" ({r.CaptureErrors + r.TriageErrors + r.PlanErrors + r.DatasetErrors} skipped)" : ""),
                         DateTime.Now)));
                 }
                 catch (Exception ex)

@@ -13,28 +13,35 @@ namespace OrchestratorIDE.Services.Data;
 /// </summary>
 public sealed class MetadataImporter
 {
-    private readonly string            _root;
-    private readonly CaptureRepository _captures;
-    private readonly TriageRepository  _triage;
-    private readonly PlanRepository?   _plans;
+    private readonly string             _root;
+    private readonly CaptureRepository  _captures;
+    private readonly TriageRepository   _triage;
+    private readonly PlanRepository?    _plans;
+    private readonly DatasetRepository? _datasets;
 
     public MetadataImporter(string workspaceRoot, CaptureRepository captures,
-        TriageRepository triage, PlanRepository? plans = null)
+        TriageRepository triage, PlanRepository? plans = null, DatasetRepository? datasets = null)
     {
         _root     = workspaceRoot;
         _captures = captures;
         _triage   = triage;
         _plans    = plans;
+        _datasets = datasets;
     }
 
-    public sealed record Result(int Captures, int CaptureErrors, int Triage, int TriageErrors, int Plans, int PlanErrors);
+    public sealed record Result(
+        int Captures, int CaptureErrors,
+        int Triage,   int TriageErrors,
+        int Plans,    int PlanErrors,
+        int Datasets, int DatasetErrors);
 
     public Result ImportAll()
     {
         var (cOk, cErr) = ImportCaptures();
         var (tOk, tErr) = ImportTriage();
         var (pOk, pErr) = ImportPlans();
-        return new Result(cOk, cErr, tOk, tErr, pOk, pErr);
+        var (dOk, dErr) = ImportDatasets();
+        return new Result(cOk, cErr, tOk, tErr, pOk, pErr, dOk, dErr);
     }
 
     // ── captures ─────────────────────────────────────────────────────────────────
@@ -140,6 +147,47 @@ public sealed class MetadataImporter
         if (name.StartsWith("batch_")) name = name["batch_".Length..];
         if (name.EndsWith("_triage"))  name = name[..^"_triage".Length];
         return name;
+    }
+
+    // ── datasets ─────────────────────────────────────────────────────────────────
+
+    private (int ok, int err) ImportDatasets()
+    {
+        if (_datasets is null) return (0, 0);
+        int ok = 0, err = 0;
+        try
+        {
+            // Reuse LoadDatasets to get the parsed list (avoids duplicating file logic).
+            // TryIndexDatasets inside LoadDatasets will also fire if DatasetRepo is set,
+            // but the MetadataImporter path calls Upsert directly so it works even when
+            // TrainingPitRegistry.DatasetRepo is not yet set at backfill time.
+            var now  = DateTime.UtcNow.ToString("o");
+            var list = Services.TrainingPitRegistry.LoadDatasets(_root);
+            foreach (var di in list)
+            {
+                try
+                {
+                    _datasets.Upsert(new DatasetRecord(
+                        FilePath:        di.FilePath,
+                        Name:            di.Name,
+                        Source:          di.Source,
+                        Context:         di.Context,
+                        DataType:        di.DataType,
+                        Role:            di.Role,
+                        IsNewConvention: di.IsNewConvention,
+                        InProgress:      di.InProgress,
+                        TrainCount:      di.TrainCount,
+                        EvalCount:       di.EvalCount,
+                        TotalCount:      di.TotalCount,
+                        LastModified:    di.LastModified.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                        IndexedAt:       now));
+                    ok++;
+                }
+                catch { err++; }
+            }
+        }
+        catch { err++; }
+        return (ok, err);
     }
 
     // ── plans ────────────────────────────────────────────────────────────────────

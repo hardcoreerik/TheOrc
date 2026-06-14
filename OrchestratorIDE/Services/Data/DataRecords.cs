@@ -69,10 +69,30 @@ public sealed record RunRecord(
     string  RunId,
     string? PlanId,
     string  Kind,            // dataset_gen | forge_train | eval
-    string  Status,          // running | complete | failed | cancelled
+    string  Status,          // running | complete | failed | cancelled | stale
     string  StartedAt,
     string? EndedAt,
     string  Host,            // Environment.MachineName
     string? ArtifactPath,    // dataset/adapter path produced
     string? MetricsJson,
     string? LogPath);
+
+/// <summary>
+/// A datasets index row (Phase 3). Cache over training_pit/datasets/*.jsonl.
+/// Mirrors TrainingPitRegistry.DatasetInfo field-for-field. Files stay canonical.
+/// Upsert key: <c>file_path</c>. Re-index on every LoadDatasets scan (dual-write).
+/// </summary>
+public sealed record DatasetRecord(
+    string FilePath,
+    string Name,
+    string Source,
+    string Context,
+    string DataType,
+    string Role,
+    bool   IsNewConvention,
+    bool   InProgress,
+    int    TrainCount,
+    int    EvalCount,
+    int    TotalCount,
+    string LastModified,   // ISO-8601 UTC
+    string IndexedAt);     // ISO-8601 UTC — when this row was last refreshed
