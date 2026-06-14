@@ -23,7 +23,9 @@ public partial class PitBossPanel : UserControl
     public string OllamaHost    { get; set; } = "http://localhost:11434";
     public string OllamaModel   { get; set; } = "qwen2.5-coder:14b";
     /// <summary>Phase 2 SQL run-history target. Forwarded to PlanExecutorService on creation.</summary>
-    public Services.Data.RunRepository? RunRepo { get; set; }
+    public Services.Data.RunRepository? RunRepo  { get; set; }
+    /// <summary>Phase 2 SQL plan index. Queried on load to show history landing page.</summary>
+    public Services.Data.PlanRepository? PlanRepo { get; set; }
 
     // ── Events ────────────────────────────────────────────────────────────────
     public event Action?                           BackRequested;
@@ -69,7 +71,16 @@ public partial class PitBossPanel : UserControl
         ModelDot.Fill     = new SolidColorBrush(Color.FromRgb(0x3A, 0x6A, 0x2A));
 
         PopulateGoalChips();
-        _ = StartConversationAsync();
+
+        // Show history landing page when saved plans exist; otherwise open wizard directly.
+        var saved = PlanRepo?.LoadAll();
+        if (saved is { Count: > 0 })
+            ShowHistory(saved);
+        else
+        {
+            ShowWizard();
+            _ = StartConversationAsync();
+        }
     }
 
     // ── Conversation start ────────────────────────────────────────────────────
@@ -229,12 +240,170 @@ public partial class PitBossPanel : UserControl
         HiveBadge.Visibility = (plan.Hive?.Enabled == true) ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    // ── History view ──────────────────────────────────────────────────────────
+
+    private void ShowHistory(List<Services.Data.PlanRecord> plans)
+    {
+        WizardBody.Visibility    = Visibility.Collapsed;
+        HistoryBody.Visibility   = Visibility.Visible;
+        BtnViewHistory.Visibility = Visibility.Collapsed;
+
+        PlanHistoryList.Children.Clear();
+        foreach (var p in plans)
+            PlanHistoryList.Children.Add(BuildPlanCard(p));
+
+        SetStatus("Select a plan to re-launch, or create a new one.");
+    }
+
+    private void ShowWizard()
+    {
+        HistoryBody.Visibility  = Visibility.Collapsed;
+        WizardBody.Visibility   = Visibility.Visible;
+        // Show history nav button if the DB has any plans
+        BtnViewHistory.Visibility = (PlanRepo?.Count() ?? 0) > 0
+            ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private UIElement BuildPlanCard(Services.Data.PlanRecord p)
+    {
+        var dateStr = DateTime.TryParse(p.CreatedAt, out var dt)
+            ? dt.ToLocalTime().ToString("yyyy-MM-dd  HH:mm")
+            : p.CreatedAt;
+
+        var metaParts = new List<string> { dateStr };
+        if (!string.IsNullOrEmpty(p.Phase))       metaParts.Add(p.Phase);
+        if (!string.IsNullOrEmpty(p.AdapterName)) metaParts.Add(p.AdapterName);
+        if (p.DatasetTarget > 0)                  metaParts.Add($"{p.DatasetTarget:N0} examples");
+
+        var card = new Border
+        {
+            Background      = new SolidColorBrush(Color.FromRgb(0x0D, 0x0D, 0x1A)),
+            BorderBrush     = new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x2A)),
+            BorderThickness = new Thickness(1),
+            CornerRadius    = new CornerRadius(6),
+            Padding         = new Thickness(14, 12, 14, 12),
+            Margin          = new Thickness(0, 0, 0, 8),
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var leftStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        leftStack.Children.Add(new TextBlock
+        {
+            Text         = p.Goal,
+            FontSize     = 13,
+            FontWeight   = FontWeights.SemiBold,
+            Foreground   = new SolidColorBrush(Color.FromRgb(0xD4, 0xD4, 0xD4)),
+            TextWrapping = TextWrapping.Wrap,
+            Margin       = new Thickness(0, 0, 0, 6),
+        });
+        leftStack.Children.Add(new TextBlock
+        {
+            Text       = string.Join("  ·  ", metaParts),
+            FontSize   = 9,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x66)),
+            FontFamily = new FontFamily("Consolas"),
+        });
+
+        var relaunchBtn = new Button
+        {
+            Style             = FindResource("LaunchBtn") as Style,
+            Content           = "▶  Re-launch",
+            Tag               = p.PlanId,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin            = new Thickness(12, 0, 0, 0),
+        };
+        relaunchBtn.Click += (_, _) => OnRelaunched(p.PlanId);
+
+        Grid.SetColumn(leftStack,   0);
+        Grid.SetColumn(relaunchBtn, 1);
+        grid.Children.Add(leftStack);
+        grid.Children.Add(relaunchBtn);
+        card.Child = grid;
+        return card;
+    }
+
+    private void OnRelaunched(string planId)
+    {
+        var plans = PitBossService.LoadPlans(WorkspaceRoot);
+        var plan  = plans.FirstOrDefault(p => p.PlanId == planId);
+
+        ShowWizard();
+        ChatStack.Children.Clear();
+        _history.Clear();
+        _plan  = null;
+        _round = 0;
+        PlanEmpty.Visibility    = Visibility.Visible;
+        PlanStack.Visibility    = Visibility.Collapsed;
+        BtnSavePlan.IsEnabled   = false;
+        BtnLaunchPlan.IsEnabled = false;
+        ChipRow.Visibility      = Visibility.Collapsed;
+
+        if (plan is null)
+        {
+            TbInput.IsEnabled = true;
+            AppendBotBubble(
+                $"⚠️  Plan file for ID '{planId}' was not found on disk.\n" +
+                $"It may have been moved or deleted. Starting a fresh wizard instead.");
+            SetStatus("Plan file not found — starting new wizard.");
+            _ = StartConversationAsync();
+            return;
+        }
+
+        _plan = plan;
+        TbStepIndicator.Text = "Plan loaded from history";
+        TbRoundHint.Text     = "";
+        TbInput.IsEnabled    = false;
+        BtnSend.IsEnabled    = false;
+
+        AppendBotBubble(
+            $"📋  Re-loaded saved plan:\n\n" +
+            $"Goal: {plan.Goal}\n" +
+            $"Dataset: {plan.DatasetTarget:N0} examples via {plan.DatasetSource}\n" +
+            $"Adapter: {plan.AdapterName}\n" +
+            $"Estimate: {plan.EstimateText}\n\n" +
+            $"Review the plan on the right, then click Launch Training to start.");
+
+        RenderPlanPreview(plan);
+        BtnLaunchPlan.IsEnabled = true;
+        SetStatus($"Plan loaded: {plan.AdapterName}");
+    }
+
     // ── Button handlers ───────────────────────────────────────────────────────
 
     private void BtnBack_Click(object sender, RoutedEventArgs e)
     {
         _cts.Cancel();
         BackRequested?.Invoke();
+    }
+
+    private void BtnNewPlan_Click(object sender, RoutedEventArgs e)
+    {
+        ShowWizard();
+        ChatStack.Children.Clear();
+        _history.Clear();
+        _plan  = null;
+        _round = 0;
+        PlanEmpty.Visibility    = Visibility.Visible;
+        PlanStack.Visibility    = Visibility.Collapsed;
+        BtnSavePlan.IsEnabled   = false;
+        BtnLaunchPlan.IsEnabled = false;
+        PopulateGoalChips();
+        ChipRow.Visibility = Visibility.Visible;
+        TbInput.IsEnabled  = true;
+        BtnSend.IsEnabled  = false;
+        _ = StartConversationAsync();
+    }
+
+    private void BtnViewHistory_Click(object sender, RoutedEventArgs e)
+    {
+        _cts.Cancel();
+        _cts = new CancellationTokenSource();
+        var saved = PlanRepo?.LoadAll();
+        if (saved is { Count: > 0 })
+            ShowHistory(saved);
     }
 
     private void BtnSend_Click(object sender, RoutedEventArgs e)
@@ -259,6 +428,7 @@ public partial class PitBossPanel : UserControl
         SetStatus($"Plan saved to training_pit/plans/{_plan.PlanFileName}");
         AppendBotBubble($"💾  Plan saved to `training_pit/plans/{_plan.PlanFileName}`");
         StatusChanged?.Invoke($"Plan saved: {_plan.PlanFileName}");
+        BtnViewHistory.Visibility = Visibility.Visible;   // reveal history nav on first save
     }
 
     private void BtnLaunchPlan_Click(object sender, RoutedEventArgs e)

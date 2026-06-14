@@ -1649,6 +1649,7 @@ public partial class MainWindow : Window
             OllamaHost    = _settings.OllamaHost,
             OllamaModel   = _settings.SwarmLocalReviewModel, // reuse same model setting
             RunRepo       = _runRepo,
+            PlanRepo      = _planRepo,
         };
         _pitBossPanel.BackRequested += () => Dispatcher.Invoke(() => SetMode("pit"));
         _pitBossPanel.StatusChanged += msg => Dispatcher.Invoke(() => SetStatus(msg));

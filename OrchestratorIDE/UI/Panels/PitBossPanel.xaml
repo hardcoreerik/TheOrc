@@ -91,6 +91,14 @@
                                VerticalAlignment="Center"/>
                 </StackPanel>
 
+                <!-- History toggle (visible when plans exist) -->
+                <Button DockPanel.Dock="Right" x:Name="BtnViewHistory"
+                        Style="{StaticResource ActionBtn}"
+                        Content="📋  History" Click="BtnViewHistory_Click"
+                        VerticalAlignment="Center" Margin="0,0,8,0"
+                        Visibility="Collapsed"
+                        AutomationProperties.AutomationId="PitBoss.ViewHistoryBtn"/>
+
                 <!-- Model indicator -->
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock x:Name="TbModelLabel" Text="" FontSize="10" Foreground="#555"
@@ -101,8 +109,32 @@
             </DockPanel>
         </Border>
 
+        <!-- ═══ HISTORY LANDING VIEW ═══ -->
+        <Grid Grid.Row="1" x:Name="HistoryBody" Background="#0A0A0A" Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="48"/>   <!-- toolbar -->
+                <RowDefinition Height="*"/>    <!-- scrollable plan list -->
+            </Grid.RowDefinitions>
+
+            <Border Grid.Row="0" Background="#0D0D12" BorderBrush="#1A1A2A" BorderThickness="0,0,0,1" Padding="16,0">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" x:Name="BtnNewPlan"
+                            Style="{StaticResource SendBtn}"
+                            Content="➕  New Plan" Click="BtnNewPlan_Click"
+                            VerticalAlignment="Center"
+                            AutomationProperties.AutomationId="PitBoss.NewPlanBtn"/>
+                    <TextBlock Text="SAVED TRAINING PLANS" FontSize="10" FontWeight="700"
+                               Foreground="#556" VerticalAlignment="Center"/>
+                </DockPanel>
+            </Border>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="16,12">
+                <StackPanel x:Name="PlanHistoryList" Margin="0,4"/>
+            </ScrollViewer>
+        </Grid>
+
         <!-- ═══ BODY: Chat (left) + Plan preview (right) ═══ -->
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="1" x:Name="WizardBody">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>         <!-- chat -->
                 <ColumnDefinition Width="1"/>          <!-- splitter -->
