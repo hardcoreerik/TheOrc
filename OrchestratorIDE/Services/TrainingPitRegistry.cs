@@ -1,5 +1,6 @@
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace OrchestratorIDE.Services;
 
@@ -10,17 +11,32 @@ namespace OrchestratorIDE.Services;
 /// </summary>
 public static class TrainingPitRegistry
 {
+    // Matches the naming convention: {source}[{context}].{type}.{role}.{count}
+    // e.g. cerebras[api].synthetic.boss.1800
+    //      mainpc[24gb].captured.boss.1384
+    //      merged[mixed].normalized.boss.2244
+    private static readonly Regex _newConventionRe = new(
+        @"^(?<source>[^[\]]+)\[(?<ctx>[^\]]+)\]\.(?<type>[^.]+)\.(?<role>[^.]+)\.(?<n>\d+)$",
+        RegexOptions.Compiled);
+
     // ── DTOs ─────────────────────────────────────────────────────────────
 
     public sealed class DatasetInfo
     {
-        public string Name { get; init; } = "";       // e.g. "v1"
-        public string Path { get; init; } = "";        // dir holding the JSONLs
-        public int TrainCount { get; init; }
-        public int EvalCount  { get; init; }
-        public int NegCount   { get; init; }
+        public string Name         { get; init; } = "";  // display name
+        public string FilePath     { get; init; } = "";  // full path to file (new conv) or dir (old)
+        public string Source       { get; init; } = "";  // e.g. "cerebras", "mainpc", "merged"
+        public string Context      { get; init; } = "";  // e.g. "api", "24gb", "mixed"
+        public string DataType     { get; init; } = "";  // e.g. "synthetic", "captured", "normalized"
+        public string Role         { get; init; } = "";  // e.g. "boss"
+        public bool   IsNewConvention { get; init; }
+        public bool   InProgress   { get; init; }        // *.work.jsonl — still generating
+        public int    TrainCount   { get; init; }        // examples available for training
+        public int    EvalCount    { get; init; }
+        public int    NegCount     { get; init; }
+        public int    TotalCount   { get; init; }        // total lines in file
         public DateTime LastModified { get; init; }
-        public string Notes { get; init; } = "";       // free text description
+        public string Notes        { get; init; } = "";
     }
 
     public sealed class AdapterInfo
@@ -54,48 +70,137 @@ public static class TrainingPitRegistry
 
     // ── Loaders ──────────────────────────────────────────────────────────
 
-    /// <summary>Scan training_pit/datasets for *.jsonl files, group by
-    /// version stem (train_v1 / eval_v1 / negative_v1 share "v1").</summary>
+    /// <summary>
+    /// Scan training_pit/datasets for *.jsonl files. Understands two conventions:
+    ///
+    /// New: {source}[{ctx}].{type}.{role}.{n}.jsonl — each file is its own entry.
+    ///      e.g. cerebras[api].synthetic.boss.1800.jsonl
+    ///
+    /// Old: train_{stem}.jsonl + eval_{stem}.jsonl + negative_{stem}.jsonl
+    ///      grouped into one entry keyed by stem, e.g. stem="v1".
+    ///
+    /// Work files (*.work.jsonl) appear as in-progress entries.
+    /// Drops to a Refresh-button-driven call on the UI side — no recompile needed.
+    /// </summary>
     public static List<DatasetInfo> LoadDatasets(string pitRoot)
     {
         var dir = System.IO.Path.Combine(pitRoot, "training_pit", "datasets");
         if (!Directory.Exists(dir)) return [];
 
-        var jsonls = Directory.GetFiles(dir, "*.jsonl");
-        var groups = new Dictionary<string, DatasetInfo>(StringComparer.OrdinalIgnoreCase);
+        var results = new List<DatasetInfo>();
+        // Old-convention groups: stem → mutable aggregate
+        var oldGroups = new Dictionary<string, (int train, int eval, int neg, DateTime last)>(
+            StringComparer.OrdinalIgnoreCase);
 
-        foreach (var f in jsonls)
+        foreach (var f in Directory.GetFiles(dir, "*.jsonl").OrderByDescending(File.GetLastWriteTime))
         {
-            var name = System.IO.Path.GetFileNameWithoutExtension(f);
-            // Names look like train_v1, eval_v1, negative_v1 — version is the suffix
-            var parts = name.Split('_', 2);
-            var split = parts[0].ToLowerInvariant();
-            var stem  = parts.Length > 1 ? parts[1] : name;
-
-            var lines = 0;
-            try { lines = File.ReadLines(f).Count(); } catch { }
+            var stem = System.IO.Path.GetFileNameWithoutExtension(f);
             var last = File.GetLastWriteTime(f);
 
-            if (!groups.TryGetValue(stem, out var info))
+            // ── in-progress work files ─────────────────────────────────
+            if (stem.EndsWith(".work", StringComparison.OrdinalIgnoreCase))
             {
-                info = new DatasetInfo { Name = stem, Path = dir, LastModified = last };
-                groups[stem] = info;
+                var baseStem  = stem[..^5]; // strip ".work"
+                var lineCount = CountLines(f);
+                var m2        = _newConventionRe.Match(baseStem);
+                results.Add(new DatasetInfo
+                {
+                    Name          = baseStem,
+                    FilePath      = f,
+                    Source        = m2.Success ? m2.Groups["source"].Value : "unknown",
+                    Context       = m2.Success ? m2.Groups["ctx"].Value    : "",
+                    DataType      = m2.Success ? m2.Groups["type"].Value   : "work",
+                    Role          = m2.Success ? m2.Groups["role"].Value   : "",
+                    IsNewConvention = m2.Success,
+                    InProgress    = true,
+                    TotalCount    = lineCount,
+                    TrainCount    = lineCount,
+                    LastModified  = last,
+                    Notes         = "⏳ generation in progress",
+                });
+                continue;
             }
 
-            // We can't mutate init-only props after construction, so rebuild.
-            groups[stem] = new DatasetInfo
+            // ── new naming convention ──────────────────────────────────
+            var m = _newConventionRe.Match(stem);
+            if (m.Success)
             {
-                Name         = info.Name,
-                Path         = info.Path,
-                TrainCount   = split == "train"    ? lines : info.TrainCount,
-                EvalCount    = split == "eval"     ? lines : info.EvalCount,
-                NegCount     = split == "negative" ? lines : info.NegCount,
-                LastModified = last > info.LastModified ? last : info.LastModified,
-                Notes        = info.Notes,
-            };
+                var n = CountLines(f);
+                results.Add(new DatasetInfo
+                {
+                    Name            = stem,
+                    FilePath        = f,
+                    Source          = m.Groups["source"].Value,
+                    Context         = m.Groups["ctx"].Value,
+                    DataType        = m.Groups["type"].Value,
+                    Role            = m.Groups["role"].Value,
+                    IsNewConvention = true,
+                    TotalCount      = n,
+                    TrainCount      = n,
+                    LastModified    = last,
+                });
+                continue;
+            }
+
+            // ── old naming convention: train_* / eval_* / negative_* ───
+            var lowerStem = stem.ToLowerInvariant();
+            string? oldKey = null;
+            string? split  = null;
+
+            if (lowerStem.StartsWith("train_"))    { oldKey = stem[6..]; split = "train"; }
+            else if (lowerStem.StartsWith("eval_")) { oldKey = stem[5..]; split = "eval"; }
+            else if (lowerStem.StartsWith("negative_")) { oldKey = stem[9..]; split = "negative"; }
+
+            if (oldKey is not null && split is not null)
+            {
+                var lines = CountLines(f);
+                if (!oldGroups.TryGetValue(oldKey, out var g))
+                    g = (0, 0, 0, last);
+
+                oldGroups[oldKey] = split switch
+                {
+                    "train"    => (lines, g.eval, g.neg,   last > g.last ? last : g.last),
+                    "eval"     => (g.train, lines, g.neg,  last > g.last ? last : g.last),
+                    "negative" => (g.train, g.eval, lines, last > g.last ? last : g.last),
+                    _          => g,
+                };
+                continue;
+            }
+
+            // ── unrecognised / legacy file — show as-is ────────────────
+            var total = CountLines(f);
+            results.Add(new DatasetInfo
+            {
+                Name         = stem,
+                FilePath     = f,
+                DataType     = "legacy",
+                TotalCount   = total,
+                TrainCount   = total,
+                LastModified = last,
+            });
         }
 
-        return groups.Values.OrderByDescending(d => d.LastModified).ToList();
+        // Flush old-convention groups
+        foreach (var (key, g) in oldGroups)
+            results.Add(new DatasetInfo
+            {
+                Name         = key,
+                FilePath     = System.IO.Path.Combine(dir, $"train_{key}.jsonl"),
+                DataType     = "train+eval",
+                TrainCount   = g.train,
+                EvalCount    = g.eval,
+                NegCount     = g.neg,
+                TotalCount   = g.train + g.eval + g.neg,
+                LastModified = g.last,
+            });
+
+        return results.OrderByDescending(d => d.LastModified).ToList();
+    }
+
+    private static int CountLines(string path)
+    {
+        try { return File.ReadLines(path).Count(l => l.Trim().Length > 0); }
+        catch { return 0; }
     }
 
     /// <summary>Scan training_pit/outputs/* for directories holding

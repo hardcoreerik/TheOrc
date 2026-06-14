@@ -1463,13 +1463,32 @@ public class DatasetOption
     public string TrainPath { get; }
     public string EvalPath { get; }
     public string CountsText { get; }
+    public string DisplayLabel { get; }
 
     public DatasetOption(Services.TrainingPitRegistry.DatasetInfo info, string datasetsDir)
     {
-        Name      = info.Name;
-        TrainPath = Path.Combine(datasetsDir, $"train_{info.Name}.jsonl");
-        EvalPath  = Path.Combine(datasetsDir, $"eval_{info.Name}.jsonl");
-        CountsText = $"{info.TrainCount:N0} train · {info.EvalCount} eval";
+        Name = info.Name;
+
+        if (info.IsNewConvention)
+        {
+            // New convention: file IS the training set; look for matching eval sibling
+            TrainPath = info.FilePath;
+            // Eval sibling: same name with ".eval.jsonl" suffix (opt-in; may not exist)
+            var dir   = Path.GetDirectoryName(info.FilePath) ?? datasetsDir;
+            EvalPath  = Path.Combine(dir, info.Name + ".eval.jsonl");
+            var tag   = info.DataType.Length > 0 ? $"[{info.DataType}]" : "";
+            var src   = info.Source.Length  > 0 ? $"{info.Source}" : info.Name;
+            DisplayLabel = $"{src}{tag}";
+        }
+        else
+        {
+            TrainPath    = Path.Combine(datasetsDir, $"train_{info.Name}.jsonl");
+            EvalPath     = Path.Combine(datasetsDir, $"eval_{info.Name}.jsonl");
+            DisplayLabel = info.Name;
+        }
+
+        var evalNote = File.Exists(EvalPath) ? $" · {info.EvalCount} eval" : "";
+        CountsText = $"{info.TrainCount:N0} train{evalNote}";
     }
 }
 
@@ -1575,4 +1594,16 @@ public class QueueItem : INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+}
+
+/// <summary>Collapses when the bound bool is <c>true</c> (inverse of
+/// WPF's built-in BooleanToVisibilityConverter).</summary>
+[System.Windows.Data.ValueConversion(typeof(bool), typeof(System.Windows.Visibility))]
+public class InverseBoolToVisibilityConverter : System.Windows.Data.IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+        => value is true ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
+
+    public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+        => value is System.Windows.Visibility.Collapsed;
 }
