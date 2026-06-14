@@ -869,7 +869,10 @@ public partial class SwarmBoardPanel : UserControl
             Dispatcher.InvokeAsync(() => OnStagingReady(runId, stagingDir, files));
         _session.OnGateResult    += result =>
             Dispatcher.InvokeAsync(() => ShowGateResult(result));
-        _session.ReviewGateEnabled = Settings?.SwarmReviewGateEnabled ?? true;
+        _session.OnOwnershipConflict += (task, conflicts) =>
+            Dispatcher.InvokeAsync(() => ShowOwnershipConflict(task, conflicts));
+        _session.ReviewGateEnabled     = Settings?.SwarmReviewGateEnabled ?? true;
+        _session.HiveWorktreeIsolation = Settings?.HiveWorktreeIsolation  ?? false;
 
         _ = _session.RunAsync(goal);
         StatusChanged?.Invoke("Swarm active");
@@ -1560,6 +1563,18 @@ public partial class SwarmBoardPanel : UserControl
 
         StatusChanged?.Invoke($"Gate: {result.Verdict}" +
             (result.Findings.Count > 0 ? $" — {result.Findings.Count} finding(s)" : ""));
+    }
+
+    // ── Ownership conflict notification ───────────────────────────────────────
+
+    private void ShowOwnershipConflict(
+        SwarmTask task,
+        IReadOnlyList<OrchestratorIDE.Services.Swarm.OwnershipConflict> conflicts)
+    {
+        var fileList = string.Join(", ", conflicts.Select(c => $"'{c.Path}'"));
+        AddAgentLog("boss",
+            $"\n⚠ FILE CONFLICT — {task.RoleLabel} '{task.Title}' is waiting for: {fileList}\n" +
+            $"  It will retry every 500 ms until the owning task releases (max 5 min).\n");
     }
 
     // ── Tab switching ─────────────────────────────────────────────────────────

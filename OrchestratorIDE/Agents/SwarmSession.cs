@@ -60,6 +60,10 @@ public class SwarmSession
     private Services.Hive.HiveTaskQueue? _distributedQueue;
     private string _currentUserGoal = "";
 
+    // ── Worktree isolation (Phase 2) ──────────────────────────────────────────
+    private Services.Swarm.FileOwnershipLedger _ownershipLedger = new();
+    private Services.Swarm.WorktreeManager?    _worktreeManager;
+
     // ── Events ────────────────────────────────────────────────────────────────
     public event Action?                                              OnStarted;
     public event Action?                                              OnStopped;
@@ -71,12 +75,15 @@ public class SwarmSession
     public event Action<string>?                                      OnError;
     public event Action<string, string>?                              OnActivity;       // agentKey, message
     public event Action<Services.Swarm.ReviewGateService.GateResult>? OnGateResult;
+    public event Action<SwarmTask, IReadOnlyList<Services.Swarm.OwnershipConflict>>? OnOwnershipConflict;
 
     // ── Public state ──────────────────────────────────────────────────────────
     public List<SwarmTask> Tasks              { get; private set; } = [];
     public bool            IsRunning          => _cts is { IsCancellationRequested: false };
     /// <summary>When true, runs the Reviewer Quality Gate (Codex CLI) on staged output after the swarm completes.</summary>
-    public bool            ReviewGateEnabled  { get; set; } = false;
+    public bool            ReviewGateEnabled     { get; set; } = false;
+    /// <summary>When true, each worker gets an isolated worktree — see WorktreeManager. Opt-in via AppSettings.</summary>
+    public bool            HiveWorktreeIsolation { get; set; } = false;
 
     public SwarmSession(OllamaClient ollama, string bossModel, string? workspaceRoot,
         string? workerModel = null, string? researcherModel = null)
@@ -252,6 +259,11 @@ public class SwarmSession
 
         // Initialise the worker tool registry now that OutputProjectDir is known
         InitWorkerTools();
+
+        // Phase 2: fresh ownership ledger + worktree manager for this run
+        _ownershipLedger = new Services.Swarm.FileOwnershipLedger();
+        if (HiveWorktreeIsolation && _distributedQueue is null)
+            _worktreeManager = new Services.Swarm.WorktreeManager(RunDir, _workspaceRoot);
 
         _trace = new SwarmTraceLogger(RunDir);
         _trace.WriteSessionMeta(_workspaceRoot ?? RunDir, _bossModel, _coderModel, _researcherModel, userGoal);
@@ -767,6 +779,24 @@ public class SwarmSession
             catch { /* non-fatal */ }
         }
         return count;
+    }
+
+    /// <summary>
+    /// Extracts filenames declared by a task (from title + description) so the Phase 2
+    /// scheduler can pre-register ownership before the worker starts writing.
+    /// </summary>
+    private static IReadOnlyList<string> ExtractDeclaredFiles(SwarmTask task)
+    {
+        // Title only — the boss FILENAME RULE guarantees output files are named in titles.
+        // Scanning description causes false claims on files the task references but doesn't own
+        // (e.g. "main.py should import scraper.py" → scraper.py wrongly blocked on main's task).
+        var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match m in FilenameInTitle.Matches(task.Title ?? ""))
+        {
+            var f = m.Groups[1].Value;
+            if (!string.IsNullOrWhiteSpace(f)) files.Add(f);
+        }
+        return [.. files];
     }
 
     /// <summary>Returns just the file names (leaf name, no path) extracted by the FILE marker regex.</summary>
@@ -1481,52 +1511,55 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
     // ── Worker tool suite ─────────────────────────────────────────────────────
 
     /// <summary>
-    /// Build the auto-approving tool registry for swarm workers, rooted at the
-    /// workspace root (OutputProjectDir). Call once output dir is known.
+    /// Build the shared tool registry rooted at OutputProjectDir (default / isolation-off path).
+    /// Call once output dir is known.
     /// </summary>
     private void InitWorkerTools()
     {
-        var approvals = new ApprovalQueue { AutoApprove = true };
-        _toolRegistry = new ToolRegistry(approvals);
-
-        // ── Sandbox bypass delegate ───────────────────────────────────────
-        // Shows the SandboxBypassDialog on the UI thread and awaits the user's choice.
-        Func<string, string, string, CancellationToken, Task<bool>> sandboxBypass =
-            async (toolName, escapedPath, sandboxRoot, ct) =>
-            {
-                // Headless host (no WPF Application) — deny sandbox escapes outright
-                if (System.Windows.Application.Current is null) return false;
-
-                var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>(
-                              System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
-                ct.Register(() => tcs.TrySetResult(false));
-
-                // Fire on the UI thread; TCS carries the result back to this async context
-                _ = System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                {
-                    var dlg = new OrchestratorIDE.UI.Dialogs.SandboxBypassDialog(
-                                  toolName, escapedPath, sandboxRoot,
-                                  "TheOrc Swarm Worker")
-                    {
-                        Owner = System.Windows.Application.Current.MainWindow
-                    };
-                    tcs.TrySetResult(dlg.ShowDialog() == true);
-                });
-
-                return await tcs.Task;
-            };
-
-        // File tools — workers write directly into the swarm output project dir
-        FileTools.Register(_toolRegistry, OutputProjectDir,
-            onDiffPreview: null, onSandboxBypass: sandboxBypass);
-        // Code search tools — search within the output dir or workspace
-        SearchTools.Register(_toolRegistry, OutputProjectDir);
-        // Web tools — fetch documentation, APIs, source URLs
-        WebTools.Register(_toolRegistry);
-        // Shell tools — run python, pip, node within the output dir
-        ShellTools.Register(_toolRegistry, OutputProjectDir, onSandboxBypass: sandboxBypass);
-
+        _toolRegistry = BuildWorkerToolRegistry(OutputProjectDir);
         Activity("🛠 Worker tools initialised: write_file, read_file, list_files, run_shell, grep_code, fetch_url", "boss");
+    }
+
+    /// <summary>
+    /// Build an auto-approving tool registry rooted at <paramref name="rootDir"/>.
+    /// Called once for the shared registry (OutputProjectDir) and once per task when
+    /// worktree isolation is on (each task's isolated worktree path).
+    /// </summary>
+    private ToolRegistry BuildWorkerToolRegistry(string rootDir)
+    {
+        var approvals = new ApprovalQueue { AutoApprove = true };
+        var reg       = new ToolRegistry(approvals);
+        var bypass    = MakeSandboxBypassDelegate();
+
+        FileTools.Register(reg, rootDir, onDiffPreview: null, onSandboxBypass: bypass);
+        SearchTools.Register(reg, rootDir);
+        WebTools.Register(reg);
+        ShellTools.Register(reg, rootDir, onSandboxBypass: bypass);
+
+        return reg;
+    }
+
+    private static Func<string, string, string, CancellationToken, Task<bool>> MakeSandboxBypassDelegate()
+    {
+        return async (toolName, escapedPath, sandboxRoot, ct) =>
+        {
+            if (System.Windows.Application.Current is null) return false;
+
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            ct.Register(() => tcs.TrySetResult(false));
+
+            _ = System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                var dlg = new OrchestratorIDE.UI.Dialogs.SandboxBypassDialog(
+                              toolName, escapedPath, sandboxRoot, "TheOrc Swarm Worker")
+                {
+                    Owner = System.Windows.Application.Current.MainWindow
+                };
+                tcs.TrySetResult(dlg.ShowDialog() == true);
+            });
+
+            return await tcs.Task;
+        };
     }
 
     /// <summary>
@@ -1701,8 +1734,46 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
 
         await SaveAgentTaskFileAsync(task);
 
+        var declaredFiles = ExtractDeclaredFiles(task);
+        Services.Swarm.WorktreeHandle? wtHandle     = null;
+        ToolRegistry?                  taskRegistry = null;   // non-null only when worktree isolation is on
+
         try
         {
+            // ── Phase 2: file ownership claim + conflict sequencing ───────────
+            // Researcher and Tester are exempt: Researcher produces distinct docs (no write clash);
+            // Tester only reads/runs existing files, never writes them.
+            if (declaredFiles.Count > 0
+                && task.Role != SwarmWorkerRole.Researcher
+                && task.Role != SwarmWorkerRole.Tester)
+            {
+                var conflicts = _ownershipLedger.TryClaim(task.Id, declaredFiles);
+                if (conflicts.Count > 0)
+                {
+                    OnOwnershipConflict?.Invoke(task, conflicts);
+                    Activity($"⏳ {task.Title} waiting — file conflict: " +
+                        string.Join(", ", conflicts.Select(c => $"'{c.Path}'")),
+                        AgentKey(task.Role));
+
+                    var deadline = DateTime.UtcNow.AddMinutes(5);
+                    while (conflicts.Count > 0 && !ct.IsCancellationRequested && DateTime.UtcNow < deadline)
+                    {
+                        await Task.Delay(500, ct);
+                        conflicts = _ownershipLedger.TryClaim(task.Id, declaredFiles);
+                    }
+                    Activity(conflicts.Count == 0
+                        ? $"✓ {task.Title} claimed file ownership — proceeding"
+                        : $"⚠ {task.Title} proceeding despite unresolved conflict (5 min timeout)",
+                        AgentKey(task.Role));
+                }
+            }
+
+            if (HiveWorktreeIsolation && _worktreeManager is not null)
+            {
+                wtHandle     = _worktreeManager.Acquire(task.Id, task.Role.ToString().ToLower());
+                taskRegistry = BuildWorkerToolRegistry(wtHandle.Path);
+            }
+
             var userMsg    = overrideUserMessage
                           ?? BuildWorkerUserMessage(task, researchContext, _targetLanguage, Tasks);
             _trace?.WriteUserMessage(userMsg, context: $"{task.Role}:{task.Title}");
@@ -1731,7 +1802,25 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
             if (!string.IsNullOrEmpty(task.TargetNodeName))
                 Activity($"🐝 → {task.TargetNodeName}", agentKey);
 
-            await RunWorkerLoopAsync(task, history, tools, modelForRole, noThink, agentKey, ct, nodeOllama);
+            await RunWorkerLoopAsync(task, history, tools, modelForRole, noThink, agentKey, ct, nodeOllama, taskRegistry);
+
+            // ── Phase 2: merge worktree into integration dir ──────────────────
+            if (wtHandle is not null)
+            {
+                try
+                {
+                    var mr = _worktreeManager!.Merge(wtHandle, declaredFiles, _ownershipLedger);
+                    _worktreeManager.Release(wtHandle);
+                    wtHandle = null;
+                    Activity($"✓ Worktree merged: {mr.FilesMerged} file(s)", agentKey);
+                    _trace?.WriteEvent("worktree_merged", $"{task.Role}:{task.Title} — {mr.FilesMerged} file(s)");
+                }
+                catch (Services.Swarm.WorktreeConflictException ex)
+                {
+                    Activity($"⚠ Worktree conflict on '{ex.ConflictPath}': {ex.Message}", agentKey);
+                    _trace?.WriteEvent("worktree_conflict", ex.Message);
+                }
+            }
 
             // Preserve history so ContinueWorkerAsync can resume the conversation
             task.ConversationHistory = history;
@@ -1750,6 +1839,12 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
             Activity($"{task.RoleIcon} {task.Title} — ERROR: {ex.Message}", AgentKey(task.Role));
             _trace?.WriteEvent("worker_error", $"{task.Role}:{task.Title} — {ex.Message}");
         }
+        finally
+        {
+            _ownershipLedger.Release(task.Id);
+            if (wtHandle is not null)
+                _worktreeManager?.Release(wtHandle, force: true);
+        }
 
         OnTaskChanged?.Invoke(task);
     }
@@ -1760,14 +1855,15 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
     /// Handles: ask_user pause/resume, mid-run steer injection, file-write accounting.
     /// </summary>
     private async Task RunWorkerLoopAsync(
-        SwarmTask                    task,
-        List<AgentMessage>           history,
+        SwarmTask                     task,
+        List<AgentMessage>            history,
         IReadOnlyList<ToolDefinition> tools,
-        string                       model,
-        bool                         noThink,
-        string                       agentKey,
-        CancellationToken            ct,
-        OllamaClient?                nodeOllama = null)
+        string                        model,
+        bool                          noThink,
+        string                        agentKey,
+        CancellationToken             ct,
+        OllamaClient?                 nodeOllama   = null,
+        ToolRegistry?                 taskRegistry = null)
     {
         const int MaxWorkerSteps = 16;
         var finalSb = new StringBuilder();
@@ -1901,8 +1997,9 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                 }
                 else
                 {
-                    result = _toolRegistry is not null
-                        ? await _toolRegistry.ExecuteAsync(tc, ct)
+                    var reg = taskRegistry ?? _toolRegistry;
+                    result = reg is not null
+                        ? await reg.ExecuteAsync(tc, ct)
                         : "[ERROR] No tool registry available";
                 }
 

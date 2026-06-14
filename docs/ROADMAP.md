@@ -121,15 +121,18 @@ Two are designed; two are deferred with rationale.
 
 | Item | Target | Status | Design |
 |---|---|---|---|
-| **Worktree-per-task isolation** | v1.5 | Designed | [WORKTREE_ISOLATION_DESIGN.md](WORKTREE_ISOLATION_DESIGN.md) |
+| **Worktree-per-task isolation** | v1.5 | **Shipped** | [WORKTREE_ISOLATION_DESIGN.md](WORKTREE_ISOLATION_DESIGN.md) |
 | **Reviewer Quality Gate** | v1.5 | Formalized | [REVIEWER_QUALITY_GATE.md](REVIEWER_QUALITY_GATE.md) |
 | **SQLite task board** | v1.6 | Deferred | — |
 | **Skills system (Anthropic Skills spec)** | v1.5+ | Deferred | — |
 
-**Worktree-per-task isolation** — each swarm task works in its own git worktree
-with strict file ownership, making parallel runs conflict-free by construction.
-Replaces today's last-write-wins flat staging. Composes with HIVE (isolation is
-Warchief-side; workers stay stateless). Phased, opt-in, non-breaking.
+**Worktree-per-task isolation** — shipped in v1.5. Each swarm task works in its
+own git worktree with strict file ownership, making parallel runs conflict-free
+by construction. Key guarantees: all-or-nothing `TryClaim` (no hold-and-wait
+deadlock), serialized integration merges, per-task tool registry rooted at the
+worktree path, TESTER/RESEARCHER exempt from ownership (read-only roles).
+Opt-in via `AppSettings.HiveWorktreeIsolation`. Composes with HIVE (isolation
+is Warchief-side; workers stay stateless).
 
 **Reviewer Quality Gate** — swarm output is not authoritative until a Reviewer
 passes it. Runs at the worktree merge step. The gate's judge follows a trust

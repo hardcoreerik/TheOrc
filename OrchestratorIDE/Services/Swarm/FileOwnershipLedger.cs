@@ -14,27 +14,34 @@ public sealed class FileOwnershipLedger
     private readonly ConcurrentDictionary<string, string> _map =
         new(StringComparer.Ordinal);
 
+    // Guards the check-then-claim sequence so it's atomic (prevents hold-and-wait deadlock
+    // when two tasks with overlapping file sets race to claim in interleaved order).
+    private readonly object _claimLock = new();
+
     /// <summary>
     /// Attempt to claim ownership of <paramref name="files"/> for <paramref name="taskId"/>.
-    /// Files that are already owned by a different task are returned as conflicts;
-    /// all non-conflicting files are claimed immediately.
-    /// The caller (scheduler) uses the conflict list to add sequencing edges
-    /// rather than dispatching the task in parallel with its conflict owner.
+    /// All-or-nothing: if any file is owned by a different task, NO files are claimed and
+    /// the full conflict list is returned. The caller polls until the conflicts clear.
     /// </summary>
     public IReadOnlyList<OwnershipConflict> TryClaim(string taskId, IEnumerable<string> files)
     {
-        var conflicts = new List<OwnershipConflict>();
-        foreach (var raw in files)
+        var keys = files.Select(Normalize).ToList();
+        lock (_claimLock)
         {
-            var key = Normalize(raw);
-            if (!_map.TryAdd(key, taskId))
+            // First pass: check for conflicts without mutating the map
+            var conflicts = new List<OwnershipConflict>();
+            foreach (var key in keys)
             {
                 if (_map.TryGetValue(key, out var existing) && existing != taskId)
                     conflicts.Add(new OwnershipConflict(key, taskId, existing));
-                // Same taskId re-claiming the same file: no-op, no conflict.
             }
+            if (conflicts.Count > 0) return conflicts;
+
+            // No conflicts — claim all atomically (TryAdd is idempotent for same taskId)
+            foreach (var key in keys)
+                _map.TryAdd(key, taskId);
+            return [];
         }
-        return conflicts;
     }
 
     /// <summary>

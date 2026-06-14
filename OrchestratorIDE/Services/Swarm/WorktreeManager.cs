@@ -24,6 +24,9 @@ public sealed class WorktreeManager : IDisposable
     private readonly string  _runId;
     private readonly string  _integrationBranch;
     private bool             _integrationReady;
+    // Serialises concurrent Merge calls and the one-time integration setup so concurrent
+    // git merge/commit calls never race on the integration worktree or index.lock.
+    private readonly object  _lock = new();
 
     /// <summary>True when workspaceRoot is a valid git repository.</summary>
     public bool RepoMode { get; }
@@ -83,70 +86,73 @@ public sealed class WorktreeManager : IDisposable
     /// existing flat-staging behaviour.
     /// </summary>
     public MergeResult Merge(
-        WorktreeHandle           handle,
+        WorktreeHandle              handle,
         IReadOnlyCollection<string> declaredFiles,
-        FileOwnershipLedger?     ledger = null)
+        FileOwnershipLedger?        ledger = null)
     {
-        var actualFiles = GetActualChangedFiles(handle);
-
-        // Conflict check — only when a ledger is provided (Phase 2+)
-        if (ledger != null)
+        lock (_lock)
         {
-            var ownedByTask = new HashSet<string>(
-                declaredFiles.Select(FileOwnershipLedger.Normalize),
-                StringComparer.Ordinal);
+            var actualFiles = GetActualChangedFiles(handle);
 
-            foreach (var file in actualFiles)
+            // Conflict check — only when a ledger is provided (Phase 2+)
+            if (ledger != null)
             {
-                var norm = FileOwnershipLedger.Normalize(file);
-                if (ownedByTask.Contains(norm)) continue;
+                var ownedByTask = new HashSet<string>(
+                    declaredFiles.Select(FileOwnershipLedger.Normalize),
+                    StringComparer.Ordinal);
 
-                var ownerOfFile = ledger.OwnerOf(norm);
-                if (ownerOfFile != null && ownerOfFile != handle.TaskId)
-                    throw new WorktreeConflictException(norm, handle.TaskId, ownerOfFile);
-            }
-        }
-
-        // Apply actual file changes into the integration directory.
-        // Repo mode: git merge handles the file application; just track the list.
-        // Greenfield: copy additions/modifications, propagate deletions.
-        List<string> merged;
-        if (RepoMode)
-        {
-            merged = actualFiles;
-        }
-        else
-        {
-            merged = new List<string>(actualFiles.Count);
-            foreach (var file in actualFiles)
-            {
-                var relPath = file.Replace('/', Path.DirectorySeparatorChar);
-                var src     = Path.Combine(handle.Path, relPath);
-                var dst     = Path.Combine(_integrationDir, relPath);
-
-                if (File.Exists(src))
+                foreach (var file in actualFiles)
                 {
-                    Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
-                    File.Copy(src, dst, overwrite: true);
-                }
-                else if (File.Exists(dst))
-                {
-                    // File was deleted in the task — propagate to integration.
-                    File.Delete(dst);
-                }
-                merged.Add(file); // count additions, modifications, and deletions
-            }
-        }
+                    var norm = FileOwnershipLedger.Normalize(file);
+                    if (ownedByTask.Contains(norm)) continue;
 
-        if (merged.Count > 0)
-        {
+                    var ownerOfFile = ledger.OwnerOf(norm);
+                    if (ownerOfFile != null && ownerOfFile != handle.TaskId)
+                        throw new WorktreeConflictException(norm, handle.TaskId, ownerOfFile);
+                }
+            }
+
+            // Apply actual file changes into the integration directory.
+            // Repo mode: git merge handles the file application; just track the list.
+            // Greenfield: copy additions/modifications, propagate deletions.
+            List<string> merged;
             if (RepoMode)
-                CommitRepoMode(handle);
+            {
+                merged = actualFiles;
+            }
             else
-                CommitGreenfieldMode(handle, merged);
-        }
+            {
+                merged = new List<string>(actualFiles.Count);
+                foreach (var file in actualFiles)
+                {
+                    var relPath = file.Replace('/', Path.DirectorySeparatorChar);
+                    var src     = Path.Combine(handle.Path, relPath);
+                    var dst     = Path.Combine(_integrationDir, relPath);
 
-        return new MergeResult(merged.Count, merged);
+                    if (File.Exists(src))
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+                        File.Copy(src, dst, overwrite: true);
+                    }
+                    else if (File.Exists(dst))
+                    {
+                        // File was deleted in the task — propagate to integration.
+                        File.Delete(dst);
+                    }
+                    merged.Add(file); // count additions, modifications, and deletions
+                }
+            }
+
+            if (merged.Count > 0)
+            {
+                if (RepoMode)
+                    CommitRepoMode(handle);
+                else
+                    CommitGreenfieldMode(handle, merged);
+            }
+
+            return new MergeResult(merged.Count, merged);
+        }
     }
 
     /// <summary>
@@ -212,18 +218,21 @@ public sealed class WorktreeManager : IDisposable
 
     private void EnsureIntegrationWorktree()
     {
-        if (_integrationReady) return;
+        lock (_lock)
+        {
+            if (_integrationReady) return;
 
-        // Branch from current HEAD — idempotent, branch may already exist on resume
-        try { RunGit(_workspaceRoot!, $"branch \"{_integrationBranch}\""); }
-        catch { }
+            // Branch from current HEAD — idempotent, branch may already exist on resume
+            try { RunGit(_workspaceRoot!, $"branch \"{_integrationBranch}\""); }
+            catch { }
 
-        // Add integration worktree if not already registered
-        if (!Repository.IsValid(_integrationDir))
-            RunGit(_workspaceRoot!,
-                $"worktree add \"{_integrationDir}\" \"{_integrationBranch}\"");
+            // Add integration worktree if not already registered
+            if (!Repository.IsValid(_integrationDir))
+                RunGit(_workspaceRoot!,
+                    $"worktree add \"{_integrationDir}\" \"{_integrationBranch}\"");
 
-        _integrationReady = true;
+            _integrationReady = true;
+        }
     }
 
     private List<string> GetActualChangedFiles(WorktreeHandle handle)
