@@ -70,11 +70,7 @@ public sealed class PlanExecutorService : IDisposable
         PitBossService.SavePlan(plan, pitRoot);
         var planFile = Path.Combine(pitRoot, "training_pit", "plans", plan.PlanFileName);
 
-        // Phase 2: open a run row so history is recorded even if we crash mid-gen.
-        _currentRunId = $"run_{plan.PlanId}_{DateTime.UtcNow:yyyyMMddHHmmss}";
-        TryInsertRun(plan);
-
-        // Work output file
+        // Work output file — must be assigned before TryInsertRun so LogPath is correct.
         var dsDir    = Path.Combine(pitRoot, "training_pit", "datasets");
         Directory.CreateDirectory(dsDir);
         _workFile     = Path.Combine(dsDir, $"{plan.PlanId}.work.jsonl");
@@ -84,17 +80,23 @@ public sealed class PlanExecutorService : IDisposable
         if (File.Exists(_workFile))     File.Delete(_workFile);
         if (File.Exists(_progressFile)) File.Delete(_progressFile);
 
+        // Phase 2: open a run row after _workFile is set so log_path is correct.
+        _currentRunId = $"run_{plan.PlanId}_{DateTime.UtcNow:yyyyMMddHHmmss}";
+        TryInsertRun(plan);
+
         try
         {
             await RunDatasetGenAsync(plan, planFile, _cts.Token);
         }
         catch (OperationCanceledException)
         {
+            TryUpdateRun("cancelled");
             Phase = ExecutorPhase.Idle;
             IsRunning = false;
         }
         catch (Exception ex)
         {
+            TryUpdateRun("failed");
             Phase = ExecutorPhase.Failed;
             IsRunning = false;
             Failed?.Invoke($"Dataset gen failed: {ex.Message}");
@@ -120,6 +122,7 @@ public sealed class PlanExecutorService : IDisposable
         var genScript = ResolveGenScript(plan, _pitRoot);
         if (genScript is null)
         {
+            TryUpdateRun("failed");
             Failed?.Invoke($"Cannot find generation script for source '{plan.DatasetSource}'. " +
                            "Expected tools/generate_cerebras_gold.py or tools/generate_ollama_gold.py.");
             IsRunning = false;
@@ -151,6 +154,7 @@ public sealed class PlanExecutorService : IDisposable
         _genProcess = Process.Start(psi);
         if (_genProcess is null)
         {
+            TryUpdateRun("failed");
             Failed?.Invoke("Failed to launch Python generator process.");
             IsRunning = false;
             Phase = ExecutorPhase.Failed;

@@ -671,8 +671,12 @@ public partial class MainWindow : Window
         if (string.IsNullOrEmpty(workspaceRoot) || !Directory.Exists(workspaceRoot))
             return;
 
-        // Detach before re-init so no dual-write lands in the old workspace's DB.
+        // Detach all dual-write targets before re-init. If the new workspace DB init
+        // fails, these stay null rather than pointing at the previous workspace's DB.
         Services.Swarm.DatasetCapture.Repository = null;
+        Services.PitBossService.PlanRepo         = null;
+        _planRepo = null;
+        _runRepo  = null;
 
         try
         {
@@ -688,6 +692,12 @@ public partial class MainWindow : Window
             Services.Swarm.DatasetCapture.Repository = captures;
             // Live plan saves mirror into SQL.
             Services.PitBossService.PlanRepo = _planRepo;
+
+            // Mark any runs that were "running" at last shutdown as stale — they
+            // can never complete now. Surfaces in ByPlan queries rather than silently
+            // appearing active forever.
+            foreach (var stale in _runRepo.ActiveRuns())
+                _runRepo.UpdateStatus(stale.RunId, "stale");
 
             // One-shot, idempotent backfill — run off the UI thread to avoid a startup freeze.
             var planRepo = _planRepo;
