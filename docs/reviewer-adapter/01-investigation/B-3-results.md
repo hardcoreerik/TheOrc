@@ -153,12 +153,40 @@ clean output, but "clean output that finds nothing" is not a useful reviewer.
 
 ---
 
-## Follow-up experiments (not yet run)
+## B-4 — deepseek-coder-v2:16b with certificate prompt
 
-- **B-4** — `deepseek-coder-v2:16b` with the certificate prompt. Different
-  training prior; the one base-model variable the B-3 series did not probe. This
-  is the cheapest remaining experiment and the only one that could move the
-  ceiling without training.
+**Date:** 2026-06-13
+**Command:**
+```powershell
+pwsh tools/theorc-review.ps1 -Model deepseek-coder-v2:16b -DiffFile ".orc\swarm\review-staging\review_capture_20260613_102048.json"
+```
+**Result:** TIMEOUT — `HttpClient.Timeout` of 600s elapsed. The model could not
+generate a response to the 79,516 char benchmark diff within 10 minutes.
+
+| ID | Model | Config | Codex catches | Failure mode |
+|---|---|---|---|---|
+| B-4 | deepseek-coder-v2:16b | certificate only | DNF | 600s timeout on 80K-char diff |
+
+**Conclusions from B-4:**
+
+1. **Latency makes deepseek-coder-v2:16b impractical** at the benchmark diff size.
+   qwen2.5-coder:14b completes the same diff in 2-4 minutes; deepseek-coder-v2:16b
+   does not return in 10 minutes on the same hardware (RTX 5070 Ti, Q4 quantisation).
+
+2. **The "different training prior" hypothesis is untestable at this size.** We cannot
+   compare quality when the model cannot produce output. The bottleneck here is
+   throughput/quantisation efficiency, not reviewer skill.
+
+3. **qwen2.5-coder:14b confirmed as the right default** for the advisory reviewer
+   toggle shipped in v1.5. It is the fastest model that at least returns structured
+   output (even if B-3 showed prompt engineering alone is insufficient for correctness).
+
+**B-4 is closed.** No further base-model experiments planned before SFT.
+
+---
+
+## Follow-up experiments
+
 - **B-5** — RAG-v2 with category-abstracted anchors instead of verbatim
   findings. Re-test only after SFT, to see if calibration works once the model
   has baseline competence.
