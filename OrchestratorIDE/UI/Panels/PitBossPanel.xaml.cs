@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -315,6 +316,7 @@ public partial class PitBossPanel : UserControl
             VerticalAlignment = VerticalAlignment.Center,
             Margin            = new Thickness(12, 0, 0, 0),
         };
+        AutomationProperties.SetAutomationId(relaunchBtn, $"PitBoss.RelaunchBtn.{p.PlanId}");
         relaunchBtn.Click += (_, _) => OnRelaunched(p.PlanId);
 
         Grid.SetColumn(leftStack,   0);
@@ -428,7 +430,8 @@ public partial class PitBossPanel : UserControl
         SetStatus($"Plan saved to training_pit/plans/{_plan.PlanFileName}");
         AppendBotBubble($"💾  Plan saved to `training_pit/plans/{_plan.PlanFileName}`");
         StatusChanged?.Invoke($"Plan saved: {_plan.PlanFileName}");
-        BtnViewHistory.Visibility = Visibility.Visible;   // reveal history nav on first save
+        if (PlanRepo is not null)
+            BtnViewHistory.Visibility = Visibility.Visible;  // reveal history nav on first save
     }
 
     private void BtnLaunchPlan_Click(object sender, RoutedEventArgs e)
