@@ -33,6 +33,7 @@ public partial class MainWindow : Window
     private          Services.Hive.HiveRpcWorker?   _hiveRpcWorker;
     private          Services.Hive.HiveTaskQueue?   _hiveTaskQueue;
     private          Services.Hive.HiveWorkerAgent? _hiveWorkerAgent;
+    private          Services.Data.SqliteStore?     _sqlStore;
 
     // ── State ─────────────────────────────────────────────────────────────
     private ProjectSession           _session;
@@ -649,6 +650,62 @@ public partial class MainWindow : Window
                     AddActivity(new ActivityEvent(ActivityKind.Info, "Agent File",
                         $"Personalised .agent.md written to {_session.WorkspaceRoot}", DateTime.Now));
             });
+        }
+
+        // ── SQLite data layer (JSON→SQL migration, Phase 1) ───────────────
+        // Opens {workspace}/.orc/theorc.db, runs migrations, points live capture
+        // dual-write at it, and backfills existing files. Fully non-fatal.
+        InitDataLayer(_session.WorkspaceRoot);
+    }
+
+    /// <summary>
+    /// Boots the operational-metadata database for the current workspace: opens/creates
+    /// theorc.db, runs pending migrations, enables capture dual-write, and runs the
+    /// idempotent file→SQL backfill. Any failure is logged and swallowed — the DB is an
+    /// index, never on the critical path. See docs/sql-migration/.
+    /// </summary>
+    private void InitDataLayer(string workspaceRoot)
+    {
+        if (string.IsNullOrEmpty(workspaceRoot) || !Directory.Exists(workspaceRoot))
+            return;
+
+        // Detach before re-init so no dual-write lands in the old workspace's DB.
+        Services.Swarm.DatasetCapture.Repository = null;
+
+        try
+        {
+            _sqlStore = new Services.Data.SqliteStore(workspaceRoot);
+            _sqlStore.Initialize();
+
+            var captures = new Services.Data.CaptureRepository(_sqlStore);
+            var triage   = new Services.Data.TriageRepository(_sqlStore);
+
+            // Live captures now mirror into SQL (file stays canonical).
+            Services.Swarm.DatasetCapture.Repository = captures;
+
+            // One-shot, idempotent backfill — run off the UI thread to avoid a startup freeze.
+            Task.Run(() =>
+            {
+                try
+                {
+                    var r = new Services.Data.MetadataImporter(workspaceRoot, captures, triage).ImportAll();
+                    Dispatcher.InvokeAsync(() => AddActivity(new ActivityEvent(ActivityKind.Info, "Data",
+                        $"SQLite ready — {r.Captures} captures, {r.Triage} triage rows indexed" +
+                        (r.CaptureErrors + r.TriageErrors > 0
+                            ? $" ({r.CaptureErrors + r.TriageErrors} skipped)" : ""),
+                        DateTime.Now)));
+                }
+                catch (Exception ex)
+                {
+                    Dispatcher.InvokeAsync(() => AddActivity(new ActivityEvent(ActivityKind.Info, "Data",
+                        $"SQLite backfill failed (non-fatal): {ex.Message}", DateTime.Now)));
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Info, "Data",
+                $"SQLite init failed (non-fatal): {ex.Message}", DateTime.Now));
         }
     }
 
@@ -1728,6 +1785,9 @@ public partial class MainWindow : Window
 
         AddActivity(new ActivityEvent(ActivityKind.Info, "Workspace",
             $"Opened: {Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar))}", DateTime.Now));
+
+        // Re-bind the data layer to the new workspace's theorc.db.
+        InitDataLayer(path);
     }
 
     /// <summary>

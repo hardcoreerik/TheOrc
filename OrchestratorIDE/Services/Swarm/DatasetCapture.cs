@@ -33,6 +33,14 @@ public static class DatasetCapture
     public static bool IsEnabled { get; set; } = true;
 
     /// <summary>
+    /// Optional SQL dual-write target (Phase 1 of the JSON→SQLite migration).
+    /// Set once at app startup. When non-null, every staged capture is also upserted
+    /// into the captures table. The JSON file remains canonical; the DB is an index.
+    /// Best-effort: a DB failure never affects file capture or the swarm run.
+    /// </summary>
+    public static Data.CaptureRepository? Repository { get; set; }
+
+    /// <summary>
     /// Evaluate and stage a boss plan if it meets the positive or negative threshold.
     /// Marginal plans (40–69) are silently skipped.
     ///
@@ -73,11 +81,66 @@ public static class DatasetCapture
 
             var qualifier = isPositive ? "good" : "bad";
             var fileName  = $"plan_capture_{qualifier}_{runId}_{score.Composite:D3}.json";
-            await File.WriteAllTextAsync(Path.Combine(stagingDir, fileName), json);
+            var filePath  = Path.Combine(stagingDir, fileName);
+            await File.WriteAllTextAsync(filePath, json);
+
+            // Phase 1 dual-write: index this capture in SQL too. The JSON file stays
+            // canonical; the DB row is a queryable mirror. Best-effort and isolated —
+            // a DB failure must never affect file capture or the swarm run.
+            TryDualWrite(runId, userGoal, bossModel, tasks, score, planNode, filePath);
         }
         catch
         {
             // Best-effort — never propagate capture errors to the caller
+        }
+    }
+
+    /// <summary>
+    /// Mirrors the just-written capture into the SQL index. Uses the same field values
+    /// as <see cref="BuildCapture"/> so the row matches what MetadataImporter would parse
+    /// from the file (identical example_id natural key → idempotent). Fully swallowed.
+    /// </summary>
+    private static void TryDualWrite(
+        string runId, string userGoal, string bossModel,
+        List<SwarmTask> tasks, RubricResult score,
+        System.Text.Json.Nodes.JsonNode? planNode, string filePath)
+    {
+        var repo = Repository;
+        if (repo is null) return;
+
+        try
+        {
+            var rubricJson = JsonSerializer.Serialize(new
+            {
+                task_count        = score.TaskCount,
+                description_depth = score.DescriptionDepth,
+                filename_presence = score.FilenamePresence,
+                api_contract      = score.ApiContract,
+                domain_accuracy   = score.DomainAccuracy,
+                json_validity     = score.JsonValidity
+            });
+
+            repo.Upsert(new Data.CaptureRecord(
+                ExampleId:    $"ex_{runId}",
+                RunId:        runId,
+                CapturedAt:   DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                Source:       "swarm_run",
+                BossModel:    bossModel,
+                Goal:         userGoal,
+                Domain:       "general",
+                Difficulty:   2,
+                QualityScore: score.Composite,
+                ExampleClass: score.ExampleClass,
+                FailureMode:  EvalRubric.DetectFailureMode(tasks, score),
+                PlanJson:     planNode?.ToJsonString(),
+                RubricJson:   rubricJson,
+                Annotator:    "auto",
+                Notes:        "",
+                SourceFile:   filePath));
+        }
+        catch
+        {
+            // Best-effort — the file is already safely written; never surface this.
         }
     }
 
