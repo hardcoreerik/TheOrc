@@ -35,6 +35,10 @@ public partial class TrainingPitPanel : UserControl
     /// changes — MainWindow uses it for the title-bar pill badge.</summary>
     public event Action<bool, int>? LiveStateChanged;
 
+    /// <summary>Fires when the user clicks the Pit Boss button.
+    /// MainWindow handles the navigation to PitBossPanel.</summary>
+    public event Action? PitBossRequested;
+
     public ObservableCollection<QueueItem> Queue { get; } = new();
 
     private string _pitRoot = "";
@@ -458,6 +462,7 @@ public partial class TrainingPitPanel : UserControl
     }
 
     private void BtnRefresh_Click(object s, RoutedEventArgs e) => Refresh();
+    private void BtnPitBoss_Click(object s, RoutedEventArgs e) => PitBossRequested?.Invoke();
 
     // ── Night harvest control ─────────────────────────────────────────────
 

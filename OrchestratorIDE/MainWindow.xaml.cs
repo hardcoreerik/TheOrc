@@ -55,6 +55,7 @@ public partial class MainWindow : Window
     private readonly UI.Panels.ChatPanel     _chatPanel;
     private readonly UI.Panels.TrainingPitPanel _pitPanel;
     private readonly UI.Panels.HivePanel _hivePanel = new();
+    private UI.Panels.PitBossPanel?      _pitBossPanel;
 
     // ── Screen recorder ───────────────────────────────────────────────────
     private readonly ScreenRecorder _recorder = new();
@@ -302,6 +303,7 @@ public partial class MainWindow : Window
             PitLiveDot.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
             PitQueueBadge.Text    = waiting > 0 ? waiting.ToString() : "";
         });
+        _pitPanel.PitBossRequested += () => Dispatcher.Invoke(ShowPitBoss);
 
         // Default sidebar = explorer
         SidebarContent.Content = _explorerPanel;
@@ -1535,6 +1537,10 @@ public partial class MainWindow : Window
             MainContent.Content    = _pitPanel;
             SidebarContent.Content = _explorerPanel;
         }
+        else if (mode == "pitboss")
+        {
+            ShowPitBoss();
+        }
         else
         {
             // ── Restore the last Single model ─────────────────────────────────
@@ -1551,6 +1557,30 @@ public partial class MainWindow : Window
 
         _settings.LastMode = mode;
         _settings.Save();
+    }
+
+    private void ShowPitBoss()
+    {
+        // Lazily create the panel so it starts fresh each session
+        _pitBossPanel = new UI.Panels.PitBossPanel
+        {
+            WorkspaceRoot = _session.WorkspaceRoot,
+            OllamaHost    = _settings.OllamaHost,
+            OllamaModel   = _settings.SwarmLocalReviewModel, // reuse same model setting
+        };
+        _pitBossPanel.BackRequested += () => Dispatcher.Invoke(() => SetMode("pit"));
+        _pitBossPanel.StatusChanged += msg => Dispatcher.Invoke(() => SetStatus(msg));
+        _pitBossPanel.PlanLaunched  += plan => Dispatcher.Invoke(() =>
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Info, "Pit Boss",
+                $"Training plan launched: {plan.Goal}", DateTime.Now));
+            SetStatus($"Training plan launched: {plan.AdapterName}");
+            // Navigate back to the Pit so the user can watch progress
+            SetMode("pit");
+        });
+
+        MainContent.Content    = _pitBossPanel;
+        SidebarContent.Content = _explorerPanel;
     }
 
     /// <summary>

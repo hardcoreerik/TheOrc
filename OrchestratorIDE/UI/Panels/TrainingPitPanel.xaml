@@ -56,6 +56,13 @@
                 <TextBlock x:Name="PhaseText" Text="Collecting examples — training not started"
                            FontSize="11" Foreground="#CCA700"/>
             </Border>
+            <!-- Pit Boss launch button -->
+            <Button x:Name="BtnPitBoss" Style="{StaticResource PitButton}"
+                    Background="#1A0A2A" BorderBrush="#5A1A9A" Foreground="#C080E8"
+                    Content="🤖 Pit Boss" HorizontalAlignment="Right" DockPanel.Dock="Right"
+                    Click="BtnPitBoss_Click" Margin="0,0,8,0"
+                    ToolTip="Launch the AI training wizard to build a custom training plan"
+                    AutomationProperties.AutomationId="TrainingPit.PitBossBtn"/>
             <Button x:Name="BtnRefresh" Style="{StaticResource PitButton}"
                     Background="#111111" BorderBrush="#2A2A2A" Foreground="#999999"
                     Content="⟳ Refresh" HorizontalAlignment="Right" DockPanel.Dock="Right"
