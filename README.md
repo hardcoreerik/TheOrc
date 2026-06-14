@@ -87,6 +87,21 @@ TheOrc is not trying to replace your editor. It's the AI **project runner** that
 
 ---
 
+## What's new in v1.5
+
+The biggest release since the swarm itself. v1.5 closes the training loop — from a human describing what they want the swarm to learn, all the way to a deployed adapter, without touching a script.
+
+| Feature | What it is |
+|---|---|
+| **Pit Boss** | AI training wizard — 8 questions, then TheOrc writes its own training plan and kicks off dataset generation |
+| **SQLite metadata layer** | Every capture, plan, run, and dataset now has a queryable database behind it — shipped a full release early |
+| **Plan history** | Pit Boss landing page showing every training run with status, target count, model, and timestamp |
+| **Worktree isolation** | Each swarm task gets its own git worktree — parallel runs are conflict-free by construction |
+| **Reviewer Quality Gate** | Swarm output isn't authoritative until a Reviewer passes it, formalized at the merge step |
+| **ORC ACADEMY v1** | Fine-tuned boss adapter trained, evaluated, and deployed — `theorc-boss:gemma4-ft` is live |
+
+---
+
 ## ORC ACADEMY — the swarm teaches itself
 
 Here's the part that gets genuinely weird in the best way.
@@ -100,6 +115,26 @@ Every good swarm run captures the boss's plan. Those captures go through a revie
 - Shipped as `theorc-boss:gemma4-ft` — a 125 MB GGUF LoRA you can pull right now
 
 The loop — *run → capture → review → train → deploy* — is part of the product. TheOrc is designed to get better the more you use it, entirely on your own hardware, with no data leaving your machine.
+
+---
+
+## PIT BOSS — the training wizard
+
+ORC ACADEMY is powerful. Pit Boss makes it self-serve.
+
+Tell Pit Boss what you want the swarm to get better at. It runs a short interview — eight questions about goal types, languages, edge cases, example count — and turns your answers into a structured training plan. Then it kicks off dataset generation (via Cerebras cloud, local Ollama, or Claude API, your pick) and hands the finished dataset off to ORC ACADEMY's Forge for LoRA training on your GPU.
+
+You go from "I want a smarter boss" to a queued training run without writing a script or touching the command line.
+
+This is the exact pipeline that generated the v2 dataset:
+```
+1. Pit Boss interview (in-app) → structured training plan
+2. Dataset gen via Cerebras gpt-oss-120b — ~1,200 examples, ~20 min, free tier, zero API cost
+3. Pit Boss hands off to Forge → train_lora.py on your GPU
+4. New adapter registered in Ollama, ready to pull
+```
+
+The full loop — from "I want better planning" to a deployed adapter — is now in the app UI.
 
 ---
 
@@ -168,17 +203,17 @@ TheOrc is free, open source, and always will be. If it saves you a subscription 
 
 Here's what's on the workbench — this is where support goes:
 
-### 🧠 ORC ACADEMY v2
-The v1 adapter was trained on 900 plans. v2 targets 2,000+ with broader goal coverage and trickier edge cases. Better data, smarter boss, faster swarm. The pipeline is already built — it just needs more runs and more review time.
+### 🧠 ORC ACADEMY v2 — smarter boss, broader goals
+The v1 adapter was trained on 900 plans, almost all C# feature work. v2 fixes that: the Pit Boss pipeline is already generating ~1,200 synthetic examples covering bugfixes, refactors, tests, integrations, and docs across a dozen languages — using Cerebras cloud inference at no cost. Once reviewed, v2 trains a boss that handles real-world requests, not just TheOrc building itself.
 
 ### 🌐 HIVE MIND — distributed swarm across your whole network
-HIVE MIND lets multiple TheOrc machines coordinate over your local network (via Tailscale). One machine runs the boss and hands off worker tasks to others. Your gaming rig does the planning, your NAS runs a coder, the old workstation in the corner finally earns its keep. The groundwork is in — Phase A is shipped. Phase B is distributed task execution across nodes.
+HIVE MIND lets multiple TheOrc machines coordinate over your local network. One machine runs the boss and hands off worker tasks to others. Your gaming rig does the planning, your NAS runs a coder, the old workstation in the corner finally earns its keep. Phase A is shipped (LAN discovery, queue, worker polling). Phase B is full distributed task execution and remote harvest.
 
 ### 🎓 On-platform self-improvement
-The long game: TheOrc writes its own training goals, runs them through the swarm, and reviews the output as part of ORC ACADEMY. The pipeline already exists. The next step is closing the loop so the swarm can improve itself with minimal human input.
+The long game: TheOrc writes its own training goals, runs them through the swarm, and feeds the results back into ORC ACADEMY — closing the loop with minimal human input. The Pit Boss pipeline makes the dataset generation side of this almost free. The remaining work is getting the swarm to generate and judge its own goals.
 
 ### 💻 Cross-platform
-TheOrc is Windows-first right now (WPF/.NET). A cross-platform path — Mac and Linux — is on the roadmap once the core is mature. Ollama runs everywhere. The UI is the hold-out.
+TheOrc is Windows-first (WPF/.NET). A Mac and Linux path is on the roadmap once the core stabilizes. Ollama already runs everywhere — the UI is the hold-out.
 
 ---
 

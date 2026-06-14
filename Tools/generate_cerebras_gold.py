@@ -490,7 +490,7 @@ def main():
 
     target = args.batches * args.per_batch
     print(f"  Target : {args.batches} batches x {args.per_batch} = {target}")
-    print(f"  Est.   : ~{args.batches * 2 // 60}–{args.batches * 4 // 60} min at 30 RPM\n")
+    print(f"  Est.   : ~{args.batches * 17 // 60}–{args.batches * 22 // 60} min at 5 RPM (12s/batch)\n")
 
     total_written = len(seen)
     t0 = time.time()
@@ -528,8 +528,8 @@ def main():
                   f"{spec['task_type']:<12} +{kept:2d}/{len(parsed):2d}  "
                   f"total={total_written:4d}  {dt:4.0f}s")
 
-            # Cerebras is 30 RPM — 2s between requests keeps us at ~28 RPM
-            time.sleep(2)
+            # Free tier is 5 req/min — 12s between requests keeps us just under it
+            time.sleep(12)
 
     elapsed = time.time() - t0
     print(f"\nDone. {total_written} gold examples -> {OUT_WORK.name}")

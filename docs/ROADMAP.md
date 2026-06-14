@@ -77,6 +77,20 @@ TheOrc already ships more of the recent roadmap than the older docs implied. The
 - `tools/merge_lora.py` and `training_pit/adapters/registry.json` added
 - `theorc-boss-gemma4-ft.Modelfile` is the production deployment spec
 
+### Pit Boss — AI Training Wizard (Shipped v1.5, 2026-06-14)
+
+- 8-question in-app interview generates a structured training plan (goal types, languages, target count, model)
+- Full execution pipeline: dataset generation via Cerebras/Ollama/Claude API → Forge (ORC ACADEMY) handoff
+- Plan history landing page with per-run status, target count, model, and timestamp
+- Integrated with `generate_cerebras_gold.py` for zero-cost synthetic dataset generation
+
+### SQLite Metadata Layer (Shipped v1.5, 2026-06-14 — was planned for v1.6)
+
+- Phases 0–3: captures, triage, plans, runs, and datasets tables
+- Replaces JSON manifests + filesystem-walk counting
+- Queryable run history, cross-restart session resume
+- Migration and schema tooling included; all existing JSON data preserved
+
 ---
 
 ## Active Work
@@ -123,7 +137,7 @@ Two are designed; two are deferred with rationale.
 |---|---|---|---|
 | **Worktree-per-task isolation** | v1.5 | **Shipped** | [WORKTREE_ISOLATION_DESIGN.md](WORKTREE_ISOLATION_DESIGN.md) |
 | **Reviewer Quality Gate** | v1.5 | **Shipped** | [REVIEWER_QUALITY_GATE.md](REVIEWER_QUALITY_GATE.md) |
-| **SQLite task board** | v1.6 | Deferred | — |
+| **SQLite task board** | v1.5 | **Shipped early** | — |
 | **Skills system (Anthropic Skills spec)** | v1.5+ | Deferred | — |
 
 **Worktree-per-task isolation** — shipped in v1.5. Each swarm task works in its
@@ -139,12 +153,10 @@ passes it. Runs at the worktree merge step. The gate's judge follows a trust
 ladder: human → Codex → TheOrc (once `theorc-reviewer:v1` earns it). Machinery
 (`review-capture.ps1`) already exists; this formalizes its authority and home.
 
-**SQLite task board** (deferred to v1.6) — replace the JSON manifests +
-filesystem-walk counting with a SQLite system-of-record. Rationale for waiting:
-the JSON path works today and a concurrent-write race (hit once in the night
-harvest) is the only pressing motivation; not worth the migration cost until the
-worktree + gate work lands and the schema stabilizes. Enables cross-restart
-session resume and queryable run history.
+**SQLite task board** (shipped v1.5, ahead of plan) — captures, triage, plans,
+runs, and datasets are now stored in SQLite. Cross-restart resume and queryable
+run history are live. The original v1.6 deferral rationale (schema churn) was
+resolved by landing worktree isolation first, which stabilized the task model.
 
 **Skills system** (deferred to v1.5+) — drag-and-drop Anthropic Skills
 frontmatter to load reviewer/domain skills (security, performance,
