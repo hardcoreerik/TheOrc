@@ -34,3 +34,45 @@ public sealed record TriageRecord(
     int?    Score,
     string? Rationale,
     string  SourceFile);
+
+/// <summary>
+/// A Pit Boss training plan row (mirrors Models/TrainingPlan.cs).
+/// Upsert key: <c>plan_id</c>. File at training_pit/plans/plan_{PlanId}.json stays
+/// canonical during transition; SQL is the queryable index and live execution state.
+/// </summary>
+public sealed record PlanRecord(
+    string  PlanId,
+    string  CreatedAt,
+    string  Goal,
+    string  Persona,
+    string  Style,
+    string? LanguagesJson,   // JSON array: ["csharp","python"]
+    string? TaskMixJson,     // JSON object: {"code_review":0.6}
+    int     DatasetTarget,
+    string  DatasetSource,
+    string  BaseModel,
+    string  AdapterName,
+    int     LoraRank,
+    int     Epochs,
+    double  LearningRate,
+    string  Phase,           // PlanPhase enum name
+    string  DatasetFile,
+    string  AdapterPath,
+    string? HiveJson,        // HiveStrategy blob (nullable)
+    string  Notes);
+
+/// <summary>
+/// A training-run history row. One row per execution of dataset_gen, forge_train, or eval.
+/// Written at run start (status="running"), updated to "complete"/"failed"/"cancelled" at end.
+/// </summary>
+public sealed record RunRecord(
+    string  RunId,
+    string? PlanId,
+    string  Kind,            // dataset_gen | forge_train | eval
+    string  Status,          // running | complete | failed | cancelled
+    string  StartedAt,
+    string? EndedAt,
+    string  Host,            // Environment.MachineName
+    string? ArtifactPath,    // dataset/adapter path produced
+    string? MetricsJson,
+    string? LogPath);

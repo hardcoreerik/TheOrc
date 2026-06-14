@@ -34,6 +34,8 @@ public partial class MainWindow : Window
     private          Services.Hive.HiveTaskQueue?   _hiveTaskQueue;
     private          Services.Hive.HiveWorkerAgent? _hiveWorkerAgent;
     private          Services.Data.SqliteStore?     _sqlStore;
+    private          Services.Data.PlanRepository? _planRepo;
+    private          Services.Data.RunRepository?  _runRepo;
 
     // ── State ─────────────────────────────────────────────────────────────
     private ProjectSession           _session;
@@ -679,20 +681,25 @@ public partial class MainWindow : Window
 
             var captures = new Services.Data.CaptureRepository(_sqlStore);
             var triage   = new Services.Data.TriageRepository(_sqlStore);
+            _planRepo    = new Services.Data.PlanRepository(_sqlStore);
+            _runRepo     = new Services.Data.RunRepository(_sqlStore);
 
             // Live captures now mirror into SQL (file stays canonical).
             Services.Swarm.DatasetCapture.Repository = captures;
+            // Live plan saves mirror into SQL.
+            Services.PitBossService.PlanRepo = _planRepo;
 
             // One-shot, idempotent backfill — run off the UI thread to avoid a startup freeze.
+            var planRepo = _planRepo;
             Task.Run(() =>
             {
                 try
                 {
-                    var r = new Services.Data.MetadataImporter(workspaceRoot, captures, triage).ImportAll();
+                    var r = new Services.Data.MetadataImporter(workspaceRoot, captures, triage, planRepo).ImportAll();
                     Dispatcher.InvokeAsync(() => AddActivity(new ActivityEvent(ActivityKind.Info, "Data",
-                        $"SQLite ready — {r.Captures} captures, {r.Triage} triage rows indexed" +
-                        (r.CaptureErrors + r.TriageErrors > 0
-                            ? $" ({r.CaptureErrors + r.TriageErrors} skipped)" : ""),
+                        $"SQLite ready — {r.Captures} captures, {r.Triage} triage rows, {r.Plans} plans indexed" +
+                        (r.CaptureErrors + r.TriageErrors + r.PlanErrors > 0
+                            ? $" ({r.CaptureErrors + r.TriageErrors + r.PlanErrors} skipped)" : ""),
                         DateTime.Now)));
                 }
                 catch (Exception ex)
@@ -1624,6 +1631,7 @@ public partial class MainWindow : Window
             WorkspaceRoot = _session.WorkspaceRoot,
             OllamaHost    = _settings.OllamaHost,
             OllamaModel   = _settings.SwarmLocalReviewModel, // reuse same model setting
+            RunRepo       = _runRepo,
         };
         _pitBossPanel.BackRequested += () => Dispatcher.Invoke(() => SetMode("pit"));
         _pitBossPanel.StatusChanged += msg => Dispatcher.Invoke(() => SetStatus(msg));

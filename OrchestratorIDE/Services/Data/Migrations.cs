@@ -14,6 +14,7 @@ internal static class Migrations
     public static readonly IReadOnlyList<Migration> All =
     [
         new Migration(1, "captures + triage", Sql001_CapturesTriage),
+        new Migration(2, "plans + runs",       Sql002_PlansRuns),
     ];
 
     // ── v1 — Phase 1: captures + triage ─────────────────────────────────────────
@@ -60,6 +61,49 @@ internal static class Migrations
         );
         CREATE INDEX ix_triage_state ON triage(review_state);
         CREATE INDEX ix_triage_risk  ON triage(risk);
+        """;
+
+    // ── v2 — Phase 2: plans + runs ───────────────────────────────────────────────
+    // plans: Pit Boss TrainingPlan objects (training_pit/plans/*.json).
+    // runs:  training-run history (dataset_gen / forge_train / eval).
+    private const string Sql002_PlansRuns = """
+        CREATE TABLE plans (
+            id              INTEGER PRIMARY KEY,
+            plan_id         TEXT    NOT NULL UNIQUE,
+            created_at      TEXT    NOT NULL,
+            goal            TEXT    NOT NULL,
+            persona         TEXT,
+            style           TEXT,
+            languages_json  TEXT,
+            task_mix_json   TEXT,
+            dataset_target  INTEGER,
+            dataset_source  TEXT,
+            base_model      TEXT,
+            adapter_name    TEXT,
+            lora_rank       INTEGER,
+            epochs          INTEGER,
+            learning_rate   REAL,
+            phase           TEXT,
+            dataset_file    TEXT,
+            adapter_path    TEXT,
+            hive_json       TEXT,
+            notes           TEXT
+        );
+
+        CREATE TABLE runs (
+            id            INTEGER PRIMARY KEY,
+            run_id        TEXT    NOT NULL UNIQUE,
+            plan_id       TEXT    REFERENCES plans(plan_id),
+            kind          TEXT,
+            status        TEXT,
+            started_at    TEXT,
+            ended_at      TEXT,
+            host          TEXT,
+            artifact_path TEXT,
+            metrics_json  TEXT,
+            log_path      TEXT
+        );
+        CREATE INDEX ix_runs_plan ON runs(plan_id);
         """;
 }
 

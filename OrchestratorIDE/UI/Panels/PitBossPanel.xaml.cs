@@ -22,6 +22,8 @@ public partial class PitBossPanel : UserControl
     public string WorkspaceRoot { get; set; } = "";
     public string OllamaHost    { get; set; } = "http://localhost:11434";
     public string OllamaModel   { get; set; } = "qwen2.5-coder:14b";
+    /// <summary>Phase 2 SQL run-history target. Forwarded to PlanExecutorService on creation.</summary>
+    public Services.Data.RunRepository? RunRepo { get; set; }
 
     // ── Events ────────────────────────────────────────────────────────────────
     public event Action?                           BackRequested;
@@ -267,7 +269,7 @@ public partial class PitBossPanel : UserControl
         BtnSavePlan.IsEnabled   = false;
         HideChips();
 
-        _executor = new PlanExecutorService();
+        _executor = new PlanExecutorService { RunRepo = RunRepo };
         _executor.ProgressUpdated += (written, total, phase) =>
             Dispatcher.Invoke(() => OnGenProgress(written, total, phase));
         _executor.DatasetReady += path =>

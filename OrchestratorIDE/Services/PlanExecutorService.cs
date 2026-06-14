@@ -40,12 +40,20 @@ public sealed class PlanExecutorService : IDisposable
     public bool IsRunning  { get; private set; }
     public ExecutorPhase Phase { get; private set; } = ExecutorPhase.Idle;
 
+    /// <summary>
+    /// Optional SQL run-history target (Phase 2). Set once at startup.
+    /// When non-null, every execution writes a run row. Best-effort — a DB failure
+    /// never affects dataset gen or the swarm run.
+    /// </summary>
+    public Data.RunRepository? RunRepo { get; set; }
+
     private TrainingPlan?          _plan;
     private string                 _pitRoot      = "";
     private string                 _workFile     = "";
     private string                 _progressFile = "";
     private Process?               _genProcess;
     private CancellationTokenSource _cts = new();
+    private string?                _currentRunId;
 
     // ── Public API ────────────────────────────────────────────────────────────
 
@@ -61,6 +69,10 @@ public sealed class PlanExecutorService : IDisposable
         // Save plan JSON so the Python script can read it
         PitBossService.SavePlan(plan, pitRoot);
         var planFile = Path.Combine(pitRoot, "training_pit", "plans", plan.PlanFileName);
+
+        // Phase 2: open a run row so history is recorded even if we crash mid-gen.
+        _currentRunId = $"run_{plan.PlanId}_{DateTime.UtcNow:yyyyMMddHHmmss}";
+        TryInsertRun(plan);
 
         // Work output file
         var dsDir    = Path.Combine(pitRoot, "training_pit", "datasets");
@@ -91,6 +103,7 @@ public sealed class PlanExecutorService : IDisposable
 
     public void Cancel()
     {
+        TryUpdateRun("cancelled");
         _cts.Cancel();
         _cts = new CancellationTokenSource();
         try { _genProcess?.Kill(entireProcessTree: true); } catch { }
@@ -173,6 +186,7 @@ public sealed class PlanExecutorService : IDisposable
 
         if (exitCode != 0)
         {
+            TryUpdateRun("failed");
             Failed?.Invoke($"Generator exited with code {exitCode}. Check the .gen.log file next to the dataset.");
             IsRunning = false;
             Phase = ExecutorPhase.Failed;
@@ -185,6 +199,7 @@ public sealed class PlanExecutorService : IDisposable
         _plan!.DatasetFile = finalPath;
         _plan.Phase        = PlanPhase.Training;
         PitBossService.SavePlan(_plan, _pitRoot);
+        TryUpdateRun("complete", finalPath);
 
         int finalCount = CountLines(finalPath);
         ProgressUpdated?.Invoke(finalCount, finalCount, "Dataset complete");
@@ -196,6 +211,38 @@ public sealed class PlanExecutorService : IDisposable
 
         // Signal Forge handoff
         ForgeReady?.Invoke(_plan, finalPath);
+    }
+
+    // ── Run-history helpers ───────────────────────────────────────────────────
+
+    private void TryInsertRun(TrainingPlan plan)
+    {
+        var repo = RunRepo;
+        if (repo is null || _currentRunId is null) return;
+        try
+        {
+            repo.Upsert(new Data.RunRecord(
+                RunId:        _currentRunId,
+                PlanId:       plan.PlanId,
+                Kind:         "dataset_gen",
+                Status:       "running",
+                StartedAt:    DateTime.UtcNow.ToString("o"),
+                EndedAt:      null,
+                Host:         System.Environment.MachineName,
+                ArtifactPath: null,
+                MetricsJson:  null,
+                LogPath:      _workFile.Replace(".work.jsonl", ".gen.log")));
+        }
+        catch { }
+    }
+
+    private void TryUpdateRun(string status, string? artifactPath = null)
+    {
+        var repo = RunRepo;
+        if (repo is null || _currentRunId is null) return;
+        try { repo.UpdateStatus(_currentRunId, status, artifactPath); }
+        catch { }
+        finally { _currentRunId = null; }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

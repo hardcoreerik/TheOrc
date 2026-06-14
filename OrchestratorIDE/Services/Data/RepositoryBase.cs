@@ -79,4 +79,10 @@ public abstract class RepositoryBase
         var i = r.GetOrdinal(col);
         return r.IsDBNull(i) ? null : r.GetInt32(i);
     }
+
+    protected static double? GetReal(SqliteDataReader r, string col)
+    {
+        var i = r.GetOrdinal(col);
+        return r.IsDBNull(i) ? null : r.GetDouble(i);
+    }
 }

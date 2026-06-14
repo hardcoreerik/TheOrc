@@ -16,21 +16,25 @@ public sealed class MetadataImporter
     private readonly string            _root;
     private readonly CaptureRepository _captures;
     private readonly TriageRepository  _triage;
+    private readonly PlanRepository?   _plans;
 
-    public MetadataImporter(string workspaceRoot, CaptureRepository captures, TriageRepository triage)
+    public MetadataImporter(string workspaceRoot, CaptureRepository captures,
+        TriageRepository triage, PlanRepository? plans = null)
     {
         _root     = workspaceRoot;
         _captures = captures;
         _triage   = triage;
+        _plans    = plans;
     }
 
-    public sealed record Result(int Captures, int CaptureErrors, int Triage, int TriageErrors);
+    public sealed record Result(int Captures, int CaptureErrors, int Triage, int TriageErrors, int Plans, int PlanErrors);
 
     public Result ImportAll()
     {
         var (cOk, cErr) = ImportCaptures();
         var (tOk, tErr) = ImportTriage();
-        return new Result(cOk, cErr, tOk, tErr);
+        var (pOk, pErr) = ImportPlans();
+        return new Result(cOk, cErr, tOk, tErr, pOk, pErr);
     }
 
     // ── captures ─────────────────────────────────────────────────────────────────
@@ -138,6 +142,68 @@ public sealed class MetadataImporter
         return name;
     }
 
+    // ── plans ────────────────────────────────────────────────────────────────────
+
+    private (int ok, int err) ImportPlans()
+    {
+        if (_plans is null) return (0, 0);
+        var dir = Path.Combine(_root, "training_pit", "plans");
+        if (!Directory.Exists(dir)) return (0, 0);
+
+        int ok = 0, err = 0;
+        foreach (var file in Directory.EnumerateFiles(dir, "plan_*.json"))
+        {
+            try
+            {
+                var rec = ParsePlan(file);
+                if (rec is null) { err++; continue; }
+                _plans.Upsert(rec);
+                ok++;
+            }
+            catch { err++; }
+        }
+        return (ok, err);
+    }
+
+    private static PlanRecord? ParsePlan(string file)
+    {
+        using var doc = JsonDocument.Parse(File.ReadAllText(file));
+        var root = doc.RootElement;
+
+        var planId = Str(root, "PlanId") ?? Str(root, "plan_id");
+        if (string.IsNullOrEmpty(planId)) return null;
+
+        // Languages and TaskMix are stored as JSON arrays/objects in the file;
+        // re-serialise the raw JsonElement so they round-trip cleanly.
+        string? langsJson  = RawOrNull(root, "Languages")  ?? RawOrNull(root, "languages");
+        string? taskMixJson = RawOrNull(root, "TaskMix")   ?? RawOrNull(root, "task_mix");
+        string? hiveJson    = RawOrNull(root, "Hive")      ?? RawOrNull(root, "hive");
+
+        // CreatedAt may be a DateTime (C# default serialisation) or ISO string
+        string createdAt = Str(root, "CreatedAt") ?? Str(root, "created_at") ?? "";
+
+        return new PlanRecord(
+            PlanId:        planId,
+            CreatedAt:     createdAt,
+            Goal:          Str(root, "Goal")          ?? Str(root, "goal")          ?? "",
+            Persona:       Str(root, "Persona")       ?? Str(root, "persona")       ?? "",
+            Style:         Str(root, "Style")         ?? Str(root, "style")         ?? "",
+            LanguagesJson: langsJson,
+            TaskMixJson:   taskMixJson,
+            DatasetTarget: Int(root, "DatasetTarget") ?? Int(root, "dataset_target") ?? 0,
+            DatasetSource: Str(root, "DatasetSource") ?? Str(root, "dataset_source") ?? "",
+            BaseModel:     Str(root, "BaseModel")     ?? Str(root, "base_model")    ?? "",
+            AdapterName:   Str(root, "AdapterName")   ?? Str(root, "adapter_name")  ?? "",
+            LoraRank:      Int(root, "LoraRank")      ?? Int(root, "lora_rank")      ?? 0,
+            Epochs:        Int(root, "Epochs")        ?? Int(root, "epochs")         ?? 0,
+            LearningRate:  Real(root, "LearningRate") ?? Real(root, "learning_rate") ?? 0.0,
+            Phase:         Str(root, "Phase")         ?? Str(root, "phase")          ?? "",
+            DatasetFile:   Str(root, "DatasetFile")   ?? Str(root, "dataset_file")   ?? "",
+            AdapterPath:   Str(root, "AdapterPath")   ?? Str(root, "adapter_path")   ?? "",
+            HiveJson:      hiveJson,
+            Notes:         Str(root, "Notes")         ?? Str(root, "notes")          ?? "");
+    }
+
     // ── JSON / TSV helpers ────────────────────────────────────────────────────────
 
     private static string? Str(JsonElement e, string prop)
@@ -151,6 +217,10 @@ public sealed class MetadataImporter
     private static string? RawOrNull(JsonElement e, string prop)
         => e.TryGetProperty(prop, out var v) && v.ValueKind is not JsonValueKind.Null
             ? v.GetRawText() : null;
+
+    private static double? Real(JsonElement e, string prop)
+        => e.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.Number
+            && v.TryGetDouble(out var d) ? d : null;
 
     private static int IndexOf(string[] header, string col)
     {

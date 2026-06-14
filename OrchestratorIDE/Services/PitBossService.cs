@@ -167,12 +167,54 @@ public sealed class PitBossService
 
     // ── Plan persistence ──────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Optional SQL dual-write target (Phase 2 of the JSON→SQLite migration).
+    /// Set once at app startup. When non-null, every SavePlan call also upserts a
+    /// PlanRecord. Best-effort: a DB failure never affects the file write.
+    /// </summary>
+    public static Data.PlanRepository? PlanRepo { get; set; }
+
     public static void SavePlan(TrainingPlan plan, string pitRoot)
     {
         var dir = Path.Combine(pitRoot, "training_pit", "plans");
         Directory.CreateDirectory(dir);
         var json = JsonSerializer.Serialize(plan, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(Path.Combine(dir, plan.PlanFileName), json);
+
+        // Phase 2 dual-write: mirror into SQL. File stays canonical.
+        TryDualWritePlan(plan);
+    }
+
+    private static void TryDualWritePlan(TrainingPlan plan)
+    {
+        var repo = PlanRepo;
+        if (repo is null) return;
+        try
+        {
+            repo.Upsert(new Data.PlanRecord(
+                PlanId:        plan.PlanId,
+                CreatedAt:     plan.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                Goal:          plan.Goal,
+                Persona:       plan.Persona,
+                Style:         plan.Style,
+                LanguagesJson: plan.Languages.Count > 0
+                                   ? JsonSerializer.Serialize(plan.Languages) : null,
+                TaskMixJson:   plan.TaskMix.Count > 0
+                                   ? JsonSerializer.Serialize(plan.TaskMix) : null,
+                DatasetTarget: plan.DatasetTarget,
+                DatasetSource: plan.DatasetSource,
+                BaseModel:     plan.BaseModel,
+                AdapterName:   plan.AdapterName,
+                LoraRank:      plan.LoraRank,
+                Epochs:        plan.Epochs,
+                LearningRate:  plan.LearningRate,
+                Phase:         plan.Phase.ToString(),
+                DatasetFile:   plan.DatasetFile,
+                AdapterPath:   plan.AdapterPath,
+                HiveJson:      plan.Hive is null ? null : JsonSerializer.Serialize(plan.Hive),
+                Notes:         plan.Notes));
+        }
+        catch { /* Best-effort — never propagate DB failures to the caller */ }
     }
 
     public static List<TrainingPlan> LoadPlans(string pitRoot)
