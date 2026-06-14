@@ -102,6 +102,16 @@ public sealed class DatasetRepository : RepositoryBase
     /// <summary>True if the index has no rows — use as a cue to fall back to file scan.</summary>
     public bool IsEmpty() => Count() == 0;
 
+    /// <summary>
+    /// Deletes all rows whose <c>indexed_at</c> is strictly older than <paramref name="scanTs"/>.
+    /// Call after upserting all files from a scan (all current files will have been stamped
+    /// with <paramref name="scanTs"/>), so only rows for deleted/renamed files are removed.
+    /// Returns the number of rows deleted.
+    /// </summary>
+    public int PruneOlderThan(string scanTs)
+        => Execute("DELETE FROM datasets WHERE indexed_at < $ts",
+            ps => P(ps, "$ts", scanTs));
+
     private static DatasetRecord Map(Microsoft.Data.Sqlite.SqliteDataReader r) => new(
         FilePath:        GetStr(r, "file_path")   ?? "",
         Name:            GetStr(r, "name")         ?? "",

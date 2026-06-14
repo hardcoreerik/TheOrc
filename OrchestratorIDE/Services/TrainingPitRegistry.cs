@@ -93,6 +93,10 @@ public static class TrainingPitRegistry
     /// </summary>
     public static List<DatasetInfo> LoadDatasets(string pitRoot)
     {
+        // Capture the repo reference BEFORE any I/O — if the workspace switches
+        // mid-scan, this reference stays bound to the workspace that launched the scan.
+        var capturedRepo = DatasetRepo;
+
         var dir = System.IO.Path.Combine(pitRoot, "training_pit", "datasets");
         if (!Directory.Exists(dir)) return [];
 
@@ -205,17 +209,19 @@ public static class TrainingPitRegistry
 
         var sorted = results.OrderByDescending(d => d.LastModified).ToList();
 
-        // Phase 3 dual-write: index into SQL so callers can query without re-scanning.
-        TryIndexDatasets(sorted);
+        // Phase 3 dual-write: index into SQL using the pre-captured repo reference
+        // so a mid-scan workspace switch cannot contaminate the new workspace's DB.
+        TryIndexDatasets(sorted, capturedRepo);
 
         return sorted;
     }
 
-    private static void TryIndexDatasets(List<DatasetInfo> list)
+    private static void TryIndexDatasets(List<DatasetInfo> list, Data.DatasetRepository? repo)
     {
-        var repo = DatasetRepo;
         if (repo is null) return;
-        var now = DateTime.UtcNow.ToString("o");
+        // Single timestamp for the whole batch — rows from this scan get this stamp;
+        // PruneOlderThan deletes any rows (deleted/renamed files) with an older stamp.
+        var scanTs = DateTime.UtcNow.ToString("o");
         foreach (var di in list)
         {
             try
@@ -233,10 +239,12 @@ public static class TrainingPitRegistry
                     EvalCount:       di.EvalCount,
                     TotalCount:      di.TotalCount,
                     LastModified:    di.LastModified.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                    IndexedAt:       now));
+                    IndexedAt:       scanTs));
             }
             catch { /* Best-effort — never affect the file scan result */ }
         }
+        try { repo.PruneOlderThan(scanTs); }
+        catch { }
     }
 
     private static int CountLines(string path)

@@ -157,12 +157,13 @@ public sealed class MetadataImporter
         int ok = 0, err = 0;
         try
         {
-            // Reuse LoadDatasets to get the parsed list (avoids duplicating file logic).
-            // TryIndexDatasets inside LoadDatasets will also fire if DatasetRepo is set,
-            // but the MetadataImporter path calls Upsert directly so it works even when
-            // TrainingPitRegistry.DatasetRepo is not yet set at backfill time.
-            var now  = DateTime.UtcNow.ToString("o");
-            var list = Services.TrainingPitRegistry.LoadDatasets(_root);
+            // Capture scan timestamp before any I/O so all rows in this batch share it.
+            // After upserting, PruneOlderThan removes rows for deleted/renamed files.
+            // LoadDatasets also fires TryIndexDatasets internally (using the static
+            // DatasetRepo), but that is fine — the explicit _datasets upserts here are
+            // the authoritative write for the backfill path.
+            var scanTs = DateTime.UtcNow.ToString("o");
+            var list   = Services.TrainingPitRegistry.LoadDatasets(_root);
             foreach (var di in list)
             {
                 try
@@ -180,11 +181,13 @@ public sealed class MetadataImporter
                         EvalCount:       di.EvalCount,
                         TotalCount:      di.TotalCount,
                         LastModified:    di.LastModified.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                        IndexedAt:       now));
+                        IndexedAt:       scanTs));
                     ok++;
                 }
                 catch { err++; }
             }
+            // Prune phantom rows (files deleted/renamed since last scan).
+            try { _datasets.PruneOlderThan(scanTs); } catch { }
         }
         catch { err++; }
         return (ok, err);
