@@ -122,7 +122,7 @@ Two are designed; two are deferred with rationale.
 | Item | Target | Status | Design |
 |---|---|---|---|
 | **Worktree-per-task isolation** | v1.5 | **Shipped** | [WORKTREE_ISOLATION_DESIGN.md](WORKTREE_ISOLATION_DESIGN.md) |
-| **Reviewer Quality Gate** | v1.5 | Formalized | [REVIEWER_QUALITY_GATE.md](REVIEWER_QUALITY_GATE.md) |
+| **Reviewer Quality Gate** | v1.5 | **Shipped** | [REVIEWER_QUALITY_GATE.md](REVIEWER_QUALITY_GATE.md) |
 | **SQLite task board** | v1.6 | Deferred | — |
 | **Skills system (Anthropic Skills spec)** | v1.5+ | Deferred | — |
 
