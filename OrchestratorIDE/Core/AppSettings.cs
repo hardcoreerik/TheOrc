@@ -244,6 +244,13 @@ public class AppSettings
     /// </summary>
     public bool SwarmReviewGateEnabled { get; set; } = true;
 
+    /// <summary>Local Ollama reviewer mode. "Off" disables it; "Advisory" shows findings without blocking;
+    /// "Gated" holds the run when BLOCKER findings are present.</summary>
+    public string SwarmLocalReviewMode  { get; set; } = "Off";
+
+    /// <summary>Ollama model used for local advisory/gated review. Must be installed in Ollama.</summary>
+    public string SwarmLocalReviewModel { get; set; } = "qwen2.5-coder:14b";
+
     // ── Updates ───────────────────────────────────────────────────────────
     /// <summary>Whether to silently check GitHub for newer releases on startup.</summary>
     public bool      CheckForUpdates        { get; set; } = true;

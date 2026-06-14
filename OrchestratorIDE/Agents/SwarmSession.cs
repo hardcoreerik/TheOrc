@@ -84,6 +84,10 @@ public class SwarmSession
     public bool            ReviewGateEnabled     { get; set; } = false;
     /// <summary>When true, each worker gets an isolated worktree — see WorktreeManager. Opt-in via AppSettings.</summary>
     public bool            HiveWorktreeIsolation { get; set; } = false;
+    /// <summary>Local Ollama reviewer mode: "Off", "Advisory", or "Gated".</summary>
+    public string          LocalReviewMode       { get; set; } = "Off";
+    /// <summary>Ollama model for local advisory/gated review.</summary>
+    public string          LocalReviewModel      { get; set; } = "qwen2.5-coder:14b";
 
     public SwarmSession(OllamaClient ollama, string bossModel, string? workspaceRoot,
         string? workerModel = null, string? researcherModel = null)
@@ -618,6 +622,36 @@ public class SwarmSession
                 {
                     Activity($"⚠ Gate review failed: {ex.Message}", "boss");
                     _trace?.WriteEvent("gate_error", ex.Message);
+                }
+            }
+
+            // ── Local Ollama reviewer (advisory / gated) ──────────────────────
+            if (LocalReviewMode != "Off" && stagedFiles.Length > 0 &&
+                !string.IsNullOrEmpty(_workspaceRoot))
+            {
+                var label = LocalReviewMode == "Gated" ? "Reviewer Gate" : "Reviewer (advisory)";
+                Activity($"🔍 {label} — {LocalReviewModel} reviewing staged output…", "boss");
+                try
+                {
+                    var localResult = await Services.Swarm.OllamaReviewService.RunAsync(
+                        OutputProjectDir, _workspaceRoot, LocalReviewModel, ct: ct);
+                    if (localResult is not null)
+                    {
+                        Activity($"🔍 {label}: {localResult.Verdict} — {localResult.Findings.Count} finding(s)", "boss");
+                        OnGateResult?.Invoke(localResult);
+                        if (LocalReviewMode == "Gated" &&
+                            localResult.Verdict == Services.Swarm.ReviewGateService.GateVerdict.Blocker)
+                            Activity("⚠ Reviewer Gate found BLOCKER(s) — review findings before applying staged output.", "boss");
+                    }
+                    else
+                    {
+                        Activity($"🔍 {label} skipped — Ollama not reachable or model not installed.", "boss");
+                    }
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    Activity($"⚠ Local review failed: {ex.Message}", "boss");
                 }
             }
 

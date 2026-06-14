@@ -226,6 +226,7 @@ public partial class SwarmBoardPanel : UserControl
         UpdateSlotButtons(slots);
         RefreshGate();
         UpdateCapabilityBadges();
+        InitLocalReviewControls();
         DiagramGrid.SizeChanged += (_, _) => DrawConnectionLines();
 
         // Ctrl+0 → reset stream font size
@@ -468,6 +469,31 @@ public partial class SwarmBoardPanel : UserControl
 
     private bool HasWorkspace()
         => !string.IsNullOrWhiteSpace(WorkspaceRoot);
+
+    // ── Local reviewer controls ───────────────────────────────────────────────
+
+    private void InitLocalReviewControls()
+    {
+        var mode  = Settings?.SwarmLocalReviewMode  ?? "Off";
+        var model = Settings?.SwarmLocalReviewModel ?? "qwen2.5-coder:14b";
+
+        CbLocalReviewMode.SelectedIndex = mode switch
+        {
+            "Advisory" => 1,
+            "Gated"    => 2,
+            _          => 0,
+        };
+        TbLocalReviewModel.Text        = model;
+        TbLocalReviewModel.Visibility  = mode == "Off" ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void CbLocalReviewMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (CbLocalReviewMode.SelectedItem is not ComboBoxItem item) return;
+        var mode = item.Content?.ToString() ?? "Off";
+        if (Settings is not null) Settings.SwarmLocalReviewMode = mode;
+        TbLocalReviewModel.Visibility = mode == "Off" ? Visibility.Collapsed : Visibility.Visible;
+    }
 
     private void RefreshGate()
     {
@@ -873,6 +899,17 @@ public partial class SwarmBoardPanel : UserControl
             Dispatcher.InvokeAsync(() => ShowOwnershipConflict(task, conflicts));
         _session.ReviewGateEnabled     = Settings?.SwarmReviewGateEnabled ?? true;
         _session.HiveWorktreeIsolation = Settings?.HiveWorktreeIsolation  ?? false;
+
+        var reviewMode = (CbLocalReviewMode.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Off";
+        _session.LocalReviewMode  = reviewMode;
+        _session.LocalReviewModel = TbLocalReviewModel.Text.Trim().Length > 0
+            ? TbLocalReviewModel.Text.Trim()
+            : "qwen2.5-coder:14b";
+        if (Settings is not null)
+        {
+            Settings.SwarmLocalReviewMode  = _session.LocalReviewMode;
+            Settings.SwarmLocalReviewModel = _session.LocalReviewModel;
+        }
 
         _ = _session.RunAsync(goal);
         StatusChanged?.Invoke("Swarm active");

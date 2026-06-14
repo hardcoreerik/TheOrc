@@ -977,6 +977,44 @@
                                  AutomationProperties.AutomationId="Swarm.GoalInput"/>
                     </Border>
 
+                    <!-- Local reviewer mode strip -->
+                    <Border Margin="0,8,0,0" Background="#0A0E0A"
+                            BorderBrush="#1A2A1A" BorderThickness="1"
+                            CornerRadius="5" Padding="10,6">
+                        <DockPanel LastChildFill="True">
+                            <TextBlock DockPanel.Dock="Left"
+                                       Text="🔍 Review:"
+                                       Foreground="#7A8A6A" FontSize="11"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,8,0"/>
+                            <ComboBox x:Name="CbLocalReviewMode"
+                                      DockPanel.Dock="Left"
+                                      MinWidth="88"
+                                      BorderBrush="#2A4A2A" Padding="5,2"
+                                      VerticalAlignment="Center"
+                                      Foreground="#1A1A1A"
+                                      Margin="0,0,8,0"
+                                      SelectionChanged="CbLocalReviewMode_SelectionChanged"
+                                      AutomationProperties.AutomationId="Swarm.LocalReviewMode">
+                                <ComboBox.ItemContainerStyle>
+                                    <Style TargetType="ComboBoxItem">
+                                        <Setter Property="Foreground" Value="Black"/>
+                                    </Style>
+                                </ComboBox.ItemContainerStyle>
+                                <ComboBoxItem Content="Off"/>
+                                <ComboBoxItem Content="Advisory"/>
+                                <ComboBoxItem Content="Gated"/>
+                            </ComboBox>
+                            <TextBox x:Name="TbLocalReviewModel"
+                                     Background="#141E14" Foreground="#A8CC80"
+                                     BorderBrush="#2A4A2A" BorderThickness="1"
+                                     FontSize="11" Padding="6,3"
+                                     VerticalAlignment="Center"
+                                     ToolTip="Ollama model for local review (must be installed)"
+                                     AutomationProperties.AutomationId="Swarm.LocalReviewModel"/>
+                        </DockPanel>
+                    </Border>
+
                     <Button x:Name="BtnLaunch"
                             Content="Launch Swarm  ⚡"
                             Margin="0,12,0,0"
