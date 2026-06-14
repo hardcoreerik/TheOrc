@@ -156,3 +156,66 @@ public sealed class HiveEventPost
     public string WorkerId  { get; set; } = "";
     public string SessionId { get; set; } = "";
 }
+
+// ── HIVE Mesh Heartbeat ───────────────────────────────────────────────────────
+
+/// <summary>
+/// Payload for POST /hive/mesh/heartbeat — the unified peer-to-peer liveness signal.
+/// Replaces the role of the UDP beacon for enrolled peers (beacon is retained for discovery only).
+/// Sent every 15 s (LAN) or 30 s (Tailscale) from every node to every peer in hive-peers.json.
+/// </summary>
+public sealed record HiveMeshHeartbeatPayload
+{
+    public string   NodeId        { get; init; } = "";
+    public string   NodeName      { get; init; } = "";
+    public long     Timestamp     { get; init; }       // Unix ms UTC
+    public string   CurrentRole   { get; init; } = ""; // "Observer" | "Worker" | "Controller"
+    public int      VramFreeMb    { get; init; }
+    public string[] ActiveTaskIds { get; init; } = [];
+    public long     Sequence      { get; init; }
+}
+
+// ── HIVE Pairing ─────────────────────────────────────────────────────────────
+
+/// <summary>Body of POST /hive/pair — initiates a pairing ceremony.</summary>
+public sealed class HivePairingRequest
+{
+    public string SessionId          { get; set; } = "";  // random GUID from initiator
+    public string InitiatorNodeId    { get; set; } = "";
+    public string InitiatorName      { get; set; } = "";
+    public string InitiatorFingerprint { get; set; } = "";
+    /// <summary>Initiator's Ed25519 signing public key DER, Base64.</summary>
+    public string SigningPublicKeyDer { get; set; } = "";
+    /// <summary>Initiator's ECDH exchange public key DER, Base64.</summary>
+    public string ExchangePublicKeyDer { get; set; } = "";
+    /// <summary>Signed(SessionId + InitiatorNodeId), Base64 — proves possession of signing key.</summary>
+    public string ProofSignature     { get; set; } = "";
+    public bool   IsMobileClient     { get; set; }
+    public int    VramMb             { get; set; }
+    public string SuggestedRole      { get; set; } = "Worker";
+}
+
+/// <summary>Response to GET /hive/pair/{sessionId} — approval polling result.</summary>
+public sealed class HivePairingResponse
+{
+    /// <summary>"pending" | "approved" | "rejected" | "expired"</summary>
+    public string Status             { get; set; } = "pending";
+    public string? WarchiefNodeId    { get; set; }
+    public string? WarchiefName      { get; set; }
+    public string? WarchiefFingerprint { get; set; }
+    public string? WarchiefSigningPublicKeyDer  { get; set; }
+    public string? WarchiefExchangePublicKeyDer { get; set; }
+    public string? AssignedRole      { get; set; }  // actual role granted
+    public string[]? AllowedLanes    { get; set; }
+}
+
+// ── HIVE Election ─────────────────────────────────────────────────────────────
+
+/// <summary>Body for POST /hive/mesh/election/* messages.</summary>
+public sealed record ElectionMessage
+{
+    public string NodeId   { get; init; } = "";  // sender NodeId — overwritten with authenticated id on receipt
+    public string Payload  { get; init; } = "";  // context-dependent (suspect NodeId, "claim", "stepdown", etc.)
+    public long   Ts       { get; init; }        // Unix ms UTC
+    public string Sig      { get; init; } = "";  // Base64 signature of (NodeId+Payload+Ts)
+}

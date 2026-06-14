@@ -474,6 +474,76 @@ public partial class HivePanel : UserControl
     // Nodes seen via UDP beacon but not yet trusted (not in hive-hosts.json).
     private readonly Dictionary<string, Services.Hive.HiveBeaconMessage> _discovered = [];
 
+    // ── HIVE pairing approval + election state ─────────────────────────────────
+
+    /// <summary>Node server reference — set by MainWindow after Start() so approve/reject work.</summary>
+    public Services.Hive.HiveNodeServer? NodeServer { get; set; }
+
+    /// <summary>
+    /// Called by MainWindow when a remote node wants to pair with this node.
+    /// Shows a blocking dialog so the admin can approve or reject inline.
+    /// </summary>
+    public void OnPairingRequest(string sessionId, Services.Hive.HivePairingRequest req)
+    {
+        if (!Dispatcher.CheckAccess()) { Dispatcher.InvokeAsync(() => OnPairingRequest(sessionId, req)); return; }
+
+        var win = Window.GetWindow(this);
+        var approveMsg = $"HIVE pairing request\n\nNode:        {req.InitiatorName}" +
+                         $"\nFingerprint: {req.InitiatorFingerprint}" +
+                         $"\nSession:     {sessionId}\n\nApprove this node as a Worker?";
+
+        var result = MessageBox.Show(win, approveMsg,
+            "HIVE — Incoming Pairing Request",
+            MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+        if (result == MessageBoxResult.Yes)
+        {
+            var mobileResult = MessageBox.Show(win,
+                "Is this a mobile or Android device?\n\n" +
+                "Mobile nodes are capped at Worker role, restricted to the 'researcher' lane, " +
+                "and excluded from leader election.",
+                "HIVE — Device Type",
+                MessageBoxButton.YesNo, MessageBoxImage.Question);
+            var isMobile = mobileResult == MessageBoxResult.Yes;
+            var lanes    = isMobile ? new[] { "researcher" } : Array.Empty<string>();
+            NodeServer?.ApprovePairing(sessionId, Services.Hive.HiveNodeRole.Worker, lanes, isMobile);
+        }
+        else
+        {
+            NodeServer?.RejectPairing(sessionId);
+        }
+
+        var color  = result == MessageBoxResult.Yes ? System.Windows.Media.Brushes.LimeGreen
+                                                    : System.Windows.Media.Brushes.OrangeRed;
+        var label  = result == MessageBoxResult.Yes ? "approved" : "rejected";
+        var row    = new EventRow($"[{DateTime.Now:HH:mm:ss}] Pairing {label}: {req.InitiatorName}", color);
+        IcEventLog.Items.Add(row);
+        while (IcEventLog.Items.Count > MaxEventRows) IcEventLog.Items.RemoveAt(0);
+        SvEventLog.ScrollToEnd();
+    }
+
+    /// <summary>Called by MainWindow when the election service fires OnStateChanged.</summary>
+    public void OnElectionStateChanged(Services.Hive.ElectionState state, string? warchiefNodeId)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.InvokeAsync(() => OnElectionStateChanged(state, warchiefNodeId));
+            return;
+        }
+        var label = state switch
+        {
+            Services.Hive.ElectionState.TemporaryWarchief => "⚔ This node is now temporary Warchief",
+            Services.Hive.ElectionState.RecoverySync      => $"🔄 Warchief recovering ({warchiefNodeId?[..8]}…)",
+            Services.Hive.ElectionState.Normal            => $"👑 Warchief: {warchiefNodeId?[..8]}…",
+            _                                             => $"Election: {state}",
+        };
+        var row = new EventRow($"[{DateTime.Now:HH:mm:ss}] {label}",
+            System.Windows.Media.Brushes.DeepSkyBlue);
+        IcEventLog.Items.Add(row);
+        while (IcEventLog.Items.Count > MaxEventRows) IcEventLog.Items.RemoveAt(0);
+        SvEventLog.ScrollToEnd();
+    }
+
     /// <summary>Called by MainWindow when its HiveBeacon fires OnNodeSeen.</summary>
     public void OnBeaconNodeSeen(Services.Hive.HiveBeaconMessage msg)
     {

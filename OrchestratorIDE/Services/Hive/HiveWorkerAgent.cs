@@ -42,6 +42,13 @@ public sealed class HiveWorkerAgent : IDisposable
     /// <summary>Warchief's HiveTaskQueue URL (e.g. "http://192.168.1.10:7079").</summary>
     public string WarchiefUrl { get; set; } = "";
 
+    /// <summary>
+    /// Warchief's NodeId (hex-SHA256 of signing key). When set, peer lookup for
+    /// HMAC signing uses NodeId directly instead of IP/host matching — immune to
+    /// hostname vs IP mismatches when the worker was configured by hostname.
+    /// </summary>
+    public string WarchiefNodeId { get; set; } = "";
+
     /// <summary>Task roles this worker accepts. Empty = all roles.</summary>
     public string[] Lanes     { get; set; } = [];
 
@@ -113,13 +120,16 @@ public sealed class HiveWorkerAgent : IDisposable
 
     private async Task<HiveTaskBundle?> PollNextTaskAsync(CancellationToken ct)
     {
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         var lanes = Lanes.Length > 0
             ? string.Join(",", Lanes)
             : "researcher,coder,uideveloper,tester";
 
         var url  = $"{WarchiefUrl.TrimEnd('/')}/hive/tasks/next?lanes={lanes}&workerId={WorkerId}";
-        var resp = await http.GetAsync(url, ct);
+        using var req  = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, url);
+        SignIfPaired(req, []);
+
+        using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        var resp = await http.SendAsync(req, ct);
 
         if (resp.StatusCode == System.Net.HttpStatusCode.NoContent) return null;
         if (!resp.IsSuccessStatusCode) return null;
@@ -186,20 +196,24 @@ public sealed class HiveWorkerAgent : IDisposable
 
     private async Task<string?> ClaimTaskAsync(HiveTaskBundle bundle, CancellationToken ct)
     {
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         var url  = $"{WarchiefUrl.TrimEnd('/')}/hive/tasks/{bundle.TaskId}/claim";
-        var body = JsonSerializer.Serialize(new HiveClaimRequest
+        var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new HiveClaimRequest
         {
             WorkerId  = WorkerId,
             WorkerUrl = WorkerUrl,
             Lanes     = Lanes,
-        }, _json);
+        }, _json));
 
-        var resp = await http.PostAsync(url,
-            new StringContent(body, Encoding.UTF8, "application/json"), ct);
+        using var req = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, url)
+            { Content = new System.Net.Http.ByteArrayContent(body) };
+        req.Content.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+        SignIfPaired(req, body);
+
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        var resp = await http.SendAsync(req, ct);
         if (!resp.IsSuccessStatusCode) return null;
 
-        // Extract claimToken from response so we can prove we own this task on /complete.
         var json = await resp.Content.ReadAsStringAsync(ct);
         try
         {
@@ -208,16 +222,16 @@ public sealed class HiveWorkerAgent : IDisposable
                 return tok.GetString();
         }
         catch { }
-        return "";   // claimed but no token in response — allow (backward-compat)
+        return "";
     }
 
     private async Task HeartbeatLoopAsync(HiveTaskBundle bundle, string claimToken, CancellationToken ct)
     {
-        var hbBody = JsonSerializer.Serialize(new HiveHeartbeatRequest
+        var hbBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new HiveHeartbeatRequest
         {
             WorkerId   = WorkerId,
             ClaimToken = claimToken,
-        }, _json);
+        }, _json));
 
         while (!ct.IsCancellationRequested)
         {
@@ -226,20 +240,67 @@ public sealed class HiveWorkerAgent : IDisposable
 
             try
             {
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
                 var url = $"{WarchiefUrl.TrimEnd('/')}/hive/tasks/{bundle.TaskId}/heartbeat";
-                await http.PostAsync(url, new StringContent(hbBody, Encoding.UTF8, "application/json"), ct);
+                using var req = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, url)
+                    { Content = new System.Net.Http.ByteArrayContent(hbBytes) };
+                req.Content.Headers.ContentType =
+                    new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+                SignIfPaired(req, hbBytes);
+
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+                await http.SendAsync(req, ct);
             }
-            catch { /* non-fatal — watchdog will re-queue if too many misses */ }
+            catch { /* non-fatal */ }
         }
     }
 
     private async Task PostResultAsync(string taskId, string action, HiveTaskResult result, CancellationToken ct)
     {
+        var url   = $"{WarchiefUrl.TrimEnd('/')}/hive/tasks/{taskId}/{action}";
+        var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(result, _json));
+
+        using var req = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, url)
+            { Content = new System.Net.Http.ByteArrayContent(bytes) };
+        req.Content.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+        SignIfPaired(req, bytes);
+
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        var url  = $"{WarchiefUrl.TrimEnd('/')}/hive/tasks/{taskId}/{action}";
-        var body = JsonSerializer.Serialize(result, _json);
-        await http.PostAsync(url, new StringContent(body, Encoding.UTF8, "application/json"), ct);
+        await http.SendAsync(req, ct);
+    }
+
+    // ── Auth signing helper ───────────────────────────────────────────────────
+
+    private void SignIfPaired(System.Net.Http.HttpRequestMessage req, byte[] body)
+    {
+        try
+        {
+            var identity = HiveIdentity.Load();
+
+            // Prefer NodeId-based lookup (immune to hostname vs IP mismatches).
+            // Fall back to host-string matching from WarchiefUrl when WarchiefNodeId is unset.
+            HivePeer? warchief;
+            if (!string.IsNullOrEmpty(WarchiefNodeId))
+            {
+                warchief = HivePeerStore.Default.Find(WarchiefNodeId);
+            }
+            else
+            {
+                if (!Uri.TryCreate(WarchiefUrl, UriKind.Absolute, out var uri)) return;
+                var warchiefHost = uri.Host;
+                if (string.IsNullOrEmpty(warchiefHost)) return;
+                warchief = HivePeerStore.Default.All()
+                    .FirstOrDefault(p => !p.Revoked &&
+                        p.LastKnownAddress.StartsWith(warchiefHost + ":"));
+            }
+            if (warchief is null) return;
+
+            var secret = HivePeerStore.Default.GetSharedSecret(warchief.NodeId);
+            if (secret is null) return;
+
+            HiveAuthMiddleware.SignRequest(req, body, identity.NodeId, secret);
+        }
+        catch { /* non-fatal — auth is advisory during grace period */ }
     }
 
     // ── Task execution (single-pass LLM call) ─────────────────────────────────
@@ -361,17 +422,23 @@ public sealed class HiveWorkerAgent : IDisposable
     {
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-            var url  = $"{WarchiefUrl.TrimEnd('/')}/hive/events";
-            var body = JsonSerializer.Serialize(new HiveEventPost
+            var url   = $"{WarchiefUrl.TrimEnd('/')}/hive/events";
+            var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new HiveEventPost
             {
                 Type     = type,
-                Msg      = msg,
+                Msg      = HiveAuthMiddleware.Clamp(msg, 2048) ?? "",  // cap event messages at 2KB
                 TaskId   = taskId,
                 WorkerId = WorkerId,
-            }, _json);
-            using var content = new StringContent(body, Encoding.UTF8, "application/json");
-            await http.PostAsync(url, content, ct);
+            }, _json));
+
+            using var req = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, url)
+                { Content = new System.Net.Http.ByteArrayContent(bytes) };
+            req.Content.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+            SignIfPaired(req, bytes);
+
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            await http.SendAsync(req, ct);
         }
         catch { /* non-fatal — observability must not break execution */ }
     }

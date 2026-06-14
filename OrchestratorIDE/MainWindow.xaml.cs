@@ -513,7 +513,19 @@ public partial class MainWindow : Window
                     name, ollamaUrlForPeers, [.. models], vramMb, vramMb, lanes, rpcPort);
 
                 _hiveNodeServer = new Services.Hive.HiveNodeServer();
+                // Wire pairing-approval event so incoming requests reach the UI.
+                _hiveNodeServer.OnPairingRequestReceived += (sessionId, pairingReq) =>
+                    Dispatcher.InvokeAsync(() => _hivePanel.OnPairingRequest(sessionId, pairingReq));
+                _hivePanel.NodeServer = _hiveNodeServer;
                 _hiveNodeServer.Start(info);
+
+                // Wire election state changes so the UI crown badge and task queue handoff work.
+                if (_hiveNodeServer.ElectionService is { } election)
+                {
+                    election.OnStateChanged += (state, warchiefNodeId) =>
+                        Dispatcher.InvokeAsync(() =>
+                            _hivePanel.OnElectionStateChanged(state, warchiefNodeId));
+                }
 
                 _hiveBeacon = new Services.Hive.HiveBeacon();
                 _hiveBeacon.Start(name, ollamaUrlForPeers, models, vramMb);
@@ -564,17 +576,21 @@ public partial class MainWindow : Window
                     var workerOllama = new Core.OllamaClient(_settings.OllamaHost);
                     _hiveWorkerAgent = new Services.Hive.HiveWorkerAgent
                     {
-                        WorkerId      = name,
-                        WorkerUrl     = _settings.OllamaHost,
-                        WarchiefUrl   = _settings.HiveWarchiefUrl,
-                        Lanes         = string.IsNullOrWhiteSpace(_settings.HiveWorkerLanes)
+                        WorkerId        = name,
+                        WorkerUrl       = _settings.OllamaHost,
+                        WarchiefUrl     = _settings.HiveWarchiefUrl,
+                        // Resolve WarchiefNodeId by matching the configured host against peer
+                        // LastKnownAddress (stored as "ip:port"). Try hostname equality first,
+                        // then DNS resolution to cover MagicDNS/Tailscale hostname configs.
+                        WarchiefNodeId = ResolveWarchiefNodeId(_settings.HiveWarchiefUrl),
+                        Lanes           = string.IsNullOrWhiteSpace(_settings.HiveWorkerLanes)
                                             ? []
                                             : _settings.HiveWorkerLanes
                                                 .Split(',', StringSplitOptions.RemoveEmptyEntries)
                                                 .Select(l => l.Trim())
                                                 .ToArray(),
-                        Ollama         = workerOllama,
-                        CoderModel     = _settings.LastWorkerModel,
+                        Ollama          = workerOllama,
+                        CoderModel      = _settings.LastWorkerModel,
                         ResearcherModel = _settings.LastResearcherModel,
                     };
                     _hiveWorkerAgent.OnLog += msg => AddActivity(
@@ -2002,6 +2018,44 @@ public partial class MainWindow : Window
     private void AgentMode_Changed(object sender, RoutedEventArgs e) { }
 
     // ── HIVE MIND: Set Warchief target ─────────────────────────────────────────
+
+    /// <summary>
+    /// Finds the Warchief's NodeId from the peer store by matching the configured URL host
+    /// against LastKnownAddress (stored as "ip:port"). Tries direct host comparison first,
+    /// then DNS resolution so Tailscale/MagicDNS hostnames are handled correctly.
+    /// Returns empty string if no matching peer is found — signing falls back to
+    /// host-string matching in SignIfPaired (best-effort during grace period).
+    /// </summary>
+    private static string ResolveWarchiefNodeId(string warchiefUrl)
+    {
+        if (!Uri.TryCreate(warchiefUrl, UriKind.Absolute, out var uri)) return "";
+        var host = uri.Host;
+        if (string.IsNullOrEmpty(host)) return "";
+
+        var peers = Services.Hive.HivePeerStore.Default.All()
+            .Where(p => !p.Revoked && !string.IsNullOrEmpty(p.LastKnownAddress))
+            .ToList();
+
+        // Try direct host equality on the stored "ip:port" address first.
+        var match = peers.FirstOrDefault(p =>
+            p.LastKnownAddress.Split(':')[0].Equals(host, StringComparison.OrdinalIgnoreCase));
+        if (match is not null) return match.NodeId;
+
+        // Fall back to DNS resolution so configured hostnames can match stored IPs.
+        try
+        {
+            var addresses = System.Net.Dns.GetHostAddresses(host);
+            foreach (var addr in addresses)
+            {
+                var addrStr = addr.ToString();
+                match = peers.FirstOrDefault(p => p.LastKnownAddress.StartsWith(addrStr + ":"));
+                if (match is not null) return match.NodeId;
+            }
+        }
+        catch { /* DNS failure is non-fatal; signing will fall back to host-string matching */ }
+
+        return "";
+    }
 
     private void OnWarchiefTargetSelected(string url)
     {

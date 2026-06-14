@@ -1,9 +1,14 @@
 # HIVE MIND — Secure Pairing and Node Authentication Specification
 
-> Status: Design — not yet implemented  
+> Status: Partially implemented — core crypto (HiveIdentity, HivePeerStore, HiveAuthMiddleware,  
+>         HiveNodeServer pairing endpoints, HiveMeshHeartbeat, HiveElectionService) shipped in v1.6.  
+>         UI approval card, HivePanel crown badge, and installer probe/join card still pending.  
+>         HMAC hard enforcement in v1.7 (grace period: `GracePeriodActive=true` flag, manually disabled when all nodes enrolled).  
 > Scope: First-contact pairing, mutual node auth, session establishment, replay resistance,  
->        trusted-peer persistence, request signing, re-pairing / revocation, migration path  
-> Author: Claude Sonnet 4.6 + Erik, based on codebase audit 2026-06-14
+>        trusted-peer persistence, request signing, mesh heartbeat, leader election,  
+>        mobile/Android node support, rogue-entity defense, migration path  
+> Author: Claude Sonnet 4.6 + Erik, based on codebase audit 2026-06-14  
+> Updated: 2026-06-14 (v1.6 implementation pass)
 
 ---
 
@@ -477,7 +482,7 @@ The existing `hive-hosts.json` nodes are *named* but *unkeyed*. They cannot be m
 - Add `HiveAuthMiddleware` to `HiveTaskQueue` and `HiveNodeServer` (excluding the three open endpoints)
 - Unpaired nodes receive `401 { "error": "not_paired", "pair_url": "/hive/pair" }`
 - Add `X-Hive-*` header injection to `HiveWorkerAgent` (outgoing requests)
-- **Grace period flag**: `AppSettings.HiveAuthGracePeriod` (bool, default `true` for 30 days post-upgrade). When `true`, unpaired nodes that provide `X-Hive-Legacy: 1` header are logged as warnings but permitted. When `false` (or after 30 days), the middleware rejects them with 401.
+- **Grace period flag**: `HiveAuthMiddleware.GracePeriodActive` (bool, default `true`). When `true`, unpaired/unsigned nodes are permitted (authenticated as `NodeId="anonymous"`). Set to `false` when all nodes are confirmed enrolled to enable hard enforcement. The mesh and election endpoints always use `GracePeriodActive = false` regardless.
 - Log a startup warning when any unpaired node is in `hive-hosts.json`
 
 ### Phase 3 — Hard enforcement (v1.7 or when Phase 4 durable storage lands)
@@ -817,6 +822,191 @@ private HttpRequestMessage SignRequest(HttpMethod method, string path, object? b
     return req;
 }
 ```
+
+---
+
+---
+
+## Section 8 — Unified Mesh Heartbeat
+
+### Why a new mechanism
+
+The existing system has three disconnected liveness signals: UDP broadcast beacon, 45s worker keep-alive to the task queue, and 2s `/events` poll. None of these authenticate the sender; none detect Warchief failure; none handle topology changes (new peer, node dropout, recovery).
+
+The mesh heartbeat collapses all of this into one authenticated peer-to-peer pulse.
+
+### Protocol
+
+Every enrolled node runs `HiveMeshHeartbeat`. Every `HeartbeatIntervalMs` (15 s LAN, 30 s Tailscale), each node sends a signed `POST /hive/mesh/heartbeat` to every peer in its `hive-peers.json`. The payload:
+
+```json
+{
+  "nodeId":        "a3f7...",
+  "nodeName":      "HARDCOREPC",
+  "timestamp":     1718380800000,
+  "currentRole":   "Worker",
+  "vramFreeMb":    8192,
+  "activeTaskIds": ["task-42", "task-43"],
+  "sequence":      17
+}
+```
+
+HMAC-signed with `X-Hive-*` headers (same scheme as all authenticated endpoints).
+
+### Liveness thresholds
+
+| Missed heartbeats | State | UI |
+|---|---|---|
+| 0 | Online | Green node card |
+| 3 (≈45 s) | Suspect | Amber node card; election notice broadcast |
+| 6 (≈90 s) | Offline | Gray node card |
+
+### What it replaces
+
+- **UDP beacon** — retained only for unauthenticated new-node discovery. Enrolled peers use the mesh heartbeat. A node that has `hive-peers.json` entries does NOT need to listen for beacons to know about them.
+- **Worker 45s keep-alive** — still exists for task-level ownership (claim token guard). The mesh heartbeat adds node-level liveness on top.
+- **`/events` poll for connectivity** — events remain for task lifecycle observability; the heartbeat handles connectivity.
+
+---
+
+## Section 9 — Warchief Leader Election
+
+### Problem
+
+If the Warchief (MAINPC) crashes mid-session, the `HiveTaskQueue` goes with it. Workers have no target for heartbeats or result submission. Tasks are lost unless another node can take over.
+
+### Design constraints
+
+- N ≤ 10 nodes — Raft consensus is overkill
+- Deterministic winner — every node must arrive at the same answer without network round-trips
+- No single point of failure for the detection itself
+- Recovery must be clean — no double-execution of tasks, no lost results
+
+### Election state machine
+
+```
+Normal → SuspectDeclared → ElectionUnderway → TemporaryWarchief
+                                                      ↓
+                                               RecoverySync → Normal
+```
+
+**Trigger:** 3 consecutive missed heartbeats from the Warchief → node broadcasts a signed `POST /hive/mesh/election/suspect` to all peers with the suspected NodeId as payload.
+
+**Quorum:** Simple majority of online peers (last heartbeat within 90 s) must confirm the suspect. For N=2, one confirmation is enough — no quorum gap.
+
+**Winner rule (deterministic, no voting):**  
+Lowest `EnrollmentSeq` among peers where `MaxRole >= Worker` and `IsMobile == false` and online.  
+Every node independently applies this rule. They always agree.
+
+**Elected node broadcasts:** Signed `POST /hive/mesh/election/claim`. All peers accept if the claimer's `EnrollmentSeq` is lower than their own (or they are not themselves running for Warchief).
+
+**Task continuity:** Workers already executing continue — they just need a new target for heartbeats and result submission. The temporary Warchief reads the SQLite `runs` table for tasks in `pending` or `in_progress` with no recent heartbeat, re-queues them.
+
+### Recovery
+
+When the original Warchief comes back online:
+
+1. It sends `POST /hive/mesh/election/recover` to all peers
+2. Temporary Warchief sends a sync (completed/in-flight task IDs) then broadcasts `POST /hive/mesh/election/stepdown`
+3. All peers update `WarchiefNodeId` back to the original
+4. Crown badge in HivePanel moves back — no interruption to running tasks
+
+### What the user sees
+
+HivePanel node cards show a crown badge (👑) on whichever card currently holds Warchief role. When MAINPC crashes, its card goes amber then gray; HARDCOREPC gets the crown within 45 s. When MAINPC recovers, the crown moves back. No dialogs unless `AcceptControlFrom = Ask` on the candidate node.
+
+---
+
+## Section 10 — Mobile and Android Node Support
+
+### Mobile node class
+
+Android phones and tablets are treated as a distinct node class: **Observer by default, Researcher-Worker by permission, never Controller**.
+
+| Property | Mobile value |
+|---|---|
+| `MaxRole` | `Worker` (hard ceiling — never Controller) |
+| `AllowedLanes` | `["researcher"]` default; Coder/UIDEVELOPER/Tester require explicit grant |
+| `AcceptControlFrom` | `Never` — a phone can never assert or receive Warchief authority |
+| `IsMobile` | `true` — excluded from election candidates |
+| Firewall ports | None (mobile is initiator-only, no server) |
+
+### Pairing from mobile
+
+Mobile devices cannot run HttpListener. The Android companion app (future) is initiator-only:
+
+1. App listens for UDP beacon on port 7077 to find the Warchief IP
+2. Probes `GET /hive/info` to confirm it's a TheOrc node
+3. Sends `POST /hive/pair` with `isMobileClient: true`
+4. Polls `GET /hive/pair/{sessionId}` until approved/rejected
+5. Receives shared secret via the pairing response
+6. Stores shared secret in Android Keystore (hardware-backed on Android 6+)
+
+The approval card appears on the Warchief (desktop) side. Mobile user sees "Waiting for approval…". The Warchief user sees device name, "mobile client", and hardware summary (CPU-only, no VRAM). Default role suggestion: Observer.
+
+### Mobile task execution
+
+Mobile nodes poll `GET /hive/tasks/next?lanes=researcher` and execute researcher tasks via cloud API (no local Ollama needed). The task bundle spec is unchanged — mobile uses `ModelHint` to route to its API provider. Results are submitted via `POST /hive/tasks/{id}/complete` with HMAC signing using the shared secret from pairing.
+
+### Data model (already implemented)
+
+`HivePeer.IsMobile`, `HivePeer.MaxRole`, and `HivePeer.AllowedLanes` are all in the data model as of v1.6. When the Android app ships, it slots in with zero schema changes.
+
+---
+
+## Section 11 — Rogue Entity Defense
+
+### Threat model (updated)
+
+| Threat | V1.5 exposure | V1.6 mitigation |
+|---|---|---|
+| **T1 Queue drainage** | Any LAN peer can drain queue | HiveAuthMiddleware defined; wiring into HiveTaskQueue (7079) is pending (tracked in §12 checklist) |
+| **T2 Result poisoning (RCE)** | Any peer can POST poisoned code to /complete | Same — pending 7079 wiring; GracePeriodActive=true means advisory until wired |
+| **T3 Project exfiltration** | /tasks/next, /session/context unauthenticated | Same — pending 7079 wiring |
+| **T4 Worker impersonation** | WorkerId self-declared, never verified | NodeId from HMAC headers is authoritative; WorkerId field is display-only |
+| **T5 Heartbeat squatting** | Attacker heartbeats indefinitely to hold task | Auth required on /heartbeat (7079); pending 7079 wiring (see §12 checklist) |
+| **T6 Event stream surveillance** | /events is public | Auth pending 7079 wiring; Msg capped at 2 KB at send time |
+| **T7 Beacon spoofing** | UDP beacon unsigned | Beacon is display-only; all actions require HMAC over TCP |
+| **T8 Replay attack** | Same /complete body resubmitted | Nonce cache (5-min TTL, 1000 per peer); timestamp window ±30s |
+| **T9 Oversized payload DoS** | No length caps | WorkerId ≤64, Result ≤512KB, Msg ≤2KB, GUID validation |
+| **T10 Mobile rogue** | N/A | IsMobile=true: MaxRole=Worker, AcceptControlFrom=Never, excluded from election |
+| **T11 Election manipulation** | N/A (no election existed) | Election messages are HMAC-signed; winner is deterministic not vote-able |
+| **T12 Stranger on LAN** | Network presence = hive access | Enrollment required; unenrolled node gets 401 on all non-discovery endpoints |
+
+### Rogue entity on a shared LAN / Tailscale tailnet
+
+If an attacker joins the same LAN or Tailscale network:
+
+- They can hear UDP beacons (port 7077) — this is intentional and only reveals node names, Ollama URLs, and VRAM. No credentials or task data.
+- They can probe `GET /hive/info` on any node — also intentional (read-only, required for discovery).
+- Any attempt to poll `/tasks/next`, `/claim`, `/complete`, or send events requires a valid `X-Hive-Sig` from an enrolled peer. Without a shared secret (obtained only via the pairing ceremony + user approval), they get 401.
+- They cannot initiate pairing without being seen — `POST /hive/pair` fires `OnPairingRequestReceived` on the target node, showing an approval card with the unknown node's fingerprint. User rejects → no access ever.
+
+### What "grace period" means for defense
+
+While `GracePeriodActive=true` (the v1.6 default), unsigned requests are permitted (they authenticate as `NodeId="anonymous"`) without rejection. This means the rogue-entity defense is not yet fully active for unenrolled nodes. Flip the flag to `false` once all nodes are enrolled — no timer or automatic transition exists. The grace period does NOT affect nodes that have already completed pairing — those nodes' requests are fully validated immediately. Mesh and election endpoints are always fail-closed regardless of this flag.
+
+---
+
+## Section 12 — Implementation Status (v1.6)
+
+| Component | File | Status |
+|---|---|---|
+| Node identity generation | `HiveIdentity.cs` | ✅ Implemented |
+| Peer trust store | `HivePeerStore.cs` | ✅ Implemented |
+| HMAC auth middleware | `HiveAuthMiddleware.cs` | ✅ Implemented |
+| Pairing endpoints | `HiveNodeServer.cs` | ✅ Implemented |
+| Mesh heartbeat service | `HiveMeshHeartbeat.cs` | ✅ Implemented |
+| Leader election | `HiveElectionService.cs` | ✅ Implemented |
+| Worker HMAC signing | `HiveWorkerAgent.cs` | ✅ Implemented |
+| Input validation + caps | `HiveAuthMiddleware.cs` | ✅ Implemented |
+| HMAC auth on task queue (7079) | `HiveTaskQueue.cs` | 🔲 Not yet wired (port 7079 handlers unchanged) |
+| Input validation in task queue | `HiveTaskQueue.cs` | 🔲 Needs enforcement wiring |
+| Pairing approval card (UI) | `HivePanel.xaml` | 🔲 Not yet built |
+| HivePanel crown badge | `HivePanel.xaml` | 🔲 Not yet built |
+| Installer probe + Join card | `OrchestratorSetup` | 🔲 Not yet built |
+| HMAC hard enforcement | — | 🔲 v1.7 (flip `GracePeriodActive=false` when all nodes enrolled) |
+| Phase 4 provenance columns | SQLite schema | 🔲 Security-gated on this spec |
 
 ---
 
