@@ -57,9 +57,11 @@
             <DockPanel>
                 <DockPanel DockPanel.Dock="Top" Margin="8,5,8,4">
                     <TextBlock Text="⚡ EVENTS" FontSize="9" FontWeight="Bold"
-                               Foreground="#4A6A4A" VerticalAlignment="Center"/>
+                               Foreground="#4A6A4A" VerticalAlignment="Center"
+                               AutomationProperties.AutomationId="Hive.EventsLabel"/>
                     <TextBlock x:Name="TbEventCount" Text="" FontSize="9"
-                               Foreground="#3A4A3A" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                               Foreground="#3A4A3A" Margin="8,0,0,0" VerticalAlignment="Center"
+                               AutomationProperties.AutomationId="Hive.EventCount"/>
                 </DockPanel>
                 <ScrollViewer x:Name="SvEventLog" VerticalScrollBarVisibility="Hidden"
                               HorizontalScrollBarVisibility="Disabled">
@@ -93,6 +95,7 @@
         </Border>
 
         <TextBlock Grid.Row="4" Margin="2,8,0,0" FontSize="10" Foreground="#666666"
+                   AutomationProperties.AutomationId="Hive.HintText"
                    Text="This PC sits at the center. Reachable nodes glow green and pulse; lines carry work. Click a node for detail. Use 📡 Scan LAN to find nodes running HIVE MIND."/>
     </Grid>
 </UserControl>

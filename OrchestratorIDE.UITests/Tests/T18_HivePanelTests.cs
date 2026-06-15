@@ -36,20 +36,22 @@ public class T18_HivePanelTests : RecordingTestBase
     // ── Panel structure ────────────────────────────────────────────────────────
 
     [Test, Order(3)]
-    public void HivePanel_Canvas_IsPresent()
+    public void HivePanel_ConstellationArea_IsPresent()
     {
+        // WPF Canvas has no UIA peer — verify via the hint TextBlock below it instead.
         NavigateToHive();
-        var canvas = AppFixture.FindById("Hive.Canvas");
-        Assert.That(canvas, Is.Not.Null, "Hive.Canvas (constellation) must be present.");
-        Assert.That(canvas!.IsOffscreen, Is.False, "Canvas should be visible.");
+        var hint = AppFixture.FindById("Hive.HintText");
+        Assert.That(hint, Is.Not.Null, "Hive.HintText must be present (confirms constellation area rendered).");
+        Assert.That(hint!.IsOffscreen, Is.False);
     }
 
     [Test, Order(4)]
     public void HivePanel_EventLog_IsPresent()
     {
+        // WPF Border has no UIA peer — verify via the inner "⚡ EVENTS" TextBlock instead.
         NavigateToHive();
-        var log = AppFixture.FindById("Hive.EventLog");
-        Assert.That(log, Is.Not.Null, "Hive.EventLog strip must be present.");
+        var label = AppFixture.FindById("Hive.EventsLabel");
+        Assert.That(label, Is.Not.Null, "Hive.EventsLabel must be present (confirms event log area rendered).");
     }
 
     // ── Action buttons ─────────────────────────────────────────────────────────
