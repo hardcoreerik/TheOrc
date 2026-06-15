@@ -47,9 +47,10 @@
     </PropertyGroup>
   </Target>
 
-  <!-- Expose internals (e.g. SwarmSession.DetectTargetLanguage) to the test project -->
+  <!-- Expose internals to both test projects -->
   <ItemGroup>
     <InternalsVisibleTo Include="OrchestratorIDE.UITests" />
+    <InternalsVisibleTo Include="OrchestratorIDE.UnitTests" />
   </ItemGroup>
 
   <ItemGroup>

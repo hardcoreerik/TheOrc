@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsTestProject>true</IsTestProject>
+    <!--
+      net10.0-windows is required to reference the WPF main project.
+      UseWPF is NOT set here, so no display or desktop session is needed —
+      these tests run headlessly via SSH or CI with plain "dotnet test".
+    -->
+  </PropertyGroup>
+
+  <!--
+    Pure unit tests (T10-T17) are physically in OrchestratorIDE.UITests\Tests\
+    and shared here via Compile Include so there is a single source of truth.
+    UITests compiles them inside an assembly that has AppFixture, causing every
+    test to fail on headless machines. This project compiles the same files
+    without AppFixture, making them safe for headless / SSH execution.
+  -->
+  <ItemGroup>
+    <Compile Include="..\OrchestratorIDE.UITests\Tests\T10_LanguageDetectionTests.cs" />
+    <Compile Include="..\OrchestratorIDE.UITests\Tests\T11_SteeringTests.cs" />
+    <Compile Include="..\OrchestratorIDE.UITests\Tests\T12_ModelWikiExportTests.cs" />
+    <Compile Include="..\OrchestratorIDE.UITests\Tests\T13_TokenCostEstimatorTests.cs" />
+    <Compile Include="..\OrchestratorIDE.UITests\Tests\T14_HiveHostsTests.cs" />
+    <Compile Include="..\OrchestratorIDE.UITests\Tests\T15_HiveMindPhase3Tests.cs" />
+    <Compile Include="..\OrchestratorIDE.UITests\Tests\T16_WorktreeIsolationTests.cs" />
+    <Compile Include="..\OrchestratorIDE.UITests\Tests\T17_HiveSecurityTests.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NUnit"                  Version="4.2.0"  />
+    <PackageReference Include="NUnit3TestAdapter"       Version="4.6.0"  />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0"/>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OrchestratorIDE\OrchestratorIDE.csproj" />
+  </ItemGroup>
+
+</Project>
