@@ -149,6 +149,76 @@ jobs:
           }
           Write-Host "All required assets present."
 
+      # ── Extract "What's new in vX.X" from README into release body ─────────────
+      # Reads README.md, finds the section "## What's new in vVERSION" and captures
+      # everything up to the next "## " heading.  Falls back gracefully if not found.
+      - name: Build release notes
+        id: notes
+        shell: pwsh
+        run: |
+          $ver  = '${{ steps.ver.outputs.VERSION }}'
+          $tag  = '${{ steps.ver.outputs.TAG }}'
+          $readme = Get-Content README.md -Raw
+
+          # Extract the "What's new in vX.X" block
+          $header  = "## What's new in v$($ver -replace '\.\d+$','')"   # e.g. "v1.6"
+          $pattern = "(?ms)$([regex]::Escape($header))\s*\n(.*?)(?=\n## |\z)"
+          $match   = [regex]::Match($readme, $pattern)
+          $whatsNew = if ($match.Success) { $match.Groups[1].Value.Trim() } else { "" }
+
+          # Previous tag for the compare link
+          $prevTag = git describe --tags --abbrev=0 "$tag^" 2>$null
+          $compareLink = if ($prevTag) {
+            "**Full changelog:** [$prevTag...$tag](https://github.com/hardcoreerik/TheOrc/compare/$prevTag...$tag)"
+          } else { "" }
+
+          $body = @"
+          <div align="center">
+          <img src="https://raw.githubusercontent.com/hardcoreerik/TheOrc/master/Assets/release.png" width="480" alt="TheOrc — Build Complete"/>
+          </div>
+
+          ## TheOrc $tag
+
+          > 100% local AI coding assistant — no cloud, no subscriptions, no data leaving your machine.
+
+          ---
+
+          ### What's new in $tag
+
+          $whatsNew
+
+          ---
+
+          ### ⚡ Quick start — one-click install (recommended)
+          1. Download **OrchestratorSetup.exe** below
+          2. Run it — the wizard detects your GPU, downloads the right runtime and model, configures everything
+          3. Launch from the Desktop shortcut or Start Menu
+
+          ### 📦 Portable install — works on fresh machines
+          Download **TheOrc-$ver-win-x64-portable.zip** — contains both ``OrchestratorIDE.exe`` and ``OrchestratorSetup.exe``.
+          1. Extract both files to the same folder
+          2. Run ``OrchestratorIDE.exe``
+          3. If no AI runtime is detected, the app offers to launch the setup wizard automatically — no prior AI tools required
+
+          ### 🖥️ System requirements
+          | | |
+          |---|---|
+          | **OS** | Windows 10 / 11 (x64) |
+          | **.NET** | Not required — fully self-contained |
+          | **GPU** | NVIDIA RTX (CUDA 12) · AMD (Vulkan) · CPU-only (AVX2 / baseline) |
+          | **RAM** | 8 GB minimum · 16 GB recommended |
+
+          ---
+
+          $compareLink
+
+          *Built from ``$tag`` · .NET 10 · [Source](https://github.com/hardcoreerik/TheOrc) · [Support the Orc ☕](https://ko-fi.com/hardcoreerik)*
+          "@
+
+          # Write to a temp file — avoids multiline env-var escaping issues
+          $body | Set-Content release-notes.md -Encoding UTF8
+          Write-Host "Release notes written ($($body.Length) chars)"
+
       # ── Create GitHub Release + upload assets ─────────────────────────────────
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -156,39 +226,7 @@ jobs:
           tag_name:   ${{ steps.ver.outputs.TAG }}
           name:       "TheOrc ${{ steps.ver.outputs.TAG }}"
           prerelease: ${{ steps.ver.outputs.PRERELEASE == 'true' }}
-          generate_release_notes: true
-          body: |
-            <div align="center">
-            <img src="https://raw.githubusercontent.com/hardcoreerik/TheOrc/master/Assets/release.png" width="480" alt="TheOrc — Build Complete"/>
-            </div>
-
-            ## TheOrc ${{ steps.ver.outputs.TAG }}
-
-            > 100% local AI coding assistant — no cloud, no subscriptions, no data leaving your machine.
-
-            ---
-
-            ### ⚡ Quick start — one-click install (recommended)
-            1. Download **OrchestratorSetup.exe** below
-            2. Run it — the wizard detects your GPU, downloads the right runtime and model, configures everything
-            3. Launch from the Desktop shortcut or Start Menu
-
-            ### 📦 Portable install — works on fresh machines
-            Download **TheOrc-${{ steps.ver.outputs.VERSION }}-win-x64-portable.zip** — contains both `OrchestratorIDE.exe` and `OrchestratorSetup.exe`.
-            1. Extract both files to the same folder
-            2. Run `OrchestratorIDE.exe`
-            3. If no AI runtime is detected, the app offers to launch the setup wizard automatically — no prior AI tools required
-
-            ### 🖥️ System requirements
-            | | |
-            |---|---|
-            | **OS** | Windows 10 / 11 (x64) |
-            | **.NET** | Not required — fully self-contained |
-            | **GPU** | NVIDIA RTX (CUDA 12) · AMD (Vulkan) · CPU-only (AVX2 / baseline) |
-            | **RAM** | 8 GB minimum · 16 GB recommended |
-
-            ---
-            *Built automatically from `${{ steps.ver.outputs.TAG }}` · .NET 10 · [Source](https://github.com/hardcoreerik/TheOrc) · [Support the Orc ☕](https://ko-fi.com/hardcoreerik)*
+          body_path:  release-notes.md
           files: |
             publish/setup/OrchestratorSetup.exe
             publish/app/OrchestratorIDE.exe
