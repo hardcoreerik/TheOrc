@@ -71,7 +71,8 @@ public sealed class HiveTaskQueue : IDisposable
     private CancellationTokenSource _cts = new();
 
     // All callers on port 7079 are enrolled worker nodes — no grace period.
-    private readonly HiveAuthMiddleware _auth = new() { GracePeriodActive = false };
+    // "queue" persistence key survives the nonce cache across restart (replay protection).
+    private readonly HiveAuthMiddleware _auth = new("queue") { GracePeriodActive = false };
 
     // ── Public surface ────────────────────────────────────────────────────────
 
@@ -603,6 +604,7 @@ public sealed class HiveTaskQueue : IDisposable
         _watchdog.Dispose();
         _cts.Cancel();
         CancelAll();
+        _auth.Flush();   // persist nonce cache for zero replay window on graceful restart
         try { _listener?.Stop(); } catch { }
         _listener?.Close();
         _claimLock.Dispose();

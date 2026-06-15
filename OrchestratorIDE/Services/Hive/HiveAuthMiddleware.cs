@@ -3,6 +3,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace OrchestratorIDE.Services.Hive;
@@ -43,17 +44,36 @@ public sealed class HiveAuthMiddleware
     public bool GracePeriodActive { get; set; } = false;
 
     private readonly HivePeerStore _store;
-    public   HiveAuthMiddleware()                     { _store = HivePeerStore.Default; }
-    internal HiveAuthMiddleware(HivePeerStore store)  { _store = store; }
+
+    /// <param name="persistenceKey">
+    /// When set, the nonce cache is persisted to hive-nonces-{key}.json and reloaded on
+    /// construction. This closes the replay window that otherwise opens across a process
+    /// restart (empty in-memory cache → captured request replays within the ±30s window).
+    /// Each validating instance must use a distinct key so their caches don't clobber.
+    /// Null = in-memory only (tests, signing-only callers).
+    /// </param>
+    public   HiveAuthMiddleware(string? persistenceKey = null)
+    {
+        _store      = HivePeerStore.Default;
+        _persistKey = persistenceKey;
+        if (_persistKey is not null) LoadPersistedNonces();
+    }
+    internal HiveAuthMiddleware(HivePeerStore store)  { _store = store; }  // tests: no persistence
 
     private static readonly TimeSpan TsWindow        = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan NonceTtl        = TimeSpan.FromMinutes(5);
     private const           int      MaxNoncesPerPeer = 1_000;
+    private static readonly TimeSpan FlushThrottle   = TimeSpan.FromSeconds(5);
 
     // Per-peer nonce cache: nodeId → (nonce → expiry)
     private readonly Dictionary<string, Dictionary<string, DateTime>> _nonces = [];
     private readonly Lock    _nonceLock = new();
     private          DateTime _lastPrune = DateTime.UtcNow;
+
+    // Persistence (null key = disabled)
+    private readonly string?  _persistKey;
+    private          DateTime _lastFlush = DateTime.MinValue;
+    private          bool     _dirty;       // true once a nonce was recorded since last flush
 
     // ── Inbound validation ────────────────────────────────────────────────────
 
@@ -191,6 +211,8 @@ public sealed class HiveAuthMiddleware
 
     private bool RecordNonce(string nodeId, string nonce)
     {
+        bool accepted;
+        bool shouldFlush = false;
         lock (_nonceLock)
         {
             PruneExpiredNonces();
@@ -201,18 +223,34 @@ public sealed class HiveAuthMiddleware
                 _nonces[nodeId]   = peerNonces;
             }
 
-            if (peerNonces.ContainsKey(nonce)) return false;
-
-            // Evict oldest entry when over cap
-            if (peerNonces.Count >= MaxNoncesPerPeer)
+            if (peerNonces.ContainsKey(nonce))
             {
-                var oldest = peerNonces.MinBy(kv => kv.Value).Key;
-                peerNonces.Remove(oldest);
+                accepted = false;
             }
+            else
+            {
+                // Evict oldest entry when over cap
+                if (peerNonces.Count >= MaxNoncesPerPeer)
+                {
+                    var oldest = peerNonces.MinBy(kv => kv.Value).Key;
+                    peerNonces.Remove(oldest);
+                }
 
-            peerNonces[nonce] = DateTime.UtcNow.Add(NonceTtl);
-            return true;
+                peerNonces[nonce] = DateTime.UtcNow.Add(NonceTtl);
+                accepted = true;
+                _dirty   = true;
+
+                // Throttle disk writes — at most once per FlushThrottle while under load.
+                if (_persistKey is not null && DateTime.UtcNow - _lastFlush > FlushThrottle)
+                {
+                    _lastFlush  = DateTime.UtcNow;
+                    shouldFlush = true;
+                }
+            }
         }
+
+        if (shouldFlush) Flush();   // file write happens outside the lock
+        return accepted;
     }
 
     private void PruneExpiredNonces()
@@ -225,5 +263,75 @@ public sealed class HiveAuthMiddleware
             var expired = peerNonces.Where(kv => kv.Value < now).Select(kv => kv.Key).ToList();
             foreach (var k in expired) peerNonces.Remove(k);
         }
+    }
+
+    // ── Persistence ─────────────────────────────────────────────────────────────
+
+    private static string NoncePath(string key) => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "TheOrc", $"hive-nonces-{key}.json");
+
+    /// <summary>
+    /// Writes the live (non-expired) nonce cache to disk. Call on graceful shutdown for a
+    /// zero replay window; throttled auto-flush bounds the loss on a hard kill to ~5s.
+    /// Best-effort: a write failure degrades replay protection to in-memory only.
+    /// </summary>
+    public void Flush()
+    {
+        if (_persistKey is null) return;
+
+        Dictionary<string, Dictionary<string, long>> snapshot;
+        lock (_nonceLock)
+        {
+            // Nothing recorded since the last flush — skip so an idle/non-listening
+            // instance can't clobber the active writer's file with a stale snapshot.
+            if (!_dirty) return;
+            _dirty = false;
+
+            var cutoff = DateTime.UtcNow;
+            snapshot = _nonces.ToDictionary(
+                peer => peer.Key,
+                peer => peer.Value
+                            .Where(kv => kv.Value > cutoff)
+                            .ToDictionary(
+                                kv => kv.Key,
+                                kv => new DateTimeOffset(kv.Value, TimeSpan.Zero).ToUnixTimeMilliseconds()));
+        }
+
+        try
+        {
+            var path = NoncePath(_persistKey);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var tmp = path + ".tmp";
+            File.WriteAllText(tmp, JsonSerializer.Serialize(snapshot));
+            File.Move(tmp, path, overwrite: true);
+        }
+        catch { /* best-effort — replay protection falls back to in-memory only */ }
+    }
+
+    private void LoadPersistedNonces()
+    {
+        try
+        {
+            var path = NoncePath(_persistKey!);
+            if (!File.Exists(path)) return;
+
+            var data = JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, long>>>(
+                File.ReadAllText(path));
+            if (data is null) return;
+
+            var now = DateTime.UtcNow;
+            foreach (var (peer, nonces) in data)
+            {
+                var live = new Dictionary<string, DateTime>();
+                foreach (var (nonce, expMs) in nonces)
+                {
+                    var exp = DateTimeOffset.FromUnixTimeMilliseconds(expMs).UtcDateTime;
+                    if (exp > now) live[nonce] = exp;   // drop anything already expired
+                }
+                if (live.Count > 0) _nonces[peer] = live;
+            }
+        }
+        catch { /* corrupt or unreadable — start with an empty cache */ }
     }
 }

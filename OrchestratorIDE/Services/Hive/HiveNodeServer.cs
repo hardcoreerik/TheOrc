@@ -43,7 +43,8 @@ public sealed class HiveNodeServer : IDisposable
     private HiveNodeInfo              _info = new("", "", [], 0, 0, []);
     private CancellationTokenSource   _cts  = new();
     // All authenticated endpoints are fail-closed — grace period never applies on the server.
-    private readonly HiveAuthMiddleware     _strictAuth   = new();
+    // "node" persistence key survives the nonce cache across restart (replay protection).
+    private readonly HiveAuthMiddleware     _strictAuth   = new("node");
     private readonly HivePeerStore          _peers    = HivePeerStore.Default;
 
     // Injected by the app after construction
@@ -642,6 +643,7 @@ public sealed class HiveNodeServer : IDisposable
     {
         _cts.Cancel();
         MeshHeartbeat?.Stop();
+        _strictAuth.Flush();   // persist nonce cache for zero replay window on graceful restart
         try { _listener?.Stop(); } catch { }
         _listener?.Close();
     }
