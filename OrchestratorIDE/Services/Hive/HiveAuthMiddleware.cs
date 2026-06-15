@@ -85,13 +85,16 @@ public sealed class HiveAuthMiddleware
                 ? HiveAuthResult.Authenticated("anonymous")
                 : HiveAuthResult.Failed("missing HIVE auth headers");
 
-        // 1. Enrolled and not revoked
-        if (!_store.IsTrusted(nodeId!))
+        // 1. Enrolled, not revoked, and secret available — one atomic lock acquisition
+        //    eliminates the TOCTOU window between IsTrusted() and GetSharedSecret().
+        var (trusted, secret) = _store.GetTrustedSecret(nodeId!);
+        if (!trusted)
         {
             return GracePeriodActive
                 ? HiveAuthResult.Authenticated("anonymous")
                 : HiveAuthResult.Failed("unknown or revoked node");
         }
+        if (secret is null) return Reject("no shared secret for peer");
 
         // 2. Timestamp
         if (!long.TryParse(tsStr, out var tsMs))
@@ -104,10 +107,7 @@ public sealed class HiveAuthMiddleware
         if (!RecordNonce(nodeId!, nonce!))
             return Reject("nonce already seen (replay)");
 
-        // 4. HMAC
-        var secret = _store.GetSharedSecret(nodeId!);
-        if (secret is null) return Reject("no shared secret for peer");
-
+        // 4. HMAC — secret retrieved atomically with trust check above
         var canonical = BuildCanonical(method, path, nonce!, tsStr!, body);
         var expected  = ComputeHmac(secret, canonical);
 

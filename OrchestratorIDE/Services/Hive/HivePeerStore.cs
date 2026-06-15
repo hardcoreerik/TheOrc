@@ -144,6 +144,28 @@ public sealed class HivePeerStore
         catch { return null; }
     }
 
+    /// <summary>
+    /// Atomically checks trust status and retrieves the shared secret under one lock,
+    /// closing the TOCTOU window between <see cref="IsTrusted"/> and <see cref="GetSharedSecret"/>.
+    /// Returns (false, null) for unknown/revoked peers or DPAPI failure.
+    /// </summary>
+    public (bool Trusted, byte[]? Secret) GetTrustedSecret(string nodeId)
+    {
+        lock (_lock)
+        {
+            var peer = _peers.FirstOrDefault(p => p.NodeId == nodeId);
+            if (peer is null || peer.Revoked || string.IsNullOrEmpty(peer.SharedSecretEnc))
+                return (false, null);
+            try
+            {
+                var enc    = Convert.FromBase64String(peer.SharedSecretEnc);
+                var secret = ProtectedData.Unprotect(enc, null, DataProtectionScope.CurrentUser);
+                return (true, secret);
+            }
+            catch { return (false, null); }
+        }
+    }
+
     // ── Write ─────────────────────────────────────────────────────────────────
 
     public void AddOrUpdate(HivePeer peer)

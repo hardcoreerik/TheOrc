@@ -171,28 +171,50 @@ public sealed class HiveMeshHeartbeat : IDisposable
     // ── HTTP helper ───────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Returns true if the peer is REACHABLE (connection succeeded), regardless of HTTP status.
-    /// HTTP errors (401, 500, etc.) mean the peer is online but there's an app/auth issue —
-    /// that must NOT be counted as a missed heartbeat or it would falsely trigger election.
-    /// Only an exception (connection refused, timeout, DNS failure) means the peer is down.
+    /// Returns true if the peer is REACHABLE AND TRUSTED, false otherwise.
+    ///
+    /// Missing secret → skip (don't send unsigned — attacker could inject
+    /// unauthenticated heartbeats to manipulate liveness state).
+    ///
+    /// 401/403 → count as missed. The remote has rejected our credentials,
+    /// which means it has revoked us or rotated its key; we are not in good
+    /// standing with that peer and should not treat it as a healthy neighbour.
+    /// Persistent 401s will trigger suspect detection and exclude the peer
+    /// from quorum exactly as a network outage would.
+    ///
+    /// 5xx → count as reachable (peer process is alive, just having errors).
+    ///
+    /// Exception (connection refused, timeout, DNS failure) → missed.
     /// </summary>
     private async Task<bool> PostSignedAsync(string url, byte[] body, string peerNodeId,
                                               CancellationToken ct)
     {
         try
         {
+            var secret = _peers.GetSharedSecret(peerNodeId);
+            if (secret is null)
+            {
+                Log($"⚠ No shared secret for {peerNodeId[..8]}… — skipping heartbeat until pairing completes");
+                return false;
+            }
+
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
             using var req  = new HttpRequestMessage(HttpMethod.Post, url)
                 { Content = new ByteArrayContent(body) };
             req.Content.Headers.ContentType =
                 new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
 
-            var secret = _peers.GetSharedSecret(peerNodeId);
-            if (secret is not null)
-                HiveAuthMiddleware.SignRequest(req, body, _identity.NodeId, secret);
+            HiveAuthMiddleware.SignRequest(req, body, _identity.NodeId, secret);
 
-            // Any HTTP response (even 4xx/5xx) means the peer is alive and reachable.
-            await http.SendAsync(req, ct);
+            var response = await http.SendAsync(req, ct);
+
+            if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized
+                                    or System.Net.HttpStatusCode.Forbidden)
+            {
+                Log($"⚠ Heartbeat to {peerNodeId[..8]}… rejected ({(int)response.StatusCode}) — counting as missed");
+                return false;
+            }
+
             return true;
         }
         catch { return false; }  // exception = connection failed = peer is down
