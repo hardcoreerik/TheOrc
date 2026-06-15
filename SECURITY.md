@@ -47,9 +47,11 @@ Only the **latest release** receives security fixes. Older versions are not patc
 
 ## A note on the HIVE cryptographic layer
 
-The HIVE MIND security layer (P-256 ECDSA node identity, HMAC-SHA256 per-request signing, DPAPI secret storage, nonce replay cache) was designed and implemented in-house and shipped in v1.6. It has **not yet had an independent third-party audit**.
+The HIVE MIND security layer (P-256 ECDSA node identity, HMAC-SHA256 per-request signing, DPAPI secret storage, nonce replay cache) was designed and implemented in-house and shipped in v1.6.
 
-If you have cryptography or network security expertise and spot a design flaw — especially around the signing protocol, key derivation, or pairing flow — that is exactly the kind of report I most want to receive.
+In v1.6.1 it went through an adversarial review of the implementation (multiple independent automated passes plus a manual multi-angle review), which surfaced and fixed 11 findings — including election-message signature verification, fail-closed authentication, a canonical-form injection, a trust/secret TOCTOU, and replay protection that now survives a restart. This was a code-level review, **not a formal independent third-party cryptographic audit**, and the design has not been externally certified.
+
+If you have cryptography or network security expertise and spot a flaw — especially around the signing protocol, key derivation, or pairing flow — that is exactly the kind of report I most want to receive.
 
 ---
 
