@@ -18,6 +18,7 @@ internal static class Migrations
         new Migration(1, "captures + triage", Sql001_CapturesTriage),
         new Migration(2, "plans + runs",       Sql002_PlansRuns),
         new Migration(3, "datasets index",     Sql003_Datasets),
+        new Migration(4, "hive tasks + events", Sql004_Hive),
     ];
 
     // ── v1 — Phase 1: captures + triage ─────────────────────────────────────────
@@ -131,6 +132,55 @@ internal static class Migrations
         );
         CREATE INDEX ix_datasets_source ON datasets(source);
         CREATE INDEX ix_datasets_role   ON datasets(role);
+        """;
+
+    // ── v4 — Phase 4: HIVEMIND persistence (SECURITY-GATED) ──────────────────────
+    // Persists what HiveTaskQueue held in memory only (5-min eviction). The columns
+    // carry PROVENANCE — claimed_by_node is the HMAC-AUTHENTICATED NodeId (not the
+    // wire-claimed worker name), authenticated flags whether the submitter was signed,
+    // and claim_token ties a result to the claim it answered. retain_until drives the
+    // retention sweep so durable hive history can never grow unbounded.
+    // See docs/sql-migration/02_SECURITY_HIVEMIND.md — all wire-sourced strings are
+    // length-capped and charset-sanitised in the repository write path, never trusted.
+    private const string Sql004_Hive = """
+        CREATE TABLE hive_tasks (
+            id                INTEGER PRIMARY KEY,
+            task_id           TEXT    NOT NULL,
+            session_id        TEXT    NOT NULL,
+            role              TEXT,
+            title             TEXT,
+            status            TEXT    NOT NULL,
+            claimed_by_node   TEXT,
+            claimed_by_worker TEXT,
+            authenticated     INTEGER NOT NULL DEFAULT 0,
+            claim_token       TEXT,
+            result_blob       TEXT,
+            duration_ms       INTEGER,
+            error_msg         TEXT,
+            enqueued_at       TEXT    NOT NULL,
+            updated_at        TEXT    NOT NULL,
+            retain_until      TEXT    NOT NULL,
+            UNIQUE(session_id, task_id)
+        );
+        CREATE INDEX ix_hive_tasks_session ON hive_tasks(session_id);
+        CREATE INDEX ix_hive_tasks_status  ON hive_tasks(status);
+        CREATE INDEX ix_hive_tasks_node    ON hive_tasks(claimed_by_node);
+        CREATE INDEX ix_hive_tasks_retain  ON hive_tasks(retain_until);
+
+        CREATE TABLE hive_events (
+            id                INTEGER PRIMARY KEY,
+            session_id        TEXT,
+            type              TEXT    NOT NULL,
+            msg               TEXT,
+            task_id           TEXT,
+            worker_id         TEXT,
+            submitted_by_node TEXT,
+            authenticated     INTEGER NOT NULL DEFAULT 0,
+            created_at        TEXT    NOT NULL,
+            retain_until      TEXT    NOT NULL
+        );
+        CREATE INDEX ix_hive_events_session ON hive_events(session_id);
+        CREATE INDEX ix_hive_events_retain  ON hive_events(retain_until);
         """;
 }
 

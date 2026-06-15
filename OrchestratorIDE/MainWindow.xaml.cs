@@ -699,6 +699,7 @@ public partial class MainWindow : Window
         Services.Swarm.DatasetCapture.Repository    = null;
         Services.PitBossService.PlanRepo            = null;
         Services.TrainingPitRegistry.DatasetRepo    = null;
+        Services.Hive.HiveTaskQueue.Repository      = null;
         _planRepo    = null;
         _runRepo     = null;
         _datasetRepo = null;
@@ -720,6 +721,8 @@ public partial class MainWindow : Window
             Services.PitBossService.PlanRepo = _planRepo;
             // TrainingPitPanel dataset scans mirror into SQL.
             Services.TrainingPitRegistry.DatasetRepo = _datasetRepo;
+            // HIVE task/event history persists durably (Phase 4) — was memory-only before.
+            Services.Hive.HiveTaskQueue.Repository = new Services.Data.HiveRepository(_sqlStore);
 
             // Mark any runs that were "running" at last shutdown as stale — they
             // can never complete now. Surfaces in ByPlan queries rather than silently

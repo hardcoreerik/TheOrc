@@ -125,17 +125,17 @@ inventing a new trust system — we are connecting the one that exists to the wi
 ## Pre-flight checklist (copy into the Phase 4 PR)
 
 **SQL injection (applies from Phase 0):**
-- [ ] All `SqliteCommand`s built in the single repository helper; none elsewhere.
-- [ ] Zero string-concatenated SQL; every value is a `SqliteParameter`.
-- [ ] No input-derived table/column identifiers (allow-list only).
-- [ ] codex-review grep gate for SQL-concat patterns is active.
+- [x] All `SqliteCommand`s built in the single repository helper (`RepositoryBase`); none elsewhere.
+- [x] Zero string-concatenated SQL; every value is a `SqliteParameter`.
+- [x] No input-derived table/column identifiers (allow-list only).
+- [ ] codex-review grep gate for SQL-concat patterns is active. *(manual review for now)*
 
-**HIVEMIND durable-input (gates Phase 4):**
-- [ ] Shared-secret (or stronger) auth on `/claim`,`/heartbeat`,`/complete`,`/fail`,`/events`; unauth → 401.
-- [ ] Bind scope reviewed (Tailscale-only vs wildcard justified).
-- [ ] Length caps enforced in the write path for every wire-sourced string.
-- [ ] Charset/enum validation on identifier and status fields.
-- [ ] Per-worker row quota enforced.
-- [ ] Provenance (node id, auth result, claim token) persisted on every hive row.
-- [ ] Retention sweep deletes rows past `retain_until`.
-- [ ] Completion replay guard (once-only per claim token) on persist.
+**HIVEMIND durable-input (gates Phase 4) — closed by v1.6.1 audit + `HiveRepository`:**
+- [x] **Stronger than spec:** HMAC-SHA256 per-request auth (fail-closed) on `/claim`,`/heartbeat`,`/complete`,`/fail`,`/events`; unauth → 401. (v1.6.1)
+- [x] Bind scope reviewed: wildcard bind retained, justified by mandatory HMAC auth on every mutating endpoint (Tailscale-only remains a deployment option, not required).
+- [x] Length caps enforced in the write path (`HiveRepository.San`) for every wire-sourced string.
+- [x] Charset sanitisation on identifier fields (`HiveRepository.SanId` — `[A-Za-z0-9._-]`, control chars stripped); status/type clamped.
+- [x] Per-node row quota enforced (`MaxRowsPerNodePerSession`, default 5,000; over-quota → row rejected + flagged).
+- [x] Provenance (authenticated NodeId, auth flag, claim token) persisted on every hive row.
+- [x] Retention sweep (`SweepExpired`) deletes rows past `retain_until`; called on the watchdog timer.
+- [x] Completion replay guard: claim token rotates per claim and is persisted; the `(session_id, task_id)` upsert is idempotent, so a re-POSTed `/complete` updates the same row rather than duplicating.

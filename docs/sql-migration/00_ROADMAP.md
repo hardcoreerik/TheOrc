@@ -1,6 +1,8 @@
 # JSON → SQL Migration — Roadmap
 
-> **Status:** Planning. Nothing implemented yet. This is the north-star doc for the
+> **Status:** Phases 0–3 shipped in v1.5. **Phase 4 (HIVEMIND persistence) implemented on
+> master** after the v1.6.1 HIVE security audit cleared its gate — ships in the next release.
+> Phase 5 (cutover) remains optional/per-table. This is the north-star doc for the
 > JSON-files → SQLite migration. Read this first, then [01_SCHEMA_DESIGN.md](01_SCHEMA_DESIGN.md)
 > and [02_SECURITY_HIVEMIND.md](02_SECURITY_HIVEMIND.md).
 >
@@ -96,13 +98,16 @@ These are non-negotiable. Every PR in this initiative is checked against them.
 - Speeds up Forge ComboBox population; enables "datasets by source/context/role" queries.
 - **Exit criteria:** registry reads from index, falls back to file scan if index stale.
 
-### Phase 4 — HIVEMIND persistence (SECURITY-GATED)
-- Tables: `hive_tasks`, `hive_events`. Persist what is today in-memory in `HiveTaskQueue`.
-- **Blocked on the auth + validation work in [02_SECURITY_HIVEMIND.md](02_SECURITY_HIVEMIND.md).**
-  We do not persist remote-submitted worker data until shared-secret auth, input length
-  caps, and per-node write quotas are in place. Durable storage of untrusted input is
-  the single biggest risk vector in this whole migration — it gets its own gate.
-- **Exit criteria:** hive history survives app restart; all security guardrails green.
+### Phase 4 — HIVEMIND persistence (SECURITY-GATED) — ✅ IMPLEMENTED (migration v4)
+- Tables: `hive_tasks`, `hive_events` (migration v4). Persist what was in-memory in `HiveTaskQueue`.
+- **Gate cleared by the v1.6.1 HIVE security audit:** HMAC per-request auth (fail-closed) is
+  enforced on every mutating endpoint — stronger than the originally-specced `X-Hive-Key`.
+- All write-path controls from [02_SECURITY_HIVEMIND.md](02_SECURITY_HIVEMIND.md) live in
+  `HiveRepository`: length caps + control-char/charset sanitisation, per-node row quota,
+  provenance (authenticated NodeId + auth flag + claim token), and a retention sweep.
+  Dual-write from `HiveTaskQueue` is best-effort (a DB failure never breaks a swarm run).
+  Covered by `T18_HivePersistenceTests` (7 tests).
+- **Exit criteria:** ✅ hive history survives app restart; ✅ security pre-flight checklist green.
 
 ### Phase 5 — Cutover (flip canonical, optional)
 - Per-table decision: once a table has been dual-writing cleanly for a release cycle,

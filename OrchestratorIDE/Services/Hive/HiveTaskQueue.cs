@@ -75,6 +75,17 @@ public sealed class HiveTaskQueue : IDisposable
     // "queue" persistence key survives the nonce cache across restart (replay protection).
     private readonly HiveAuthMiddleware _auth = new("queue") { GracePeriodActive = false };
 
+    /// <summary>
+    /// Optional durable store for hive task/event history (Phase 4). Set once at startup
+    /// (MainWindow). Null = no persistence. Every write is best-effort — a DB failure must
+    /// never break a swarm run, exactly like <see cref="Swarm.DatasetCapture.Repository"/>.
+    /// </summary>
+    public static Data.HiveRepository? Repository { get; set; }
+
+    // Retention sweep is throttled — the watchdog ticks every 10s but rows live for days.
+    private DateTime _lastSweep = DateTime.MinValue;
+    private static readonly TimeSpan SweepInterval = TimeSpan.FromMinutes(5);
+
     // ── Public surface ────────────────────────────────────────────────────────
 
     public event Action<string>? OnLog;
@@ -158,6 +169,11 @@ public sealed class HiveTaskQueue : IDisposable
 
         Events.Append("task_queued", $"[{bundle.Role}] {bundle.Title}",
             taskId, sessionId: _sessionCtx.SessionId);
+
+        // Durable history: the Warchief's own enqueue is local (not authenticated, no node).
+        PersistTask(taskId, bundle.Role, bundle.Title, "pending",
+            authNode: null, worker: null, authenticated: false, claimToken: null,
+            resultBlob: null, durationMs: null, errorMsg: null, entry.EnqueuedAt);
 
         // Session stop cancels all waits immediately
         using var reg = ct.Register(() => entry.CompletionTcs.TrySetResult(null));
@@ -255,7 +271,7 @@ public sealed class HiveTaskQueue : IDisposable
             { await HandleGetContextAsync(ctx); return; }
 
             if (method == "POST" && path == "/hive/events")
-            { await HandlePostEventAsync(ctx, body); return; }
+            { await HandlePostEventAsync(ctx, body, authResult.NodeId); return; }
 
             if (method == "GET"  && path == "/hive/events")
             { HandleGetEventsAsync(ctx); return; }
@@ -266,12 +282,13 @@ public sealed class HiveTaskQueue : IDisposable
             {
                 var taskId = parts[2];
                 var action = parts[3];
+                // authResult.NodeId is the HMAC-authenticated sender — persisted as provenance.
                 switch (action)
                 {
-                    case "claim":     await HandleClaimAsync(ctx, taskId, body);     return;
+                    case "claim":     await HandleClaimAsync(ctx, taskId, body, authResult.NodeId);     return;
                     case "heartbeat": await HandleHeartbeatAsync(ctx, taskId, body); return;
-                    case "complete":  await HandleCompleteAsync(ctx, taskId, body);  return;
-                    case "fail":      await HandleFailAsync(ctx, taskId, body);      return;
+                    case "complete":  await HandleCompleteAsync(ctx, taskId, body, authResult.NodeId);  return;
+                    case "fail":      await HandleFailAsync(ctx, taskId, body, authResult.NodeId);      return;
                 }
             }
 
@@ -314,7 +331,7 @@ public sealed class HiveTaskQueue : IDisposable
         return Task.CompletedTask;
     }
 
-    private async Task HandleClaimAsync(HttpListenerContext ctx, string taskId, byte[] body)
+    private async Task HandleClaimAsync(HttpListenerContext ctx, string taskId, byte[] body, string authNode)
     {
         await _claimLock.WaitAsync();
         try
@@ -339,6 +356,12 @@ public sealed class HiveTaskQueue : IDisposable
             Events.Append("task_claimed",
                 $"[{entry.Bundle.Role}] {entry.Bundle.Title} → {entry.ClaimedBy}",
                 taskId, entry.ClaimedBy ?? "");
+
+            // Durable history: record provenance — the authenticated node id that claimed it.
+            PersistTask(taskId, entry.Bundle.Role, entry.Bundle.Title, "claimed",
+                authNode, entry.ClaimedBy, authenticated: true, entry.ClaimToken,
+                resultBlob: null, durationMs: null, errorMsg: null, entry.EnqueuedAt);
+
             WriteJson(ctx, new { taskId, status = "claimed", claimToken = entry.ClaimToken });
         }
         finally
@@ -376,7 +399,7 @@ public sealed class HiveTaskQueue : IDisposable
         finally { _claimLock.Release(); }
     }
 
-    private async Task HandleCompleteAsync(HttpListenerContext ctx, string taskId, byte[] body)
+    private async Task HandleCompleteAsync(HttpListenerContext ctx, string taskId, byte[] body, string authNode)
     {
         var result = ReadJson<HiveTaskResult>(body);
 
@@ -415,10 +438,16 @@ public sealed class HiveTaskQueue : IDisposable
             $"[{result.WorkerId}] {entry.Bundle.Title} ✓ {result.DurationMs / 1000.0:F1}s · {result.Result.Length} chars",
             taskId, result.WorkerId);
 
+        // Durable history: persist the result blob + provenance. This is the row the threat
+        // model cares about most — a poisoned "completed" result is now traceable to its node.
+        PersistTask(taskId, entry.Bundle.Role, entry.Bundle.Title, "completed",
+            authNode, result.WorkerId, authenticated: true, entry.ClaimToken,
+            result.Result, result.DurationMs, errorMsg: null, entry.EnqueuedAt);
+
         WriteJson(ctx, new { taskId, status = "completed" });
     }
 
-    private async Task HandleFailAsync(HttpListenerContext ctx, string taskId, byte[] body)
+    private async Task HandleFailAsync(HttpListenerContext ctx, string taskId, byte[] body, string authNode)
     {
         var result = ReadJson<HiveTaskResult>(body);
 
@@ -454,6 +483,12 @@ public sealed class HiveTaskQueue : IDisposable
         Events.Append("task_failed",
             $"[{failResult.WorkerId}] {entry.Bundle.Title} ✗ {failResult.ErrorMsg}",
             taskId, failResult.WorkerId);
+
+        // Durable history: persist the failure + provenance.
+        PersistTask(taskId, entry.Bundle.Role, entry.Bundle.Title, "failed",
+            authNode, failResult.WorkerId, authenticated: true, entry.ClaimToken,
+            resultBlob: null, failResult.DurationMs, failResult.ErrorMsg, entry.EnqueuedAt);
+
         WriteJson(ctx, new { taskId, status = "failed" });
     }
 
@@ -502,6 +537,7 @@ public sealed class HiveTaskQueue : IDisposable
             string? evType    = null;
             string? evMsg     = null;
             string? evWho     = null;
+            string? sqlStatus = null;   // durable status transition to mirror to SQL
             bool    resolveNull = false;
 
             _claimLock.Wait();
@@ -514,6 +550,7 @@ public sealed class HiveTaskQueue : IDisposable
                         {
                             entry.Status = "timeout";
                             resolveNull  = true;
+                            sqlStatus = "timeout";
                             logMsg  = $"⚠ Task '{entry.Bundle.Title}' unclaimed after {PendingTimeoutSec}s — resolving for local fallback";
                             evType  = "task_timeout";
                             evMsg   = $"{entry.Bundle.Title} unclaimed after {PendingTimeoutSec}s → local fallback";
@@ -531,6 +568,7 @@ public sealed class HiveTaskQueue : IDisposable
                             entry.ClaimedAt     = null;
                             entry.LastHeartbeat = null;
                             entry.ClaimToken    = Guid.NewGuid().ToString();
+                            sqlStatus = "pending";
                             logMsg = $"⚠ Task '{entry.Bundle.Title}' heartbeat timeout from {who} — re-queued";
                             evType = "task_requeued";
                             evMsg  = $"{entry.Bundle.Title} lost heartbeat from {who} → re-queued";
@@ -541,6 +579,8 @@ public sealed class HiveTaskQueue : IDisposable
                     case "completed":
                     case "failed":
                     case "timeout":
+                        // Evict from MEMORY after 5 min; the durable SQL row stays (that's the
+                        // whole point of Phase 4) and is removed later by the retention sweep.
                         if (now - entry.EnqueuedAt > TimeSpan.FromMinutes(5))
                             toEvict.Add(id);
                         break;
@@ -548,23 +588,62 @@ public sealed class HiveTaskQueue : IDisposable
             }
             finally { _claimLock.Release(); }
 
-            // TCS and logging outside the lock — TCS continuations must not re-enter _claimLock.
+            // TCS, logging, and SQL outside the lock — TCS continuations must not re-enter _claimLock.
             if (resolveNull)  entry.CompletionTcs.TrySetResult(null);
             if (logMsg is not null) Log(logMsg);
             if (evType is not null) Events.Append(evType, evMsg!, id, evWho ?? "");
+            if (sqlStatus is not null)
+                try { Repository?.UpdateStatus(_sessionCtx.SessionId, id, sqlStatus); } catch { }
         }
 
         foreach (var id in toEvict)
             _tasks.TryRemove(id, out var __evicted);
+
+        // Retention sweep — throttled; durable hive history can never grow unbounded.
+        if (Repository is { } repo && now - _lastSweep > SweepInterval)
+        {
+            _lastSweep = now;
+            try { repo.SweepExpired(); } catch { }
+        }
+    }
+
+    // ── Durable-history helper (best-effort; a DB failure never breaks a swarm run) ──
+
+    private void PersistTask(
+        string taskId, string? role, string? title, string status,
+        string? authNode, string? worker, bool authenticated, string? claimToken,
+        string? resultBlob, int? durationMs, string? errorMsg, DateTime enqueuedAt)
+    {
+        if (Repository is not { } repo) return;
+        try
+        {
+            var ok = repo.UpsertTask(taskId, _sessionCtx.SessionId, role, title, status,
+                authNode, worker, authenticated, claimToken,
+                resultBlob, durationMs, errorMsg, enqueuedAt);
+            if (!ok)
+                Log($"⚠ HIVE persist rejected (per-node row quota) for task '{title}' from {authNode}");
+        }
+        catch { /* best-effort — durable history must never break a swarm run */ }
     }
 
     // ── Event endpoints ───────────────────────────────────────────────────────
 
-    private async Task HandlePostEventAsync(HttpListenerContext ctx, byte[] body)
+    private async Task HandlePostEventAsync(HttpListenerContext ctx, byte[] body, string authNode)
     {
         var ev = ReadJson<HiveEventPost>(body);
         if (ev is null) { ctx.Response.StatusCode = 400; return; }
         Events.Append(ev.Type, ev.Msg, ev.TaskId, ev.WorkerId, ev.SessionId);
+
+        // Durable, provenance-tagged copy of the remote-submitted event. These are the
+        // untrusted wire events the security model cares about; the repository sanitises
+        // every field at the write boundary.
+        try
+        {
+            Repository?.AppendEvent(ev.Type, ev.Msg, ev.TaskId, ev.WorkerId,
+                _sessionCtx.SessionId, authNode, authenticated: true);
+        }
+        catch { /* best-effort */ }
+
         WriteJson(ctx, new { status = "ok", seq = Events.HeadSeq });
     }
 
