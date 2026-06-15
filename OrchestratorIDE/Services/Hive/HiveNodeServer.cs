@@ -659,11 +659,12 @@ public sealed class HiveNodeServer : IDisposable
         MeshHeartbeat?.Stop();
         try { _listener?.Stop(); } catch { }
         _listener?.Close();
-        // Drain in-flight handlers (fire-and-forget from ServeAsync) so any nonce they
-        // record lands in the cache before the snapshot. Then flush — this is what makes
-        // the replay window actually zero on graceful restart, not just near-zero.
+        // Drain in-flight handlers (best-effort, 2s cap) so most nonces land in a single
+        // snapshot, then seal+flush. The seal (flush-on-every-record) is what guarantees a
+        // zero replay window: a handler finishing AFTER the drain still persists its nonce
+        // immediately, so correctness does not depend on the 2s cap.
         DrainInFlight();
-        _strictAuth.Flush();
+        _strictAuth.FlushAndSealForShutdown();
     }
 }
 

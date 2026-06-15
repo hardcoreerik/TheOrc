@@ -73,7 +73,8 @@ public sealed class HiveAuthMiddleware
     // Persistence (null key = disabled)
     private readonly string?  _persistKey;
     private          DateTime _lastFlush = DateTime.MinValue;
-    private          bool     _dirty;       // true once a nonce was recorded since last flush
+    private          bool     _dirty;          // true once a nonce was recorded since last flush
+    private volatile bool     _flushOnRecord;  // set at shutdown: persist every nonce immediately
 
     // ── Inbound validation ────────────────────────────────────────────────────
 
@@ -241,7 +242,10 @@ public sealed class HiveAuthMiddleware
                 _dirty   = true;
 
                 // Throttle disk writes — at most once per FlushThrottle while under load.
-                if (_persistKey is not null && DateTime.UtcNow - _lastFlush > FlushThrottle)
+                // During shutdown (_flushOnRecord) persist immediately so a handler that
+                // finishes after the drain timeout still gets its nonce to disk.
+                if (_persistKey is not null
+                    && (_flushOnRecord || DateTime.UtcNow - _lastFlush > FlushThrottle))
                 {
                     _lastFlush  = DateTime.UtcNow;
                     shouldFlush = true;
@@ -315,6 +319,18 @@ public sealed class HiveAuthMiddleware
             // silently degrading to in-memory-only replay protection.
             lock (_nonceLock) _dirty = true;
         }
+    }
+
+    /// <summary>
+    /// Seals the cache for shutdown, then flushes. After this call every recorded nonce is
+    /// persisted immediately (no throttle), so a handler that finishes AFTER the drain
+    /// timeout still writes its nonce to disk. Setting the flag before the final flush is
+    /// what makes the replay window zero on graceful restart — independent of the drain cap.
+    /// </summary>
+    public void FlushAndSealForShutdown()
+    {
+        _flushOnRecord = true;   // volatile write — visible to any in-flight RecordNonce
+        Flush();
     }
 
     private void LoadPersistedNonces()
