@@ -643,9 +643,11 @@ public sealed class HiveNodeServer : IDisposable
     {
         _cts.Cancel();
         MeshHeartbeat?.Stop();
-        _strictAuth.Flush();   // persist nonce cache for zero replay window on graceful restart
         try { _listener?.Stop(); } catch { }
         _listener?.Close();
+        // Flush AFTER the listener stops so no request can record a nonce that
+        // wouldn't make it into the persisted snapshot (zero replay window).
+        _strictAuth.Flush();
     }
 }
 

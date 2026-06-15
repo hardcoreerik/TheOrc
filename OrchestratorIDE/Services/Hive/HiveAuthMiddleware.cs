@@ -286,6 +286,9 @@ public sealed class HiveAuthMiddleware
             // Nothing recorded since the last flush — skip so an idle/non-listening
             // instance can't clobber the active writer's file with a stale snapshot.
             if (!_dirty) return;
+
+            // Clear now so a nonce recorded DURING the write below re-sets _dirty and
+            // gets picked up by the next flush. On write failure we re-set it (catch).
             _dirty = false;
 
             var cutoff = DateTime.UtcNow;
@@ -306,7 +309,12 @@ public sealed class HiveAuthMiddleware
             File.WriteAllText(tmp, JsonSerializer.Serialize(snapshot));
             File.Move(tmp, path, overwrite: true);
         }
-        catch { /* best-effort — replay protection falls back to in-memory only */ }
+        catch
+        {
+            // Write failed — re-mark dirty so the next flush retries instead of
+            // silently degrading to in-memory-only replay protection.
+            lock (_nonceLock) _dirty = true;
+        }
     }
 
     private void LoadPersistedNonces()
