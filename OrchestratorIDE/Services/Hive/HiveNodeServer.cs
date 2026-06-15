@@ -660,9 +660,11 @@ public sealed class HiveNodeServer : IDisposable
         try { _listener?.Stop(); } catch { }
         _listener?.Close();
         // Drain in-flight handlers (best-effort, 2s cap) so most nonces land in a single
-        // snapshot, then seal+flush. The seal (flush-on-every-record) is what guarantees a
-        // zero replay window: a handler finishing AFTER the drain still persists its nonce
-        // immediately, so correctness does not depend on the 2s cap.
+        // snapshot, then seal+flush. The seal (flush-on-every-record) guarantees the
+        // security property: every ACCEPTED request's nonce reaches disk — a handler that
+        // reaches RecordNonce after the drain still self-persists, so correctness does not
+        // depend on the 2s cap. A handler abandoned before RecordNonce never accepted the
+        // request (validation happens inside RecordNonce), so it is not a replay vector.
         DrainInFlight();
         _strictAuth.FlushAndSealForShutdown();
     }

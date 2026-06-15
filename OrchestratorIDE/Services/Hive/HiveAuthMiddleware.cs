@@ -323,9 +323,12 @@ public sealed class HiveAuthMiddleware
 
     /// <summary>
     /// Seals the cache for shutdown, then flushes. After this call every recorded nonce is
-    /// persisted immediately (no throttle), so a handler that finishes AFTER the drain
-    /// timeout still writes its nonce to disk. Setting the flag before the final flush is
-    /// what makes the replay window zero on graceful restart — independent of the drain cap.
+    /// persisted immediately (no throttle), so a handler that reaches RecordNonce AFTER the
+    /// drain timeout still writes its nonce to disk. Setting the flag before the final flush
+    /// guarantees the security property: <b>no accepted request's nonce is lost on graceful
+    /// restart</b>, independent of the drain cap. (A request abandoned before RecordNonce was
+    /// never accepted — validation happens inside RecordNonce — so it is not a replay vector:
+    /// no completed operation exists to replay.)
     /// </summary>
     public void FlushAndSealForShutdown()
     {
