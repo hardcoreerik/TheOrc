@@ -151,6 +151,19 @@ public partial class HivePanel : UserControl
         // Orbit radius scales to the smaller half-dimension, leaving card room.
         double radius = Math.Max(120, Math.Min(w, h) / 2 - 130);
 
+        // Resolve warchief so the crown badge can be placed on the right card.
+        bool isLocalWarchief = !string.IsNullOrEmpty(_warchiefNodeId)
+            && !string.IsNullOrEmpty(LocalNodeId)
+            && _warchiefNodeId == LocalNodeId;
+
+        string? warchiefIp = null;
+        if (!isLocalWarchief && !string.IsNullOrEmpty(_warchiefNodeId))
+        {
+            var wcPeer = Services.Hive.HivePeerStore.Default.Find(_warchiefNodeId);
+            if (wcPeer is not null && wcPeer.LastKnownAddress.Length > 0)
+                warchiefIp = wcPeer.LastKnownAddress.Split(':')[0];
+        }
+
         // Connection lines + peer cards arranged on a circle.
         for (int i = 0; i < peers.Count; i++)
         {
@@ -176,7 +189,9 @@ public partial class HivePanel : UserControl
                 line.BeginAnimation(OpacityProperty, pulse);
             }
 
-            var card = BuildNodeCard(peers[i], isCenter: false);
+            bool isPeerWarchief = warchiefIp is not null
+                && SafeUriHost(peers[i].Url) == warchiefIp;
+            var card = BuildNodeCard(peers[i], isCenter: false, isWarchief: isPeerWarchief);
             Canvas.SetLeft(card, px - 95);
             Canvas.SetTop(card, py - 45);
             c.Children.Add(card);
@@ -184,7 +199,7 @@ public partial class HivePanel : UserControl
 
         // Center: This PC (always present).
         var center = BuildNodeCard(local ?? new HiveHost { Name = "This PC", Url = LocalUrl },
-                                   isCenter: true);
+                                   isCenter: true, isWarchief: isLocalWarchief);
         Canvas.SetLeft(center, cx - 105);
         Canvas.SetTop(center, cy - 50);
         c.Children.Add(center);
@@ -204,21 +219,40 @@ public partial class HivePanel : UserControl
         }
     }
 
-    private Border BuildNodeCard(HiveHost host, bool isCenter)
+    private Border BuildNodeCard(HiveHost host, bool isCenter, bool isWarchief = false)
     {
         bool alive = host.Reachable == true || isCenter && host.Reachable != false;
-        var accent = isCenter ? Color.FromRgb(0x76, 0xB9, 0x00)
-                   : alive    ? Color.FromRgb(0x4E, 0xC9, 0x4E)
-                              : Color.FromRgb(0x55, 0x55, 0x55);
+
+        // Warchief overrides the normal accent with gold; this PC stays lime when not warchief.
+        var accent = isWarchief ? Color.FromRgb(0xFF, 0xD7, 0x00)
+                   : isCenter   ? Color.FromRgb(0x76, 0xB9, 0x00)
+                   : alive      ? Color.FromRgb(0x4E, 0xC9, 0x4E)
+                                : Color.FromRgb(0x55, 0x55, 0x55);
 
         var sp = new StackPanel { Margin = new Thickness(10, 7, 10, 7) };
+
+        // Name prefix: crown replaces the star/dot when this node holds the Warchief role.
+        var prefix = isWarchief ? "👑 " : isCenter ? "★ " : alive ? "🟢 " : "⚪ ";
         sp.Children.Add(new TextBlock
         {
-            Text = (isCenter ? "★ " : alive ? "🟢 " : "⚪ ") + host.Name,
+            Text = prefix + host.Name,
             FontFamily = new FontFamily("Consolas"), FontSize = isCenter ? 13 : 12,
             FontWeight = FontWeights.Bold,
             Foreground = new SolidColorBrush(accent),
         });
+
+        if (isWarchief)
+        {
+            sp.Children.Add(new TextBlock
+            {
+                Text = "W A R C H I E F",
+                FontFamily = new FontFamily("Consolas"), FontSize = 8,
+                FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xD7, 0x00)),
+                Opacity = 0.75,
+                Margin = new Thickness(0, 0, 0, 3),
+            });
+        }
         sp.Children.Add(new TextBlock
         {
             Text = (host.Source == "tailscale" ? "🔗 " : "") +
@@ -273,10 +307,11 @@ public partial class HivePanel : UserControl
 
         var card = new Border
         {
-            Background = new SolidColorBrush(isCenter
-                ? Color.FromRgb(0x12, 0x1A, 0x0A) : Color.FromRgb(0x10, 0x14, 0x10)),
+            Background = new SolidColorBrush(isWarchief ? Color.FromRgb(0x1A, 0x14, 0x00)
+                       : isCenter                       ? Color.FromRgb(0x12, 0x1A, 0x0A)
+                                                        : Color.FromRgb(0x10, 0x14, 0x10)),
             BorderBrush = new SolidColorBrush(accent),
-            BorderThickness = new Thickness(isCenter ? 2 : 1),
+            BorderThickness = new Thickness(isCenter || isWarchief ? 2 : 1),
             CornerRadius = new CornerRadius(6),
             Width = isCenter ? 210 : 190,
             Child = sp, Cursor = System.Windows.Input.Cursors.Hand,
@@ -480,6 +515,15 @@ public partial class HivePanel : UserControl
     public Services.Hive.HiveNodeServer? NodeServer { get; set; }
 
     /// <summary>
+    /// This machine's NodeId (hex SHA-256 of signing key). Set by MainWindow after
+    /// HiveNodeServer.Start() so the constellation can mark "This PC" as Warchief.
+    /// </summary>
+    public string LocalNodeId { get; set; } = "";
+
+    /// <summary>NodeId of the current Warchief. Null = unknown / grace period.</summary>
+    private string? _warchiefNodeId;
+
+    /// <summary>
     /// Called by MainWindow when a remote node wants to pair with this node.
     /// Shows a blocking dialog so the admin can approve or reject inline.
     /// </summary>
@@ -530,6 +574,10 @@ public partial class HivePanel : UserControl
             Dispatcher.InvokeAsync(() => OnElectionStateChanged(state, warchiefNodeId));
             return;
         }
+
+        _warchiefNodeId = warchiefNodeId;
+        DrawConstellation();   // repaint crown badge immediately
+
         var label = state switch
         {
             Services.Hive.ElectionState.TemporaryWarchief => "⚔ This node is now temporary Warchief",

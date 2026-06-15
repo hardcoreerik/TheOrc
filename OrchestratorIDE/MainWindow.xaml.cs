@@ -519,6 +519,9 @@ public partial class MainWindow : Window
                 _hivePanel.NodeServer = _hiveNodeServer;
                 _hiveNodeServer.Start(info);
 
+                // Let the panel know this machine's NodeId so it can crown the right card.
+                _hivePanel.LocalNodeId = Services.Hive.HiveIdentity.Load().NodeId;
+
                 // Wire election state changes so the UI crown badge and task queue handoff work.
                 if (_hiveNodeServer.ElectionService is { } election)
                 {
