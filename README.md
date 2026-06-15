@@ -89,6 +89,25 @@ TheOrc is not trying to replace your editor. It's the AI **project runner** that
 
 ## What's new in v1.6
 
+### v1.6.1 — HIVE security audit & hardening
+
+A full adversarial review of the HIVE cryptographic layer — independent passes via Codex, Cerebras, and a local multi-angle review — with every confirmed finding fixed and covered by tests.
+
+| Fix | What changed |
+|---|---|
+| **Election forgery** | Election messages (suspect / claim / recover / stepdown) now verify the sender's ECDSA signature. Previously the signature was generated but never checked, letting any LAN peer forge an election and seize the Warchief crown |
+| **Fail-closed auth** | `GracePeriodActive` defaults to false; every authenticated endpoint rejects unsigned requests — no anonymous fall-through |
+| **Canonical injection** | Request paths are sanitised before HMAC signing, closing a newline field-boundary forgery |
+| **Replay after restart** | The nonce replay cache is persisted and restored across restarts (zero replay window on graceful restart, ~5s on hard kill), and recorded only after HMAC verification so it can't be flooded |
+| **Revocation race** | Trust check and shared-secret lookup are now a single atomic operation (TOCTOU closed) |
+| **Liveness integrity** | Heartbeats are never sent unsigned; a peer that rejects our credentials (401/403) is treated as offline, not healthy |
+| **Task-queue races** | Claim / heartbeat / complete / fail and the timeout watchdog are serialised, closing a data race on task ownership |
+| **Licensing** | AGPL-3.0 + commercial dual license, a SECURITY.md disclosure policy, and SPDX headers across the source tree |
+
+51/51 HIVE security tests green, including new coverage that rejects forged election messages.
+
+---
+
 Security-hardened HIVE MIND, Update Center with fleet deploy, and a solid headless test foundation.
 
 | Feature | What it is |
