@@ -58,8 +58,9 @@ public partial class MainWindow : Window
     private readonly SwarmBoardPanel         _swarmPanel;
     private readonly UI.Panels.ChatPanel     _chatPanel;
     private readonly UI.Panels.TrainingPitPanel _pitPanel;
-    private readonly UI.Panels.HivePanel _hivePanel = new();
-    private UI.Panels.PitBossPanel?      _pitBossPanel;
+    private readonly UI.Panels.HivePanel    _hivePanel    = new();
+    private readonly UI.Panels.UpdatePanel  _updatePanel  = new();
+    private UI.Panels.PitBossPanel?         _pitBossPanel;
 
     // ── Screen recorder ───────────────────────────────────────────────────
     private readonly ScreenRecorder _recorder = new();
@@ -1574,7 +1575,8 @@ public partial class MainWindow : Window
     private void BtnModeSwarm_Click(object sender, RoutedEventArgs e)  => SetMode("swarm");
     private void BtnModeChat_Click(object sender, RoutedEventArgs e)   => SetMode("chat");
     private void BtnModePit_Click(object sender, RoutedEventArgs e)    => SetMode("pit");
-    private void BtnModeHive_Click(object sender, RoutedEventArgs e)  => SetMode("hive");
+    private void BtnModeHive_Click(object sender, RoutedEventArgs e)   => SetMode("hive");
+    private void BtnModeUpdate_Click(object sender, RoutedEventArgs e) => SetMode("update");
 
     /// <summary>
     /// Switches between Single Agent and Swarm modes.
@@ -1625,6 +1627,17 @@ public partial class MainWindow : Window
             _hivePanel.OnWarchiefTargetSelected  -= OnWarchiefTargetSelected;
             _hivePanel.OnWarchiefTargetSelected  += OnWarchiefTargetSelected;
             MainContent.Content    = _hivePanel;
+            SidebarContent.Content = _explorerPanel;
+        }
+        else if (mode == "update")
+        {
+            var identity    = Services.Hive.HiveIdentity.Load();
+            var election    = _hiveNodeServer?.ElectionService;
+            _updatePanel.Settings     = _settings;
+            _updatePanel.LocalNodeId  = identity.NodeId;
+            _updatePanel.IsWarchief   = election?.WarchiefNodeId == identity.NodeId;
+            _updatePanel.Refresh();
+            MainContent.Content    = _updatePanel;
             SidebarContent.Content = _explorerPanel;
         }
         else if (mode == "pit")
@@ -1734,14 +1747,16 @@ public partial class MainWindow : Window
         var inactiveBg   = new SolidColorBrush(Colors.Transparent);
         var inactiveFg   = new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66));
 
-        BtnModeSingle.Background = mode == "single" ? activeGreen  : inactiveBg;
-        BtnModeSingle.Foreground = mode == "single" ? activeFg     : inactiveFg;
-        BtnModeSwarm.Background  = mode == "swarm"  ? activeGreen  : inactiveBg;
-        BtnModeSwarm.Foreground  = mode == "swarm"  ? activeFg     : inactiveFg;
-        BtnModeChat.Background   = mode == "chat"   ? activeGreen  : inactiveBg;
-        BtnModeChat.Foreground   = mode == "chat"   ? activeFg     : inactiveFg;
-        BtnModePit.Background    = mode == "pit"    ? activeGreen  : inactiveBg;
-        BtnModePit.Foreground    = mode == "pit"    ? activeFg     : inactiveFg;
+        BtnModeSingle.Background  = mode == "single"  ? activeGreen  : inactiveBg;
+        BtnModeSingle.Foreground  = mode == "single"  ? activeFg     : inactiveFg;
+        BtnModeSwarm.Background   = mode == "swarm"   ? activeGreen  : inactiveBg;
+        BtnModeSwarm.Foreground   = mode == "swarm"   ? activeFg     : inactiveFg;
+        BtnModeChat.Background    = mode == "chat"    ? activeGreen  : inactiveBg;
+        BtnModeChat.Foreground    = mode == "chat"    ? activeFg     : inactiveFg;
+        BtnModePit.Background     = mode == "pit"     ? activeGreen  : inactiveBg;
+        BtnModePit.Foreground     = mode == "pit"     ? activeFg     : inactiveFg;
+        BtnModeUpdate.Background  = mode == "update"  ? activeGreen  : inactiveBg;
+        BtnModeUpdate.Foreground  = mode == "update"  ? activeFg     : inactiveFg;
     }
 
     /// <summary>
@@ -2362,9 +2377,10 @@ public partial class MainWindow : Window
 
     private void ShowUpdateBadge(UpdateChecker.UpdateResult result)
     {
-        _pendingReleaseUrl    = result.ReleaseUrl;
-        TbUpdateBadge.Text    = $"↑ v{result.LatestVersion} available";
-        BdrUpdateBadge.Visibility = Visibility.Visible;
+        _pendingReleaseUrl         = result.ReleaseUrl;
+        TbUpdateBadge.Text         = $"↑ v{result.LatestVersion} available";
+        BdrUpdateBadge.Visibility  = Visibility.Visible;
+        UpdateDot.Visibility       = Visibility.Visible;
 
         // Also update the window title while we're here
         Title = $"Orchestrator IDE  v{result.CurrentVersion}";

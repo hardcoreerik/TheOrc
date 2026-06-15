@@ -19,6 +19,8 @@ namespace OrchestratorIDE.Services.Hive;
 ///   POST /hive/mesh/election/claim        — authenticated election: claim temporary Warchief
 ///   POST /hive/mesh/election/recover      — authenticated election: original Warchief recovering
 ///   POST /hive/mesh/election/stepdown     — authenticated election: temp Warchief stepping down
+///   GET  /hive/update/version             — this node's installed version (unauthenticated)
+///   POST /hive/update/deploy              — Warchief-authenticated remote update trigger
 ///
 /// Auth: all /hive/mesh/* endpoints validate HMAC headers via HiveAuthMiddleware.
 /// /hive/tasks/* endpoints (port 7079, HiveTaskQueue) are wired separately and
@@ -316,6 +318,39 @@ public sealed class HiveNodeServer : IDisposable
                 HandleElection(path, body, authResult.NodeId, resp); return;
             }
 
+            // Update version probe — unauthenticated, read-only
+            if (method == "GET" && path == "/hive/update/version")
+            {
+                var nodeId  = HiveIdentity.Load().NodeId;
+                var version = OrchestratorIDE.Core.UpdateChecker.CurrentVersion();
+                Ok(resp, JsonSerializer.Serialize(new { version, nodeId }, _jsonOut));
+                return;
+            }
+
+            // Remote deploy — authenticated, Warchief-only
+            if (method == "POST" && path == "/hive/update/deploy")
+            {
+                var deployAuth = _strictAuth.Validate(req, body);
+                if (!deployAuth.Ok)
+                {
+                    resp.StatusCode = 401;
+                    Error(resp, deployAuth.Reason ?? "unauthorized");
+                    return;
+                }
+
+                var wc = ElectionService?.WarchiefNodeId;
+                if (string.IsNullOrEmpty(wc) || wc != deployAuth.NodeId)
+                {
+                    resp.StatusCode = 403;
+                    Error(resp, "only the Warchief may deploy updates");
+                    return;
+                }
+
+                Ok(resp, JsonSerializer.Serialize(new { status = "update_started" }, _jsonOut));
+                _ = Task.Run(async () => await TriggerSelfUpdateAsync());
+                return;
+            }
+
             resp.StatusCode = 404;
             Error(resp, "not found");
         }
@@ -572,6 +607,49 @@ public sealed class HiveNodeServer : IDisposable
         var result = new byte[Math.Min(ba.Length, bb.Length)];
         for (int i = 0; i < result.Length; i++) result[i] = (byte)(ba[i] ^ bb[i]);
         return result;
+    }
+
+    // ── /hive/update/deploy — background self-update ─────────────────────────
+
+    private static async Task TriggerSelfUpdateAsync()
+    {
+        try
+        {
+            var settings = OrchestratorIDE.Core.AppSettings.Load();
+            var result   = await OrchestratorIDE.Core.UpdateChecker.CheckAsync(settings, force: true);
+            if (result is null || !result.UpdateAvailable) return;
+
+            var stagingDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "orc_update_staging");
+            var progress   = new Progress<string>(_ => { });
+            var updater    = new SelfUpdater();
+
+            // Try pre-built release asset first, then fall back to build from source.
+            var assetUrl = await OrchestratorIDE.Core.UpdateChecker.GetReleaseAssetUrlAsync();
+            string? exePath = null;
+
+            if (!string.IsNullOrEmpty(assetUrl))
+                exePath = await updater.DownloadReleaseAsync(assetUrl, stagingDir, progress);
+
+            if (exePath is null || !System.IO.File.Exists(exePath))
+            {
+                var sourceDir = string.IsNullOrEmpty(settings.SourceFolderPath)
+                    ? System.IO.Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                        "OrchestratorIDE", "source")
+                    : settings.SourceFolderPath;
+
+                await updater.PullSourceAsync(sourceDir, progress);
+                await updater.BuildAndPublishAsync(sourceDir, stagingDir, progress);
+                exePath = System.IO.Path.Combine(stagingDir, "OrchestratorIDE.exe");
+            }
+
+            if (!System.IO.File.Exists(exePath)) return;
+
+            updater.PrepareRelaunch(exePath);
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(
+                () => System.Windows.Application.Current.Shutdown());
+        }
+        catch { /* non-fatal — remote update is best-effort */ }
     }
 
     public void Dispose()

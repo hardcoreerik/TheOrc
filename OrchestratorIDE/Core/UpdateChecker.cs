@@ -103,6 +103,30 @@ public static class UpdateChecker
     }
 
     /// <summary>
+    /// Fetches the latest release and returns the browser_download_url of the first
+    /// .exe asset found, or null if none exists (build-from-source fallback).
+    /// </summary>
+    public static async Task<string?> GetReleaseAssetUrlAsync()
+    {
+        try
+        {
+            var json  = await _http.GetStringAsync(ApiUrl);
+            var root  = JsonNode.Parse(json);
+            var assets = root?["assets"]?.AsArray();
+            if (assets is null) return null;
+
+            foreach (var asset in assets)
+            {
+                var name = asset?["name"]?.GetValue<string>() ?? "";
+                if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                    return asset?["browser_download_url"]?.GetValue<string>();
+            }
+            return null;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
     /// Opens the GitHub releases page in the default browser.
     /// </summary>
     public static void OpenReleasePage(string releaseUrl)

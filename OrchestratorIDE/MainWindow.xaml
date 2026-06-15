@@ -227,6 +227,35 @@
                                                ToolTip="Nodes online"/>
                                 </StackPanel>
                             </Button>
+                            <!-- Update button -->
+                            <Button x:Name="BtnModeUpdate"
+                                    ToolTip="Update — check for new releases and upgrade the fleet"
+                                    Padding="10,4" Margin="6,0,0,0"
+                                    FontSize="11" FontFamily="Segoe UI"
+                                    BorderThickness="0" Cursor="Hand"
+                                    Click="BtnModeUpdate_Click"
+                                    AutomationProperties.AutomationId="Mode.Update">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                                CornerRadius="3" Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Opacity" Value="0.8"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="⬆ Update"/>
+                                    <Ellipse x:Name="UpdateDot" Width="7" Height="7"
+                                             Fill="#CCA700" VerticalAlignment="Center"
+                                             Margin="5,0,0,0" Visibility="Collapsed"
+                                             ToolTip="Update available"/>
+                                </StackPanel>
+                            </Button>
                         </StackPanel>
                     </Border>
 

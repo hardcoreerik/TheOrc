@@ -116,6 +116,49 @@ public sealed class SelfUpdater
         progress.Report("✓ Build complete.");
     }
 
+    // ── Download pre-built release asset ─────────────────────────────────────
+
+    /// <summary>
+    /// Downloads a pre-built exe from a GitHub release asset URL into
+    /// <paramref name="stagingDir"/> and returns the full path.
+    /// Returns null if the download fails.
+    /// </summary>
+    public async Task<string?> DownloadReleaseAsync(
+        string assetUrl, string stagingDir, IProgress<string> progress)
+    {
+        if (string.IsNullOrEmpty(assetUrl)) return null;
+
+        Directory.CreateDirectory(stagingDir);
+        var destPath = Path.Combine(stagingDir, "OrchestratorIDE.exe");
+
+        progress.Report("Downloading pre-built release from GitHub…");
+
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("TheOrc/updater");
+
+        using var resp = await http.GetAsync(
+            assetUrl, HttpCompletionOption.ResponseHeadersRead, CancellationToken);
+        resp.EnsureSuccessStatusCode();
+
+        var total    = resp.Content.Headers.ContentLength;
+        using var src  = await resp.Content.ReadAsStreamAsync(CancellationToken);
+        using var dest = File.Create(destPath);
+
+        var buf        = new byte[65536];
+        long downloaded = 0;
+        int  read;
+        while ((read = await src.ReadAsync(buf, CancellationToken)) > 0)
+        {
+            await dest.WriteAsync(buf.AsMemory(0, read), CancellationToken);
+            downloaded += read;
+            if (total.HasValue && total > 0)
+                progress.Report($"  {downloaded / 1024:N0} KB / {total / 1024:N0} KB");
+        }
+
+        progress.Report($"✓ Downloaded to {destPath}");
+        return destPath;
+    }
+
     // ── Relaunch ──────────────────────────────────────────────────────────────
 
     /// <summary>
