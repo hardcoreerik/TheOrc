@@ -61,7 +61,11 @@ public sealed class HiveAuthMiddleware
     internal HiveAuthMiddleware(HivePeerStore store)  { _store = store; }  // tests: no persistence
 
     private static readonly TimeSpan TsWindow        = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan NonceTtl        = TimeSpan.FromMinutes(5);
+    // A nonce only needs to be remembered while a request bearing it could still pass the
+    // ±TsWindow timestamp check — i.e. 2×TsWindow. Beyond that the timestamp check rejects
+    // the request regardless, so a longer TTL only wastes memory and widens the window in
+    // which a count-based eviction could drop a still-replayable nonce.
+    private static readonly TimeSpan NonceTtl        = TsWindow * 2;
     private const           int      MaxNoncesPerPeer = 1_000;
     private static readonly TimeSpan FlushThrottle   = TimeSpan.FromSeconds(5);
 
@@ -129,11 +133,10 @@ public sealed class HiveAuthMiddleware
         if (tsAge < -TsWindow || tsAge > TsWindow)
             return Reject($"clock skew too large ({tsAge.TotalSeconds:F0}s)");
 
-        // 3. Nonce uniqueness
-        if (!RecordNonce(nodeId!, nonce!))
-            return Reject("nonce already seen (replay)");
-
-        // 4. HMAC — secret retrieved atomically with trust check above
+        // 3. HMAC — verify authenticity BEFORE recording the nonce. An attacker who cannot
+        // forge the HMAC must not be able to flood (and force count-based eviction from) a
+        // trusted peer's nonce cache with bogus requests carrying that peer's NodeId.
+        // (secret retrieved atomically with the trust check above)
         var canonical = BuildCanonical(method, path, nonce!, tsStr!, body);
         var expected  = ComputeHmac(secret, canonical);
 
@@ -143,6 +146,11 @@ public sealed class HiveAuthMiddleware
 
         if (!CryptographicOperations.FixedTimeEquals(expected, received))
             return Reject("HMAC mismatch");
+
+        // 4. Nonce uniqueness — reached only by authenticated requests, so the cache holds
+        // only nonces from genuine peers and cannot be flooded by an unauthenticated caller.
+        if (!RecordNonce(nodeId!, nonce!))
+            return Reject("nonce already seen (replay)");
 
         return HiveAuthResult.Authenticated(nodeId!);
 
