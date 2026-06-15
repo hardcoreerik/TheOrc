@@ -21,9 +21,10 @@ namespace OrchestratorIDE.Services.Hive;
 ///   POST /hive/mesh/election/stepdown     — authenticated election: temp Warchief stepping down
 ///
 /// Auth: all /hive/mesh/* endpoints validate HMAC headers via HiveAuthMiddleware.
-/// /hive/tasks/* endpoints (port 7079, HiveTaskQueue) are wired separately; HMAC
-/// enforcement on 7079 is pending v1.7. /hive/info and /hive/pair/* are intentionally
-/// unauthenticated (discovery and bootstrapping — read-only or proof-of-key only).
+/// /hive/tasks/* endpoints (port 7079, HiveTaskQueue) are wired separately and
+/// also enforce HMAC auth (GracePeriodActive=false). /hive/info and /hive/pair/*
+/// are intentionally unauthenticated (discovery and bootstrapping — read-only or
+/// proof-of-key only).
 /// </summary>
 public sealed class HiveNodeServer : IDisposable
 {

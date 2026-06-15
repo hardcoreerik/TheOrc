@@ -68,6 +68,9 @@ public sealed class HiveTaskQueue : IDisposable
     private HttpListener?           _listener;
     private CancellationTokenSource _cts = new();
 
+    // All callers on port 7079 are enrolled worker nodes — no grace period.
+    private readonly HiveAuthMiddleware _auth = new() { GracePeriodActive = false };
+
     // ── Public surface ────────────────────────────────────────────────────────
 
     public event Action<string>? OnLog;
@@ -202,8 +205,40 @@ public sealed class HiveTaskQueue : IDisposable
     {
         try
         {
-            var method = ctx.Request.HttpMethod.ToUpperInvariant();
-            var path   = ctx.Request.Url?.AbsolutePath.TrimEnd('/') ?? "";
+            var req    = ctx.Request;
+            var method = req.HttpMethod.ToUpperInvariant();
+            var path   = req.Url?.AbsolutePath.TrimEnd('/') ?? "";
+
+            // Read body once with a 1 MB hard cap (prevents oversized-body DoS).
+            const int MaxBodyBytes = 1 * 1024 * 1024;
+            byte[] body;
+            using (var ms = new MemoryStream())
+            {
+                var buf   = new byte[8192];
+                int total = 0, read;
+                while ((read = await req.InputStream.ReadAsync(buf)) > 0)
+                {
+                    total += read;
+                    if (total > MaxBodyBytes)
+                    {
+                        ctx.Response.StatusCode = 413;
+                        WriteJson(ctx, new { error = "request body too large" });
+                        return;
+                    }
+                    ms.Write(buf, 0, read);
+                }
+                body = ms.ToArray();
+            }
+
+            // All task-queue endpoints require an enrolled peer — no grace period.
+            // Workers sign outbound requests via HiveWorkerAgent.SignIfPaired().
+            var authResult = _auth.Validate(req, body);
+            if (!authResult.Ok)
+            {
+                ctx.Response.StatusCode = 401;
+                WriteJson(ctx, new { error = authResult.Reason ?? "unauthorized" });
+                return;
+            }
 
             if (method == "GET"  && path == "/hive/tasks/next")
             { await HandleGetNextAsync(ctx); return; }
@@ -215,7 +250,7 @@ public sealed class HiveTaskQueue : IDisposable
             { await HandleGetContextAsync(ctx); return; }
 
             if (method == "POST" && path == "/hive/events")
-            { await HandlePostEventAsync(ctx); return; }
+            { await HandlePostEventAsync(ctx, body); return; }
 
             if (method == "GET"  && path == "/hive/events")
             { HandleGetEventsAsync(ctx); return; }
@@ -228,10 +263,10 @@ public sealed class HiveTaskQueue : IDisposable
                 var action = parts[3];
                 switch (action)
                 {
-                    case "claim":     await HandleClaimAsync(ctx, taskId);     return;
-                    case "heartbeat": await HandleHeartbeatAsync(ctx, taskId); return;
-                    case "complete":  await HandleCompleteAsync(ctx, taskId);  return;
-                    case "fail":      await HandleFailAsync(ctx, taskId);      return;
+                    case "claim":     await HandleClaimAsync(ctx, taskId, body);     return;
+                    case "heartbeat": await HandleHeartbeatAsync(ctx, taskId, body); return;
+                    case "complete":  await HandleCompleteAsync(ctx, taskId, body);  return;
+                    case "fail":      await HandleFailAsync(ctx, taskId, body);      return;
                 }
             }
 
@@ -273,7 +308,7 @@ public sealed class HiveTaskQueue : IDisposable
         return Task.CompletedTask;
     }
 
-    private async Task HandleClaimAsync(HttpListenerContext ctx, string taskId)
+    private async Task HandleClaimAsync(HttpListenerContext ctx, string taskId, byte[] body)
     {
         await _claimLock.WaitAsync();
         try
@@ -284,7 +319,7 @@ public sealed class HiveTaskQueue : IDisposable
                 return;
             }
 
-            var req = await ReadJsonAsync<HiveClaimRequest>(ctx.Request);
+            var req = ReadJson<HiveClaimRequest>(body);
 
             // Rotate claim token on every (re-)claim so stale /complete calls can be rejected
             entry.ClaimToken    = Guid.NewGuid().ToString("N")[..12];
@@ -306,7 +341,7 @@ public sealed class HiveTaskQueue : IDisposable
         }
     }
 
-    private async Task HandleHeartbeatAsync(HttpListenerContext ctx, string taskId)
+    private async Task HandleHeartbeatAsync(HttpListenerContext ctx, string taskId, byte[] body)
     {
         if (!_tasks.TryGetValue(taskId, out var entry) || entry.Status != "claimed")
         {
@@ -314,7 +349,7 @@ public sealed class HiveTaskQueue : IDisposable
             return;
         }
 
-        var hb = await ReadJsonAsync<HiveHeartbeatRequest>(ctx.Request);
+        var hb = ReadJson<HiveHeartbeatRequest>(body);
 
         // Reject heartbeats that don't carry the current claim token.
         // This prevents a stale worker (whose claim was superseded) from keeping
@@ -331,7 +366,7 @@ public sealed class HiveTaskQueue : IDisposable
         WriteJson(ctx, new { taskId, status = "alive" });
     }
 
-    private async Task HandleCompleteAsync(HttpListenerContext ctx, string taskId)
+    private async Task HandleCompleteAsync(HttpListenerContext ctx, string taskId, byte[] body)
     {
         if (!_tasks.TryGetValue(taskId, out var entry))
         {
@@ -348,7 +383,7 @@ public sealed class HiveTaskQueue : IDisposable
             return;
         }
 
-        var result = await ReadJsonAsync<HiveTaskResult>(ctx.Request);
+        var result = ReadJson<HiveTaskResult>(body);
         if (result is null)
         {
             ctx.Response.StatusCode = 400;
@@ -376,7 +411,7 @@ public sealed class HiveTaskQueue : IDisposable
         WriteJson(ctx, new { taskId, status = "completed" });
     }
 
-    private async Task HandleFailAsync(HttpListenerContext ctx, string taskId)
+    private async Task HandleFailAsync(HttpListenerContext ctx, string taskId, byte[] body)
     {
         if (!_tasks.TryGetValue(taskId, out var entry))
         {
@@ -391,7 +426,7 @@ public sealed class HiveTaskQueue : IDisposable
             return;
         }
 
-        var result = await ReadJsonAsync<HiveTaskResult>(ctx.Request);
+        var result = ReadJson<HiveTaskResult>(body);
 
         // Reject /fail from a stale worker whose claim was superseded.
         if (result is not null && !string.IsNullOrEmpty(entry.ClaimToken)
@@ -512,9 +547,9 @@ public sealed class HiveTaskQueue : IDisposable
 
     // ── Event endpoints ───────────────────────────────────────────────────────
 
-    private async Task HandlePostEventAsync(HttpListenerContext ctx)
+    private async Task HandlePostEventAsync(HttpListenerContext ctx, byte[] body)
     {
-        var ev = await ReadJsonAsync<HiveEventPost>(ctx.Request);
+        var ev = ReadJson<HiveEventPost>(body);
         if (ev is null) { ctx.Response.StatusCode = 400; return; }
         Events.Append(ev.Type, ev.Msg, ev.TaskId, ev.WorkerId, ev.SessionId);
         WriteJson(ctx, new { status = "ok", seq = Events.HeadSeq });
@@ -544,15 +579,9 @@ public sealed class HiveTaskQueue : IDisposable
         ctx.Response.OutputStream.Write(bytes);
     }
 
-    private static async Task<T?> ReadJsonAsync<T>(HttpListenerRequest req)
+    private static T? ReadJson<T>(byte[] body)
     {
-        try
-        {
-            using var ms = new System.IO.MemoryStream();
-            await req.InputStream.CopyToAsync(ms);
-            ms.Position = 0;
-            return await JsonSerializer.DeserializeAsync<T>(ms, _json);
-        }
+        try { return JsonSerializer.Deserialize<T>(body, _json); }
         catch { return default; }
     }
 
