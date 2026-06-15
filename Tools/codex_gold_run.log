@@ -1,0 +1,93 @@
+================================================================
+  TheOrc -- Codex Gold Generator
+================================================================
+  codex.exe : C:\Users\hardc\AppData\Roaming\npm\node_modules\@openai\codex\node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe
+  sys prompt: 2320 chars
+  Target: 80 batches x 25 = 2000
+
+  [batch   0/80] JavaScript/TypeScript  refactor     +29/29  total=  29   147s
+  [batch   1/80] SQL                    feature      +27/27  total=  56   136s
+  [batch   2/80] Python                 refactor     +26/26  total=  82   116s
+  [batch   3/80] JavaScript/TypeScript  feature      +28/28  total= 110   152s
+  [batch   4/80] C#                     docs         +26/27  total= 136   160s
+  [batch   5/80] JavaScript/TypeScript  bugfix       +27/27  total= 163   156s
+  [batch   6/80] Python                 feature      +26/26  total= 189   256s
+  [batch   7/80] JavaScript/TypeScript  feature      +28/28  total= 217   227s
+  [batch   8/80] SQL                    tests        + 0/ 0  total= 217     6s
+  [batch   9/80] C#                     feature      + 0/ 0  total= 217     6s
+  [batch  10/80] Python                 ui           + 0/ 0  total= 217     8s
+  [batch  11/80] PowerShell             feature      + 0/ 0  total= 217     5s
+  [batch  12/80] SQL                    refactor     + 0/ 0  total= 217     7s
+  [batch  13/80] C#                     feature      + 0/ 0  total= 217     5s
+  [batch  14/80] C#                     docs         + 0/ 0  total= 217     5s
+  [batch  15/80] SQL                    bugfix       + 0/ 0  total= 217     7s
+  [batch  16/80] C#                     tests        + 0/ 0  total= 217     5s
+  [batch  17/80] SQL                    feature      + 0/ 0  total= 217     9s
+  [batch  18/80] Java                   refactor     + 0/ 0  total= 217     6s
+  [batch  19/80] Python                 ui           + 0/ 0  total= 217     6s
+  [batch  20/80] PowerShell             bugfix       + 0/ 0  total= 217     6s
+  [batch  21/80] JavaScript/TypeScript  feature      + 0/ 0  total= 217     5s
+  [batch  22/80] Python                 feature      + 0/ 0  total= 217     5s
+  [batch  23/80] Go                     tests        + 0/ 0  total= 217     7s
+  [batch  24/80] Python                 refactor     + 0/ 0  total= 217     5s
+  [batch  25/80] Python                 tests        + 0/ 0  total= 217     5s
+  [batch  26/80] C#                     refactor     + 0/ 0  total= 217    10s
+  [batch  27/80] JavaScript/TypeScript  bugfix       + 0/ 0  total= 217     6s
+  [batch  28/80] C#                     feature      + 0/ 0  total= 217     6s
+  [batch  29/80] SQL                    integration  + 0/ 0  total= 217     6s
+  [batch  30/80] C#                     feature      + 0/ 0  total= 217     9s
+  [batch  31/80] Python                 refactor     + 0/ 0  total= 217     7s
+  [batch  32/80] Rust                   tests        + 0/ 0  total= 217     7s
+  [batch  33/80] Python                 ui           + 0/ 0  total= 217     6s
+  [batch  34/80] Python                 feature      + 0/ 0  total= 217     6s
+  [batch  35/80] C#                     feature      + 0/ 0  total= 217     7s
+  [batch  36/80] Python                 bugfix       + 0/ 0  total= 217     6s
+  [batch  37/80] C#                     bugfix       + 0/ 0  total= 217     7s
+  [batch  38/80] C#                     feature      + 0/ 0  total= 217     7s
+  [batch  39/80] Python                 bugfix       + 0/ 0  total= 217     8s
+  [batch  40/80] Python                 refactor     + 0/ 0  total= 217     7s
+  [batch  41/80] SQL                    feature      + 0/ 0  total= 217     8s
+  [batch  42/80] Bash                   bugfix       + 0/ 0  total= 217     7s
+  [batch  43/80] Python                 docs         + 0/ 0  total= 217     6s
+  [batch  44/80] JavaScript/TypeScript  bugfix       + 0/ 0  total= 217     6s
+  [batch  45/80] Python                 feature      + 0/ 0  total= 217     7s
+  [batch  46/80] Rust                   ui           + 0/ 0  total= 217     8s
+  [batch  47/80] SQL                    tests        + 0/ 0  total= 217     7s
+  [batch  48/80] Python                 tests        + 0/ 0  total= 217     6s
+  [batch  49/80] JavaScript/TypeScript  feature      + 0/ 0  total= 217     6s
+  [batch  50/80] Python                 feature      + 0/ 0  total= 217     6s
+  [batch  51/80] JavaScript/TypeScript  feature      + 0/ 0  total= 217    11s
+  [batch  52/80] Bash                   feature      + 0/ 0  total= 217     5s
+  [batch  53/80] C#                     tests        + 0/ 0  total= 217     6s
+  [batch  54/80] Java                   tests        + 0/ 0  total= 217     6s
+  [batch  55/80] HTML/CSS/JavaScript    integration  + 0/ 0  total= 217     6s
+  [batch  56/80] C#                     tests        + 0/ 0  total= 217     6s
+  [batch  57/80] C#                     refactor     + 0/ 0  total= 217     7s
+  [batch  58/80] JavaScript/TypeScript  feature      + 0/ 0  total= 217     6s
+  [batch  59/80] C#                     bugfix       + 0/ 0  total= 217     7s
+  [batch  60/80] JavaScript/TypeScript  ui           + 0/ 0  total= 217     6s
+  [batch  61/80] Python                 refactor     + 0/ 0  total= 217     5s
+  [batch  62/80] HTML/CSS/JavaScript    feature      + 0/ 0  total= 217     5s
+  [batch  63/80] Go                     feature      + 0/ 0  total= 217     5s
+  [batch  64/80] Rust                   feature      + 0/ 0  total= 217     5s
+  [batch  65/80] C#                     integration  + 0/ 0  total= 217     5s
+  [batch  66/80] C#                     docs         + 0/ 0  total= 217     5s
+  [batch  67/80] PowerShell             docs         + 0/ 0  total= 217     5s
+  [batch  68/80] HTML/CSS/JavaScript    bugfix       + 0/ 0  total= 217     4s
+  [batch  69/80] Python                 refactor     + 0/ 0  total= 217     6s
+  [batch  70/80] JavaScript/TypeScript  feature      + 0/ 0  total= 217     6s
+  [batch  71/80] Python                 feature      + 0/ 0  total= 217     8s
+  [batch  72/80] Go                     integration  + 0/ 0  total= 217     6s
+  [batch  73/80] Python                 ui           + 0/ 0  total= 217     6s
+  [batch  74/80] Python                 feature      + 0/ 0  total= 217     5s
+  [batch  75/80] C#                     feature      + 0/ 0  total= 217     5s
+  [batch  76/80] C#                     bugfix       + 0/ 0  total= 217     5s
+  [batch  77/80] C#                     feature      + 0/ 0  total= 217     7s
+  [batch  78/80] Python                 tests        + 0/ 0  total= 217     5s
+  [batch  79/80] Python                 ui           + 0/ 0  total= 217     5s
+
+Done. 217 gold examples -> codex_gold.work.jsonl
+Elapsed: 30.0 min
+
+Next: validate count, then rename to codex[api].synthetic.boss.217.jsonl
+      and merge with merged[mixed].normalized.boss.2244.jsonl for training.

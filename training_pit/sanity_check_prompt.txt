@@ -1,0 +1,69 @@
+I need an independent quality check before I fine-tune an AI model on a dataset we generated overnight.
+
+CONTEXT:
+- We are building 'TheOrc' — a WPF/C# desktop AI coding assistant
+- It uses a multi-agent swarm: RESEARCHER, CODER, UIDEVELOPER, TESTER roles
+- We generated training examples where the AI learns to break coding goals into task plans
+- Last night's harvest produced 1,384 approved training examples (out of ~1,800 generated)
+- ~400 were rejected for: hallucinated file references, mock/placeholder code in builder tasks,
+  wrong language stack, or single-task plans
+- A first reviewer (Codex) did the review pass
+
+QUESTION: Based on the 10 random samples below, is this training data good enough to fine-tune
+a coding assistant on? What concerns do you have, if any? Should we proceed?
+
+Please give an honest assessment — quality, consistency, any patterns you see that worry you.
+
+--- 10 RANDOM SAMPLES FROM THE DATASET ---
+
+USER: Goal: Add a search feature to the Model Wiki list. Create Services/ModelSearchEngine.cs that indexes model names and descriptions, and add a search box in ModelWikiWindow.xaml that filters the list based on user input.
+ASSISTANT: {"plan":"Implement a search feature by creating a C# indexing service for model filtering and updating the WPF window with a search input.","tasks":[{"role":"RESEARCHER","priority":1,"title":"Research C# LINQ string searching patterns","description":"Investigate efficient ways to perform case-insensitive string searches across multiple properties (e.g., Name and Description) in a list of objects using C# LINQ. Identify the best approach for handling null values or empty strings within the query ...
+
+---
+
+USER: Goal: Create Services/CodeAnalyzer.cs that analyzes the current file's syntax and provides quick fixes for common errors. Integrate this analyzer into MainWindow.xaml, triggered by a right-click context menu option.
+ASSISTANT: {"plan":"Build a C# syntax analyzer using Roslyn, implement the logic in a service class, and integrate it into a WPF context menu.","tasks":[{"role":"RESEARCHER","priority":1,"title":"Research C# Roslyn APIs for Syntax Analysis","description":"Investigate the Microsoft.CodeAnalysis (Roslyn) library for C# syntax analysis. Specifically: (1) How to load a C# source file into a SyntaxTree. (2) How to iterate through Diagnostics to find common errors like missing semicolons or mismatched braces. (3...
+
+---
+
+USER: Goal: Add a worker-lane utilization strip to the Swarm Board header in SwarmBoardPanel.xaml showing each lane as busy or idle, driven by task start/finish events from SwarmSession.cs handled in SwarmBoardPanel.xaml.cs.
+ASSISTANT: {"plan":"Update SwarmBoardPanel UI and logic to include a worker-lane utilization strip driven by events from SwarmSession.","tasks":[{"role":"RESEARCHER","priority":1,"title":"Analyze SwarmBoardPanel.xaml and SwarmSession.cs","description":"Investigate the current structure of SwarmBoardPanel.xaml to identify where the header is located and how lanes are currently rendered. Analyze SwarmSession.cs to identify existing task start/finish event signatures or determine what new C# events need to be...
+
+---
+
+USER: Goal: Create an NUnit test class T25_TaskQueueTests.cs in OrchestratorIDE.UITests/Tests/ covering Services/TaskQueue.cs: tests should verify that tasks are added, removed, and processed correctly. The TESTER lane should run the new tests and report results.
+ASSISTANT: {"plan":"Create C# NUnit tests for the TaskQueue service and verify them via the TESTER lane in subsequent steps.","tasks":[{"role":"RESEARCHER","priority":1,"title":"Research NUnit C# patterns for queue services","description":"Investigate standard C# NUnit testing patterns for collection-based services like queues. Focus on: (1) Best practices for setting up test fixtures with [SetUp]. (2) Common assertion styles for checking collection counts and item states (e.g., Assert.That vs Assert.AreEq...
+
+---
+
+USER: Goal: Create a new service Services/OllamaResponseParser.cs that processes the response from OLLAMA_NUM_PARALLEL requests and aggregates them into a single output. Integrate this with SwarmSession.cs to handle parallel processing.
+ASSISTANT: {"plan":"Research C# concurrency and aggregation patterns, implement the OllamaResponseParser service, and integrate it into SwarmSession.cs.","tasks":[{"role":"RESEARCHER","priority":1,"title":"Research C# async aggregation and string manipulation","description":"Investigate best practices for: (1) Aggregating multiple strings in C# efficiently (e.g., StringBuilder vs. Join). (2) Handling concurrent results using Task.WhenAll with IEnumerable<Task<string>>. (3) Common patterns for cleaning LLM ...
+
+---
+
+USER: Goal: Add a search feature to ModelWikiWindow.xaml that filters models based on tags. Implement Services/ModelTagFilter.cs to handle tagging logic and UI filtering in MainWindow.xaml.cs.
+ASSISTANT: {"plan":"Implement a tag-based search feature by researching LINQ filtering patterns, creating a dedicated C# service for logic, and updating the WPF UI components.","tasks":[{"role":"RESEARCHER","priority":1,"title":"Research C# LINQ for tag-based collection filtering","description":"Investigate standard C# LINQ methods (e.g., .Where(), .Contains(), .Any()) to filter a list of objects based on a string input matching against a collection of tags. Specifically, look for efficient ways to handle ...
+
+---
+
+USER: Goal: Show git status directly in MainWindow.xaml: create Services/GitStatusChecker.cs that fetches the current branch name and status message from git status output, display them in a status bar item.
+ASSISTANT: {"plan":"Implement a Git status checker by researching command-line parsing, creating a C# backend service, and updating the WPF XAML UI.","tasks":[{"role":"RESEARCHER","priority":1,"title":"Research System.Diagnostics.Process and regex for git status","description":"Investigate how to use System.Diagnostics.Process in C# to execute 'git status --branch --short' and capture standard output. Identify reliable regular expressions to extract: (1) The current branch name (e.g., 'On branch main') and...
+
+---
+
+USER: Goal: Write tools/service_status.ps1 in PowerShell that checks the status of all Windows services, highlighting critical services (e.g., security-related) and showing their current state (Running/Stopped). Sort the list by service type.
+ASSISTANT: {"plan":"Research PowerShell service management cmdlets and security keywords, implement the status script with color highlighting and sorting, and verify the output.","tasks":[{"role":"RESEARCHER","priority":1,"title":"Research PowerShell service cmdlets and security keywords","description":"Investigate the following for Windows PowerShell:\n1. The best cmdlet to retrieve all services (e.g., Get-Service) and its available properties like Status, Name, DisplayName, and ServiceType.\n2. How to so...
+
+---
+
+USER: Goal: Add a status bar to MainWindow.xaml showing the current mode (Edit, Preview, Run). Implement the logic in MainWindow.xaml.cs to update the status bar based on user actions.
+ASSISTANT: {"plan":"Add a WPF StatusBar and implement C# code-behind logic to update its text based on user interactions.","tasks":[{"role":"RESEARCHER","priority":1,"title":"Research WPF StatusBar and TextBlock updates in C#","description":"Investigate: (1) The standard XAML structure for adding a <StatusBar> at the bottom of a WPF Window. (2) How to correctly name a <TextBlock> within that status bar so it can be accessed via the code-behind. (3) The best practice for updating the .Text property of a Tex...
+
+---
+
+USER: Goal: Enhance the SwarmTask class to include a timeout mechanism. Modify SwarmSession.cs to enforce task timeouts and add a timeout field in each task's JSON output.
+ASSISTANT: {"plan":"Research C# task timeout patterns, then update the SwarmTask class for data storage and SwarmSession for execution logic.","tasks":[{"role":"RESEARCHER","priority":1,"title":"Research C# Task Timeout Patterns","description":"Investigate best practices in C# for enforcing timeouts on asynchronous tasks. Specifically: (1) Using CancellationTokenSource with Task.WaitAsync or Task.WhenAny to bound execution time. (2) Handling exceptions when a task is cancelled due to timeout. (3) System.Te...
+
+--- END SAMPLES ---
+
+Give your honest verdict: proceed to training, or fix something first?

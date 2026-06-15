@@ -1,0 +1,115 @@
+You are doing a quality audit on training captures for TheOrc — a WPF/C# AI coding assistant.
+
+These 9 captures were flagged by an automated sweep (reasons: create_existing = plan says
+"create" a file that already exists in the codebase) but were then APPROVED by a first reviewer.
+Your job is to give a second opinion. Decide AGREE (keep) or REJECT (remove).
+
+TheOrc is a C# WPF desktop app with files like SwarmSession.cs, OllamaClient.cs, MainWindow.xaml,
+SwarmBoardPanel.xaml, ModelWikiWindow.xaml, HiveTaskQueue.cs, AppSettings.cs etc.
+Training captures teach an AI how to break coding goals into multi-agent task plans.
+
+AGREE if: the plan is coherent, "create" likely means extend/update an existing file or add
+a new companion file, builder tasks describe real implementation (no placeholders/mocks).
+
+REJECT if: a Coder/UIDeveloper task uses mock/placeholder/simulated/dummy wording,
+the plan clearly replaces a core file rather than extending it, or the goal is off-stack.
+
+Return ONLY a JSON array:
+[{"id":"...","decision":"AGREE or REJECT","reason":"one sentence"}]
+
+--- CAPTURES ---
+
+### ex_20260613_102128
+GOAL: Implement a context-sensitive help tooltip for editor commands: create Services/HelpTooltipManager.cs that fetches tooltips from command_docs.json, display them as ToolTip controls on key press in MainWindow.xaml.cs.
+TASKS:
+  [RESEARCHER] Research WPF ToolTips and JSON parsing in C#: Investigate the following for a C# WPF application:\n1. How to programmatically update the .Content property of a ToolTip control using code-behind.\n2. The most efficient way to load a local JSON file into a Dictionary<string, string> using System.Text.Json (e.g., handling file paths and deserialization).\n3. Best practices for capturing KeyDown events in a WPF Window to identify specific keys.\nReturn a 1-page summary with required namespaces and exact method signatures for the Coder and UIDEveloper.
+  [CODER] Write Services/HelpTooltipManager.cs: Create a C# class `HelpTooltipManager` in the `Services` namespace. Implement a static method `public static string GetTooltip(string commandKey)` that reads a file named `command_docs.json` from the application's root directory. The JSON should map command names (keys) to help text (values). Use System.Text.Json to parse the file into a dictionary. If the key is not found, return 'No help available'. Ensure the file is loaded efficiently (e.g., cached in a static variable).
+  [UIDEVELOPER] Build MainWindow.xaml and MainWindow.xaml.cs: Create a WPF Window (`MainWindow.xaml`) containing a content area and a ToolTip control. In the C# code-behind (`MainWindow.xaml.cs`), subscribe to the Window's `KeyDown` event. When a key is pressed, call `HelpTooltipManager.GetTooltip(e.Key.ToString())` and assign the returned string to the ToolTip's Content property. Use XAML for all layout and styling; ensure all logic is written in C#.
+
+---
+
+### ex_20260613_073501
+GOAL: Create Services/ModelDownloadService.cs that handles downloading models from a specified URL, including progress tracking, resume support, and checksum validation. Ensure proper integration with the Model Wiki UI in MainWindow.xaml.
+TASKS:
+  [RESEARCHER] Research .NET resumable downloads and SHA256 hashing: Investigate: (1) Using `HttpClient` with `Range` headers to implement resumable file downloads in C#. (2) Efficiently calculating SHA256 checksums of large files using `FileStream`. (3) Best practices for reporting progress from an async task to a WPF UI thread using `IProgress<T>`. Return a summary of the specific `HttpClient` methods and `FileStream` options needed.
+  [CODER] Write Services/ModelDownloadService.cs: Create Services/ModelDownloadService.cs. Implement a class with a method `public async Task DownloadModelAsync(string url, string destinationPath, IProgress<double> progress, Action<string> onStatusUpdate)`. The method must: (1) Check if a partial file exists at `destinationPath` to support resuming; (2) Get the content length from the URL header; (3) Use `HttpClient` to download data, appending to the file if it's a resume; (4) Update `progress` with percentage; (5) Call `onStatusUpdate` for status messages; (6) Perform SHA256 validation after completion. Ensure all code is in C#.
+  [UIDEVELOPER] Update MainWindow.xaml and MainWindow.xaml.cs: Modify MainWindow.xaml to include a 'Model Wiki' section with: a Button (`btnDownload`), a ProgressBar (`pbProgress`), and a TextBlock (`txtStatus`). In MainWindow.xaml.cs, implement the click handler for `btnDownload`. It should instantiate `ModelDownloadService`, call `DownloadModelAsync` using the URL from a text box (or hardcoded for now), and update the UI elements. Use C# for all logic and XAML for layout.
+
+---
+
+### ex_20260613_135554
+GOAL: Implement tagging for models: create Services/ModelTagger.cs that allows adding/removing tags to model entries, and render tags as filters in ModelWikiWindow.xaml with dynamic updates.
+TASKS:
+  [RESEARCHER] Research WPF MVVM patterns for dynamic collection filtering: Investigate best practices for dynamically filtering an ObservableCollection in WPF using LINQ. Specifically, look for methods to update a 'Filtered' view without modifying the source collection, such as using ICollectionView or manual updates to a secondary ObservableCollection. Also, research standard XAML layouts for displaying a list of clickable filter buttons (e.g., FlowLayoutPanel or StackPanel). Return a summary of the recommended C# approach.
+  [CODER] Write Models/ModelEntry.cs and Services/ModelTagger.cs: Create Models/ModelEntry.cs defining a class with properties: Id (string), Name (string), and Tags (List<string>). Create Services/ModelTagger.cs which manages an ObservableCollection<ModelEntry> named AllModels. Implement three methods in C#: 1) AddTag(string modelId, string tag): finds the model by ID and adds the tag to its list. 2) RemoveTag(string modelId, string tag): removes the specified tag from the model's list. 3) GetFilteredModels(string tag): returns a List<ModelEntry> containing only models that possess the provided tag. Ensure all logic is strictly in C#.
+  [UIDEVELOPER] Update ModelWikiWindow.xaml with Tag Filters: Modify or create ModelWikiWindow.xaml to include a 'Filter Tags' section at the top (using a StackPanel/FlowLayoutPanel) and a ListView for displaying models. The filter section should contain buttons representing unique tags; clicking a button must trigger an update to the ListView using ModelTagger.GetFilteredModels(). Use XAML styling to ensure tags are visually distinct. Implement the dynamic update logic in the code-behind or via bindings as appropriate for WPF, ensuring the UI refreshes immediately when filters change.
+
+---
+
+### ex_20260613_070948
+GOAL: Add a search bar to ModelWikiWindow.xaml that filters the model list by name or description. Create Services/ModelSearchService.cs with methods for searching and sorting models.
+TASKS:
+  [CODER] Write Services/ModelSearchService.cs: Create a C# class `Services/ModelSearchService.cs`. Define an enum `SortOrder { NameAscending, NameDescending }`. Implement the following two methods: 
+1. `IEnumerable<Model> FilterModels(IEnumerable<Model> models, string query)`: Filters a collection of `Model` objects. A model is included if its `Name` or `Description` property contains the provided `query` string (case-insensitive). If `query` is null or empty, return all models. 
+2. `IEnumerable<Model> SortModels(IEnumerable<Model> models, SortOrder order)`: Returns the sorted collection based on the `Name` property. Use `SortOrder.NameAscending` for ascending and `SortOrder.NameDescending` for descending. 
+Assume a `Model` class exists with properties `string Name` and `string Description`.
+  [UIDEVELOPER] Update ModelWikiWindow.xaml and ModelWikiWindow.xaml.cs: Modify the WPF UI in C# and XAML to include search and sort functionality. 
+1. In `ModelWikiWindow.xaml`, add a `TextBox` named `SearchBox` at the top of the model list area. Add a `ComboBox` named `SortBox` containing two items: "Name Ascending" and "Name Descending". 
+2. In `ModelWikiWindow.xaml.cs`, instantiate `ModelSearchService`. 
+3. Implement an event handler for `SearchBox.TextChanged` that calls `FilterModels` from `ModelSearchService` using the text from `SearchBox` and updates the displayed collection (assume an existing `ObservableCollection<Model> ModelList`). 
+4. Implement an event handler for `SortBox.SelectionChanged` that calls `SortModels` from `ModelSearchService` based on the selected index/value and updates the displayed collection. 
+All code must be written in C#.
+
+---
+
+### ex_20260613_121705
+GOAL: Add a search bar to ModelWikiWindow.xaml that allows users to filter models by name or tags. Create Services/ModelSearchService.cs with methods to perform the search operation against the model list and update the UI accordingly in MainWindow.xaml.
+TASKS:
+  [RESEARCHER] Research C# WPF collection filtering patterns: Investigate best practices for filtering collections in C# WPF applications using LINQ and ICollectionView. Specifically, find efficient ways to filter a list of objects based on multiple properties (e.g., 'Name' string and a 'Tags' collection). Provide a summary of the most performant approach for 'search-as-you-type' functionality and provide a sample C# method signature for a service that handles this logic.
+  [CODER] Write Services/ModelSearchService.cs: Create a new file `Services/ModelSearchService.cs` in C#. Implement a class `ModelSearchService` with a public method: `IEnumerable<Model> FilterModels(IEnumerable<Model> models, string query)`. The method should return a filtered list where the `query` matches either the `Name` property of the model or any string within its `Tags` collection (case-insensitive). Ensure the code is clean and follows standard C# naming conventions.
+  [UIDEVELOPER] Update ModelWikiWindow.xaml and MainWindow.xaml: Modify `ModelWikiWindow.xaml` and `MainWindow.xaml` using XAML and C#. In `ModelWikiWindow.xaml`, add a `TextBox` named `SearchBar` at the top of the window to allow user input. Implement the logic (via code-behind or binding) to call `ModelSearchService.FilterModels` whenever the `SearchBar` text changes, updating the displayed list of models accordingly. Ensure the UI remains responsive and consistent with existing styles.
+
+---
+
+### ex_20260613_105058
+GOAL: Implement an OllamaClient method in OllamaClient.cs that fetches the latest model version from the API. Add a button in MainWindow.xaml that calls this method when clicked, displaying the version in a message box.
+TASKS:
+  [RESEARCHER] Research Ollama API and WPF MessageBox patterns: Investigate: (1) The specific Ollama API endpoint used to retrieve model information or versions (e.g., /api/tags). Identify the JSON response structure to extract the latest version string. (2) Standard C# WPF syntax for displaying a message box using `System.Windows.MessageBox.Show()`. Return a 1-page summary with the correct URL, expected JSON keys, and a snippet of the HttpClient call.
+  [CODER] Write OllamaClient.cs with GetLatestModelVersionAsync: Create or update OllamaClient.cs in C#. Implement a public method: `public async Task<string> GetLatestModelVersionAsync()`. This method must use `HttpClient` to query the Ollama API (based on researcher findings). It should parse the JSON response and return only the version string. Ensure proper error handling for network issues or empty responses. Use `System.Net.Http` and `System.Text.Json`.
+  [UIDEVELOPER] Update MainWindow.xaml and MainWindow.xaml.cs: Modify MainWindow.xaml to include a WPF Button with the text 'Fetch Latest Version'. In MainWindow.xaml.cs, implement an async click handler for this button. The handler must instantiate `OllamaClient`, call `await client.GetLatestModelVersionAsync()`, and display the resulting string in a `System.Windows.MessageBox`. Ensure the UI remains responsive during the API call.
+
+---
+
+### ex_20260613_134009
+GOAL: Create Services/OllamaClient.cs that implements a method to fetch the latest model updates from the OLLAMA server. The method should handle authentication and parse JSON responses into an UpdateInfo object.
+TASKS:
+  [RESEARCHER] Research Ollama API endpoints and JSON schemas: Investigate the Ollama API documentation to identify the correct endpoint for retrieving model information or updates (e.g., /api/tags or similar). Identify the exact JSON response structure returned by this endpoint. Additionally, research standard C# best practices for using HttpClient with System.Text.Json for deserialization, specifically focusing on asynchronous request patterns and how to handle optional Bearer token authentication in headers. Provide a summary of the target URL, the expected JSON fields for an 'UpdateInfo' object, and any required header keys.
+  [CODER] Write Services/OllamaClient.cs: Create `Services/OllamaClient.cs` in C#. Implement a class `OllamaClient` that includes a method `Task<List<UpdateInfo>> FetchLatestUpdatesAsync(string baseUrl, string authToken = null)`. Use `HttpClient` to perform a GET request to the endpoint identified by the researcher. Deserialize the JSON response into a list of `UpdateInfo` objects using `System.Text.Json`. Define the `UpdateInfo` class with properties matching the research findings. Ensure proper error handling for non-success HTTP status codes and include comments explaining the logic. All code must be written in C#.
+
+---
+
+### ex_20260613_084243
+GOAL: Create Services/TaskTracker.cs that tracks the progress of swarm tasks, updating a progress bar in SwarmBoardPanel.xaml as each task completes. Ensure the progress updates are smooth and thread-safe.
+TASKS:
+  [RESEARCHER] Research C# WPF thread-safe progress reporting: Investigate best practices for updating WPF UI elements (like ProgressBar) from background threads in C#. Specifically: (1) Compare `IProgress<T>` vs `Dispatcher.InvokeAsync` for thread safety. (2) Research techniques for 'smooth' progress updates (e.g., linear interpolation or throttling). Return a summary of the recommended implementation pattern including necessary namespaces.
+  [CODER] Write Services/TaskTracker.cs: Create a C# singleton class `TaskTracker` in the `Services` namespace. It must include: (1) A property `double ProgressValue` that implements `INotifyPropertyChanged`. (2) A method `UpdateProgress(double newValue)` that uses `Application.Current.Dispatcher.InvokeAsync` to ensure the UI is updated on the main thread. (3) Logic to handle 'smooth' updates, perhaps by interpolating between the current value and the target value over a short duration or using a minimum step increment. Ensure all code is strictly C#.
+  [UIDEVELOPER] Build SwarmBoardPanel.xaml and its code-behind: Create/update the WPF UI component `SwarmBoardPanel.xaml`. Include a `ProgressBar` element. In the code-behind, initialize a reference to the `TaskTracker` singleton. Bind the `ProgressBar.Value` property to `TaskTracker.Instance.ProgressValue`. Ensure that the binding correctly reflects changes made by the tracker service. All styling must be in XAML; logic must be in C#.
+
+---
+
+### ex_20260613_124642
+GOAL: Enhance SwarmTask.cs to support nested tasks: add a 'SubTasks' property, update SwarmSession.cs to handle nested task execution, and create a UI in SwarmBoardPanel.xaml that visually represents subtasks.
+TASKS:
+  [RESEARCHER] Research C# recursive list processing and WPF HierarchicalDataTemplates: Investigate: (1) Best practices for recursive execution of a List<T> in C# (e.g., using recursion vs. stack-based iteration). (2) WPF XAML 'HierarchicalDataTemplate' or 'TreeView' patterns to display nested objects where each object contains a collection of its own type. Return a 1-page summary with C# code snippets for the recursive loop and the XAML template structure.
+  [CODER] Update SwarmTask.cs and SwarmSession.cs: Modify the existing C# files as follows:
+
+1. In SwarmTask.cs: Add a property `public List<SwarmTask> SubTasks { get; set; } = new List<SwarmTask>();`.
+2. In SwarmSession.cs: Update the task execution logic (e.g., an `ExecuteTasksAsync` method). The logic must check if a `SwarmTask` has any items in its `SubTasks` list. If it does, the session must recursively call the execution logic for those subtasks before moving to the next sibling task. Ensure all methods use `async/await` and handle exceptions properly. Use C# naming conventions.
+  [UIDEVELOPER] Update SwarmBoardPanel.xaml: Modify or create the XAML file 'SwarmBoardPanel.xaml' to visually represent the nested task hierarchy. 
+
+1. Use a WPF `TreeView` or an `ItemsControl` with a `HierarchicalDataTemplate`. 
+2. The template must bind to the `SubTasks` property of the `SwarmTask` class defined in the project.
+3. Style the UI to clearly indent subtasks relative to their parent tasks. 
+4. Ensure all styling is done via C# / XAML as per the language lock.
+--- END ---
+Return the JSON array now.

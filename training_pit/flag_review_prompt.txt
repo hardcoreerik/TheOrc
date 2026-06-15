@@ -1,0 +1,62 @@
+You are a dataset quality reviewer for TheOrc — a WPF/C# AI coding assistant trained to plan multi-agent coding tasks.
+
+Review the 3 flagged training captures below. Each flag reason is explained:
+- create_existing: plan says "create" a file that already exists in the codebase (may be a false positive — "create" sometimes means re-implement or extend)
+- fabricated_ref: plan updates a file not found in the repo or elsewhere in the plan (potential hallucination)
+- mock_wording: a Coder or UIDeveloper task uses words like "mock", "simulate", "placeholder" (real builder tasks should produce real code)
+
+APPROVE if the flag is a false positive and the plan is coherent for a real C#/WPF project.
+REJECT if the plan hallucinates file paths, uses stubs in real builder tasks, or the goal is nonsensical.
+
+Return a JSON array — one object per capture:
+[{"id":"...","decision":"APPROVE or REJECT","reason":"one sentence"}]
+
+--- CAPTURES TO REVIEW ---
+ID: ex_20260613_142630
+FLAG: create_existing:swarmsession.cs
+GOAL: Create Services/FileWatcherService.cs that monitors a specified directory for file changes (additions, deletions, modifications) and logs these events to session_history.log. Integrate this service into SwarmSession.cs on startup.
+TASKS:
+  [RESEARCHER] Research .NET FileSystemWatcher and thread-safe logging: Investigate the following for C# implementation:
+1. Best practices for using `System.IO.FileSystemWatcher` to monitor directory changes (Created, Deleted, Changed).
+2. Strategies to handle 'double-firing' of Change events (common in Windows/NTFS).
+3. Thread-safe methods for appending logs to a single file (`session_history.log`) from multiple threads (e.g., using `lock`, `ConcurrentQueue`, or `FileStream` with `FileShare`).
+4. Proper disposal patterns for `FileSystemWatcher`.
+Return a summary including recommended class structure and specific method signatures.
+  [CODER] Write Services/FileWatcherService.cs: Create `Services/FileWatcherService.cs` in C#. Implement a class `FileWatcherService` that:
+1. Has a method `public void StartWatching(string directoryPath)` which initializes a `FileSystemWatcher` on the provided path.
+2. Monitors for Created, Deleted, and Changed events.
+3. Logs every event to `session_history.log` with a timestamp, action type (e.g., 'Created'), and the file path.
+4. Uses thread-safe logic (as suggested by the researcher) to ensure logs don't collide.
+5. Implements `IDisposable` to properly shut down the watcher.
+Ensure all code is strictly C#.
+  [CODER] Update SwarmSession.cs: Modify or create `SwarmSession.cs` in C#. 
+1. Import the `FileWatcherService` class.
+2. Instantiate `FileWatcherService` as a private field.
+3. In the constructor or an initialization method (e.g., `Initialize()`), call `StartWatching()` with a configurable directory path (default to a 'data' folder if not specified).
+4. Ensure the service is disposed of when the session is destroyed/closed.
+5. All code must be strictly C#.
+
+---
+
+ID: ex_20260613_142515
+FLAG: fabricated_ref:ollamaservice.cs,fabricated_ref:ollamaservice.cs
+GOAL: Create Services/OllamaResponseParser.cs that parses API responses from Ollama, extracts relevant information, and exposes it through properties. Integrate this parser into the existing services that interact with Ollama.
+TASKS:
+  [RESEARCHER] Research Ollama API JSON schema and C# mapping: Investigate the JSON response structures for both the `/api/generate` and `/api/chat` endpoints in the Ollama API. Identify key fields such as 'model', 'response', 'done', 'context', and 'message'. Provide a summary of the C# classes needed to represent these objects using `System.Text.Json`. Specifically, identify which fields require `[JsonPropertyName]` attributes due to snake_case naming in the JSON (e.g., 'created_at'). Return a clear mapping of JSON keys to C# property names.
+  [CODER] Write Services/OllamaResponseParser.cs: Create a new file `Services/OllamaResponseParser.cs` in C#. Implement a class `OllamaResponse` that contains properties for model name, response text, completion status, and any other relevant metadata identified by the researcher. Include a static method `Parse(string json)` that uses `System.Text.Json.JsonSerializer` to deserialize the raw Ollama API string into an `OllamaResponse` object. Ensure the code handles potential nulls or missing fields gracefully.
+  [CODER] Update OllamaService.cs integration: Modify the existing service (assumed to be `OllamaService.cs`) that performs HTTP requests to the Ollama API. Locate the methods responsible for calling `/api/generate` or `/api/chat`. Instead of manually parsing the JSON response body, call `OllamaResponseParser.Parse(jsonString)`. Update all subsequent logic in these methods to use the properties provided by the new `OllamaResponse` object instead of raw string manipulation or dynamic objects.
+
+---
+
+ID: ex_20260613_142547
+FLAG: mock_wording
+GOAL: Add a search bar to ModelWikiWindow.xaml that filters models based on their names or tags. Implement the search logic in Services/ModelSearcher.cs, which is triggered from the window's code-behind as the user types.
+TASKS:
+  [RESEARCHER] Research C# WPF real-time list filtering: Investigate best practices for implementing real-time list filtering in C# using WPF. Specifically: (1) Compare LINQ-based filtering vs CollectionViewSource for performance on medium-sized lists. (2) Research 'Debouncing' techniques in C# to prevent excessive filtering calls during rapid typing. Return a summary of the recommended approach with a sample C# snippet for a debounced filter method.
+  [UIDEVELOPER] Modify ModelWikiWindow.xaml: Update the XAML file ModelWikiWindow.xaml to include a search bar. Add a TextBox element named 'SearchBarTextBox' at the top of the window. Style it to be visually consistent with existing elements and add a placeholder text like 'Search models by name or tags'. Ensure the layout remains responsive using standard WPF Grid or StackPanel containers.
+  [CODER] Write Services/ModelSearcher.cs: Create a new C# class in Services/ModelSearcher.cs. Implement a static method 'public List<Model> FilterModels(string query)' that takes a string input. This method should iterate through a provided list of Model objects (assume each Model has a 'Name' property as a string and a 'Tags' property as a string) and return only those where either Name or Tags contains the query string, performing a case-insensitive comparison. Use LINQ for concise implementation.
+  [CODER] Update ModelWikiWindow.xaml.cs: Modify the C# code-behind file ModelWikiWindow.xaml.cs. In the constructor or Loaded event, subscribe to the TextChanged event of the SearchBarTextBox (from the XAML). When the text changes, call the FilterModels method from Services/ModelSearcher.cs using the current text in SearchBarTextBox. Update the window's primary model collection (e.g., an ObservableCollection<Model>) with the resulting filtered list to refresh the UI.
+
+---
+
+Return the JSON array now.

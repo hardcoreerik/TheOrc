@@ -1,0 +1,87 @@
+================================================================
+  TheOrc -- Cerebras Gold Generator
+================================================================
+  model     : gpt-oss-120b
+  endpoint  : https://api.cerebras.ai/v1
+  sys prompt: 2320 chars
+  Target : 72 batches x 25 = 1800
+  Est.   : ~20�26 min at 5 RPM (12s/batch)
+
+  [batch   0/72] PowerShell             refactor     +27/27  total=  27     5s
+  [batch   1/72] Java                   bugfix       +21/24  total=  48     4s
+  [batch   2/72] PowerShell             feature      + 6/21  total=  54     5s
+  [batch   3/72] Rust                   bugfix       +23/24  total=  77     4s
+  [batch   4/72] Go                     ui           +20/20  total=  97     5s
+  [batch   5/72] C#                     bugfix       +29/30  total= 126     4s
+  [batch   6/72] Rust                   tests        +26/26  total= 152     4s
+  [batch   7/72] Go                     feature      + 0/ 0  total= 152     5s
+  [batch   8/72] Rust                   feature      +21/25  total= 173     4s
+  [batch   9/72] JavaScript/TypeScript  refactor     +25/25  total= 198     4s
+  [batch  10/72] Go                     bugfix       + 9/ 9  total= 207     5s
+  [batch  11/72] Python                 tests        +28/28  total= 235     4s
+  [batch  12/72] SQL                    tests        +24/24  total= 259     3s
+  [batch  13/72] SQL                    refactor     +20/25  total= 279     4s
+  [batch  14/72] TypeScript (React/Next.js) tests        +25/25  total= 304     7s
+  [batch  15/72] TypeScript (React/Next.js) feature      + 1/ 1  total= 305     5s
+  [batch  16/72] SQL                    tests        +25/25  total= 330     4s
+  [batch  17/72] TypeScript (React/Next.js) bugfix       +22/25  total= 352     5s
+  [batch  18/72] C#                     tests        + 0/ 0  total= 352     4s
+  [batch  19/72] JavaScript/TypeScript  bugfix       + 0/ 0  total= 352     6s
+  [batch  20/72] JavaScript/TypeScript  refactor     +19/25  total= 371     4s
+  [batch  21/72] Python                 refactor     +27/27  total= 398     5s
+  [batch  22/72] Python                 feature      +15/23  total= 413     6s
+  [batch  23/72] C#                     refactor     +27/27  total= 440     5s
+  [batch  24/72] JavaScript/TypeScript  bugfix       +27/27  total= 467     4s
+  [batch  25/72] HTML/CSS/JavaScript    feature      +18/20  total= 485     5s
+  [batch  26/72] Python                 bugfix       + 0/ 0  total= 485     4s
+  [batch  27/72] Python                 feature      +20/24  total= 505     5s
+  [batch  28/72] Go                     integration  +27/28  total= 532     5s
+  [batch  29/72] C#                     feature      +19/24  total= 551     5s
+  [batch  30/72] C#                     bugfix       + 2/ 2  total= 553     4s
+  [batch  31/72] JavaScript/TypeScript  tests        +25/25  total= 578     4s
+  [batch  32/72] HTML/CSS/JavaScript    refactor     +25/25  total= 603     4s
+  [batch  33/72] Java                   integration  +24/25  total= 627     4s
+  [batch  34/72] Python                 ui           +21/24  total= 648     5s
+  [batch  35/72] Rust                   bugfix       +29/29  total= 677     4s
+  [batch  36/72] Bash                   integration  +21/24  total= 698     5s
+  [batch  37/72] Python                 bugfix       +30/31  total= 728     4s
+  [batch  38/72] PowerShell             bugfix       +27/27  total= 755     5s
+  [batch  39/72] TypeScript (React/Next.js) integration  +22/24  total= 777     4s
+  [batch  40/72] C#                     bugfix       +28/28  total= 805     4s
+  [batch  41/72] Java                   bugfix       +27/27  total= 832     4s
+  [batch  42/72] Python                 bugfix       +29/29  total= 861     4s
+  [batch  43/72] Python                 integration  +16/17  total= 877     4s
+  [batch  44/72] C#                     tests        +28/28  total= 905     3s
+  [batch  45/72] C#                     feature      +20/28  total= 925     4s
+  [batch  46/72] Rust                   ui           +22/24  total= 947     4s
+  [batch  47/72] Bash                   tests        +25/25  total= 972     4s
+  [batch  48/72] Java                   feature      +19/25  total= 991     5s
+  [batch  49/72] Python                 refactor     +16/16  total=1007     7s
+  [batch  50/72] Rust                   tests        +28/28  total=1035     5s
+  [batch  51/72] Python                 tests        +25/25  total=1060     3s
+  [batch  52/72] JavaScript/TypeScript  integration  + 0/ 0  total=1060     4s
+  [batch  53/72] Go                     refactor     +19/20  total=1079     4s
+  [batch  54/72] Python                 refactor     +17/19  total=1096    13s
+  [batch  55/72] C#                     tests        +25/25  total=1121     3s
+  [batch  56/72] Go                     refactor     +21/25  total=1142     4s
+  [batch  57/72] Python                 integration  +27/27  total=1169     5s
+  [batch  58/72] HTML/CSS/JavaScript    bugfix       +25/25  total=1194     4s
+  [batch  59/72] SQL                    refactor     +26/26  total=1220     4s
+  [batch  60/72] SQL                    bugfix       + 3/ 3  total=1223     4s
+  [batch  61/72] TypeScript (React/Next.js) feature      + 0/ 0  total=1223     5s
+  [batch  62/72] Python                 bugfix       +28/29  total=1251     4s
+  [batch  63/72] Bash                   tests        +27/27  total=1278     4s
+  [batch  64/72] Java                   bugfix       +26/26  total=1304     3s
+  [batch  65/72] TypeScript (React/Next.js) bugfix       +26/29  total=1330     5s
+  [batch  66/72] C#                     bugfix       +27/27  total=1357     4s
+  [batch  67/72] JavaScript/TypeScript  refactor     +27/27  total=1384     4s
+  [batch  68/72] JavaScript/TypeScript  bugfix       +24/25  total=1408     6s
+  [batch  69/72] JavaScript/TypeScript  tests        +25/25  total=1433     6s
+  [batch  70/72] SQL                    refactor     +25/26  total=1458     5s
+  [batch  71/72] JavaScript/TypeScript  integration  + 0/ 0  total=1458     5s
+
+Done. 1458 gold examples -> cerebras_gold.work.jsonl
+Elapsed: 19.8 min
+
+Next: python tools/finalize_training_set.py
+      rename to cerebras[api].synthetic.boss.1458.jsonl

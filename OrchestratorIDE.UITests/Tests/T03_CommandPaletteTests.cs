@@ -1,3 +1,5 @@
+// Copyright (C) 2025-present hardcoreerik / TheOrc contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Input;
 using FlaUI.Core.WindowsAPI;
