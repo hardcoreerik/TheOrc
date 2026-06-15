@@ -87,6 +87,21 @@ TheOrc is not trying to replace your editor. It's the AI **project runner** that
 
 ---
 
+## What's new in v1.6
+
+Security-hardened HIVE MIND, Update Center with fleet deploy, and a solid headless test foundation.
+
+| Feature | What it is |
+|---|---|
+| **HIVE security overhaul** | Full cryptographic identity layer: P-256 ECDSA signing, ECDH key exchange, HMAC-SHA256 per-request auth, nonce replay cache, Bully election, DPAPI secret storage — replaces the honor-system prototype |
+| **Port 7079 HMAC enforcement** | Task queue endpoints are now fail-closed; workers sign every request; unsigned = 401 |
+| **Warchief crown badge** | Gold border and `👑` marker on the correct constellation node card, resolved live via peer store |
+| **Update Center** | New `⬆ Update` tab: version card, inline build log, downloads pre-built exe from GitHub releases (falls back to build-from-source), gold dot on mode button when update available |
+| **Fleet deploy** | Warchief can push an update to all outdated worker nodes from the Update Center — each node updates and restarts autonomously |
+| **Headless unit tests** | `OrchestratorIDE.UnitTests` project: 112 pure-logic tests pass in ~1 s over SSH with no display required |
+
+---
+
 ## What's new in v1.5
 
 The biggest release since the swarm itself. v1.5 closes the training loop — from a human describing what they want the swarm to learn, all the way to a deployed adapter, without touching a script.

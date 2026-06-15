@@ -1,6 +1,6 @@
 # TheOrc — Roadmap
 
-> Last updated: 2026-06-14 (v1.5.0 release).
+> Last updated: 2026-06-14 (v1.6.0 release).
 > This document is updated after every GitHub release. It reflects actual code state, not aspirations — features marked Shipped have been verified in the running app.
 
 ---
@@ -165,6 +165,42 @@ The honest gaps: the Reviewer Quality Gate is advisory-only (can always be overr
 
 ---
 
+### v1.6 — HIVE security hardening, Update Center, fleet deploy
+
+**HIVE MIND security overhaul (20-pass Codex review)**
+- `HiveIdentity` — P-256 ECDSA signing key + X25519/ECDH exchange key per node; `NodeId = hex(SHA-256(signing pubkey DER))`; DPAPI-protected on Windows
+- `HivePeerStore` — trust store with DPAPI-wrapped per-peer HMAC secrets; enrollment sequence for election ordering; `CreateForTest()` for headless CI
+- `HiveAuthMiddleware` — per-request HMAC-SHA256 (canonical: `METHOD\nPATH\nNONCE\nTS\nHEX(SHA256(body))`); 30s clock skew window; nonce replay cache; fail-closed when `GracePeriodActive = false`
+- `HiveMeshHeartbeat` — 30s signed heartbeat loop; liveness table; dead-peer eviction at 3× interval
+- `HiveElectionService` — Bully-style leader election; five message types (suspect / claim / recover / stepdown / ping); enrollment-order tie-break; `WarchiefNodeId` tracked on all nodes
+
+**Port 7079 HMAC enforcement**
+- All `HiveTaskQueue` endpoints now validate HMAC before processing; `GracePeriodActive = false` (fail-closed, no migration mode)
+- Body pre-read with 1 MB cap at handler entry; POST handlers receive `byte[]` body to avoid double-read
+
+**Warchief crown badge**
+- Gold border (`#FFD700`), `👑` prefix, and `W A R C H I E F` label on the correct constellation node card
+- Warchief resolution via `HivePeerStore.Default.Find(nodeId)` → IP match for remote nodes; direct NodeId compare for "This PC"
+
+**Update Center** (new mode tab `⬆ Update`)
+- Version card: installed vs latest, release name, `🔄 Check Now`, `⬆ Update This Node`
+- Inline build log with 5-step progress strip; downloads pre-built `.exe` from GitHub release asset when available, falls back to build-from-source
+- Gold dot indicator on mode button when update available
+- `UpdateChecker.GetReleaseAssetUrlAsync()` — finds `.exe` in release asset list
+- `SelfUpdater.DownloadReleaseAsync()` — streams release asset to staging dir
+
+**Warchief fleet deploy**
+- `GET /hive/update/version` (unauthenticated) — returns node's installed version
+- `POST /hive/update/deploy` (HMAC-authenticated, Warchief role check) — triggers background self-update on remote node
+- Update Center Fleet section probes all paired peers, shows per-node version + status, `⬆ Deploy to Fleet` button
+
+**Test infrastructure**
+- `OrchestratorIDE.UnitTests` project — T10-T17 compile without AppFixture; 112 tests pass headlessly in ~1s over SSH; single source of truth via `<Compile Include>` pointing to UITests folder
+- T17: 49 unit tests for the full HIVE security layer (HiveIdentity, HivePeerStore, HiveAuthMiddleware, HiveMeshHeartbeat, HiveElectionService)
+- T18: FlaUI smoke tests for HivePanel constellation canvas (AutomationId on inner TextBlock elements)
+
+---
+
 ## Needs Testing — real code, not yet battle-tested
 
 These features are fully implemented but have not been stress-tested in the conditions that matter:
@@ -214,7 +250,7 @@ Docs are being normalized around the current implementation. Key gaps:
 
 ---
 
-## Planned — v1.6
+## Planned — v1.7
 
 ### HIVE MIND Phase 3B — multi-step tool calling on remote workers
 `HiveWorkerAgent` currently executes single-pass LLM calls. Phase 3B adds full `AgentLoop`-style multi-step tool execution on remote nodes (file writes, shell commands, web search — all running on the worker machine). This is the primary remaining HIVE gap.
