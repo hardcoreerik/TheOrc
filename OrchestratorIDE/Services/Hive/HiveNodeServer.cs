@@ -42,6 +42,7 @@ public sealed class HiveNodeServer : IDisposable
     private HttpListener?             _listener;
     private HiveNodeInfo              _info = new("", "", [], 0, 0, []);
     private CancellationTokenSource   _cts  = new();
+    private int                       _inFlight;   // accepted requests still being handled
     // All authenticated endpoints are fail-closed — grace period never applies on the server.
     // "node" persistence key survives the nonce cache across restart (replay protection).
     private readonly HiveAuthMiddleware     _strictAuth   = new("node");
@@ -223,6 +224,7 @@ public sealed class HiveNodeServer : IDisposable
             try
             {
                 var ctx = await _listener.GetContextAsync();
+                Interlocked.Increment(ref _inFlight);   // balanced by decrement in HandleAsync finally
                 _ = HandleAsync(ctx, ct);
             }
             catch { break; }
@@ -352,6 +354,7 @@ public sealed class HiveNodeServer : IDisposable
         }
         finally
         {
+            Interlocked.Decrement(ref _inFlight);
             try { ctx.Response.Close(); } catch { }
         }
     }
@@ -639,14 +642,27 @@ public sealed class HiveNodeServer : IDisposable
         catch { /* non-fatal — remote update is best-effort */ }
     }
 
+    /// <summary>
+    /// Blocks until all accepted requests finish handling, or 2s elapses. Called on
+    /// shutdown so the nonce flush snapshot includes nonces from in-flight requests.
+    /// </summary>
+    private void DrainInFlight()
+    {
+        var spin = System.Diagnostics.Stopwatch.StartNew();
+        while (Volatile.Read(ref _inFlight) > 0 && spin.ElapsedMilliseconds < 2000)
+            Thread.Sleep(10);
+    }
+
     public void Dispose()
     {
         _cts.Cancel();
         MeshHeartbeat?.Stop();
         try { _listener?.Stop(); } catch { }
         _listener?.Close();
-        // Flush AFTER the listener stops so no request can record a nonce that
-        // wouldn't make it into the persisted snapshot (zero replay window).
+        // Drain in-flight handlers (fire-and-forget from ServeAsync) so any nonce they
+        // record lands in the cache before the snapshot. Then flush — this is what makes
+        // the replay window actually zero on graceful restart, not just near-zero.
+        DrainInFlight();
         _strictAuth.Flush();
     }
 }

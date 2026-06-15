@@ -69,6 +69,7 @@ public sealed class HiveTaskQueue : IDisposable
 
     private HttpListener?           _listener;
     private CancellationTokenSource _cts = new();
+    private int                     _inFlight;   // accepted requests still being handled
 
     // All callers on port 7079 are enrolled worker nodes — no grace period.
     // "queue" persistence key survives the nonce cache across restart (replay protection).
@@ -198,6 +199,7 @@ public sealed class HiveTaskQueue : IDisposable
             try
             {
                 var ctx = await _listener.GetContextAsync();
+                Interlocked.Increment(ref _inFlight);   // balanced by decrement in HandleAsync finally
                 _ = HandleAsync(ctx);
             }
             catch { break; }
@@ -278,6 +280,7 @@ public sealed class HiveTaskQueue : IDisposable
         catch { }
         finally
         {
+            Interlocked.Decrement(ref _inFlight);
             try { ctx.Response.Close(); } catch { }
         }
     }
@@ -599,6 +602,17 @@ public sealed class HiveTaskQueue : IDisposable
 
     // ── IDisposable ───────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Blocks until all accepted requests finish handling, or 2s elapses. Called on
+    /// shutdown so the nonce flush snapshot includes nonces from in-flight requests.
+    /// </summary>
+    private void DrainInFlight()
+    {
+        var spin = System.Diagnostics.Stopwatch.StartNew();
+        while (Volatile.Read(ref _inFlight) > 0 && spin.ElapsedMilliseconds < 2000)
+            Thread.Sleep(10);
+    }
+
     public void Dispose()
     {
         _watchdog.Dispose();
@@ -606,8 +620,10 @@ public sealed class HiveTaskQueue : IDisposable
         CancelAll();
         try { _listener?.Stop(); } catch { }
         _listener?.Close();
-        // Flush AFTER the listener stops so no request can record a nonce that
-        // wouldn't make it into the persisted snapshot (zero replay window).
+        // Drain in-flight handlers (fire-and-forget from ServeAsync) so any nonce they
+        // record lands in the cache before the snapshot. Then flush — this is what makes
+        // the replay window actually zero on graceful restart, not just near-zero.
+        DrainInFlight();
         _auth.Flush();
         _claimLock.Dispose();
     }
