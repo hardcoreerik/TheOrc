@@ -214,14 +214,14 @@ public class T16_WorktreeIsolationTests
         Assert.That(c2[0].OwnedBy,    Is.EqualTo("task-A"));
         Assert.That(c2[0].RequestedBy, Is.EqualTo("task-B"));
 
-        // Non-conflicting file (Tests.cs) is still claimed by task-B
-        Assert.That(ledger.OwnerOf("src/Tests.cs"), Is.EqualTo("task-B"),
-            "Non-conflicting files in the same TryClaim call should still be owned.");
+        // TryClaim is all-or-nothing: if any file conflicts, nothing from task-B is claimed.
+        Assert.That(ledger.OwnerOf("src/Tests.cs"), Is.Null,
+            "All-or-nothing: conflict on Api.cs rolls back the whole claim including Tests.cs.");
 
-        // Snapshot shows complete state
+        // Snapshot shows only task-A's files (task-B claimed nothing)
         var snapshot = ledger.Snapshot();
-        Assert.That(snapshot.Count, Is.EqualTo(3),
-            "Ledger should hold Api.cs (A), Models.cs (A), Tests.cs (B).");
+        Assert.That(snapshot.Count, Is.EqualTo(2),
+            "Ledger should hold only Api.cs (A) and Models.cs (A) — task-B's TryClaim was rolled back.");
     }
 
     // ── fixtures and helpers ─────────────────────────────────────────────────
