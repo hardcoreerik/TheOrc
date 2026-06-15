@@ -85,6 +85,11 @@ public sealed class HiveAuthMiddleware
                 ? HiveAuthResult.Authenticated("anonymous")
                 : HiveAuthResult.Failed("missing HIVE auth headers");
 
+        // Cap nonce length before it enters the nonce cache to prevent memory exhaustion.
+        // Our own SignRequest produces 32-char hex nonces; anything larger is anomalous.
+        if (nonce!.Length > 128)
+            return Reject("nonce too long");
+
         // 1. Enrolled, not revoked, and secret available — one atomic lock acquisition
         //    eliminates the TOCTOU window between IsTrusted() and GetSharedSecret().
         var (trusted, secret) = _store.GetTrustedSecret(nodeId!);

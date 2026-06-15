@@ -48,9 +48,8 @@ public sealed class HiveElectionService
     // Stores the Warchief we were trying to recover so GetOriginalWarchiefId stays deterministic.
     private string? _preFailoverWarchiefId;
 
-    private readonly Dictionary<string, DateTime> _suspectVotes     = [];
-    private readonly HashSet<string>              _electionAcks     = [];
-    private readonly Lock                         _stateLock        = new();
+    private readonly Dictionary<string, DateTime> _suspectVotes = [];
+    private readonly Lock                         _stateLock    = new();
 
     // ── Events ────────────────────────────────────────────────────────────────
 

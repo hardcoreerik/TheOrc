@@ -345,66 +345,67 @@ public sealed class HiveTaskQueue : IDisposable
 
     private async Task HandleHeartbeatAsync(HttpListenerContext ctx, string taskId, byte[] body)
     {
-        if (!_tasks.TryGetValue(taskId, out var entry) || entry.Status != "claimed")
-        {
-            WriteJson(ctx, new { taskId, status = "not-claimed" });
-            return;
-        }
-
         var hb = ReadJson<HiveHeartbeatRequest>(body);
 
-        // Reject heartbeats that don't carry the current claim token.
-        // This prevents a stale worker (whose claim was superseded) from keeping
-        // the task alive and defeating the watchdog re-queue path.
-        if (!string.IsNullOrEmpty(entry.ClaimToken)
-            && (hb is null || hb.ClaimToken != entry.ClaimToken))
+        await _claimLock.WaitAsync();
+        try
         {
-            ctx.Response.StatusCode = 409;
-            WriteJson(ctx, new { taskId, status = "stale" });
-            return;
-        }
+            if (!_tasks.TryGetValue(taskId, out var entry) || entry.Status != "claimed")
+            {
+                WriteJson(ctx, new { taskId, status = "not-claimed" });
+                return;
+            }
 
-        entry.LastHeartbeat = DateTime.UtcNow;
-        WriteJson(ctx, new { taskId, status = "alive" });
+            // Reject heartbeats that don't carry the current claim token.
+            // Held under _claimLock so CheckTimeouts cannot rotate the token concurrently.
+            if (!string.IsNullOrEmpty(entry.ClaimToken)
+                && (hb is null || hb.ClaimToken != entry.ClaimToken))
+            {
+                ctx.Response.StatusCode = 409;
+                WriteJson(ctx, new { taskId, status = "stale" });
+                return;
+            }
+
+            entry.LastHeartbeat = DateTime.UtcNow;
+            WriteJson(ctx, new { taskId, status = "alive" });
+        }
+        finally { _claimLock.Release(); }
     }
 
     private async Task HandleCompleteAsync(HttpListenerContext ctx, string taskId, byte[] body)
     {
-        if (!_tasks.TryGetValue(taskId, out var entry))
-        {
-            ctx.Response.StatusCode = 404;
-            return;
-        }
-
-        // Only a currently claimed task can be completed; reject all other states.
-        // This closes the ownership-fails-open gap where a worker that bypassed /claim
-        // could submit a result while the task is still pending or already done.
-        if (entry.Status is not "claimed")
-        {
-            ctx.Response.StatusCode = 409;
-            return;
-        }
-
         var result = ReadJson<HiveTaskResult>(body);
-        if (result is null)
+
+        QueuedTask? entry = null;
+        await _claimLock.WaitAsync();
+        try
         {
-            ctx.Response.StatusCode = 400;
-            return;
+            if (!_tasks.TryGetValue(taskId, out entry))
+            { ctx.Response.StatusCode = 404; return; }
+
+            if (entry.Status is not "claimed")
+            { ctx.Response.StatusCode = 409; return; }
+
+            if (result is null)
+            { ctx.Response.StatusCode = 400; return; }
+
+            if (!string.IsNullOrEmpty(entry.ClaimToken) && result.ClaimToken != entry.ClaimToken)
+            {
+                Log($"⚠ Stale /complete for '{entry.Bundle.Title}' from {result.WorkerId} " +
+                    $"(token mismatch — re-queued task already claimed by {entry.ClaimedBy})");
+                ctx.Response.StatusCode = 409;
+                return;
+            }
+
+            // Mark completed under lock so CheckTimeouts cannot re-queue concurrently.
+            entry.Status = "completed";
         }
+        finally { _claimLock.Release(); }
 
-        // Reject /complete from a stale worker whose claim was superseded.
-        if (!string.IsNullOrEmpty(entry.ClaimToken) && result.ClaimToken != entry.ClaimToken)
-        {
-            Log($"⚠ Stale /complete for '{entry.Bundle.Title}' from {result.WorkerId} " +
-                $"(token mismatch — re-queued task already claimed by {entry.ClaimedBy})");
-            ctx.Response.StatusCode = 409;
-            return;
-        }
+        // Resolve TCS outside lock — continuations run inline and must not re-enter _claimLock.
+        entry!.CompletionTcs.TrySetResult(result);
 
-        entry.Status = "completed";
-        entry.CompletionTcs.TrySetResult(result);
-
-        Log($"🐝 [{entry.Bundle.Role}] '{entry.Bundle.Title}' ✅ completed by {result.WorkerId} " +
+        Log($"🐝 [{entry.Bundle.Role}] '{entry.Bundle.Title}' ✅ completed by {result!.WorkerId} " +
             $"({result.DurationMs / 1000.0:F1}s, {result.Result.Length} chars)");
         Events.Append("task_complete",
             $"[{result.WorkerId}] {entry.Bundle.Title} ✓ {result.DurationMs / 1000.0:F1}s · {result.Result.Length} chars",
@@ -415,40 +416,37 @@ public sealed class HiveTaskQueue : IDisposable
 
     private async Task HandleFailAsync(HttpListenerContext ctx, string taskId, byte[] body)
     {
-        if (!_tasks.TryGetValue(taskId, out var entry))
-        {
-            ctx.Response.StatusCode = 404;
-            return;
-        }
-
-        // Same ownership check as /complete.
-        if (entry.Status is not "claimed")
-        {
-            ctx.Response.StatusCode = 409;
-            return;
-        }
-
         var result = ReadJson<HiveTaskResult>(body);
 
-        // Reject /fail from a stale worker whose claim was superseded.
-        if (result is not null && !string.IsNullOrEmpty(entry.ClaimToken)
-            && result.ClaimToken != entry.ClaimToken)
+        QueuedTask? entry    = null;
+        HiveTaskResult? failResult = null;
+        await _claimLock.WaitAsync();
+        try
         {
-            ctx.Response.StatusCode = 409;
-            return;
+            if (!_tasks.TryGetValue(taskId, out entry))
+            { ctx.Response.StatusCode = 404; return; }
+
+            if (entry.Status is not "claimed")
+            { ctx.Response.StatusCode = 409; return; }
+
+            if (result is not null && !string.IsNullOrEmpty(entry.ClaimToken)
+                && result.ClaimToken != entry.ClaimToken)
+            { ctx.Response.StatusCode = 409; return; }
+
+            entry.Status = "failed";
+            failResult   = result ?? new HiveTaskResult
+            {
+                TaskId   = taskId,
+                WorkerId = entry.ClaimedBy ?? "unknown",
+                Status   = "failed",
+                ErrorMsg = "Worker reported failure with no details",
+            };
         }
+        finally { _claimLock.Release(); }
 
-        entry.Status = "failed";
-        var failResult = result ?? new HiveTaskResult
-        {
-            TaskId    = taskId,
-            WorkerId  = entry.ClaimedBy ?? "unknown",
-            Status    = "failed",
-            ErrorMsg  = "Worker reported failure with no details",
-        };
-        entry.CompletionTcs.TrySetResult(failResult);
+        entry!.CompletionTcs.TrySetResult(failResult);
 
-        Log($"⚠ [{entry.Bundle.Role}] '{entry.Bundle.Title}' failed by {failResult.WorkerId}: {failResult.ErrorMsg}");
+        Log($"⚠ [{entry.Bundle.Role}] '{entry.Bundle.Title}' failed by {failResult!.WorkerId}: {failResult.ErrorMsg}");
         Events.Append("task_failed",
             $"[{failResult.WorkerId}] {entry.Bundle.Title} ✗ {failResult.ErrorMsg}",
             taskId, failResult.WorkerId);
@@ -490,57 +488,66 @@ public sealed class HiveTaskQueue : IDisposable
 
     private void CheckTimeouts(object? _)
     {
-        var now = DateTime.UtcNow;
-
+        var now     = DateTime.UtcNow;
         var toEvict = new List<string>();
 
         foreach (var (id, entry) in _tasks)
         {
-            switch (entry.Status)
+            // Captured outside the lock for log/event calls after release.
+            string? logMsg    = null;
+            string? evType    = null;
+            string? evMsg     = null;
+            string? evWho     = null;
+            bool    resolveNull = false;
+
+            _claimLock.Wait();
+            try
             {
-                // BLOCKER-1 fix: pending tasks with no claim expire → TCS resolves null
-                // so SwarmSession.DispatchToQueueAsync() triggers local fallback.
-                case "pending":
-                    if (now - entry.EnqueuedAt > TimeSpan.FromSeconds(PendingTimeoutSec))
-                    {
-                        Log($"⚠ Task '{entry.Bundle.Title}' unclaimed after {PendingTimeoutSec}s — " +
-                            $"resolving for local fallback");
-                        entry.Status = "timeout";
-                        entry.CompletionTcs.TrySetResult(null);
-                        Events.Append("task_timeout",
-                            $"{entry.Bundle.Title} unclaimed after {PendingTimeoutSec}s → local fallback", id);
-                    }
-                    break;
+                switch (entry.Status)
+                {
+                    case "pending":
+                        if (now - entry.EnqueuedAt > TimeSpan.FromSeconds(PendingTimeoutSec))
+                        {
+                            entry.Status = "timeout";
+                            resolveNull  = true;
+                            logMsg  = $"⚠ Task '{entry.Bundle.Title}' unclaimed after {PendingTimeoutSec}s — resolving for local fallback";
+                            evType  = "task_timeout";
+                            evMsg   = $"{entry.Bundle.Title} unclaimed after {PendingTimeoutSec}s → local fallback";
+                        }
+                        break;
 
-                // Claimed tasks that stop heartbeating are re-queued (crash recovery)
-                case "claimed":
-                    if (entry.LastHeartbeat is null ||
-                        now - entry.LastHeartbeat.Value > TimeSpan.FromSeconds(HeartbeatTimeoutSec))
-                    {
-                        var who = entry.ClaimedBy ?? "unknown";
-                        // Re-queue: clear claim fields (ClaimToken rotates on next claim)
-                        entry.Status        = "pending";
-                        entry.ClaimedBy     = null;
-                        entry.ClaimedByUrl  = null;
-                        entry.ClaimedAt     = null;
-                        entry.LastHeartbeat = null;
-                        // Rotate token on re-queue — old worker's token no longer valid.
-                        // /complete and /fail guards reject any result with a stale token.
-                        entry.ClaimToken    = Guid.NewGuid().ToString();
-                        Log($"⚠ Task '{entry.Bundle.Title}' heartbeat timeout from {who} — re-queued");
-                        Events.Append("task_requeued",
-                            $"{entry.Bundle.Title} lost heartbeat from {who} → re-queued", id, who);
-                    }
-                    break;
+                    case "claimed":
+                        if (entry.LastHeartbeat is null ||
+                            now - entry.LastHeartbeat.Value > TimeSpan.FromSeconds(HeartbeatTimeoutSec))
+                        {
+                            var who         = entry.ClaimedBy ?? "unknown";
+                            entry.Status        = "pending";
+                            entry.ClaimedBy     = null;
+                            entry.ClaimedByUrl  = null;
+                            entry.ClaimedAt     = null;
+                            entry.LastHeartbeat = null;
+                            entry.ClaimToken    = Guid.NewGuid().ToString();
+                            logMsg = $"⚠ Task '{entry.Bundle.Title}' heartbeat timeout from {who} — re-queued";
+                            evType = "task_requeued";
+                            evMsg  = $"{entry.Bundle.Title} lost heartbeat from {who} → re-queued";
+                            evWho  = who;
+                        }
+                        break;
 
-                // Evict terminal entries after 5 minutes to prevent unbounded growth.
-                case "completed":
-                case "failed":
-                case "timeout":
-                    if (now - entry.EnqueuedAt > TimeSpan.FromMinutes(5))
-                        toEvict.Add(id);
-                    break;
+                    case "completed":
+                    case "failed":
+                    case "timeout":
+                        if (now - entry.EnqueuedAt > TimeSpan.FromMinutes(5))
+                            toEvict.Add(id);
+                        break;
+                }
             }
+            finally { _claimLock.Release(); }
+
+            // TCS and logging outside the lock — TCS continuations must not re-enter _claimLock.
+            if (resolveNull)  entry.CompletionTcs.TrySetResult(null);
+            if (logMsg is not null) Log(logMsg);
+            if (evType is not null) Events.Append(evType, evMsg!, id, evWho ?? "");
         }
 
         foreach (var id in toEvict)

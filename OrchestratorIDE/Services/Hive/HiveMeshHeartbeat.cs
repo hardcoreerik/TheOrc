@@ -194,7 +194,11 @@ public sealed class HiveMeshHeartbeat : IDisposable
             var secret = _peers.GetSharedSecret(peerNodeId);
             if (secret is null)
             {
-                Log($"⚠ No shared secret for {peerNodeId[..8]}… — skipping heartbeat until pairing completes");
+                // Skip rather than send unsigned. Trade-off: if DPAPI is temporarily
+                // unavailable after restart, peers without decryptable secrets will
+                // accumulate missed-heartbeat counts and may go Suspect. This is the
+                // correct failure mode — silent unsigned sends are a security regression.
+                Log($"⚠ No shared secret for {peerNodeId[..8]}… — skipping heartbeat (DPAPI unavailable or pairing incomplete)");
                 return false;
             }
 
