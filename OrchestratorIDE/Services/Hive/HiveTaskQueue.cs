@@ -51,6 +51,8 @@ public sealed class HiveTaskQueue : IDisposable
         public DateTime?                            ClaimedAt     { get; set; }
         public DateTime?                            LastHeartbeat { get; set; }
         public DateTime                             EnqueuedAt    { get; init; } = DateTime.UtcNow;
+        /// <summary>Session id frozen at enqueue — immune to UpdateSessionContext rollovers.</summary>
+        public string                               SessionId     { get; init; } = "";
 
         /// <summary>
         /// Rotates on every claim (including re-claim after watchdog re-queue).
@@ -163,7 +165,7 @@ public sealed class HiveTaskQueue : IDisposable
     public async Task<HiveTaskResult?> EnqueueAndWaitAsync(
         string taskId, HiveTaskBundle bundle, CancellationToken ct)
     {
-        var entry = new QueuedTask { Bundle = bundle };
+        var entry = new QueuedTask { Bundle = bundle, SessionId = _sessionCtx.SessionId };
         if (!_tasks.TryAdd(taskId, entry))
             throw new InvalidOperationException($"Task {taskId} already in queue");
 
@@ -171,7 +173,7 @@ public sealed class HiveTaskQueue : IDisposable
             taskId, sessionId: _sessionCtx.SessionId);
 
         // Durable history: the Warchief's own enqueue is local (not authenticated, no node).
-        PersistTask(taskId, bundle.Role, bundle.Title, "pending",
+        PersistTask(taskId, entry.SessionId, bundle.Role, bundle.Title, "pending",
             authNode: null, worker: null, authenticated: false, claimToken: null,
             resultBlob: null, durationMs: null, errorMsg: null, entry.EnqueuedAt);
 
@@ -358,7 +360,7 @@ public sealed class HiveTaskQueue : IDisposable
                 taskId, entry.ClaimedBy ?? "");
 
             // Durable history: record provenance — the authenticated node id that claimed it.
-            PersistTask(taskId, entry.Bundle.Role, entry.Bundle.Title, "claimed",
+            PersistTask(taskId, entry.SessionId, entry.Bundle.Role, entry.Bundle.Title, "claimed",
                 authNode, entry.ClaimedBy, authenticated: true, entry.ClaimToken,
                 resultBlob: null, durationMs: null, errorMsg: null, entry.EnqueuedAt);
 
@@ -440,7 +442,7 @@ public sealed class HiveTaskQueue : IDisposable
 
         // Durable history: persist the result blob + provenance. This is the row the threat
         // model cares about most — a poisoned "completed" result is now traceable to its node.
-        PersistTask(taskId, entry.Bundle.Role, entry.Bundle.Title, "completed",
+        PersistTask(taskId, entry.SessionId, entry.Bundle.Role, entry.Bundle.Title, "completed",
             authNode, result.WorkerId, authenticated: true, entry.ClaimToken,
             result.Result, result.DurationMs, errorMsg: null, entry.EnqueuedAt);
 
@@ -485,7 +487,7 @@ public sealed class HiveTaskQueue : IDisposable
             taskId, failResult.WorkerId);
 
         // Durable history: persist the failure + provenance.
-        PersistTask(taskId, entry.Bundle.Role, entry.Bundle.Title, "failed",
+        PersistTask(taskId, entry.SessionId, entry.Bundle.Role, entry.Bundle.Title, "failed",
             authNode, failResult.WorkerId, authenticated: true, entry.ClaimToken,
             resultBlob: null, failResult.DurationMs, failResult.ErrorMsg, entry.EnqueuedAt);
 
@@ -537,7 +539,8 @@ public sealed class HiveTaskQueue : IDisposable
             string? evType    = null;
             string? evMsg     = null;
             string? evWho     = null;
-            string? sqlStatus = null;   // durable status transition to mirror to SQL
+            string? sqlStatus    = null;   // durable status transition to mirror to SQL
+            string? sqlSessionId = null;   // frozen at enqueue; immune to session rollover
             bool    resolveNull = false;
 
             _claimLock.Wait();
@@ -550,7 +553,8 @@ public sealed class HiveTaskQueue : IDisposable
                         {
                             entry.Status = "timeout";
                             resolveNull  = true;
-                            sqlStatus = "timeout";
+                            sqlStatus    = "timeout";
+                            sqlSessionId = entry.SessionId;
                             logMsg  = $"⚠ Task '{entry.Bundle.Title}' unclaimed after {PendingTimeoutSec}s — resolving for local fallback";
                             evType  = "task_timeout";
                             evMsg   = $"{entry.Bundle.Title} unclaimed after {PendingTimeoutSec}s → local fallback";
@@ -568,7 +572,8 @@ public sealed class HiveTaskQueue : IDisposable
                             entry.ClaimedAt     = null;
                             entry.LastHeartbeat = null;
                             entry.ClaimToken    = Guid.NewGuid().ToString();
-                            sqlStatus = "pending";
+                            sqlStatus    = "pending";
+                            sqlSessionId = entry.SessionId;
                             logMsg = $"⚠ Task '{entry.Bundle.Title}' heartbeat timeout from {who} — re-queued";
                             evType = "task_requeued";
                             evMsg  = $"{entry.Bundle.Title} lost heartbeat from {who} → re-queued";
@@ -592,8 +597,8 @@ public sealed class HiveTaskQueue : IDisposable
             if (resolveNull)  entry.CompletionTcs.TrySetResult(null);
             if (logMsg is not null) Log(logMsg);
             if (evType is not null) Events.Append(evType, evMsg!, id, evWho ?? "");
-            if (sqlStatus is not null)
-                try { Repository?.UpdateStatus(_sessionCtx.SessionId, id, sqlStatus); } catch { }
+            if (sqlStatus is not null && sqlSessionId is not null)
+                try { Repository?.UpdateStatus(sqlSessionId, id, sqlStatus); } catch { }
         }
 
         foreach (var id in toEvict)
@@ -610,14 +615,14 @@ public sealed class HiveTaskQueue : IDisposable
     // ── Durable-history helper (best-effort; a DB failure never breaks a swarm run) ──
 
     private void PersistTask(
-        string taskId, string? role, string? title, string status,
+        string taskId, string sessionId, string? role, string? title, string status,
         string? authNode, string? worker, bool authenticated, string? claimToken,
         string? resultBlob, int? durationMs, string? errorMsg, DateTime enqueuedAt)
     {
         if (Repository is not { } repo) return;
         try
         {
-            var ok = repo.UpsertTask(taskId, _sessionCtx.SessionId, role, title, status,
+            var ok = repo.UpsertTask(taskId, sessionId, role, title, status,
                 authNode, worker, authenticated, claimToken,
                 resultBlob, durationMs, errorMsg, enqueuedAt);
             if (!ok)
@@ -634,13 +639,14 @@ public sealed class HiveTaskQueue : IDisposable
         if (ev is null) { ctx.Response.StatusCode = 400; return; }
         Events.Append(ev.Type, ev.Msg, ev.TaskId, ev.WorkerId, ev.SessionId);
 
-        // Durable, provenance-tagged copy of the remote-submitted event. These are the
-        // untrusted wire events the security model cares about; the repository sanitises
-        // every field at the write boundary.
+        // Durable, provenance-tagged copy of the remote-submitted event. Use the session id
+        // the event carries (what the worker thinks it's posting to), not the current session
+        // context — late posts after a session rollover must not land in the wrong run's history.
         try
         {
+            var evSession = !string.IsNullOrEmpty(ev.SessionId) ? ev.SessionId : _sessionCtx.SessionId;
             Repository?.AppendEvent(ev.Type, ev.Msg, ev.TaskId, ev.WorkerId,
-                _sessionCtx.SessionId, authNode, authenticated: true);
+                evSession, authNode, authenticated: true);
         }
         catch { /* best-effort */ }
 
