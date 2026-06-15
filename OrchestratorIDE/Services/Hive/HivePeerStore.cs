@@ -84,15 +84,31 @@ public sealed class HivePeerStore
 
     public static readonly HivePeerStore Default = new();
 
-    private readonly Lock          _lock = new();
+    private readonly Lock           _lock          = new();
     private          List<HivePeer> _peers;
     private          int            _nextSeq;
+    private readonly bool           _persistToDisk;
 
     private HivePeerStore()
     {
-        _peers   = LoadFromDisk();
-        _nextSeq = _peers.Count > 0 ? _peers.Max(p => p.EnrollmentSeq) + 1 : 0;
+        _peers         = LoadFromDisk();
+        _nextSeq       = _peers.Count > 0 ? _peers.Max(p => p.EnrollmentSeq) + 1 : 0;
+        _persistToDisk = true;
     }
+
+    private HivePeerStore(List<HivePeer> initial)
+    {
+        _peers         = initial;
+        _nextSeq       = _peers.Count > 0 ? _peers.Max(p => p.EnrollmentSeq) + 1 : 0;
+        _persistToDisk = false;
+    }
+
+    /// <summary>
+    /// Creates an in-memory peer store with no disk I/O. For unit tests only.
+    /// SetSharedSecret/GetSharedSecret still use DPAPI (fine on Windows test runners).
+    /// </summary>
+    internal static HivePeerStore CreateForTest(IEnumerable<HivePeer>? initial = null)
+        => new HivePeerStore(initial?.ToList() ?? []);
 
     // ── Read ──────────────────────────────────────────────────────────────────
 
@@ -144,7 +160,7 @@ public sealed class HivePeerStore
                 peer.EnrollmentSeq = _nextSeq++;
             }
             _peers.Add(peer);
-            SaveToDisk(_peers);
+            if (_persistToDisk) SaveToDisk(_peers);
         }
     }
 
@@ -156,7 +172,7 @@ public sealed class HivePeerStore
             if (peer is null) return;
             var enc = ProtectedData.Protect(secret, null, DataProtectionScope.CurrentUser);
             peer.SharedSecretEnc = Convert.ToBase64String(enc);
-            SaveToDisk(_peers);
+            if (_persistToDisk) SaveToDisk(_peers);
         }
     }
 
@@ -168,7 +184,7 @@ public sealed class HivePeerStore
             if (peer is null) return;
             peer.Revoked   = true;
             peer.RevokedAt = DateTime.UtcNow;
-            SaveToDisk(_peers);
+            if (_persistToDisk) SaveToDisk(_peers);
         }
     }
 
@@ -191,7 +207,7 @@ public sealed class HivePeerStore
             peer.ActiveRole       = activeRole;
             peer.VramFreeMb       = vramFreeMb;
 
-            if (addressChanged) SaveToDisk(_peers);
+            if (addressChanged && _persistToDisk) SaveToDisk(_peers);
         }
     }
 

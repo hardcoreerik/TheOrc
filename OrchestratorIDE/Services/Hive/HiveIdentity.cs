@@ -46,6 +46,17 @@ public sealed class HiveIdentity : IDisposable
     private static readonly Lock _lock = new();
 
     /// <summary>
+    /// Creates a fresh ephemeral identity (new P-256 keys, no DPAPI, no disk).
+    /// Intended for unit tests only — not a singleton, caller owns disposal.
+    /// </summary>
+    internal static HiveIdentity CreateEphemeral()
+    {
+        var signing  = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var exchange = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        return new HiveIdentity(signing, exchange);
+    }
+
+    /// <summary>
     /// Returns the singleton identity for this node.
     /// Generates and persists a new identity on first call; loads from disk thereafter.
     /// Thread-safe. Silent on success, logs on regenerate.

@@ -37,6 +37,10 @@ public sealed class HiveAuthMiddleware
     /// <summary>When true, missing/invalid auth headers are warned but not rejected.</summary>
     public bool GracePeriodActive { get; set; } = true;
 
+    private readonly HivePeerStore _store;
+    public   HiveAuthMiddleware()                     { _store = HivePeerStore.Default; }
+    internal HiveAuthMiddleware(HivePeerStore store)  { _store = store; }
+
     private static readonly TimeSpan TsWindow        = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan NonceTtl        = TimeSpan.FromMinutes(5);
     private const           int      MaxNoncesPerPeer = 1_000;
@@ -49,12 +53,23 @@ public sealed class HiveAuthMiddleware
     // ── Inbound validation ────────────────────────────────────────────────────
 
     public HiveAuthResult Validate(HttpListenerRequest req, byte[] body)
-    {
-        var nodeId = req.Headers["X-Hive-Node-Id"];
-        var nonce  = req.Headers["X-Hive-Nonce"];
-        var tsStr  = req.Headers["X-Hive-Ts"];
-        var sig    = req.Headers["X-Hive-Sig"];
+        => ValidateCore(
+            req.Headers["X-Hive-Node-Id"],
+            req.Headers["X-Hive-Nonce"],
+            req.Headers["X-Hive-Ts"],
+            req.Headers["X-Hive-Sig"],
+            req.HttpMethod,
+            req.Url?.AbsolutePath ?? "/",
+            body);
 
+    /// <summary>
+    /// Core validation logic. Exposed internally so tests can call it without needing
+    /// an <see cref="HttpListenerRequest"/> (which is sealed and can't be constructed).
+    /// </summary>
+    internal HiveAuthResult ValidateCore(
+        string? nodeId, string? nonce, string? tsStr, string? sig,
+        string method, string path, byte[] body)
+    {
         bool headersPresent = !string.IsNullOrEmpty(nodeId)
                            && !string.IsNullOrEmpty(nonce)
                            && !string.IsNullOrEmpty(tsStr)
@@ -66,8 +81,7 @@ public sealed class HiveAuthMiddleware
                 : HiveAuthResult.Failed("missing HIVE auth headers");
 
         // 1. Enrolled and not revoked
-        var store = HivePeerStore.Default;
-        if (!store.IsTrusted(nodeId!))
+        if (!_store.IsTrusted(nodeId!))
         {
             return GracePeriodActive
                 ? HiveAuthResult.Authenticated("anonymous")
@@ -86,11 +100,10 @@ public sealed class HiveAuthMiddleware
             return Reject("nonce already seen (replay)");
 
         // 4. HMAC
-        var secret = store.GetSharedSecret(nodeId!);
+        var secret = _store.GetSharedSecret(nodeId!);
         if (secret is null) return Reject("no shared secret for peer");
 
-        var canonical = BuildCanonical(req.HttpMethod, req.Url?.AbsolutePath ?? "/",
-                                       nonce!, tsStr!, body);
+        var canonical = BuildCanonical(method, path, nonce!, tsStr!, body);
         var expected  = ComputeHmac(secret, canonical);
 
         byte[] received;
