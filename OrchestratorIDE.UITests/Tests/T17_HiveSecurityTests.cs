@@ -305,13 +305,37 @@ public class T17_HiveSecurityTests
         MakeElectionSetup(string? warchiefId = null)
     {
         var identity = HiveIdentity.CreateEphemeral();
-        var selfPeer = new HivePeer { NodeId = identity.NodeId, Name = "Self",
-                                      MaxRole = HiveNodeRole.Worker };
+        var selfPeer = SignedPeer(identity);   // carries signing key so VerifyElectionSig can check it
         var peers    = HivePeerStore.CreateForTest([selfPeer]);
         var svc      = new HiveElectionService(identity, peers);
         if (warchiefId is not null) svc.SetWarchief(warchiefId);
         return (identity, peers, svc);
     }
+
+    /// <summary>Peer record carrying its real signing public key, so HiveElectionService.VerifyElectionSig
+    /// can validate messages it sends. Election handlers now reject any message whose ECDSA Sig
+    /// doesn't verify against the sender's stored key.</summary>
+    private static HivePeer SignedPeer(HiveIdentity id, HiveNodeRole maxRole = HiveNodeRole.Worker,
+                                       bool online = false)
+        => new HivePeer
+        {
+            NodeId              = id.NodeId,
+            Name                = "n",
+            MaxRole             = maxRole,
+            SigningPublicKeyDer = Convert.ToBase64String(id.SigningPublicKeyDer),
+            LastHeartbeat       = online ? DateTime.UtcNow : (DateTime?)null,
+        };
+
+    /// <summary>Builds an election message signed by <paramref name="sender"/> over NodeId+Payload —
+    /// the exact canonical form HiveElectionService.SignElectionPayload produces.</summary>
+    private static ElectionMessage SignedElectionMsg(HiveIdentity sender, string payload)
+        => new ElectionMessage
+        {
+            NodeId  = sender.NodeId,
+            Payload = payload,
+            Ts      = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Sig     = Convert.ToBase64String(sender.Sign(Encoding.UTF8.GetBytes(sender.NodeId + payload))),
+        };
 
     [Test]
     public void ElectionService_SetWarchief_SetsNormalState()
@@ -326,14 +350,12 @@ public class T17_HiveSecurityTests
     [Test]
     public void ElectionService_SuspectVote_ForNonWarchief_NoStateChange()
     {
-        var (_, _, svc) = MakeElectionSetup("warchief-001");
+        var (identity, _, svc) = MakeElectionSetup("warchief-001");
 
-        svc.OnSuspectVoteReceived(new ElectionMessage
-        {
-            NodeId  = "some-peer",
-            Payload = "not-the-warchief",
-            Ts      = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-        });
+        // Validly-signed vote, but its payload names a node that is NOT the warchief →
+        // handler must ignore it. (A bad-sig message is rejected earlier; this exercises
+        // the warchief-mismatch path specifically.)
+        svc.OnSuspectVoteReceived(SignedElectionMsg(identity, "not-the-warchief"));
 
         Assert.That(svc.State, Is.EqualTo(ElectionState.Normal));
     }
@@ -345,16 +367,49 @@ public class T17_HiveSecurityTests
         // online = [self] (warchief excluded) → quorum = 1; one vote suffices.
         var (identity, _, svc) = MakeElectionSetup("external-warchief-id");
 
+        svc.OnSuspectVoteReceived(SignedElectionMsg(identity, "external-warchief-id"));
+
+        Assert.That(svc.State,             Is.EqualTo(ElectionState.TemporaryWarchief));
+        Assert.That(svc.WarchiefNodeId,    Is.EqualTo(identity.NodeId));
+        Assert.That(svc.IsTemporaryWarchief, Is.True);
+    }
+
+    [Test]
+    public void ElectionService_SuspectVote_MissingSignature_Ignored()
+    {
+        // Same payload that WOULD elect self, but with no signature → must be dropped.
+        // Without sig verification an unsigned LAN message could drive the election.
+        var (identity, _, svc) = MakeElectionSetup("external-warchief-id");
+
         svc.OnSuspectVoteReceived(new ElectionMessage
         {
             NodeId  = identity.NodeId,
             Payload = "external-warchief-id",
             Ts      = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Sig     = "",   // missing signature
         });
 
-        Assert.That(svc.State,             Is.EqualTo(ElectionState.TemporaryWarchief));
-        Assert.That(svc.WarchiefNodeId,    Is.EqualTo(identity.NodeId));
-        Assert.That(svc.IsTemporaryWarchief, Is.True);
+        Assert.That(svc.State, Is.EqualTo(ElectionState.Normal));
+    }
+
+    [Test]
+    public void ElectionService_SuspectVote_WrongKeySignature_Ignored()
+    {
+        // Message claims to be from `identity` but is signed by a different key → rejected.
+        // This is the forged-election-message attack the Sig verification closes.
+        var (identity, _, svc) = MakeElectionSetup("external-warchief-id");
+        using var attacker = HiveIdentity.CreateEphemeral();
+
+        svc.OnSuspectVoteReceived(new ElectionMessage
+        {
+            NodeId  = identity.NodeId,
+            Payload = "external-warchief-id",
+            Ts      = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            Sig     = Convert.ToBase64String(
+                          attacker.Sign(Encoding.UTF8.GetBytes(identity.NodeId + "external-warchief-id"))),
+        });
+
+        Assert.That(svc.State, Is.EqualTo(ElectionState.Normal));
     }
 
     [Test]
@@ -364,8 +419,7 @@ public class T17_HiveSecurityTests
         var identity = HiveIdentity.CreateEphemeral();
         const string warchiefId = "warchief-node-id";
 
-        var selfPeer  = new HivePeer { NodeId = identity.NodeId, Name = "Self",
-                                       MaxRole = HiveNodeRole.Worker };
+        var selfPeer  = SignedPeer(identity);
         var peer2     = new HivePeer { NodeId = "peer-002", Name = "Peer2",
                                        MaxRole = HiveNodeRole.Worker,
                                        LastHeartbeat = DateTime.UtcNow };
@@ -374,12 +428,7 @@ public class T17_HiveSecurityTests
         svc.SetWarchief(warchiefId);
 
         // One vote → not quorum (quorum = 2)
-        svc.OnSuspectVoteReceived(new ElectionMessage
-        {
-            NodeId  = identity.NodeId,
-            Payload = warchiefId,
-            Ts      = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-        });
+        svc.OnSuspectVoteReceived(SignedElectionMsg(identity, warchiefId));
         Assert.That(svc.State, Is.EqualTo(ElectionState.SuspectDeclared));
 
         // Warchief recovers — cancel the suspect phase
@@ -392,99 +441,54 @@ public class T17_HiveSecurityTests
     [Test]
     public void ElectionService_ClaimFromCorrectWinner_Accepted()
     {
-        // winnerPeer has NodeId "000...0" — always sorts before any real SHA-256 hash.
-        // This guarantees winnerPeer wins deterministically without relying on random key order.
-        const string winnerNodeId = "0000000000000000000000000000000000000000000000000000000000000000";
-        const string warchiefId   = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+        // Two real identities (election messages must be signature-verifiable). The
+        // lexicographically-smaller NodeId is the deterministic winner; make the OTHER node
+        // (not self) the winner so we exercise the claim-acceptance path.
+        var idA = HiveIdentity.CreateEphemeral();
+        var idB = HiveIdentity.CreateEphemeral();
+        var (winner, self) = string.CompareOrdinal(idA.NodeId, idB.NodeId) < 0 ? (idA, idB) : (idB, idA);
+        const string warchiefId = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 
-        var identity = HiveIdentity.CreateEphemeral();
-        var selfPeer = new HivePeer { NodeId = identity.NodeId, Name = "Self",
-                                      MaxRole = HiveNodeRole.Worker };
-        var winnerPeer = new HivePeer { NodeId = winnerNodeId, Name = "Winner",
-                                        MaxRole   = HiveNodeRole.Worker,
-                                        LastHeartbeat = DateTime.UtcNow };
-        var peers = HivePeerStore.CreateForTest([selfPeer, winnerPeer]);
-        var svc   = new HiveElectionService(identity, peers);
+        var peers = HivePeerStore.CreateForTest(
+            [SignedPeer(self), SignedPeer(winner, online: true)]);
+        var svc   = new HiveElectionService(self, peers);
         svc.SetWarchief(warchiefId);
 
-        // Two votes → quorum (online = [self, winnerPeer], quorum = 2)
-        svc.OnSuspectVoteReceived(new ElectionMessage
-        {
-            NodeId  = identity.NodeId,
-            Payload = warchiefId,
-            Ts      = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-        });
-        svc.OnSuspectVoteReceived(new ElectionMessage
-        {
-            NodeId  = winnerNodeId,
-            Payload = warchiefId,
-            Ts      = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-        });
-        // Self doesn't win (winnerNodeId sorts before identity.NodeId) → ElectionUnderway
+        // Two votes → quorum (online = [self, winner], quorum = 2)
+        svc.OnSuspectVoteReceived(SignedElectionMsg(self,   warchiefId));
+        svc.OnSuspectVoteReceived(SignedElectionMsg(winner, warchiefId));
+        // Self has the larger NodeId → does not win → ElectionUnderway, awaiting the claim
 
-        svc.OnElectionClaimReceived(new ElectionMessage
-        {
-            NodeId  = winnerNodeId,
-            Payload = "claim",
-            Ts      = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-        });
+        svc.OnElectionClaimReceived(SignedElectionMsg(winner, "claim"));
 
         Assert.That(svc.State,          Is.EqualTo(ElectionState.Normal));
-        Assert.That(svc.WarchiefNodeId, Is.EqualTo(winnerNodeId));
+        Assert.That(svc.WarchiefNodeId, Is.EqualTo(winner.NodeId));
     }
 
     [Test]
     public void ElectionService_ClaimFromNonWinner_Rejected()
     {
-        // loserNodeId sorts AFTER identity.NodeId, so self is the expected winner.
-        // Any claim from loserNodeId must be rejected.
-        const string loserNodeId  = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
-        const string warchiefId   = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+        // Two real identities; self = the smaller NodeId (the deterministic winner),
+        // loser = the larger. After quorum self wins, so the loser's later claim must be
+        // rejected and must not overwrite the Warchief.
+        var idA = HiveIdentity.CreateEphemeral();
+        var idB = HiveIdentity.CreateEphemeral();
+        var (self, loser) = string.CompareOrdinal(idA.NodeId, idB.NodeId) < 0 ? (idA, idB) : (idB, idA);
+        const string warchiefId = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 
-        var identity = HiveIdentity.CreateEphemeral();
-        var selfPeer = new HivePeer { NodeId = identity.NodeId, Name = "Self",
-                                      MaxRole = HiveNodeRole.Worker };
-        var loserPeer = new HivePeer { NodeId = loserNodeId, Name = "Loser",
-                                       MaxRole = HiveNodeRole.Worker,
-                                       LastHeartbeat = DateTime.UtcNow };
-        var peers = HivePeerStore.CreateForTest([selfPeer, loserPeer]);
-        var svc   = new HiveElectionService(identity, peers);
+        var peers = HivePeerStore.CreateForTest(
+            [SignedPeer(self), SignedPeer(loser, online: true)]);
+        var svc   = new HiveElectionService(self, peers);
         svc.SetWarchief(warchiefId);
 
-        // Two votes → quorum; self should win (identity.NodeId < loserNodeId = "fff...")
-        // (identity.NodeId is hex SHA-256, which starts with 0-9 or a-f; "fff..." is the max)
-        svc.OnSuspectVoteReceived(new ElectionMessage
-        {
-            NodeId  = identity.NodeId,
-            Payload = warchiefId,
-            Ts      = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-        });
-        // Self wins → TemporaryWarchief; loser's claim must be rejected
-        // (If self already won, OnElectionClaimReceived state guard rejects; but let's
-        // also cover the case where we're in SuspectDeclared — force it with only 1 vote.)
-        // We need 2 peers online for quorum = 2 so 1 vote doesn't elect self first.
+        // Two votes → quorum; self has the smaller NodeId → self wins → TemporaryWarchief
+        svc.OnSuspectVoteReceived(SignedElectionMsg(self,  warchiefId));
+        svc.OnSuspectVoteReceived(SignedElectionMsg(loser, warchiefId));
 
-        // Actually with online=[self, loserPeer], quorum=2, one vote leaves SuspectDeclared.
-        // Add the second vote from loser now:
-        svc.OnSuspectVoteReceived(new ElectionMessage
-        {
-            NodeId  = loserNodeId,
-            Payload = warchiefId,
-            Ts      = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-        });
-        // Quorum met; self wins → TemporaryWarchief. Loser's claim should be rejected.
+        // Loser claims — must be rejected; Warchief must not become the loser
+        svc.OnElectionClaimReceived(SignedElectionMsg(loser, "claim"));
 
-        var warchiefBefore = svc.WarchiefNodeId;
-
-        svc.OnElectionClaimReceived(new ElectionMessage
-        {
-            NodeId  = loserNodeId,
-            Payload = "claim",
-            Ts      = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-        });
-
-        // Warchief must not have changed to loserNodeId
-        Assert.That(svc.WarchiefNodeId, Is.Not.EqualTo(loserNodeId));
+        Assert.That(svc.WarchiefNodeId, Is.Not.EqualTo(loser.NodeId));
     }
 
     [Test]
@@ -495,12 +499,7 @@ public class T17_HiveSecurityTests
         ElectionState? capturedState = null;
         svc.OnStateChanged += (state, _) => capturedState = state;
 
-        svc.OnSuspectVoteReceived(new ElectionMessage
-        {
-            NodeId  = identity.NodeId,
-            Payload = "external-warchief-id",
-            Ts      = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-        });
+        svc.OnSuspectVoteReceived(SignedElectionMsg(identity, "external-warchief-id"));
 
         Assert.That(capturedState, Is.EqualTo(ElectionState.TemporaryWarchief));
     }
