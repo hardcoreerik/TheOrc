@@ -36,8 +36,11 @@ public sealed class HiveAuthMiddleware
 {
     // ── Config ────────────────────────────────────────────────────────────────
 
-    /// <summary>When true, missing/invalid auth headers are warned but not rejected.</summary>
-    public bool GracePeriodActive { get; set; } = true;
+    /// <summary>
+    /// When true, missing/invalid auth headers pass as NodeId="anonymous" instead of being rejected.
+    /// Defaults to false (fail-closed). Only set true during explicit bootstrapping flows.
+    /// </summary>
+    public bool GracePeriodActive { get; set; } = false;
 
     private readonly HivePeerStore _store;
     public   HiveAuthMiddleware()                     { _store = HivePeerStore.Default; }
@@ -169,7 +172,10 @@ public sealed class HiveAuthMiddleware
                                           string nonce, string tsMs, byte[] body)
     {
         var bodyHash = Convert.ToHexString(SHA256.HashData(body)).ToLowerInvariant();
-        return $"{method.ToUpperInvariant()}\n{path}\n{nonce}\n{tsMs}\n{bodyHash}";
+        // Sanitize CR/LF from path before embedding to prevent field-boundary injection.
+        var safePath = path.Replace("\r", "%0D", StringComparison.Ordinal)
+                           .Replace("\n", "%0A", StringComparison.Ordinal);
+        return $"{method.ToUpperInvariant()}\n{safePath}\n{nonce}\n{tsMs}\n{bodyHash}";
     }
 
     private static byte[] ComputeHmac(byte[] key, string canonical)

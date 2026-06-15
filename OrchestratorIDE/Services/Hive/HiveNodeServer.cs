@@ -42,9 +42,8 @@ public sealed class HiveNodeServer : IDisposable
     private HttpListener?             _listener;
     private HiveNodeInfo              _info = new("", "", [], 0, 0, []);
     private CancellationTokenSource   _cts  = new();
-    private readonly HiveAuthMiddleware     _auth         = new();
-    // Election and mesh endpoints are always fail-closed — grace period doesn't apply.
-    private readonly HiveAuthMiddleware     _strictAuth   = new() { GracePeriodActive = false };
+    // All authenticated endpoints are fail-closed — grace period never applies on the server.
+    private readonly HiveAuthMiddleware     _strictAuth   = new();
     private readonly HivePeerStore          _peers    = HivePeerStore.Default;
 
     // Injected by the app after construction
@@ -290,16 +289,18 @@ public sealed class HiveNodeServer : IDisposable
                 HandlePairRespond(path, body, resp); return;
             }
 
-            // ── Authenticated endpoints ────────────────────────────────────
+            // Update version probe — unauthenticated, read-only
+            if (method == "GET" && path == "/hive/update/version")
+            {
+                var nodeId  = HiveIdentity.Load().NodeId;
+                var version = OrchestratorIDE.Core.UpdateChecker.CurrentVersion();
+                Ok(resp, JsonSerializer.Serialize(new { version, nodeId }, _jsonOut));
+                return;
+            }
 
-            // Mesh heartbeat and election: always fail-closed (no grace period).
-            // These affect liveness decisions and leader election — unsigned = rejected.
-            bool isMeshOrElection = path == "/hive/mesh/heartbeat"
-                                 || path.StartsWith("/hive/mesh/election/");
+            // ── Authenticated endpoints (all fail-closed — no grace period) ──
 
-            var authResult = isMeshOrElection
-                ? _strictAuth.Validate(req, body)
-                : _auth.Validate(req, body);
+            var authResult = _strictAuth.Validate(req, body);
 
             if (!authResult.Ok)
             {
@@ -320,28 +321,11 @@ public sealed class HiveNodeServer : IDisposable
                 HandleElection(path, body, authResult.NodeId, resp); return;
             }
 
-            // Update version probe — unauthenticated, read-only
-            if (method == "GET" && path == "/hive/update/version")
-            {
-                var nodeId  = HiveIdentity.Load().NodeId;
-                var version = OrchestratorIDE.Core.UpdateChecker.CurrentVersion();
-                Ok(resp, JsonSerializer.Serialize(new { version, nodeId }, _jsonOut));
-                return;
-            }
-
-            // Remote deploy — authenticated, Warchief-only
+            // Remote deploy — Warchief-only (authResult already enforced strict auth above)
             if (method == "POST" && path == "/hive/update/deploy")
             {
-                var deployAuth = _strictAuth.Validate(req, body);
-                if (!deployAuth.Ok)
-                {
-                    resp.StatusCode = 401;
-                    Error(resp, deployAuth.Reason ?? "unauthorized");
-                    return;
-                }
-
                 var wc = ElectionService?.WarchiefNodeId;
-                if (string.IsNullOrEmpty(wc) || wc != deployAuth.NodeId)
+                if (string.IsNullOrEmpty(wc) || wc != authResult.NodeId)
                 {
                     resp.StatusCode = 403;
                     Error(resp, "only the Warchief may deploy updates");

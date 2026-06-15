@@ -145,6 +145,11 @@ public sealed class HiveElectionService
 
     public void OnSuspectVoteReceived(ElectionMessage msg)
     {
+        if (!VerifyElectionSig(msg))
+        {
+            Log($"⚠ Rejected suspect vote: invalid ECDSA sig from {msg.NodeId[..8]}…");
+            return;
+        }
         lock (_stateLock)
         {
             if (msg.Payload != WarchiefNodeId) return;
@@ -167,6 +172,11 @@ public sealed class HiveElectionService
 
     public void OnElectionClaimReceived(ElectionMessage msg)
     {
+        if (!VerifyElectionSig(msg))
+        {
+            Log($"⚠ Rejected election claim: invalid ECDSA sig from {msg.NodeId[..8]}…");
+            return;
+        }
         lock (_stateLock)
         {
             // Accept claims in both SuspectDeclared and ElectionUnderway.
@@ -223,6 +233,11 @@ public sealed class HiveElectionService
 
     public async Task OnRecoveryRequestReceived(ElectionMessage msg, CancellationToken ct)
     {
+        if (!VerifyElectionSig(msg))
+        {
+            Log($"⚠ Rejected recovery request: invalid ECDSA sig from {msg.NodeId[..8]}…");
+            return;
+        }
         bool shouldStepDown;
         lock (_stateLock)
         {
@@ -259,6 +274,11 @@ public sealed class HiveElectionService
 
     public void OnStepdownReceived(ElectionMessage msg)
     {
+        if (!VerifyElectionSig(msg))
+        {
+            Log($"⚠ Rejected stepdown: invalid ECDSA sig from {msg.NodeId[..8]}…");
+            return;
+        }
         lock (_stateLock)
         {
             if (State == ElectionState.TemporaryWarchief) return;  // we're the temp — handled in OnRecovery
@@ -376,6 +396,26 @@ public sealed class HiveElectionService
     {
         var data = Encoding.UTF8.GetBytes(_identity.NodeId + payload);
         return Convert.ToBase64String(_identity.Sign(data));
+    }
+
+    /// <summary>
+    /// Verifies the ECDSA Sig on an inbound election message using the sender's stored
+    /// signing public key. Returns false for any missing/invalid data or bad signature.
+    /// Must be called with msg.NodeId already set to the HMAC-authenticated sender identity.
+    /// </summary>
+    private bool VerifyElectionSig(ElectionMessage msg)
+    {
+        if (string.IsNullOrEmpty(msg.Sig)) return false;
+        var peer = _peers.Find(msg.NodeId);
+        if (peer is null || string.IsNullOrEmpty(peer.SigningPublicKeyDer)) return false;
+        try
+        {
+            var keyDer   = Convert.FromBase64String(peer.SigningPublicKeyDer);
+            var sigBytes = Convert.FromBase64String(msg.Sig);
+            var data     = Encoding.UTF8.GetBytes(msg.NodeId + msg.Payload);
+            return HiveIdentity.Verify(keyDer, data, sigBytes);
+        }
+        catch { return false; }
     }
 
     private async Task BroadcastAsync(string path, ElectionMessage msg, CancellationToken ct)
