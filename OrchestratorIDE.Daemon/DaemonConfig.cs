@@ -10,9 +10,10 @@ public sealed class DaemonConfig
     public string NodeName { get; set; } = Environment.MachineName;
 
     // ── Ports ─────────────────────────────────────────────────────────────────
-    public int NodeApiPort     { get; set; } = 7078;   // HiveNodeServer
+    // NodeApiPort (7078) and TaskQueuePort (7079) are HIVE protocol constants
+    // shared across the swarm — all nodes must agree on the same values.
+    // They are intentionally not exposed as per-node config to avoid split-brain.
     public int TaskQueuePort   { get; set; } = 7079;   // HiveTaskQueue
-    public int RpcWorkerPort   { get; set; } = 7077;   // HiveRpcWorker (for worker-mode)
 
     // ── Inference ─────────────────────────────────────────────────────────────
     /// <summary>Base URL of the local Ollama instance this node can advertise to Warchiefs.</summary>

@@ -17,6 +17,10 @@ namespace OrchestratorIDE.UITests.Tests;
 [TestFixture]
 public class T17_HiveSecurityTests
 {
+    [OneTimeSetUp]
+    public void InitSecrets()
+        => SecretProtection.Initialize(new DpapiSecretProtector());
+
     // ── HiveAuthMiddleware: static input validators ────────────────────────────
 
     [TestCase("550e8400-e29b-41d4-a716-446655440000", true)]

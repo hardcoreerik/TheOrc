@@ -11,21 +11,23 @@ namespace OrchestratorIDE.Daemon;
 /// <summary>
 /// Generic-Host service that boots the full HIVE swarm stack:
 ///   • HiveNodeServer  (port 7078) — peer identity, election, pairing, remote deploy
-///   • HiveTaskQueue   (port 7079) — Warchief task queue + durable SQL history
+///   • HiveTaskQueue   (configurable, default 7079) — Warchief task queue + durable SQL history
 ///   • HiveMeshHeartbeat           — 15 s/30 s peer-liveness pulses (started inside NodeServer.Start)
 ///   • HiveElectionService         — Bully-style Warchief election (created inside NodeServer.Start)
-///   • HiveRpcWorker   (port 7077) — direct-RPC worker endpoint
 ///   • HiveWorkerAgent             — polls Warchief queue, executes tasks via Ollama (optional)
-///   • HiveBeacon      (UDP 7076)  — multicast peer discovery
+///   • HiveBeacon      (UDP)       — multicast peer discovery
 /// </summary>
 public sealed class HiveService : BackgroundService
 {
+    private static readonly string DefaultWorkspaceRoot = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "TheOrc", "daemon-workspace");
+
     private readonly DaemonConfig         _cfg;
     private readonly ILogger<HiveService> _log;
 
     private HiveNodeServer?  _nodeServer;
     private HiveTaskQueue?   _taskQueue;
-    private HiveRpcWorker?   _rpcWorker;
     private HiveWorkerAgent? _worker;
     private HiveBeacon?      _beacon;
     private SqliteStore?     _db;
@@ -34,6 +36,13 @@ public sealed class HiveService : BackgroundService
     {
         _cfg = cfg.Value;
         _log = log;
+
+        // Resolve defaults that must not be empty at runtime — appsettings.json may
+        // omit these keys (letting C# defaults apply) but cannot set them to "".
+        if (string.IsNullOrEmpty(_cfg.NodeName))
+            _cfg.NodeName = Environment.MachineName;
+        if (string.IsNullOrEmpty(_cfg.WorkspaceRoot))
+            _cfg.WorkspaceRoot = DefaultWorkspaceRoot;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -79,18 +88,13 @@ public sealed class HiveService : BackgroundService
             Lanes:       [.. _cfg.WorkerLanes]);
         _nodeServer.Start(info);   // starts listener on HiveNodeServer.ApiPort (7078)
 
-        // Wire election log after Start (service auto-created inside Start)
+        // Wire election/heartbeat logs after Start (services auto-created inside Start).
         if (_nodeServer.ElectionService is { } election)
             election.OnLog += msg => _log.LogInformation("[Election] {Msg}", msg);
         if (_nodeServer.MeshHeartbeat is { } hb)
             hb.OnLog += msg => _log.LogInformation("[Heartbeat] {Msg}", msg);
 
         _log.LogInformation("NodeServer listening on :{Port}", HiveNodeServer.ApiPort);
-
-        // ── RPC worker endpoint ───────────────────────────────────────────────
-        _rpcWorker = new HiveRpcWorker();
-        _rpcWorker.Start();
-        _log.LogInformation("RpcWorker listening on :{Port}", _cfg.RpcWorkerPort);
 
         // ── UDP beacon (multicast peer discovery) ─────────────────────────────
         _beacon = new HiveBeacon();

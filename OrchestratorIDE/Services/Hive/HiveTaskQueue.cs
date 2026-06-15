@@ -645,8 +645,10 @@ public sealed class HiveTaskQueue : IDisposable
         try
         {
             var evSession = !string.IsNullOrEmpty(ev.SessionId) ? ev.SessionId : _sessionCtx.SessionId;
-            Repository?.AppendEvent(ev.Type, ev.Msg, ev.TaskId, ev.WorkerId,
+            var stored = Repository?.AppendEvent(ev.Type, ev.Msg, ev.TaskId, ev.WorkerId,
                 evSession, authNode, authenticated: true);
+            if (stored == false)
+                Log($"⚠ HIVE event persist rejected (per-node quota) from {authNode}");
         }
         catch { /* best-effort */ }
 

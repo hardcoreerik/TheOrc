@@ -140,11 +140,21 @@ public sealed class HiveRepository : RepositoryBase
     // ── Event rows ───────────────────────────────────────────────────────────────
 
     /// <summary>Appends one lifecycle event with provenance. Used for remote-submitted
-    /// events (POST /hive/events) where the node id and auth result matter.</summary>
-    public void AppendEvent(
+    /// events (POST /hive/events) where the node id and auth result matter.
+    /// Returns false (and writes nothing) when the submitting node is over its per-session
+    /// row quota — same limit applied to <see cref="UpsertTask"/>.</summary>
+    public bool AppendEvent(
         string type, string? msg, string? taskId, string? workerId,
         string? sessionId, string? submittedByNode, bool authenticated)
     {
+        var node    = SanId(submittedByNode, MaxId);
+        var sessKey = SanId(sessionId, MaxId) ?? "";
+
+        // Quota: authenticated remote nodes are capped on events per session, same as tasks.
+        // Local callers (node == null) and unauthenticated events are never blocked by quota.
+        if (node is not null && NodeEventCount(node, sessKey) >= _maxRowsPerNode)
+            return false;
+
         var now = DateTime.UtcNow;
         Execute(
             """
@@ -156,17 +166,23 @@ public sealed class HiveRepository : RepositoryBase
             """,
             ps =>
             {
-                P(ps, "$sess",    SanId(sessionId, MaxId));
+                P(ps, "$sess",    sessKey);
                 P(ps, "$type",    San(type, MaxType));
                 P(ps, "$msg",     San(msg, MaxMsg));
                 P(ps, "$task",    SanId(taskId, MaxId));
                 P(ps, "$worker",  SanId(workerId, MaxId));
-                P(ps, "$node",    SanId(submittedByNode, MaxId));
+                P(ps, "$node",    node);
                 P(ps, "$auth",    authenticated ? 1 : 0);
                 P(ps, "$created", now.ToString("o"));
                 P(ps, "$retain",  now.Add(_retention).ToString("o"));
             });
+        return true;
     }
+
+    private int NodeEventCount(string node, string sessionId)
+        => Convert.ToInt32(Scalar(
+            "SELECT COUNT(*) FROM hive_events WHERE submitted_by_node = $node AND session_id = $sess",
+            ps => { P(ps, "$node", node); P(ps, "$sess", sessionId); }) ?? 0);
 
     // ── Retention ────────────────────────────────────────────────────────────────
 
