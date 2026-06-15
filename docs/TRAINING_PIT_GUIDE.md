@@ -1,156 +1,184 @@
 # TheOrc — Training Pit Guide
 
-> This guide explains how a swarm plan becomes reviewed data and how that data becomes an adapter. Read [ARCHITECTURE.md](ARCHITECTURE.md) for the system view and [DATASET_REVIEW_WORKFLOW.md](DATASET_REVIEW_WORKFLOW.md) for the manifest-driven approval workflow.
+The Training Pit is where TheOrc gets smarter over time. Every time you run the swarm and it does a good job, that behavior can be captured, reviewed, and eventually used to fine-tune an AI model — one that gets better at TheOrc's specific style of task planning.
+
+This guide walks you through the whole process, from capture to trained adapter.
+
+For the review workflow details, see [DATASET_REVIEW_WORKFLOW.md](DATASET_REVIEW_WORKFLOW.md). For system-level context, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
-## What The Training Pit Is
+## What the Training Pit Is
 
-The Training Pit is TheOrc's evidence pipeline for improving model behavior with reviewed local data.
+The Training Pit is TheOrc's pipeline for turning swarm behavior into a custom AI adapter.
 
-Its job is to turn:
+Here's the basic idea: when the boss AI makes a good plan during a swarm run, that plan gets saved as an example. After enough examples are collected and reviewed, you can train a new AI model that knows how to plan like TheOrc's boss — but fine-tuned on your actual usage.
 
-- live swarm planning behavior
-- into staged captures
-- into approved dataset rows
-- into a training-ready export
-- into an adapter produced by ORC ACADEMY
+The result is a LoRA adapter (a lightweight add-on to a base AI model) that you can run locally.
 
 ---
 
-## The Current End-To-End Flow
+## The Current Dataset
+
+As of v1.6, the dataset contains:
+
+- **900** approved training examples
+- **87** approved evaluation examples
+- **25** approved negative examples (examples of what NOT to do)
+
+These counts pass all current training thresholds. The v1 adapter (`theorc-boss:gemma4-ft`) is live and available to pull.
+
+---
+
+## The End-to-End Flow
+
+Here's the full journey from swarm run to trained adapter:
 
 ```text
-swarm run
-  -> DatasetCapture stages plan_capture_*.json
-  -> prescreen_captures.py flags mechanical defects
-  -> judge_captures.py assigns fabrication-risk triage
-  -> human review writes reviewed_v1.json
-  -> review_captures.py exports train/eval/negative JSONL
-  -> phase3_preflight.py validates readiness
-  -> ORC ACADEMY launches train_lora.py
-  -> adapter, checkpoints, summary, and logs are saved
+Swarm run
+  -> Capture system saves the boss plan
+  -> Prescreen script catches obvious defects automatically
+  -> Judge script flags likely fabrication risk (AI-assisted triage)
+  -> You review and approve examples
+  -> Export script builds the training files
+  -> Preflight script checks everything is ready
+  -> ORC ACADEMY runs the training
+  -> Adapter, checkpoints, and summary are saved
 ```
 
----
-
-## Dataset State Today
-
-Verified from the current manifest and preflight output:
-
-- train: 900 approved examples
-- eval: 87 approved examples
-- negative: 25 approved examples
-
-Those counts pass the current minimum Phase 3 thresholds of:
-
-- 150 train
-- 20 eval
-- 25 negative
-
-The current panel and docs also treat the next quality milestone as roughly:
-
-- 1,000 train
-- 200 eval
+Each step is explained below.
 
 ---
 
-## Capture Stage
+## Step 1: The Capture System
 
-`DatasetCapture.cs` runs inside `SwarmSession`.
+During every swarm run, the capture system (built into the swarm session) evaluates the boss's plan as it's created.
 
-It scores the boss plan and stages:
+- Plans scoring **70 or above** are staged as positive training examples
+- Plans scoring **39 or below** are staged as negative examples (showing bad planning)
+- Plans in between are skipped — ambiguous examples don't help training
 
-- high-quality positives at `>= 70`
-- low-quality negatives at `<= 39`
-
-Mid-band captures are skipped to avoid filling the dataset with ambiguous examples.
-
----
-
-## Prescreen And Judge
-
-The first two review passes are intentionally different.
-
-### Prescreen
-
-`prescreen_captures.py` is deterministic. It catches things a human should not have to burn attention on, such as invalid roles or TESTER write verbs.
-
-### Judge
-
-`judge_captures.py` is heuristic. It uses a local judge model to sort likely fabrication risk, but it does not make the final keep-or-throw-away decision.
+Staged plans are saved as JSON files waiting for review.
 
 ---
 
-## Manifest-Centered Review
+## Step 2: Prescreen
 
-The manifest is the source of truth:
+The prescreen script (`prescreen_captures.py`) runs automatically and catches obvious mechanical problems — things like invalid role assignments or a TESTER lane trying to write files. These are clear errors that shouldn't need human review time.
 
-- path: `training_pit/datasets/manifests/reviewed_v1.json`
-- written by: `review_captures.py`
-- consumed by: export and preflight
-
-This matters because raw staging files do not become trainable data on their own. Approval lives in the manifest, and export is rebuilt from that manifest.
+It's deterministic: same input, same output every time.
 
 ---
 
-## Preflight Gate
+## Step 3: Judge Triage
 
-`phase3_preflight.py` exists to make training fail closed.
+The judge script (`judge_captures.py`) uses a local AI model to sort captures by "fabrication risk" — how likely is it that the boss made up steps that wouldn't actually work?
 
-It verifies:
-
-- manifest validity
-- threshold counts
-- JSONL presence
-- export consistency
-- validation
-- sanitizer pass
-- duplicate safety
-- eval isolation
-- staging safety
-
-The script does not start training. It only answers whether training is currently safe to begin.
+This is AI-assisted triage, not a final decision. The judge flags things for your attention; it doesn't approve or reject on its own.
 
 ---
 
-## ORC ACADEMY
+## Step 4: Human Review
 
-ORC ACADEMY is the operator-facing training surface in the app.
+You look at the flagged and unflagged captures and make the final call on each one: keep it or throw it away.
 
-Verified GUI capabilities:
+Your decisions are recorded in the **review file** (`training_pit/datasets/manifests/reviewed_v1.json`). This file is the official record of what's approved. Nothing becomes training data unless it's in here.
 
-- start
-- resume
-- dry run
-- VRAM cap
-- heartbeat monitoring
-- hang warning
-- re-attach after app restart
-
-Verified script-side behavior in `train_lora.py`:
-
-- default base model: `google/gemma-4-12b-it`
-- 4-bit NF4 loading
-- checkpoint output
-- progress heartbeat JSON
-- final summary JSON
-
-Some code comments and field names still use the older WARCHIEF FORGE naming, but the current product name is ORC ACADEMY.
+See [DATASET_REVIEW_WORKFLOW.md](DATASET_REVIEW_WORKFLOW.md) for the detailed review workflow.
 
 ---
 
-## Supporting Tools
+## Step 5: Export
 
-Two support scripts are especially important in the current workflow:
+Once you've reviewed a batch of captures, the export script (`review_captures.py`) reads your approved decisions and builds the actual training files (JSONL format — one JSON object per line, one example per object).
 
-- `Tools/harvest_marker_watch.ps1` can stop NIGHT HARVEST automatically at the train-data marker
-- `Tools/codex-review.ps1` can generate structured review output for code changes, which is useful when the Training Pit is farming documentation or refactor tasks and you want external review evidence
+The three files produced are:
+
+- `train.jsonl` — the examples the model learns from
+- `eval.jsonl` — examples used to measure how well training is going
+- `negative.jsonl` — examples of plans to avoid
 
 ---
 
-## What To Read Next
+## Step 6: Preflight Gate
 
-- [DATASET_REVIEW_WORKFLOW.md](DATASET_REVIEW_WORKFLOW.md) for manifest operations
-- [MODEL_WIKI_AND_LAB.md](MODEL_WIKI_AND_LAB.md) for model evidence
-- [HIVE_MIND_SPEC.md](HIVE_MIND_SPEC.md) for the planned distributed version of this loop
+Before training starts, the preflight script (`phase3_preflight.py`) checks that everything is actually ready:
+
+- Are there enough examples?
+- Is the manifest valid?
+- Do the export files exist and match the manifest?
+- Did the sanitizer pass?
+- Are there duplicate examples?
+- Is the eval set isolated from the training set?
+
+If anything fails, training doesn't start. This is intentional — it's better to catch a problem now than to waste hours training on bad data.
+
+---
+
+## Step 7: ORC ACADEMY
+
+ORC ACADEMY is the in-app training interface. Once preflight passes, you kick off training here.
+
+What you can do in ORC ACADEMY:
+
+- **Start** a new training run
+- **Resume** a run that was interrupted
+- **Dry run** — check the setup without actually training
+- **Set a VRAM cap** — limit how much GPU memory training uses
+- **Watch progress** — a live heartbeat bar shows training status
+- **Re-attach** — if you close and reopen the app during training, ORC ACADEMY reconnects to the still-running trainer process
+
+What happens during training:
+
+- The base model (Google Gemma 4 12B) is loaded in 4-bit compressed format to fit in memory
+- LoRA fine-tuning runs on your approved examples
+- Checkpoints are saved periodically so progress isn't lost if something interrupts
+- A progress JSON file is updated constantly (this is what the heartbeat bar reads)
+- A final summary JSON is saved when training completes
+
+The trained adapter is saved under `training_pit/outputs/lora_v1/adapter/`.
+
+---
+
+## Pit Boss — The Setup Wizard
+
+Not sure how to get started with training? Pit Boss is a wizard that walks you through it.
+
+It asks you 8 questions:
+
+1. What kind of task do you want the model to be better at?
+2. What's the target goal style?
+3. What roles should it use?
+4. How many examples do you want to generate?
+5. What quality threshold?
+6. What base model?
+7. Any negative examples needed?
+8. Ready to generate?
+
+Based on your answers, Pit Boss creates a training plan and generates an initial dataset automatically. It then hands the results to ORC ACADEMY to start training.
+
+Pit Boss is the fastest way to go from "I want to fine-tune something" to actually training — without setting up every piece manually.
+
+---
+
+## ORC ACADEMY v1 Adapter
+
+The first trained adapter — `theorc-boss:gemma4-ft` — is live. It was trained on 900 examples from real TheOrc swarm runs.
+
+You can pull it and use it as the boss model in Swarm mode to see the difference between the base model and the fine-tuned version.
+
+---
+
+## NIGHT HARVEST
+
+NIGHT HARVEST is an unattended run mode that collects more training examples while you sleep. You set it going before bed, and by morning you have a batch of new captures waiting for review.
+
+The harvest marker watcher (`Tools/harvest_marker_watch.ps1`) can stop NIGHT HARVEST automatically once you've hit your target example count, and leaves a summary note for when you wake up.
+
+---
+
+## What to Read Next
+
+- [DATASET_REVIEW_WORKFLOW.md](DATASET_REVIEW_WORKFLOW.md) — the review and manifest workflow in detail
+- [MODEL_WIKI_AND_LAB.md](MODEL_WIKI_AND_LAB.md) — evaluating models before and after training
+- [HIVE_MIND_SPEC.md](HIVE_MIND_SPEC.md) — running training jobs on a different machine in your hive

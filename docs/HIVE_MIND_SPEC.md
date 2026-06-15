@@ -1,175 +1,129 @@
-# 🐝 HIVE MIND — Distributed TheOrc (Product & Engineering Spec)
+# TheOrc — HIVE MIND Guide
 
-> Status: **scoping approved 2026-06-11** · Owner track: v1.3 headline
-> One sentence: every PC on your network running TheOrc automatically joins a
-> roster, and any task — inference, research, farming, judging, training —
-> can run on whichever node's hardware actually fits it.
+HIVE MIND lets multiple PCs running TheOrc work as a team. Instead of one computer doing everything, your machines share the load — one handles a research task, another runs a training job, a third handles code generation. They find each other automatically on your home or office network.
+
+HIVE MIND is fully shipped as of v1.6. All phases (A, H1, H2, H3) are live.
+
+For terminology, see [GLOSSARY.md](GLOSSARY.md).
 
 ---
 
-## 1. Product requirements (agreed)
+## What HIVE MIND Is
 
-| # | Requirement | Acceptance test |
-|---|---|---|
-| R1 | **Auto-discovery** on LAN and Tailscale, zero manual setup beyond "install + run TheOrc" | Two fresh installs see each other's names within 15 s |
-| R2 | **Capability-aware scheduling** — GPU, VRAM, models, live load detected; only valid tasks offered per node | A 6 GB node never shows "Academy 12B" as a target; it does show farm/judge/scout |
-| R3 | **Clean UX** — every dispatchable surface gets "Run on: This PC ▾" | One picker, same place, every job type |
-| R4 | **Unified progress** — remote work feels local | Academy bar/metrics identical whether local or remote |
-| R5 | **Artifact return** — adapters, captures, logs sync back automatically | Adapter trained remotely appears in local `training_pit/outputs/` unprompted |
-| R6 | **Basic trust** — random machines cannot join | First contact requires a one-click confirm on BOTH machines; thereafter silent |
+Think of it like a crew. Each PC running TheOrc is a node in your hive. Nodes announce themselves on your local network, share what they're capable of (based on their GPU, RAM, and installed models), and accept tasks from the rest of the hive.
 
-**Honest hardware reality (design input, not afterthought):** an RTX 3050 6 GB
-cannot run the current 12B Academy flow (~11.5 GB step peak). The hive must
-*know* that and instead offer what fits: small-model inference, judge triage
-(7B), researcher lanes, NIGHT HARVEST with a small boss, GOBLIN MIND probes,
-and a **Scout lane** — training a ~4B boss adapter (≈4 GB peak) as the
-"next model" track.
+You don't configure IP addresses or dig into network settings. You install TheOrc, opt in during setup, and your machines find each other.
 
-## 2. Delivery phases
+---
 
-### Phase A — Remote Ollama routing (fast win)
-Ollama is already HTTP; TheOrc already takes a host URL. Scope:
-- `OllamaHosts` list in settings (`name + url`), seeded with `localhost`.
-- Swarm Board model pickers gain a host dimension: `boss @ BIGRIG`,
-  `researcher @ HARDCOREPC`. Capability badges/probes keyed by `(host, model)`.
-- Reachability dot per host (poll `/api/tags`).
-- **Out of scope:** discovery (manual host entry is acceptable for A only),
-  remote file ops, remote jobs.
+## How It Works
 
-### Phase H1 — Discovery + HIVE MIND roster panel
-- Each TheOrc runs a **hive beacon**: UDP broadcast (port 7077) every 5 s +
-  listener. Payload: `{name, machineId, ip, port, version}` (signed, see §4).
-  Tailscale subnets don't carry broadcast → also a `StaticPeers` list and
-  optional "introduce by IP" (one peer tells you about its peers — gossip).
-- Each TheOrc serves a **node API** (embedded HTTP, same port):
-  `GET /hive/info` → hostname, GPU name/VRAM (HardwareDetector), RAM,
-  installed Ollama models, current load (GPU util via nvidia-smi, busy jobs),
-  capability flags (§3).
-- **Roster panel** (🐝 pill or Pit-adjacent): live cards per node — name, GPU,
-  VRAM bar (reuse meter), models, "what this node can do", last-seen.
+### Discovery
 
-### Phase H2 — Capability-aware remote inference
-- Phase A's host pickers become roster-driven: pick a *node*, not a URL.
-- Scheduling guard: role requirements (SwarmSteering) × node capability →
-  invalid picks disabled with the reason ("needs ~9 GB, node has 6").
-- Latency/health shown inline; automatic failover stays OUT (explicit user
-  choice only, per the steering philosophy).
+When TheOrc starts, it broadcasts a small signal on your local network every few seconds. Other TheOrc nodes on the same network hear it and add you to their roster. This all happens in the background — you just see new nodes appear in the HIVE panel.
 
-### Phase H3 — Remote jobs (the full vision)
-- Node API grows job endpoints: `POST /hive/jobs` (`type: farm|judge|academy|probe`,
-  params), `GET /hive/jobs/{id}` (status = the progress.json heartbeat,
-  served over HTTP), `GET /hive/jobs/{id}/artifacts` (zip stream),
-  `POST /hive/jobs/{id}/stop`.
-- The Academy/Harvest GUIs already poll a heartbeat file; an `IJobChannel`
-  abstraction (LocalFileChannel | HttpChannel) makes remote runs render
-  identically (R4).
-- Artifact return: on `done`, requester pulls the artifact zip (adapter,
-  summary, log; captures for farm jobs) into the local tree (R5).
-- Dataset/code the job needs travels WITH the job (train/eval JSONL upload,
-  ~5 MB) — nodes don't need the repo checked out for training; farm jobs DO
-  need a workspace (ship goals file; captures return as artifacts).
+### Pairing
 
-## 3. Capability model (what a node advertises)
+Discovery doesn't mean trust. When a new node appears for the first time, both machines show a confirmation prompt. You click to approve on both ends — once. After that, the two nodes remember each other and connect silently.
 
-```json
-{
-  "machineId": "…", "name": "HARDCOREPC",
-  "gpu": {"name": "RTX 3050", "vramGb": 6, "cuda": "12.x"},
-  "ramGb": 64, "load": {"gpuPct": 12, "vramUsedGb": 0.8, "jobs": 0},
-  "models": ["qwen2.5-coder:7b", "nemotron-mini"],
-  "lanes": {
-    "inference":  {"ok": true,  "maxModelGb": 5.5},
-    "research":   {"ok": true},
-    "judge":      {"ok": true,  "note": "7B-class judge"},
-    "farm":       {"ok": true,  "note": "small boss only"},
-    "probe":      {"ok": true},
-    "academy12b": {"ok": false, "reason": "needs ~12 GB peak, 6 GB present"},
-    "scout4b":    {"ok": true,  "note": "~4 GB peak QLoRA"}
-  }
-}
-```
-Lane rules are computed node-side from VRAM/models (single source of truth);
-requesters just render `ok/reason`. Thresholds live in one table next to the
-lane definitions, updated as we learn real working sets (the 11.5 GB figure
-came from measurement, not guessing — keep that culture).
+### Task Routing
 
-## 4. Trust model (R6)
+Once nodes are paired, any job that can run on a remote node shows a "Run on: [node name]" picker. TheOrc knows what each node can handle — it reads each machine's GPU, available VRAM, and installed models. If a node doesn't have enough power for a task, that option is greyed out with an explanation.
 
-- First contact: requester shows "HARDCOREPC wants to join your hive" → user
-  confirms on both ends once. Exchange ed25519 public keys; store in
-  `%APPDATA%\OrchestratorIDE\hive-peers.json`.
-- All node-API calls signed (request HMAC w/ shared pair secret derived at
-  pairing). Beacons unsigned (they only invite discovery, never trust).
-- Default bind: private subnets + Tailscale range only. No internet exposure,
-  ever, by default.
+---
 
-## 5. Three architecture variants for Option B
+## Setting Up HIVE MIND
 
-### V1 — "Simplest shippable" (in-app peer service)
-Beacon + node API hosted **inside OrchestratorIDE.exe** (HttpListener).
-Jobs run only while the app is open on the node.
-- ✦ Smallest code; ships H1+H2 fast; no installer changes
-- ✧ Node must have the GUI running; closing the app kills the hive presence
-  (jobs themselves survive — they're detached processes — but status serving stops)
+### Option 1: During Installation
 
-### V2 — "Best long-term" (Hive node Windows service + app as client)
-A tiny `OrcHiveNode` service (or tray app) owns beacon/API/jobs; the GUI is
-just a client of localhost like any other node. Installer registers it.
-- ✦ Headless nodes (no GUI needed), survives logoff, one code path for
-  local AND remote (the GUI always talks to "a node")
-- ✦ Natural place for queueing, multi-job, scheduled NIGHT HARVEST
-- ✧ Service install/update complexity; more security surface to do right
+When you install TheOrc, the installer includes a "Join HIVE MIND" step. It's checked by default. It sets up the right firewall rules for your private network and enables your PC to be discovered by other TheOrc installs.
 
-### V3 — "Best zero-config for normal users" (piggyback Ollama + repo drop-box)
-No new daemon: discovery via probing the subnet/Tailscale peers for Ollama
-(port 11434) + a TheOrc marker; jobs via a synced drop-box folder (existing
-file-share/Syncthing/OneDrive) using the proven stop-file/heartbeat-file
-patterns.
-- ✦ Genuinely nothing to install beyond what exists today
-- ✧ Inference-only discovery is solid, but file-queue jobs are clunky
-  (latency, conflicts, no streaming status); subnet probing is slow and
-  Tailscale-unfriendly; weakest trust story
+### Option 2: On an Existing Install
 
-**Recommendation:** ship **V1** as H1–H3 (it is the V2 architecture minus the
-service wrapper — design the node API as if it were V2 from day one), then
-graduate to **V2** by moving the same node code into a service when remote
-NIGHT HARVEST scheduling makes "GUI must be open" annoying. V3's only durable
-idea — Ollama-port probing as a discovery *hint* — gets folded into H1.
+If you already have TheOrc installed, open the HIVE panel. If your PC isn't yet sharing itself to the hive, you'll see a one-click "Enable hive serving on this PC" button. Click it — no reinstall needed.
 
-## 6. Sequencing & estimates
+### Steps to Get Two PCs Talking
 
-| Step | Scope | Effort |
-|---|---|---|
-| A | hosts in settings + host-aware pickers + reachability | 1–2 sessions |
-| H1 | beacon, node API `/hive/info`, roster panel, pairing | 2–3 sessions |
-| H2 | roster-driven pickers + lane gating | 1 session |
-| H3 | job endpoints, HttpChannel, artifact return, Academy/Harvest remote | 3–4 sessions |
-| Scout lane | 4B base in academy configs + lane wiring | 1 session (after H3) |
+1. Install TheOrc on both PCs (or enable hive serving if already installed).
+2. Make sure both PCs are on the same local network (same Wi-Fi or wired network).
+3. Open the HIVE panel on either machine — you should see the other PC appear within about 15 seconds.
+4. Click to approve the pairing on both machines.
+5. Both nodes are now in your hive.
 
-## 7. Open questions (decide before H3)
+---
 
-1. Scout base model: Nemotron-Mini-4B vs Qwen2.5-Coder-3B as the small boss?
-2. Does remote farm need the full repo on the node (workspace-dependent
-   goals), or do we ship a workspace snapshot? (Leaning: nodes that farm must
-   have TheOrc's repo configured; nodes that only train/judge need nothing.)
-3. Version skew policy: refuse jobs across mismatched TheOrc versions, or
-   best-effort with a warning?
+## The HIVE Panel
 
-## 8. Zero-config enrollment (R1 extension, agreed 2026-06-11)
+The HIVE panel shows your network as a constellation — each node is a card, arranged visually on screen.
 
-The user installs TheOrc; the hive just works. No manual env vars, ever.
+### Node Cards
 
-- **Installer (OrchestratorSetup)**: a "Join HIVE MIND" step (checked by
-  default, plain-language consent — "other PCs running TheOrc on your home
-  network can use this computer''s AI"): sets OLLAMA_HOST=0.0.0.0 in the user
-  environment (same mechanism as OllamaParallelHelper), adds a Windows
-  Firewall inbound rule for 11434 + the hive port (7077), Private profile
-  ONLY — never Public/Domain.
-- **Existing installs** (e.g. HARDCOREPC, which already runs Ollama): TheOrc
-  detects local-only Ollama binding at startup and the HIVE roster panel
-  offers one-click "Enable hive serving on this PC" doing the same work —
-  no reinstall needed.
-- **Security note**: Ollama itself is unauthenticated; LAN exposure is gated
-  by (a) Private-profile firewall scoping and (b) the §4 pairing layer for
-  all hive-node operations. Inference via raw Ollama is LAN-trust; job
-  dispatch is pairing-trust.
+Each card shows:
+
+- The machine name
+- Its GPU and how much VRAM is available
+- Which AI models are installed
+- What kinds of tasks it can handle
+- A live status dot (green = reachable, grey = offline)
+
+### The Warchief
+
+One node in the hive is elected the Warchief — the leader. The Warchief coordinates scheduling across the hive. Its card gets a gold border and a crown badge so you always know which machine is in charge.
+
+If the Warchief goes offline, the remaining nodes elect a new one automatically.
+
+---
+
+## Security — Why It's Safe
+
+TheOrc's hive only works on your private local network. It never opens connections to the internet.
+
+Every request between nodes is signed with a secret that's set up during pairing (using HMAC-SHA256, a standard signing method). If a request doesn't have the right signature, it gets rejected with a 401 error — so a random device on your network can't just join your hive or send it tasks.
+
+Your identity as a node is based on a P-256 ECDSA key pair (a type of cryptographic ID), stored securely using Windows DPAPI (the same system Windows uses to protect passwords). Each request includes a one-time nonce to prevent replay attacks.
+
+The short version: only paired machines can talk to each other, and every message is verified.
+
+---
+
+## Fleet Deploy — Updating All Nodes at Once
+
+If you're the Warchief, you can push a TheOrc update to every node in your hive at the same time. You don't have to walk to each PC.
+
+Here's how:
+
+1. Click the **⬆ Update** button in the mode bar (or look for the gold dot if an update is ready).
+2. In the Update Center, you'll see your hive nodes listed.
+3. Click **Deploy to all nodes**.
+4. TheOrc pushes the update to each worker node and shows a 5-step progress bar per node.
+
+Each node updates itself and reports back when done.
+
+---
+
+## Troubleshooting HIVE MIND
+
+### A node doesn't appear in the HIVE panel
+
+- Make sure both PCs are on the same private network (not a guest network or separate VLAN).
+- Check that TheOrc is running on the other PC and HIVE is enabled.
+- Windows Firewall may be blocking the discovery signal. The installer sets this up automatically, but if you installed manually, you may need to allow TheOrc through the firewall for Private networks.
+
+### Pairing was approved but the node shows as offline
+
+- Restart TheOrc on the offline node.
+- Check that the other machine's IP address hasn't changed (this can happen with DHCP). Reconnecting usually fixes it.
+
+### A task option is greyed out for a node
+
+- The node doesn't have enough VRAM or the right models for that task. Hover over the greyed option to see the reason.
+- Try pulling a smaller model on that node, or run the task locally instead.
+
+### The Warchief crown moved to a different node
+
+- This is normal. If the previous Warchief went offline or became unreachable, the hive elects a new leader automatically.
+
+### Fleet deploy fails on one node
+
+- Check that the offline or failing node is reachable in the HIVE panel first.
+- You can manually update that node by opening TheOrc on it and using the Update Center directly.

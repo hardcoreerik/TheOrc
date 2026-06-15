@@ -20,7 +20,7 @@ The orchestration model in swarm mode. The boss plans, routes, steers, and merge
 
 ### Warchief
 
-An older naming pattern still visible in some comments and backing field names. The operator-facing training name is now ORC ACADEMY.
+In HIVE MIND (v1.6+), the Warchief is the elected leader node in a TheOrc network. It coordinates task scheduling across all connected machines and shows a gold border and crown badge in the HIVE constellation panel. The term also appears in older code comments as the previous name for ORC ACADEMY (now superseded by that name).
 
 ---
 
@@ -152,12 +152,36 @@ The version-and-commit indicator shown in the status bar. It is sourced from ass
 
 ---
 
-## Planned Distributed Terms
+## HIVE MIND Terms
 
 ### HIVE MIND
 
-The planned distributed TheOrc layer described in [HIVE_MIND_SPEC.md](HIVE_MIND_SPEC.md). The idea is to treat multiple TheOrc machines as a capability-aware roster for inference, harvest, judging, and training jobs.
+The distributed multi-PC feature shipped in TheOrc v1.6. Multiple machines running TheOrc find each other automatically on a local network, pair with a one-click approval, and share tasks based on each machine's hardware capabilities. Fully described in [HIVE_MIND_SPEC.md](HIVE_MIND_SPEC.md).
+
+### Warchief
+
+The elected leader node in a HIVE MIND network. The Warchief coordinates task scheduling across all connected machines. Its card in the HIVE constellation panel shows a gold border and a crown badge. If the Warchief goes offline, the remaining nodes elect a new one automatically. Note: "Warchief" also appears in older code comments as the previous name for ORC ACADEMY (now superseded).
+
+### Worker node
+
+Any node in a HIVE MIND network that is not the current Warchief. Worker nodes accept tasks routed to them by the Warchief and report results back.
+
+### HIVE constellation
+
+The visual view in the HIVE panel showing all connected nodes arranged as cards. Each card shows the node's name, GPU, VRAM, installed models, supported task types, and live status.
+
+### Fleet deploy
+
+A feature in the Update Center available to the Warchief. It pushes a TheOrc update to all connected worker nodes at the same time, so you don't have to update each machine individually.
+
+### Update Center
+
+The **⬆ Update** mode button in the app. It lets you check for new TheOrc versions, install updates on the current machine with a 5-step progress display, and (if you are the Warchief) deploy updates to all nodes in your hive. A gold dot on the button signals that an update is available.
 
 ### Scout lane
 
-A HIVE MIND concept from the spec for lighter-weight nodes that cannot host the full current academy target but can still contribute smaller-model or support workloads.
+A lighter-weight HIVE MIND role for nodes that do not have enough VRAM for the full 12B academy training flow. Scout nodes can still contribute to research, judge triage, inference (smaller models), and 4B adapter training.
+
+### Pit Boss
+
+The 8-question setup wizard in the Training Pit. It asks about your training goals, generates a training plan, and creates an initial dataset automatically — then hands off to ORC ACADEMY. The fastest way to start fine-tuning from scratch.

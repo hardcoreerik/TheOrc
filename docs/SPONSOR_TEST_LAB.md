@@ -21,7 +21,7 @@ It is built on top of Ollama and llama.cpp, and exposes a full agent loop with p
 | GOBLIN MIND | Runtime tool-call compatibility prober — behavioral format fingerprinting, category boundary mapping, schema reduction middleware |
 | Hardware-aware routing | Reads your GPU, VRAM, and run history to recommend the right model per swarm role |
 
-TheOrc is free, open source (MIT), and Windows-first. A cross-platform Docker + Blazor port is on the roadmap.
+TheOrc is free, open source (AGPL-3.0), and Windows-first. A cross-platform Docker + Blazor port is on the roadmap.
 
 ---
 
@@ -164,4 +164,4 @@ For hardware loaner or review sample arrangements, open a [GitHub Discussion](ht
 
 ---
 
-*TheOrc is MIT-licensed, free, and not affiliated with any GPU vendor. All benchmark data is collected independently on unmodified retail hardware.*
+*TheOrc is AGPL-3.0-licensed, free, and not affiliated with any GPU vendor. All benchmark data is collected independently on unmodified retail hardware.*

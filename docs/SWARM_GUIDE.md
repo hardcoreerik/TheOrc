@@ -1,155 +1,153 @@
 # TheOrc — Swarm Guide
 
-> This guide explains how the current boss-plus-workers swarm actually behaves in code. Read [ARCHITECTURE.md](ARCHITECTURE.md) for the full lifecycle and [GLOSSARY.md](GLOSSARY.md) for role terms.
+Swarm mode is how TheOrc handles bigger, more complex tasks. Instead of one AI doing everything, a "boss" AI breaks your goal into pieces and hands each piece to a specialized worker. The workers run in parallel, each focused on what it's best at.
+
+For terminology, see [GLOSSARY.md](GLOSSARY.md). For the system-level view, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
-## What Swarm Mode Is
+## Why Use Swarm Mode?
 
-Swarm mode uses one boss model to decompose a goal and then routes work into four worker lanes:
+Single mode works well for focused tasks. Swarm mode shines when:
 
-- `RESEARCHER`
-- `CODER`
-- `UIDEVELOPER`
-- `TESTER`
+- A task has multiple parts (research + coding + testing)
+- You want a researcher to gather context before a coder starts writing
+- You want a separate tester to verify changes without also having write access
+- You want parallel progress across lanes instead of one sequential thread
 
-The boss is not a fifth worker. It is the orchestrator.
-
----
-
-## Lane Responsibilities
-
-The current role split is intentionally constrained.
-
-- `RESEARCHER`: investigate, read, fetch, summarize
-- `CODER`: implement code and file changes
-- `UIDEVELOPER`: implement UI and layout changes
-- `TESTER`: verify and report, with no `write_file` access
-
-The code treats the TESTER and RESEARCHER restrictions as real execution constraints, not just suggestions.
+The boss keeps track of the whole goal while workers stay in their lane.
 
 ---
 
-## Session Lifecycle
+## The Four Worker Lanes
 
-`SwarmSession` runs through these phases:
+Each lane has a specific job and specific tool access. This isn't just organization — the code enforces it.
 
-1. boss decomposition
-2. optional dataset capture
-3. researcher phase
-4. implementation phase
-5. auto tester verification
-6. optional fix task
-7. boss merge and staged-file summary
+### RESEARCHER
 
-That lifecycle is why swarm mode can produce both live output and durable run artifacts.
+The RESEARCHER gathers information. It reads files, searches the web, fetches URLs, and summarizes findings. It does not write production files. Use it to investigate before coding starts.
+
+### CODER
+
+The CODER implements changes. It writes and edits files, runs shell commands, and produces the actual code output. It has broad tool access because it needs to get things done.
+
+### UIDEVELOPER
+
+The UIDEVELOPER handles interface work — XAML, layout, styling, and visual components. It has the same broad tool access as the CODER but is prompted to focus on UI concerns.
+
+### TESTER
+
+The TESTER verifies the work. It runs tests, inspects output, and reports whether things pass or fail. It intentionally cannot write files — this prevents it from accidentally "fixing" something it was supposed to be evaluating.
 
 ---
 
-## Swarm Board
+## The Boss
 
-The Swarm Board is the main operator surface for swarm mode.
+The boss is not one of the four workers — it's the coordinator. It reads your goal, decides how to split it up, assigns work to the right lanes, and merges everything at the end. Think of it as the project manager.
 
-It exposes:
+The boss also does a final staged-files summary: it shows you what files were produced by the swarm run before anything is committed to your workspace.
 
-- boss, coder, and researcher model selection
-- capability badges under each picker
-- a `Probe Now` shortcut into the tool-call probe window
-- lane streams and activity columns
-- launch gating
-- metrics history for past configurations
+---
 
-The board is doing real operations work, not just presentation.
+## What Happens in a Swarm Run — Step by Step
+
+1. **You describe your goal** in the swarm input.
+2. **The boss decomposes the goal** — it figures out what needs to happen and in what order.
+3. **The capture system records the plan** — if the plan is high quality, it's staged as a training example for the Training Pit.
+4. **The researcher runs first** — it gathers context, reads relevant files, and summarizes findings.
+5. **A quality check filters weak research** — if the researcher came back with nothing useful, that result is filtered out so it doesn't confuse the next step.
+6. **The coder and UI developer implement** — they use the researcher's findings to write and edit files.
+7. **The tester verifies** — it checks whether the changes work.
+8. **If the tester finds issues**, an optional fix task runs to address them.
+9. **The boss merges and summarizes** — it produces a staged-files summary you can review before anything lands in your workspace.
+
+---
+
+## The Swarm Board
+
+The Swarm Board is the main screen in Swarm mode. Here you can:
+
+- Pick models for the boss, coder, and researcher roles
+- See capability badges under each picker showing what that model can and can't do
+- Click **Probe Now** to test a model's tool-call ability before starting
+- Watch live streams from each lane as the run progresses
+- Read per-lane activity columns alongside the streams
+- Review metrics history from past runs
+
+The Launch button only activates when you have a valid workspace and all required model slots are filled.
 
 ---
 
 ## Capability Badges
 
-The capability badges come from `ToolCallProfileStore` and summarize:
+Under each model picker, a capability badge summarizes what TheOrc has learned about that model through probing. It shows:
 
-- recommended dispatch mode
-- preferred tool-call format
-- category pass summary
-- whether schema reduction is active
-- probe age and staleness
+- The recommended dispatch mode (how to send tool calls to this model)
+- The preferred tool-call format
+- Which task categories it passed
+- Whether schema simplification is active for it
+- How old the probe data is (stale probes are flagged)
 
-If a model has never been probed, the board says so explicitly.
-
----
-
-## Capability-Aware Steering
-
-Swarm routing is not purely role-name based.
-
-`SwarmSteering` uses category maps to decide whether a role's primary model is capable enough. When a primary is missing required categories, the swarm can fall back and log the exact missing categories.
-
-Required categories differ by role:
-
-- boss: structured output and task planning
-- coder and UI: file ops and code execution
-- researcher: network and data transform
-- tester: code execution and system inspection
+If a model has never been probed, the badge says so. Click **Probe Now** to run a fresh probe.
 
 ---
 
-## Researcher Quality Gate
+## The Routing System
 
-Swarm mode does not blindly inject any researcher output into implementation prompts.
+The routing system (called SwarmSteering internally) is how TheOrc decides whether a model is actually suited for a role. It doesn't just accept whatever you picked.
 
-Ghost or weak researcher output is filtered out based on basic quality checks so that empty, trivial, or refusal-style research does not poison the coder phase.
+Each role has required capabilities:
+
+- **Boss** — needs structured output and task planning
+- **Coder / UI Developer** — need file operations and code execution
+- **Researcher** — needs network access and data transformation
+- **Tester** — needs code execution and system inspection
+
+If a model is missing required capabilities for a role, it's flagged before the run starts — and the swarm can fall back to a safer choice with a logged explanation.
 
 ---
 
-## Co-Work And Follow-Ups
+## Talking to Workers During a Run
 
-Workers are not sealed black boxes once launched.
+Workers aren't sealed off once they start. You can interact with a running swarm:
 
-The current swarm supports:
+- If a worker calls `ask_user`, it pauses and waits for your reply
+- You can send steering input to a worker while it's still running
+- After a worker finishes, you can send a follow-up message to continue that conversation using its saved history
 
-- waiting for user replies through `ask_user`
-- queued steering while a worker is still in progress
-- follow-up continuation on a completed worker using saved conversation history
-
-This is why the board includes live lane input rather than only a global prompt box.
+This is why the Swarm Board has per-lane input boxes, not just a single global prompt.
 
 ---
 
 ## Metrics History
 
-The metrics history panel is backed by `SwarmMetricsStore`.
+After enough runs, the Swarm Board's metrics history panel becomes useful. It groups past runs by the boss/coder/researcher model combination you used and shows:
 
-It groups past runs by boss/coder/researcher configuration and shows:
+- How many runs you've done with that combination
+- The success rate
+- The tester pass rate
+- Average run time
+- A composite quality score
 
-- run count
-- success rate
-- tester pass rate
-- average duration
-- composite quality score
-
-This lets the swarm learn operationally which model mixes work best on your hardware.
+Over time, this tells you which model mixes work best on your hardware.
 
 ---
 
-## VRAM And Model Choice
+## Swarm Output Files
 
-`SwarmConfigAdvisor` uses detected GPU state and installed models to recommend role assignments. It prefers:
+Swarm runs save their artifacts under `.orc/swarm/runs/<runId>/` inside your workspace:
 
-- observed best configurations when enough history exists
-- otherwise, the strongest profile-based combination that fits available VRAM
+- A plan JSON file
+- Trace and task files
+- Staged output files
+- The boss's final staged-files summary
 
-This is one reason the swarm UI separates boss, coder, and researcher selection instead of assuming one model should do everything.
+The staged-files summary is designed for review — the swarm can produce output without forcing it directly into your workspace. You decide what to keep.
 
 ---
 
-## Outputs And Review
+## Where to Go Next
 
-Swarm runs write artifacts under `.orc/swarm/runs/<runId>/`.
-
-The final operator-relevant pieces are:
-
-- plan JSON
-- traces and task files
-- staged output files
-- staged-files summary in the boss stream
-
-The staged-files event is intentionally review-oriented: the swarm can produce output without silently forcing it into the workspace.
+- [TRAINING_PIT_GUIDE.md](TRAINING_PIT_GUIDE.md) — how swarm run captures become training data
+- [MODEL_WIKI_AND_LAB.md](MODEL_WIKI_AND_LAB.md) — how to evaluate and compare models for swarm roles
+- [HIVE_MIND_SPEC.md](HIVE_MIND_SPEC.md) — how to run swarm workers across multiple PCs

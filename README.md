@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/platform-Windows-0B6DFF?style=for-the-badge&logo=windows)](https://github.com/hardcoreerik/TheOrc/releases)
 [![.NET](https://img.shields.io/badge/.NET-10.0-6B38FB?style=for-the-badge&logo=dotnet)](https://dotnet.microsoft.com/download/dotnet/10.0)
 [![Local](https://img.shields.io/badge/100%25-local-21C55D?style=for-the-badge)](#quick-start)
-[![License](https://img.shields.io/badge/license-MIT-39FF6A?style=for-the-badge)](LICENSE)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-39FF6A?style=for-the-badge)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/hardcoreerik/TheOrc?style=for-the-badge&color=13E9B4)](https://github.com/hardcoreerik/TheOrc/releases)
 
 **You already use AI to write code. TheOrc is what happens when you let it run.**
@@ -201,6 +201,18 @@ ollama pull qwen2.5-coder:14b       # coder workers — great speed/quality bala
 ![Build Complete](Assets/release.png)
 
 </div>
+
+---
+
+## License
+
+TheOrc is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)** — see [LICENSE](LICENSE).
+
+In plain terms: you are free to use, study, modify, and share TheOrc. If you run a **modified** version as a network service, AGPL requires you to make your changes available to the people using it. Running it locally for yourself or your team imposes no such obligation.
+
+**Need different terms?** If AGPL doesn't fit your situation — for example, you want to build a closed-source product on top of TheOrc, or embed it in a commercial offering without the copyleft obligations — a **commercial license** is available. See [LICENSING.md](LICENSING.md).
+
+Contributions are welcome under the [Contributor License Agreement](CLA.md), which keeps the dual-license model possible.
 
 ---
 
