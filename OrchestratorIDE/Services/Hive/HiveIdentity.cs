@@ -183,14 +183,14 @@ public sealed class HiveIdentity : IDisposable
     private static void DpapiSave(string path, string json)
     {
         var plain     = Encoding.UTF8.GetBytes(json);
-        var encrypted = ProtectedData.Protect(plain, null, DataProtectionScope.CurrentUser);
+        var encrypted = SecretProtection.Current.Protect(plain);
         File.WriteAllBytes(path, encrypted);
     }
 
     private static string DpapiLoad(string path)
     {
         var encrypted = File.ReadAllBytes(path);
-        var plain     = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
+        var plain     = SecretProtection.Current.Unprotect(encrypted);
         return Encoding.UTF8.GetString(plain);
     }
 

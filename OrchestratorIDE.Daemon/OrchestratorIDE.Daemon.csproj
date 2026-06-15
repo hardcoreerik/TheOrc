@@ -1,0 +1,81 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!--
+      net10.0 (no -windows suffix) — this project is intentionally cross-platform.
+      On Windows: secrets via AesGcmSecretProtector (same as Linux/macOS).
+      On Windows, users who want DPAPI-native secret storage should run the WPF app instead.
+    -->
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>OrchestratorIDE</RootNamespace>
+    <AssemblyName>theorc-daemon</AssemblyName>
+    <Version>1.6.2</Version>
+    <AssemblyVersion>1.6.2.0</AssemblyVersion>
+    <FileVersion>1.6.2.0</FileVersion>
+    <Description>TheOrc HIVE daemon — headless Warchief + worker node for Linux, macOS, and Windows.</Description>
+  </PropertyGroup>
+
+  <!-- Match global usings in main project so shared source compiles cleanly. -->
+  <ItemGroup>
+    <Using Include="System.IO" />
+    <Using Include="System.Collections.Generic" />
+    <Using Include="System.Linq" />
+    <Using Include="System.Threading" />
+    <Using Include="System.Threading.Tasks" />
+  </ItemGroup>
+
+  <!--
+    Shared source: HIVE services, Data layer, and minimal Core pulled in directly
+    from the main project (same technique as OrchestratorIDE.UnitTests).
+    Only files with zero WPF/Windows-only dependencies are listed here.
+  -->
+  <ItemGroup>
+    <!-- HIVE: core identity + auth -->
+    <Compile Include="..\OrchestratorIDE\Services\Hive\ISecretProtector.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\SecretProtection.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveAuthMiddleware.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveIdentity.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HivePeerStore.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveHosts.cs" />
+    <!-- HIVE: swarm infrastructure -->
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveTaskBundle.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveEventBus.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveTaskQueue.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveNodeServer.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveElectionService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveMeshHeartbeat.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveRpcWorker.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveBeacon.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\TailscalePeers.cs" />
+    <!-- HIVE: worker execution (polls Warchief queue + calls local Ollama) -->
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveWorkerAgent.cs" />
+    <!-- Data: durable task + event history (SQLite) -->
+    <Compile Include="..\OrchestratorIDE\Services\Data\DataRecords.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Data\RepositoryBase.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Data\Migrations.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Data\HiveRepository.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Data\SqliteStore.cs" />
+    <!-- Trust level (needed by AppSettings) -->
+    <Compile Include="..\OrchestratorIDE\Trust\TrustLevel.cs" />
+    <!-- Core utilities -->
+    <Compile Include="..\OrchestratorIDE\Core\AppSettings.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\UpdateChecker.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\OllamaClient.cs" />
+    <!-- Self-updater (best-effort; Linux/macOS: .exe check will just fail gracefully) -->
+    <Compile Include="..\OrchestratorIDE\Services\SelfUpdater.cs" />
+    <!-- Models -->
+    <Compile Include="..\OrchestratorIDE\Models\AgentMessage.cs" />
+    <Compile Include="..\OrchestratorIDE\Models\ToolCall.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite"             Version="10.0.0"  />
+    <PackageReference Include="System.Text.Json"                  Version="10.0.8"  />
+    <PackageReference Include="Microsoft.Extensions.Hosting"      Version="9.0.0"   />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.0" />
+  </ItemGroup>
+
+</Project>

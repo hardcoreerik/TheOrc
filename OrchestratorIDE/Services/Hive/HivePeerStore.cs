@@ -1,6 +1,5 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
-using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -139,7 +138,7 @@ public sealed class HivePeerStore
         try
         {
             var enc = Convert.FromBase64String(peer.SharedSecretEnc);
-            return ProtectedData.Unprotect(enc, null, DataProtectionScope.CurrentUser);
+            return SecretProtection.Current.Unprotect(enc);
         }
         catch { return null; }
     }
@@ -159,7 +158,7 @@ public sealed class HivePeerStore
             try
             {
                 var enc    = Convert.FromBase64String(peer.SharedSecretEnc);
-                var secret = ProtectedData.Unprotect(enc, null, DataProtectionScope.CurrentUser);
+                var secret = SecretProtection.Current.Unprotect(enc);
                 return (true, secret);
             }
             catch { return (false, null); }
@@ -194,7 +193,7 @@ public sealed class HivePeerStore
         {
             var peer = _peers.FirstOrDefault(p => p.NodeId == nodeId);
             if (peer is null) return;
-            var enc = ProtectedData.Protect(secret, null, DataProtectionScope.CurrentUser);
+            var enc = SecretProtection.Current.Protect(secret);
             peer.SharedSecretEnc = Convert.ToBase64String(enc);
             if (_persistToDisk) SaveToDisk(_peers);
         }

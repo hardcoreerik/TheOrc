@@ -49,8 +49,15 @@ public sealed class HiveNodeServer : IDisposable
     private readonly HivePeerStore          _peers    = HivePeerStore.Default;
 
     // Injected by the app after construction
-    public HiveMeshHeartbeat?  MeshHeartbeat  { get; set; }
-    public HiveElectionService? ElectionService { get; set; }
+    public HiveMeshHeartbeat?   MeshHeartbeat    { get; set; }
+    public HiveElectionService? ElectionService  { get; set; }
+    /// <summary>
+    /// Called on the calling thread after a successful remote /hive/update/deploy.
+    /// WPF: <c>() =&gt; Dispatcher.InvokeAsync(() =&gt; Application.Current.Shutdown())</c>.
+    /// Daemon: <c>() =&gt; Environment.Exit(0)</c>.
+    /// Null = no action after relaunch is prepared (safe default).
+    /// </summary>
+    public Action? ShutdownCallback { get; set; }
 
     // Pending pairing sessions: sessionId → (request, expiry, initiator-remote-ip)
     private readonly Dictionary<string, (HivePairingRequest Req, DateTime Expiry, string RemoteIp)> _pendingPairings = [];
@@ -336,7 +343,8 @@ public sealed class HiveNodeServer : IDisposable
                 }
 
                 Ok(resp, JsonSerializer.Serialize(new { status = "update_started" }, _jsonOut));
-                _ = Task.Run(async () => await TriggerSelfUpdateAsync());
+                var shutdown = ShutdownCallback;
+                _ = Task.Run(async () => await TriggerSelfUpdateAsync(shutdown));
                 return;
             }
 
@@ -601,7 +609,7 @@ public sealed class HiveNodeServer : IDisposable
 
     // ── /hive/update/deploy — background self-update ─────────────────────────
 
-    private static async Task TriggerSelfUpdateAsync()
+    private static async Task TriggerSelfUpdateAsync(Action? shutdownCallback)
     {
         try
         {
@@ -636,8 +644,7 @@ public sealed class HiveNodeServer : IDisposable
             if (!System.IO.File.Exists(exePath)) return;
 
             updater.PrepareRelaunch(exePath);
-            await System.Windows.Application.Current.Dispatcher.InvokeAsync(
-                () => System.Windows.Application.Current.Shutdown());
+            shutdownCallback?.Invoke();
         }
         catch { /* non-fatal — remote update is best-effort */ }
     }

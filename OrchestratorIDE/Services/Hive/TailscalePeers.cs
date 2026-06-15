@@ -25,17 +25,26 @@ public static class TailscalePeers
     {
         get
         {
-            var candidates = new[]
+            // Check well-known install paths on each platform so callers on any OS
+            // get a stable absolute path without requiring tailscale to be on PATH.
+            var candidates = new List<string>
             {
-                "tailscale",
+                // Windows (Program Files)
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                     "Tailscale", "tailscale.exe"),
+                // Linux — apt/deb and manual install
+                "/usr/bin/tailscale",
+                "/usr/local/bin/tailscale",
+                // macOS — App Store helper binary and Homebrew
+                "/Applications/Tailscale.app/Contents/MacOS/tailscale",
+                "/opt/homebrew/bin/tailscale",
+                "/usr/local/bin/tailscale",  // Intel Homebrew / custom
             };
             foreach (var c in candidates)
             {
                 if (File.Exists(c)) return c;
             }
-            // bare "tailscale" — let Process resolve via PATH; verified by Discover()
+            // Final fallback: bare name resolved by PATH at process start.
             return "tailscale";
         }
     }

@@ -74,6 +74,9 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        // Initialise platform secret protector before any HIVE service accesses secrets.
+        Services.Hive.SecretProtection.Initialize(new Services.Hive.DpapiSecretProtector());
+
         // Boot services — configure inference client from saved settings
         _ollama    = new OllamaClient(_settings.InferenceBaseUrl, _settings.Backend);
         _llamaServer = BuildServerManager(_settings);
@@ -516,6 +519,8 @@ public partial class MainWindow : Window
                     name, ollamaUrlForPeers, [.. models], vramMb, vramMb, lanes, rpcPort);
 
                 _hiveNodeServer = new Services.Hive.HiveNodeServer();
+                _hiveNodeServer.ShutdownCallback = () =>
+                    Dispatcher.InvokeAsync(() => Application.Current.Shutdown());
                 // Wire pairing-approval event so incoming requests reach the UI.
                 _hiveNodeServer.OnPairingRequestReceived += (sessionId, pairingReq) =>
                     Dispatcher.InvokeAsync(() => _hivePanel.OnPairingRequest(sessionId, pairingReq));
