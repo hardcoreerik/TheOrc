@@ -58,15 +58,22 @@ public partial class UpdatePanel : UserControl
     public async void Refresh()
     {
         BdrFleet.IsVisible = IsWarchief;
-
         SetStatus("checking…", "#888888");
-        var settings = Settings ?? AppSettings.Load();
-        var result   = await UpdateChecker.CheckAsync(settings, force: false);
-
-        ApplyResult(result);
+        try
+        {
+            var settings = Settings ?? AppSettings.Load();
+            var result   = await UpdateChecker.CheckAsync(settings, force: false);
+            ApplyResult(result);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"check failed: {ex.Message}", "#AA4444");
+        }
 
         if (IsWarchief)
-            _ = RefreshFleetAsync();
+            _ = RefreshFleetAsync().ContinueWith(
+                t => Dispatcher.UIThread.InvokeAsync(() => SetStatus($"fleet refresh error: {t.Exception?.GetBaseException().Message}", "#AA4444")),
+                System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted);
     }
 
     // ── Version check ─────────────────────────────────────────────────────────
@@ -75,12 +82,20 @@ public partial class UpdatePanel : UserControl
     {
         BtnCheckNow.IsEnabled = false;
         SetStatus("checking…", "#888888");
-
-        var settings = Settings ?? AppSettings.Load();
-        var result   = await UpdateChecker.CheckAsync(settings, force: true);
-        ApplyResult(result);
-
-        BtnCheckNow.IsEnabled = true;
+        try
+        {
+            var settings = Settings ?? AppSettings.Load();
+            var result   = await UpdateChecker.CheckAsync(settings, force: true);
+            ApplyResult(result);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"check failed: {ex.Message}", "#AA4444");
+        }
+        finally
+        {
+            BtnCheckNow.IsEnabled = true;
+        }
     }
 
     private void ApplyResult(UpdateChecker.UpdateResult? result)
@@ -323,8 +338,8 @@ public partial class UpdatePanel : UserControl
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
             var json = await _http.GetStringAsync(
                 $"http://{host}:{HiveNodeServer.ApiPort}/hive/update/version", cts.Token);
-            var doc  = System.Text.Json.JsonDocument.Parse(json);
-            var ver  = doc.RootElement.GetProperty("version").GetString() ?? "?";
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var ver       = doc.RootElement.GetProperty("version").GetString() ?? "?";
             return "v" + ver;
         }
         catch { return null; }

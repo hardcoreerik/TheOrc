@@ -83,7 +83,7 @@ public partial class ChatPanel : UserControl
 
     private async Task SendAsync()
     {
-        var text = TbInput.Text.Trim();
+        var text = TbInput.Text?.Trim() ?? "";
         if (string.IsNullOrEmpty(text) || _isSending) return;
 
         if (OllamaClient is null) return;

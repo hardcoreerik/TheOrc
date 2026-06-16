@@ -146,8 +146,9 @@ New-Item -ItemType Directory -Force $reviewDir | Out-Null
 $outFile = Join-Path $reviewDir "codex_$(Get-Date -Format yyyyMMdd_HHmmss).md"
 
 $psi = [System.Diagnostics.ProcessStartInfo]::new($exe)
+# '-' tells codex exec to read the prompt from stdin (avoids Windows 32K cmd-line limit)
 foreach ($a in @('exec', '--sandbox', 'read-only', '-C', $root,
-                 '--output-last-message', "$outFile.last", $prompt)) {
+                 '--output-last-message', "$outFile.last", '-')) {
     $psi.ArgumentList.Add($a)
 }
 $psi.RedirectStandardInput  = $true
@@ -156,7 +157,8 @@ $psi.RedirectStandardError  = $true
 $psi.UseShellExecute        = $false
 
 $p = [System.Diagnostics.Process]::Start($psi)
-$p.StandardInput.Close()          # codex waits for stdin EOF without this
+$p.StandardInput.Write($prompt)   # write prompt via stdin (no cmd-line length limit)
+$p.StandardInput.Close()          # EOF tells codex stdin is done
 $stdout = $p.StandardOutput.ReadToEndAsync()
 $stderr = $p.StandardError.ReadToEndAsync()
 

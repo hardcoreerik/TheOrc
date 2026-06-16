@@ -1,0 +1,270 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<UserControl x:Class="OrchestratorIDE.UI.Panels.PitBossPanel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:OrchestratorIDE.UI.Panels"
+             Background="{StaticResource Br.Bg.App}">
+
+    <!--
+    ═══════════════════════════════════════════════════════════════════
+    PIT BOSS PANEL — Phase 3C (Avalonia port)
+    8-question wizard → TrainingPlan → Forge handoff.
+    Left: chat Q&A stream. Right: live plan preview.
+    Phase 3: ControlTemplate.Triggers removed — static styling only.
+    ═══════════════════════════════════════════════════════════════════
+    -->
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- ── Header ─────────────────────────────────────────────── -->
+        <Border Grid.Row="0" Background="#0E120E"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1"
+                Padding="12,0">
+            <DockPanel>
+                <Button x:Name="BtnBack" Content="← Back"
+                        Click="BtnBack_Click"
+                        Padding="10,5" Margin="0,0,10,0"
+                        Background="#1A1A1A" BorderBrush="#333333" Foreground="#999999"
+                        BorderThickness="1" FontSize="11"/>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="🏛" FontSize="16" VerticalAlignment="Center"/>
+                    <TextBlock Text="PIT BOSS" FontSize="13" FontWeight="Bold"
+                               Foreground="#E8A030" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Training Wizard" FontSize="11" Foreground="#999999"
+                               Margin="8,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+                <Button x:Name="BtnViewHistory" Content="📋 History"
+                        Click="BtnViewHistory_Click"
+                        Padding="8,4" Margin="10,0,0,0"
+                        Background="#1A1A2A" BorderBrush="#3A3A5A" Foreground="#8888CC"
+                        BorderThickness="1" FontSize="11"
+                        IsVisible="False"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                            DockPanel.Dock="Right" VerticalAlignment="Center">
+                    <TextBlock x:Name="TbModelLabel" Text="—" FontSize="11"
+                               Foreground="#777777" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <Ellipse x:Name="ModelDot" Width="6" Height="6" VerticalAlignment="Center"
+                             Fill="#3A6A2A"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ── Body ───────────────────────────────────────────────── -->
+        <Grid Grid.Row="1">
+
+            <!-- History landing (shown when saved plans exist) -->
+            <Grid x:Name="HistoryBody" IsVisible="False">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <Border Grid.Row="0" Padding="14,10" Background="#0D0D14"
+                        BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1">
+                    <DockPanel>
+                        <Button x:Name="BtnNewPlan" Content="✨ New Plan"
+                                Click="BtnNewPlan_Click" DockPanel.Dock="Right"
+                                Padding="12,6"
+                                Background="#1F3D00" BorderBrush="#76B900" Foreground="#A8CC80"
+                                BorderThickness="1" FontSize="12"/>
+                        <TextBlock Text="Saved Training Plans" FontSize="13" FontWeight="SemiBold"
+                                   Foreground="{StaticResource Br.Text.White}"
+                                   VerticalAlignment="Center"/>
+                    </DockPanel>
+                </Border>
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="14,10">
+                    <StackPanel x:Name="PlanHistoryList"/>
+                </ScrollViewer>
+            </Grid>
+
+            <!-- Wizard body -->
+            <Grid x:Name="WizardBody">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="1"/>
+                    <ColumnDefinition Width="320"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- ── Left: chat area ────────────────────────────── -->
+                <Grid Grid.Column="0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <ScrollViewer x:Name="ChatScroll" Grid.Row="0"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  Padding="12,8">
+                        <StackPanel x:Name="ChatStack" Margin="0,4,0,10"/>
+                    </ScrollViewer>
+
+                    <!-- Step indicator -->
+                    <Border Grid.Row="1" Padding="12,4"
+                            Background="#0A0E0A"
+                            BorderBrush="{StaticResource Br.Border}" BorderThickness="0,1,0,0">
+                        <DockPanel>
+                            <TextBlock x:Name="TbStepIndicator" Text="Initialising…"
+                                       FontFamily="Consolas" FontSize="10"
+                                       Foreground="#E8A030" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="TbRoundHint" Text=""
+                                       FontSize="10" Foreground="#666666"
+                                       Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Goal suggestion chips -->
+                    <Border x:Name="ChipRow" Grid.Row="2" Padding="12,6"
+                            Background="#0D0D0D"
+                            BorderBrush="{StaticResource Br.Border}" BorderThickness="0,1,0,0">
+                        <WrapPanel x:Name="ChipPanel"/>
+                    </Border>
+
+                    <!-- Input row -->
+                    <DockPanel Grid.Row="3" Margin="12,8">
+                        <Button x:Name="BtnSend" Content="Send  ↵"
+                                Click="BtnSend_Click" DockPanel.Dock="Right"
+                                Padding="14,7" Margin="8,0,0,0"
+                                Background="#1F3D00" BorderBrush="#76B900" Foreground="#76B900"
+                                BorderThickness="1" FontSize="12" FontWeight="SemiBold"
+                                IsEnabled="False"/>
+                        <TextBox x:Name="TbInput"
+                                 AcceptsReturn="False" TextWrapping="NoWrap"
+                                 Background="{StaticResource Br.Bg.Input}"
+                                 BorderBrush="{StaticResource Br.Border}"
+                                 BorderThickness="1" Padding="10,7"
+                                 FontSize="12"
+                                 PlaceholderText="Describe your training goal…"
+                                 KeyDown="TbInput_KeyDown"
+                                 TextChanged="TbInput_TextChanged"/>
+                    </DockPanel>
+                </Grid>
+
+                <!-- Divider -->
+                <Border Grid.Column="1" Background="{StaticResource Br.Border}"/>
+
+                <!-- ── Right: plan preview ────────────────────────── -->
+                <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="14,12">
+                        <TextBlock Text="📋  Training Plan" FontSize="13" FontWeight="Bold"
+                                   Foreground="#E8A030" Margin="0,0,0,10"/>
+
+                        <!-- Plan preview (hidden until synthesized) -->
+                        <StackPanel x:Name="PlanStack" IsVisible="False">
+                            <TextBlock Text="GOAL" FontSize="9" FontWeight="Bold"
+                                       Foreground="#666666" Margin="0,0,0,2"/>
+                            <TextBlock x:Name="PlanGoal" Text="" FontSize="12"
+                                       Foreground="#D4D4D4" TextWrapping="Wrap"
+                                       Margin="0,0,0,10"/>
+
+                            <TextBlock Text="PERSONA" FontSize="9" FontWeight="Bold"
+                                       Foreground="#666666" Margin="0,0,0,2"/>
+                            <TextBlock x:Name="PlanPersona" Text="—" FontSize="11"
+                                       Foreground="#A8A8A8" TextWrapping="Wrap"
+                                       Margin="0,0,0,10"/>
+
+                            <TextBlock Text="TASK MIX" FontSize="9" FontWeight="Bold"
+                                       Foreground="#666666" Margin="0,0,0,4"/>
+                            <ItemsControl x:Name="PlanTaskMix" Margin="0,0,0,10">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="local:TaskMixRow">
+                                        <DockPanel Margin="0,0,0,3">
+                                            <TextBlock Text="{Binding PctText}" FontSize="10"
+                                                       Foreground="#888888" Width="36"
+                                                       DockPanel.Dock="Right" TextAlignment="Right"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Text="{Binding Key}" FontSize="10"
+                                                       Foreground="#AAAAAA" Width="70"
+                                                       DockPanel.Dock="Left" VerticalAlignment="Center"/>
+                                            <Border Background="#1A1A1A" Height="8" CornerRadius="2"
+                                                    Margin="4,0">
+                                                <Border Background="#E8A030" HorizontalAlignment="Left"
+                                                        Width="{Binding BarWidth}" CornerRadius="2"/>
+                                            </Border>
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock Text="DATASET" FontSize="9" FontWeight="Bold"
+                                       Foreground="#666666" Margin="0,0,0,2"/>
+                            <TextBlock x:Name="PlanDataset" Text="—" FontSize="11"
+                                       Foreground="#A8CC80" FontFamily="Consolas"
+                                       TextWrapping="Wrap" Margin="0,0,0,10"/>
+
+                            <TextBlock Text="LANGUAGES" FontSize="9" FontWeight="Bold"
+                                       Foreground="#666666" Margin="0,0,0,2"/>
+                            <TextBlock x:Name="PlanLanguages" Text="—" FontSize="11"
+                                       Foreground="#A8A8A8" TextWrapping="Wrap"
+                                       Margin="0,0,0,10"/>
+
+                            <TextBlock Text="MODEL" FontSize="9" FontWeight="Bold"
+                                       Foreground="#666666" Margin="0,0,0,2"/>
+                            <TextBlock x:Name="PlanModel" Text="—" FontSize="11"
+                                       Foreground="#D4D4D4" FontFamily="Consolas"
+                                       Margin="0,0,0,10"/>
+
+                            <TextBlock Text="ESTIMATE" FontSize="9" FontWeight="Bold"
+                                       Foreground="#666666" Margin="0,0,0,2"/>
+                            <TextBlock x:Name="PlanEstimate" Text="—" FontSize="11"
+                                       Foreground="#999999" Margin="0,0,0,10"/>
+
+                            <Border x:Name="HiveBadge"
+                                    Background="#0A1A2A" BorderBrush="#2A4A6A" BorderThickness="1"
+                                    CornerRadius="4" Padding="8,4" Margin="0,0,0,10"
+                                    IsVisible="False">
+                                <TextBlock Text="⬡ HIVE MIND enabled"
+                                           FontSize="11" Foreground="#6AB0D8"/>
+                            </Border>
+
+                            <TextBlock x:Name="NotesLabel" Text="NOTES" FontSize="9"
+                                       FontWeight="Bold" Foreground="#666666"
+                                       Margin="0,0,0,2" IsVisible="False"/>
+                            <TextBlock x:Name="PlanNotes" Text="" FontSize="11"
+                                       Foreground="#888888" TextWrapping="Wrap"
+                                       Margin="0,0,0,10" IsVisible="False"/>
+                        </StackPanel>
+
+                        <!-- Placeholder when no plan yet -->
+                        <TextBlock x:Name="PlanEmpty"
+                                   Text="Answer the wizard's questions and your training plan will appear here."
+                                   FontSize="11" Foreground="#555555" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+
+        <!-- ── Footer ─────────────────────────────────────────────── -->
+        <Border Grid.Row="2" Background="#0A0E0A"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,1,0,0"
+                Padding="12,8">
+            <DockPanel>
+                <TextBlock x:Name="TbStatus" Text="Loading…"
+                           FontSize="11" Foreground="#666666"
+                           VerticalAlignment="Center"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                            DockPanel.Dock="Right">
+                    <Button x:Name="BtnSavePlan" Content="💾 Save Plan"
+                            Click="BtnSavePlan_Click"
+                            Padding="12,6" Margin="0,0,8,0"
+                            Background="#1A1A2A" BorderBrush="#3A3A5A" Foreground="#8888CC"
+                            BorderThickness="1" FontSize="12"
+                            IsEnabled="False"/>
+                    <Button x:Name="BtnLaunchPlan" Content="🚀 Launch Training"
+                            Click="BtnLaunchPlan_Click"
+                            Padding="14,6"
+                            Background="#3D2A00" BorderBrush="#E8A030" Foreground="#E8C080"
+                            BorderThickness="1" FontSize="12" FontWeight="SemiBold"
+                            IsEnabled="False"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</UserControl>

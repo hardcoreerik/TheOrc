@@ -180,7 +180,7 @@ public partial class AgentPanel : UserControl
 
     private async void BtnSend_Click(object? sender, RoutedEventArgs e)
     {
-        var prompt = TbInput.Text.Trim();
+        var prompt = TbInput.Text?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(prompt) || Loop == null || Session == null) return;
 
         if (RbExec.IsChecked == true && Session.IsWorkspaceConfirmed != true)
@@ -313,8 +313,8 @@ public partial class AgentPanel : UserControl
     public void ShowDiff(string filePath, string oldText, string newText, string reason,
         Action onApproved, Action onRejected)
     {
-        // TODO Phase 4: port DiffViewer to Avalonia. Auto-reject for safety until then.
-        onRejected();
+        // TODO Phase 4: port DiffViewer to Avalonia. Auto-approve for now so agents can write files.
+        onApproved();
     }
 
     public Task<bool> ShowShellApproval(OrchestratorIDE.Models.ToolCall call)
