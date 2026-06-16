@@ -74,27 +74,34 @@ public partial class CheckpointBrowserPanel : UserControl
         if ((sender as Control)?.DataContext is not CheckpointVm vm) return;
         if (string.IsNullOrEmpty(_workspaceRoot)) return;
 
-        var confirmed = ConfirmAsync != null
-            && await ConfirmAsync(
-                $"Restore to checkpoint:\n{vm.ShortMessage}\n\n" +
-                "This will HARD RESET the workspace to this commit.\n" +
-                "All uncommitted changes and any later commits will be lost.\n\nContinue?",
-                "Restore Checkpoint");
-
-        if (!confirmed) return;
-
-        TbStatus.Text = $"Restoring to {vm.ShortSha}…";
-        var ok = await _git.RollbackAsync(_workspaceRoot, vm.Sha);
-
-        if (ok)
+        try
         {
-            TbStatus.Text = $"✓ Restored to {vm.ShortSha}";
-            CheckpointRestored?.Invoke(vm.Sha);
-            _ = LoadAsync();
+            var confirmed = ConfirmAsync != null
+                && await ConfirmAsync(
+                    $"Restore to checkpoint:\n{vm.ShortMessage}\n\n" +
+                    "This will HARD RESET the workspace to this commit.\n" +
+                    "All uncommitted changes and any later commits will be lost.\n\nContinue?",
+                    "Restore Checkpoint");
+
+            if (!confirmed) return;
+
+            TbStatus.Text = $"Restoring to {vm.ShortSha}…";
+            var ok = await _git.RollbackAsync(_workspaceRoot, vm.Sha);
+
+            if (ok)
+            {
+                TbStatus.Text = $"✓ Restored to {vm.ShortSha}";
+                CheckpointRestored?.Invoke(vm.Sha);
+                _ = LoadAsync();
+            }
+            else
+            {
+                TbStatus.Text = "✗ Restore failed — check the activity log.";
+            }
         }
-        else
+        catch (Exception ex)
         {
-            TbStatus.Text = "✗ Restore failed — check the activity log.";
+            TbStatus.Text = $"✗ Restore error: {ex.Message}";
         }
     }
 }

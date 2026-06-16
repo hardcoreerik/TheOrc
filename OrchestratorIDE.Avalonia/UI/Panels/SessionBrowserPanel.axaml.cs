@@ -58,30 +58,36 @@ public partial class SessionBrowserPanel : UserControl
         if (e.InitialPressMouseButton != MouseButton.Left) return;
         if ((sender as Control)?.DataContext is not SessionVm vm) return;
 
-        TbStatus.Text  = "Loading session…";
-        var session    = await _store.LoadAsync(vm.Id);
-        if (session == null)
+        TbStatus.Text = "Loading session…";
+        try
         {
-            TbStatus.Text = "Could not load session.";
-            return;
+            var session = await _store.LoadAsync(vm.Id);
+            if (session == null)
+            {
+                TbStatus.Text = "Could not load session.";
+                return;
+            }
+            SessionSelected?.Invoke(session);
         }
-
-        SessionSelected?.Invoke(session);
+        catch (Exception ex)
+        {
+            TbStatus.Text = $"Could not load session: {ex.Message}";
+        }
     }
 
     private async void BtnDeleteSession_Click(object? sender, RoutedEventArgs e)
     {
         if ((sender as Control)?.DataContext is not SessionVm vm) return;
 
-        var confirmed = ConfirmAsync != null
-            && await ConfirmAsync(
-                $"Delete session for:\n{vm.WorkspaceName}\n\nThis cannot be undone.",
-                "Delete Session");
-
-        if (!confirmed) return;
-
         try
         {
+            var confirmed = ConfirmAsync != null
+                && await ConfirmAsync(
+                    $"Delete session for:\n{vm.WorkspaceName}\n\nThis cannot be undone.",
+                    "Delete Session");
+
+            if (!confirmed) return;
+
             var path = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "OrchestratorIDE", "sessions", $"{vm.Id}.json");

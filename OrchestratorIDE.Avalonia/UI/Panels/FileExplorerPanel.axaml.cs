@@ -72,6 +72,7 @@ public partial class FileExplorerPanel : UserControl
     public static void RevealInExplorer(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) return;
+#if WINDOWS
         try
         {
             if (File.Exists(path))
@@ -80,6 +81,7 @@ public partial class FileExplorerPanel : UserControl
                 System.Diagnostics.Process.Start("explorer.exe", $"\"{path}\"");
         }
         catch { /* non-fatal */ }
+#endif
     }
 
     private static FileNode? BuildNode(string path, bool isRoot = false, int depth = 0)

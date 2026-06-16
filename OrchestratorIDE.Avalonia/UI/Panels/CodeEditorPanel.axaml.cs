@@ -253,7 +253,7 @@ public partial class CodeEditorPanel : UserControl
         HideDropZones();
         if (!e.DataTransfer.Contains(TabFormat)) return;
         var path = e.DataTransfer.TryGetValue(TabFormat) ?? "";
-        OpenInPane(2, path);
+        OpenInPane(1, path);
         e.Handled = true;
     }
 
