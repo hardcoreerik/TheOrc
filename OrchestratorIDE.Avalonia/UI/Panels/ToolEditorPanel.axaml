@@ -1,0 +1,203 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<UserControl x:Class="OrchestratorIDE.UI.Panels.ToolEditorPanel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:avEdit="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
+             xmlns:local="clr-namespace:OrchestratorIDE.UI.Panels"
+             Background="{StaticResource Br.Bg.App}">
+
+    <!--
+    ═══════════════════════════════════════════════════════════════════════
+    TOOL EDITOR PANEL — Phase 7 Layer 3 (Avalonia port)
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  [🔧 New] [▶ Compile] [⚡ Load] [💾 Save]   Tool: [__________]   │  ← toolbar
+    │  Status: ✓ Compiled OK · 0 errors                                  │  ← status
+    ├─────────────────────────────────────────────────────────────────────┤
+    │                                                                     │
+    │   AvaloniaEdit  (C#, editable, line numbers)                        │
+    │                                                                     │
+    ├─────────────────────────────────────────────────────────────────────┤
+    │  Error / warning list  (click row → jump to line in editor)        │
+    └─────────────────────────────────────────────────────────────────────┘
+    ═══════════════════════════════════════════════════════════════════════
+    -->
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="32"/>
+            <RowDefinition Height="24"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="4"/>
+            <RowDefinition Height="120" MinHeight="60"/>
+        </Grid.RowDefinitions>
+
+        <!-- ══ Toolbar ══════════════════════════════════════════════════════ -->
+        <Border Grid.Row="0" Background="#141814"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1">
+            <DockPanel Margin="6,0">
+
+                <!-- Right: tool name label + input -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                            VerticalAlignment="Center" Margin="8,0,4,0">
+                    <TextBlock Text="Tool:" Foreground="{StaticResource Br.Text.Muted}"
+                               FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBox x:Name="TbToolName"
+                             Width="140" Height="22"
+                             Background="{StaticResource Br.Bg.Input}"
+                             Foreground="{StaticResource Br.Text.Primary}"
+                             BorderBrush="{StaticResource Br.Border}"
+                             BorderThickness="1"
+                             Padding="4,2"
+                             FontFamily="Consolas, 'Cascadia Code', monospace"
+                             FontSize="11"
+                             VerticalContentAlignment="Center"
+                             ToolTip.Tip="Tool identifier — lowercase_with_underscores"
+                             AutomationProperties.AutomationId="ToolEditor.ToolName"
+                             Text="my_tool"/>
+                </StackPanel>
+
+                <!-- Left: action buttons -->
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="BtnNew" Content="🔧 New"
+                            Padding="10,4" Margin="0,0,6,0"
+                            Background="#2A2A2A" Foreground="#AAAAAA"
+                            BorderBrush="#444" BorderThickness="1"
+                            FontSize="11" Cursor="Hand"
+                            ToolTip.Tip="Insert a fresh tool scaffold into the editor"
+                            AutomationProperties.AutomationId="ToolEditor.New"
+                            Click="BtnNew_Click"/>
+
+                    <Button x:Name="BtnCompile" Content="▶ Compile"
+                            Padding="10,4" Margin="0,0,6,0"
+                            Background="#1A3A1A" Foreground="#6DB36D"
+                            BorderBrush="#3A6A3A" BorderThickness="1"
+                            FontSize="11" Cursor="Hand"
+                            ToolTip.Tip="Compile the current source (no load yet)"
+                            AutomationProperties.AutomationId="ToolEditor.Compile"
+                            Click="BtnCompile_Click"/>
+
+                    <Button x:Name="BtnLoad" Content="⚡ Load"
+                            Padding="10,4" Margin="0,0,6,0"
+                            Background="#1A2A3A" Foreground="#569CD6"
+                            BorderBrush="#2A4A6A" BorderThickness="1"
+                            FontSize="11" Cursor="Hand"
+                            ToolTip.Tip="Compile + hot-load into the live agent session"
+                            AutomationProperties.AutomationId="ToolEditor.Load"
+                            Click="BtnLoad_Click"/>
+
+                    <Button x:Name="BtnSave" Content="💾 Save"
+                            Padding="10,4"
+                            Background="#2A2A1A" Foreground="#CCA700"
+                            BorderBrush="#4A4A2A" BorderThickness="1"
+                            FontSize="11" Cursor="Hand"
+                            ToolTip.Tip="Save to workspace/.orc/tools/ (reloads on next workspace open)"
+                            AutomationProperties.AutomationId="ToolEditor.Save"
+                            Click="BtnSave_Click"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ══ Status bar ════════════════════════════════════════════════════ -->
+        <Border Grid.Row="1" Background="#1E1E1E"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1">
+            <DockPanel Margin="10,0">
+                <TextBlock x:Name="TbLoadedTools" DockPanel.Dock="Right"
+                           Text=""
+                           Foreground="#4EC9B0"
+                           FontSize="11" VerticalAlignment="Center"
+                           Margin="0,0,4,0"/>
+                <TextBlock x:Name="TbStatus"
+                           Text="Ready — hit ▶ Compile or ⚡ Load to get started"
+                           Foreground="{StaticResource Br.Text.Muted}"
+                           FontSize="11" VerticalAlignment="Center"
+                           AutomationProperties.AutomationId="ToolEditor.Status"/>
+            </DockPanel>
+        </Border>
+
+        <!-- ══ Code editor ════════════════════════════════════════════════════ -->
+        <avEdit:TextEditor x:Name="CodeEditor"
+                           Grid.Row="2"
+                           FontFamily="Cascadia Code, Consolas, Courier New"
+                           FontSize="13"
+                           ShowLineNumbers="True"
+                           IsReadOnly="False"
+                           WordWrap="False"
+                           Background="#1E1E1E"
+                           Foreground="#D4D4D4"
+                           LineNumbersForeground="#858585"
+                           BorderThickness="0"
+                           AutomationProperties.AutomationId="ToolEditor.Editor"/>
+
+        <!-- ══ Splitter ══════════════════════════════════════════════════════ -->
+        <GridSplitter Grid.Row="3" Height="4" HorizontalAlignment="Stretch"
+                      Background="{StaticResource Br.Border}"
+                      Cursor="SizeNorthSouth"/>
+
+        <!-- ══ Error / diagnostic list ═══════════════════════════════════════ -->
+        <Border Grid.Row="4" Background="#1A1A1A"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="20"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Header -->
+                <Border Grid.Row="0" Background="#141814"
+                        BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1">
+                    <TextBlock Text="DIAGNOSTICS"
+                               Foreground="{StaticResource Br.Text.Muted}"
+                               FontSize="10" FontWeight="Bold"
+                               VerticalAlignment="Center" Margin="8,0"/>
+                </Border>
+
+                <!-- Diagnostic rows -->
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <ItemsControl x:Name="DiagList" Padding="2"
+                                  AutomationProperties.AutomationId="ToolEditor.DiagList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="local:DiagViewModel">
+                                <Border Margin="0,1" Padding="6,3" CornerRadius="2"
+                                        Background="{Binding RowBackground}"
+                                        Cursor="Hand"
+                                        PointerReleased="DiagRow_Click">
+                                    <Grid ColumnDefinitions="18,56,96,*">
+                                        <TextBlock Grid.Column="0"
+                                                   Text="{Binding SeverityIcon}"
+                                                   Foreground="{Binding SeverityColor}"
+                                                   FontSize="11" FontWeight="Bold"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding Code}"
+                                                   Foreground="#888888"
+                                                   FontFamily="Consolas, monospace"
+                                                   FontSize="10" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2"
+                                                   Text="{Binding Location}"
+                                                   Foreground="{StaticResource Br.Text.Muted}"
+                                                   FontSize="10" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="3"
+                                                   Text="{Binding Message}"
+                                                   Foreground="{StaticResource Br.Text.Primary}"
+                                                   FontSize="11" VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding Message}"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <!-- Empty state -->
+                <TextBlock x:Name="TbNoDiags" Grid.Row="1"
+                           Text="No diagnostics"
+                           Foreground="{StaticResource Br.Text.Muted}"
+                           FontSize="11"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
+    </Grid>
+</UserControl>

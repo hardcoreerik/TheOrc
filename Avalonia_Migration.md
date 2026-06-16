@@ -14,7 +14,7 @@ Cross-platform UI migration: WPF (`net10.0-windows`) → Avalonia 12 (`net10.0`)
 |-------|------|--------|
 | 0 | Scaffold — blank Avalonia window | ✅ Done |
 | 1 | Service layer decoupling | ✅ Done |
-| 2 | Code editor (AvalonEditB → AvaloniaEdit) | ⬜ Not started |
+| 2 | Code editor (AvalonEditB → AvaloniaEdit) | ✅ Done |
 | 3A | Panels — batch A (simple) | ⬜ Not started |
 | 3B | Panels — batch B (medium) | ⬜ Not started |
 | 3C | Panels — batch C (complex) | ⬜ Not started |
@@ -117,8 +117,8 @@ The Avalonia project defines `WINDOWS` on Windows (for DPAPI/SharpAvi), but does
 | `AvalonEditB 1.2.0` (WPF-only) | `Avalonia.AvaloniaEdit 12.0.0` (same authors, official port) |
 
 **Files:**
-- [ ] `UI/Panels/CodeEditorPanel.axaml` + `.axaml.cs` — migrate XAML namespace, swap `TextEditor` control
-- [ ] `UI/Panels/ToolEditorPanel.axaml` + `.axaml.cs` — same
+- [x] `UI/Panels/CodeEditorPanel.axaml` + `.axaml.cs` — migrate XAML namespace, swap `TextEditor` control
+- [x] `UI/Panels/ToolEditorPanel.axaml` + `.axaml.cs` — same
 
 **Key API differences (AvalonEditB → AvaloniaEdit):**
 
@@ -129,7 +129,20 @@ The Avalonia project defines `WINDOWS` on Windows (for DPAPI/SharpAvi), but does
 | `TextArea.Caret.Line` | Same |
 | Code folding strategy | `FoldingManager.Install(editor.TextArea)` — same API |
 
-**Gate:** File loads in editor, syntax highlighting renders, Roslyn diagnostics in ToolEditorPanel intact
+**Avalonia 12 DragDrop API changes (key learning for Phase 3):**
+
+| WPF / Avalonia 11 | Avalonia 12 |
+|-------------------|-------------|
+| `new DataObject()` + `data.Set(key, val)` | `DataFormat.CreateInProcessFormat<T>(name)` + `DataTransferItem.Create(fmt, val)` + `new DataTransfer().Add(item)` |
+| `DragDrop.DoDragDrop(sender, data, effects)` | `DragDrop.DoDragDropAsync(PointerPressedEventArgs, IDataTransfer, effects)` — first arg MUST be the press args, not move args |
+| `DragEventArgs.Data.Contains("key")` | `DragEventArgs.DataTransfer.Contains(DataFormat<T>)` |
+| `DragEventArgs.Data.Get("key")` | `DragEventArgs.DataTransfer.TryGetValue(DataFormat<T>)` |
+| `x:Name` on `ColumnDefinition` → code-behind field | Not generated — access via `parentGrid.ColumnDefinitions[i]` |
+| `<DataTemplate>` without type hint | `<DataTemplate x:DataType="local:MyClass">` required for AVLN2000 |
+| `ControlTemplate.Triggers` | `ControlTheme` with `<Style Selector="^:pointerover ...">` |
+| WPF `Popup` | `Button.Flyout` + `<Flyout>` |
+
+**Gate:** Build clean 0 errors ✅ · 121/121 UnitTests ✅ · 105/105 UITests ✅ · **SHIPPED**
 
 ---
 
