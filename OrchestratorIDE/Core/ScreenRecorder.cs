@@ -1,15 +1,19 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
-using System.IO;
+// Screen recording requires WPF (SharpAvi + WPF RenderTargetBitmap).
+// The Avalonia project includes this file but compiles only the stub (no WPF).
+#if WPF
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using SharpAvi.Codecs;
 using SharpAvi.Output;
+#endif
 
 namespace OrchestratorIDE.Core;
 
+#if WPF
 /// <summary>
 /// Captures the main WPF window at ~10 fps and writes a timestamped .avi
 /// to %APPDATA%\OrchestratorIDE\Recordings\.
@@ -195,3 +199,20 @@ public sealed class ScreenRecorder : IDisposable
         System.Diagnostics.Process.Start("explorer.exe", dir);
     }
 }
+#else
+/// <summary>
+/// Screen recording requires WPF — not available in the Avalonia build.
+/// This stub preserves the public API so cross-platform code compiles unchanged.
+/// </summary>
+public sealed class ScreenRecorder : IDisposable
+{
+    public event Action<string>? OnTick;
+    public event Action<string>? OnStopped;
+    public bool IsRecording => false;
+
+    public void Start(object target) { }
+    public void Stop() { }
+    public void Dispose() { }
+    public static void OpenRecordingsFolder() { }
+}
+#endif

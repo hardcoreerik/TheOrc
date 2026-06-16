@@ -7,12 +7,29 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>OrchestratorIDE</RootNamespace>
     <AssemblyName>OrchestratorIDE.Avalonia</AssemblyName>
-    <!-- Semantic version — kept in sync with WPF project during migration -->
     <Version>1.7.0</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
     <NoWarn>$(NoWarn);NU1510</NoWarn>
   </PropertyGroup>
+
+  <!--
+    Define WINDOWS when building on Windows so that #if WINDOWS guards in shared
+    source files (ScreenRecorder.cs, etc.) select the right platform branch.
+    On net10.0 the TFM does NOT define WINDOWS automatically — we add it here.
+  -->
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
+  </PropertyGroup>
+
+  <!-- Match global usings in WPF project so shared source compiles cleanly. -->
+  <ItemGroup>
+    <Using Include="System.IO" />
+    <Using Include="System.Collections.Generic" />
+    <Using Include="System.Linq" />
+    <Using Include="System.Threading" />
+    <Using Include="System.Threading.Tasks" />
+  </ItemGroup>
 
   <!-- Stamp git SHA into AssemblyInformationalVersion (same as WPF project) -->
   <Target Name="StampGitCommit" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo">
@@ -32,27 +49,174 @@
     <PackageReference Include="Avalonia.Desktop"       Version="12.0.4" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4" />
     <PackageReference Include="Avalonia.Fonts.Inter"   Version="12.0.4" />
-    <!-- Dev tools overlay (F12 in debug builds) -->
-    <PackageReference Include="Avalonia.Diagnostics"   Version="12.0.4"
-                      Condition="'$(Configuration)' == 'Debug'" />
+<PackageReference Include="Avalonia.AvaloniaEdit"  Version="12.0.0" />
 
-    <!-- AvaloniaEdit — official cross-platform port of AvalonEdit (replaces AvalonEditB) -->
-    <PackageReference Include="Avalonia.AvaloniaEdit"  Version="12.0.0" />
+    <!-- Portable libraries shared with WPF project -->
+    <PackageReference Include="DiffPlex"                       Version="1.9.0" />
+    <PackageReference Include="LibGit2Sharp"                   Version="0.31.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp"  Version="4.13.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite"          Version="10.0.0" />
+    <PackageReference Include="System.Text.Json"               Version="10.0.8" />
 
-    <!-- Portable libraries shared with WPF project (no WPF dependency) -->
-    <PackageReference Include="DiffPlex"               Version="1.9.0" />
-    <PackageReference Include="LibGit2Sharp"           Version="0.31.0" />
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.13.0" />
-    <PackageReference Include="Microsoft.Data.Sqlite"  Version="10.0.0" />
-    <PackageReference Include="System.Text.Json"       Version="10.0.8" />
-
-    <!-- Windows-only: DPAPI secret encryption (Linux/macOS use AesGcmSecretProtector) -->
+    <!-- Windows-only packages (build-host conditioned) -->
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0"
                       Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
-
-    <!-- Windows-only: screen recording (Linux/macOS capture is Phase 5) -->
     <PackageReference Include="SharpAvi" Version="2.2.1"
                       Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+  </ItemGroup>
+
+  <!-- ── Embedded resources (same as WPF project) ────────────────────────── -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\OrchestratorIDE\Resources\curated-models.json"
+                      Link="Resources\curated-models.json"/>
+    <EmbeddedResource Include="..\OrchestratorIDE\Resources\model-wiki-observations.json"
+                      Link="Resources\model-wiki-observations.json"/>
+    <EmbeddedResource Include="..\docs\*.md" Link="Resources\docs\%(Filename)%(Extension)"/>
+  </ItemGroup>
+
+  <!--
+    Shared source — all files with zero WPF/Windows-UI dependencies pulled directly
+    from the WPF project. Same technique as OrchestratorIDE.Daemon and UnitTests.
+    AssemblyInfo.cs is excluded (WPF ThemeInfo attribute, not needed in Avalonia).
+    MarkdownFlowDocument.cs deferred to Phase 6 (needs Markdown.Avalonia replacement).
+    DpapiSecretProtector.cs included only on Windows (ProtectedData package conditioned).
+    Panel/dialog/window code-behind files included panel-by-panel in Phases 3–5.
+  -->
+  <ItemGroup>
+    <!-- Agents -->
+    <Compile Include="..\OrchestratorIDE\Agents\SwarmSession.cs" />
+    <Compile Include="..\OrchestratorIDE\Agents\SwarmSteering.cs" />
+    <Compile Include="..\OrchestratorIDE\Agents\SwarmTask.cs" />
+    <Compile Include="..\OrchestratorIDE\Agents\SwarmTraceLogger.cs" />
+
+    <!-- Core -->
+    <Compile Include="..\OrchestratorIDE\Core\AgentFileGenerator.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\AgentLoop.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\AgentPresets.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\AppSettings.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\ContextManager.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\ICustomTool.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\LlamaServerManager.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\ModelProfiles.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\OllamaClient.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\OllamaParallelHelper.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\PentestRules.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\ScreenRecorder.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\TokenCostEstimator.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\ToolCompiler.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\ToolRegistry.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\UpdateChecker.cs" />
+
+    <!-- Models -->
+    <Compile Include="..\OrchestratorIDE\Models\AgentMessage.cs" />
+    <Compile Include="..\OrchestratorIDE\Models\CuratedModelEntry.cs" />
+    <Compile Include="..\OrchestratorIDE\Models\HuggingFaceModels.cs" />
+    <Compile Include="..\OrchestratorIDE\Models\ProjectSession.cs" />
+    <Compile Include="..\OrchestratorIDE\Models\ToolCall.cs" />
+    <Compile Include="..\OrchestratorIDE\Models\TrainingPlan.cs" />
+
+    <!-- Research (MarkdownFlowDocument.cs deferred to Phase 6) -->
+    <Compile Include="..\OrchestratorIDE\Research\ChatEngine.cs" />
+    <Compile Include="..\OrchestratorIDE\Research\FetchPageTool.cs" />
+    <Compile Include="..\OrchestratorIDE\Research\ResearchToolset.cs" />
+    <Compile Include="..\OrchestratorIDE\Research\WebSearchTool.cs" />
+
+    <!-- Services / Data -->
+    <Compile Include="..\OrchestratorIDE\Services\Data\CaptureRepository.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Data\DataRecords.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Data\DatasetRepository.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Data\HiveRepository.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Data\MetadataImporter.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Data\Migrations.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Data\PlanRepository.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Data\RepositoryBase.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Data\RunRepository.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Data\SqliteStore.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Data\TriageRepository.cs" />
+
+    <!-- Services / HIVE (DpapiSecretProtector Windows-only) -->
+    <Compile Include="..\OrchestratorIDE\Services\Hive\ISecretProtector.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\SecretProtection.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveAuthMiddleware.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveIdentity.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HivePeerStore.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveHosts.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveTaskBundle.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveEventBus.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveTaskQueue.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveNodeServer.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveElectionService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveMeshHeartbeat.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveRpcWorker.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveBeacon.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\TailscalePeers.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveWorkerAgent.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveScheduler.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\DpapiSecretProtector.cs"
+             Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+
+    <!-- AES-256-GCM protector + MachineKey from Daemon (Linux/macOS and also Windows) -->
+    <Compile Include="..\OrchestratorIDE.Daemon\AesGcmSecretProtector.cs" />
+    <Compile Include="..\OrchestratorIDE.Daemon\MachineKey.cs" />
+
+    <!-- Services / Models -->
+    <Compile Include="..\OrchestratorIDE\Services\Models\CuratedModelCatalog.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Models\HuggingFaceClient.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Models\ModelCapabilityTestService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Models\ModelDownloadService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Models\ModelSearchService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Models\ModelStatusService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Models\ModelWarmUpService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Models\ModelWikiEntry.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Models\ModelWikiExporter.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Models\ModelWikiService.cs" />
+
+    <!-- Services / other -->
+    <Compile Include="..\OrchestratorIDE\Services\PitBossService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\PlanExecutorService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\SelfUpdater.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\TrainingPitRegistry.cs" />
+
+    <!-- Services / Swarm -->
+    <Compile Include="..\OrchestratorIDE\Services\Swarm\DatasetCapture.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Swarm\EvalRubric.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Swarm\FileOwnershipLedger.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Swarm\OllamaReviewService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Swarm\ReviewGateService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Swarm\SwarmConfigAdvisor.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Swarm\SwarmRunMetrics.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Swarm\WorktreeManager.cs" />
+
+    <!-- Services / ToolCalls -->
+    <Compile Include="..\OrchestratorIDE\Services\ToolCalls\CategoryProbeEngine.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ToolCalls\FitnessMap.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ToolCalls\FormatProbeEngine.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ToolCalls\SchemaEvolution.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ToolCalls\SchemaGenerator.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ToolCalls\SchemaLibrary.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ToolCalls\SchemaSimplifier.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ToolCalls\ToolCallProbeEngine.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ToolCalls\ToolCallProfileStore.cs" />
+
+    <!-- Tests (headless test runner + fake client) -->
+    <Compile Include="..\OrchestratorIDE\Tests\AutoTestRunner.cs" />
+    <Compile Include="..\OrchestratorIDE\Tests\FakeOllamaClient.cs" />
+
+    <!-- Tools -->
+    <Compile Include="..\OrchestratorIDE\Tools\FileTools.cs" />
+    <Compile Include="..\OrchestratorIDE\Tools\SearchTools.cs" />
+    <Compile Include="..\OrchestratorIDE\Tools\ShellTools.cs" />
+    <Compile Include="..\OrchestratorIDE\Tools\TestTools.cs" />
+    <Compile Include="..\OrchestratorIDE\Tools\WebTools.cs" />
+
+    <!-- Trust -->
+    <Compile Include="..\OrchestratorIDE\Trust\ApprovalQueue.cs" />
+    <Compile Include="..\OrchestratorIDE\Trust\GitCheckpoint.cs" />
+    <Compile Include="..\OrchestratorIDE\Trust\PathSandbox.cs" />
+    <Compile Include="..\OrchestratorIDE\Trust\RulesLoader.cs" />
+    <Compile Include="..\OrchestratorIDE\Trust\SessionStore.cs" />
+    <Compile Include="..\OrchestratorIDE\Trust\ToolPolicyEngine.cs" />
+    <Compile Include="..\OrchestratorIDE\Trust\TrustLevel.cs" />
   </ItemGroup>
 
 </Project>

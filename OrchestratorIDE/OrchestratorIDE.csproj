@@ -13,6 +13,9 @@
     <AssemblyVersion>1.6.1.0</AssemblyVersion>
     <FileVersion>1.6.1.0</FileVersion>
     <NoWarn>$(NoWarn);NU1510</NoWarn>
+    <!-- WPF symbol lets shared source files guard WPF-specific code without
+         relying on WINDOWS, which is also defined in the Avalonia project. -->
+    <DefineConstants>$(DefineConstants);WPF</DefineConstants>
   </PropertyGroup>
 
   <!-- Global usings for the whole project -->

@@ -1575,27 +1575,20 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         return reg;
     }
 
-    private static Func<string, string, string, CancellationToken, Task<bool>> MakeSandboxBypassDelegate()
+    /// <summary>
+    /// Platform-specific handler that shows a sandbox-bypass approval dialog to the user.
+    /// Set by the host (WPF MainWindow or Avalonia MainWindow) at startup.
+    /// When null the swarm worker denies all bypass requests silently (safe default).
+    /// </summary>
+    public Func<string, string, string, CancellationToken, Task<bool>>? SandboxBypassRequestHandler { get; set; }
+
+    private Func<string, string, string, CancellationToken, Task<bool>> MakeSandboxBypassDelegate()
     {
-        return async (toolName, escapedPath, sandboxRoot, ct) =>
-        {
-            if (System.Windows.Application.Current is null) return false;
-
-            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            ct.Register(() => tcs.TrySetResult(false));
-
-            _ = System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-            {
-                var dlg = new OrchestratorIDE.UI.Dialogs.SandboxBypassDialog(
-                              toolName, escapedPath, sandboxRoot, "TheOrc Swarm Worker")
-                {
-                    Owner = System.Windows.Application.Current.MainWindow
-                };
-                tcs.TrySetResult(dlg.ShowDialog() == true);
-            });
-
-            return await tcs.Task;
-        };
+        var handler = SandboxBypassRequestHandler;
+        return (toolName, escapedPath, sandboxRoot, ct) =>
+            handler is not null
+                ? handler(toolName, escapedPath, sandboxRoot, ct)
+                : Task.FromResult(false);
     }
 
     /// <summary>

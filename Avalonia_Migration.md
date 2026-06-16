@@ -12,8 +12,8 @@ Cross-platform UI migration: WPF (`net10.0-windows`) → Avalonia 12 (`net10.0`)
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 0 | Scaffold — blank Avalonia window | 🟡 In progress |
-| 1 | Service layer decoupling | ⬜ Not started |
+| 0 | Scaffold — blank Avalonia window | ✅ Done |
+| 1 | Service layer decoupling | ✅ Done |
 | 2 | Code editor (AvalonEditB → AvaloniaEdit) | ⬜ Not started |
 | 3A | Panels — batch A (simple) | ⬜ Not started |
 | 3B | Panels — batch B (medium) | ⬜ Not started |
@@ -61,7 +61,7 @@ Services, Core, Models, and HIVE files are shared from the WPF project into the 
 |----------|---------|-----------|
 | BLOCKER | `MainWindow` missing `InitializeComponent()` — XAML never loads | ✅ Fixed: constructor calls `InitializeComponent()` |
 
-**Gate:** Build clean ✅ · Daemon clean ✅ · 121/121 ✅ · Codex BLOCKER fixed ✅ · **Commit pending**
+**Gate:** Build clean ✅ · Daemon clean ✅ · 175/175 ✅ · Codex BLOCKER fixed ✅ · **SHIPPED** (Phase 0 + Phase 1 committed together)
 
 ---
 
@@ -87,29 +87,22 @@ Services, Core, Models, and HIVE files are shared from the WPF project into the 
 | `SharpAvi` capture | `#if WINDOWS` guard — stubs on Linux/macOS (Phase 5) |
 | `Research/MarkdownFlowDocument.cs` (FlowDocument) | Stub — replaced in Phase 6 |
 
-**Files to migrate (54 total):**
+**Actual audit findings** (grep for `System.Windows` across all shared service files showed only 3 files had real WPF dependencies — far fewer than the 54-file estimate):
 
-*Core services (8):*
-- [ ] `Core/ScreenRecorder.cs` — WPF Dispatcher + RenderTargetBitmap (`#if WINDOWS` guard)
-- [ ] `Core/ToolRegistry.cs` — Dispatcher
-- [ ] `Core/LlamaServerManager.cs` — Dispatcher
-- [ ] `Services/PlanExecutorService.cs` — Dispatcher
-- [ ] `Services/SelfUpdater.cs` — MessageBox
-- [ ] `Research/MarkdownFlowDocument.cs` — FlowDocument (stub, Phase 6)
-- [ ] `Services/Models/ModelDownloadService.cs` — Dispatcher + MessageBox
-- [ ] `Agents/SwarmSession.cs` — Application.Current + Dispatcher
+| File | WPF coupling | Resolution |
+|------|-------------|-----------|
+| `Core/ScreenRecorder.cs` | Heavy — WPF RenderTargetBitmap, DispatcherTimer, SharpAvi | ✅ Wrapped full class in `#if WPF`; added no-op stub for non-WPF builds |
+| `Agents/SwarmSession.cs` | Light — 4 lines for sandbox bypass dialog (WPF dispatcher + dialog) | ✅ Extracted to `SandboxBypassRequestHandler` delegate property; WPF wiring deferred to Phase 3 |
+| `Research/MarkdownFlowDocument.cs` | Returns WPF `FlowDocument` | ⏭ Excluded from Avalonia compile list; deferred to Phase 6 (Markdown.Avalonia) |
 
-*HIVE services (already platform-neutral post-v1.6.x — verify only):*
-- [ ] `Services/Hive/*.cs` (all) — confirm no remaining `System.Windows` refs after ShutdownCallback
+All other files (HIVE, Data, Models, Swarm, ToolCalls, Tools, Trust) compiled cleanly with zero changes.
 
-*Tools (3):*
-- [ ] `Tools/FileTools.cs` — Dispatcher (approval dialogs)
-- [ ] `Tools/ShellTools.cs` — Dispatcher
-- [ ] `Tools/SearchTools.cs` — Dispatcher
+**Build fix — `#if WINDOWS` vs `#if WPF`:**
+The Avalonia project defines `WINDOWS` on Windows (for DPAPI/SharpAvi), but does NOT reference WPF assemblies. ScreenRecorder's guard was changed from `#if WINDOWS` to `#if WPF`, and the WPF project's `.csproj` was given `<DefineConstants>$(DefineConstants);WPF</DefineConstants>`. This separates "running on Windows" from "WPF assemblies available" — a distinction needed because the Avalonia project runs on Windows without WPF.
 
-*All 27 panel/dialog/window code-behind files* — dependency only (no direct WPF logic); added to compile-include list in Phase 3–4.
+**`App.axaml.cs` updated:** initializes `SecretProtection` on boot — `DpapiSecretProtector` on `#if WINDOWS`, `AesGcmSecretProtector` otherwise.
 
-**Gate:** `dotnet build OrchestratorIDE.Avalonia` clean (shared service files compile) · 121/121 green
+**Gate:** `dotnet build OrchestratorIDE.Avalonia` ✅ clean (9 warnings, 0 errors) · WPF build ✅ clean · **175/175 tests green** · **SHIPPED**
 
 ---
 
@@ -272,6 +265,7 @@ Services, Core, Models, and HIVE files are shared from the WPF project into the 
 | 2026-06-15 | `<Compile Include>` for service sharing (no separate Core library) | Same pattern as Daemon — zero refactoring of existing service layer |
 | 2026-06-15 | SharpAvi stays with `#if WINDOWS` guard | Cross-platform capture is a separate future feature, not a blocker |
 | 2026-06-15 | `Markdown.Avalonia` for Phase 6 | FlowDocument has no Avalonia equivalent; purpose-built package preferred |
+| 2026-06-15 | `#if WPF` guard in ScreenRecorder instead of `#if WINDOWS` | Avalonia project defines `WINDOWS` on Windows (for DPAPI) but doesn't reference WPF assemblies; `WPF` symbol defined only in the WPF project's csproj keeps the guards orthogonal |
 
 ---
 
