@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>OrchestratorIDE</RootNamespace>
+    <AssemblyName>OrchestratorIDE.Avalonia</AssemblyName>
+    <!-- Semantic version — kept in sync with WPF project during migration -->
+    <Version>1.7.0</Version>
+    <AssemblyVersion>1.7.0.0</AssemblyVersion>
+    <FileVersion>1.7.0.0</FileVersion>
+    <NoWarn>$(NoWarn);NU1510</NoWarn>
+  </PropertyGroup>
+
+  <!-- Stamp git SHA into AssemblyInformationalVersion (same as WPF project) -->
+  <Target Name="StampGitCommit" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo">
+    <Exec Command="git describe --always --dirty --match _no_tag_" ConsoleToMSBuild="true"
+          ContinueOnError="true" StandardOutputImportance="low" IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="GitCommitHash"/>
+    </Exec>
+    <PropertyGroup>
+      <InformationalVersion Condition="'$(GitCommitHash)' != ''">$(Version)+$(GitCommitHash)</InformationalVersion>
+      <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    </PropertyGroup>
+  </Target>
+
+  <ItemGroup>
+    <!-- Avalonia core + platform detection + default theme -->
+    <PackageReference Include="Avalonia"               Version="12.0.4" />
+    <PackageReference Include="Avalonia.Desktop"       Version="12.0.4" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4" />
+    <PackageReference Include="Avalonia.Fonts.Inter"   Version="12.0.4" />
+    <!-- Dev tools overlay (F12 in debug builds) -->
+    <PackageReference Include="Avalonia.Diagnostics"   Version="12.0.4"
+                      Condition="'$(Configuration)' == 'Debug'" />
+
+    <!-- AvaloniaEdit — official cross-platform port of AvalonEdit (replaces AvalonEditB) -->
+    <PackageReference Include="Avalonia.AvaloniaEdit"  Version="12.0.0" />
+
+    <!-- Portable libraries shared with WPF project (no WPF dependency) -->
+    <PackageReference Include="DiffPlex"               Version="1.9.0" />
+    <PackageReference Include="LibGit2Sharp"           Version="0.31.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.13.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite"  Version="10.0.0" />
+    <PackageReference Include="System.Text.Json"       Version="10.0.8" />
+
+    <!-- Windows-only: DPAPI secret encryption (Linux/macOS use AesGcmSecretProtector) -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0"
+                      Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+
+    <!-- Windows-only: screen recording (Linux/macOS capture is Phase 5) -->
+    <PackageReference Include="SharpAvi" Version="2.2.1"
+                      Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+  </ItemGroup>
+
+</Project>

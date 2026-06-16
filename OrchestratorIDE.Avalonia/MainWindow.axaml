@@ -1,0 +1,46 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!--
+    Phase 0 scaffold — blank branded window.
+    The full IDE layout (activity bar, sidebar, panels) is wired in Phase 5
+    after all panels are migrated individually.
+-->
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="OrchestratorIDE.MainWindow"
+        Title="TheOrc"
+        Width="1280" Height="800"
+        MinWidth="900" MinHeight="600"
+        Background="#161616">
+
+    <Grid RowDefinitions="*,Auto">
+
+        <!-- Placeholder — replaced panel by panel during migration phases -->
+        <StackPanel Grid.Row="0"
+                    VerticalAlignment="Center"
+                    HorizontalAlignment="Center"
+                    Spacing="12">
+            <TextBlock Text="TheOrc"
+                       Foreground="#76B900"
+                       FontSize="32"
+                       FontWeight="Bold"
+                       HorizontalAlignment="Center"/>
+            <TextBlock Text="Avalonia migration — Phase 0 scaffold"
+                       Foreground="#7A8A6A"
+                       FontSize="14"
+                       HorizontalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- Status bar placeholder -->
+        <Border Grid.Row="1"
+                Background="#1A3300"
+                Height="24"
+                Padding="8,0">
+            <TextBlock Text="v1.7.0-alpha"
+                       Foreground="#76B900"
+                       FontSize="11"
+                       VerticalAlignment="Center"/>
+        </Border>
+
+    </Grid>
+
+</Window>
