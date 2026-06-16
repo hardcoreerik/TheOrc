@@ -264,12 +264,17 @@ The evolutionary fitness map (`FitnessMap.cs`, `SchemaEvolution.cs`) is implemen
 
 ## Active Work
 
-### ORC ACADEMY v2 dataset (in progress — 2026-06-14)
-Cerebras pipeline running: 72-batch run completed (1,458 examples, `gpt-oss-120b`, 19.8 min, zero API cost). Combined with existing 2,244 normalized + 217 Codex gold, the pre-review pool is ~3,900 examples. Next steps:
-1. `tools/finalize_training_set.py` — merge and deduplicate
-2. Rename to `cerebras[api].synthetic.boss.1458.jsonl`
-3. Human review pass (spot-check sample; the goal/task types are new so watch for format drift)
-4. Train v2 adapter when dataset reaches ~2,000 reviewed examples
+### ORC ACADEMY v2 dataset (finalized — 2026-06-16)
+Cerebras pipeline complete: 72-batch run (1,458 examples, `gpt-oss-120b`, 19.8 min, zero API cost) + 217 Codex gold + 2,244 existing swarm captures = ~3,900 pre-review pool.
+
+**Finalization done (`Tools/finalize_training_set.py`, rewritten for v2):**
+- All 1,458 Cerebras + 217 Codex gold pass the structural + FILENAME-RULE gate (100%).
+- Existing 2,244 captures **gate-filtered**: only 320 conform (1,924 dropped — they predate the FILENAME RULE, titles lack output filenames). This keeps ONE consistent convention across the set instead of diluting the rule v2 is meant to reinforce.
+- Deduplicated by user-goal across the pool (11 collisions removed) → **1,984 conforming examples**.
+- Stratified-by-language split: **1,784 train / 200 eval**, verified **zero goal overlap** (no train/eval leakage). Spot-check across languages passed.
+- Outputs: `cerebras[api].synthetic.boss.1458.jsonl`, `codex[api].synthetic.boss.217.jsonl`, `train[mixed].merged.boss.1784.jsonl`, `eval[mixed].holdout.boss.200.jsonl`.
+
+**Remaining:** Train v2 adapter on the 1,784-example train file (RTX 5070 Ti, QLoRA, ~148 min like v1); A/B eval against the 200-example holdout vs the v1 99.3% adapter.
 
 ### Documentation
 Docs are being normalized around the current implementation. Key gaps:
