@@ -667,7 +667,7 @@ public partial class TrainingPitPanel : UserControl
 
     private void SuggestOutputName()
     {
-        var current = TbOutputName.Text.Trim();
+        var current = TbOutputName.Text?.Trim() ?? "";
         if (current.Length > 0 && current != "lora_v1" && !current.StartsWith("lora_", StringComparison.Ordinal))
             return;
 
@@ -688,10 +688,10 @@ public partial class TrainingPitPanel : UserControl
         if (HarvestRunning || _liveActive) { OnActivity?.Invoke("🏛 Academy refused: harvest owns the GPU."); return; }
         if (ReviewRunning)                  { OnActivity?.Invoke("🏛 Academy refused: review owns the GPU."); return; }
 
-        var hfRepo = TbHfRepo.Text.Trim();
+        var hfRepo = TbHfRepo.Text?.Trim() ?? "";
         if (hfRepo.Length == 0) { OnActivity?.Invoke("🏛 Academy refused: HF repo is empty."); return; }
 
-        var outputName = TbOutputName.Text.Trim();
+        var outputName = TbOutputName.Text?.Trim() ?? "";
         if (outputName.Length == 0 || outputName.Contains(' ') || outputName.Contains('/') || outputName.Contains('\\'))
         { OnActivity?.Invoke("🏛 Academy refused: invalid output name."); return; }
 

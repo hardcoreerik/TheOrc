@@ -60,13 +60,15 @@ public partial class CommandPalette : UserControl
                 e.Handled = true;
                 if (ResultsList.SelectedIndex < _filtered.Count - 1)
                     ResultsList.SelectedIndex++;
-                ResultsList.ScrollIntoView(ResultsList.SelectedItem);
+                if (ResultsList.SelectedItem is not null)
+                    ResultsList.ScrollIntoView(ResultsList.SelectedItem);
                 break;
             case Key.Up:
                 e.Handled = true;
                 if (ResultsList.SelectedIndex > 0)
                     ResultsList.SelectedIndex--;
-                ResultsList.ScrollIntoView(ResultsList.SelectedItem);
+                if (ResultsList.SelectedItem is not null)
+                    ResultsList.ScrollIntoView(ResultsList.SelectedItem);
                 break;
             case Key.Enter:
                 e.Handled = true;

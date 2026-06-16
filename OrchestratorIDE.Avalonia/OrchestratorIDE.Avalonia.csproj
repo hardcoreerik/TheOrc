@@ -10,7 +10,7 @@
     <Version>1.7.0</Version>
     <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <FileVersion>1.7.0.0</FileVersion>
-    <NoWarn>$(NoWarn);NU1510</NoWarn>
+    <NoWarn>$(NoWarn);NU1510;AVLN3001</NoWarn>
   </PropertyGroup>
 
   <!--

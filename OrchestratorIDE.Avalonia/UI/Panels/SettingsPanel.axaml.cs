@@ -103,7 +103,7 @@ public partial class SettingsPanel : UserControl
 
     private void RefreshSourceButtons()
     {
-        var folder  = TbSourceFolder.Text.Trim();
+        var folder  = TbSourceFolder.Text?.Trim() ?? "";
         var hasRepo = Directory.Exists(Path.Combine(folder, ".git"));
         BtnGrabSource.Content                = hasRepo ? "↺  Pull Latest" : "⬇  Grab Source";
         BtnOpenSourceAsWorkspace.IsEnabled   = Directory.Exists(folder);
@@ -111,9 +111,9 @@ public partial class SettingsPanel : UserControl
 
     private void SetComboToSlots(int slots)
     {
-        foreach (ComboBoxItem item in CbParallelSlots.Items)
+        foreach (ComboBoxItem? item in CbParallelSlots.Items)
         {
-            if (item.Content?.ToString() == slots.ToString())
+            if (item?.Content?.ToString() == slots.ToString())
             {
                 CbParallelSlots.SelectedItem = item;
                 return;
@@ -133,17 +133,17 @@ public partial class SettingsPanel : UserControl
     private AppSettings ReadSettings()
     {
         var s = _current;
-        s.OllamaHost          = TbOllamaHost.Text.Trim().TrimEnd('/');
-        s.DefaultModel        = TbDefaultModel.Text.Trim();
+        s.OllamaHost          = TbOllamaHost.Text?.Trim().TrimEnd('/') ?? "";
+        s.DefaultModel        = TbDefaultModel.Text?.Trim() ?? "";
         s.MaxStepsOverride    = int.TryParse(TbMaxSteps.Text, out var n) ? Math.Max(0, n) : 0;
         s.AutoVerify          = TglAutoVerify.IsChecked       == true;
         s.AutoCheckpoint      = TglAutoCheckpoint.IsChecked   == true;
         s.RestoreLastModel    = TglRestoreLastModel.IsChecked  == true;
         s.AutoModelSwitch     = TglAutoModelSwitch.IsChecked   == true;
         s.CheckForUpdates     = TglCheckUpdates.IsChecked      == true;
-        s.DefaultWorkspace    = TbDefaultWorkspace.Text.Trim();
+        s.DefaultWorkspace    = TbDefaultWorkspace.Text?.Trim() ?? "";
         s.OllamaParallelSlots = SelectedSlots();
-        s.SourceFolderPath    = TbSourceFolder.Text.Trim();
+        s.SourceFolderPath    = TbSourceFolder.Text?.Trim() ?? "";
         return s;
     }
 
@@ -154,7 +154,7 @@ public partial class SettingsPanel : UserControl
         BtnTestConn.IsEnabled = false;
         SetStatus("Testing…", "#CCA700");
 
-        var host     = TbOllamaHost.Text.Trim().TrimEnd('/');
+        var host     = TbOllamaHost.Text?.Trim().TrimEnd('/') ?? "";
         var original = _ollama.Host;
         _ollama.Host = host;
 
@@ -294,7 +294,7 @@ public partial class SettingsPanel : UserControl
 
     private async void BtnGrabSource_Click(object? sender, RoutedEventArgs e)
     {
-        var folder = TbSourceFolder.Text.Trim();
+        var folder = TbSourceFolder.Text?.Trim() ?? "";
         if (string.IsNullOrEmpty(folder))
         {
             SetSelfStatus("✗  Set a source folder first.", "#F44747");
@@ -353,7 +353,7 @@ public partial class SettingsPanel : UserControl
 
     private void BtnOpenSourceAsWorkspace_Click(object? sender, RoutedEventArgs e)
     {
-        var folder = TbSourceFolder.Text.Trim();
+        var folder = TbSourceFolder.Text?.Trim() ?? "";
         if (!Directory.Exists(folder))
         {
             SetSelfStatus("✗  Source folder not found. Grab Source first.", "#F44747");

@@ -95,7 +95,7 @@ public partial class PitBossPanel : UserControl
         await foreach (var chunk in _svc!.OpeningAsync(_cts.Token))
         {
             sb.Append(chunk);
-            Dispatcher.UIThread.InvokeAsync(() => { if (bubble is not null) bubble.Text = sb.ToString(); });
+            _ = Dispatcher.UIThread.InvokeAsync(() => { if (bubble is not null) bubble.Text = sb.ToString(); });
         }
 
         _history.Add(("assistant", sb.ToString()));
@@ -142,7 +142,7 @@ public partial class PitBossPanel : UserControl
         await foreach (var chunk in _svc!.NextQuestionAsync(_history, _round, _cts.Token))
         {
             sb.Append(chunk);
-            Dispatcher.UIThread.InvokeAsync(() => { if (bubble is not null) bubble.Text = sb.ToString(); });
+            _ = Dispatcher.UIThread.InvokeAsync(() => { if (bubble is not null) bubble.Text = sb.ToString(); });
         }
 
         _history.Add(("assistant", sb.ToString()));

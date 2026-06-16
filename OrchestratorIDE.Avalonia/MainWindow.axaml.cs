@@ -1077,7 +1077,7 @@ public partial class MainWindow : Window
             : _context.IsWarning
                 ? new SolidColorBrush(Color.Parse("#CCA700"))
                 : new SolidColorBrush(Color.Parse("#7A8A6A"));
-        _agentPanel.SetTokenDisplay(_context.UsedTokens, _context.MaxTokens);
+        _agentPanel?.SetTokenDisplay(_context.UsedTokens, _context.MaxTokens);
     }
 
     private void SetStatus(string msg) => SbStatus.Text = msg;
