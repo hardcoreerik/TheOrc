@@ -1,0 +1,116 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<Window x:Class="OrchestratorIDE.UI.Windows.WarmUpEditorWindow"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Model Warm-Up Editor — TheOrc"
+        Width="760" Height="600"
+        MinWidth="600" MinHeight="400"
+        Background="{StaticResource Br.Bg.App}"
+        WindowStartupLocation="CenterOwner">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#0A0A0A" BorderBrush="#1E2E1E"
+                BorderThickness="0,0,0,1" Padding="16,12">
+            <StackPanel>
+                <TextBlock Text="Model Warm-Up Scripts"
+                           Foreground="{StaticResource Br.Text.White}"
+                           FontSize="15" FontWeight="Bold"/>
+                <TextBlock Foreground="{StaticResource Br.Text.Muted}" FontSize="11"
+                           Margin="0,4,0,0" TextWrapping="Wrap">
+                    Edit the warm-up prompts sent to each role's model on first load.
+                    Scripts are saved to %APPDATA%\OrchestratorIDE\WarmUpScripts\.
+                </TextBlock>
+            </StackPanel>
+        </Border>
+
+        <!-- Role tab bar -->
+        <Border Grid.Row="1" Background="#0D0D0D" Padding="12,4">
+            <StackPanel Orientation="Horizontal">
+                <Button x:Name="BtnTabWorker"     Content="Worker · Coder"
+                        Tag="worker"  Click="BtnTab_Click" Margin="0,0,4,0"
+                        Padding="12,5" FontSize="12"
+                        Background="#1A3A1A" Foreground="#4ACA4A" BorderThickness="0"/>
+                <Button x:Name="BtnTabBoss"       Content="Boss · Orchestrator"
+                        Tag="boss"    Click="BtnTab_Click" Margin="0,0,4,0"
+                        Padding="12,5" FontSize="12"
+                        Background="#0D0D0D" Foreground="{StaticResource Br.Text.Muted}" BorderThickness="0"/>
+                <Button x:Name="BtnTabResearcher" Content="Researcher"
+                        Tag="researcher" Click="BtnTab_Click"
+                        Padding="12,5" FontSize="12"
+                        Background="#0D0D0D" Foreground="{StaticResource Br.Text.Muted}" BorderThickness="0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Script editor -->
+        <Border Grid.Row="2" Background="#0A0A0A">
+            <TextBox x:Name="TxtScript"
+                     Background="#080808" Foreground="{StaticResource Br.Text.White}"
+                     FontFamily="Consolas" FontSize="13"
+                     BorderThickness="0"
+                     AcceptsReturn="True" AcceptsTab="True"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                     TextWrapping="Wrap"
+                     Padding="16,12"/>
+        </Border>
+
+        <!-- Progress / log -->
+        <Border Grid.Row="3" Background="#0D0D0D" BorderBrush="#1A2A1A"
+                BorderThickness="0,1,0,0" Padding="12,6">
+            <DockPanel>
+                <ProgressBar x:Name="PbWarmUp" DockPanel.Dock="Right"
+                             Width="120" Height="6" Minimum="0" Maximum="100"
+                             Foreground="{StaticResource Br.Accent.Green}"
+                             Background="#1A1A1A"
+                             VerticalAlignment="Center" Margin="12,0,0,0"/>
+                <TextBlock x:Name="TxtLog"
+                           Foreground="{StaticResource Br.Accent.Green}"
+                           FontFamily="Consolas" FontSize="11"
+                           TextWrapping="NoWrap"
+                           VerticalAlignment="Center"/>
+            </DockPanel>
+        </Border>
+
+        <!-- Footer buttons -->
+        <Border Grid.Row="4" Background="#080808" BorderBrush="#111111"
+                BorderThickness="0,1,0,0" Padding="16,10">
+            <DockPanel>
+                <Button x:Name="BtnResetDefault" DockPanel.Dock="Left"
+                        Content="Reset to Default"
+                        Padding="12,6" Margin="0,0,8,0"
+                        Background="#1A1A1A" Foreground="{StaticResource Br.Text.Muted}"
+                        BorderBrush="#2A2A2A" BorderThickness="1"
+                        FontSize="12"
+                        Click="BtnResetDefault_Click"/>
+
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                            HorizontalAlignment="Right">
+                    <Button x:Name="BtnRunWarmUp"
+                            Content="🔥 Run Warm-Up"
+                            Padding="14,6" Margin="0,0,8,0"
+                            Background="{StaticResource Br.Accent.Green}"
+                            Foreground="White"
+                            BorderThickness="0"
+                            FontSize="12"
+                            Click="BtnRunWarmUp_Click"/>
+                    <Button x:Name="BtnSave"
+                            Content="Save"
+                            Padding="14,6"
+                            Background="#1A2A1A" Foreground="#4ACA4A"
+                            BorderBrush="#2A4A2A" BorderThickness="1"
+                            FontSize="12"
+                            Click="BtnSave_Click"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

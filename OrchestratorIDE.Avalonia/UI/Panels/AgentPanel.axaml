@@ -1,0 +1,273 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<UserControl x:Class="OrchestratorIDE.UI.Panels.AgentPanel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:OrchestratorIDE.UI.Panels"
+             Background="{StaticResource Br.Bg.App}">
+
+    <!--
+    ═══════════════════════════════════════════════════════════════════
+    AGENT PANEL — Phase 3B (Avalonia port)
+    Code-agent conversation: message list, streaming bubbles, diff slot.
+    ═══════════════════════════════════════════════════════════════════
+    -->
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="28"/>        <!-- Tab bar -->
+            <RowDefinition Height="*"/>         <!-- Message list -->
+            <RowDefinition Height="Auto"/>      <!-- Diff viewer (hidden until needed) -->
+            <RowDefinition Height="4"/>         <!-- Splitter -->
+            <RowDefinition Height="160" MinHeight="80"/> <!-- Input area -->
+        </Grid.RowDefinitions>
+
+        <!-- ── Tab bar ─────────────────────────────────────────────── -->
+        <Border Grid.Row="0" Background="#141814"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1">
+            <StackPanel Orientation="Horizontal">
+                <Border Background="{StaticResource Br.Bg.Active}"
+                        BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,1,0">
+                    <StackPanel>
+                        <Border Height="2" Background="{StaticResource Br.Accent.Green}"/>
+                        <TextBlock Text="⚡  Code Agent" Margin="14,0,14,0"
+                                   VerticalAlignment="Center" Height="26"
+                                   FontSize="12" Foreground="{StaticResource Br.Text.White}"
+                                   Padding="0,6,0,0"/>
+                    </StackPanel>
+                </Border>
+                <TextBlock x:Name="TbMode" Text="● PLAN"
+                           Foreground="{StaticResource Br.Accent.Green}"
+                           FontSize="10" FontWeight="Bold"
+                           VerticalAlignment="Center" Margin="10,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- ── Message list ────────────────────────────────────────── -->
+        <ScrollViewer x:Name="MsgScroll" Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl x:Name="MsgList" Padding="0,4">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="local:MessageVm">
+                        <Border Margin="0,1" Padding="12,8"
+                                Background="{Binding BubbleBg}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="28"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Grid.Column="0"
+                                           Text="{Binding RoleIcon}"
+                                           FontSize="16" VerticalAlignment="Top"
+                                           HorizontalAlignment="Center" Margin="0,2,0,0"
+                                           Foreground="{Binding RoleColor}"/>
+
+                                <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                    <TextBlock Text="{Binding RoleLabel}"
+                                               Foreground="{Binding RoleColor}"
+                                               FontSize="10" FontWeight="Bold"
+                                               Margin="0,0,0,3"/>
+
+                                    <!-- Selectable read-only message text -->
+                                    <TextBox Text="{Binding Content, Mode=OneWay}"
+                                             IsReadOnly="True"
+                                             Background="Transparent"
+                                             BorderThickness="0"
+                                             Padding="0"
+                                             Foreground="#E0E0E0"
+                                             FontFamily="Consolas"
+                                             FontSize="12"
+                                             TextWrapping="Wrap"
+                                             AcceptsReturn="True">
+                                        <TextBox.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Copy message"      Click="MsgCopyMessage_Click"/>
+                                                <MenuItem Header="Copy all messages" Click="MsgCopyAll_Click"/>
+                                                <Separator/>
+                                                <MenuItem Header="Save chat to…"     Click="MsgSaveChat_Click"/>
+                                            </ContextMenu>
+                                        </TextBox.ContextMenu>
+                                    </TextBox>
+
+                                    <!-- Token badge (assistant only) -->
+                                    <TextBlock Text="{Binding TokenLabel}"
+                                               IsVisible="{Binding HasTokenLabel}"
+                                               Foreground="{StaticResource Br.Text.Muted}"
+                                               FontSize="9" Margin="0,4,0,0"/>
+
+                                    <!-- Tool call badges -->
+                                    <ItemsControl ItemsSource="{Binding ToolBadges}"
+                                                  Margin="0,4,0,0"
+                                                  IsVisible="{Binding HasTools}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="#1A241A" CornerRadius="3"
+                                                        Padding="6,2" Margin="0,0,4,0">
+                                                    <TextBlock Text="{Binding}"
+                                                               Foreground="{StaticResource Br.Accent.Blue}"
+                                                               FontSize="10"/>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- ── Diff/approval slot (hidden until write_file / shell approval) ── -->
+        <Border x:Name="DiffPanel" Grid.Row="2"
+                IsVisible="False"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,1,0,0"
+                MaxHeight="340"/>
+
+        <GridSplitter Grid.Row="3" Height="4"
+                      Background="{StaticResource Br.Border}"/>
+
+        <!-- ── Input area ───────────────────────────────────────────── -->
+        <Border Grid.Row="4" Background="{StaticResource Br.Bg.Panel}"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,1,0,0">
+            <DockPanel Margin="8,6">
+
+                <Grid DockPanel.Dock="Bottom" Margin="0,4,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="24"/>  <!-- Context row -->
+                        <RowDefinition Height="6"/>
+                        <RowDefinition Height="26"/>  <!-- Action row -->
+                    </Grid.RowDefinitions>
+
+                    <!-- Context row: workspace / rules / agent badges -->
+                    <DockPanel Grid.Row="0">
+
+                        <Border x:Name="WsBadge" CornerRadius="3" Padding="6,2"
+                                Margin="0,0,6,0"
+                                Background="#3A3010" Cursor="Hand"
+                                ToolTip.Tip="Click to open a project folder"
+                                PointerReleased="WsBadge_Click">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="📁" FontSize="10" Margin="0,0,4,0"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock x:Name="WsLabel" Text="no folder open"
+                                           Foreground="#CCA700" FontSize="10"
+                                           VerticalAlignment="Center" MaxWidth="140"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="RulesBadge" CornerRadius="3" Padding="6,2"
+                                Margin="0,0,6,0"
+                                Background="#102A20" IsVisible="False"
+                                Cursor="Hand" PointerReleased="RulesBadge_Click">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="📋" FontSize="10" Margin="0,0,3,0"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock x:Name="RulesLabel" Text=".agent.md"
+                                           Foreground="#4EC9B0" FontSize="10"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="GlobalAgentBadge" CornerRadius="3" Padding="6,2"
+                                Margin="0,0,6,0"
+                                Background="#1A2A1A" Cursor="Hand"
+                                ToolTip.Tip="Global Agent — applies to all workspaces. Click to change."
+                                PointerReleased="GlobalAgentBadge_Click">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="⚙" FontSize="10" Margin="0,0,3,0"
+                                           Foreground="#6A9955" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="GlobalAgentLabel" Text="No global agent"
+                                           Foreground="#6A9955" FontSize="10"
+                                           VerticalAlignment="Center" MaxWidth="100"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="WorkspaceRulesBtn" CornerRadius="3" Padding="6,2"
+                                Margin="0,0,6,0"
+                                Background="#1A1A2A" Cursor="Hand"
+                                ToolTip.Tip="Project/Workspace Rules — fine-tune agent rules for this workspace"
+                                PointerReleased="WorkspaceRulesBtn_Click">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="📝" FontSize="10" Margin="0,0,3,0"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Foreground="#7A7ACC" FontSize="10"
+                                           VerticalAlignment="Center">Workspace Rules</TextBlock>
+                            </StackPanel>
+                        </Border>
+
+                        <Border/><!-- flex spacer -->
+                    </DockPanel>
+
+                    <!-- Action row: mode toggle + token counter + stop/send -->
+                    <DockPanel Grid.Row="2">
+
+                        <Border Background="{StaticResource Br.Bg.Input}" CornerRadius="3"
+                                Padding="2" Margin="0,0,8,0">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton x:Name="RbPlan" Content=" Plan "
+                                             GroupName="Mode" IsChecked="True"
+                                             Foreground="{StaticResource Br.Text.Primary}"
+                                             FontSize="11" VerticalAlignment="Center"
+                                             IsCheckedChanged="ModeChanged"/>
+                                <RadioButton x:Name="RbExec" Content=" Execute "
+                                             GroupName="Mode" Margin="4,0,0,0"
+                                             Foreground="{StaticResource Br.Text.Primary}"
+                                             FontSize="11" VerticalAlignment="Center"
+                                             IsCheckedChanged="ModeChanged"/>
+                            </StackPanel>
+                        </Border>
+
+                        <StackPanel VerticalAlignment="Center" Margin="0,0,8,0" Width="90">
+                            <TextBlock x:Name="TbTokens" Text="0 tokens"
+                                       Foreground="{StaticResource Br.Text.Muted}"
+                                       FontSize="9" HorizontalAlignment="Center"/>
+                            <Border Height="3" CornerRadius="2"
+                                    Background="{StaticResource Br.Bg.App}" Margin="0,2,0,0">
+                                <Border x:Name="CtxBar" Height="3" CornerRadius="2"
+                                        HorizontalAlignment="Left" Width="0"
+                                        Background="{StaticResource Br.Accent.Blue}"/>
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <Button x:Name="BtnStop" Content="■ Stop" Width="70"
+                                    Background="#3A1A1A" Foreground="{StaticResource Br.Error}"
+                                    BorderBrush="#5A2A2A" FontSize="11"
+                                    Click="BtnStop_Click" IsEnabled="False"/>
+                            <Button x:Name="BtnSend" Content="Send  ↵" Width="84"
+                                    Background="#2A5200"
+                                    Foreground="{StaticResource Br.Accent.Green}"
+                                    BorderBrush="#3A7000"
+                                    FontSize="11" FontWeight="SemiBold" Margin="6,0,0,0"
+                                    Click="BtnSend_Click"/>
+                        </StackPanel>
+
+                        <Border/><!-- flex spacer -->
+                    </DockPanel>
+                </Grid>
+
+                <!-- Text input (Watermark replaces the separate placeholder TextBlock) -->
+                <TextBox x:Name="TbInput"
+                         AcceptsReturn="True" TextWrapping="Wrap"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         Background="{StaticResource Br.Bg.Input}"
+                         BorderBrush="{StaticResource Br.Border}"
+                         BorderThickness="1" Padding="8,6"
+                         FontFamily="Consolas"
+                         FontSize="12"
+                         PlaceholderText="Ask the agent anything… (Enter to send, Shift+Enter for newline)"
+                         KeyDown="TbInput_KeyDown"
+                         TextChanged="TbInput_TextChanged"/>
+            </DockPanel>
+        </Border>
+    </Grid>
+</UserControl>
