@@ -266,6 +266,7 @@ The Avalonia project defines `WINDOWS` on Windows (for DPAPI/SharpAvi), but does
 | 2026-06-15 | SharpAvi stays with `#if WINDOWS` guard | Cross-platform capture is a separate future feature, not a blocker |
 | 2026-06-15 | `Markdown.Avalonia` for Phase 6 | FlowDocument has no Avalonia equivalent; purpose-built package preferred |
 | 2026-06-15 | `#if WPF` guard in ScreenRecorder instead of `#if WINDOWS` | Avalonia project defines `WINDOWS` on Windows (for DPAPI) but doesn't reference WPF assemblies; `WPF` symbol defined only in the WPF project's csproj keeps the guards orthogonal |
+| 2026-06-15 | Phase gate "no panel code" means no *Avalonia* panel code | WPF panel bug-fixes caused by Phase 1 service refactoring (e.g. `SwarmBoardPanel` sandbox wiring) are allowed; they maintain WPF correctness while the Avalonia port progresses |
 
 ---
 

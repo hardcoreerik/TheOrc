@@ -846,6 +846,9 @@ public partial class SwarmBoardPanel : UserControl
 
         // Wire sandbox bypass: show the WPF dialog on the UI thread so the swarm can
         // ask the user to approve out-of-sandbox file/shell operations.
+        // Note: if ct fires while the dialog is already open, TCS resolves false but
+        // the queued Dispatcher work still completes — the dialog appears briefly then
+        // its result is discarded. This matches the identical pattern in MainWindow.xaml.cs.
         var panel = this;
         _session.SandboxBypassRequestHandler = async (toolName, escapedPath, sandboxRoot, ct) =>
         {

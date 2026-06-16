@@ -38,13 +38,27 @@ if (-not $exe) {
 }
 
 # ── Pre-generate the diff (Codex can't run git in --sandbox read-only) ────────
+# Use `git diff` for the net tree-to-tree patch (avoids per-commit intermediate
+# hunks from `git log -p` that confuse multi-commit reviews) and prepend a short
+# commit list from `git log --oneline` for context.
 if ($Staged) {
+    $logLines = @()
     $diffRaw  = git diff --cached -- . ':!publish' ':!*.psv' ':!*.tsv' ':!*.jsonl' 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "git diff --cached failed (exit $LASTEXITCODE). Nothing staged?" -ForegroundColor Red
+        exit 1
+    }
     $statLine = git diff --cached --stat | Select-Object -Last 1
     $scopeTag = "staged changes"
 } else {
-    $diffRaw  = git log -p "$Range" -- . ':!publish' ':!*.psv' ':!*.tsv' ':!*.jsonl' 2>$null
-    $statLine = git diff --stat   "$Range" 2>$null | Select-Object -Last 1
+    $logLines = git log --oneline "$Range" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "git log failed for range '$Range' (exit $LASTEXITCODE). Invalid range?" -ForegroundColor Red
+        exit 1
+    }
+    # Net tree-to-tree diff — correct for any range length, no intermediate hunks.
+    $diffRaw  = git diff "$Range" -- . ':!publish' ':!*.psv' ':!*.tsv' ':!*.jsonl' 2>$null
+    $statLine = git diff --stat "$Range" 2>$null | Select-Object -Last 1
     $scopeTag = "commit range $Range"
 }
 
@@ -57,7 +71,8 @@ Write-Host "reviewing: $statDisplay" -ForegroundColor Cyan
 
 # Truncate if the diff is very large so we don't blow the context window
 $maxChars = $MaxDiffKB * 1024
-$diff = $diffRaw -join "`n"
+$commitList = if ($logLines) { "Commits in range:`n" + ($logLines -join "`n") + "`n`n" } else { "" }
+$diff = $commitList + ($diffRaw -join "`n")
 $truncated = $false
 if ($diff.Length -gt $maxChars) {
     $diff = $diff.Substring(0, $maxChars)
