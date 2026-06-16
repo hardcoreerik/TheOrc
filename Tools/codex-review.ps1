@@ -52,7 +52,8 @@ if (-not $statLine -and -not $diffRaw) {
     Write-Host "Nothing to review ($scopeTag is empty)." -ForegroundColor Yellow
     exit 0
 }
-Write-Host "reviewing: $($statLine?.Trim())" -ForegroundColor Cyan
+$statDisplay = if ($statLine) { $statLine.Trim() } else { $scopeTag }
+Write-Host "reviewing: $statDisplay" -ForegroundColor Cyan
 
 # Truncate if the diff is very large so we don't blow the context window
 $maxChars = $MaxDiffKB * 1024
