@@ -1,0 +1,78 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<UserControl x:Class="OrchestratorIDE.UI.Panels.FileExplorerPanel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:OrchestratorIDE.UI.Panels"
+             Background="{StaticResource Br.Bg.Sidebar}">
+
+    <UserControl.Styles>
+        <!-- TreeViewItem: replaces WPF FileTreeItemStyle -->
+        <Style Selector="TreeViewItem">
+            <Setter Property="Foreground" Value="{StaticResource Br.Text.Primary}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding"    Value="2,1"/>
+            <Setter Property="FontSize"   Value="12"/>
+        </Style>
+        <Style Selector="TreeViewItem:pointerover /template/ Border#PART_LayoutRoot">
+            <Setter Property="Background" Value="{StaticResource Br.Bg.Hover}"/>
+        </Style>
+        <Style Selector="TreeViewItem:selected /template/ Border#PART_LayoutRoot">
+            <Setter Property="Background" Value="{StaticResource Br.Bg.Active}"/>
+        </Style>
+        <Style Selector="TreeViewItem:selected:pointerover /template/ Border#PART_LayoutRoot">
+            <Setter Property="Background" Value="{StaticResource Br.Bg.Active}"/>
+        </Style>
+    </UserControl.Styles>
+
+    <DockPanel>
+
+        <!-- Header + workspace buttons -->
+        <Border DockPanel.Dock="Top" Background="#141814"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1"
+                Padding="8,5">
+            <DockPanel>
+                <Button x:Name="BtnOpenFolder" DockPanel.Dock="Right"
+                        Content="📂" ToolTip.Tip="Open Folder…"
+                        Background="Transparent" BorderBrush="Transparent"
+                        Foreground="{StaticResource Br.Text.Muted}"
+                        FontSize="13" Padding="4,0"
+                        Click="BtnOpenFolder_Click" Cursor="Hand"/>
+                <Button x:Name="BtnReveal" DockPanel.Dock="Right"
+                        Content="🔍" ToolTip.Tip="Show in Explorer"
+                        Background="Transparent" BorderBrush="Transparent"
+                        Foreground="{StaticResource Br.Text.Muted}"
+                        FontSize="13" Padding="4,0" Margin="0,0,2,0"
+                        Click="BtnReveal_Click" Cursor="Hand"/>
+                <TextBlock Text="EXPLORER" Foreground="{StaticResource Br.Text.Muted}"
+                           FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
+            </DockPanel>
+        </Border>
+
+        <!-- Workspace label -->
+        <TextBlock x:Name="TbWorkspaceLabel" DockPanel.Dock="Top"
+                   Text="No folder open" Foreground="{StaticResource Br.Text.Muted}"
+                   FontSize="11" Padding="8,4" TextTrimming="CharacterEllipsis"/>
+
+        <!-- File tree -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Auto">
+            <TreeView x:Name="FileTree"
+                      Background="Transparent"
+                      BorderBrush="Transparent"
+                      BorderThickness="0"
+                      SelectionChanged="FileTree_SelectionChanged">
+                <TreeView.ItemTemplate>
+                    <!-- TreeDataTemplate is Avalonia 12's HierarchicalDataTemplate -->
+                    <TreeDataTemplate x:DataType="local:FileNode" ItemsSource="{Binding Children}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding Icon}" Margin="0,0,4,0"
+                                       Foreground="{StaticResource Br.Accent.Blue}"/>
+                            <TextBlock Text="{Binding Name}"/>
+                        </StackPanel>
+                    </TreeDataTemplate>
+                </TreeView.ItemTemplate>
+            </TreeView>
+        </ScrollViewer>
+
+    </DockPanel>
+</UserControl>

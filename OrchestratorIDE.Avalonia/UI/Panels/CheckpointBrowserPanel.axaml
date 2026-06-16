@@ -1,0 +1,116 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<UserControl x:Class="OrchestratorIDE.UI.Panels.CheckpointBrowserPanel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:OrchestratorIDE.UI.Panels"
+             Background="{StaticResource Br.Bg.Sidebar}">
+
+    <!--
+    ═══════════════════════════════════════════════════════════
+    CHECKPOINT BROWSER (Avalonia port)
+    Lists [agent] git commits; click Restore to hard-reset.
+    ═══════════════════════════════════════════════════════════
+    -->
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="36"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#141814"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1">
+            <DockPanel Margin="10,0">
+                <Button x:Name="BtnRefresh" DockPanel.Dock="Right"
+                        Content="↻" Width="26" Height="22"
+                        Background="Transparent" Foreground="#888"
+                        BorderThickness="0" FontSize="14"
+                        ToolTip.Tip="Refresh checkpoint list"
+                        Click="BtnRefresh_Click"/>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="🕐" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Checkpoints" Foreground="{StaticResource Br.Text.Default}"
+                               FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Checkpoint list -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+
+                <!-- Empty state -->
+                <TextBlock x:Name="TbEmpty"
+                           Text="No agent checkpoints found.&#x0a;&#x0a;Checkpoints are created automatically before each Execute run when the workspace is a git repository."
+                           Foreground="{StaticResource Br.Text.Muted}"
+                           FontSize="11" TextWrapping="Wrap"
+                           Margin="12,16"
+                           IsVisible="False"/>
+
+                <!-- Loading state -->
+                <TextBlock x:Name="TbLoading"
+                           Text="Loading…"
+                           Foreground="{StaticResource Br.Text.Muted}"
+                           FontSize="11" Margin="12,16"/>
+
+                <!-- Checkpoint items -->
+                <ItemsControl x:Name="CheckpointList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="local:CheckpointVm">
+                            <Border BorderBrush="{StaticResource Br.Border}"
+                                    BorderThickness="0,0,0,1" Padding="0">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <!-- Checkpoint message + time -->
+                                    <Border Grid.Row="0" Padding="10,8,10,2">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding WhenLabel}"
+                                                       Foreground="{StaticResource Br.Text.Muted}"
+                                                       FontSize="10" Margin="0,0,0,2"/>
+                                            <TextBlock Text="{Binding ShortMessage}"
+                                                       Foreground="{StaticResource Br.Text.Default}"
+                                                       FontSize="11" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- SHA + Restore button -->
+                                    <DockPanel Grid.Row="1" Margin="10,0,10,8">
+                                        <Button DockPanel.Dock="Right"
+                                                Content="↩ Restore"
+                                                Height="20" Padding="8,0"
+                                                Background="#1A2A0A" Foreground="#76B900"
+                                                BorderBrush="#2A4A0A" FontSize="10"
+                                                Click="BtnRestore_Click"
+                                                ToolTip.Tip="{Binding RestoreTooltip}"/>
+                                        <TextBlock Text="{Binding ShortSha}"
+                                                   Foreground="{StaticResource Br.Text.Muted}"
+                                                   FontFamily="Consolas, Courier New"
+                                                   FontSize="10" VerticalAlignment="Center"/>
+                                    </DockPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer -->
+        <Border Grid.Row="2" Background="#141814"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,1,0,0"
+                Padding="10,6">
+            <TextBlock x:Name="TbStatus"
+                       Text="Showing last 20 agent checkpoints"
+                       Foreground="{StaticResource Br.Text.Muted}"
+                       FontSize="10" TextWrapping="Wrap"/>
+        </Border>
+    </Grid>
+</UserControl>

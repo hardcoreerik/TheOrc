@@ -15,7 +15,7 @@ Cross-platform UI migration: WPF (`net10.0-windows`) → Avalonia 12 (`net10.0`)
 | 0 | Scaffold — blank Avalonia window | ✅ Done |
 | 1 | Service layer decoupling | ✅ Done |
 | 2 | Code editor (AvalonEditB → AvaloniaEdit) | ✅ Done |
-| 3A | Panels — batch A (simple) | ⬜ Not started |
+| 3A | Panels — batch A (simple) | ✅ Done |
 | 3B | Panels — batch B (medium) | ⬜ Not started |
 | 3C | Panels — batch C (complex) | ⬜ Not started |
 | 4 | Dialogs, windows, controls | ⬜ Not started |

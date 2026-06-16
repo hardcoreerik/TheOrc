@@ -1,0 +1,414 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<UserControl x:Class="OrchestratorIDE.UI.Panels.SettingsPanel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource Br.Bg.Sidebar}">
+
+    <UserControl.Resources>
+        <!-- Pill toggle switch — Avalonia ControlTheme replaces WPF ControlTemplate.Triggers -->
+        <ControlTheme x:Key="ToggleStyle" TargetType="ToggleButton">
+            <Setter Property="Width"             Value="40"/>
+            <Setter Property="Height"            Value="20"/>
+            <Setter Property="Cursor"            Value="Hand"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="BorderThickness"   Value="0"/>
+            <Setter Property="Padding"           Value="0"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border x:Name="Track" CornerRadius="10" Width="40" Height="20"
+                            Background="{StaticResource Br.Bg.Input}">
+                        <Ellipse x:Name="Thumb" Width="14" Height="14"
+                                 Fill="{StaticResource Br.Text.Muted}"
+                                 HorizontalAlignment="Left" Margin="3,0,0,0"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+            <Style Selector="^:checked /template/ Border#Track">
+                <Setter Property="Background" Value="#2A5200"/>
+            </Style>
+            <Style Selector="^:checked /template/ Ellipse#Thumb">
+                <Setter Property="Fill" Value="{StaticResource Br.Accent.Green}"/>
+                <Setter Property="HorizontalAlignment" Value="Right"/>
+                <Setter Property="Margin" Value="0,0,3,0"/>
+            </Style>
+        </ControlTheme>
+    </UserControl.Resources>
+
+    <UserControl.Styles>
+        <!-- Replicate WPF App.xaml setting styles as Avalonia class-based styles -->
+        <Style Selector="TextBlock.SectionHeader">
+            <Setter Property="Foreground" Value="{StaticResource Br.Text.Muted}"/>
+            <Setter Property="FontSize"   Value="10"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin"     Value="8,8,8,2"/>
+        </Style>
+        <Style Selector="TextBlock.SettingLabel">
+            <Setter Property="Foreground" Value="{StaticResource Br.Text.Primary}"/>
+            <Setter Property="FontSize"   Value="12"/>
+            <Setter Property="Margin"     Value="0,0,0,2"/>
+        </Style>
+        <Style Selector="TextBlock.SettingHint">
+            <Setter Property="Foreground"   Value="{StaticResource Br.Text.Muted}"/>
+            <Setter Property="FontSize"     Value="10"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin"       Value="0,0,0,4"/>
+        </Style>
+        <Style Selector="TextBox.SettingInput">
+            <Setter Property="Background"      Value="{StaticResource Br.Bg.Input}"/>
+            <Setter Property="Foreground"      Value="{StaticResource Br.Text.Primary}"/>
+            <Setter Property="BorderBrush"     Value="{StaticResource Br.Border}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding"         Value="6,5"/>
+            <Setter Property="FontFamily"      Value="Consolas, 'Cascadia Code', monospace"/>
+            <Setter Property="FontSize"        Value="12"/>
+        </Style>
+        <Style Selector="StackPanel.SettingRow">
+            <Setter Property="Margin" Value="8,4,8,4"/>
+        </Style>
+        <Style Selector="Border.SettingRowBorder">
+            <Setter Property="Margin"  Value="8,4,8,4"/>
+            <Setter Property="Padding" Value="0,6"/>
+        </Style>
+    </UserControl.Styles>
+
+    <DockPanel>
+
+        <!-- Header -->
+        <Border DockPanel.Dock="Top" Background="#141814"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1"
+                Padding="8,6">
+            <TextBlock Text="SETTINGS" Foreground="{StaticResource Br.Text.Muted}"
+                       FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
+        </Border>
+
+        <!-- Save / Test buttons pinned to bottom -->
+        <Border DockPanel.Dock="Bottom"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,1,0,0"
+                Padding="8,8">
+            <Grid ColumnDefinitions="*,*">
+                <Button x:Name="BtnTestConn" Grid.Column="0" Content="⚡ Test Connection"
+                        Margin="0,0,4,0" Click="BtnTestConn_Click"
+                        Background="{StaticResource Br.Bg.Input}"
+                        Foreground="{StaticResource Br.Text.Primary}"
+                        FontSize="11" Padding="0,6"/>
+                <Button x:Name="BtnSave" Grid.Column="1" Content="✓  Save"
+                        Margin="4,0,0,0" Click="BtnSave_Click"
+                        Background="{StaticResource Br.Bg.Active}"
+                        Foreground="{StaticResource Br.Text.White}"
+                        FontSize="11" Padding="0,6"/>
+            </Grid>
+        </Border>
+
+        <!-- Status message -->
+        <Border DockPanel.Dock="Bottom" Padding="8,4">
+            <TextBlock x:Name="TbStatus" Text="" FontSize="11"
+                       TextWrapping="Wrap" Foreground="{StaticResource Br.Accent.Green}"/>
+        </Border>
+
+        <!-- Scrollable settings body -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,4,0,16">
+
+                <!-- ── OLLAMA ──────────────────────────────────────────── -->
+                <TextBlock Text="OLLAMA" Classes="SectionHeader"/>
+
+                <StackPanel Classes="SettingRow">
+                    <TextBlock Text="Host URL" Classes="SettingLabel"/>
+                    <TextBlock Text="Where your Ollama instance is running" Classes="SettingHint"/>
+                    <TextBox x:Name="TbOllamaHost"
+                             Classes="SettingInput"
+                             Text="http://localhost:11434"/>
+                </StackPanel>
+
+                <!-- ── AGENT ───────────────────────────────────────────── -->
+                <TextBlock Text="AGENT" Classes="SectionHeader" Margin="0,12,0,0"/>
+
+                <StackPanel Classes="SettingRow">
+                    <TextBlock Text="Default Model" Classes="SettingLabel"/>
+                    <TextBlock Text="Auto-selected on startup if installed" Classes="SettingHint"/>
+                    <TextBox x:Name="TbDefaultModel"
+                             Classes="SettingInput"
+                             Text="qwen2.5-coder:14b"/>
+                </StackPanel>
+
+                <StackPanel Classes="SettingRow">
+                    <TextBlock Text="Max Steps Override" Classes="SettingLabel"/>
+                    <TextBlock Text="0 = use model profile default" Classes="SettingHint"/>
+                    <TextBox x:Name="TbMaxSteps" Classes="SettingInput" Text="0"/>
+                </StackPanel>
+
+                <!-- Toggle: Auto-verify -->
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <ToggleButton x:Name="TglAutoVerify"
+                                      DockPanel.Dock="Right"
+                                      Theme="{StaticResource ToggleStyle}"
+                                      IsChecked="True"/>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Auto-verify after write" Classes="SettingLabel"/>
+                            <TextBlock Text="Run tests automatically after every file write"
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <!-- Toggle: Git checkpoint -->
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <ToggleButton x:Name="TglAutoCheckpoint"
+                                      DockPanel.Dock="Right"
+                                      Theme="{StaticResource ToggleStyle}"
+                                      IsChecked="True"/>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Git checkpoint before Execute" Classes="SettingLabel"/>
+                            <TextBlock Text="Auto-commits workspace before every agent run"
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <!-- Toggle: Restore last model -->
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <ToggleButton x:Name="TglRestoreLastModel"
+                                      DockPanel.Dock="Right"
+                                      Theme="{StaticResource ToggleStyle}"
+                                      IsChecked="True"/>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Restore last model on startup" Classes="SettingLabel"/>
+                            <TextBlock Text="On — reopens with the model you had last time. Off — picks best available."
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <!-- Toggle: Auto-switch for security -->
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <ToggleButton x:Name="TglAutoModelSwitch"
+                                      DockPanel.Dock="Right"
+                                      Theme="{StaticResource ToggleStyle}"
+                                      IsChecked="True"/>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Auto-switch for security workspaces" Classes="SettingLabel"/>
+                            <TextBlock Text="Switches to a security-focused model when a pentest workspace is detected"
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <!-- ── UPDATES ─────────────────────────────────────────── -->
+                <TextBlock Text="UPDATES" Classes="SectionHeader" Margin="0,12,0,0"/>
+
+                <!-- Toggle: Check on startup -->
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <ToggleButton x:Name="TglCheckUpdates"
+                                      DockPanel.Dock="Right"
+                                      Theme="{StaticResource ToggleStyle}"
+                                      IsChecked="True"/>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Check for updates on startup" Classes="SettingLabel"/>
+                            <TextBlock Text="Silent check against GitHub Releases once per day"
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <StackPanel Classes="SettingRow" Orientation="Horizontal">
+                    <Button x:Name="BtnCheckNow" Content="⬆ Check Now"
+                            Click="BtnCheckNow_Click"
+                            Background="{StaticResource Br.Bg.Input}"
+                            Foreground="{StaticResource Br.Text.Primary}"
+                            FontSize="11" Padding="8,6" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="TbVersionInfo" Text=""
+                               Classes="SettingHint" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- ── AGENT FILE ──────────────────────────────────────── -->
+                <TextBlock Text="AGENT FILE" Classes="SectionHeader" Margin="0,12,0,0"/>
+
+                <StackPanel Classes="SettingRow">
+                    <TextBlock Text="Personalise your .agent.md" Classes="SettingLabel"/>
+                    <TextBlock Classes="SettingHint" TextWrapping="Wrap"
+                               Text="Regenerates the agent knowledge file in your workspace with your hardware, model, and any personal context you want the agent to always know."/>
+                    <Button x:Name="BtnRegenerateAgentFile"
+                            Content="🗡  Regenerate Agent File"
+                            Click="BtnRegenerateAgentFile_Click"
+                            Background="{StaticResource Br.Bg.Input}"
+                            Foreground="{StaticResource Br.Text.Primary}"
+                            FontSize="11" Padding="8,6"
+                            HorizontalAlignment="Left"/>
+                </StackPanel>
+
+                <!-- ── MULTI-AGENT / PARALLEL INFERENCE ───────────────── -->
+                <TextBlock Text="MULTI-AGENT" Classes="SectionHeader" Margin="0,12,0,0"/>
+
+                <Border x:Name="BdrParallelStatus"
+                        Background="#141814" CornerRadius="4"
+                        BorderBrush="#2E3A2E" BorderThickness="1"
+                        Padding="12,10" Margin="8,4,8,4">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <TextBlock Text="⬡" Foreground="#76B900" FontSize="10"
+                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock x:Name="TbParallelStatus"
+                                       Text="Checking…"
+                                       Foreground="#CCA700" FontSize="11" FontWeight="Bold"/>
+                        </StackPanel>
+                        <TextBlock x:Name="TbParallelExplain"
+                                   Foreground="#5A6A4A" FontSize="10"
+                                   TextWrapping="Wrap" LineHeight="16"
+                                   Text="Loading…"/>
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Classes="SettingRow" Orientation="Horizontal">
+                    <TextBlock Text="Parallel slots:" Classes="SettingLabel"
+                               VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox x:Name="CbParallelSlots" Width="60" Height="24"
+                              Background="{StaticResource Br.Bg.Input}"
+                              Foreground="{StaticResource Br.Text.Primary}"
+                              BorderBrush="{StaticResource Br.Border}"
+                              FontSize="11">
+                        <ComboBoxItem Content="1"/>
+                        <ComboBoxItem Content="2"/>
+                        <ComboBoxItem Content="3"/>
+                        <ComboBoxItem Content="4"/>
+                        <ComboBoxItem Content="6"/>
+                    </ComboBox>
+                    <TextBlock x:Name="TbSlotHint" Text="" FontSize="10"
+                               Foreground="{StaticResource Br.Text.Muted}"
+                               VerticalAlignment="Center" Margin="8,0,0,0"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+
+                <StackPanel Classes="SettingRow" Orientation="Horizontal">
+                    <Button x:Name="BtnSetPermanent"
+                            Content="⚙  Set permanently"
+                            Click="BtnSetPermanent_Click"
+                            Background="#1A2A0A" Foreground="#76B900"
+                            BorderBrush="#2A4A0A" FontSize="11" Padding="10,6"
+                            Margin="0,0,8,0"
+                            ToolTip.Tip="Writes OLLAMA_NUM_PARALLEL to your Windows user environment."/>
+                    <Button x:Name="BtnCopyRestartCmd"
+                            Content="📋  Copy restart command"
+                            Click="BtnCopyRestartCmd_Click"
+                            Background="{StaticResource Br.Bg.Input}"
+                            Foreground="{StaticResource Br.Text.Primary}"
+                            FontSize="11" Padding="10,6"
+                            ToolTip.Tip="Copies a PowerShell one-liner to restart Ollama with the selected slot count."/>
+                </StackPanel>
+
+                <!-- ── WORKSPACE ───────────────────────────────────────── -->
+                <TextBlock Text="WORKSPACE" Classes="SectionHeader" Margin="0,12,0,0"/>
+
+                <StackPanel Classes="SettingRow">
+                    <TextBlock Text="Default Folder" Classes="SettingLabel"/>
+                    <TextBlock Text="Loaded on startup (leave blank to start empty)" Classes="SettingHint"/>
+                    <Grid ColumnDefinitions="*,32">
+                        <TextBox x:Name="TbDefaultWorkspace"
+                                 Grid.Column="0" Classes="SettingInput"/>
+                        <Button Grid.Column="1" Content="…" Margin="4,0,0,0"
+                                Background="{StaticResource Br.Bg.Input}"
+                                Foreground="{StaticResource Br.Text.Primary}"
+                                FontSize="12" Click="BtnBrowseWorkspace_Click"/>
+                    </Grid>
+                </StackPanel>
+
+                <!-- ── INSTALL ─────────────────────────────────────────── -->
+                <TextBlock Text="INSTALL" Classes="SectionHeader" Margin="0,12,0,0"/>
+
+                <StackPanel Classes="SettingRow">
+                    <TextBlock Text="Install Folder" Classes="SettingLabel"/>
+                    <TextBlock x:Name="TbInstallPath" Classes="SettingHint"
+                               TextWrapping="Wrap" Text="…"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <Button x:Name="BtnOpenInstallFolder"
+                                Content="📁  Open Folder"
+                                Click="BtnOpenInstallFolder_Click"
+                                Background="{StaticResource Br.Bg.Input}"
+                                Foreground="{StaticResource Br.Text.Primary}"
+                                FontSize="11" Padding="8,6" Margin="0,0,6,0"
+                                ToolTip.Tip="Open the TheOrc install folder in Explorer"/>
+                        <Button x:Name="BtnOpenDataFolder"
+                                Content="🗂  Data Folder"
+                                Click="BtnOpenDataFolder_Click"
+                                Background="{StaticResource Br.Bg.Input}"
+                                Foreground="{StaticResource Br.Text.Primary}"
+                                FontSize="11" Padding="8,6"
+                                ToolTip.Tip="Open the TheOrc data folder (%AppData%\OrchestratorIDE)"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- ── SELF-IMPROVE ────────────────────────────────────── -->
+                <TextBlock Text="SELF-IMPROVE" Classes="SectionHeader" Margin="0,12,0,0"/>
+
+                <Border Background="#0E1A0E" CornerRadius="4"
+                        BorderBrush="#1E3A1E" BorderThickness="1"
+                        Padding="10,8" Margin="8,4,8,4">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <TextBlock Text="⬡" Foreground="#76B900" FontSize="10"
+                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="TheOrc can improve itself"
+                                       Foreground="#76B900" FontSize="11" FontWeight="Bold"/>
+                        </StackPanel>
+                        <TextBlock Text="Grab the source, then let TheOrc scan its own code and open GitHub issues to suggest fixes and improvements — guided by the active model."
+                                   Foreground="#4A6A4A" FontSize="10"
+                                   TextWrapping="Wrap" LineHeight="15"/>
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Classes="SettingRow">
+                    <TextBlock Text="Source Folder" Classes="SettingLabel"/>
+                    <Grid ColumnDefinitions="*,32">
+                        <TextBox x:Name="TbSourceFolder"
+                                 Grid.Column="0" Classes="SettingInput"
+                                 ToolTip.Tip="Local folder where TheOrc source code will be stored"/>
+                        <Button Grid.Column="1" Content="…" Margin="4,0,0,0"
+                                Background="{StaticResource Br.Bg.Input}"
+                                Foreground="{StaticResource Br.Text.Primary}"
+                                FontSize="12" Click="BtnBrowseSourceFolder_Click"/>
+                    </Grid>
+                </StackPanel>
+
+                <StackPanel Classes="SettingRow">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <Button x:Name="BtnGrabSource"
+                                Content="⬇  Grab Source"
+                                Click="BtnGrabSource_Click"
+                                Background="#1A2A0A" Foreground="#76B900"
+                                BorderBrush="#2A4A0A" FontSize="11" Padding="10,6"
+                                Margin="0,0,8,0"
+                                ToolTip.Tip="Clone (or pull) TheOrc from GitHub/main into the source folder"/>
+                        <Button x:Name="BtnOpenSourceAsWorkspace"
+                                Content="📂  Open in Agent"
+                                Click="BtnOpenSourceAsWorkspace_Click"
+                                Background="{StaticResource Br.Bg.Input}"
+                                Foreground="{StaticResource Br.Text.Primary}"
+                                FontSize="11" Padding="10,6"
+                                ToolTip.Tip="Load the source folder as the active workspace so TheOrc can edit itself"/>
+                    </StackPanel>
+
+                    <Button x:Name="BtnScanImprovements"
+                            Content="🔍  Scan GitHub — Suggest Improvements"
+                            Click="BtnScanImprovements_Click"
+                            Background="#0A1A2A" Foreground="#4EC9B0"
+                            BorderBrush="#0A3A4A" FontSize="11" Padding="10,7"
+                            HorizontalAlignment="Stretch"
+                            ToolTip.Tip="Fetch open GitHub issues + recent commits, then ask the active model to prioritise bugs and suggest improvements"/>
+                </StackPanel>
+
+                <Border Padding="8,0,8,4">
+                    <TextBlock x:Name="TbSelfImproveStatus" Text=""
+                               FontSize="10" TextWrapping="Wrap"
+                               Foreground="{StaticResource Br.Accent.Green}"/>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+    </DockPanel>
+</UserControl>
