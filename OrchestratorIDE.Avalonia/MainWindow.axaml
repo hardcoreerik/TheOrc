@@ -109,7 +109,8 @@
                                     ToolTip.Tip="Training Pit — dataset farming, review queue, night harvest"
                                     BorderThickness="0" Background="Transparent" Foreground="#666666"
                                     Cursor="Hand" Click="BtnModePit_Click"
-                                    AutomationProperties.AutomationId="Mode.Pit">
+                                    AutomationProperties.AutomationId="Mode.Pit"
+                                    AutomationProperties.Name="⛏ Pit">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="⛏ Pit"/>
                                     <Ellipse x:Name="PitLiveDot" Width="7" Height="7" Fill="#76B900"
@@ -126,7 +127,8 @@
                                     FontSize="11" BorderThickness="0"
                                     Background="Transparent" Foreground="#666666"
                                     Cursor="Hand" Click="BtnModeHive_Click"
-                                    AutomationProperties.AutomationId="Mode.Hive">
+                                    AutomationProperties.AutomationId="Mode.Hive"
+                                    AutomationProperties.Name="🐝 Hive">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="🐝 Hive"/>
                                     <TextBlock x:Name="HiveNodeBadge" Text="" Margin="4,0,0,0"

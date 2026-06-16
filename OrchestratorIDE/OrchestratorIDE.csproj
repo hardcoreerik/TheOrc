@@ -9,9 +9,9 @@
     <RootNamespace>OrchestratorIDE</RootNamespace>
     <ApplicationIcon>..\Assets\icon.ico</ApplicationIcon>
     <!-- Semantic version — shown in title bar and compared against GitHub releases -->
-    <Version>1.6.1</Version>
-    <AssemblyVersion>1.6.1.0</AssemblyVersion>
-    <FileVersion>1.6.1.0</FileVersion>
+    <Version>1.7.0</Version>
+    <AssemblyVersion>1.7.0.0</AssemblyVersion>
+    <FileVersion>1.7.0.0</FileVersion>
     <NoWarn>$(NoWarn);NU1510</NoWarn>
     <!-- WPF symbol lets shared source files guard WPF-specific code without
          relying on WINDOWS, which is also defined in the Avalonia project. -->
