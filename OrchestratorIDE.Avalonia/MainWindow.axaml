@@ -1,0 +1,624 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!--
+    Phase 5 — Full IDE layout.
+    ┌─────────────────────────────────────────────────────────────────┐
+    │  Title bar (custom) — brand + mode toggle + model badge         │
+    ├─────────────────────────────────────────────────────────────────┤
+    │  Menu bar  File | Edit | View | Agent | Models | Debug | Help   │
+    ├────┬────────────────────────┬────────────────────────────────── │
+    │ AB │  Sidebar               │  Agent / Swarm / Chat / Pit       │
+    │    │  (file explorer /      ├────────────────────────           │
+    │    │   sessions / settings) │  Code Editor (optional)           │
+    │    │                        ├────────────────────────────────── │
+    │    │                        │  Activity log                     │
+    ├────┴────────────────────────┴──────────────────────────────────┤
+    │  Status bar — workspace · branch · trust · model · badges       │
+    └─────────────────────────────────────────────────────────────────┘
+    AB = Activity Bar (44 px icon strip, left edge)
+-->
+<Window x:Class="OrchestratorIDE.MainWindow"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:core="clr-namespace:OrchestratorIDE.Core"
+        xmlns:converters="clr-namespace:OrchestratorIDE.UI.Converters"
+        xmlns:panels="clr-namespace:OrchestratorIDE.UI.Panels"
+        xmlns:controls="clr-namespace:OrchestratorIDE.UI.Controls"
+        Title="TheOrc — Orchestrator IDE"
+        Width="1300" Height="800"
+        MinWidth="900" MinHeight="600"
+        Background="{StaticResource Br.Bg.App}"
+        AutomationProperties.AutomationId="MainWindow"
+        AutomationProperties.Name="Orchestrator IDE">
+
+    <Window.Resources>
+        <converters:HexToBrushConverter        x:Key="HexToBrush"/>
+        <converters:FilePathForegroundConverter x:Key="FilePathFg"/>
+    </Window.Resources>
+
+    <!-- Recording blink animation — plays while BdrRecording is visible -->
+    <Window.Styles>
+        <Style Selector="Border#BdrRecording Ellipse">
+            <Style.Animations>
+                <Animation Duration="0:0:0.8" IterationCount="INFINITE" PlaybackDirection="Alternate">
+                    <KeyFrame Cue="0%"><Setter Property="Opacity" Value="1.0"/></KeyFrame>
+                    <KeyFrame Cue="100%"><Setter Property="Opacity" Value="0.2"/></KeyFrame>
+                </Animation>
+            </Style.Animations>
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="32,26,*,30">
+
+        <!-- ── Title bar ──────────────────────────────────────────── -->
+        <Border Grid.Row="0" Background="#0E0E0E"
+                BorderBrush="#2A3A2A" BorderThickness="0,0,0,1">
+            <DockPanel LastChildFill="True">
+
+                <!-- NVIDIA-green left brand stripe -->
+                <Border DockPanel.Dock="Left" Width="4"
+                        Background="{StaticResource Br.Accent.Green}"/>
+
+                <!-- TheOrc wordmark -->
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal"
+                            VerticalAlignment="Center" Margin="10,0,0,0">
+                    <TextBlock Text="⬡" Foreground="{StaticResource Br.Accent.Green}"
+                               FontSize="18" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock Text="TheOrc"
+                               Foreground="{StaticResource Br.Text.White}"
+                               FontSize="14" FontWeight="Bold" VerticalAlignment="Center"
+                               FontFamily="Consolas, 'Cascadia Code', monospace"/>
+                    <TextBlock Text=" · " Foreground="{StaticResource Br.Text.Muted}"
+                               FontSize="12" VerticalAlignment="Center"/>
+                    <TextBlock Text="Orchestrator IDE"
+                               Foreground="{StaticResource Br.Text.Muted}"
+                               FontSize="11" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Right: mode toggle + model badge + context % -->
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
+                            HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Margin="0,0,12,0">
+
+                    <!-- Mode toggle pill -->
+                    <Border Background="#161616" CornerRadius="4"
+                            BorderBrush="#2A3A2A" BorderThickness="1"
+                            Margin="0,0,12,0" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="BtnModeSingle" Content="⚡ Single"
+                                    ToolTip.Tip="Single Agent mode — focused coding session"
+                                    Padding="10,4" FontSize="11" BorderThickness="0"
+                                    Background="Transparent" Foreground="#666666"
+                                    Cursor="Hand" Click="BtnModeSingle_Click"
+                                    AutomationProperties.AutomationId="Mode.Single"/>
+                            <Rectangle Width="1" Fill="#2A3A2A"/>
+                            <Button x:Name="BtnModeSwarm" Content="🐝 Swarm"
+                                    ToolTip.Tip="Swarm multi-agent mode"
+                                    Padding="10,4" FontSize="11" BorderThickness="0"
+                                    Background="Transparent" Foreground="#666666"
+                                    Cursor="Hand" Click="BtnModeSwarm_Click"
+                                    AutomationProperties.AutomationId="Mode.Swarm"/>
+                            <Rectangle Width="1" Fill="#2A3A2A"/>
+                            <Button x:Name="BtnModeChat" Content="💬 Chat"
+                                    ToolTip.Tip="Just Chat — research with web search"
+                                    Padding="10,4" FontSize="11" BorderThickness="0"
+                                    Background="Transparent" Foreground="#666666"
+                                    Cursor="Hand" Click="BtnModeChat_Click"
+                                    AutomationProperties.AutomationId="Mode.Chat"/>
+                            <Rectangle Width="1" Fill="#2A3A2A"/>
+                            <Button x:Name="BtnModePit" Padding="10,4" FontSize="11"
+                                    ToolTip.Tip="Training Pit — dataset farming, review queue, night harvest"
+                                    BorderThickness="0" Background="Transparent" Foreground="#666666"
+                                    Cursor="Hand" Click="BtnModePit_Click"
+                                    AutomationProperties.AutomationId="Mode.Pit">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="⛏ Pit"/>
+                                    <Ellipse x:Name="PitLiveDot" Width="7" Height="7" Fill="#76B900"
+                                             VerticalAlignment="Center" Margin="5,0,0,0"
+                                             IsVisible="False"
+                                             ToolTip.Tip="The pit is collecting plans right now"/>
+                                    <TextBlock x:Name="PitQueueBadge" Text="" Margin="4,0,0,0"
+                                               ToolTip.Tip="Plans waiting for your review"/>
+                                </StackPanel>
+                            </Button>
+                            <Rectangle Width="1" Fill="#2A3A2A"/>
+                            <Button x:Name="BtnModeHive" Padding="10,4" Margin="6,0,0,0"
+                                    ToolTip.Tip="HIVE MIND — other PCs on your network running TheOrc"
+                                    FontSize="11" BorderThickness="0"
+                                    Background="Transparent" Foreground="#666666"
+                                    Cursor="Hand" Click="BtnModeHive_Click"
+                                    AutomationProperties.AutomationId="Mode.Hive">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="🐝 Hive"/>
+                                    <TextBlock x:Name="HiveNodeBadge" Text="" Margin="4,0,0,0"
+                                               ToolTip.Tip="Nodes online"/>
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="BtnModeUpdate" Padding="10,4" Margin="6,0,0,0"
+                                    ToolTip.Tip="Update — check for new releases and upgrade the fleet"
+                                    FontSize="11" BorderThickness="0"
+                                    Background="Transparent" Foreground="#666666"
+                                    Cursor="Hand" Click="BtnModeUpdate_Click"
+                                    AutomationProperties.AutomationId="Mode.Update">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="⬆ Update"/>
+                                    <Ellipse x:Name="UpdateDot" Width="7" Height="7"
+                                             Fill="#CCA700" VerticalAlignment="Center"
+                                             Margin="5,0,0,0" IsVisible="False"
+                                             ToolTip.Tip="Update available"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Active model chip -->
+                    <Border Background="#1A2A0A" CornerRadius="3" Padding="7,2"
+                            Margin="0,0,10,0">
+                        <TextBlock x:Name="TbModelBadge" Text="no model"
+                                   Foreground="{StaticResource Br.Accent.Green}"
+                                   FontSize="10" VerticalAlignment="Center"
+                                   MaxWidth="220" TextTrimming="CharacterEllipsis"/>
+                    </Border>
+
+                    <!-- Context % -->
+                    <TextBlock x:Name="TbContextPct" Text="0%"
+                               Foreground="{StaticResource Br.Text.Muted}"
+                               FontSize="11" VerticalAlignment="Center"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ── Menu bar ───────────────────────────────────────────── -->
+        <Menu Grid.Row="1"
+              Background="#141814" Foreground="#D4D4D4"
+              BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1"
+              FontSize="12">
+
+            <!-- File -->
+            <MenuItem Header="_File">
+                <MenuItem Header="Open Folder…"       Click="Menu_OpenFolder"/>
+                <MenuItem x:Name="MiOpenRecent" Header="Open Recent" IsEnabled="False"/>
+                <MenuItem Header="Open in Explorer"   Click="Menu_OpenExplorer"/>
+                <Separator/>
+                <MenuItem Header="New Session"        Click="Menu_NewSession"/>
+                <Separator/>
+                <MenuItem Header="Exit"               Click="Menu_Exit"/>
+            </MenuItem>
+
+            <!-- Edit -->
+            <MenuItem Header="_Edit">
+                <MenuItem Header="Command Palette…"   Click="Menu_CommandPalette"/>
+                <Separator/>
+                <MenuItem Header="Settings"           Click="Menu_Settings"/>
+            </MenuItem>
+
+            <!-- View -->
+            <MenuItem Header="_View">
+                <MenuItem Header="File Explorer"      Click="Menu_ShowExplorer"/>
+                <MenuItem Header="Code Editor"        Click="Menu_ToggleEditor"/>
+                <MenuItem Header="Edit Rules File"    Click="Menu_EditRules"/>
+                <Separator/>
+                <MenuItem x:Name="MiWordWrap" Header="Word Wrap" Click="Menu_WordWrap"/>
+                <Separator/>
+                <MenuItem Header="Increase Font Size" Click="Menu_FontBigger"/>
+                <MenuItem Header="Decrease Font Size" Click="Menu_FontSmaller"/>
+                <MenuItem Header="Reset Font Size"    Click="Menu_FontReset"/>
+            </MenuItem>
+
+            <!-- Agent -->
+            <MenuItem Header="_Agent">
+                <MenuItem Header="Plan Mode"    Click="Menu_ModePlan"/>
+                <MenuItem Header="Execute Mode" Click="Menu_ModeExecute"/>
+                <Separator/>
+                <MenuItem Header="Change Model…" Click="Menu_ChangeModel"/>
+                <Separator/>
+                <MenuItem Header="New Session"   Click="Menu_NewSession"/>
+            </MenuItem>
+
+            <!-- Models -->
+            <MenuItem Header="_Models"
+                      AutomationProperties.AutomationId="Menu.Models">
+                <MenuItem Header="Choose Model…"      Click="Menu_ModelChoose"/>
+                <MenuItem Header="Download Models…"   Click="Menu_ModelDownload"/>
+                <Separator/>
+                <MenuItem Header="Warm Up">
+                    <MenuItem Header="Worker · Coder"       Tag="worker"     Click="Menu_WarmUp"/>
+                    <MenuItem Header="Boss · Orchestrator"   Tag="boss"       Click="Menu_WarmUp"/>
+                    <MenuItem Header="Researcher"            Tag="researcher" Click="Menu_WarmUp"/>
+                    <Separator/>
+                    <MenuItem Header="Edit Warm-Up Scripts…" Click="Menu_WarmUpEdit"/>
+                </MenuItem>
+                <Separator/>
+                <MenuItem Header="Run Tool Call Tests…"        Click="Menu_RunToolProbe"/>
+                <MenuItem Header="Run Model Capability Test…"
+                          AutomationProperties.AutomationId="Menu.ModelCapabilityTest"
+                          Click="Menu_RunModelCapabilityTest"/>
+                <Separator/>
+                <MenuItem Header="Model Wiki / Lab…"
+                          AutomationProperties.AutomationId="Menu.ModelWiki"
+                          Click="Menu_ModelWiki"/>
+                <Separator/>
+                <MenuItem Header="Manage Library…" Click="Menu_ModelLibrary"/>
+            </MenuItem>
+
+            <!-- Debug -->
+            <MenuItem Header="_Debug">
+                <MenuItem Header="Start / Stop Recording"  Click="Menu_ToggleRecording"/>
+                <MenuItem Header="Open Recordings Folder…" Click="Menu_OpenRecordings"/>
+            </MenuItem>
+
+            <!-- Help -->
+            <MenuItem Header="_Help"
+                      AutomationProperties.AutomationId="Menu.Help">
+                <MenuItem Header="Help Topics"
+                          AutomationProperties.AutomationId="Help.Topics"
+                          Click="Menu_HelpTopics"/>
+                <Separator/>
+                <MenuItem Header="Documentation"
+                          AutomationProperties.AutomationId="Help.Documentation"
+                          Click="Menu_HelpDocumentation"/>
+                <MenuItem Header="Troubleshooting"
+                          AutomationProperties.AutomationId="Help.Troubleshooting"
+                          Click="Menu_HelpTroubleshooting"/>
+                <MenuItem Header="Model Guide"
+                          AutomationProperties.AutomationId="Help.ModelGuide"
+                          Click="Menu_HelpModelGuide"/>
+                <MenuItem Header="Training Pit Guide"
+                          AutomationProperties.AutomationId="Help.TrainingPitGuide"
+                          Click="Menu_HelpTrainingPitGuide"/>
+                <Separator/>
+                <MenuItem Header="Check for Updates…" Click="Menu_CheckUpdates"/>
+                <Separator/>
+                <MenuItem Header="View Release Notes"  Click="Menu_ReleaseNotes"/>
+                <MenuItem Header="GitHub Repository"   Click="Menu_GitHub"/>
+            </MenuItem>
+        </Menu>
+
+        <!-- ── Workbench ──────────────────────────────────────────── -->
+        <Grid Grid.Row="2" ColumnDefinitions="44,220,4,*">
+
+            <!-- Activity Bar -->
+            <Border Grid.Column="0" Background="#101410">
+                <DockPanel>
+                    <Border DockPanel.Dock="Left" Width="2"
+                            Background="{StaticResource Br.Accent.Green}" Opacity="0.6"/>
+                    <StackPanel VerticalAlignment="Top" Margin="0,6,0,0">
+                        <Border Margin="0,0,0,6" Padding="0,4">
+                            <TextBlock Text="⬡" Foreground="{StaticResource Br.Accent.Green}"
+                                       FontSize="18" HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+                        </Border>
+                        <Separator Background="{StaticResource Br.Border}" Margin="6,0,6,6" Height="1"/>
+                        <Button x:Name="BtnExplorer" Content="📁"
+                                ToolTip.Tip="File Explorer (Ctrl+Shift+E)"
+                                Background="Transparent" Foreground="#D4D4D4"
+                                BorderThickness="0" Width="44" Height="36" FontSize="16"
+                                HorizontalContentAlignment="Center"
+                                AutomationProperties.AutomationId="ActivityBar.Explorer"
+                                Click="BtnExplorer_Click"/>
+                        <Button x:Name="BtnAgent" Content="⚡"
+                                ToolTip.Tip="Code Agent (Ctrl+Shift+A)"
+                                Background="Transparent" Foreground="#D4D4D4"
+                                BorderThickness="0" Width="44" Height="36" FontSize="16"
+                                HorizontalContentAlignment="Center"
+                                AutomationProperties.AutomationId="ActivityBar.Agent"
+                                Click="BtnAgent_Click"/>
+                        <Button x:Name="BtnCheckpoints" Content="⬡"
+                                ToolTip.Tip="Checkpoints"
+                                Background="Transparent" Foreground="#D4D4D4"
+                                BorderThickness="0" Width="44" Height="36" FontSize="16"
+                                HorizontalContentAlignment="Center"
+                                AutomationProperties.AutomationId="ActivityBar.Checkpoints"
+                                Click="BtnCheckpoints_Click"/>
+                        <Button x:Name="BtnTools" Content="🔧"
+                                ToolTip.Tip="Tool Editor — write + hot-load custom tools"
+                                Background="Transparent" Foreground="#D4D4D4"
+                                BorderThickness="0" Width="44" Height="36" FontSize="16"
+                                HorizontalContentAlignment="Center"
+                                AutomationProperties.AutomationId="ActivityBar.Tools"
+                                Click="BtnTools_Click"/>
+                        <Button x:Name="BtnSettings" Content="⚙"
+                                ToolTip.Tip="Settings"
+                                Background="Transparent" Foreground="#D4D4D4"
+                                BorderThickness="0" Width="44" Height="36" FontSize="16"
+                                HorizontalContentAlignment="Center"
+                                AutomationProperties.AutomationId="ActivityBar.Settings"
+                                Click="BtnSettings_Click"/>
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
+            <!-- Sidebar -->
+            <Border Grid.Column="1" Background="{StaticResource Br.Bg.Sidebar}"
+                    BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,1,0">
+                <ContentControl x:Name="SidebarContent"/>
+            </Border>
+
+            <!-- Sidebar/main splitter -->
+            <GridSplitter Grid.Column="2" Width="4" ResizeDirection="Columns"
+                          Background="{StaticResource Br.Border}"/>
+
+            <!-- Main area: vertical split — [Agent+Editor] / Activity log -->
+            <Grid Grid.Column="3" RowDefinitions="2*,4,*">
+
+                <!-- Top: horizontal split — Agent panel | Editor pane -->
+                <Grid x:Name="EditorHostGrid" Grid.Row="0"
+                      ColumnDefinitions="*,0,0">
+                    <ContentControl x:Name="MainContent" Grid.Column="0"/>
+                    <GridSplitter x:Name="SplitterEditor"
+                                  Grid.Column="1"
+                                  Width="4" ResizeDirection="Columns"
+                                  Background="{StaticResource Br.Border}"
+                                  IsVisible="False"/>
+                    <ContentControl x:Name="EditorContent"
+                                    Grid.Column="2"
+                                    IsVisible="False"/>
+                </Grid>
+
+                <!-- Horizontal splitter -->
+                <GridSplitter Grid.Row="1" Height="4" ResizeDirection="Rows"
+                              Background="{StaticResource Br.Border}"/>
+
+                <!-- Activity log -->
+                <Border Grid.Row="2" Background="{StaticResource Br.Bg.Panel}"
+                        BorderBrush="{StaticResource Br.Border}" BorderThickness="0,1,0,0">
+                    <DockPanel>
+                        <!-- Header: title + verbosity selector -->
+                        <DockPanel DockPanel.Dock="Top" Background="#141814" LastChildFill="False">
+                            <TextBlock DockPanel.Dock="Left" Text="ACTIVITY"
+                                       Foreground="{StaticResource Br.Text.Muted}"
+                                       FontSize="10" FontWeight="Bold" Padding="8,4"/>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,1,4,1">
+                                <Button x:Name="VerbBtn1" Content="1" Tag="1"
+                                        Width="20" Height="18" FontSize="9" Padding="0"
+                                        Background="Transparent" Foreground="#999999"
+                                        BorderThickness="0"
+                                        ToolTip.Tip="Silent — hide all events"
+                                        Click="VerbBtn_Click"/>
+                                <Button x:Name="VerbBtn2" Content="2" Tag="2"
+                                        Width="20" Height="18" FontSize="9" Padding="0"
+                                        Background="Transparent" Foreground="#999999"
+                                        BorderThickness="0"
+                                        ToolTip.Tip="Default — key events only"
+                                        Click="VerbBtn_Click"/>
+                                <Button x:Name="VerbBtn3" Content="3" Tag="3"
+                                        Width="20" Height="18" FontSize="9" Padding="0"
+                                        Background="Transparent" Foreground="#999999"
+                                        BorderThickness="0"
+                                        ToolTip.Tip="Medium — + rules content, full tool args"
+                                        Click="VerbBtn_Click"/>
+                                <Button x:Name="VerbBtn4" Content="4" Tag="4"
+                                        Width="20" Height="18" FontSize="9" Padding="0"
+                                        Background="Transparent" Foreground="#999999"
+                                        BorderThickness="0"
+                                        ToolTip.Tip="High — + step responses, full tool results"
+                                        Click="VerbBtn_Click"/>
+                                <Button x:Name="VerbBtn5" Content="5" Tag="5"
+                                        Width="20" Height="18" FontSize="9" Padding="0"
+                                        Background="Transparent" Foreground="#999999"
+                                        BorderThickness="0"
+                                        ToolTip.Tip="Everything — raw content, timing, full debug"
+                                        Click="VerbBtn_Click"/>
+                            </StackPanel>
+                        </DockPanel>
+
+                        <ScrollViewer x:Name="ActivityScroll"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl x:Name="ActivityLog" Padding="6,2">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="core:ActivityEvent">
+                                        <Grid Margin="0,1">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="18"/>
+                                                <ColumnDefinition Width="110"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="Copy detail"    Click="ActivityCopyDetail_Click"/>
+                                                    <MenuItem Header="Copy full line" Click="ActivityCopyFull_Click"/>
+                                                    <Separator/>
+                                                    <MenuItem Header="Save output to…">
+                                                        <MenuItem Header="Markdown (.md)"   Tag="md"  Click="ActivitySaveOutput_Click"/>
+                                                        <MenuItem Header="Log file (.log)"  Tag="log" Click="ActivitySaveOutput_Click"/>
+                                                        <MenuItem Header="Text file (.txt)" Tag="txt" Click="ActivitySaveOutput_Click"/>
+                                                    </MenuItem>
+                                                    <Separator/>
+                                                    <MenuItem Header="Clear log" Click="ActivityClearLog_Click"/>
+                                                </ContextMenu>
+                                            </Grid.ContextMenu>
+                                            <TextBlock Grid.Column="0" Text="{Binding Icon}"
+                                                       Foreground="{Binding IconColor, Converter={StaticResource HexToBrush}}"
+                                                       FontSize="11" VerticalAlignment="Top"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Label}"
+                                                       Foreground="{StaticResource Br.Text.Muted}"
+                                                       FontSize="11" Margin="4,0"
+                                                       VerticalAlignment="Top"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding Detail}"
+                                                       Foreground="{Binding HasFilePath, Converter={StaticResource FilePathFg}}"
+                                                       FontSize="11" TextWrapping="Wrap"
+                                                       PointerPressed="ActivityDetail_PointerPressed"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- ── Status bar ─────────────────────────────────────────── -->
+        <Border Grid.Row="3" Background="{StaticResource Br.Bg.StatusBar}">
+            <DockPanel>
+                <TextBlock x:Name="SbWorkspace" DockPanel.Dock="Left"
+                           Text="📁 No workspace" Foreground="#A8CC80"
+                           Margin="8,0" VerticalAlignment="Center" FontSize="13"
+                           AutomationProperties.AutomationId="StatusBar.Workspace"/>
+                <TextBlock x:Name="SbBranch" DockPanel.Dock="Left"
+                           Text="" Foreground="#76B900"
+                           Margin="0,0,8,0" VerticalAlignment="Center" FontSize="13"
+                           AutomationProperties.AutomationId="StatusBar.Branch"/>
+                <TextBlock x:Name="SbBuild" DockPanel.Dock="Left"
+                           Text="" Foreground="#666666" FontFamily="Consolas"
+                           Margin="0,0,8,0" VerticalAlignment="Center" FontSize="11"
+                           AutomationProperties.AutomationId="StatusBar.Build"/>
+
+                <!-- Model status widget -->
+                <Border x:Name="SbModelStatus"
+                        DockPanel.Dock="Right"
+                        Background="#111111" CornerRadius="3"
+                        Padding="6,1" Margin="0,2,8,2"
+                        Cursor="Hand" IsVisible="False"
+                        ToolTip.Tip="Model status — click to open Downloader"
+                        PointerPressed="SbModelStatus_Click">
+                    <TextBlock x:Name="TxtSbModelStatus"
+                               Foreground="{StaticResource Br.Accent.Green}"
+                               FontFamily="Consolas" FontSize="12"/>
+                </Border>
+
+                <!-- Model badge -->
+                <TextBlock x:Name="SbModel" DockPanel.Dock="Right"
+                           Foreground="#76B900"
+                           Margin="8,0" VerticalAlignment="Center" FontSize="13"
+                           Cursor="Hand"
+                           ToolTip.Tip="Click to change model"
+                           PointerPressed="SbModel_Click"
+                           AutomationProperties.AutomationId="StatusBar.Model"/>
+
+                <!-- Trust level selector -->
+                <Border DockPanel.Dock="Right"
+                        Background="#111111"
+                        BorderBrush="#2A2A2A" BorderThickness="1"
+                        CornerRadius="3" Margin="0,2,8,2" Padding="1">
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="BtnTrustPlan"
+                                Content="📋 Plan" Tag="Plan"
+                                Click="BtnTrust_Click"
+                                ToolTip.Tip="Plan mode — agent reads and reasons only."
+                                AutomationProperties.AutomationId="Trust.Plan"
+                                Background="Transparent" Foreground="#666666"
+                                BorderThickness="0" Padding="6,2" FontSize="11"/>
+                        <Rectangle Width="1" Fill="#2A2A2A" Margin="1,3"/>
+                        <Button x:Name="BtnTrustGuarded"
+                                Content="🛡 Guarded" Tag="Guarded"
+                                Click="BtnTrust_Click"
+                                ToolTip.Tip="Guarded — every file write and shell command requires explicit approval."
+                                AutomationProperties.AutomationId="Trust.Guarded"
+                                Background="Transparent" Foreground="#666666"
+                                BorderThickness="0" Padding="6,2" FontSize="11"/>
+                        <Rectangle Width="1" Fill="#2A2A2A" Margin="1,3"/>
+                        <Button x:Name="BtnTrustStandard"
+                                Content="✅ Standard" Tag="Standard"
+                                Click="BtnTrust_Click"
+                                ToolTip.Tip="Standard — file writes auto-approved; shell commands require approval."
+                                AutomationProperties.AutomationId="Trust.Standard"
+                                Background="Transparent" Foreground="#666666"
+                                BorderThickness="0" Padding="6,2" FontSize="11"/>
+                        <Rectangle Width="1" Fill="#2A2A2A" Margin="1,3"/>
+                        <Button x:Name="BtnTrustFullAuto"
+                                Content="⚡ Full Auto" Tag="FullAuto"
+                                Click="BtnTrust_Click"
+                                ToolTip.Tip="Full Auto — all tools run without prompts. Use with care."
+                                AutomationProperties.AutomationId="Trust.FullAuto"
+                                Background="Transparent" Foreground="#666666"
+                                BorderThickness="0" Padding="6,2" FontSize="11"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Pending approval chip -->
+                <Border x:Name="BdrApprovalChip"
+                        DockPanel.Dock="Right"
+                        IsVisible="False"
+                        Background="#1A2A00"
+                        BorderBrush="#76B900" BorderThickness="1"
+                        CornerRadius="3" Margin="0,2,6,2" Padding="4,0">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock x:Name="TbApprovalChipLabel"
+                                   Text="⏳ Approval needed"
+                                   Foreground="#CCA700"
+                                   FontSize="13" FontWeight="SemiBold"
+                                   VerticalAlignment="Center"
+                                   Margin="4,0,8,0"/>
+                        <Button x:Name="BtnStatusApprove"
+                                Content="✓  Apply"
+                                Click="BtnStatusApprove_Click"
+                                ToolTip.Tip="Approve this action"
+                                Cursor="Hand" Margin="0,0,4,0"
+                                Background="#1F3D00" Foreground="#76B900"
+                                BorderBrush="#2A5A00" FontSize="13" FontWeight="SemiBold"/>
+                        <Button x:Name="BtnStatusReject"
+                                Content="✗  Reject"
+                                Click="BtnStatusReject_Click"
+                                ToolTip.Tip="Reject this action"
+                                Cursor="Hand" Margin="0,0,2,0"
+                                Background="#2A0A0A" Foreground="#F44747"
+                                BorderBrush="#4A1A1A" FontSize="13" FontWeight="SemiBold"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Screenshot button -->
+                <Border DockPanel.Dock="Right"
+                        Background="#111111"
+                        BorderBrush="#2A2A2A" BorderThickness="1"
+                        CornerRadius="3" Padding="8,2" Margin="4,2,4,2"
+                        Cursor="Hand"
+                        ToolTip.Tip="Take a screenshot of this window"
+                        AutomationProperties.AutomationId="StatusBar.Screenshot"
+                        PointerPressed="BdrScreenshot_Click">
+                    <TextBlock Text="📷" FontSize="15" VerticalAlignment="Center"/>
+                </Border>
+
+                <!-- Recording indicator — visible only while recording -->
+                <Border x:Name="BdrRecording"
+                        DockPanel.Dock="Right"
+                        Background="#5A0000"
+                        CornerRadius="3" Padding="6,0" Margin="4,2,4,2"
+                        Cursor="Hand" IsVisible="False"
+                        ToolTip.Tip="Recording — click to stop (or press F12)"
+                        PointerPressed="BdrRecording_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Width="7" Height="7" Fill="#FF3333"
+                                 VerticalAlignment="Center" Margin="0,0,5,0"/>
+                        <TextBlock x:Name="TbRecordingTime"
+                                   Text="REC 00:00"
+                                   Foreground="#FF9999"
+                                   FontSize="13" FontWeight="SemiBold"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Update badge — collapsed until newer release detected -->
+                <Border x:Name="BdrUpdateBadge"
+                        DockPanel.Dock="Right"
+                        Background="#1A6B35"
+                        CornerRadius="3" Padding="6,0" Margin="4,2,0,2"
+                        Cursor="Hand" IsVisible="False"
+                        ToolTip.Tip="Click to view release notes"
+                        PointerPressed="BdrUpdateBadge_Click">
+                    <TextBlock x:Name="TbUpdateBadge"
+                               Text="↑ Update available"
+                               Foreground="#AAFFAA"
+                               FontSize="13" VerticalAlignment="Center"/>
+                </Border>
+
+                <!-- Status text (centred fill) -->
+                <TextBlock x:Name="SbStatus" Text="Ready"
+                           Foreground="{StaticResource Br.Text.White}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="13"
+                           AutomationProperties.AutomationId="StatusBar.Status"/>
+            </DockPanel>
+        </Border>
+
+        <!-- Model picker popup — anchors near the status bar model badge -->
+        <Popup x:Name="ModelPickerPopup" Placement="Top" IsLightDismissEnabled="True">
+            <controls:ModelPickerPopup x:Name="ModelPickerContent"/>
+        </Popup>
+
+        <!-- Command palette overlay — Ctrl+K -->
+        <Popup x:Name="CmdPalettePopup" Placement="Center" IsLightDismissEnabled="True">
+            <controls:CommandPalette x:Name="CmdPaletteContent"/>
+        </Popup>
+
+    </Grid>
+</Window>

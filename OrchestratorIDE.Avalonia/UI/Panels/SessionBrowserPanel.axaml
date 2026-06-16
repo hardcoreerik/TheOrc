@@ -1,0 +1,110 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<UserControl x:Class="OrchestratorIDE.UI.Panels.SessionBrowserPanel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:OrchestratorIDE.UI.Panels"
+             Background="{StaticResource Br.Bg.Sidebar}">
+
+    <!--
+    ═══════════════════════════════════════════════════════════
+    SESSION HISTORY BROWSER (Avalonia port)
+    Lists saved sessions; click to resume, ✕ to delete.
+    ═══════════════════════════════════════════════════════════
+    -->
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="36"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#141814"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,0,0,1">
+            <DockPanel Margin="10,0">
+                <Button x:Name="BtnRefresh" DockPanel.Dock="Right"
+                        Content="↻" Width="26" Height="22"
+                        Background="Transparent" Foreground="#888"
+                        BorderThickness="0" FontSize="14"
+                        ToolTip.Tip="Refresh session list"
+                        Click="BtnRefresh_Click"/>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="🗒" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Session History" Foreground="{StaticResource Br.Text.Default}"
+                               FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Session list -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+
+                <TextBlock x:Name="TbEmpty"
+                           Text="No saved sessions found."
+                           Foreground="{StaticResource Br.Text.Muted}"
+                           FontSize="11" Margin="12,16"
+                           IsVisible="False"/>
+
+                <ItemsControl x:Name="SessionList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="local:SessionVm">
+                            <Border BorderBrush="{StaticResource Br.Border}"
+                                    BorderThickness="0,0,0,1">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Info column — click to resume -->
+                                    <Border Grid.Column="0" Padding="10,8"
+                                            Cursor="Hand"
+                                            Background="Transparent"
+                                            PointerReleased="SessionItem_Click">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding WorkspaceName}"
+                                                       Foreground="{StaticResource Br.Text.Default}"
+                                                       FontSize="11" FontWeight="SemiBold"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding WhenLabel}"
+                                                       Foreground="{StaticResource Br.Text.Muted}"
+                                                       FontSize="10" Margin="0,1,0,0"/>
+                                            <TextBlock Text="{Binding Detail}"
+                                                       Foreground="{StaticResource Br.Text.Muted}"
+                                                       FontSize="10" Margin="0,1,0,0"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Delete button -->
+                                    <Button Grid.Column="1"
+                                            Content="✕" Width="26"
+                                            Margin="0,0,4,0"
+                                            Background="Transparent" Foreground="#666"
+                                            BorderThickness="0" FontSize="11"
+                                            Click="BtnDeleteSession_Click"
+                                            VerticalAlignment="Center"
+                                            ToolTip.Tip="Delete this session"/>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer -->
+        <Border Grid.Row="2" Background="#141814"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,1,0,0"
+                Padding="10,6">
+            <TextBlock x:Name="TbStatus"
+                       Text="Click a session to resume it"
+                       Foreground="{StaticResource Br.Text.Muted}"
+                       FontSize="10" TextWrapping="Wrap"/>
+        </Border>
+    </Grid>
+</UserControl>

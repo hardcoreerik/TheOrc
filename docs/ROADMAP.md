@@ -1,6 +1,6 @@
 # TheOrc — Roadmap
 
-> Last updated: 2026-06-14 (v1.6.0 release).
+> Last updated: 2026-06-16 (v1.7.0 release).
 > This document is updated after every GitHub release. It reflects actual code state, not aspirations — features marked Shipped have been verified in the running app.
 
 ---
@@ -9,7 +9,9 @@
 
 TheOrc is a production local AI orchestrator. The core swarm, model intelligence, distributed HIVE MIND, and self-training loop are all shipped and running. The adapter trained by the v1 pipeline scores **99.3%** on structured planning evals. The v2 dataset pipeline is running now (Cerebras gold generation).
 
-The honest gaps: the Reviewer Quality Gate is advisory-only (can always be overridden), the Tool Editor hot-reload is a stub, and HIVE MIND multi-step tool calling on remote workers is Phase 3B (not yet built). Everything else on the shipped list below is real, wired, and tested.
+v1.7.0 ships the Avalonia 12 cross-platform UI migration. The WPF MainWindow (~2,589 lines) has been fully replaced by an Avalonia code-behind with identical service wiring. The build compiles, 121/121 unit tests pass headlessly. Native dialogs (Phase 4) are deferred to v1.8.
+
+The honest gaps: the Reviewer Quality Gate is advisory-only (can always be overridden), the Tool Editor hot-reload is a stub, and HIVE MIND multi-step tool calling on remote workers is Phase 3B (not yet built). Native dialogs (`UserInputDialog`, `ToolEditorPanel` hot-load) are not yet ported to Avalonia. Everything else on the shipped list below is real, wired, and tested.
 
 ---
 
@@ -201,6 +203,32 @@ The honest gaps: the Reviewer Quality Gate is advisory-only (can always be overr
 
 ---
 
+### v1.7 — Avalonia 12 cross-platform UI migration
+
+**WPF → Avalonia migration (Phases 1–5)**
+- Full Avalonia 12.0.4 project (`OrchestratorIDE.Avalonia`): startup, app host, resources, styles
+- All panels ported: `FileExplorerPanel`, `SettingsPanel`, `CheckpointPanel`, `SessionPanel`, `AgentPanel`, `ChatPanel`, `UpdatePanel`, `WarmUpEditorWindow`, `HivePanel`, `PitBossPanel`, `SwarmBoardPanel`, `TrainingPitPanel`
+- `CodeEditorPanel` and `ToolEditorPanel` ported with AvaloniaEdit (Phase 2)
+- `DiffViewer`, `ShellApprovalCard`, `UnknownToolCard`, approval flow (Phase 4 core panels — modal native dialogs deferred to v1.8)
+- `MainWindow.axaml` — 4-row IDE layout (title bar, mode pills, editor/panel grid, status bar); full service wiring in `MainWindow.axaml.cs` (~850 lines replacing 2,589-line WPF code-behind)
+- New Avalonia-native stubs: `CommandPalette.axaml/.cs`, `ModelPickerPopup.axaml/.cs`, `PaletteCommand.cs`, `HexToBrushConverter.cs`, `DialogHelper.cs`
+- `OrchestratorIDE.UnitTests` — 121/121 tests pass headlessly (T10–T18 via shared Compile Include)
+- All Codex BLOCKERs resolved before merge: `StringConverters` namespace fix, fail-closed `ask_user` stub, session workspace rebinding via `ConfirmWorkspace`, complete mode-toggle coloring
+
+**Key Avalonia API substitutions applied**
+- `Dispatcher.UIThread.InvokeAsync` (not WPF `Dispatcher.Invoke`)
+- `IsVisible` (not WPF `Visibility` enum)
+- `ToolTip.SetTip(element, value)` attached property
+- `IsLightDismissEnabled="True"` on Popup (not `StaysOpen="False"`)
+- `IClipboard` from `Avalonia.Input.Platform` with pattern-match
+- `StorageProvider.SaveFilePickerAsync` for file save dialogs
+- `PointerPressedEventArgs` (not `MouseButtonEventArgs`)
+
+**Deferred to v1.8**
+- Phase 4 native modal dialogs: `UserInputDialog`, `AgentBuilderDialog`, `ModelWikiWindow`, `LabWindow`, `ToolEditorDialog` hot-reload
+
+---
+
 ## Needs Testing — real code, not yet battle-tested
 
 These features are fully implemented but have not been stress-tested in the conditions that matter:
@@ -250,7 +278,10 @@ Docs are being normalized around the current implementation. Key gaps:
 
 ---
 
-## Planned — v1.7
+## Planned — v1.8
+
+### Avalonia Phase 4 — native modal dialogs
+Port the remaining WPF-only dialogs to Avalonia: `UserInputDialog` (`ask_user` tool unblock), `AgentBuilderDialog`, `ModelWikiWindow`, `LabWindow`, `ToolEditorDialog` (Roslyn hot-reload). These were deferred from v1.7 because they require deeper WPF→Avalonia rewrites and don't block the core IDE flow.
 
 ### HIVE MIND Phase 3B — multi-step tool calling on remote workers
 `HiveWorkerAgent` currently executes single-pass LLM calls. Phase 3B adds full `AgentLoop`-style multi-step tool execution on remote nodes (file writes, shell commands, web search — all running on the worker machine). This is the primary remaining HIVE gap.
@@ -278,7 +309,7 @@ Allow a HIVE worker node to run GOBLIN HARVEST overnight and return captures to 
 | **Tool Editor hot-reload (Phase 6/7)** | Stub only | Roslyn pipeline is complex; pay-off unclear until tool definitions are more dynamic |
 | **HIVE MIND C2 (RPC model chain)** | Groundwork laid | llama.cpp RPC plumbing exists; full SwarmSession routing to RPC workers not wired; blocked on Phase 3B |
 | **"Zero idle chatter" message discipline** | Not implemented | Good spec hygiene; no user-visible impact currently; revisit when HIVE worker verbosity becomes a real problem |
-| **Cross-platform (Mac / Linux)** | Not started | WPF/.NET is Windows-only; Ollama runs everywhere but UI is the hold-out; revisit after Phase 3B ships and the core is stable |
+| **Cross-platform (Mac / Linux)** | Avalonia UI shipped v1.7; runtime testing on Mac/Linux pending | Avalonia 12 removes the WPF lock; actual cross-platform CI and packaging not yet wired; revisit after Phase 3B ships |
 | **On-platform self-improvement (TheOrc trains itself)** | Partial | Pit Boss + Cerebras pipeline makes the dataset side nearly free; the gap is auto-generating and auto-judging training goals without human input; deferred until v2 adapter proves out the data quality |
 
 ---

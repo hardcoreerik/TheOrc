@@ -1,0 +1,48 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="OrchestratorIDE.App"
+             RequestedThemeVariant="Dark">
+    <Application.Styles>
+        <!-- Fluent base theme (dark variant via RequestedThemeVariant above) -->
+        <FluentTheme />
+    </Application.Styles>
+
+    <!--
+        TheOrc brand resources — NVIDIA/Orc colour palette.
+        These mirror the WPF App.xaml palette so panels can reference the
+        same {StaticResource Br.X} keys after migration. Avalonia uses
+        SolidColorBrush the same way; ControlTheme replaces ControlTemplate.
+
+        Full style overrides (Button, TextBox, ContextMenu, ToggleButton etc.)
+        are added panel-by-panel during the Avalonia migration phases.
+    -->
+    <Application.Resources>
+        <!-- Backgrounds -->
+        <SolidColorBrush x:Key="Br.Bg.App"       Color="#161616"/>
+        <SolidColorBrush x:Key="Br.Bg.Panel"     Color="#1C1C1C"/>
+        <SolidColorBrush x:Key="Br.Bg.Sidebar"   Color="#1A201A"/>
+        <SolidColorBrush x:Key="Br.Bg.StatusBar" Color="#1A3300"/>
+        <SolidColorBrush x:Key="Br.Bg.Input"     Color="#252525"/>
+        <SolidColorBrush x:Key="Br.Bg.Hover"     Color="#1C2A1C"/>
+        <SolidColorBrush x:Key="Br.Bg.Active"    Color="#1F3D00"/>
+
+        <!-- Chrome -->
+        <SolidColorBrush x:Key="Br.Border"       Color="#2E3A2E"/>
+
+        <!-- Text -->
+        <SolidColorBrush x:Key="Br.Text.Primary" Color="#D4D4D4"/>
+        <SolidColorBrush x:Key="Br.Text.Default" Color="#D4D4D4"/>
+        <SolidColorBrush x:Key="Br.Text.Muted"   Color="#7A8A6A"/>
+        <SolidColorBrush x:Key="Br.Text.White"   Color="#FFFFFF"/>
+
+        <!-- Accents -->
+        <SolidColorBrush x:Key="Br.Accent.Green" Color="#76B900"/>
+        <SolidColorBrush x:Key="Br.Accent.Neon"  Color="#9DFF00"/>
+        <SolidColorBrush x:Key="Br.Accent.Blue"  Color="#569CD6"/>
+
+        <!-- State -->
+        <SolidColorBrush x:Key="Br.Warning"      Color="#CCA700"/>
+        <SolidColorBrush x:Key="Br.Error"        Color="#F44747"/>
+    </Application.Resources>
+</Application>

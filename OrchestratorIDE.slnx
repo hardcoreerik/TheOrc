@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj" />
   <Project Path="OrchestratorIDE.Daemon/OrchestratorIDE.Daemon.csproj" />
   <Project Path="OrchestratorIDE.UITests/OrchestratorIDE.UITests.csproj" />
   <Project Path="OrchestratorIDE/OrchestratorIDE.csproj" />
