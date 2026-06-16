@@ -16,7 +16,7 @@ public partial class App : Application
 #if WINDOWS
         SecretProtection.Initialize(new DpapiSecretProtector());
 #else
-        SecretProtection.Initialize(new AesGcmSecretProtector());
+        SecretProtection.Initialize(new AesGcmSecretProtector(OrchestratorIDE.Daemon.MachineKey.Load()));
 #endif
         AvaloniaXamlLoader.Load(this);
     }

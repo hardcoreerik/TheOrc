@@ -844,6 +844,25 @@ public partial class SwarmBoardPanel : UserControl
             OnActivity?.Invoke($"🐝 Running this swarm on {_runOnName} ({_runOnUrl})");
         _session = new SwarmSession(swarmOllama, ActiveModel, WorkspaceRoot, coderModel, researcherModel);
 
+        // Wire sandbox bypass: show the WPF dialog on the UI thread so the swarm can
+        // ask the user to approve out-of-sandbox file/shell operations.
+        var panel = this;
+        _session.SandboxBypassRequestHandler = async (toolName, escapedPath, sandboxRoot, ct) =>
+        {
+            var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>(
+                          System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
+            ct.Register(() => tcs.TrySetResult(false));
+            await Dispatcher.InvokeAsync(() =>
+            {
+                var owner = System.Windows.Window.GetWindow(panel);
+                var dlg   = new OrchestratorIDE.UI.Dialogs.SandboxBypassDialog(
+                                toolName, escapedPath, sandboxRoot, "Swarm")
+                { Owner = owner };
+                tcs.TrySetResult(dlg.ShowDialog() == true);
+            });
+            return await tcs.Task;
+        };
+
         // HIVE MIND Phase B: probe alive nodes and wire per-task routing.
         // Only runs when _runOnUrl is null (whole-swarm routing and per-task routing
         // are mutually exclusive — if the user picked a specific node, use that).
