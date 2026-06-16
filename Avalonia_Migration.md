@@ -16,9 +16,9 @@ Cross-platform UI migration: WPF (`net10.0-windows`) → Avalonia 12 (`net10.0`)
 | 1 | Service layer decoupling | ✅ Done |
 | 2 | Code editor (AvalonEditB → AvaloniaEdit) | ✅ Done |
 | 3A | Panels — batch A (simple) | ✅ Done |
-| 3B | Panels — batch B (medium) | ⬜ Not started |
-| 3C | Panels — batch C (complex) | ⬜ Not started |
-| 4 | Dialogs, windows, controls | ⬜ Not started |
+| 3B | Panels — batch B (medium) | 🔄 In progress |
+| 3C | Panels — batch C (complex) | 🔄 In progress |
+| 4 | Dialogs, windows, controls | 🔄 In progress |
 | 5 | MainWindow + App (full IDE layout) | ⬜ Not started |
 | 6 | Markdown renderer | ⬜ Not started |
 | 7 | Review, tests, ship v1.7.0 | ⬜ Not started |
@@ -157,16 +157,16 @@ The Avalonia project defines `WINDOWS` on Windows (for DPAPI/SharpAvi), but does
 - [ ] `UI/Panels/SessionBrowserPanel.axaml` + `.axaml.cs`
 
 ### Batch B — Medium (async updates, event wiring)
-- [ ] `UI/Panels/AgentPanel.axaml` + `.axaml.cs`
+- [x] `UI/Panels/AgentPanel.axaml.cs` — diff/shell/unknown-tool approval slots wired to Phase 4 controls via `DiffPanel` Border host (AXAML stays minimal until Phase 6 markdown pass)
 - [ ] `UI/Panels/ChatPanel.axaml` + `.axaml.cs`
 - [ ] `UI/Panels/UpdatePanel.axaml` + `.axaml.cs`
 - [ ] `UI/Panels/WarmUpEditorWindow.axaml` + `.axaml.cs`
 
 ### Batch C — Complex (HIVE integration, swarm state, training pipeline)
 - [ ] `UI/Panels/HivePanel.axaml` + `.axaml.cs`
-- [ ] `UI/Panels/SwarmBoardPanel.axaml` + `.axaml.cs`
+- [x] `UI/Panels/SwarmBoardPanel.axaml` — removed invalid `BorderBrush` on `Grid` (Grid has no BorderBrush in Avalonia; visual dividers come from `Width="1"` columns)
 - [ ] `UI/Panels/PitBossPanel.axaml` + `.axaml.cs`
-- [ ] `UI/Panels/TrainingPitPanel.axaml` + `.axaml.cs`
+- [x] `UI/Panels/TrainingPitPanel.axaml` + `.axaml.cs` — full `x:DataType` audit on all DataTemplates; `DatasetInfoAva` flat VM wrapper; `DatasetOptionAva`, `BaseModelOptionAva`, `QueueItem` x:DataType wired; `StartForge()` shell invocation made cross-platform (`#if WINDOWS` → `cmd.exe`; `#else` → temp shell script with shell-quoting, injection-safe, crash-resilient)
 - [ ] `UI/Panels/ToolEditorPanel.axaml` + `.axaml.cs`
 
 **Gate per batch:** panel instantiates, renders, key interactions work (no crash)
@@ -195,13 +195,14 @@ The Avalonia project defines `WINDOWS` on Windows (for DPAPI/SharpAvi), but does
 
 ### User controls (6)
 - [ ] `UI/Controls/CommandPalette.axaml` + `.axaml.cs`
-- [ ] `UI/Controls/DiffViewer.axaml` + `.axaml.cs`
+- [x] `UI/Controls/DiffViewer.axaml` + `.axaml.cs` — inline diff with DiffPlex, `DiffLineVm` with `IBrush` props, Approve/Reject events
 - [ ] `UI/Controls/ModelPickerPopup.axaml` + `.axaml.cs`
-- [ ] `UI/Controls/ShellApprovalCard.axaml` + `.axaml.cs`
-- [ ] `UI/Controls/UnknownToolCard.axaml` + `.axaml.cs`
+- [x] `UI/Controls/ShellApprovalCard.axaml` + `.axaml.cs` — tool-call args review with `ArgRow` VM at namespace level (nested class inaccessible from AXAML)
+- [x] `UI/Controls/UnknownToolCard.axaml` + `.axaml.cs` — unknown-tool handling with auto-translate fallback (no `MessageBox.Show` in Avalonia)
 - [ ] `UI/Controls/UserInputDialog.axaml` + `.axaml.cs`
 
-**Gate:** All open/close correctly, interactions work
+**Gate:** All open/close correctly, interactions work  
+**Partial gate (2026-06-15):** DiffViewer, ShellApprovalCard, UnknownToolCard wired and build-clean ✅
 
 ---
 

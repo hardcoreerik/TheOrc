@@ -622,8 +622,7 @@
 
                 <!-- ── Activity columns (row 1, all 3 columns) ─────── -->
                 <Grid Grid.Row="1" Grid.ColumnSpan="3"
-                      Background="#080C08"
-                      BorderBrush="{StaticResource Br.Border}">
+                      Background="#080C08">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>     <!-- TheOrc / Boss   -->
                         <ColumnDefinition Width="1"/>

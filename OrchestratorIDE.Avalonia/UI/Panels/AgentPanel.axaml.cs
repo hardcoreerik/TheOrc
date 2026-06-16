@@ -11,6 +11,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Models;
+using OrchestratorIDE.UI.Controls;
 
 namespace OrchestratorIDE.UI.Panels;
 
@@ -35,6 +36,7 @@ public partial class AgentPanel : UserControl
     private MessageVm? _streamingBubble;
     private int _sessionPromptTokens   = 0;
     private int _sessionCompleteTokens = 0;
+    private Action? _cancelCurrent;  // cancel/reject any pending approval card
 
     public AgentPanel()
     {
@@ -308,27 +310,97 @@ public partial class AgentPanel : UserControl
         });
     }
 
-    // ── Diff / approval slots (Phase 4 — stubs until controls are ported) ─────
+    // ── Diff / approval slots ─────────────────────────────────────────────────
 
     public void ShowDiff(string filePath, string oldText, string newText, string reason,
         Action onApproved, Action onRejected)
     {
-        // TODO Phase 4: port DiffViewer to Avalonia. Auto-approve for now so agents can write files.
-        onApproved();
+        Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            try
+            {
+                CancelCurrent();
+                var viewer = new DiffViewer();
+                viewer.Load(filePath, oldText, newText, reason);
+                void Finish(bool approve)
+                {
+                    _cancelCurrent = null;
+                    HideDiffPanel();
+                    if (approve) onApproved(); else onRejected();
+                }
+                var done = false;
+                viewer.Approved += () => { if (done) return; done = true; Finish(true);  };
+                viewer.Rejected += () => { if (done) return; done = true; Finish(false); };
+                _cancelCurrent  =  () => { if (done) return; done = true; Finish(false); };
+                DiffPanel.Child     = viewer;
+                DiffPanel.IsVisible = true;
+                DiffPanel.BringIntoView();
+            }
+            catch { onRejected(); }
+        });
     }
 
-    public Task<bool> ShowShellApproval(OrchestratorIDE.Models.ToolCall call)
+    public Task<bool> ShowShellApproval(ToolCall call)
     {
-        // TODO Phase 4: port ShellApprovalCard to Avalonia.
-        return Task.FromResult(false);
+        var tcs = new TaskCompletionSource<bool>();
+        Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            try
+            {
+                CancelCurrent();
+                var card = new ShellApprovalCard(call);
+                void Finish(bool approve)
+                {
+                    _cancelCurrent = null;
+                    HideDiffPanel();
+                    tcs.TrySetResult(approve);
+                }
+                var done = false;
+                card.Resolved   += approved => { if (done) return; done = true; Finish(approved); };
+                _cancelCurrent   =         () => { if (done) return; done = true; Finish(false);   };
+                DiffPanel.Child     = card;
+                DiffPanel.IsVisible = true;
+                DiffPanel.BringIntoView();
+            }
+            catch { tcs.TrySetResult(false); }
+        });
+        return tcs.Task;
     }
 
-    public Task<string> ShowUnknownToolCard(
-        OrchestratorIDE.Models.ToolCall call,
-        IEnumerable<string> registeredTools)
+    public Task<string> ShowUnknownToolCard(ToolCall call, IEnumerable<string> registeredTools)
     {
-        // TODO Phase 4: port UnknownToolCard to Avalonia.
-        return Task.FromResult("");
+        var tcs = new TaskCompletionSource<string>();
+        Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            try
+            {
+                CancelCurrent();
+                var card = new UnknownToolCard(call, registeredTools);
+                void Finish(string result)
+                {
+                    _cancelCurrent = null;
+                    HideDiffPanel();
+                    tcs.TrySetResult(result);
+                }
+                var done = false;
+                var skipMsg = $"(tool '{call.Name}' was skipped — continue with available tools)";
+                card.Resolved  += result => { if (done) return; done = true; Finish(result);   };
+                _cancelCurrent  =      () => { if (done) return; done = true; Finish(skipMsg); };
+                DiffPanel.Child     = card;
+                DiffPanel.IsVisible = true;
+                DiffPanel.BringIntoView();
+            }
+            catch { tcs.TrySetResult(ToolRegistry.BuildRichNotFoundMessage(call, registeredTools)); }
+        });
+        return tcs.Task;
+    }
+
+    private void CancelCurrent() { var f = _cancelCurrent; _cancelCurrent = null; f?.Invoke(); }
+
+    private void HideDiffPanel()
+    {
+        DiffPanel.Child     = null;
+        DiffPanel.IsVisible = false;
     }
 
     // ── Context menu handlers ─────────────────────────────────────────────────

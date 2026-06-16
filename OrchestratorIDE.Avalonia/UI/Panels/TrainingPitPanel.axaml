@@ -86,7 +86,7 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <ItemsControl x:Name="DatasetList">
                             <ItemsControl.ItemTemplate>
-                                <DataTemplate>
+                                <DataTemplate x:DataType="local:DatasetInfoAva">
                                     <Border Background="#0E0E0E" BorderBrush="#2A2A2A" BorderThickness="1"
                                             CornerRadius="3" Padding="8,5" Margin="0,0,0,4">
                                         <StackPanel>
@@ -108,16 +108,8 @@
                                                            Foreground="#777777"/>
                                                 <TextBlock Text="{Binding Source}" FontSize="9"
                                                            Foreground="#666666" FontFamily="Consolas"/>
-                                                <TextBlock FontSize="9" Foreground="#A8CC80"
-                                                           FontFamily="Consolas">
-                                                    <TextBlock.Text>
-                                                        <MultiBinding StringFormat="train {0}  eval {1}  neg {2}">
-                                                            <Binding Path="TrainCount"/>
-                                                            <Binding Path="EvalCount"/>
-                                                            <Binding Path="NegCount"/>
-                                                        </MultiBinding>
-                                                    </TextBlock.Text>
-                                                </TextBlock>
+                                                <TextBlock Text="{Binding CountsLine}" FontSize="9"
+                                                           Foreground="#A8CC80" FontFamily="Consolas"/>
                                                 <TextBlock Text="⏳ in progress" FontSize="9"
                                                            Foreground="#CCA700"
                                                            IsVisible="{Binding InProgress}"/>
@@ -152,7 +144,7 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <ItemsControl x:Name="AdapterList">
                             <ItemsControl.ItemTemplate>
-                                <DataTemplate>
+                                <DataTemplate x:DataType="local:AdapterRowAva">
                                     <Border Background="#120E0A" BorderBrush="#2A2A2A" BorderThickness="1"
                                             CornerRadius="3" Padding="8,5" Margin="0,0,0,4">
                                         <StackPanel>
@@ -198,7 +190,7 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                         <ItemsControl x:Name="ModelList">
                             <ItemsControl.ItemTemplate>
-                                <DataTemplate>
+                                <DataTemplate x:DataType="local:ModelRowAva">
                                     <Border Background="#0E1214" BorderBrush="#2A2A2A" BorderThickness="1"
                                             CornerRadius="3" Padding="8,4" Margin="0,0,0,3">
                                         <DockPanel>
@@ -266,7 +258,7 @@
                     <ComboBox Grid.Column="1" x:Name="CbGenModel" FontSize="11" Margin="0,0,14,0"
                               SelectionChanged="CbGenModel_SelectionChanged">
                         <ComboBox.ItemTemplate>
-                            <DataTemplate>
+                            <DataTemplate x:DataType="local:HarvestModelOptionAva">
                                 <TextBlock Text="{Binding Display}" Foreground="{Binding TextBrush}" FontSize="11"/>
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
@@ -277,7 +269,7 @@
                                ToolTip.Tip="Model that triages farmed captures for fabrication risk."/>
                     <ComboBox Grid.Column="3" x:Name="CbJudgeModel" FontSize="11" Margin="0,0,14,0">
                         <ComboBox.ItemTemplate>
-                            <DataTemplate>
+                            <DataTemplate x:DataType="local:HarvestModelOptionAva">
                                 <TextBlock Text="{Binding Display}" Foreground="{Binding TextBrush}" FontSize="11"/>
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
@@ -391,7 +383,7 @@
                         <ComboBox Grid.Row="0" Grid.Column="1" x:Name="CbBaseModel" FontSize="11"
                                   Margin="0,0,14,0" SelectionChanged="CbBaseModel_SelectionChanged">
                             <ComboBox.ItemTemplate>
-                                <DataTemplate>
+                                <DataTemplate x:DataType="local:BaseModelOptionAva">
                                     <TextBlock Text="{Binding Display}" Foreground="{Binding TextBrush}" FontSize="11"/>
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
@@ -409,7 +401,7 @@
                         <ComboBox Grid.Row="2" Grid.Column="1" x:Name="CbDataset" FontSize="11"
                                   Margin="0,0,14,0" SelectionChanged="CbDataset_SelectionChanged">
                             <ComboBox.ItemTemplate>
-                                <DataTemplate>
+                                <DataTemplate x:DataType="local:DatasetOptionAva">
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="{Binding DisplayLabel}" Foreground="#D4D4D4" FontSize="11"/>
                                         <TextBlock Text="{Binding CountsText}" Foreground="#A8CC80"
@@ -495,7 +487,7 @@
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="QueueList">
                     <ItemsControl.ItemTemplate>
-                        <DataTemplate>
+                        <DataTemplate x:DataType="local:QueueItem">
                             <Border BorderBrush="#2A2A2A" BorderThickness="0,0,0,1"
                                     Background="#0E0E0E">
                                 <StackPanel>

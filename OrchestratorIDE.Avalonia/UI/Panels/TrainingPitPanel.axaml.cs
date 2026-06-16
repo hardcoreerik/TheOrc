@@ -708,28 +708,80 @@ public partial class TrainingPitPanel : UserControl
         var capContent = (CbVramCap.SelectedItem as ComboBoxItem)?.Content as string ?? "No cap";
         var cap = capContent switch { "12 GB" => "12", "10 GB" => "10", "8 GB" => "8", "6 GB" => "6", _ => "0" };
 
-        var args = $"-u \"{Path.Combine(_pitRoot, "training_pit", "scripts", "train_lora.py")}\"" +
-                   $" --base \"{hfRepo}\" --train \"{trainJsonl}\" --eval \"{evalJsonl}\" --out \"{adapterDir}\"";
-        if (ChkDryRun.IsChecked == true) args += " --dry-run";
-        if (cap != "0")                  args += $" --vram-cap {cap}";
-        if (resume)                      args += " --resume";
+        var scriptPath = Path.Combine(_pitRoot, "training_pit", "scripts", "train_lora.py");
 
         File.WriteAllText(ForgeLogPath, $"=== forge run {DateTime.Now:yyyy-MM-dd HH:mm} (resume={resume}) ===\n");
-        var psi = new ProcessStartInfo
+        ProcessStartInfo psi;
+        string? script = null;
+#if WINDOWS
         {
-            FileName         = "cmd.exe",
-            Arguments        = $"/c python {args} >> \"{ForgeLogPath}\" 2>&1",
-            WorkingDirectory = _pitRoot, UseShellExecute = false, CreateNoWindow = true,
-        };
+            // Windows: shell-redirect to log file via cmd.exe (paths are double-quoted)
+            var winArgs = $"-u \"{scriptPath}\" --base \"{hfRepo}\" --train \"{trainJsonl}\" --eval \"{evalJsonl}\" --out \"{adapterDir}\"";
+            if (ChkDryRun.IsChecked == true) winArgs += " --dry-run";
+            if (cap != "0")                  winArgs += $" --vram-cap {cap}";
+            if (resume)                      winArgs += " --resume";
+            psi = new ProcessStartInfo
+            {
+                FileName         = "cmd.exe",
+                Arguments        = $"/c python {winArgs} >> \"{ForgeLogPath}\" 2>&1",
+                WorkingDirectory = _pitRoot, UseShellExecute = false, CreateNoWindow = true,
+            };
+        }
+#else
+        try
+        {
+            // Non-Windows: write a temp shell script so that:
+            // 1) all args are shell-quoted (no injection), and
+            // 2) log-file redirection is owned by the shell, not this process
+            //    (the log stays open even if the Avalonia app crashes mid-training).
+            static string ShQ(string s) => "'" + s.Replace("'", "'\\''") + "'";
+            var python = Environment.GetEnvironmentVariable("PYTHON") ?? "python3";
+            script = Path.Combine(Path.GetTempPath(), $"orc_forge_{DateTime.Now:yyyyMMdd_HHmmss}.sh");
+            var sb = new System.Text.StringBuilder("#!/bin/sh\n");
+            sb.Append(ShQ(python)).Append(" -u ").Append(ShQ(scriptPath));
+            sb.Append(" --base ").Append(ShQ(hfRepo));
+            sb.Append(" --train ").Append(ShQ(trainJsonl));
+            sb.Append(" --eval ").Append(ShQ(evalJsonl));
+            sb.Append(" --out ").Append(ShQ(adapterDir));
+            if (ChkDryRun.IsChecked == true) sb.Append(" --dry-run");
+            if (cap != "0") sb.Append(" --vram-cap ").Append(cap);
+            if (resume)     sb.Append(" --resume");
+            sb.Append(" >> ").Append(ShQ(ForgeLogPath)).Append(" 2>&1\n");
+            File.WriteAllText(script, sb.ToString());
+            psi = new ProcessStartInfo
+            {
+                FileName = "/bin/sh", WorkingDirectory = _pitRoot,
+                UseShellExecute = false, CreateNoWindow = true,
+            };
+            psi.ArgumentList.Add(script);
+        }
+        catch (Exception ex)
+        {
+            ForgeStatus.Text = $"Failed to prepare trainer script ({ex.Message})";
+            OnActivity?.Invoke($"🏛 Academy launch failed: {ex.Message}");
+            return;
+        }
+#endif
         try   { _forgeProcess = Process.Start(psi); }
         catch (Exception ex)
         {
+            if (script is not null) try { File.Delete(script); } catch { }
             _forgeProcess = null;
             ForgeStatus.Text = $"Failed to launch the trainer ({ex.Message})";
             OnActivity?.Invoke($"🏛 Academy launch failed: {ex.Message}");
             return;
         }
-        if (_forgeProcess is null) { ForgeStatus.Text = "Failed to launch the trainer."; return; }
+        if (_forgeProcess is null)
+        {
+            if (script is not null) try { File.Delete(script); } catch { }
+            ForgeStatus.Text = "Failed to launch the trainer."; return;
+        }
+        if (script is not null)
+        {
+            var s = script;
+            _forgeProcess.EnableRaisingEvents = true;
+            _forgeProcess.Exited += (_, _) => { try { File.Delete(s); } catch { } };
+        }
 
         OnActivity?.Invoke($"🏛 ORC ACADEMY {(resume ? "resumed" : "started")}" +
                            (cap != "0" ? $" (VRAM cap {cap} GB)" : "") +
@@ -839,7 +891,7 @@ public partial class TrainingPitPanel : UserControl
 
     private void RenderDatasets(List<Services.TrainingPitRegistry.DatasetInfo> datasets)
     {
-        DatasetList.ItemsSource  = datasets;
+        DatasetList.ItemsSource  = datasets.Select(DatasetInfoAva.From).ToList();
         DatasetCount.Text        = datasets.Count.ToString();
         DatasetEmpty.IsVisible   = datasets.Count == 0;
         _cachedDatasets = datasets;
@@ -1162,6 +1214,30 @@ public partial class TrainingPitPanel : UserControl
 }
 
 // ── View-model types (Avalonia versions — use IBrush instead of WPF Brush) ───
+
+public sealed class DatasetInfoAva
+{
+    public string Name            { get; init; } = "";
+    public string TotalCount      { get; init; } = "";
+    public bool   IsNewConvention { get; init; }
+    public string Role            { get; init; } = "";
+    public string DataType        { get; init; } = "";
+    public string Source          { get; init; } = "";
+    public string CountsLine      { get; init; } = "";
+    public bool   InProgress      { get; init; }
+
+    public static DatasetInfoAva From(Services.TrainingPitRegistry.DatasetInfo d) => new()
+    {
+        Name            = d.Name,
+        TotalCount      = d.TotalCount.ToString(),
+        IsNewConvention = d.IsNewConvention,
+        Role            = d.Role,
+        DataType        = d.DataType,
+        Source          = d.Source,
+        CountsLine      = $"train {d.TrainCount}  eval {d.EvalCount}  neg {d.NegCount}",
+        InProgress      = d.InProgress,
+    };
+}
 
 public class HarvestModelOptionAva
 {

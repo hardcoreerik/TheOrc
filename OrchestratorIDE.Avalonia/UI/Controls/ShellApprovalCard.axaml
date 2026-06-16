@@ -1,0 +1,120 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<UserControl x:Class="OrchestratorIDE.UI.Controls.ShellApprovalCard"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:OrchestratorIDE.UI.Controls"
+             Background="{StaticResource Br.Bg.App}">
+
+    <!--
+    ═══════════════════════════════════════════════════════════════
+    SHELL APPROVAL CARD
+    Shown in the diff-panel slot when the agent wants to run a
+    shell command or call any non-write_file tool.
+
+    ┌────────────────────────────────────────────────────────────┐
+    │ ⚡  run_shell — approval required                          │
+    ├────────────────────────────────────────────────────────────┤
+    │  Command:                                                  │
+    │  ┌──────────────────────────────────────────────────────┐  │
+    │  │  dotnet build                                        │  │
+    │  └──────────────────────────────────────────────────────┘  │
+    │                                                            │
+    │  Reason: Build the project to check for errors             │
+    ├────────────────────────────────────────────────────────────┤
+    │  [✓ Approve]                            [✗ Reject]         │
+    └────────────────────────────────────────────────────────────┘
+    ═══════════════════════════════════════════════════════════════
+    -->
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="32"/>    <!-- Header -->
+            <RowDefinition Height="*"/>     <!-- Body -->
+            <RowDefinition Height="Auto"/>  <!-- Action buttons -->
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#1A2A3A"
+                BorderBrush="#2A4A6A" BorderThickness="0,0,0,1">
+            <DockPanel Margin="10,0">
+                <TextBlock Text="⚡" Foreground="#569CD6"
+                           FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock x:Name="TbToolName"
+                           Foreground="#569CD6" FontWeight="SemiBold"
+                           FontSize="12" VerticalAlignment="Center"/>
+                <TextBlock Text=" — approval required"
+                           Foreground="#888888" FontSize="11"
+                           VerticalAlignment="Center"/>
+            </DockPanel>
+        </Border>
+
+        <!-- Body -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="12,10">
+
+                <!-- Arguments section -->
+                <ItemsControl x:Name="ArgsList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="local:ArgRow">
+                            <StackPanel Margin="0,0,0,10">
+                                <TextBlock Text="{Binding Label}"
+                                           Foreground="{StaticResource Br.Text.Muted}"
+                                           FontSize="11" Margin="0,0,0,4"/>
+                                <Border Background="#141414" BorderBrush="#383838"
+                                        BorderThickness="1" CornerRadius="3"
+                                        Padding="12,8">
+                                    <TextBlock Text="{Binding Value}"
+                                               FontFamily="Consolas"
+                                               FontSize="12"
+                                               Foreground="#CE9178"
+                                               TextWrapping="Wrap"/>
+                                </Border>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Reason (only if present) -->
+                <StackPanel x:Name="ReasonPanel" IsVisible="False" Margin="0,0,0,6">
+                    <TextBlock Text="Reason:"
+                               Foreground="{StaticResource Br.Text.Muted}"
+                               FontSize="11" Margin="0,0,0,4"/>
+                    <TextBlock x:Name="TbReason"
+                               Foreground="#D4D4D4" FontSize="12"
+                               TextWrapping="Wrap" FontStyle="Italic"/>
+                </StackPanel>
+
+                <!-- Safety note -->
+                <Border Background="#1A1A20" BorderBrush="#333333"
+                        BorderThickness="1" CornerRadius="3"
+                        Padding="10,7" Margin="0,4,0,0">
+                    <TextBlock FontSize="11" Foreground="#888888" TextWrapping="Wrap"
+                               Text="⚠  The agent will run this command in the workspace. Review carefully before approving."/>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Action buttons -->
+        <Border Grid.Row="2" Background="#2D2D2D"
+                BorderBrush="{StaticResource Br.Border}" BorderThickness="0,1,0,0"
+                Padding="10,8">
+            <DockPanel>
+                <Button x:Name="BtnReject"
+                        DockPanel.Dock="Right"
+                        Content="✗  Reject"
+                        Width="100"
+                        Background="#3A1010" Foreground="#F47070"
+                        BorderBrush="#5A1A1A"
+                        Click="BtnReject_Click"/>
+                <Button x:Name="BtnApprove"
+                        Content="✓  Approve"
+                        Width="110" Margin="0,0,8,0"
+                        Background="#1A3A1A" Foreground="#6DBF67"
+                        BorderBrush="#2A5A2A"
+                        Click="BtnApprove_Click"/>
+            </DockPanel>
+        </Border>
+    </Grid>
+</UserControl>
