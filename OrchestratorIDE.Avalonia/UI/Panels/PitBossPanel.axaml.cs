@@ -23,7 +23,7 @@ public partial class PitBossPanel : UserControl
     // ── Public properties ─────────────────────────────────────────────────────
     public string WorkspaceRoot { get; set; } = "";
     public string OllamaHost    { get; set; } = "http://localhost:11434";
-    public string OllamaModel   { get; set; } = "hermes3:llama3.2-3b";
+    public string OllamaModel   { get; set; } = "hermes3";
     public Services.Data.RunRepository?  RunRepo  { get; set; }
     public Services.Data.PlanRepository? PlanRepo { get; set; }
 

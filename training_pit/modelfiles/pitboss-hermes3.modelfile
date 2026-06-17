@@ -1,8 +1,9 @@
 # TheOrc Pit Boss — custom Ollama model for the Training Pit wizard
 #
-# Base: hermes3:llama3.2-3b  (NousResearch, structured-output fine-tune on Llama 3.2 3B)
+# Base: hermes3  (NousResearch Hermes 3, Llama 3.1 8B, structured-output fine-tune)
 # Role: 8-question training interview → TrainingPlan JSON synthesis
-# VRAM: ~1.9 GB @ Q4_K_M — safe to run alongside QLoRA training (~12 GB peak)
+# VRAM: ~4.7 GB — sequential use only (Pit Boss finishes before training starts).
+#        For concurrent-with-training, switch PitBossModel to nemotron-3-nano:4b (~2.8 GB).
 #
 # Build:
 #   ollama create theorc-pitboss:hermes3 -f training_pit/modelfiles/pitboss-hermes3.modelfile
@@ -11,7 +12,7 @@
 # (installed models, available datasets) that overrides this SYSTEM directive.
 # This SYSTEM acts as the fallback / offline default.
 
-FROM hermes3:llama3.2-3b
+FROM hermes3
 
 PARAMETER temperature 0
 PARAMETER repeat_penalty 1.1

@@ -253,8 +253,12 @@ public class AppSettings
     /// <summary>Ollama model used for local advisory/gated review. Must be installed in Ollama.</summary>
     public string SwarmLocalReviewModel { get; set; } = "qwen2.5-coder:14b";
 
-    /// <summary>Local Ollama model used by the Pit Boss training wizard. Must be ≤4B to coexist with QLoRA training.</summary>
-    public string PitBossModel { get; set; } = "hermes3:llama3.2-3b";
+    /// <summary>
+    /// Local Ollama model for the Pit Boss training wizard.
+    /// Default: hermes3 (8B, best structured-output reliability, sequential use only).
+    /// Switch to nemotron-3-nano:4b or phi4-mini for concurrent-with-training use (≤4B, ~2-2.5 GB).
+    /// </summary>
+    public string PitBossModel { get; set; } = "hermes3";
 
     // ── Updates ───────────────────────────────────────────────────────────
     /// <summary>Whether to silently check GitHub for newer releases on startup.</summary>
