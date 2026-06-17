@@ -86,43 +86,43 @@ public sealed class PlanExecutorService : IDisposable
         _currentRunId = $"run_{plan.PlanId}_{DateTime.UtcNow:yyyyMMddHHmmss}";
         TryInsertRun(plan);
 
-        // Short-circuit for existing-dataset plans — skip generation entirely.
-        if (plan.Mode == "existing" || plan.DatasetSource == "existing")
-        {
-            var existingPath = ResolveExistingDataset(plan, pitRoot);
-            if (existingPath is null)
-            {
-                TryUpdateRun("failed");
-                Failed?.Invoke($"Existing dataset '{plan.DatasetFile}' not found in training_pit/datasets/. " +
-                               "Expected train_{key}.jsonl — check the dataset file name.");
-                IsRunning = false;
-                Phase = ExecutorPhase.Failed;
-                return;
-            }
-            TryUpdateRun("dataset_ready");
-            DatasetReady?.Invoke(existingPath);
-            ForgeReady?.Invoke(plan, existingPath);
-            IsRunning = false;
-            Phase = ExecutorPhase.Idle;
-            return;
-        }
-
         try
         {
+            // Short-circuit for existing-dataset plans — skip generation entirely.
+            if (plan.Mode == "existing" || plan.DatasetSource == "existing")
+            {
+                var existingPath = ResolveExistingDataset(plan, pitRoot);
+                if (existingPath is null)
+                {
+                    TryUpdateRun("failed");
+                    Failed?.Invoke($"Existing dataset '{plan.DatasetFile}' not found in training_pit/datasets/. " +
+                                   "Expected train_{{key}}.jsonl — check the dataset file name.");
+                    Phase = ExecutorPhase.Failed;
+                    return;
+                }
+                TryUpdateRun("dataset_ready");
+                DatasetReady?.Invoke(existingPath);
+                ForgeReady?.Invoke(plan, existingPath);
+                Phase = ExecutorPhase.Idle;
+                return;
+            }
+
             await RunDatasetGenAsync(plan, planFile, _cts.Token);
         }
         catch (OperationCanceledException)
         {
             TryUpdateRun("cancelled");
             Phase = ExecutorPhase.Idle;
-            IsRunning = false;
         }
         catch (Exception ex)
         {
             TryUpdateRun("failed");
             Phase = ExecutorPhase.Failed;
-            IsRunning = false;
             Failed?.Invoke($"Dataset gen failed: {ex.Message}");
+        }
+        finally
+        {
+            IsRunning = false;
         }
     }
 

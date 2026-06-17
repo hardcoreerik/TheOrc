@@ -452,7 +452,8 @@ public partial class PitBossPanel : UserControl
             };
             using var proc = System.Diagnostics.Process.Start(psi);
             var line = proc?.StandardOutput.ReadLine()?.Trim();
-            proc?.WaitForExit(2000);
+            if (proc is not null && !proc.WaitForExit(2000))
+                proc.Kill();
             if (!string.IsNullOrEmpty(line))
             {
                 var parts = line.Split(',');
