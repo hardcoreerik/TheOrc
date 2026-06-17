@@ -276,16 +276,23 @@ public sealed class PlanExecutorService : IDisposable
 
     private static string? ResolveExistingDataset(TrainingPlan plan, string pitRoot)
     {
-        var dsDir = Path.Combine(pitRoot, "training_pit", "datasets");
+        var dsDir = Path.GetFullPath(Path.Combine(pitRoot, "training_pit", "datasets"));
         var key   = plan.DatasetFile?.Trim();
         if (string.IsNullOrWhiteSpace(key)) return null;
+
+        // Reject any path traversal in the LLM-supplied key (e.g. "../../evil").
+        // Only bare filenames or stem keys (no directory separators) are allowed.
+        if (key.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 ||
+            key.Contains("..") || key.Contains('/') || key.Contains('\\'))
+            return null;
 
         // Old-convention: dataset_file is the stem key, e.g. "v2gold" → train_v2gold.jsonl
         var byKey = Path.Combine(dsDir, $"train_{key}.jsonl");
         if (File.Exists(byKey)) return byKey;
 
-        // User may have typed the full filename
-        var direct = Path.Combine(dsDir, key);
+        // User may have typed the full filename (e.g. "train_v2gold.jsonl")
+        var direct = Path.GetFullPath(Path.Combine(dsDir, key));
+        if (!direct.StartsWith(dsDir, StringComparison.OrdinalIgnoreCase)) return null;
         if (File.Exists(direct)) return direct;
 
         return null;
