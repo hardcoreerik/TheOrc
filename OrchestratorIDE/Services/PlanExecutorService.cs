@@ -100,10 +100,14 @@ public sealed class PlanExecutorService : IDisposable
                     Phase = ExecutorPhase.Failed;
                     return;
                 }
-                TryUpdateRun("dataset_ready");
+                // Mirror the state-update logic from MonitorGenProgressAsync.
+                _plan!.DatasetFile = existingPath;
+                _plan.Phase        = PlanPhase.Training;
+                PitBossService.SavePlan(_plan, _pitRoot);
+                TryUpdateRun("dataset_ready", existingPath);
                 DatasetReady?.Invoke(existingPath);
                 ForgeReady?.Invoke(plan, existingPath);
-                Phase = ExecutorPhase.Idle;
+                Phase = ExecutorPhase.WaitingForForge;
                 return;
             }
 
@@ -286,9 +290,13 @@ public sealed class PlanExecutorService : IDisposable
             key.Contains("..") || key.Contains('/') || key.Contains('\\'))
             return null;
 
-        // Old-convention: dataset_file is the stem key, e.g. "v2gold" → train_v2gold.jsonl
-        var byKey = Path.Combine(dsDir, $"train_{key}.jsonl");
-        if (File.Exists(byKey)) return byKey;
+        // Old-convention stem: "v2gold" → train_v2gold.jsonl
+        var byOldKey = Path.Combine(dsDir, $"train_{key}.jsonl");
+        if (File.Exists(byOldKey)) return byOldKey;
+
+        // New-convention stem (TrainingPitRegistry Name): "cerebras[api].synthetic.boss.1800" → same + .jsonl
+        var byNewKey = Path.Combine(dsDir, $"{key}.jsonl");
+        if (File.Exists(byNewKey)) return byNewKey;
 
         // User may have typed the full filename (e.g. "train_v2gold.jsonl")
         var direct = Path.GetFullPath(Path.Combine(dsDir, key));
