@@ -159,11 +159,14 @@ public sealed class PlanExecutorService : IDisposable
             return;
         }
 
-        // Build arg string
+        // Build arg string — omit --model if empty (cerebras source uses API key, not a local model)
+        var modelArg   = string.IsNullOrWhiteSpace(plan.DatasetGenModel)
+                         ? ""
+                         : $" --model \"{plan.DatasetGenModel}\"";
         var scriptArgs = $"-u \"{genScript}\"" +
                          $" --plan-file \"{planFile}\"" +
                          $" --out-file \"{_workFile}\"" +
-                         $" --model \"{plan.DatasetGenModel}\"";
+                         modelArg;
 
         // Log file beside the work file
         var logFile = _workFile.Replace(".work.jsonl", ".gen.log");

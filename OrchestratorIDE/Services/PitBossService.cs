@@ -381,7 +381,7 @@ public sealed class PitBossService
             options  = new { temperature = 0.3, num_ctx = 8192 },
         });
 
-        var resp = await PostSafeAsync(body, ct);
+        using var resp = await PostSafeAsync(body, ct);
         if (resp is null)
         {
             if (fallbackOnError is not null) yield return fallbackOnError;
@@ -575,6 +575,9 @@ public sealed class PitBossService
                 .Select(d => $"  {d.Name} ({d.TrainCount:N0} train examples)");
 
             var modelLines = models
+                // Exclude GGUF quants and custom-inference-only tags — Forge cannot map these to a trainable HF repo.
+                .Where(m => !m.Name.StartsWith("hf.co/", StringComparison.OrdinalIgnoreCase) &&
+                            !m.Name.Contains("gguf", StringComparison.OrdinalIgnoreCase))
                 .Take(10)
                 .Select(m => $"  {m.Name} ({m.SizeGb:F1} GB)");
 
