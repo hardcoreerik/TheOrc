@@ -100,7 +100,7 @@ Conventions to enforce:
 - #if WPF guards WPF-specific code; #if WINDOWS guards OS-only code (DPAPI, SharpAvi, etc.).
 - Shared service files use <Compile Include> from the WPF project — no copies, no new files.
 - SecretProtection.Initialize() must be called before any HIVE store access (App.axaml.cs init).
-- Phase gates from Avalonia_Migration.md must not be bypassed — no panel code in Phase 1.
+- Phase gates from Avalonia_Migration.md must not be bypassed — only flag if the gate is currently marked 🔄 or ⬜ (not ✅ Done).
 - NUnit tests live in OrchestratorIDE.UITests/Tests as T##_*.cs.
 "@
 } else {

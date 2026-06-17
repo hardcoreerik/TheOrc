@@ -91,6 +91,7 @@ Conventions to enforce:
 - #if WPF guards WPF-specific code; #if WINDOWS guards OS-only code (DPAPI, SharpAvi, etc.).
 - Shared service files use <Compile Include> from the WPF project — no copies, no new files.
 - SecretProtection.Initialize() must be called before any HIVE store access.
+- Phase gates from Avalonia_Migration.md must not be bypassed — only flag if the gate is currently marked 🔄 or ⬜ (not ✅ Done).
 - NUnit tests in OrchestratorIDE.UITests/Tests as T##_*.cs.
 "@
 } else {
@@ -110,6 +111,13 @@ $truncNote = if ($truncated) { "`n[DIFF TRUNCATED at ${MaxDiffKB}KB]" } else { "
 $focusNote = if ($Focus) { "`nExtra attention: $Focus`n" } else { "" }
 
 # ── Build prompt ──────────────────────────────────────────────────────────────
+# ── Write prompt to a file (--prompt-file avoids Windows arg-length limits) ───
+$reviewDir  = Join-Path $root ".orc\reviews"
+New-Item -ItemType Directory -Force $reviewDir | Out-Null
+$timestamp  = Get-Date -Format yyyyMMdd_HHmmss
+$promptFile = Join-Path $reviewDir "current_prompt.txt"
+$outFile    = Join-Path $reviewDir "grok_$timestamp.md"
+
 $prompt = @"
 You are performing a code review of TheOrc (WPF/.NET 10 local AI coding assistant) on branch '$branch'.
 Scope: $scopeTag.
@@ -134,19 +142,22 @@ Output format — one finding per line:
 Or the single word CLEAN if no issues found. No other prose.
 "@
 
-# ── Run grok headlessly ───────────────────────────────────────────────────────
-$reviewDir = Join-Path $root ".orc\reviews"
-New-Item -ItemType Directory -Force $reviewDir | Out-Null
-$outFile = Join-Path $reviewDir "grok_$(Get-Date -Format yyyyMMdd_HHmmss).md"
+$prompt | Set-Content $promptFile -Encoding utf8
 
+# ── Run grok headlessly ───────────────────────────────────────────────────────
+# Flags sourced from `grok --help` (v0.2.54):
+#   --prompt-file  single-turn prompt from file (avoids arg-length limit)
+#   --no-alt-screen  inline output, no TUI alternate screen (required for scripting)
+#   --disallowed-tools  restrict to read-only (no file edits / shell commands)
+#   --always-approve  auto-approve read tool calls without prompting
 $psi = [System.Diagnostics.ProcessStartInfo]::new($grokExe)
 foreach ($a in @(
-    '--no-auto-update',
     '--always-approve',
-    '--mode', 'ask',
+    '--no-alt-screen',
     '--output-format', 'plain',
+    '--disallowed-tools', 'write_file,edit_file,create_file,run_bash,run_command',
     '-m', $Model,
-    '-p', $prompt
+    '--prompt-file', $promptFile
 )) {
     $psi.ArgumentList.Add($a)
 }
@@ -162,14 +173,33 @@ $stderrTask = $p.StandardError.ReadToEndAsync()
 if (-not $p.WaitForExit($TimeoutSec * 1000)) {
     try { $p.Kill($true) } catch {}
     Write-Host "grok review TIMED OUT after ${TimeoutSec}s" -ForegroundColor Red
+    Remove-Item $promptFile -ErrorAction SilentlyContinue
     exit 2
+}
+
+Remove-Item $promptFile -ErrorAction SilentlyContinue
+
+# Non-zero exit from grok = auth failure, model error, etc. — fail loudly.
+if ($p.ExitCode -ne 0) {
+    $errText = $stderrTask.Result.Trim()
+    Write-Host "grok exited with code $($p.ExitCode)" -ForegroundColor Red
+    if ($errText) { Write-Host $errText -ForegroundColor Red }
+    exit 1
 }
 
 $verdict = $stdoutTask.Result.Trim()
 
-# Strip Grok's TUI escape sequences / ANSI codes from plain output
+# Strip ANSI escape sequences from plain output
 $verdict = $verdict -replace '\x1b\[[0-9;]*[mGKHF]', ''
+$verdict = ($verdict -split "`n" |
+    Where-Object { $_ -match '^(BLOCKER|MINOR|CLEAN)' -or $_ -match '^\[' }) -join "`n"
 $verdict = $verdict.Trim()
+
+if (-not $verdict) {
+    Write-Host "grok returned no parseable findings — check raw output below:" -ForegroundColor Yellow
+    Write-Host $stdoutTask.Result
+    exit 1
+}
 
 @("# Grok review — $(Get-Date -Format 'yyyy-MM-dd HH:mm')",
   "Model: $Model  |  Branch: $branch  |  Scope: $scopeTag",

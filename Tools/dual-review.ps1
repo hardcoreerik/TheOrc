@@ -66,14 +66,23 @@ $timedOut    = $false
 $codexOutput = ""
 $grokOutput  = ""
 
+$reviewerFailed = $false
+
 foreach ($job in $jobs) {
-    $output = Receive-Job $job 2>&1
-    $text   = ($output | ForEach-Object { "$_" }) -join "`n"
+    $output   = Receive-Job $job 2>&1
+    $text     = ($output | ForEach-Object { "$_" }) -join "`n"
+    $exitCode = $job.ChildJobs[0].Output | Select-Object -Last 1
 
     if ($job.State -eq 'Running') {
         Stop-Job $job
         $timedOut = $true
         Write-Host "[$($job.Name)] TIMED OUT" -ForegroundColor Red
+        $reviewerFailed = $true
+    } elseif ($exitCode -notin @(0, 1)) {
+        # Exit code 1 = findings present (normal); anything else = tool error
+        Write-Host "[$($job.Name)] exited with code $exitCode — reviewer may have failed" -ForegroundColor Red
+        $reviewerFailed = $true
+        Write-Host $text -ForegroundColor DarkRed
     } else {
         Write-Host ""
         Write-Host "═══ $($job.Name) findings ═══" -ForegroundColor $(if ($job.Name -eq 'Codex') { 'Cyan' } else { 'Magenta' })
@@ -83,6 +92,11 @@ foreach ($job in $jobs) {
     if ($job.Name -eq 'Codex') { $codexOutput = $text }
     if ($job.Name -eq 'Grok')  { $grokOutput  = $text }
     Remove-Job $job
+}
+
+if ($reviewerFailed) {
+    Write-Host ""
+    Write-Host "WARNING: one or more reviewers failed — merged results may be incomplete." -ForegroundColor Yellow
 }
 
 # ── Parse and merge findings ──────────────────────────────────────────────────
