@@ -93,6 +93,9 @@ public partial class PitBossPanel : UserControl
         SetThinking(true);
         SetStatus("Pit Boss is warming up…");
 
+        // Inject live environment context (datasets + installed models) before first LLM call.
+        await _svc!.BuildEnvironmentContextAsync(WorkspaceRoot);
+
         var sb = new StringBuilder();
         AppendBotBubble(""); // placeholder; text is streamed in
         var bubble = GetLastBotBubble();

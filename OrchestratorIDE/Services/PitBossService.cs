@@ -1,5 +1,6 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
+using System.Diagnostics;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -502,8 +503,10 @@ public sealed class PitBossService
                 DatasetTarget   = mode == "existing" ? 0 : GetI("dataset_target", 800),
                 DatasetSource   = datasetSource,
                 DatasetFile     = Get("dataset_file"),
-                DatasetGenModel = Get("dataset_gen_model", defaultModel),
-                BaseModel       = Get("base_model", defaultModel),
+                // Default to empty string — the GGUF chat model (defaultModel) is not
+                // a valid training target; Forge will prompt the user to pick a model.
+                DatasetGenModel = Get("dataset_gen_model"),
+                BaseModel       = Get("base_model"),
                 AdapterName     = adapterName,
                 LoraRank        = GetI("lora_rank", 16),
                 Epochs          = GetI("epochs", 3),
@@ -544,11 +547,76 @@ public sealed class PitBossService
             Style           = "concise, technical",
             DatasetTarget   = 800,
             DatasetSource   = "cerebras",
-            BaseModel       = model,
+            BaseModel       = "",   // empty — Forge will prompt the user to select a training-capable model
             AdapterName     = $"lora_custom_{DateTime.Now:yyyyMMdd}",
             TaskMix         = new() { ["feature"] = 0.5, ["bugfix"] = 0.3, ["docs"] = 0.2 },
             EstDatasetHours = 3,
             EstTrainHours   = 2,
         };
+    }
+
+    // ── Environment context (called by both WPF and Avalonia panels) ──────────
+
+    /// <summary>
+    /// Builds and injects the live &lt;ENVIRONMENT&gt; block into <see cref="EnvironmentContext"/>.
+    /// Silently no-ops on failure so the wizard still starts offline.
+    /// </summary>
+    public async Task BuildEnvironmentContextAsync(string workspaceRoot)
+    {
+        try
+        {
+            var datasets = TrainingPitRegistry.LoadDatasets(workspaceRoot);
+            var models   = await TrainingPitRegistry.LoadModelsAsync(_ollamaHost);
+
+            var dsLines = datasets
+                .Where(d => !d.InProgress && d.TrainCount > 0)
+                .OrderByDescending(d => d.LastModified)
+                .Take(8)
+                .Select(d => $"  {d.Name} ({d.TrainCount:N0} train examples)");
+
+            var modelLines = models
+                .Take(10)
+                .Select(m => $"  {m.Name} ({m.SizeGb:F1} GB)");
+
+            EnvironmentContext =
+                "<ENVIRONMENT>\n" +
+                "Available training datasets:\n" +
+                string.Join("\n", dsLines.DefaultIfEmpty("  (none found)")) + "\n\n" +
+                "Installed Ollama models:\n" +
+                string.Join("\n", modelLines.DefaultIfEmpty("  (none found)")) + "\n\n" +
+                $"Training hardware: {DetectVramDescription()}.\n" +
+                "</ENVIRONMENT>";
+        }
+        catch { }
+    }
+
+    private static string DetectVramDescription()
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "nvidia-smi",
+                Arguments = "--query-gpu=name,memory.total --format=csv,noheader,nounits",
+                RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true,
+            };
+            using var proc = Process.Start(psi);
+            if (proc is null) return "local GPU (VRAM unknown)";
+            var readTask = Task.Run(() => proc.StandardOutput.ReadLine()?.Trim());
+            if (!proc.WaitForExit(2000) || !readTask.Wait(2500))
+            {
+                try { proc.Kill(); } catch { }
+                return "local GPU (VRAM unknown)";
+            }
+            var line = readTask.IsCompletedSuccessfully ? readTask.Result : null;
+            if (!string.IsNullOrEmpty(line))
+            {
+                var parts = line.Split(',');
+                if (parts.Length == 2 && int.TryParse(parts[1].Trim(), out var mb))
+                    return $"{parts[0].Trim()}, {mb / 1024} GB VRAM";
+            }
+        }
+        catch { }
+        return "local GPU (VRAM unknown)";
     }
 }

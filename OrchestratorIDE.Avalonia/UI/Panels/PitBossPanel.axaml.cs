@@ -91,10 +91,7 @@ public partial class PitBossPanel : UserControl
         // Inject live context (datasets + models) before the first LLM call.
         // Swallow failures — if Ollama or the disk scan errors, the wizard still works offline.
         if (_svc is not null)
-        {
-            try { _svc.EnvironmentContext = await BuildEnvironmentContextAsync(); }
-            catch { /* non-fatal — offline fallback takes over */ }
-        }
+            await _svc.BuildEnvironmentContextAsync(WorkspaceRoot);
 
         var sb = new StringBuilder();
         AppendBotBubble(""); // placeholder
@@ -434,68 +431,6 @@ public partial class PitBossPanel : UserControl
     {
         var pct = total > 0 ? (int)(written * 100.0 / total) : 0;
         SetStatus($"[gen] {written:N0}/{total:N0} examples  ({pct}%)  — {phase}");
-    }
-
-    // ── Environment context builder ───────────────────────────────────────────
-
-    private static string DetectVramDescription()
-    {
-        // Best-effort: report total installed GPU RAM from nvidia-smi.
-        // Falls back to a generic description if unavailable.
-        try
-        {
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "nvidia-smi",
-                Arguments = "--query-gpu=name,memory.total --format=csv,noheader,nounits",
-                RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true,
-            };
-            using var proc = System.Diagnostics.Process.Start(psi);
-            if (proc is null) return "local GPU (VRAM unknown)";
-            // ReadLine is synchronous and can block indefinitely if nvidia-smi hangs.
-            // Run it on a thread-pool thread and enforce a wall-clock timeout.
-            var readTask = System.Threading.Tasks.Task.Run(
-                () => proc.StandardOutput.ReadLine()?.Trim());
-            if (!proc.WaitForExit(2000) || !readTask.Wait(2500))
-            {
-                try { proc.Kill(); } catch { }
-                return "local GPU (VRAM unknown)";
-            }
-            var line = readTask.IsCompletedSuccessfully ? readTask.Result : null;
-            if (!string.IsNullOrEmpty(line))
-            {
-                var parts = line.Split(',');
-                if (parts.Length == 2 && int.TryParse(parts[1].Trim(), out var mb))
-                    return $"{parts[0].Trim()}, {mb / 1024} GB VRAM";
-            }
-        }
-        catch { }
-        return "local GPU (VRAM unknown)";
-    }
-
-    private async Task<string> BuildEnvironmentContextAsync()
-    {
-        var datasets = TrainingPitRegistry.LoadDatasets(WorkspaceRoot);
-        var models   = await TrainingPitRegistry.LoadModelsAsync(OllamaHost);
-
-        var dsLines = datasets
-            .Where(d => !d.InProgress && d.TrainCount > 0)
-            .OrderByDescending(d => d.LastModified)
-            .Take(8)
-            .Select(d => $"  {d.Name} ({d.TrainCount:N0} train examples)");
-
-        var modelLines = models
-            .Take(10)
-            .Select(m => $"  {m.Name} ({m.SizeGb:F1} GB)");
-
-        return
-            "<ENVIRONMENT>\n" +
-            "Available training datasets:\n" +
-            string.Join("\n", dsLines.DefaultIfEmpty("  (none found)")) + "\n\n" +
-            "Installed Ollama models:\n" +
-            string.Join("\n", modelLines.DefaultIfEmpty("  (none found)")) + "\n\n" +
-            $"Training hardware: {DetectVramDescription()}.\n" +
-            "</ENVIRONMENT>";
     }
 
     // ── Chip factory ──────────────────────────────────────────────────────────
