@@ -159,7 +159,16 @@ public sealed class PlanExecutorService : IDisposable
             return;
         }
 
-        // Build arg string — omit --model if empty (cerebras source uses API key, not a local model)
+        // Ollama source requires a local model; fail early with a clear message.
+        if (plan.DatasetSource == "ollama" && string.IsNullOrWhiteSpace(plan.DatasetGenModel))
+        {
+            TryUpdateRun("failed");
+            Failed?.Invoke("Ollama dataset generation requires a model — re-run the Pit Boss wizard and select a base model from the installed list.");
+            Phase = ExecutorPhase.Failed;
+            return;
+        }
+
+        // Omit --model for cerebras source (uses API key, not a local model tag).
         var modelArg   = string.IsNullOrWhiteSpace(plan.DatasetGenModel)
                          ? ""
                          : $" --model \"{plan.DatasetGenModel}\"";
@@ -303,7 +312,8 @@ public sealed class PlanExecutorService : IDisposable
         var byNewKey = Path.Combine(dsDir, $"{key}.jsonl");
         if (File.Exists(byNewKey)) return byNewKey;
 
-        // User may have typed the full filename (e.g. "train_v2gold.jsonl")
+        // User may have typed the full filename (e.g. "train_v2gold.jsonl") — must be a .jsonl file.
+        if (!key.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)) return null;
         var direct = Path.GetFullPath(Path.Combine(dsDir, key));
         if (!direct.StartsWith(dsDir, StringComparison.OrdinalIgnoreCase)) return null;
         if (File.Exists(direct)) return direct;
