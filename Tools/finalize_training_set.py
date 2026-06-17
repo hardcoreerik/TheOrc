@@ -187,10 +187,15 @@ def main():
 
     cer_n   = gold_counts.get("cerebras", 0)
     cod_n   = gold_counts.get("codex", 0)
+    # Archival gold sources keep the bracketed provenance convention — they are
+    # never fed to datasets.load_dataset directly.
     cer_name = f"cerebras[api].synthetic.boss.{cer_n}.jsonl"
     cod_name = f"codex[api].synthetic.boss.{cod_n}.jsonl"
-    train_name = f"train[mixed].merged.boss.{len(train)}.jsonl"
-    eval_name  = f"eval[mixed].holdout.boss.{len(eval_set)}.jsonl"
+    # Trainer inputs MUST be bracket-free: datasets.load_dataset globs the path
+    # via fsspec, which treats "[mixed]" as a character class and matches nothing
+    # (StopIteration at load). Mirror the v1 convention (train_v1.jsonl).
+    train_name = f"train_v2.merged.boss.{len(train)}.jsonl"
+    eval_name  = f"eval_v2.holdout.boss.{len(eval_set)}.jsonl"
 
     print(f"\n  -> {cer_name}")
     print(f"  -> {cod_name}")
