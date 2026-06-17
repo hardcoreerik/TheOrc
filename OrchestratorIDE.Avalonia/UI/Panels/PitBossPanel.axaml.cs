@@ -88,9 +88,13 @@ public partial class PitBossPanel : UserControl
         SetThinking(true);
         SetStatus("Pit Boss is warming up…");
 
-        // Inject live context (datasets + models) before the first LLM call
+        // Inject live context (datasets + models) before the first LLM call.
+        // Swallow failures — if Ollama or the disk scan errors, the wizard still works offline.
         if (_svc is not null)
-            _svc.EnvironmentContext = await BuildEnvironmentContextAsync();
+        {
+            try { _svc.EnvironmentContext = await BuildEnvironmentContextAsync(); }
+            catch { /* non-fatal — offline fallback takes over */ }
+        }
 
         var sb = new StringBuilder();
         AppendBotBubble(""); // placeholder

@@ -219,7 +219,7 @@ public sealed class PitBossService
         CancellationToken ct = default)
     {
         if (!_ollamaAvailable)
-            return (BuildDefaultPlan(history), "{}");
+            return (BuildDefaultPlan(history, _model), "{}");
 
         var (plan, raw) = await SynthesizeWithFormatAsync(history, ct);
         if (plan is not null)
@@ -263,7 +263,7 @@ public sealed class PitBossService
                                    .GetProperty("message")
                                    .GetProperty("content")
                                    .GetString() ?? "";
-            return (ParsePlanCore(content.Trim()), content);
+            return (ParsePlanCore(content.Trim(), _model), content);
         }
         catch { return (null, ""); }
     }
@@ -440,7 +440,7 @@ public sealed class PitBossService
     // ── JSON plan parsing ─────────────────────────────────────────────────────
 
     // Used by format:-constrained synthesis (raw JSON, no fences).
-    private static TrainingPlan? ParsePlanCore(string json)
+    private static TrainingPlan? ParsePlanCore(string json, string defaultModel = "")
     {
         try
         {
@@ -482,8 +482,8 @@ public sealed class PitBossService
                 DatasetTarget   = mode == "existing" ? 0 : GetI("dataset_target", 800),
                 DatasetSource   = datasetSource,
                 DatasetFile     = Get("dataset_file"),
-                DatasetGenModel = Get("dataset_gen_model", "hermes3:llama3.2-3b"),
-                BaseModel       = Get("base_model", "hermes3:llama3.2-3b"),
+                DatasetGenModel = Get("dataset_gen_model", defaultModel),
+                BaseModel       = Get("base_model", defaultModel),
                 AdapterName     = adapterName,
                 LoraRank        = GetI("lora_rank", 16),
                 Epochs          = GetI("epochs", 3),
@@ -497,12 +497,12 @@ public sealed class PitBossService
     }
 
     // Used by the fence-extraction fallback path.
-    private static TrainingPlan? ParseWithFence(string raw)
+    private TrainingPlan? ParseWithFence(string raw)
     {
         var start = raw.IndexOf("```json", StringComparison.OrdinalIgnoreCase);
         var end   = start >= 0 ? raw.IndexOf("```", start + 7) : -1;
         var json  = start >= 0 && end > start ? raw[(start + 7)..end].Trim() : raw.Trim();
-        return ParsePlanCore(json);
+        return ParsePlanCore(json, _model);
     }
 
     private static string BuildHistoryContext(List<(string role, string text)> history)
@@ -513,7 +513,7 @@ public sealed class PitBossService
         return sb.ToString();
     }
 
-    private static TrainingPlan BuildDefaultPlan(List<(string role, string text)> history)
+    private static TrainingPlan BuildDefaultPlan(List<(string role, string text)> history, string model)
     {
         var goal = history.FirstOrDefault(h => h.role == "user").text ?? "general improvement";
         return new TrainingPlan
@@ -524,7 +524,7 @@ public sealed class PitBossService
             Style           = "concise, technical",
             DatasetTarget   = 800,
             DatasetSource   = "cerebras",
-            BaseModel       = "hermes3:llama3.2-3b",
+            BaseModel       = model,
             AdapterName     = $"lora_custom_{DateTime.Now:yyyyMMdd}",
             TaskMix         = new() { ["feature"] = 0.5, ["bugfix"] = 0.3, ["docs"] = 0.2 },
             EstDatasetHours = 3,
