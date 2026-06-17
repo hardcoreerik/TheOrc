@@ -169,7 +169,7 @@ public sealed class PitBossService
                               "what do they want to train their AI to be better at? " +
                               "Give 4-5 brief example goals as a bulleted list. Under 80 words total.";
 
-        await foreach (var chunk in StreamAsync([], prompt, ct))
+        await foreach (var chunk in StreamAsync([], prompt, ct, fallback))
             yield return chunk;
     }
 
