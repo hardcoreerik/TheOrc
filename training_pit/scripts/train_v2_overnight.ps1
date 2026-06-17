@@ -21,8 +21,10 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = "F:\Ai\OrchestratorIDE-dev"
 Set-Location $RepoRoot
 
-$Train = "training_pit/datasets/train_v2.merged.boss.1784.jsonl"
-$Eval  = "training_pit/datasets/eval_v2.holdout.boss.200.jsonl"
+# Dataset key "v2gold" — matches the Training Pit registry pairing convention,
+# so the SAME files launch from the Forge dropdown (the intended GUI workflow).
+$Train = "training_pit/datasets/train_v2gold.jsonl"
+$Eval  = "training_pit/datasets/eval_v2gold.jsonl"
 $Out   = "training_pit/outputs/lora_v2/adapter"
 
 $LogDir = "training_pit/outputs/lora_v2"

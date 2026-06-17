@@ -191,11 +191,14 @@ def main():
     # never fed to datasets.load_dataset directly.
     cer_name = f"cerebras[api].synthetic.boss.{cer_n}.jsonl"
     cod_name = f"codex[api].synthetic.boss.{cod_n}.jsonl"
-    # Trainer inputs MUST be bracket-free: datasets.load_dataset globs the path
-    # via fsspec, which treats "[mixed]" as a character class and matches nothing
-    # (StopIteration at load). Mirror the v1 convention (train_v1.jsonl).
-    train_name = f"train_v2.merged.boss.{len(train)}.jsonl"
-    eval_name  = f"eval_v2.holdout.boss.{len(eval_set)}.jsonl"
+    # Trainer inputs MUST (a) be bracket-free — datasets.load_dataset globs the
+    # path via fsspec, which treats "[mixed]" as a character class and matches
+    # nothing (StopIteration at load); and (b) share ONE stem key so the Training
+    # Pit registry pairs them in the Forge dropdown (it groups old-convention sets
+    # by exact train_{KEY}/eval_{KEY} match). Key = "v2gold". The GUI is the
+    # intended training workflow, so the pair must surface there, not just on CLI.
+    train_name = "train_v2gold.jsonl"
+    eval_name  = "eval_v2gold.jsonl"
 
     print(f"\n  -> {cer_name}")
     print(f"  -> {cod_name}")
