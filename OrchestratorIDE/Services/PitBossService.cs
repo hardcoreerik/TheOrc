@@ -387,20 +387,33 @@ public sealed class PitBossService
             yield break;
         }
 
-        using var httpStream = await resp.Content.ReadAsStreamAsync(ct);
-        using var reader     = new System.IO.StreamReader(httpStream);
-
-        while (!reader.EndOfStream && !ct.IsCancellationRequested)
+        // Buffer chunks into a list so yield return never appears inside a try/catch.
+        // For the Pit Boss wizard, responses are short enough that buffering is fine.
+        var chunks = new List<string>();
+        try
         {
-            var line = await reader.ReadLineAsync(ct);
-            if (string.IsNullOrWhiteSpace(line)) continue;
+            using var httpStream = await resp.Content.ReadAsStreamAsync(ct);
+            using var reader     = new System.IO.StreamReader(httpStream);
 
-            string? chunk = ParseChunk(line);
-            if (chunk is not null)
-                yield return chunk;
-
-            if (IsDone(line)) break;
+            while (!reader.EndOfStream && !ct.IsCancellationRequested)
+            {
+                var line = await reader.ReadLineAsync(ct);
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                string? chunk = ParseChunk(line);
+                if (chunk is not null) chunks.Add(chunk);
+                if (IsDone(line)) break;
+            }
         }
+        catch (Exception) when (!ct.IsCancellationRequested) { /* mid-stream disconnect */ }
+
+        if (chunks.Count == 0 && fallbackOnError is not null)
+        {
+            yield return fallbackOnError;
+            yield break;
+        }
+
+        foreach (var chunk in chunks)
+            yield return chunk;
     }
 
     private async Task<HttpResponseMessage?> PostSafeAsync(string body, CancellationToken ct)
