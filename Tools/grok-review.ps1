@@ -215,6 +215,7 @@ Write-Host $verdict
 Write-Host ""
 Write-Host "saved -> $outFile" -ForegroundColor DarkGray
 
-# Exit 1 if BLOCKERs found (matches codex-review.ps1 semantics); 0 if clean/minor-only.
-if ($verdict -match '^BLOCKER\s') { exit 1 }
+# Exit 1 if any line is a BLOCKER (matches codex-review.ps1 semantics); 0 if clean/minor-only.
+$hasBlocker = ($verdict -split "`n") | Where-Object { $_ -match '^BLOCKER\s' }
+if ($hasBlocker) { exit 1 }
 exit 0

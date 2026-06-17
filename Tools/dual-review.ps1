@@ -84,6 +84,7 @@ foreach ($job in $jobs) {
         $reviewerFailed = $true
     } elseif ($exitCode -notin @(0, 1)) {
         # 0 = clean/minor-only, 1 = BLOCKERs (both normal); 2 = timeout, 3 = exe missing, 5 = tool error
+        if ($exitCode -eq 2) { $timedOut = $true }   # propagate child timeout as wrapper timeout
         Write-Host "[$($job.Name)] exited with code $exitCode — reviewer may have failed" -ForegroundColor Red
         $reviewerFailed = $true
         Write-Host $text -ForegroundColor DarkRed
