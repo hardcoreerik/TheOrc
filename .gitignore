@@ -92,3 +92,6 @@ training_pit/flag_review.txt
 
 # All TheOrc local runtime state (runs, staging, manual captures) — local-only by design
 .orc/
+
+# Test result artifacts
+test-results/

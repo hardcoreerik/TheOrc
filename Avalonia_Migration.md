@@ -256,16 +256,32 @@ The Avalonia project defines `WINDOWS` on Windows (for DPAPI/SharpAvi), but does
 
 ---
 
-## Phase 7 — Review, tests, ship
+## Phase 7 — Review, tests, ship (v1.8.0)
 
-**Goal:** All tests green under Avalonia, Codex review clean, v1.7.0 tagged.
+**Decision (2026-06-16):** WPF and Avalonia **coexist** for v1.8 — WPF stays the
+primary/shipping app (covered by the FlaUI black-box suite T01–T08 + 121 headless
+unit tests), and Avalonia gets its **first-ever test coverage**. WPF retirement is
+deferred to a later release once Avalonia is field-proven. Test strategy: **both**
+Avalonia headless in-process tests + a thin FlaUI smoke for the Avalonia shell.
 
-- [ ] Update `OrchestratorIDE.UnitTests` to reference Avalonia project
-- [ ] Update `OrchestratorIDE.UITests` — Avalonia headless test mode (`HeadlessUnitTestSession`)
-- [ ] Final Codex review of entire `feature/avalonia` branch diff
-- [ ] 121/121+ green
-- [ ] Push branch, open PR, merge to master
-- [ ] Tag v1.7.0
+- [x] New project `OrchestratorIDE.Avalonia.HeadlessTests` (net10.0, cross-platform)
+      using `Avalonia.Headless.NUnit` 12.0.4 — boots the real `App` headlessly so
+      brand-colour `StaticResource`s resolve.
+- [x] `MarkdownViewTests` (12) — Phase 6 renderer: block/inline parse → control
+      tree, plus the `IsVisible` deferred-render guard (streaming perf fix).
+- [x] `PanelConstructionTests` (9) — every migrated panel constructs headlessly
+      (AXAML loads, compiled bindings + resources resolve).
+- [x] Thin FlaUI smoke `AvaloniaSmokeTests` in UITests (sibling namespace so the
+      WPF `AppFixture` doesn't co-launch) — launches `OrchestratorIDE.Avalonia.exe`,
+      asserts the main window appears. `[Category("AvaloniaSmoke")]`.
+- [x] **142 automated tests green** (121 WPF unit + 21 Avalonia headless).
+- [x] Grok review clean (Grok replaces Codex this cycle).
+- [ ] WPF FlaUI suite + Avalonia smoke verified on interactive session.
+- [ ] Tag v1.8.0.
+
+> Note: `Window.Show()` under the headless platform spins the render loop, so the
+> in-window layout test was dropped — construction + MarkdownView content-tree
+> assertions already cover XAML load / binding / resource faults without it.
 
 ---
 
