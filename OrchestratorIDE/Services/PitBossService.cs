@@ -505,7 +505,10 @@ public sealed class PitBossService
                 DatasetFile     = Get("dataset_file"),
                 // Default to empty string — the GGUF chat model (defaultModel) is not
                 // a valid training target; Forge will prompt the user to pick a model.
-                DatasetGenModel = Get("dataset_gen_model"),
+                // For ollama source, fall back to base_model if synthesis omits gen model.
+                DatasetGenModel = Get("dataset_gen_model") is { Length: > 0 } gm ? gm
+                                : datasetSource == "ollama" ? Get("base_model")
+                                : "",
                 BaseModel       = Get("base_model"),
                 AdapterName     = adapterName,
                 LoraRank        = GetI("lora_rank", 16),

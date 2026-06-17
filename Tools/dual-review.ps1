@@ -14,7 +14,7 @@
 #   tools\dual-review.ps1 -SkipGrok              # Codex only
 #
 # Exit codes:
-#   0 = both clean    1 = one or more BLOCKERs    2 = one reviewer timed out
+#   0 = both clean    1 = one or more BLOCKERs    2 = one reviewer timed out    3 = reviewer tool error
 param(
     [string]$Range      = "HEAD~1..HEAD",
     [switch]$Staged,
@@ -170,6 +170,7 @@ if ($allBlockers.Count -eq 0 -and $allMinors.Count -eq 0) {
 Write-Host ""
 Write-Host "saved -> $mergedFile" -ForegroundColor DarkGray
 
-if ($timedOut)            { exit 2 }
+if ($timedOut)                { exit 2 }
 if ($allBlockers.Count -gt 0) { exit 1 }
+if ($reviewerFailed)          { exit 3 }
 exit 0
