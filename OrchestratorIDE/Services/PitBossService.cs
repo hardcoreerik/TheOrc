@@ -259,7 +259,7 @@ public sealed class PitBossService
             options = new { temperature = 0, num_ctx = 8192 },
         });
 
-        var resp = await PostSafeAsync(body, ct);
+        using var resp = await PostSafeAsync(body, ct);
         if (resp is null) return (null, "");
 
         try
