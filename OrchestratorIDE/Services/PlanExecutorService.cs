@@ -106,7 +106,7 @@ public sealed class PlanExecutorService : IDisposable
                 _plan!.DatasetFile = Path.GetFileName(existingPath);
                 _plan.Phase        = PlanPhase.Training;
                 PitBossService.SavePlan(_plan, _pitRoot);
-                TryUpdateRun("dataset_ready", existingPath);
+                TryUpdateRun("complete", existingPath);
                 DatasetReady?.Invoke(existingPath);
                 ForgeReady?.Invoke(plan, existingPath);
                 Phase = ExecutorPhase.WaitingForForge;

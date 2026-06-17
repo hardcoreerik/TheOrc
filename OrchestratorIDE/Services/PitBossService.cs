@@ -74,8 +74,8 @@ public sealed class PitBossService
           "dataset_target":    800,               // examples to generate (mode=generate only)
           "dataset_source":    "cerebras",        // "cerebras" | "ollama" | "manual" | "existing"
           "dataset_file":      "",                // train_KEY stem if mode=existing, e.g. "v2gold"
-          "dataset_gen_model": "hermes3:llama3.2-3b",
-          "base_model":        "hermes3:llama3.2-3b",
+          "dataset_gen_model": "<model-from-ENVIRONMENT>",
+          "base_model":        "<model-from-ENVIRONMENT>",
           "adapter_name":      "lora_network_eng_v1",
           "lora_rank":         16,
           "epochs":            3,
