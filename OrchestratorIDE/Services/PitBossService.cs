@@ -202,7 +202,13 @@ public sealed class PitBossService
             : $"{context}\n\nQuestion slot {roundIndex + 1} of 8 — ask about: {topic}. " +
               "One sentence. Direct. Do not repeat anything already confirmed.";
 
-        await foreach (var chunk in StreamAsync(history, prompt, ct))
+        // Supply the slot-appropriate fallback so a mid-interview Ollama failure
+        // asks the correct question rather than re-asking the opening goal.
+        var fallback = roundIndex < _fallbackQuestions.Length
+            ? _fallbackQuestions[roundIndex]
+            : "Does everything look right? Type 'yes' to generate the plan.";
+
+        await foreach (var chunk in StreamAsync(history, prompt, ct, fallback))
             yield return chunk;
     }
 
@@ -353,7 +359,8 @@ public sealed class PitBossService
     private async IAsyncEnumerable<string> StreamAsync(
         List<(string role, string text)> history,
         string userPrompt,
-        [EnumeratorCancellation] CancellationToken ct)
+        [EnumeratorCancellation] CancellationToken ct,
+        string? fallbackOnError = null)
     {
         // Combine static system prompt with live environment context injected by the panel.
         var systemContent = string.IsNullOrWhiteSpace(EnvironmentContext)
@@ -376,7 +383,7 @@ public sealed class PitBossService
         var resp = await PostSafeAsync(body, ct);
         if (resp is null)
         {
-            yield return _fallbackQuestions[0];
+            if (fallbackOnError is not null) yield return fallbackOnError;
             yield break;
         }
 

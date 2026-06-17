@@ -451,9 +451,17 @@ public partial class PitBossPanel : UserControl
                 RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true,
             };
             using var proc = System.Diagnostics.Process.Start(psi);
-            var line = proc?.StandardOutput.ReadLine()?.Trim();
-            if (proc is not null && !proc.WaitForExit(2000))
-                proc.Kill();
+            if (proc is null) return "local GPU (VRAM unknown)";
+            // ReadLine is synchronous and can block indefinitely if nvidia-smi hangs.
+            // Run it on a thread-pool thread and enforce a wall-clock timeout.
+            var readTask = System.Threading.Tasks.Task.Run(
+                () => proc.StandardOutput.ReadLine()?.Trim());
+            if (!proc.WaitForExit(2000) || !readTask.Wait(2500))
+            {
+                try { proc.Kill(); } catch { }
+                return "local GPU (VRAM unknown)";
+            }
+            var line = readTask.IsCompletedSuccessfully ? readTask.Result : null;
             if (!string.IsNullOrEmpty(line))
             {
                 var parts = line.Split(',');
