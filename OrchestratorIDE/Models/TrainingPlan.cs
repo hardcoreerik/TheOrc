@@ -30,9 +30,11 @@ public sealed class TrainingPlan
     public Dictionary<string, double> TaskMix { get; init; } = [];
 
     // ── Dataset configuration ────────────────────────────────────────────────
-    /// <summary>Total number of training examples to generate.</summary>
+    /// <summary>"generate" = produce new examples; "existing" = use a dataset already on disk.</summary>
+    public string Mode            { get; init; } = "generate";
+    /// <summary>Total number of training examples to generate (mode=generate only).</summary>
     public int    DatasetTarget   { get; init; } = 800;
-    /// <summary>Generation backend: "cerebras" | "ollama" | "manual"</summary>
+    /// <summary>Generation backend: "cerebras" | "ollama" | "manual" | "existing"</summary>
     public string DatasetSource   { get; init; } = "cerebras";
     /// <summary>Ollama model used for local generation (if DatasetSource == "ollama").</summary>
     public string DatasetGenModel { get; init; } = "qwen2.5-coder:14b";

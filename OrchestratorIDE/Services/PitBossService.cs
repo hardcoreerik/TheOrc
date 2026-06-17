@@ -11,14 +11,15 @@ namespace OrchestratorIDE.Services;
 /// <summary>
 /// Drives the Pit Boss training wizard via a local Ollama model.
 ///
-/// Conversation flow:
-///   1. OpeningAsync       — streams the opening question (goal)
-///   2. NextQuestionAsync  — streams the follow-up given Q&A history (max 8 rounds)
-///   3. SynthesizePlanAsync — asks the model to output a structured TrainingPlan JSON
-///      from the full conversation, then parses and returns it.
+/// Architecture — host owns state, LLM generates content:
+///   1. OpeningAsync        — greeting + question 1 (goal)
+///   2. NextQuestionAsync   — question text for a specific slot (panel tracks _round)
+///   3. SynthesizePlanAsync — two-phase: format:-constrained JSON call, fence fallback
 ///
-/// If Ollama is unreachable the service falls back to a built-in static question tree
-/// so the wizard always works (offline/no-model path produces a sane default plan).
+/// The panel (PitBossPanel) owns _round and advances it each turn.
+/// This service never decides which question to ask next — it only phrases it.
+///
+/// Offline fallback: if Ollama is unreachable, uses a built-in static question tree.
 /// </summary>
 public sealed class PitBossService
 {
@@ -26,49 +27,104 @@ public sealed class PitBossService
     private static readonly string[] _fallbackQuestions =
     [
         "What do you want your AI to become better at? (e.g. code review, delegation, a specific language, a persona)",
+        "Do you have an existing dataset to train on, or should we generate one from scratch?",
         "Which programming language or domain is most important? (leave blank for any)",
         "How would you describe the ideal response style? (e.g. terse and technical, verbose and friendly, formal)",
-        "How much training data should we generate? (quick ≈ 300  /  standard ≈ 800  /  thorough ≈ 2,000)",
         "Which base model should we fine-tune? (e.g. qwen2.5-coder:14b — press Enter to keep the default)",
-        "How long are you willing to let training run? (quick 1 h  /  overnight  /  weekend)",
-        "Anything the model should specifically avoid or handle differently from the base?",
+        "How much training data? (quick ≈ 300  /  standard ≈ 800  /  thorough ≈ 2,000) — or which dataset file to use?",
+        "How long are you willing to let training run? (quick ~1 h  /  overnight  /  weekend)",
         "Does this look right? Type 'yes' to generate the plan, or correct anything above.",
     ];
 
+    // ── Question slot topics (LLM phrases these; host picks the slot index) ──
+    // Slot 0 = opening (OpeningAsync). Slots 1–7 map to NextQuestionAsync roundIndex.
+    private static readonly string[] _questionSlotTopics =
+    [
+        "what AI capability or skill they want to improve",
+        "whether they have an existing dataset to train on, or need to generate one from scratch — if they mention a dataset name from the ENVIRONMENT block, the answer is 'existing'",
+        "which programming languages or domains are most important (e.g. C#, Python, SQL, any)",
+        "what the ideal response style looks like (terse/verbose, formal/casual, technical level)",
+        "which base model to fine-tune — recommend ONLY models listed in the ENVIRONMENT block",
+        "if mode is 'existing': which dataset file to use (reference names from ENVIRONMENT); if mode is 'generate': how many examples (quick ≈ 300 / standard ≈ 800 / thorough ≈ 2,000)",
+        "preferred training duration — quick (~1 h / 1 epoch) / standard (~3 h / 3 epochs) / overnight (~6 h / 5 epochs)",
+        "final confirmation — briefly summarize the key plan details and ask if everything looks right",
+    ];
+
+    // ── Interview system prompt ───────────────────────────────────────────────
     private static readonly string _systemPrompt = """
-        You are TheOrc Pit Boss — a concise, expert AI training coach embedded in the OrchestratorIDE desktop app.
+        You are TheOrc Pit Boss — a concise, expert AI training coach inside OrchestratorIDE's Training Pit.
         Your job is to guide the user through setting up a LoRA fine-tuning plan for a local language model.
 
         Rules:
-        - Ask ONE focused question at a time. Never ask multiple questions in one turn.
-        - Keep every response under 120 words.
-        - Be encouraging but direct — no filler, no disclaimers.
-        - When you have enough information (after ~8 exchanges), output ONLY a JSON block wrapped in
-          ```json ... ``` containing the training plan schema described below.
-          Do not write anything outside the JSON block when synthesizing.
+        - Ask EXACTLY ONE question per turn. Never ask two questions at once. Never ask a follow-up on the same turn.
+        - Keep every response under 80 words.
+        - Be direct and encouraging — no disclaimers, no filler phrases like "Great choice!" or "Absolutely!".
+        - You DO NOT produce JSON during the interview. A separate synthesis call handles that after all 8 questions.
+        - If the user mentions an existing dataset by name, treat mode as "existing". Reference dataset names from the ENVIRONMENT block.
+        - For base model recommendations, ONLY suggest models listed in the ENVIRONMENT block.
 
-        TrainingPlan JSON schema:
+        TrainingPlan schema (for your awareness — the synthesizer produces this after the interview):
         {
-          "goal":            "one-line plain-English goal",
-          "persona":         "system prompt anchor for generated examples",
-          "style":           "response style description",
-          "languages":       ["csharp", "python", ...],
-          "task_mix":        { "code_review": 0.6, "bugfix": 0.3, "docs": 0.1 },
-          "dataset_target":  800,
-          "dataset_source":  "cerebras",
-          "dataset_gen_model": "qwen2.5-coder:14b",
-          "base_model":      "qwen2.5-coder:14b",
-          "adapter_name":    "lora_csharp_reviewer_v1",
-          "lora_rank":       16,
-          "epochs":          3,
-          "learning_rate":   0.0002,
-          "est_dataset_hours": 3.0,
-          "est_train_hours":   2.0,
-          "notes":           "free text summary"
+          "goal":              "one-line plain-English goal",
+          "persona":           "system prompt anchor for generated examples",
+          "style":             "response style description",
+          "languages":         ["csharp", "python", ...],
+          "task_mix":          { "code_review": 0.6, "bugfix": 0.3, "docs": 0.1 },
+          "mode":              "generate",        // "generate" | "existing"
+          "dataset_target":    800,               // examples to generate (mode=generate only)
+          "dataset_source":    "cerebras",        // "cerebras" | "ollama" | "manual" | "existing"
+          "dataset_file":      "",                // train_KEY stem if mode=existing, e.g. "v2gold"
+          "dataset_gen_model": "hermes3:llama3.2-3b",
+          "base_model":        "hermes3:llama3.2-3b",
+          "adapter_name":      "lora_network_eng_v1",
+          "lora_rank":         16,
+          "epochs":            3,
+          "learning_rate":     0.0002,
+          "est_dataset_hours": 0.0,              // 0 when mode=existing
+          "est_train_hours":   1.5,
+          "notes":             "free text"
         }
 
         Valid task_mix keys: code_review, bugfix, refactor, feature, tests, docs, integration, ui, delegation, persona, explanation
-        Valid dataset_source values: cerebras, ollama, manual
+        Valid dataset_source: cerebras, ollama, manual, existing
+        Valid mode: generate, existing
+        """;
+
+    // ── Synthesis prompt (phase 2 — short, focused) ──────────────────────────
+    private const string _synthesisSystemPrompt =
+        "You are a JSON synthesizer. Given a training wizard interview transcript, produce a single valid JSON object. " +
+        "Fill ALL fields from what the user said. " +
+        "If mode is 'existing', set dataset_source='existing', dataset_file to the dataset stem mentioned (e.g. 'v2gold'), and est_dataset_hours=0. " +
+        "Output ONLY the JSON object — no markdown, no explanation.";
+
+    // ── JSON schema for format: constrained synthesis ────────────────────────
+    // Flat schema (≤1 nesting level) for reliable output on ≤4B models.
+    // Required fields listed first so they are generated before attention degrades.
+    private const string _synthesisSchemaJson = """
+        {
+          "type": "object",
+          "properties": {
+            "goal":              { "type": "string" },
+            "mode":              { "type": "string", "enum": ["generate", "existing"] },
+            "adapter_name":      { "type": "string" },
+            "base_model":        { "type": "string" },
+            "dataset_source":    { "type": "string", "enum": ["cerebras", "ollama", "manual", "existing"] },
+            "lora_rank":         { "type": "integer" },
+            "epochs":            { "type": "integer" },
+            "learning_rate":     { "type": "number" },
+            "persona":           { "type": "string" },
+            "style":             { "type": "string" },
+            "languages":         { "type": "array", "items": { "type": "string" } },
+            "task_mix":          { "type": "object" },
+            "dataset_target":    { "type": "integer" },
+            "dataset_file":      { "type": "string" },
+            "dataset_gen_model": { "type": "string" },
+            "est_dataset_hours": { "type": "number" },
+            "est_train_hours":   { "type": "number" },
+            "notes":             { "type": "string" }
+          },
+          "required": ["goal", "mode", "adapter_name", "base_model", "dataset_source", "lora_rank", "epochs", "learning_rate"]
+        }
         """;
 
     // ── HTTP ─────────────────────────────────────────────────────────────────
@@ -77,8 +133,15 @@ public sealed class PitBossService
     private readonly string     _model;
     private          bool       _ollamaAvailable = true;
 
+    /// <summary>
+    /// Live system state set by the panel before the first call.
+    /// Appended to each interview request's system prompt so the model knows which
+    /// datasets and Ollama models are actually installed.
+    /// </summary>
+    public string EnvironmentContext { get; set; } = "";
+
     public PitBossService(string ollamaHost = "http://localhost:11434",
-                          string model      = "qwen2.5-coder:14b")
+                          string model      = "hermes3:llama3.2-3b")
     {
         _ollamaHost = ollamaHost.TrimEnd('/');
         _model      = model;
@@ -87,34 +150,34 @@ public sealed class PitBossService
 
     // ── Opening ───────────────────────────────────────────────────────────────
 
-    /// <summary>Streams the opening greeting + first question.</summary>
+    /// <summary>Streams the opening greeting + question 1 (goal).</summary>
     public async IAsyncEnumerable<string> OpeningAsync(
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        const string opening = "What do you want to train your AI to become better at?\n\n" +
-                               "You can describe a skill, a language, a persona, or a goal — " +
-                               "anything from \"better C# code reviewer\" to \"delegate tasks like a senior engineer\" " +
-                               "to \"respond like a Socratic philosopher\".";
+        const string fallback = "What do you want to train your AI to become better at?\n\n" +
+                                "You can describe a skill, a language, a persona, or a goal — " +
+                                "anything from \"better C# code reviewer\" to \"delegate tasks like a senior engineer\" " +
+                                "to \"respond like a Socratic philosopher\".";
 
         if (!_ollamaAvailable)
         {
-            yield return opening;
+            yield return fallback;
             yield break;
         }
 
-        var prompt = "Greet the user warmly in one sentence (max 15 words), then ask question 1: " +
-                     "what do they want to train their AI to be better at? " +
-                     "Give 4-5 brief example goals as a bulleted list.";
+        const string prompt = "Greet the user in one sentence (max 10 words), then ask question 1: " +
+                              "what do they want to train their AI to be better at? " +
+                              "Give 4-5 brief example goals as a bulleted list. Under 80 words total.";
 
         await foreach (var chunk in StreamAsync([], prompt, ct))
             yield return chunk;
     }
 
-    // ── Follow-up question ────────────────────────────────────────────────────
+    // ── Follow-up questions ───────────────────────────────────────────────────
 
     /// <summary>
-    /// Given the Q&amp;A history so far, streams the next most useful question.
-    /// Returns null when enough information has been collected (≥8 rounds).
+    /// Streams the question text for the given slot (0-based).
+    /// The panel owns _round and calls this; the LLM only phrases the question.
     /// </summary>
     public async IAsyncEnumerable<string> NextQuestionAsync(
         List<(string role, string text)> history,
@@ -123,27 +186,32 @@ public sealed class PitBossService
     {
         if (!_ollamaAvailable)
         {
-            var fallback = roundIndex < _fallbackQuestions.Length
+            yield return roundIndex < _fallbackQuestions.Length
                 ? _fallbackQuestions[roundIndex]
                 : "Does everything look right? Type 'yes' to generate the plan.";
-            yield return fallback;
             yield break;
         }
 
-        var context = BuildHistoryContext(history);
+        var slotIndex = Math.Clamp(roundIndex, 0, _questionSlotTopics.Length - 1);
+        var topic     = _questionSlotTopics[slotIndex];
+        var context   = BuildHistoryContext(history);
+
         var prompt = roundIndex >= 7
-            ? $"{context}\n\nYou have enough information. Ask the user to confirm the plan or make final corrections. Be brief (1 sentence)."
-            : $"{context}\n\nRound {roundIndex + 1} of 8. Ask ONE clarifying question to fill the most important missing detail in the training plan. Be specific, be brief.";
+            ? $"{context}\n\nFinal confirmation step: briefly summarize the key plan details (2-3 lines), " +
+              "then ask if everything looks right or needs corrections. Under 80 words."
+            : $"{context}\n\nQuestion slot {roundIndex + 1} of 8 — ask about: {topic}. " +
+              "One sentence. Direct. Do not repeat anything already confirmed.";
 
         await foreach (var chunk in StreamAsync(history, prompt, ct))
             yield return chunk;
     }
 
-    // ── Plan synthesis ────────────────────────────────────────────────────────
+    // ── Plan synthesis (two-phase) ────────────────────────────────────────────
 
     /// <summary>
     /// Synthesizes a TrainingPlan from the full Q&amp;A history.
-    /// Returns null on parse failure (caller should surface the raw JSON to the user).
+    /// Phase 2a: format:-constrained JSON call (Ollama 0.5+, deterministic).
+    /// Phase 2b: fallback to ```json fence extraction for older Ollama builds.
     /// </summary>
     public async Task<(TrainingPlan? Plan, string RawJson)> SynthesizePlanAsync(
         List<(string role, string text)> history,
@@ -151,29 +219,74 @@ public sealed class PitBossService
         CancellationToken ct = default)
     {
         if (!_ollamaAvailable)
-            return (BuildDefaultPlan(history, workspaceRoot), "{}");
+            return (BuildDefaultPlan(history), "{}");
 
+        var (plan, raw) = await SynthesizeWithFormatAsync(history, ct);
+        if (plan is not null)
+            return (plan, raw);
+
+        return await SynthesizeWithFenceAsync(history, ct);
+    }
+
+    private async Task<(TrainingPlan? Plan, string Raw)> SynthesizeWithFormatAsync(
+        List<(string role, string text)> history,
+        CancellationToken ct)
+    {
+        var context  = BuildHistoryContext(history);
+        var messages = new List<object>
+        {
+            new { role = "system", content = _synthesisSystemPrompt },
+            new { role = "user",   content = $"Interview transcript:\n\n{context}\n\nSynthesize into a training plan." }
+        };
+
+        JsonElement schema;
+        try { schema = JsonSerializer.Deserialize<JsonElement>(_synthesisSchemaJson); }
+        catch { return (null, ""); }
+
+        var body = JsonSerializer.Serialize(new
+        {
+            model   = _model,
+            messages,
+            stream  = false,
+            format  = schema,
+            options = new { temperature = 0, num_ctx = 8192 },
+        });
+
+        var resp = await PostSafeAsync(body, ct);
+        if (resp is null) return (null, "");
+
+        try
+        {
+            var responseBody = await resp.Content.ReadAsStringAsync(ct);
+            using var doc    = JsonDocument.Parse(responseBody);
+            var content      = doc.RootElement
+                                   .GetProperty("message")
+                                   .GetProperty("content")
+                                   .GetString() ?? "";
+            return (ParsePlanCore(content.Trim()), content);
+        }
+        catch { return (null, ""); }
+    }
+
+    private async Task<(TrainingPlan? Plan, string Raw)> SynthesizeWithFenceAsync(
+        List<(string role, string text)> history,
+        CancellationToken ct)
+    {
         var context = BuildHistoryContext(history);
-        var synthesisPrompt = $"{context}\n\n" +
-            "Now synthesize everything into a TrainingPlan JSON block. " +
-            "Output ONLY the ```json ... ``` block — no other text.";
+        var prompt  = $"{context}\n\nSynthesize everything into a TrainingPlan. " +
+                      "Output ONLY a ```json ... ``` block — no other text.";
 
         var sb = new StringBuilder();
-        await foreach (var chunk in StreamAsync(history, synthesisPrompt, ct))
+        await foreach (var chunk in StreamAsync(history, prompt, ct))
             sb.Append(chunk);
 
-        var raw = sb.ToString();
-        var plan = ParsePlan(raw, workspaceRoot);
+        var raw  = sb.ToString();
+        var plan = ParseWithFence(raw);
         return (plan, raw);
     }
 
     // ── Plan persistence ──────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Optional SQL dual-write target (Phase 2 of the JSON→SQLite migration).
-    /// Set once at app startup. When non-null, every SavePlan call also upserts a
-    /// PlanRecord. Best-effort: a DB failure never affects the file write.
-    /// </summary>
     public static Data.PlanRepository? PlanRepo { get; set; }
 
     public static void SavePlan(TrainingPlan plan, string pitRoot)
@@ -182,8 +295,6 @@ public sealed class PitBossService
         Directory.CreateDirectory(dir);
         var json = JsonSerializer.Serialize(plan, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(Path.Combine(dir, plan.PlanFileName), json);
-
-        // Phase 2 dual-write: mirror into SQL. File stays canonical.
         TryDualWritePlan(plan);
     }
 
@@ -216,7 +327,7 @@ public sealed class PitBossService
                 HiveJson:      plan.Hive is null ? null : JsonSerializer.Serialize(plan.Hive),
                 Notes:         plan.Notes));
         }
-        catch { /* Best-effort — never propagate DB failures to the caller */ }
+        catch { }
     }
 
     public static List<TrainingPlan> LoadPlans(string pitRoot)
@@ -237,14 +348,19 @@ public sealed class PitBossService
         return plans.OrderByDescending(p => p.CreatedAt).ToList();
     }
 
-    // ── Ollama streaming ──────────────────────────────────────────────────────
+    // ── Ollama streaming (interview phase) ───────────────────────────────────
 
     private async IAsyncEnumerable<string> StreamAsync(
         List<(string role, string text)> history,
         string userPrompt,
         [EnumeratorCancellation] CancellationToken ct)
     {
-        var messages = new List<object> { new { role = "system", content = _systemPrompt } };
+        // Combine static system prompt with live environment context injected by the panel.
+        var systemContent = string.IsNullOrWhiteSpace(EnvironmentContext)
+            ? _systemPrompt
+            : _systemPrompt + "\n\n" + EnvironmentContext;
+
+        var messages = new List<object> { new { role = "system", content = systemContent } };
         foreach (var (role, text) in history)
             messages.Add(new { role, content = text });
         messages.Add(new { role = "user", content = userPrompt });
@@ -254,11 +370,10 @@ public sealed class PitBossService
             model    = _model,
             messages,
             stream   = true,
-            options  = new { temperature = 0.5, num_ctx = 8192 },
+            options  = new { temperature = 0.3, num_ctx = 8192 },
         });
 
-        // Perform the HTTP call outside the iterator body so we can use try/catch.
-        HttpResponseMessage? resp = await PostSafeAsync(body, ct);
+        var resp = await PostSafeAsync(body, ct);
         if (resp is null)
         {
             yield return _fallbackQuestions[0];
@@ -277,7 +392,6 @@ public sealed class PitBossService
             if (chunk is not null)
                 yield return chunk;
 
-            // Check "done" flag
             if (IsDone(line)) break;
         }
     }
@@ -325,17 +439,14 @@ public sealed class PitBossService
 
     // ── JSON plan parsing ─────────────────────────────────────────────────────
 
-    private static TrainingPlan? ParsePlan(string raw, string workspaceRoot)
+    // Used by format:-constrained synthesis (raw JSON, no fences).
+    private static TrainingPlan? ParsePlanCore(string json)
     {
-        // Extract the ```json ... ``` block
-        var start = raw.IndexOf("```json", StringComparison.OrdinalIgnoreCase);
-        var end   = start >= 0 ? raw.IndexOf("```", start + 7) : -1;
-        var json  = start >= 0 && end > start ? raw[(start + 7)..end].Trim() : raw.Trim();
-
         try
         {
-            using var doc   = JsonDocument.Parse(json);
-            var root        = doc.RootElement;
+            using var doc = JsonDocument.Parse(json);
+            var root      = doc.RootElement;
+
             string Get(string key, string def = "")
                 => root.TryGetProperty(key, out var v) ? v.GetString() ?? def : def;
             int GetI(string key, int def)
@@ -357,6 +468,9 @@ public sealed class PitBossService
             if (string.IsNullOrWhiteSpace(adapterName))
                 adapterName = $"lora_custom_{DateTime.Now:yyyyMMdd}";
 
+            var mode          = Get("mode", "generate");
+            var datasetSource = Get("dataset_source", mode == "existing" ? "existing" : "cerebras");
+
             return new TrainingPlan
             {
                 Goal            = Get("goal"),
@@ -364,20 +478,31 @@ public sealed class PitBossService
                 Style           = Get("style"),
                 Languages       = langs,
                 TaskMix         = mix,
-                DatasetTarget   = GetI("dataset_target", 800),
-                DatasetSource   = Get("dataset_source", "cerebras"),
-                DatasetGenModel = Get("dataset_gen_model", "qwen2.5-coder:14b"),
-                BaseModel       = Get("base_model", "qwen2.5-coder:14b"),
+                Mode            = mode,
+                DatasetTarget   = mode == "existing" ? 0 : GetI("dataset_target", 800),
+                DatasetSource   = datasetSource,
+                DatasetFile     = Get("dataset_file"),
+                DatasetGenModel = Get("dataset_gen_model", "hermes3:llama3.2-3b"),
+                BaseModel       = Get("base_model", "hermes3:llama3.2-3b"),
                 AdapterName     = adapterName,
                 LoraRank        = GetI("lora_rank", 16),
                 Epochs          = GetI("epochs", 3),
                 LearningRate    = GetD("learning_rate", 2e-4),
-                EstDatasetHours = GetD("est_dataset_hours", 0),
-                EstTrainHours   = GetD("est_train_hours",   0),
+                EstDatasetHours = mode == "existing" ? 0 : GetD("est_dataset_hours", 0),
+                EstTrainHours   = GetD("est_train_hours", 0),
                 Notes           = Get("notes"),
             };
         }
         catch { return null; }
+    }
+
+    // Used by the fence-extraction fallback path.
+    private static TrainingPlan? ParseWithFence(string raw)
+    {
+        var start = raw.IndexOf("```json", StringComparison.OrdinalIgnoreCase);
+        var end   = start >= 0 ? raw.IndexOf("```", start + 7) : -1;
+        var json  = start >= 0 && end > start ? raw[(start + 7)..end].Trim() : raw.Trim();
+        return ParsePlanCore(json);
     }
 
     private static string BuildHistoryContext(List<(string role, string text)> history)
@@ -388,20 +513,20 @@ public sealed class PitBossService
         return sb.ToString();
     }
 
-    private static TrainingPlan BuildDefaultPlan(
-        List<(string role, string text)> history, string workspaceRoot)
+    private static TrainingPlan BuildDefaultPlan(List<(string role, string text)> history)
     {
         var goal = history.FirstOrDefault(h => h.role == "user").text ?? "general improvement";
         return new TrainingPlan
         {
-            Goal          = goal,
-            Persona       = "A helpful, precise AI assistant",
-            Style         = "concise, technical",
-            DatasetTarget = 800,
-            DatasetSource = "cerebras",
-            BaseModel     = "qwen2.5-coder:14b",
-            AdapterName   = $"lora_custom_{DateTime.Now:yyyyMMdd}",
-            TaskMix       = new() { ["feature"] = 0.5, ["bugfix"] = 0.3, ["docs"] = 0.2 },
+            Goal            = goal,
+            Mode            = "generate",
+            Persona         = "A helpful, precise AI assistant",
+            Style           = "concise, technical",
+            DatasetTarget   = 800,
+            DatasetSource   = "cerebras",
+            BaseModel       = "hermes3:llama3.2-3b",
+            AdapterName     = $"lora_custom_{DateTime.Now:yyyyMMdd}",
+            TaskMix         = new() { ["feature"] = 0.5, ["bugfix"] = 0.3, ["docs"] = 0.2 },
             EstDatasetHours = 3,
             EstTrainHours   = 2,
         };

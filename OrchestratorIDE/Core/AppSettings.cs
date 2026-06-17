@@ -253,6 +253,9 @@ public class AppSettings
     /// <summary>Ollama model used for local advisory/gated review. Must be installed in Ollama.</summary>
     public string SwarmLocalReviewModel { get; set; } = "qwen2.5-coder:14b";
 
+    /// <summary>Local Ollama model used by the Pit Boss training wizard. Must be ≤4B to coexist with QLoRA training.</summary>
+    public string PitBossModel { get; set; } = "hermes3:llama3.2-3b";
+
     // ── Updates ───────────────────────────────────────────────────────────
     /// <summary>Whether to silently check GitHub for newer releases on startup.</summary>
     public bool      CheckForUpdates        { get; set; } = true;

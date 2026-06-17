@@ -23,7 +23,7 @@ public partial class PitBossPanel : UserControl
     // ── Public properties ─────────────────────────────────────────────────────
     public string WorkspaceRoot { get; set; } = "";
     public string OllamaHost    { get; set; } = "http://localhost:11434";
-    public string OllamaModel   { get; set; } = "qwen2.5-coder:14b";
+    public string OllamaModel   { get; set; } = "hermes3:llama3.2-3b";
     public Services.Data.RunRepository?  RunRepo  { get; set; }
     public Services.Data.PlanRepository? PlanRepo { get; set; }
 
@@ -87,6 +87,10 @@ public partial class PitBossPanel : UserControl
     {
         SetThinking(true);
         SetStatus("Pit Boss is warming up…");
+
+        // Inject live context (datasets + models) before the first LLM call
+        if (_svc is not null)
+            _svc.EnvironmentContext = await BuildEnvironmentContextAsync();
 
         var sb = new StringBuilder();
         AppendBotBubble(""); // placeholder
@@ -426,6 +430,33 @@ public partial class PitBossPanel : UserControl
     {
         var pct = total > 0 ? (int)(written * 100.0 / total) : 0;
         SetStatus($"[gen] {written:N0}/{total:N0} examples  ({pct}%)  — {phase}");
+    }
+
+    // ── Environment context builder ───────────────────────────────────────────
+
+    private async Task<string> BuildEnvironmentContextAsync()
+    {
+        var datasets = TrainingPitRegistry.LoadDatasets(WorkspaceRoot);
+        var models   = await TrainingPitRegistry.LoadModelsAsync(OllamaHost);
+
+        var dsLines = datasets
+            .Where(d => !d.InProgress && d.TrainCount > 0)
+            .OrderByDescending(d => d.LastModified)
+            .Take(8)
+            .Select(d => $"  {d.Name} ({d.TrainCount:N0} train examples)");
+
+        var modelLines = models
+            .Take(10)
+            .Select(m => $"  {m.Name} ({m.SizeGb:F1} GB)");
+
+        return
+            "<ENVIRONMENT>\n" +
+            "Available training datasets:\n" +
+            string.Join("\n", dsLines.DefaultIfEmpty("  (none found)")) + "\n\n" +
+            "Installed Ollama models:\n" +
+            string.Join("\n", modelLines.DefaultIfEmpty("  (none found)")) + "\n\n" +
+            "Training hardware: RTX 5070 Ti, 16 GB VRAM. QLoRA peak ~12 GB.\n" +
+            "</ENVIRONMENT>";
     }
 
     // ── Chip factory ──────────────────────────────────────────────────────────

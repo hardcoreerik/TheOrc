@@ -1689,7 +1689,7 @@ public partial class MainWindow : Window
         {
             WorkspaceRoot = _session.WorkspaceRoot,
             OllamaHost    = _settings.OllamaHost,
-            OllamaModel   = _settings.SwarmLocalReviewModel, // reuse same model setting
+            OllamaModel   = _settings.PitBossModel,
             RunRepo       = _runRepo,
             PlanRepo      = _planRepo,
         };
