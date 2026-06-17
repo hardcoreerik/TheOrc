@@ -11,14 +11,11 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Research;
+using OrchestratorIDE.UI.Controls;
 
 namespace OrchestratorIDE.UI.Panels;
 
-/// <summary>
-/// Research-focused "Just Chat" panel.
-/// Markdown rendering is Phase 6 (Markdown.Avalonia) — final responses
-/// currently stay as plain text in a read-only TextBox.
-/// </summary>
+/// <summary>Research-focused "Just Chat" panel. Final responses are rendered as markdown.</summary>
 public partial class ChatPanel : UserControl
 {
     // ── Dependencies ──────────────────────────────────────────────────────────
@@ -173,13 +170,20 @@ public partial class ChatPanel : UserControl
         {
             BdrSearching.IsVisible = false;
 
-            // Phase 6: replace with Markdown.Avalonia rendered content.
-            // For now, keep the streaming TextBox with the final text.
             if (_streamBox is not null)
             {
-                _streamBox.Text     = finalText;
-                _streamBox.IsReadOnly = true;
-                _streamBox          = null;
+                var box    = _streamBox;
+                var bubble = box.Parent as Border;
+                _streamBox = null;
+
+                if (bubble is not null)
+                    bubble.Child = new MarkdownView { Text = finalText };
+                else
+                {
+                    // Fallback: parent detached or structure changed; keep as plain text.
+                    box.Text      = finalText;
+                    box.IsReadOnly = true;
+                }
             }
 
             ScrollToBottom();

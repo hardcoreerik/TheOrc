@@ -194,8 +194,9 @@ if ($p.ExitCode -ne 0) {
 
 $verdict = $stdoutTask.Result.Trim()
 
-# Strip ANSI escape sequences from plain output
+# Strip ANSI escape sequences and markdown bold markers from plain output
 $verdict = $verdict -replace '\x1b\[[0-9;]*[mGKHF]', ''
+$verdict = $verdict -replace '\*\*', ''   # strip ** bold markers (safe; single * may appear in issue text)
 $verdict = ($verdict -split "`n" |
     Where-Object { $_ -match '^(BLOCKER|MINOR|CLEAN)' -or $_ -match '^\[' }) -join "`n"
 $verdict = $verdict.Trim()

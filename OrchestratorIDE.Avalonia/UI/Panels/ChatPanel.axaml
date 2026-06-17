@@ -6,10 +6,9 @@
 
     <!--
     ═══════════════════════════════════════════════════════════════════
-    CHAT PANEL — Phase 3B (Avalonia port)
+    CHAT PANEL — Phase 3B/6 (Avalonia port)
     "Just Chat" research panel. Dynamic bubble-building in code-behind.
-    Note: Markdown rendering is Phase 6 (Markdown.Avalonia). Until then
-    the final assistant response stays as plain text in a TextBox.
+    Final responses rendered as markdown via MarkdownView (Phase 6).
     ═══════════════════════════════════════════════════════════════════
     -->
 

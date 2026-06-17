@@ -2,8 +2,7 @@
 
 Cross-platform UI migration: WPF (`net10.0-windows`) → Avalonia 12 (`net10.0`)
 
-**Branch:** `feature/avalonia`  
-**Target version:** v1.7.0  
+**Target version:** v1.8.0  
 **Started:** 2026-06-15
 
 ---
@@ -12,16 +11,16 @@ Cross-platform UI migration: WPF (`net10.0-windows`) → Avalonia 12 (`net10.0`)
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 0 | Scaffold — blank Avalonia window | ✅ Done |
-| 1 | Service layer decoupling | ✅ Done |
-| 2 | Code editor (AvalonEditB → AvaloniaEdit) | ✅ Done |
-| 3A | Panels — batch A (simple) | ✅ Done |
-| 3B | Panels — batch B (medium) | 🔄 In progress |
-| 3C | Panels — batch C (complex) | 🔄 In progress |
-| 4 | Dialogs, windows, controls | 🔄 In progress |
-| 5 | MainWindow + App (full IDE layout) | ⬜ Not started |
-| 6 | Markdown renderer | ⬜ Not started |
-| 7 | Review, tests, ship v1.7.0 | ⬜ Not started |
+| 0 | Scaffold — blank Avalonia window | ✅ Done (v1.7.0) |
+| 1 | Service layer decoupling | ✅ Done (v1.7.0) |
+| 2 | Code editor (AvalonEditB → AvaloniaEdit) | ✅ Done (v1.7.0) |
+| 3A | Panels — batch A (simple) | ✅ Done (v1.7.0) |
+| 3B | Panels — batch B (medium) | ✅ Done (v1.7.0) |
+| 3C | Panels — batch C (complex) | ✅ Done (v1.7.0) |
+| 4 | Dialogs, windows, controls | ✅ Done (v1.7.0, dialogs deferred → v1.8) |
+| 5 | MainWindow + App (full IDE layout) | ✅ Done (v1.7.0) |
+| 6 | Markdown renderer | ✅ Done (v1.8.0) |
+| 7 | Review, tests, ship v1.8.0 | 🔄 In progress |
 
 ---
 

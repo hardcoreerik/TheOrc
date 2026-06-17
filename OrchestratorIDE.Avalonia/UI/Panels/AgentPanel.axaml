@@ -3,6 +3,7 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:OrchestratorIDE.UI.Panels"
+             xmlns:ctrl="clr-namespace:OrchestratorIDE.UI.Controls"
              Background="{StaticResource Br.Bg.App}">
 
     <!--
@@ -69,8 +70,9 @@
                                                FontSize="10" FontWeight="Bold"
                                                Margin="0,0,0,3"/>
 
-                                    <!-- Selectable read-only message text -->
+                                    <!-- Plain text (streaming or non-assistant messages) -->
                                     <TextBox Text="{Binding Content, Mode=OneWay}"
+                                             IsVisible="{Binding PlainText}"
                                              IsReadOnly="True"
                                              Background="Transparent"
                                              BorderThickness="0"
@@ -89,6 +91,19 @@
                                             </ContextMenu>
                                         </TextBox.ContextMenu>
                                     </TextBox>
+
+                                    <!-- Markdown rendered (complete assistant messages) -->
+                                    <ctrl:MarkdownView Text="{Binding Content}"
+                                                       IsVisible="{Binding UseMarkdown}">
+                                        <ctrl:MarkdownView.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Copy message"      Click="MsgCopyMessage_Click"/>
+                                                <MenuItem Header="Copy all messages" Click="MsgCopyAll_Click"/>
+                                                <Separator/>
+                                                <MenuItem Header="Save chat to…"     Click="MsgSaveChat_Click"/>
+                                            </ContextMenu>
+                                        </ctrl:MarkdownView.ContextMenu>
+                                    </ctrl:MarkdownView>
 
                                     <!-- Token badge (assistant only) -->
                                     <TextBlock Text="{Binding TokenLabel}"

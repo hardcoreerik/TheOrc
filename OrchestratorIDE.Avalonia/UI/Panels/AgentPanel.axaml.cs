@@ -224,7 +224,8 @@ public partial class AgentPanel : UserControl
             if (RbPlan.IsChecked == true)
             {
                 await Loop.PlanAsync(Session, prompt, _cts.Token);
-                _streamingBubble.Status = MessageStatus.Complete;
+                _streamingBubble.Status     = MessageStatus.Complete;
+                _streamingBubble.UseMarkdown = true;
 
                 RbExec.IsChecked = true;
                 TbInput.Text     = "[Execute the above plan]";
@@ -234,7 +235,8 @@ public partial class AgentPanel : UserControl
             else
             {
                 await Loop.ExecuteAsync(Session, prompt, _cts.Token);
-                _streamingBubble.Status = MessageStatus.Complete;
+                _streamingBubble.Status     = MessageStatus.Complete;
+                _streamingBubble.UseMarkdown = true;
             }
         }
         catch (OperationCanceledException)
@@ -488,6 +490,7 @@ public class MessageVm : INotifyPropertyChanged
     private string _content = "";
     private MessageStatus _status = MessageStatus.Pending;
     private int _completionTokens = 0;
+    private bool _useMarkdown;
 
     public MessageRole   Role   { get; init; }
     public MessageStatus Status
@@ -495,6 +498,13 @@ public class MessageVm : INotifyPropertyChanged
         get => _status;
         set { _status = value; OnPropChanged(nameof(Status)); }
     }
+    public bool UseMarkdown
+    {
+        get => _useMarkdown;
+        set { _useMarkdown = value; OnPropChanged(nameof(UseMarkdown)); OnPropChanged(nameof(PlainText)); }
+    }
+    public bool PlainText => !_useMarkdown;
+
     public string Content
     {
         get => _content;
