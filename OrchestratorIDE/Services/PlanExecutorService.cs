@@ -168,32 +168,34 @@ public sealed class PlanExecutorService : IDisposable
             return;
         }
 
-        // Omit --model for cerebras source (uses API key, not a local model tag).
-        var modelArg   = string.IsNullOrWhiteSpace(plan.DatasetGenModel)
-                         ? ""
-                         : $" --model \"{plan.DatasetGenModel}\"";
-        var scriptArgs = $"-u \"{genScript}\"" +
-                         $" --plan-file \"{planFile}\"" +
-                         $" --out-file \"{_workFile}\"" +
-                         modelArg;
-
         // Log file beside the work file
         var logFile = _workFile.Replace(".work.jsonl", ".gen.log");
         File.WriteAllText(logFile, $"=== Pit Boss gen run {DateTime.Now:yyyy-MM-dd HH:mm} ===\n" +
                                    $"Goal: {plan.Goal}\n" +
                                    $"Script: {genScript}\n\n");
 
-        var (shellExe, shellArgs) = OperatingSystem.IsWindows()
-            ? ("cmd.exe", $"/c python {scriptArgs} >> \"{logFile}\" 2>&1")
-            : ("/bin/sh",  $"-c \"python3 {scriptArgs} >> '{logFile}' 2>&1\"");
+        // Launch Python directly via ArgumentList — never interpolate LLM-controlled values into a shell string.
+        var pythonExe = OperatingSystem.IsWindows() ? "python" : "python3";
         var psi = new ProcessStartInfo
         {
-            FileName         = shellExe,
-            Arguments        = shellArgs,
-            WorkingDirectory = _pitRoot,
-            UseShellExecute  = false,
-            CreateNoWindow   = true,
+            FileName               = pythonExe,
+            WorkingDirectory       = _pitRoot,
+            UseShellExecute        = false,
+            CreateNoWindow         = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError  = true,
         };
+        psi.ArgumentList.Add("-u");
+        psi.ArgumentList.Add(genScript);
+        psi.ArgumentList.Add("--plan-file");
+        psi.ArgumentList.Add(planFile);
+        psi.ArgumentList.Add("--out-file");
+        psi.ArgumentList.Add(_workFile);
+        if (!string.IsNullOrWhiteSpace(plan.DatasetGenModel))
+        {
+            psi.ArgumentList.Add("--model");
+            psi.ArgumentList.Add(plan.DatasetGenModel);
+        }
 
         _genProcess = Process.Start(psi);
         if (_genProcess is null)
@@ -204,6 +206,12 @@ public sealed class PlanExecutorService : IDisposable
             Phase = ExecutorPhase.Failed;
             return;
         }
+
+        // Pipe stdout/stderr to the log file; append to avoid stomping the header.
+        _genProcess.OutputDataReceived += (_, e) => { if (e.Data is not null) File.AppendAllText(logFile, e.Data + "\n"); };
+        _genProcess.ErrorDataReceived  += (_, e) => { if (e.Data is not null) File.AppendAllText(logFile, e.Data + "\n"); };
+        _genProcess.BeginOutputReadLine();
+        _genProcess.BeginErrorReadLine();
 
         LogLine?.Invoke($"[gen] PID {_genProcess.Id} — {Path.GetFileName(genScript)}");
 
