@@ -101,7 +101,9 @@ public sealed class PlanExecutorService : IDisposable
                     return;
                 }
                 // Mirror the state-update logic from MonitorGenProgressAsync.
-                _plan!.DatasetFile = existingPath;
+                // Store the filename (not absolute path) so ResolveExistingDataset can
+                // re-resolve it on history-relaunch without hitting the path-separator guard.
+                _plan!.DatasetFile = Path.GetFileName(existingPath);
                 _plan.Phase        = PlanPhase.Training;
                 PitBossService.SavePlan(_plan, _pitRoot);
                 TryUpdateRun("dataset_ready", existingPath);
