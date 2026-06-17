@@ -133,6 +133,11 @@
     <Compile Include="..\OrchestratorIDE\Services\Data\RunRepository.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Data\SqliteStore.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Data\TriageRepository.cs" />
+    <!-- CodeGraph v1 (step 1+) — shared with WPF via explicit include (Avalonia_Migration.md discipline) -->
+    <Compile Include="..\OrchestratorIDE\Services\CodeGraph\GraphModels.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\CodeGraph\ComplexityAnalyzer.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\CodeGraph\Data\GraphRepository.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\CodeGraph\RoslynIndexer.cs" />
 
     <!-- Services / HIVE (DpapiSecretProtector Windows-only) -->
     <Compile Include="..\OrchestratorIDE\Services\Hive\ISecretProtector.cs" />
@@ -208,6 +213,7 @@
     <Compile Include="..\OrchestratorIDE\Tools\ShellTools.cs" />
     <Compile Include="..\OrchestratorIDE\Tools\TestTools.cs" />
     <Compile Include="..\OrchestratorIDE\Tools\WebTools.cs" />
+    <Compile Include="..\OrchestratorIDE\Tools\GraphTools.cs" />
 
     <!-- Trust -->
     <Compile Include="..\OrchestratorIDE\Trust\ApprovalQueue.cs" />

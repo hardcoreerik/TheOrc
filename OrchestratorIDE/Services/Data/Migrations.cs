@@ -19,6 +19,8 @@ internal static class Migrations
         new Migration(2, "plans + runs",       Sql002_PlansRuns),
         new Migration(3, "datasets index",     Sql003_Datasets),
         new Migration(4, "hive tasks + events", Sql004_Hive),
+        new Migration(5, "code graph nodes/edges/fts/adr", Sql005_Graph),
+        new Migration(6, "graph_adr step4 (title,decision,status,created_at,body)", Sql006_AdrV2),
     ];
 
     // ── v1 — Phase 1: captures + triage ─────────────────────────────────────────
@@ -181,6 +183,114 @@ internal static class Migrations
         );
         CREATE INDEX ix_hive_events_session ON hive_events(session_id);
         CREATE INDEX ix_hive_events_retain  ON hive_events(retain_until);
+        """;
+
+    // ── v5 — CodeGraph v1 (C# structure + search index) ─────────────────────────
+    // Tables per CodeGraph_v1.md. FTS5 for BM25 search over names (camelCase split
+    // performed at write time in GraphRepository so natural language queries hit).
+    // Triggers keep graph_fts in sync on node changes (external-content pattern).
+    // New tables only; no changes to prior migrations.
+    private const string Sql005_Graph = """
+        CREATE TABLE graph_nodes (
+            id            INTEGER PRIMARY KEY,
+            project       TEXT    NOT NULL,
+            label         TEXT    NOT NULL,
+            name          TEXT    NOT NULL,
+            qualified_name TEXT   NOT NULL,
+            file_path     TEXT    NOT NULL,
+            line_start    INTEGER NOT NULL,
+            line_end      INTEGER NOT NULL,
+            cyclomatic            INTEGER,
+            cognitive             INTEGER,
+            loop_depth            INTEGER,
+            transitive_loop_depth INTEGER,
+            linear_scan_in_loop   INTEGER,
+            is_recursive          INTEGER DEFAULT 0,
+            degree        INTEGER DEFAULT 0,
+            UNIQUE(project, qualified_name)
+        );
+        CREATE INDEX ix_gn_project ON graph_nodes(project);
+        CREATE INDEX ix_gn_label   ON graph_nodes(project, label);
+        CREATE INDEX ix_gn_file    ON graph_nodes(project, file_path);
+
+        CREATE TABLE graph_edges (
+            id        INTEGER PRIMARY KEY,
+            project   TEXT    NOT NULL,
+            src_id    INTEGER NOT NULL REFERENCES graph_nodes(id) ON DELETE CASCADE,
+            dst_id    INTEGER NOT NULL REFERENCES graph_nodes(id) ON DELETE CASCADE,
+            edge_type TEXT    NOT NULL,
+            UNIQUE(project, src_id, dst_id, edge_type)
+        );
+        CREATE INDEX ix_ge_src ON graph_edges(src_id, edge_type);
+        CREATE INDEX ix_ge_dst ON graph_edges(dst_id, edge_type);
+
+        CREATE VIRTUAL TABLE graph_fts USING fts5(
+            name, qualified_name, file_path,
+            content='graph_nodes', content_rowid='id',
+            tokenize='unicode61'
+        );
+
+        CREATE TABLE graph_adr (
+            id         INTEGER PRIMARY KEY,
+            project    TEXT NOT NULL,
+            section    TEXT NOT NULL,
+            content    TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(project, section)
+        );
+
+        -- FTS sync triggers (support external content + manual repop with split tokens from C# side)
+        CREATE TRIGGER graph_nodes_ai AFTER INSERT ON graph_nodes BEGIN
+            INSERT INTO graph_fts(rowid, name, qualified_name, file_path)
+            VALUES (new.id, new.name, new.qualified_name, new.file_path);
+        END;
+        CREATE TRIGGER graph_nodes_ad AFTER DELETE ON graph_nodes BEGIN
+            INSERT INTO graph_fts(graph_fts, rowid, name, qualified_name, file_path)
+            VALUES ('delete', old.id, old.name, old.qualified_name, old.file_path);
+        END;
+        CREATE TRIGGER graph_nodes_au AFTER UPDATE ON graph_nodes BEGIN
+            INSERT INTO graph_fts(graph_fts, rowid, name, qualified_name, file_path)
+            VALUES ('delete', old.id, old.name, old.qualified_name, old.file_path);
+            INSERT INTO graph_fts(rowid, name, qualified_name, file_path)
+            VALUES (new.id, new.name, new.qualified_name, new.file_path);
+        END;
+        """;
+
+    // ── v6 — Evolve graph_adr for step 4 tool (title/decision/status/created_at + body)
+    // Old (v5) was (section, content, updated_at, unique on project+section).
+    // New supports list by created, get-by-id, plain adds (no section key), status enum.
+    // Data is migrated where possible; old table dropped after.
+    private const string Sql006_AdrV2 = """
+        -- Backup old if exists, create new schema, copy data best-effort, drop old
+        CREATE TABLE IF NOT EXISTS graph_adr_old AS SELECT * FROM graph_adr;
+
+        DROP TABLE IF EXISTS graph_adr;
+
+        CREATE TABLE graph_adr (
+            id         INTEGER PRIMARY KEY,
+            project    TEXT NOT NULL,
+            title      TEXT NOT NULL,
+            decision   TEXT NOT NULL,
+            status     TEXT NOT NULL DEFAULT 'proposed',
+            body       TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX ix_adr_project ON graph_adr(project);
+        CREATE INDEX ix_adr_created ON graph_adr(created_at DESC);
+
+        -- Migrate previous records if any (section -> title, content -> decision+body, updated -> created)
+        INSERT INTO graph_adr (project, title, decision, status, body, created_at)
+        SELECT
+            project,
+            COALESCE(section, 'untitled'),
+            COALESCE(content, ''),
+            'accepted',
+            COALESCE(content, ''),
+            COALESCE(updated_at, datetime('now'))
+        FROM graph_adr_old
+        WHERE project IS NOT NULL;
+
+        DROP TABLE IF EXISTS graph_adr_old;
         """;
 }
 
