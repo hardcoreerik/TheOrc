@@ -4,8 +4,8 @@
 #
 # Prerequisites:
 #   1. Install Grok Build CLI:  irm https://x.ai/cli/install.ps1 | iex
-#   2. Set API key:             $env:XAI_API_KEY = "xai-..."
-#                               (or run `grok login` once for browser auth)
+#   2. Authenticate:            grok login   (browser OAuth, cached indefinitely)
+#                               OR  $env:XAI_API_KEY = "xai-..."
 #
 # Usage:
 #   tools\grok-review.ps1                        # review HEAD~1..HEAD (latest commit)
@@ -15,8 +15,9 @@
 #   tools\grok-review.ps1 -Focus "async safety, resource leaks"
 #   tools\grok-review.ps1 -TimeoutSec 900
 #
-# Output: findings on stdout and in .orc\reviews\grok_<timestamp>.md. Exit codes:
-#   0 = review completed   2 = timed out   3 = grok exe not found   4 = no API key
+# Exit codes (matches codex-review.ps1 semantics):
+#   0 = CLEAN or MINORs only    1 = one or more BLOCKERs
+#   2 = timed out    3 = grok exe not found    5 = tool error (git/grok failure)
 param(
     [string]$Range      = "HEAD~1..HEAD",
     [switch]$Staged,
@@ -53,7 +54,7 @@ if ($Staged) {
     $diffRaw  = git diff --cached -- . ':!publish' ':!*.psv' ':!*.tsv' ':!*.jsonl' 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "git diff --cached failed. Nothing staged?" -ForegroundColor Red
-        exit 1
+        exit 5
     }
     $statLine = git diff --cached --stat | Select-Object -Last 1
     $scopeTag = "staged changes"
@@ -61,7 +62,7 @@ if ($Staged) {
     $logLines = git log --oneline "$Range" 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "git log failed for range '$Range'. Invalid range?" -ForegroundColor Red
-        exit 1
+        exit 5
     }
     $diffRaw  = git diff "$Range" -- . ':!publish' ':!*.psv' ':!*.tsv' ':!*.jsonl' 2>$null
     $statLine = git diff --stat "$Range" 2>$null | Select-Object -Last 1
@@ -115,7 +116,6 @@ if (Test-Path "$root\Avalonia_Migration.md") { $planNote += "Cross-check against
 $truncNote = if ($truncated) { "`n[DIFF TRUNCATED at ${MaxDiffKB}KB]" } else { "" }
 $focusNote = if ($Focus) { "`nExtra attention: $Focus`n" } else { "" }
 
-# ── Build prompt ──────────────────────────────────────────────────────────────
 # ── Write prompt to a file (--prompt-file avoids Windows arg-length limits) ───
 $reviewDir  = Join-Path $root ".orc\reviews"
 New-Item -ItemType Directory -Force $reviewDir | Out-Null
@@ -184,12 +184,12 @@ if (-not $p.WaitForExit($TimeoutSec * 1000)) {
 
 Remove-Item $promptFile -ErrorAction SilentlyContinue
 
-# Non-zero exit from grok = auth failure, model error, etc. — fail loudly.
+# Non-zero exit from grok = auth failure, model error, etc. — exit 5 (tool error).
 if ($p.ExitCode -ne 0) {
     $errText = $stderrTask.Result.Trim()
     Write-Host "grok exited with code $($p.ExitCode)" -ForegroundColor Red
     if ($errText) { Write-Host $errText -ForegroundColor Red }
-    exit 1
+    exit 5
 }
 
 $verdict = $stdoutTask.Result.Trim()
@@ -203,7 +203,7 @@ $verdict = $verdict.Trim()
 if (-not $verdict) {
     Write-Host "grok returned no parseable findings — check raw output below:" -ForegroundColor Yellow
     Write-Host $stdoutTask.Result
-    exit 1
+    exit 5
 }
 
 @("# Grok review — $(Get-Date -Format 'yyyy-MM-dd HH:mm')",
@@ -214,4 +214,7 @@ Write-Host ""
 Write-Host $verdict
 Write-Host ""
 Write-Host "saved -> $outFile" -ForegroundColor DarkGray
+
+# Exit 1 if BLOCKERs found (matches codex-review.ps1 semantics); 0 if clean/minor-only.
+if ($verdict -match '^BLOCKER\s') { exit 1 }
 exit 0
