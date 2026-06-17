@@ -11,7 +11,7 @@
 #   tools\grok-review.ps1                        # review HEAD~1..HEAD (latest commit)
 #   tools\grok-review.ps1 -Range "a1b2..HEAD"    # specific commit range
 #   tools\grok-review.ps1 -Staged                # staged changes
-#   tools\grok-review.ps1 -Model grok-4-latest   # use Grok 4 Heavy (super grok)
+#   tools\grok-review.ps1 -Model grok-composer-2.5-fast  # use heavier model
 #   tools\grok-review.ps1 -Focus "async safety, resource leaks"
 #   tools\grok-review.ps1 -TimeoutSec 900
 #
@@ -21,7 +21,7 @@ param(
     [string]$Range      = "HEAD~1..HEAD",
     [switch]$Staged,
     [string]$Focus      = "",
-    [string]$Model      = "grok-build-0.1",     # swap to grok-4-latest for heavy review
+    [string]$Model      = "grok-build",           # swap to grok-composer-2.5-fast for heavier review
     [int]   $TimeoutSec = 600,
     [int]   $MaxDiffKB  = 512                    # Grok has 256K token ctx — generous budget
 )
@@ -31,7 +31,12 @@ $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 
 # ── Verify prerequisites ──────────────────────────────────────────────────────
+# Check PATH first, then the default install location
 $grokExe = (Get-Command grok -ErrorAction SilentlyContinue)?.Source
+if (-not $grokExe) {
+    $defaultPath = Join-Path $env:USERPROFILE ".grok\bin\grok.exe"
+    if (Test-Path $defaultPath) { $grokExe = $defaultPath }
+}
 if (-not $grokExe) {
     Write-Host "grok not found — install with: irm https://x.ai/cli/install.ps1 | iex" -ForegroundColor Red
     exit 3

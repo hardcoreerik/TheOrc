@@ -618,6 +618,8 @@ public sealed class PitBossService
             var readTask = Task.Run(() => proc.StandardOutput.ReadLine()?.Trim());
             if (!proc.WaitForExit(2000) || !readTask.Wait(2500))
             {
+                // Observe task before kill so stream-close exception is swallowed cleanly.
+                _ = readTask.ContinueWith(static _ => { }, TaskContinuationOptions.OnlyOnFaulted);
                 try { proc.Kill(); } catch { }
                 return "local GPU (VRAM unknown)";
             }

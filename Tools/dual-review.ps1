@@ -8,7 +8,7 @@
 #   tools\dual-review.ps1                        # latest commit
 #   tools\dual-review.ps1 -Range "HEAD~5..HEAD"  # commit range
 #   tools\dual-review.ps1 -Staged                # staged changes
-#   tools\dual-review.ps1 -GrokModel grok-4-latest  # use Grok 4 Heavy
+#   tools\dual-review.ps1 -GrokModel grok-composer-2.5-fast  # use heavier model
 #   tools\dual-review.ps1 -Focus "async safety"
 #   tools\dual-review.ps1 -SkipCodex             # Grok only
 #   tools\dual-review.ps1 -SkipGrok              # Codex only
@@ -19,7 +19,7 @@ param(
     [string]$Range      = "HEAD~1..HEAD",
     [switch]$Staged,
     [string]$Focus      = "",
-    [string]$GrokModel  = "grok-build-0.1",
+    [string]$GrokModel  = "grok-build",
     [int]   $TimeoutSec = 600,
     [switch]$SkipCodex,
     [switch]$SkipGrok
@@ -69,9 +69,13 @@ $grokOutput  = ""
 $reviewerFailed = $false
 
 foreach ($job in $jobs) {
-    $output   = Receive-Job $job 2>&1
-    $text     = ($output | ForEach-Object { "$_" }) -join "`n"
-    $exitCode = $job.ChildJobs[0].Output | Select-Object -Last 1
+    $output = Receive-Job $job 2>&1
+    # The last item emitted by the job script block is $LASTEXITCODE (an integer).
+    # Receive-Job drains ChildJobs[0].Output, so read it from $output instead.
+    $lastItem = $output | Select-Object -Last 1
+    $exitCode = if ("$lastItem" -match '^\d+$') { [int]"$lastItem" } else { $null }
+    $textItems = if ($null -ne $exitCode) { $output | Select-Object -SkipLast 1 } else { $output }
+    $text     = ($textItems | ForEach-Object { "$_" }) -join "`n"
 
     if ($job.State -eq 'Running') {
         Stop-Job $job
