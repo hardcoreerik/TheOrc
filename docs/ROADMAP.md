@@ -1,17 +1,17 @@
 # TheOrc — Roadmap
 
-> Last updated: 2026-06-16 (v1.7.0 release).
+> Last updated: 2026-06-17 (v1.8.0 release).
 > This document is updated after every GitHub release. It reflects actual code state, not aspirations — features marked Shipped have been verified in the running app.
 
 ---
 
 ## Where we are
 
-TheOrc is a production local AI orchestrator. The core swarm, model intelligence, distributed HIVE MIND, and self-training loop are all shipped and running. The adapter trained by the v1 pipeline scores **99.3%** on structured planning evals. The v2 dataset pipeline is running now (Cerebras gold generation).
+TheOrc is a production local AI orchestrator. The core swarm, model intelligence, distributed HIVE MIND, and self-training loop are all shipped and running. The v1 adapter scores **99.3%** on structured planning evals; the **v2 adapter (ORC ACADEMY v2) finished training overnight** — 1,784 examples, Gemma 4 12B, 3 epochs, eval loss 0.2595 (better than v1). Cerebras gold generation is running for the v2 dataset extension.
 
-v1.7.0 ships the Avalonia 12 cross-platform UI migration. The WPF MainWindow (~2,589 lines) has been fully replaced by an Avalonia code-behind with identical service wiring. The build compiles, 121/121 unit tests pass headlessly. Native dialogs (Phase 4) are deferred to v1.8.
+v1.8.0 ships the Avalonia MarkdownView (Phase 6), the full FlaUI + Avalonia test suite (Phase 7, 23 tests), and the Grok toolchain integration. CodeGraph v1 — a Roslyn + SQLite code knowledge graph that lets the agent query graph structure instead of grepping files — is fully implemented and committed, targeting v1.9.
 
-The honest gaps: the Reviewer Quality Gate is advisory-only (can always be overridden), the Tool Editor hot-reload is a stub, and HIVE MIND multi-step tool calling on remote workers is Phase 3B (not yet built). Native dialogs (`UserInputDialog`, `ToolEditorPanel` hot-load) are not yet ported to Avalonia. Everything else on the shipped list below is real, wired, and tested.
+The honest gaps: the Reviewer Quality Gate is advisory-only (can always be overridden), the Tool Editor hot-reload is a stub, and HIVE MIND multi-step tool calling on remote workers is Phase 3B (not yet built). Native Avalonia modal dialogs shipped partially in v1.8; the remaining dialogs (`AgentBuilderDialog`, `ModelWikiWindow`, `LabWindow`) are v1.9 scope. Everything else on the shipped list below is real, wired, and tested.
 
 ---
 
@@ -203,6 +203,32 @@ The honest gaps: the Reviewer Quality Gate is advisory-only (can always be overr
 
 ---
 
+### v1.8 — MarkdownView, Phase 7 test suite, ORC ACADEMY v2, Grok toolchain
+
+**Avalonia MarkdownView (Phase 6)**
+- Native Avalonia `ContentControl`-based Markdown renderer replacing the WPF `FlowDocument` path
+- `IsVisible` deferred-render guard: prevents per-token GC pressure during streaming; only parses when the panel is actually visible
+- Unified rendering across WPF and Avalonia code paths
+
+**Phase 7 — FlaUI + Avalonia test suite**
+- 23-test matrix: 8 WPF FlaUI interactive tests (T01–T08) + T20 Avalonia smoke (UIA window assertion)
+- 174/175 tests pass (T06 pre-existing model-capacity skip: 4B Nemotron cannot produce valid `write_file` JSON)
+- `Avalonia_Migration.md` Phase 7 checklist certified complete
+
+**ORC ACADEMY v2 dataset**
+- 1,784 train / 200 eval, zero train/eval leakage; gate-filtered for FILENAME RULE conformance
+- Sources: 1,458 Cerebras `gpt-oss-120b` + 217 Codex gold + 320 gate-passing swarm captures
+- **v2 adapter trained overnight (2026-06-17)**: Gemma 4 12B, 669 steps × 3 epochs, 333 min, **eval loss 0.2595** (vs v1 0.32+)
+- Adapter at `training_pit/outputs/lora_v2/adapter/`; A/B eval vs v1 99.3% pending
+
+**Grok toolchain integration**
+- Grok Build CLI (`~/.grok/bin/grok.exe`) wired as the project's code-review and implementation agent, replacing Codex
+- `.grok/SKILL.md` + `config.toml`: project conventions, hard rules, architecture map injected into every Grok session
+- `tools/grok-review.ps1`: incremental review on every CodeGraph step; pattern replaces `tools/codex-review.ps1`
+- GitHub MCP enabled (`GITHUB_TOKEN` via `gh auth token`): `/review --pr` and `/pr-babysit` available
+
+---
+
 ### v1.7 — Avalonia 12 cross-platform UI migration
 
 **WPF → Avalonia migration (Phases 1–5)**
@@ -264,17 +290,13 @@ The evolutionary fitness map (`FitnessMap.cs`, `SchemaEvolution.cs`) is implemen
 
 ## Active Work
 
-### ORC ACADEMY v2 dataset (finalized — 2026-06-16)
-Cerebras pipeline complete: 72-batch run (1,458 examples, `gpt-oss-120b`, 19.8 min, zero API cost) + 217 Codex gold + 2,244 existing swarm captures = ~3,900 pre-review pool.
+### ORC ACADEMY v2 adapter — post-training steps (2026-06-17)
+Training completed overnight: Gemma 4 12B, 1,784 examples, 3 epochs, **eval loss 0.2595**, 333 min on RTX 5070 Ti. Adapter at `training_pit/outputs/lora_v2/adapter/`.
 
-**Finalization done (`Tools/finalize_training_set.py`, rewritten for v2):**
-- All 1,458 Cerebras + 217 Codex gold pass the structural + FILENAME-RULE gate (100%).
-- Existing 2,244 captures **gate-filtered**: only 320 conform (1,924 dropped — they predate the FILENAME RULE, titles lack output filenames). This keeps ONE consistent convention across the set instead of diluting the rule v2 is meant to reinforce.
-- Deduplicated by user-goal across the pool (11 collisions removed) → **1,984 conforming examples**.
-- Stratified-by-language split: **1,784 train / 200 eval**, verified **zero goal overlap** (no train/eval leakage). Spot-check across languages passed.
-- Outputs: `cerebras[api].synthetic.boss.1458.jsonl`, `codex[api].synthetic.boss.217.jsonl`, `train[mixed].merged.boss.1784.jsonl`, `eval[mixed].holdout.boss.200.jsonl`.
-
-**Remaining:** Train v2 adapter on the 1,784-example train file (RTX 5070 Ti, QLoRA, ~148 min like v1); A/B eval against the 200-example holdout vs the v1 99.3% adapter.
+**Remaining:**
+- Cerebras v2 dataset extension running now (`tools/generate_cerebras_gold.py`, `gpt-oss-120b`, ~72 batches)
+- A/B eval: `training_pit/scripts/eval_adapter.py` against 200-example holdout vs v1 99.3% baseline
+- Merge and register adapter via `tools/merge_lora.py` → `ollama pull theorc-boss:gemma4-v2-ft`
 
 ### Documentation
 Docs are being normalized around the current implementation. Key gaps:
@@ -283,10 +305,54 @@ Docs are being normalized around the current implementation. Key gaps:
 
 ---
 
-## Planned — v1.8
+## Planned — v1.9
 
-### Avalonia Phase 4 — native modal dialogs
-Port the remaining WPF-only dialogs to Avalonia: `UserInputDialog` (`ask_user` tool unblock), `AgentBuilderDialog`, `ModelWikiWindow`, `LabWindow`, `ToolEditorDialog` (Roslyn hot-reload). These were deferred from v1.7 because they require deeper WPF→Avalonia rewrites and don't block the core IDE flow.
+### CodeGraph v1 — code knowledge graph (SHIPPED on master, targeting v1.9 release)
+
+**Fully implemented in commit `f7fbe28`** (2026-06-17). Built 100% native and in-process — no external binary, no network egress — reusing Roslyn + SQLite already in the stack.
+
+**What it does:** turns the open workspace into a queryable graph of code structure so the agent queries the graph instead of grepping/reading files one-by-one.
+- **Level 1 payoff**: agent spends token budget on reasoning, not exploration (fewer grep/read cycles). Serves the five-nines tool-calling goal.
+- **Level 2 payoff**: graph-grounded trajectories are higher-signal → cleaner LoRA datasets; graph tools become a new trainable tool schema through the existing capture → `ToolCallProbeEngine` pipeline.
+
+**Architecture:**
+```
+OrchestratorIDE/Services/CodeGraph/
+  GraphModels.cs           CodeNode / CodeEdge record types
+  RoslynIndexer.cs         MSBuildWorkspace → nodes/edges; complexity wired
+  ComplexityAnalyzer.cs    Roslyn ControlFlowGraph → cyclomatic, cognitive, loop nesting,
+                           linear_scan_in_loop, is_recursive, transitive_loop_depth
+  Data/GraphRepository.cs  SQLite read/write; Migration v5/v6; TraceCallers/Callees; ADR CRUD
+OrchestratorIDE/Tools/
+  GraphTools.cs            5 registered tools (see below)
+```
+
+**5 tools registered in `AgentLoop`:**
+
+| Tool | Purpose |
+|---|---|
+| `graph_search` | BM25 full-text search over qualified names + structural boost (Function > Route > Class > File) |
+| `trace_path` | Caller/callee tree to configurable depth via CALLS or DATA_FLOWS edges |
+| `get_architecture` | Top-10 hub nodes by degree, namespace list, Route labels, file/edge totals |
+| `detect_changes` | LibGit2Sharp diff → changed symbols + blast-radius (callers within depth 2) |
+| `graph_adr` | Persistent Architecture Decision Records: list / get / add across sessions |
+
+**Storage:** Migration v5 (`graph_nodes`, `graph_edges`, `graph_fts` FTS5, `graph_adr`) + Migration v6 (ADR schema evolution) in the existing `.orc/theorc.db`. No second DB file.
+
+**Test coverage:** 132 unit tests + 11 T19 graph tests (RoslynIndexer roundtrip, FTS search, ADR CRUD, trace, complexity) all green. grok-review CLEAN on all 5 increments.
+
+**Remaining for v1.9:**
+- `CodeGraphService.cs` lifecycle façade (background re-index on workspace open + git-change signal)
+- System prompt nudge in `AgentLoop`: "prefer graph_search/trace_path over grep_code for structural questions"
+- Graph panel UI (optional nicety — not blocking)
+- Tag captures that use graph tools to measure trajectory-quality lift (Level 2)
+- Measure token-budget reduction on real swarm runs vs grep baseline
+
+### ORC ACADEMY v2 A/B eval + adapter registration
+Run `eval_adapter.py` on the 200-example holdout vs v1 99.3% baseline. Merge and register via `ollama pull theorc-boss:gemma4-v2-ft`. Update Pit Boss model selection to default to v2.
+
+### Avalonia remaining modal dialogs
+`AgentBuilderDialog`, `ModelWikiWindow`, `LabWindow` — the last WPF-only dialogs. `UserInputDialog` and `ToolEditorDialog` shipped in v1.8.
 
 ### HIVE MIND Phase 3B — multi-step tool calling on remote workers
 `HiveWorkerAgent` currently executes single-pass LLM calls. Phase 3B adds full `AgentLoop`-style multi-step tool execution on remote nodes (file writes, shell commands, web search — all running on the worker machine). This is the primary remaining HIVE gap.
