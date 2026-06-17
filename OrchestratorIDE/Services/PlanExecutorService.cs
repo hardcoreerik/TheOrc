@@ -183,10 +183,13 @@ public sealed class PlanExecutorService : IDisposable
                                    $"Goal: {plan.Goal}\n" +
                                    $"Script: {genScript}\n\n");
 
+        var (shellExe, shellArgs) = OperatingSystem.IsWindows()
+            ? ("cmd.exe", $"/c python {scriptArgs} >> \"{logFile}\" 2>&1")
+            : ("/bin/sh",  $"-c \"python3 {scriptArgs} >> '{logFile}' 2>&1\"");
         var psi = new ProcessStartInfo
         {
-            FileName         = "cmd.exe",
-            Arguments        = $"/c python {scriptArgs} >> \"{logFile}\" 2>&1",
+            FileName         = shellExe,
+            Arguments        = shellArgs,
             WorkingDirectory = _pitRoot,
             UseShellExecute  = false,
             CreateNoWindow   = true,
