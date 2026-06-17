@@ -259,8 +259,9 @@ public sealed class PlanExecutorService : IDisposable
 
         // Rename work file to proper convention
         var finalPath = RenameWorkFile(_workFile, _plan!);
-        // Update mutable state fields on the plan
-        _plan!.DatasetFile = finalPath;
+        // Store filename-only so ResolveExistingDataset can re-resolve it on history-relaunch
+        // without hitting the path-separator guard (same convention as existing-dataset path).
+        _plan!.DatasetFile = Path.GetFileName(finalPath);
         _plan.Phase        = PlanPhase.Training;
         PitBossService.SavePlan(_plan, _pitRoot);
         TryUpdateRun("complete", finalPath);
