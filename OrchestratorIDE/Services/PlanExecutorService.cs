@@ -207,9 +207,17 @@ public sealed class PlanExecutorService : IDisposable
             return;
         }
 
-        // Pipe stdout/stderr to the log file; append to avoid stomping the header.
-        _genProcess.OutputDataReceived += (_, e) => { if (e.Data is not null) File.AppendAllText(logFile, e.Data + "\n"); };
-        _genProcess.ErrorDataReceived  += (_, e) => { if (e.Data is not null) File.AppendAllText(logFile, e.Data + "\n"); };
+        // Pipe stdout/stderr to the log file; callbacks run on ThreadPool so use a lock to
+        // prevent concurrent AppendAllText calls from racing on the same file.
+        var logLock = new object();
+        _genProcess.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data is not null) try { lock (logLock) { File.AppendAllText(logFile, e.Data + "\n"); } } catch { }
+        };
+        _genProcess.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data is not null) try { lock (logLock) { File.AppendAllText(logFile, e.Data + "\n"); } } catch { }
+        };
         _genProcess.BeginOutputReadLine();
         _genProcess.BeginErrorReadLine();
 
