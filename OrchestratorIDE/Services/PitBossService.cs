@@ -141,7 +141,7 @@ public sealed class PitBossService
     public string EnvironmentContext { get; set; } = "";
 
     public PitBossService(string ollamaHost = "http://localhost:11434",
-                          string model      = "hermes3")
+                          string model      = "hf.co/NousResearch/Hermes-3-Llama-3.2-3B-GGUF:Q4_K_M")
     {
         _ollamaHost = ollamaHost.TrimEnd('/');
         _model      = model;

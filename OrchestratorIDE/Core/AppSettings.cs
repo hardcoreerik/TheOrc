@@ -255,10 +255,10 @@ public class AppSettings
 
     /// <summary>
     /// Local Ollama model for the Pit Boss training wizard.
-    /// Default: hermes3 (8B, best structured-output reliability, sequential use only).
-    /// Switch to nemotron-3-nano:4b or phi4-mini for concurrent-with-training use (≤4B, ~2-2.5 GB).
+    /// Default: Hermes-3 Llama 3.2 3B (2.0 GB) — safe to run alongside QLoRA training.
+    /// Fallback to hermes3 (8B, 4.7 GB) for higher quality in sequential-only use.
     /// </summary>
-    public string PitBossModel { get; set; } = "hermes3";
+    public string PitBossModel { get; set; } = "hf.co/NousResearch/Hermes-3-Llama-3.2-3B-GGUF:Q4_K_M";
 
     // ── Updates ───────────────────────────────────────────────────────────
     /// <summary>Whether to silently check GitHub for newer releases on startup.</summary>
