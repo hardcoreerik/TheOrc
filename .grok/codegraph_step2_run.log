@@ -1,0 +1,27 @@
+**Step 2 completed (RoslynIndexer + GraphTools.cs + registrations + smoke coverage + review).**
+
+- Created [OrchestratorIDE/Services/CodeGraph/RoslynIndexer.cs](/F:\Ai\OrchestratorIDE-dev\OrchestratorIDE\Services\CodeGraph\RoslynIndexer.cs) (AGPL-3.0-or-later + SPDX header):
+  - `MSBuildWorkspace` attempted at runtime via reflection (no compile-time dependency / no new NuGet; falls back gracefully if the workspaces assembly is absent).
+  - Falls back to `AdhocWorkspace`-style `CSharpCompilation` + manual source collection (skips `bin/`, `obj/`, generated files).
+  - Walks `SemanticModel` for `INamedTypeSymbol` (label `Class`/`Interface`) + `IMethodSymbol` (label `Method`/`Function`).
+  - `qualified_name` via `ISymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)`.
+  - `CALLS` via `InvocationExpressionSyntax` + `GetSymbolInfo` (containing method as src).
+  - `IMPLEMENTS` via `AllInterfaces` + `BaseType` chain.
+  - Single `ReplaceGraph` transaction per project (handles nodes + edges + FTS correction + degrees).
+  - Additional per-tree `try/catch` guards for robustness (addressed grok-review BLOCKER).
+- Created [OrchestratorIDE/Tools/GraphTools.cs](/F:\Ai\OrchestratorIDE-dev\OrchestratorIDE/Tools/GraphTools.cs) (exact `SearchTools.Register(registry, workspaceRoot)` shape):
+  - `graph_search` registered: `query`, `label?`, `file_pattern?`, `min_degree?`, `limit=50`.
+  - Delegates to `GraphRepository.SearchNodes` (BM25 via `graph_fts` + camel-split + structural boost at query time: Method/Function > Route > Class > File).
+  - `RequiresApproval = false`.
+  - Plain-text ranked output: `qualified_name [label] file:line (degree=N)`.
+  - `using` + `Dispose` on `SqliteStore` (addressed grok-review note).
+- Wired `GraphTools.Register(...)` alongside every `SearchTools.Register(...)` (MainWindow.xaml.cs, MainWindow.axaml.cs, SwarmSession.cs, AutoTestRunner.cs) + added explicit Compile Includes for Avalonia project.
+- Extended T19 coverage with indexer smoke tests (temp dir + real .cs files ΓåÆ nodes + CALLS/IMPLEMENTS edges + FTS + namePattern/FTS search paths used by the tool). All via in-memory `SqliteStore` + `GraphRepository`.
+- No new NuGet packages (only used `Microsoft.CodeAnalysis.CSharp` 4.13.0 that was already referenced; reflection for workspaces).
+- Builds clean (main + UnitTests + Avalonia shared sources).
+- `dotnet test OrchestratorIDE.UnitTests` **green** (132 passed; pre-existing T19 + new step-2 indexer + search smoke tests).
+- **grok-review executed** (`Tools/grok-review.ps1 -Staged ...` on the increment). Review artifact written to `.orc/reviews/`. Addressed the BLOCKER (tree-walk robustness) + store `Dispose`; pre-existing GraphRepository notes (e.g. `MatchesLike`) left as-is since they predate this increment.
+
+All hard rules from the request + CodeGraph_v1.md + SKILL.md followed. The graph_search tool is now live/registered and the indexer can populate nodes+edges for any workspace directory. (Wiring the indexer trigger into workspace open / AgentLoop is step 5 per the doc.)
+
+Ready for the next increment or review feedback.

@@ -1,0 +1,24 @@
+Step 1 (GraphModels + GraphRepository + Migration v5 + unit tests) is approved. Proceed with Step 2 as described in CodeGraph_v1.md:
+
+2. RoslynIndexer — nodes + CALLS/IMPLEMENTS edges (no complexity yet) + graph_search tool registered in GraphTools.cs
+
+Specifically:
+- Create OrchestratorIDE/Services/CodeGraph/RoslynIndexer.cs
+  - Use MSBuildWorkspace.OpenProjectAsync when .csproj exists, fall back to AdhocWorkspace over loose .cs files
+  - Walk SemanticModel: INamedTypeSymbol (Class/Interface) and IMethodSymbol (Function/Method)
+  - qualified_name = ISymbol.ToDisplayString(...)
+  - CALLS edges via invocation-expression walk; IMPLEMENTS via interface/base lists
+  - Write in one transaction per project via GraphRepository
+  - Rebuild FTS via INSERT INTO graph_fts SELECT after node batch
+- Create OrchestratorIDE/Tools/GraphTools.cs
+  - Follow SearchTools.Register(registry, workspaceRoot) pattern exactly
+  - Register graph_search tool: args = query, label?, file_pattern?, min_degree?, limit=50
+  - BM25 via graph_fts, structural boost (Function/Method > Route > Class > File) at query time
+  - RequiresApproval = false (read-only)
+  - Returns plain-text ranked list: qualified_name, label, file:line, degree
+
+Constraints (hard rules from SKILL.md):
+- No new NuGet packages — Roslyn is already Microsoft.CodeAnalysis.CSharp 4.13.0
+- AGPL-3.0-or-later + SPDX header on every new file
+- Run grok-review on this increment before finishing
+- dotnet test OrchestratorIDE.UnitTests must stay green

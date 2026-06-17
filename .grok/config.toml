@@ -1,0 +1,23 @@
+# TheOrchestrator project-level Grok config
+# Applies when `grok` is run from F:\Ai\OrchestratorIDE-dev
+
+[ui]
+yolo = true          # auto-approve all tool calls (trusted local dev tree)
+compact_mode = true
+
+[models]
+default = "grok-build"
+
+[tools]
+# These dirs are noisy and never need to be read by an agent
+ignore = [
+  ".orc/swarm",
+  "training_pit/datasets",
+  "training_pit/outputs",
+  "OrchestratorIDE/bin",
+  "OrchestratorIDE/obj",
+  "OrchestratorIDE.Avalonia/bin",
+  "OrchestratorIDE.Avalonia/obj",
+  "OrchestratorIDE.UnitTests/bin",
+  "OrchestratorIDE.UnitTests/obj",
+]

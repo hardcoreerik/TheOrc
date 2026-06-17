@@ -14,14 +14,33 @@ import argparse, gc, json, os, re, sys, time
 from pathlib import Path
 
 # Force UTF-8 stdout so cp1252-piped Windows shells don't crash on any character.
-sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
 
-VALID_ROLES = {"RESEARCHER", "CODER", "UIDEVELOPER", "TESTER"}
 WRITE_VERBS = re.compile(r"\b(create|write|implement|build|generate|author|compose)\b", re.I)
 FILE_RE = re.compile(r"[\w./\\-]+\.(cs|xaml|py|ps1|psm1|csproj|json|md|ts|js)\b", re.I)
+
+# Mirrors SwarmSession.ParseBossPlan alias map.
+# Any non-empty role string is valid — the runtime resolves unknowns to Coder.
+# Roles that alias to TESTER (no write_file lane):
+_TESTER_ROLES  = {"TESTER", "QA", "QUALITY_ASSURANCE"}
+# Roles that alias to UIDEVELOPER:
+_UI_ROLES      = {"UIDEVELOPER", "FRONTEND_DEVELOPER", "FRONTEND", "UI"}
+# Roles that alias to RESEARCHER (no write_file lane):
+_RESEARCH_ROLES = {"RESEARCHER", "ARCHITECT", "PLANNER", "REVIEWER", "ANALYST"}
+# Everything else (CODER, BACKEND_DEVELOPER, BACKEND, DOCS, DEVOPS, SECURITY,
+# ML_ENGINEER, DATA_ENGINEER, RELEASE_MANAGER, …) routes to Coder.
+_CODER_ROLES   = {"CODER"}  # explicit name; catch-all handles the rest
+
+
+def _resolve_lane(role: str) -> str:
+    """Map any role string to its execution lane, matching ParseBossPlan."""
+    if role in _TESTER_ROLES:   return "TESTER"
+    if role in _UI_ROLES:       return "UIDEVELOPER"
+    if role in _RESEARCH_ROLES: return "RESEARCHER"
+    return "CODER"  # catch-all — matches the `_ => SwarmWorkerRole.Coder` branch
 
 
 def score_plan(text: str) -> dict:
@@ -48,12 +67,19 @@ def score_plan(text: str) -> dict:
         if not isinstance(t, dict):
             roles_ok = False; continue
         role = str(t.get("role", "")).upper().strip()
-        if role not in VALID_ROLES:
+        # Any non-empty role string is valid — runtime accepts all via alias map.
+        if not role:
             roles_ok = False
+        lane = _resolve_lane(role)
         blob = f"{t.get('title','')} {t.get('description','')}"
-        if role in ("CODER", "UIDEVELOPER") and not FILE_RE.search(blob):
+        # Coder-lane tasks (including aliased roles) must name an output file.
+        if lane == "CODER" and not FILE_RE.search(blob):
             files_ok = False
-        if role == "TESTER" and WRITE_VERBS.search(blob):
+        # UIdev tasks must also name a file.
+        if lane == "UIDEVELOPER" and not FILE_RE.search(blob):
+            files_ok = False
+        # Tester-lane tasks must not be assigned implementation/write work.
+        if lane == "TESTER" and WRITE_VERBS.search(blob):
             tester_ok = False
     s["roles_valid"]     = int(roles_ok)
     s["files_named"]     = int(files_ok)
@@ -64,9 +90,9 @@ def score_plan(text: str) -> dict:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="google/gemma-4-12b-it")
-    ap.add_argument("--adapter", default="training_pit/outputs/lora_v1/adapter")
-    ap.add_argument("--eval", default="training_pit/datasets/eval_v1.jsonl")
-    ap.add_argument("--out", default="training_pit/outputs/lora_v1/ab_eval.json")
+    ap.add_argument("--adapter", default="training_pit/outputs/lora_v2/adapter")
+    ap.add_argument("--eval", default="training_pit/datasets/eval_v2gold.jsonl")
+    ap.add_argument("--out", default="training_pit/outputs/lora_v2/ab_eval.json")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--max-new", type=int, default=1024)
     args = ap.parse_args()

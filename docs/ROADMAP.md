@@ -137,10 +137,10 @@ The honest gaps: the Reviewer Quality Gate is advisory-only (can always be overr
 
 **Pit Boss — AI training wizard**
 - 8-question in-app interview generates a structured `TrainingPlan` (goal types, languages, target count, model)
-- Full execution pipeline: `PitBossService` kicks off dataset generation via Cerebras/Ollama/Claude API, hands off to ORC ACADEMY Forge
+- Full execution pipeline: `PitBossService` kicks off dataset generation via Cerebras/Ollama (local), hands off to ORC ACADEMY Forge
 - Plan history landing page — every training run logged with status, target count, model, timestamp
 - `generate_cerebras_gold.py` — Cerebras `gpt-oss-120b` synthetic generation (free tier, ~20 min for ~1,200–1,400 examples per 72-batch run); sleep paced to 5 req/min free-tier limit
-- `generate_claude_gold.py` — Claude API fallback path
+- ~~`generate_claude_gold.py` — Claude API fallback path~~ **ARCHIVED 2026-06-17** (violated no-Anthropic-bulk-gen + no-secrets-in-repo rules; see `Tools/_archived/`). Use `generate_cerebras_gold.py`.
 
 **SQLite metadata layer** (shipped ahead of v1.6 plan)
 - Phases 0–3: captures, triage, plans, runs, datasets tables; migrations included

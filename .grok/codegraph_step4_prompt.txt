@@ -1,0 +1,30 @@
+Steps 1–3 are approved and green (GraphModels, GraphRepository, Migration v5, RoslynIndexer with complexity analysis, GraphTools with graph_search/trace_path/get_architecture, 132 unit tests passing). Proceed with Step 4 as described in CodeGraph_v1.md:
+
+4. detect_changes + graph_adr tools
+
+Specifically:
+
+A. detect_changes tool (add to GraphTools.cs):
+  - Args: base_ref (default "HEAD~1"), path_filter? (optional glob)
+  - Use LibGit2Sharp (already in the project — Microsoft.CodeAnalysis.CSharp is installed, and LibGit2Sharp 0.31.0 is in both .csproj files) to get changed files between base_ref and working tree
+  - For each changed .cs file: look up graph nodes by file path (GraphRepository.GetNodesByFile or equivalent)
+  - Return impact report: list of changed nodes (qualified_name, label, degree) sorted by degree descending
+  - Include a "blast radius" summary: count of unique callers reachable within depth 2 via TraceCallers
+  - RequiresApproval = false (read-only git inspection)
+
+B. graph_adr tool (add to GraphTools.cs):
+  - Args: action (list|get|add), id? (for get), title? + decision? + status? (for add)
+  - list: SELECT from graph_adr ORDER BY created_at DESC LIMIT 20, return plain-text numbered list
+  - get: SELECT by id, return full record including body
+  - add: INSERT into graph_adr (id auto-incremented or ULID, title, decision, status, created_at=now)
+  - status values: proposed | accepted | deprecated | superseded
+  - RequiresApproval = true for add (writes to DB)
+
+C. If GraphRepository doesn't already have GetNodesByFile(string filePath): add it — SELECT * FROM graph_nodes WHERE file = @file
+
+Constraints (hard rules from SKILL.md):
+- No new NuGet packages (LibGit2Sharp is already in the project)
+- AGPL-3.0-or-later + SPDX header on new files
+- Run grok-review on this increment before finishing
+- dotnet test OrchestratorIDE.UnitTests must stay green
+- Avalonia csproj already includes GraphTools.cs and GraphRepository.cs — no csproj changes needed for this step unless a new file is created

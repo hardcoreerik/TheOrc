@@ -9,10 +9,10 @@ Windows support is too fragile to gate Phase 3 on).
   python train_lora.py --dry-run                       # load model+data, one step, exit
   python train_lora.py --base unsloth/gemma-4-12b-it   # alternate un-gated mirror
 
-Outputs the adapter to training_pit/outputs/lora_v1/adapter (+ a training
-summary JSON beside it). GGUF export/Ollama deploy is Phase 4 — not done here.
+Outputs the adapter to training_pit/outputs/lora_v2/adapter (+ a training
+summary JSON beside it). GGUF export/Ollama deploy is a separate step.
 """
-import argparse, json, os, time
+import argparse, json, os, sys, time
 from pathlib import Path
 
 # Reduce fragmentation on the 16 GB card (must be set before torch import)
@@ -23,9 +23,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="google/gemma-4-12b-it",
                     help="HF base repo (fallback mirror: unsloth/gemma-4-12b-it)")
-    ap.add_argument("--train", default="training_pit/datasets/train_v1.jsonl")
-    ap.add_argument("--eval",  default="training_pit/datasets/eval_v1.jsonl")
-    ap.add_argument("--out",   default="training_pit/outputs/lora_v1/adapter")
+    ap.add_argument("--train", default="training_pit/datasets/train_v2gold.jsonl")
+    ap.add_argument("--eval",  default="training_pit/datasets/eval_v2gold.jsonl")
+    ap.add_argument("--out",   default="training_pit/outputs/lora_v2/adapter")
     ap.add_argument("--epochs", type=float, default=3)
     ap.add_argument("--lr", type=float, default=2e-4)
     ap.add_argument("--max-seq", type=int, default=1536)   # examples are ~600-1200 tokens
@@ -37,6 +37,17 @@ def main():
                          "the cap offload to system RAM (slower).")
     ap.add_argument("--resume", action="store_true",
                     help="resume from the latest checkpoint in the output dir")
+    ap.add_argument("--rubric", action=argparse.BooleanOptionalAction, default=True,
+                    help="select the best checkpoint by plan-rubric pass-rate "
+                         "instead of eval_loss (--no-rubric to disable)")
+    ap.add_argument("--rubric-slice", type=int, default=24,
+                    help="eval examples scored per rubric pass (cost vs signal)")
+    ap.add_argument("--rubric-after", type=float, default=0.4,
+                    help="fraction of training after which the rubric actually "
+                         "generates+scores; earlier evals are stamped 0.0 (no gen)")
+    ap.add_argument("--seed", type=int, default=42,
+                    help="RNG seed for python/numpy/torch/cuda — fixed so the "
+                         "same config reproduces the same adapter (logged in summary)")
     args = ap.parse_args()
 
     # ── Progress heartbeat for the WARCHIEF FORGE GUI ─────────────────────────
@@ -55,9 +66,16 @@ def main():
     import torch
     from datasets import load_dataset
     from transformers import (AutoModelForCausalLM, AutoTokenizer,
-                              BitsAndBytesConfig, TrainerCallback)
+                              BitsAndBytesConfig, TrainerCallback, set_seed)
     from peft import LoraConfig
     from trl import SFTConfig, SFTTrainer
+
+    # Reproducibility: seed python/numpy/torch/cuda so the same config yields the
+    # same adapter. (Full bitwise CUDA determinism is intentionally NOT forced —
+    # it breaks some fused kernels and slows training; seeding the RNGs removes
+    # the dominant source of run-to-run divergence: init + data shuffling.)
+    set_seed(args.seed)
+    print(f"seed: {args.seed}")
 
     class HeartbeatCallback(TrainerCallback):
         """Streams step/loss/eta into progress.json for the Forge GUI."""
@@ -125,10 +143,19 @@ def main():
     out_dir = Path(args.out)
     out_dir.parent.mkdir(parents=True, exist_ok=True)
 
+    # Rubric checkpoint selection needs load_best_model_at_end, which a dry-run
+    # disables — so it only engages on a real run.
+    use_rubric = args.rubric and not args.dry_run
+
     cfg = SFTConfig(
         output_dir=str(out_dir.parent / "checkpoints"),
         num_train_epochs=0.01 if args.dry_run else args.epochs,
         learning_rate=args.lr,
+        # Pass the seed into the Trainer too — it re-seeds from these at train()
+        # time, so the global set_seed() above alone would be overridden for the
+        # data-shuffling RNG. Both must agree for a run to be reproducible.
+        seed=args.seed,
+        data_seed=args.seed,
         per_device_train_batch_size=1,          # 16 GB card: bs1 + accum 8
         per_device_eval_batch_size=1,           # default 8 OOMs: 262k-vocab logits
         gradient_accumulation_steps=8,
@@ -143,11 +170,25 @@ def main():
         save_steps=50,
         save_total_limit=2,
         load_best_model_at_end=not args.dry_run,
-        metric_for_best_model="eval_loss",
+        # Pick the best-*behaving* checkpoint (rubric) over best-*loss* — v2's
+        # regression hid behind a lower eval_loss. See TrainingFlags_Guide.md P3.
+        metric_for_best_model="rubric_pass_pct" if use_rubric else "eval_loss",
+        greater_is_better=True if use_rubric else False,
         bf16=True,
         max_length=args.max_seq,
         report_to=[],
     )
+
+    callbacks = [HeartbeatCallback()]
+    if use_rubric:
+        from rubric_callback import RubricEvalCallback
+        callbacks.append(RubricEvalCallback(
+            tokenizer=tok, eval_rows=data["eval"],
+            slice_size=args.rubric_slice, max_new_tokens=args.max_seq,
+            after_frac=args.rubric_after, beat=beat))
+        print(f"rubric-in-the-loop: best checkpoint by pass-rate over "
+              f"{min(args.rubric_slice, len(data['eval']))} eval examples "
+              f"(scoring after {args.rubric_after:.0%} of training)")
 
     trainer = SFTTrainer(
         model=model,
@@ -156,7 +197,7 @@ def main():
         eval_dataset=data["eval"],
         processing_class=tok,
         peft_config=lora,
-        callbacks=[HeartbeatCallback()],
+        callbacks=callbacks,
     )
 
     # Resume from the latest checkpoint when asked (Forge "Resume" button)
@@ -173,13 +214,29 @@ def main():
     trainer.save_model(str(out_dir))
     tok.save_pretrained(str(out_dir))
 
+    # Capture the exact git revision so an adapter ties back to its source state.
+    try:
+        import subprocess
+        git_sha = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=Path(__file__).resolve().parent, stderr=subprocess.DEVNULL,
+            text=True).strip()
+    except Exception:
+        git_sha = "unknown"
+
     summary = {
         "base_model": args.base,
         "train_examples": len(data["train"]),
         "eval_examples": len(data["eval"]),
         "epochs": args.epochs,
+        "learning_rate": args.lr,
+        "seed": args.seed,
+        "rubric_checkpointing": use_rubric,
+        "git_sha": git_sha,
+        "command": " ".join(sys.argv),
         "train_loss": round(result.training_loss, 4),
         "eval_loss": round(final_eval.get("eval_loss", -1), 4),
+        "best_rubric_pass_pct": final_eval.get("eval_rubric_pass_pct"),
         "minutes": round(minutes, 1),
         "adapter_dir": str(out_dir),
         "finished": time.strftime("%Y-%m-%d %H:%M"),

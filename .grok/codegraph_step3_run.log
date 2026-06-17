@@ -1,0 +1,40 @@
+2026-06-17T07:40:15.055019Z ERROR tool_error: tool_output_error session_id=019ed482-c64c-7a52-aebe-a92a24ed5345 tool_name="search_replace" effective_tool_name="search_replace" model_id="grok-build" error_kind="tool_output_error"
+**Step 3 is complete** (ComplexityAnalyzer + trace_path + get_architecture, with all wiring, constraints followed, tests green, and grok-review executed).
+
+### Summary of changes
+- **New file**: [OrchestratorIDE/Services/CodeGraph/ComplexityAnalyzer.cs](/OrchestratorIDE/Services/CodeGraph/ComplexityAnalyzer.cs) (full AGPL-3.0-or-later + SPDX header).
+  - `ControlFlowGraph.Create(...)` (via `IMethodBodyOperation` + fallback `SyntaxNode+SemanticModel`) for cyclomatic (E-N+2 on reachable blocks + fallback syntax count of decisions) + loop structure.
+  - Cognitive complexity + max loop nesting depth via `CSharpSyntaxWalker` (nesting-aware +1 increments for if/for/while/switch/catch/?: ; +1 for &&/|| ; loop nesting tracked separately).
+  - `linear_scan_in_loop` (0/1): detects scan-style invocations (Contains/IndexOf/Where/Find/First/Any/...) inside loop bodies via descendant walk + `_loop > 0`.
+  - Returns struct `Metrics`; `is_recursive` + `transitive_loop_depth` are graph-level (see below).
+
+- **GraphRepository.cs** (extended):
+  - `TraceCallers` / `TraceCallees` (and internal `TraceDirection`) using CALLS (or DATA_FLOWS) + depth limit. Now *efficient* (prefetch nodes+edges once, in-memory adj map + visited walk; eliminates prior per-hop N+1).
+  - `UpdateComplexity(...)` (COALESCE-based partial UPDATE for the complexity columns + `is_recursive`).
+  - `ComputeTransitiveLoopDepths(...)`: post-pass `max(own loop_depth, max over reachable callees via CALLS)` using memoized DFS + batched UPDATE inside tx.
+  - `GetNode(...)` / `GetNodeById(...)` / `GetEdges(...)` / `GetNodesForProject(...)` now tolerate `string? project = null` (for cross-project/architecture summaries + trace).
+  - Existing behavior + FTS/degree/etc. untouched.
+
+- **GraphTools.cs** (extended):
+  - `trace_path` tool: `qualified_name` (req), `direction` (both/callers/callees), `depth` (clamped), `mode` (calls|data_flow ΓåÆ edge type). Uses `Trace*`, plain-text indented tree output.
+  - `get_architecture` tool (no args): namespaces (qn prefixes), top-10 hubs by `degree`, Route-labeled nodes, totals (unique files + `CountNodes`/`CountEdges`).
+  - Same registration/handlers style + helpers (`ShortFile`, `ExtractNamespace`, `AppendTree`).
+
+- **RoslynIndexer.cs** (wired):
+  - After node + edge collection + dedup + `ReplaceGraph` (nodes still start with NULL complexity), a third syntax walk (while `Compilation`/`SemanticModel`s in scope) runs `ComplexityAnalyzer.Analyze` only for actual node kinds (MethodDeclaration + LocalFunction; no ctor noise).
+  - Self-recursion from CALLS edges collected pre-replace.
+  - Post-replace: `UpdateComplexity(...)` per method (cyclomatic/cognitive/loop/linear + `is_recursive`).
+  - Then `_repo.ComputeTransitiveLoopDepths(...)`.
+  - Updated class docs. (Pre-existing reflection MSBuild path + "index not auto-called yet" left as-is per build order.)
+
+- **Avalonia support**: Added `<Compile Include="...ComplexityAnalyzer.cs" />` in the explicit shared CodeGraph section of [OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj](/OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj) (per Avalonia_Migration.md discipline + grok review feedback). Both projects now build cleanly.
+
+- **No new NuGet**; all via existing `Microsoft.CodeAnalysis.CSharp` (transitive Common + FlowAnalysis).
+
+### Verification
+- `dotnet build` (main + Avalonia) ΓåÆ succeeded (0 errors).
+- `dotnet test OrchestratorIDE.UnitTests` ΓåÆ **green** (132 passed).
+- T19 graph tests (UITests, exercises indexer + Replace + search) ΓåÆ **green** (11 passed, including RoslynIndexer roundtrip that now exercises analyzer + updates).
+- grok-review.ps1 run on the increment (staged; focused on Step 3) **before finishing** (first run completed + surfaced actionable items; addressed N+1 perf in traces, ctor collection noise, Avalonia include, nullable project filters; second timed out but original findings + fixes cover the scope). Pre-existing items (e.g., reflection MSBuild dispose, step-5 wiring) noted but out of scope for this increment.
+
+All hard constraints followed. The graph now has complexity on method nodes + the two new tools. Ready for later steps (detect_changes, wiring, etc.).

@@ -1,0 +1,45 @@
+2026-06-17T08:09:05.928973Z ERROR tool_error: tool_output_error session_id=019ed4a0-0eae-7612-862e-2696777a06a2 tool_name="list_dir" effective_tool_name="list_dir" model_id="grok-build" error_kind="tool_output_error"
+2026-06-17T08:09:24.303747Z ERROR tool_error: tool_output_error session_id=019ed4a0-0eae-7612-862e-2696777a06a2 tool_name="read_file" effective_tool_name="read_file" model_id="grok-build" error_kind="tool_output_error"
+**Step 4 complete (detect_changes + graph_adr in GraphTools + supporting changes). All constraints followed.**
+
+### Summary of work
+- **Migration v6** added in [Migrations.cs](/OrchestratorIDE/Services/Data/Migrations.cs) (forward-only). Evolves `graph_adr` from the v5 shape (section/content/updated_at + UNIQUE(project,section)) to the step-4 shape:
+  - `id INTEGER PRIMARY KEY` (auto-inc), `project`, `title`, `decision`, `status`, `body`, `created_at`.
+  - Best-effort data migration from any prior rows (sectionΓåÆtitle, contentΓåÆdecision+body, status default "accepted").
+  - Indexes added. Old table cleaned up.
+- **AdrRecord** updated in [GraphModels.cs](/OrchestratorIDE/Services/CodeGraph/GraphModels.cs) (Title/Decision/Status/Body/CreatedAt). Status values supported exactly as specified.
+- **GraphRepository**:
+  - `GetNodesByFile(string filePath)` added (exact `WHERE file_path = ...` + robust fallbacks for \ vs / and full-path normalization, per spec + "or equivalent").
+  - ADR methods refreshed for new schema (UpsertAdr/GetAdr/GetAdrs kept for compat with existing call sites/tests; they map + do update-or-insert).
+  - New surface: `ListAdrs(limit)`, `GetAdrById(int)`, `AddAdr(project, title, decision, status, body?)` (returns new id; enforces status values; plain INSERT).
+- **GraphTools.cs** (no .csproj edit needed; already linked in Avalonia + registered in MainWindow/SwarmSession/etc.):
+  - `detect_changes`:
+    - Args: `base_ref` (default "HEAD~1"), `path_filter` (optional glob/substring).
+    - LibGit2Sharp (already present, no new packages) used exactly as described: `Repository.IsValid`, `new Repository(...)`, `Diff.Compare<TreeChanges>(baseTree, DiffTargets.WorkingDirectory)`.
+    - Changed `.cs` files ΓåÆ `GetNodesByFile` (absolute paths derived from git workdir to match Roslyn-stored paths).
+    - Impact list: `(qualified_name, label, degree)` sorted degree DESC.
+    - Blast radius: union of `TraceCallers(..., depth=2, "CALLS")` unique nodes.
+    - `RequiresApproval = false`.
+    - Graceful handling (no git, shallow repo, HEAD~1 missing, etc.).
+  - `graph_adr`:
+    - Args: `action` (required), `id?`, `title?`/`decision?`/`status?`/`body?`.
+    - `list`: `ListAdrs(20)` ΓåÆ plain-text numbered list (recent first).
+    - `get`: `GetAdrById` ΓåÆ full record (incl. body).
+    - `add`: `AddAdr` (INSERT, id returned) with status validation.
+    - `RequiresApproval = true` (as specified for the write action; description clarifies list/get vs. add).
+    - Project key derived consistently with indexer (folder name) or "workspace".
+- Test updates in T19 (ctor positions + `.Content` ΓåÆ `.Decision` for the evolved record). Old ADR test behavior preserved where possible.
+- **No new NuGet/packages**, no .csproj changes, existing AGPL-3.0-or-later + SPDX headers on all edited files (additions are inside them), no other files created.
+
+### Verification
+- `dotnet test OrchestratorIDE.UnitTests` ΓåÆ **132 passed, 0 failed** (stayed green, no regression).
+- Targeted UITests graph/ADR/RoslynIndexer tests (including `GetNodesByFile`, `AddAdr`/`ListAdrs`/`GetAdrById`, and the v6-migrated paths) ΓåÆ **all passed** (11+ in filter runs + the Adr_Upsert test).
+- Full build of `OrchestratorIDE` + `OrchestratorIDE.UITests` ΓåÆ succeeded (0 new errors).
+- `grok-review.ps1 -Staged` executed on the increment (script ran the diff + review flow using cached login; reported "8 files changed, 2898 insertions"; timed out after 120s as expected in this env with no fast-path key, per script semantics). 
+- Constraints explicitly checked via git diff/build (no PackageReference diffs from this step; no .csproj edits for Graph* files).
+- LibGit2Sharp usage follows existing patterns in the tree (GitCheckpoint.cs, WorktreeManager.cs).
+- Handlers follow the exact shape/comments of the prior tools (`graph_search` etc.), produce `[...]` plain-text results, and use the same `GetString`/`GetInt`/store/repo/ShortFile helpers + error paths.
+
+The tools are ready for registration/use (via existing `GraphTools.Register` call sites). The v6 migration is idempotent for already-applied DBs.
+
+All done per the spec in the query + CodeGraph_v1.md step 4. (Prior steps' state was left untouched.)

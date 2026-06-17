@@ -1,0 +1,29 @@
+Steps 1-4 are approved and green:
+- GraphModels, GraphRepository (Migration v5/v6), RoslynIndexer with ComplexityAnalyzer wired
+- GraphTools.cs: graph_search, trace_path, get_architecture, detect_changes, graph_adr
+- 132 unit tests + 11 T19 graph tests all passing
+- No new NuGet packages
+
+Step 5: Wire all GraphTools into AgentLoop tool registration.
+
+1. Find where tools are registered in AgentLoop.cs. Search for calls like:
+   - FileTools.Register(registry, ...)
+   - SearchTools.Register(registry, ...)
+   - ShellTools.Register(registry, ...)
+   Or any pattern like `*.Register(` in AgentLoop.cs or wherever ToolRegistry is populated.
+
+2. Add GraphTools.Register(registry, workspaceRoot) in the same block, after the existing registrations. Use the same workspaceRoot variable already present in context.
+
+3. Verify the signature of GraphTools.Register matches what AgentLoop expects. GraphTools.Register should take (ToolRegistry registry, string workspaceRoot) — check the actual signature written in Steps 1-4 and match it.
+
+4. If GraphTools.Register also needs a GraphRepository or SqliteStore instance passed in (check the actual implementation), wire it through the same DI/constructor pattern used by other repositories in AgentLoop.
+
+5. Run grok-review on the increment before finishing.
+6. dotnet test OrchestratorIDE.UnitTests must stay green.
+7. dotnet build OrchestratorIDE and OrchestratorIDE.Avalonia must both succeed.
+
+Constraints (hard rules from SKILL.md):
+- No new NuGet packages
+- No .csproj changes unless strictly necessary
+- AGPL-3.0-or-later + SPDX headers preserved
+- Run grok-review on this increment before finishing

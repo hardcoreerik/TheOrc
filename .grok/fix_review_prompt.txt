@@ -1,0 +1,63 @@
+ROLE: You are a careful code reviewer verifying a set of FIXES made in response
+to a prior adversarial gap analysis (.grok/TRAINING_PIT_GAP_ANALYSIS.md). Be
+skeptical: confirm each fix actually closes its finding, introduces no
+regression, and is correct on the stated hardware (single RTX 5070 Ti 16 GB,
+Gemma 4 12B QLoRA).
+
+DO NOT MODIFY SOURCE. Write your review to ONE new file:
+.grok/FIX_REVIEW.md
+
+=== THE FIXES TO VERIFY (read the actual files + `git diff`) ===
+
+FIX 1 — Archive the Anthropic bulk-data generator (gap finding: High, rule
+violation: "bulk gen must use Cerebras/Grok, never Anthropic" + "no secrets in
+repo").
+  - Tools/generate_claude_gold.py was `git mv`d to
+    Tools/_archived/generate_claude_gold.py.disabled
+  - Tombstone: Tools/_archived/README.md
+  - docs/ROADMAP.md references updated (2 spots)
+  Verify: nothing else imports/launches the old path; no remaining instruction
+  to put ANTHROPIC_API_KEY in a repo .env; the sanctioned generator
+  (Tools/generate_cerebras_gold.py) is intact; ROADMAP no longer claims a Claude
+  path. Grep the tree for `anthropic`, `ANTHROPIC_`, `claude_gold` to confirm no
+  live references remain (the archived .disabled file and tombstone are expected).
+
+FIX 2 — Reproducibility seeds (gap finding: High, "zero RNG seeds").
+  In training_pit/scripts/train_lora.py:
+  - new --seed arg (default 42)
+  - `set_seed(args.seed)` called right after the torch/transformers import,
+    BEFORE load_dataset and model init
+  - SFTConfig now also passes seed=args.seed and data_seed=args.seed
+  - training_summary.json now records seed, git_sha, learning_rate,
+    rubric_checkpointing, command, best_rubric_pass_pct
+  Verify CRITICALLY: is the seed effective for BOTH model/LoRA init AND the
+  Trainer's data-shuffling RNG? Confirm the global set_seed is not silently
+  overridden, and that SFTConfig.seed/data_seed are the right fields for this
+  TRL/transformers version. Is set_seed imported correctly? Is the git_sha
+  subprocess call safe (cwd, failure fallback)? Any path where sys.argv logging
+  could leak a secret?
+
+FIX 3 (context, already added earlier) — Rubric-in-the-loop checkpoint
+selection (gap finding: Critical, "rubric callback state-unsafe").
+  Files: training_pit/scripts/rubric_callback.py and the wiring in
+  train_lora.py (metric_for_best_model="rubric_pass_pct", callback registration).
+  Verify: model state restoration on exception (use_cache + train/eval toggled
+  in finally), the metric-key contract with load_best_model_at_end (key present
+  on EVERY on_evaluate so no KeyError), after_frac/slice behavior, and whether
+  resume_from_checkpoint interacts safely. Note (do not fix) any residual OOM
+  risk from in-loop generation on 16 GB and whether empty_cache should be added.
+
+=== HOW TO REVIEW ===
+- Run `git diff` for the modified files and read the new files in full.
+- For each fix: state PASS / PASS-WITH-NITS / FAIL, with file:line evidence.
+- Call out any NEW bug the fixes introduced (regressions) explicitly.
+- Confirm syntax/import correctness for the Python you can reason about.
+- Do NOT re-list the whole original gap analysis; only judge these three fixes.
+
+=== OUTPUT (.grok/FIX_REVIEW.md) ===
+1. One-line verdict per fix (PASS / PASS-WITH-NITS / FAIL).
+2. A short table: Fix | Verdict | Evidence (file:line) | Issue (if any) | Suggested change.
+3. A "Regressions introduced?" section (explicitly yes/no with evidence).
+4. A "Still open from the gap analysis" one-liner reminder (which findings these
+   fixes do NOT address — e.g. suitability gate, content-hash leakage, roles.json).
+Be concise and concrete. Cite only files you actually opened.

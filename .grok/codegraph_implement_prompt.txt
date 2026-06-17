@@ -1,0 +1,19 @@
+Implement CodeGraph v1 for TheOrchestrator as specified in CodeGraph_v1.md.
+
+Follow the 5-step build order from that doc exactly:
+1. Migration v5 + GraphRepository (+ unit tests over in-memory SQLite)
+2. RoslynIndexer — nodes + CALLS/IMPLEMENTS edges + graph_search tool
+3. ComplexityAnalyzer + trace_path + get_architecture tools
+4. detect_changes (git diff → impact set) + graph_adr tool
+5. Wire GraphTools into AgentLoop registration
+
+Key constraints (read SKILL.md in .grok/ before starting):
+- No new NuGet packages — Roslyn already referenced (Microsoft.CodeAnalysis.CSharp 4.13.0), SQLite already in stack
+- New tables go in Migration v5 in SqliteStore.cs (current head v4)
+- GraphRepository extends RepositoryBase
+- All graph tools: RequiresApproval = false (read-only)
+- AGPL-3.0-or-later + SPDX header on every new file
+- Run grok-review on each increment before moving to the next step
+- Unit tests must stay green (dotnet test OrchestratorIDE.UnitTests)
+
+Start with step 1 only. Get it reviewed and green before proceeding to step 2.

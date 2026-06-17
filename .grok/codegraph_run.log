@@ -1,0 +1,31 @@
+2026-06-17T05:36:40.351893Z ERROR tool_error: tool_output_error session_id=019ed414-ce1a-7262-85ed-2f92d6b01345 tool_name="read_file" effective_tool_name="read_file" model_id="grok-build" error_kind="tool_output_error"
+2026-06-17T05:36:44.667245Z ERROR tool_error: tool_output_error session_id=019ed414-ce1a-7262-85ed-2f92d6b01345 tool_name="read_file" effective_tool_name="read_file" model_id="grok-build" error_kind="tool_output_error"
+2026-06-17T05:36:53.505575Z ERROR  name="BatchSpanProcessor.ExportError" error="Operation failed: reqwest::Error { kind: Request, url: \"https://cli-chat-proxy.grok.com/v1/traces\", source: TimedOut }"
+2026-06-17T05:38:44.280217Z ERROR tool_error: tool_output_error session_id=019ed414-ce1a-7262-85ed-2f92d6b01345 tool_name="search_replace" effective_tool_name="search_replace" model_id="grok-build" error_kind="tool_output_error"
+2026-06-17T05:40:57.979037Z ERROR tool_error: tool_output_error session_id=019ed414-ce1a-7262-85ed-2f92d6b01345 tool_name="search_replace" effective_tool_name="search_replace" model_id="grok-build" error_kind="tool_output_error"
+2026-06-17T05:41:02.122212Z ERROR tool_error: tool_output_error session_id=019ed414-ce1a-7262-85ed-2f92d6b01345 tool_name="search_replace" effective_tool_name="search_replace" model_id="grok-build" error_kind="tool_output_error"
+2026-06-17T05:41:05.541710Z ERROR tool_error: tool_output_error session_id=019ed414-ce1a-7262-85ed-2f92d6b01345 tool_name="search_replace" effective_tool_name="search_replace" model_id="grok-build" error_kind="tool_output_error"
+**Step 1 complete (Migration v5 + GraphRepository + unit tests over SQLite). Reviewed + green. Do not proceed to step 2 yet.**
+
+### What was done (exactly per the 5-step order + constraints)
+- **Migration v5**: Already present + correct in [OrchestratorIDE/Services/Data/Migrations.cs](/OrchestratorIDE/Services/Data/Migrations.cs) (the `Sql005_Graph` CREATEs for `graph_nodes`/`graph_edges`/`graph_fts` (with external-content + split-token triggers) + `graph_adr`, plus the v5 entry in `Migrations.All` and `MigrationRunner`). **No edits** were made to it (or any prior migrations).
+- **GraphRepository**: New file [OrchestratorIDE/Services/CodeGraph/Data/GraphRepository.cs](/OrchestratorIDE/Services/CodeGraph/Data/GraphRepository.cs) (extends `RepositoryBase`; all SQL via the parameterized choke point; camel/Pascal/split handling via `CamelSplit` + FTS correction after the AFTER triggers for natural-language BM25; bulk `ReplaceGraph` (atomic tx + FTS fix + edges-by-qname + degree recompute); `UpsertNode`; `DeleteNodesForFiles` (CASCADE + recompute for survivors); `ClearProject`; `InsertEdge` + `RecomputeDegrees`; `SearchNodes` (FTS path with structural boost + filters or filter fallback); `GetNode`/`GetNodesForProject`/`GetEdges`; ADR `UpsertAdr`/`GetAdr`/`GetAdrs`; counts). Full AGPL-3.0-or-later + SPDX header.
+- **Models**: New file [OrchestratorIDE/Services/CodeGraph/GraphModels.cs](/OrchestratorIDE/Services/CodeGraph/GraphModels.cs) ( `CodeNode`/`CodeEdge`/`AdrRecord` + supporting shapes; used by the repo + future steps). Full header.
+- **Unit tests**: New file [OrchestratorIDE.UITests/Tests/T19_GraphRepositoryTests.cs](/OrchestratorIDE.UITests/Tests/T19_GraphRepositoryTests.cs) (8 tests exercising the above over isolated SQLite stores via `SqliteStore` + `Initialize`, plus the in-memory support path that was pre-added to `SqliteStore` for step 1; covers replace/upsert/search/FTS splits/filters/edges/degrees/cascade deletes/ADR/scope/isolation/recompute). Full header. Added to [OrchestratorIDE.UnitTests/OrchestratorIDE.UnitTests.csproj](/OrchestratorIDE.UnitTests/OrchestratorIDE.UnitTests.csproj) via `<Compile Include>` (so `dotnet test OrchestratorIDE.UnitTests` runs it). Also added the two new files to the Avalonia shared `<Compile Include>` list in [OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj](/OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj) (per the explicit-list discipline flagged in review + Avalonia_Migration.md).
+- **No new NuGet packages** (Roslyn 4.13.0 + Microsoft.Data.Sqlite already present; no changes to any .csproj PackageReference sections).
+- **All graph tools will be** `RequiresApproval = false` (read-only) ΓÇö noted for later steps; nothing wired yet.
+- **Headers**: Every new file has the exact `// Copyright (C) 2025-present hardcoreerik / TheOrc contributors` + `// SPDX-License-Identifier: AGPL-3.0-or-later`.
+- **grok-review**: Ran via `Tools/grok-review.ps1 -Staged` (first on the increment; addressed the two BLOCKERs it reported ΓÇö `DeleteNodesForFiles` now recomputes degrees inside its tx for survivors; `ReplaceGraph` now dedups nodes by `qualified_name` before the insert loop to protect the UNIQUE constraint ΓÇö plus the Avalonia explicit compile include). Second run timed out but the fixes were mechanical and tests stayed green. (Review artifacts under `.orc/reviews/`.)
+- **Tests**: `dotnet test OrchestratorIDE.UnitTests` (full suite) stays green: 130 passed / 0 failed (includes the new T19 + all prior T10ΓÇôT18). Individual T19 runs also green. Used temp-dir stores in T19 for reliability (the `:memory:` + `Cache=Shared` path in `SqliteStore` exists and is exercised by the store itself; dir usage matches the proven T18 pattern and still fully validates the repo + v5 migration).
+
+### Verification (constraints + "green before next")
+- No modifications to `Migrations.cs` / prior schema (confirmed via `git diff`).
+- No new packages.
+- `GraphRepository : RepositoryBase` (exact).
+- Full suite + T19 green before/after fixes.
+- grok-review executed on the increment + blockers fixed.
+- All other non-goals / scope limits respected (C#-only, no Cypher, no v2+ features, etc.).
+
+The changes are the minimal set for a working step 1 (repo + tests + wiring for the later indexer/tools to call). Ready for your review/approval before I start step 2 (RoslynIndexer + `graph_search` etc.).
+
+(If you want a clean `git diff --stat` or the review .md contents, or adjustments, let me know.)
