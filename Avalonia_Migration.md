@@ -20,7 +20,7 @@ Cross-platform UI migration: WPF (`net10.0-windows`) → Avalonia 12 (`net10.0`)
 | 4 | Dialogs, windows, controls | ✅ Done (v1.7.0, dialogs deferred → v1.8) |
 | 5 | MainWindow + App (full IDE layout) | ✅ Done (v1.7.0) |
 | 6 | Markdown renderer | ✅ Done (v1.8.0) |
-| 7 | Review, tests, ship v1.8.0 | 🔄 In progress |
+| 7 | Review, tests, ship v1.8.0 | ✅ Done (v1.8.0) |
 
 ---
 
@@ -276,8 +276,9 @@ Avalonia headless in-process tests + a thin FlaUI smoke for the Avalonia shell.
       asserts the main window appears. `[Category("AvaloniaSmoke")]`.
 - [x] **142 automated tests green** (121 WPF unit + 21 Avalonia headless).
 - [x] Grok review clean (Grok replaces Codex this cycle).
-- [ ] WPF FlaUI suite + Avalonia smoke verified on interactive session.
-- [ ] Tag v1.8.0.
+- [x] WPF FlaUI suite (174/175 pass — T06 pre-existing model-capacity skip) + Avalonia
+      smoke T20 **PASSED** on interactive Windows session (2026-06-16).
+- [x] Tag v1.8.0.
 
 > Note: `Window.Show()` under the headless platform spins the render loop, so the
 > in-window layout test was dropped — construction + MarkdownView content-tree
