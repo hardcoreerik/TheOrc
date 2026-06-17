@@ -563,6 +563,8 @@ public sealed class PitBossService
     /// </summary>
     public async Task BuildEnvironmentContextAsync(string workspaceRoot)
     {
+        // Clear stale context first so a failed refresh doesn't leak a previous inventory.
+        EnvironmentContext = "";
         try
         {
             var datasets = TrainingPitRegistry.LoadDatasets(workspaceRoot);
@@ -574,19 +576,24 @@ public sealed class PitBossService
                 .Take(8)
                 .Select(d => $"  {d.Name} ({d.TrainCount:N0} train examples)");
 
-            var modelLines = models
-                // Exclude GGUF quants and custom-inference-only tags — Forge cannot map these to a trainable HF repo.
+            // Exclude hf.co/ GGUF quants — Forge cannot map these to a trainable HF repo.
+            // Standard Ollama tags (e.g. qwen2.5-coder:14b) pass through.
+            var trainableModels = models
                 .Where(m => !m.Name.StartsWith("hf.co/", StringComparison.OrdinalIgnoreCase) &&
                             !m.Name.Contains("gguf", StringComparison.OrdinalIgnoreCase))
                 .Take(10)
-                .Select(m => $"  {m.Name} ({m.SizeGb:F1} GB)");
+                .ToList();
+
+            var modelLines = trainableModels.Count > 0
+                ? trainableModels.Select(m => $"  {m.Name} ({m.SizeGb:F1} GB)")
+                : new[] { "  (none suitable for LoRA training — install a standard Ollama model first, e.g. qwen2.5-coder:14b)" };
 
             EnvironmentContext =
                 "<ENVIRONMENT>\n" +
                 "Available training datasets:\n" +
                 string.Join("\n", dsLines.DefaultIfEmpty("  (none found)")) + "\n\n" +
-                "Installed Ollama models:\n" +
-                string.Join("\n", modelLines.DefaultIfEmpty("  (none found)")) + "\n\n" +
+                "Installed Ollama models (trainable — GGUF/hf.co quants excluded):\n" +
+                string.Join("\n", modelLines) + "\n\n" +
                 $"Training hardware: {DetectVramDescription()}.\n" +
                 "</ENVIRONMENT>";
         }
@@ -595,6 +602,9 @@ public sealed class PitBossService
 
     private static string DetectVramDescription()
     {
+        // nvidia-smi is available on Windows and Linux CUDA installs; skip probe on other platforms.
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
+            return "local GPU (VRAM unknown)";
         try
         {
             var psi = new ProcessStartInfo
