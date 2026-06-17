@@ -438,6 +438,32 @@ public partial class PitBossPanel : UserControl
 
     // ── Environment context builder ───────────────────────────────────────────
 
+    private static string DetectVramDescription()
+    {
+        // Best-effort: report total installed GPU RAM from nvidia-smi.
+        // Falls back to a generic description if unavailable.
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "nvidia-smi",
+                Arguments = "--query-gpu=name,memory.total --format=csv,noheader,nounits",
+                RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true,
+            };
+            using var proc = System.Diagnostics.Process.Start(psi);
+            var line = proc?.StandardOutput.ReadLine()?.Trim();
+            proc?.WaitForExit(2000);
+            if (!string.IsNullOrEmpty(line))
+            {
+                var parts = line.Split(',');
+                if (parts.Length == 2 && int.TryParse(parts[1].Trim(), out var mb))
+                    return $"{parts[0].Trim()}, {mb / 1024} GB VRAM";
+            }
+        }
+        catch { }
+        return "local GPU (VRAM unknown)";
+    }
+
     private async Task<string> BuildEnvironmentContextAsync()
     {
         var datasets = TrainingPitRegistry.LoadDatasets(WorkspaceRoot);
@@ -459,7 +485,7 @@ public partial class PitBossPanel : UserControl
             string.Join("\n", dsLines.DefaultIfEmpty("  (none found)")) + "\n\n" +
             "Installed Ollama models:\n" +
             string.Join("\n", modelLines.DefaultIfEmpty("  (none found)")) + "\n\n" +
-            "Training hardware: RTX 5070 Ti, 16 GB VRAM. QLoRA peak ~12 GB.\n" +
+            $"Training hardware: {DetectVramDescription()}.\n" +
             "</ENVIRONMENT>";
     }
 

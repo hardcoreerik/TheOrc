@@ -86,6 +86,27 @@ public sealed class PlanExecutorService : IDisposable
         _currentRunId = $"run_{plan.PlanId}_{DateTime.UtcNow:yyyyMMddHHmmss}";
         TryInsertRun(plan);
 
+        // Short-circuit for existing-dataset plans — skip generation entirely.
+        if (plan.Mode == "existing" || plan.DatasetSource == "existing")
+        {
+            var existingPath = ResolveExistingDataset(plan, pitRoot);
+            if (existingPath is null)
+            {
+                TryUpdateRun("failed");
+                Failed?.Invoke($"Existing dataset '{plan.DatasetFile}' not found in training_pit/datasets/. " +
+                               "Expected train_{key}.jsonl — check the dataset file name.");
+                IsRunning = false;
+                Phase = ExecutorPhase.Failed;
+                return;
+            }
+            TryUpdateRun("dataset_ready");
+            DatasetReady?.Invoke(existingPath);
+            ForgeReady?.Invoke(plan, existingPath);
+            IsRunning = false;
+            Phase = ExecutorPhase.Idle;
+            return;
+        }
+
         try
         {
             await RunDatasetGenAsync(plan, planFile, _cts.Token);
@@ -252,6 +273,23 @@ public sealed class PlanExecutorService : IDisposable
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static string? ResolveExistingDataset(TrainingPlan plan, string pitRoot)
+    {
+        var dsDir = Path.Combine(pitRoot, "training_pit", "datasets");
+        var key   = plan.DatasetFile?.Trim();
+        if (string.IsNullOrWhiteSpace(key)) return null;
+
+        // Old-convention: dataset_file is the stem key, e.g. "v2gold" → train_v2gold.jsonl
+        var byKey = Path.Combine(dsDir, $"train_{key}.jsonl");
+        if (File.Exists(byKey)) return byKey;
+
+        // User may have typed the full filename
+        var direct = Path.Combine(dsDir, key);
+        if (File.Exists(direct)) return direct;
+
+        return null;
+    }
 
     private static string? ResolveGenScript(TrainingPlan plan, string pitRoot)
     {
