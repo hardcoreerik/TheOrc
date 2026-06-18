@@ -205,6 +205,8 @@ Full spec: `.grok/RUNTIME_PHASE0_SPEC.md`. An orchestration/swarm-aware layer **
 
 Key corrections vs the ChatGPT/Grok sketches (both written blind to the code): interface must carry **message history + tools + tool-call callback** (not single-prompt/no-tools); **there is no DI** — its introduction is a deliberate decision, not a Phase 0 assumption; the llama.cpp server bridge **already exists** as `LlamaServerManager`; LoRA hot-swap needs a verification spike before roadmapping. Ollama stays default/fallback until ModelDepot + installer are solid.
 
+**ORCISH TONGUE** (universal tool caller, formerly GOBLIN MIND — renamed to end the GOBLIN MIND / HIVE MIND collision; inventory in `.grok/RENAME_GOBLIN_MIND.md`, not yet applied to code). Native runtime is the substrate that upgrades it from prompt-layer format adaptation (probe + parse defensively) to **decoder-layer grammar-constrained tool calls (GBNF)** — valid by construction, works on any model even untrained-for-tools. This is the real "why native" capability, not just dropping the Ollama install. See `RUNTIME_PHASE0_SPEC.md` §11.
+
 ### Promised from README "What's coming" section
 | Item | Source |
 |---|---|

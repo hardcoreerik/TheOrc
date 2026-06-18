@@ -233,3 +233,42 @@ Before LoRA hot-swap appears on any committed roadmap, run a **half-day spike**:
 1. **DI: Option A (no-DI passthrough) or B (introduce container)?** Spec recommends A unless Avalonia host already has a container.
 2. **Canonical PROJECT_TRUTH location** — this spec treats `.grok/PROJECT_TRUTH.md` as canonical and the root copy as a removable duplicate.
 3. **Sequencing after v3** — Phase 0 can land *while* v3 trains (it touches no training code), but per project rule nothing starts until you green-light. Phase 2 (native) is the recommended first big push after v3 A/B eval + adapter registration, since it removes the biggest user-facing friction (Ollama install).
+
+---
+
+## 11. ORCISH TONGUE — the universal tool caller (why native is a capability, not just cleanup)
+
+> **ORCISH TONGUE** is the new name for the system formerly called GOBLIN MIND (the tool-call format intelligence under `Services/ToolCalls/`). Rename inventory: [`.grok/RENAME_GOBLIN_MIND.md`](RENAME_GOBLIN_MIND.md). Renamed to end the GOBLIN MIND / HIVE MIND collision and to name what it actually does: speak every local model's tool-call dialect.
+
+### What it is today (prompt layer — probabilistic)
+
+ORCISH TONGUE probes each model's preferred tool-call format (`FormatProbeEngine`: `BareJson`, `OpenAiJson`, `HermesXml`, `PythonStyle`, `YamlBlock`), injects matching instructions (`BuildToolFormatSection`), then parses defensively — including the `TryParseTextToolCalls` fallback for models that ignore the format and emit loose text. This is **"probe, ask nicely, parse defensively, hope."** It adapts to whatever the model does; it cannot guarantee.
+
+### What native unlocks (decoder layer — deterministic)
+
+llama.cpp supports **grammar-constrained decoding (GBNF)**. In-process via LLamaSharp, the decoder can be constrained so the model **physically cannot emit a token** that breaks the tool-call schema — valid by construction, not by cooperation.
+
+| Today (via HTTP) | Native (ORCISH TONGUE + GBNF) |
+|---|---|
+| Probe format → ask model to comply | Probe format → **compile to a GBNF grammar** |
+| Model may emit malformed JSON | Malformed JSON is **unreachable** |
+| `TryParseTextToolCalls` fallback | Fallback becomes **dead code** |
+| Works *better* on tool-trained models | Works *equally* on any model, even ones never trained for tool use |
+
+That last row is the real prize: a universal tool caller that depends on the model being good at tool calling is a compatibility layer; one built on constrained decoding makes a dumb 3B model emit perfect structured calls anyway. Same `FormatProbeEngine` probe data — deterministic outcome instead of a hopeful one. ORCISH TONGUE keeps its brain; native gives it teeth.
+
+### Cost reality (do not let this scare off native)
+
+Going in-process, the app inherits the "server-side tool-call translation" that Ollama/llama-server do today. That translation is **not a compute cost** — it is two cheap string operations (render messages+tools into the raw prompt via the GGUF's chat template; parse output back into tool calls), microseconds each. The expensive thing is inference, paid identically on any backend. Net, in-process is **leaner** (drops the server process, the HTTP socket, the per-call JSON serialize). The engineering is moderate because ORCISH TONGUE already owns the parsing + schema rendering; the one genuinely new piece is **chat-template application**, which LLamaSharp largely provides by reading the GGUF metadata. GBNF then makes the parsing half deterministic.
+
+**The big bite in the whole runtime endeavor is ModelDepot/installer (Phase 3) and OrcScheduler (Phase 4) — not tool-call translation.**
+
+### Phasing fit
+
+- ORCISH TONGUE (prompt-layer) keeps working unchanged through Phases 0–1.
+- GBNF constrained decoding is a **Phase 2 capability** (needs `LLamaSharpRuntime`). Built on existing `FormatProbeEngine` probe data.
+- `TryParseTextToolCalls` is deprecated only once GBNF is proven on the native path — keep it as the fallback for the Ollama/server backends.
+
+### Related: grammar-constrained *plans*
+
+The boss plan JSON can be grammar-constrained the same way (Phase 2+), guaranteeing **structural** validity. Note this does **not** address the v2-regression class — that was *content* poison (tester roles assigned write tasks), which is semantic. The suitability gate remains the defense there. Structural grammar is a quality floor, not a substitute for the gate.
