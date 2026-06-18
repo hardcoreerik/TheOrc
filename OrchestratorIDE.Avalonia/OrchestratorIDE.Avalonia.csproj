@@ -103,6 +103,7 @@
     <Compile Include="..\OrchestratorIDE\Core\PentestRules.cs" />
     <Compile Include="..\OrchestratorIDE\Core\ScreenRecorder.cs" />
     <Compile Include="..\OrchestratorIDE\Core\TokenCostEstimator.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\ToolCallTextParser.cs" />
     <Compile Include="..\OrchestratorIDE\Core\ToolCompiler.cs" />
     <Compile Include="..\OrchestratorIDE\Core\ToolRegistry.cs" />
     <Compile Include="..\OrchestratorIDE\Core\UpdateChecker.cs" />
