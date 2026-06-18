@@ -44,6 +44,11 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     private double? _lastTokensPerSecond;
     private TimeSpan? _lastTimeToFirstToken;
 
+    // Cached result of the first LLamaTemplate probe: null = not yet tested,
+    // true = model has a working embedded template, false = fall back to ChatML every time.
+    // Avoids paying the exception cost on every call for templateless models.
+    private bool? _hasEmbeddedTemplate;
+
     // Fix #7: static so JsonSerializerOptions reflection cache survives across calls.
     private static readonly JsonSerializerOptions _compactJson = new() { WriteIndented = false };
 
@@ -89,7 +94,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
 
         // Build the raw prompt using the GGUF's embedded chat template.
         // Falls back to ChatML format if the model has no template.
-        var prompt = BuildPrompt(_weights, history, tools);
+        var prompt = BuildPrompt(history, tools);
 
         var inferParams = new InferenceParams
         {
@@ -213,12 +218,13 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     public ValueTask DisposeAsync()
     {
         _weights?.Dispose();
-        _weights           = null;
-        _modelParams       = null;
-        _activeModelPath   = null;
-        _activeAdapterPath = null;
-        _lastTokensPerSecond = null;
+        _weights              = null;
+        _modelParams          = null;
+        _activeModelPath      = null;
+        _activeAdapterPath    = null;
+        _lastTokensPerSecond  = null;
         _lastTimeToFirstToken = null;
+        _hasEmbeddedTemplate  = null;
         return ValueTask.CompletedTask;
     }
 
@@ -233,9 +239,11 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     /// embedded GGUF chat template. Falls back to ChatML if the model has none.
     /// Tools are injected into the system message as a JSON block (Phase 2 text approach;
     /// Phase 3 will use GBNF grammar constraints instead).
+    ///
+    /// Template probe result is cached after the first call so templateless models
+    /// skip the try/catch entirely on subsequent turns.
     /// </summary>
-    private static string BuildPrompt(
-        LLamaWeights weights,
+    private string BuildPrompt(
         IEnumerable<AgentMessage> history,
         IReadOnlyList<object>? tools)
     {
@@ -247,35 +255,23 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             var toolBlock = $"\n\nAvailable tools (call as JSON):\n{toolJson}";
             var sysIdx = messages.FindIndex(m => m.Role == MessageRole.System);
             if (sysIdx >= 0)
-            {
-                // Fix #1 (BLOCKER): clone the AgentMessage rather than mutating the caller's object.
-                // history.ToList() is a shallow copy — the AgentMessage references are shared.
-                // Mutating .Content would permanently corrupt the caller's history on every call.
-                var orig = messages[sysIdx];
-                messages[sysIdx] = new AgentMessage
-                {
-                    Id           = orig.Id,
-                    Role         = orig.Role,
-                    Content      = orig.Content + toolBlock,
-                    Status       = orig.Status,
-                    Timestamp    = orig.Timestamp,
-                    ToolCalls    = orig.ToolCalls,
-                    ToolCallId   = orig.ToolCallId,
-                    TokenCount   = orig.TokenCount,
-                };
-            }
+                // WithContent() centralises all-field copying — safe when AgentMessage grows.
+                messages[sysIdx] = messages[sysIdx].WithContent(messages[sysIdx].Content + toolBlock);
             else
-            {
                 messages.Insert(0, new AgentMessage
                     { Role = MessageRole.System, Content = toolBlock });
-            }
         }
 
-        // Try the GGUF-embedded template first.
-        // Fix #6: filter OutOfMemoryException so fatal conditions aren't silently swallowed.
+        // Fast path: we already know this model has no embedded template.
+        if (_hasEmbeddedTemplate == false)
+            return BuildChatMLPrompt(messages);
+
+        // Try the GGUF-embedded template. LLamaTemplate is stateful (Add() accumulates),
+        // so a fresh instance is required per call. Construction reads the GGUF template
+        // metadata once; Phase 3 will explore caching the parsed template string.
         try
         {
-            var template = new LLamaTemplate(weights);
+            var template = new LLamaTemplate(_weights!);
             foreach (var msg in messages)
             {
                 var role = msg.Role switch
@@ -287,11 +283,15 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
                 };
                 template.Add(role, msg.Content ?? "");
             }
-            return Encoding.UTF8.GetString(template.Apply());
+            var result = Encoding.UTF8.GetString(template.Apply());
+            _hasEmbeddedTemplate = true;
+            return result;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // Model has no embedded template or template is malformed — fall back to ChatML.
+            // Model has no embedded template or template is malformed — cache the result so
+            // subsequent calls skip the try/catch and go straight to ChatML.
+            _hasEmbeddedTemplate = false;
             return BuildChatMLPrompt(messages);
         }
     }

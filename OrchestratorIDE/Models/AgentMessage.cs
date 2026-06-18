@@ -15,4 +15,22 @@ public class AgentMessage
     public List<ToolCall> ToolCalls { get; set; } = [];
     public string? ToolCallId { get; set; }   // for role=Tool responses
     public int TokenCount { get; set; }
+
+    /// <summary>
+    /// Returns a copy of this message with <paramref name="content"/> substituted.
+    /// All other fields are preserved; ToolCalls list is shallow-copied so mutations
+    /// to the returned message's list don't affect the original.
+    /// Centralises field copying — add new fields here when AgentMessage grows.
+    /// </summary>
+    public AgentMessage WithContent(string content) => new()
+    {
+        Id         = Id,
+        Role       = Role,
+        Content    = content,
+        Status     = Status,
+        Timestamp  = Timestamp,
+        ToolCalls  = new List<ToolCall>(ToolCalls),
+        ToolCallId = ToolCallId,
+        TokenCount = TokenCount,
+    };
 }
