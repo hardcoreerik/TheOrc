@@ -1,17 +1,17 @@
 # TheOrc — Roadmap
 
-> Last updated: 2026-06-17 (v1.8.0 release).
+> Last updated: 2026-06-18 (runtime groundwork + v3 status sync).
 > This document is updated after every GitHub release. It reflects actual code state, not aspirations — features marked Shipped have been verified in the running app.
 
 ---
 
 ## Where we are
 
-TheOrc is a production local AI orchestrator. The core swarm, model intelligence, distributed HIVE MIND, and self-training loop are all shipped and running. The v1 adapter scores **99.3%** on structured planning evals and remains the production adapter. The **v2 adapter regressed** — a post-hoc suitability audit found 51.3% of its 1,784 examples assigned write tasks to TESTER-lane roles, dropping the structured-plan pass rate to 77.8% (perfect plans 71% → 54%); v2 was retired and its data repurposed. **ORC ACADEMY v3** is the clean re-run: a pre-training suitability gate now blocks tester-poison before VRAM is allocated, training on 906 train / 87 eval (zero poison, zero leakage). v1 holds until v3 passes A/B eval at ≥ 99%.
+TheOrc is a production local AI orchestrator. The core swarm, model intelligence, distributed HIVE MIND, and self-training loop are all shipped and running. The v1 adapter scores **99.3%** on structured planning evals and remains the production adapter. The **v2 adapter regressed** — a post-hoc suitability audit found 51.3% of its 1,784 examples assigned write tasks to TESTER-lane roles, dropping the structured-plan pass rate to 77.8% (perfect plans 71% → 54%); v2 was retired and its data repurposed. **ORC ACADEMY v3** completed on a clean 906 train / 87 eval set and beat base in A/B (94.7% vs 85.3%), but did **not** beat the v1 99.3% production baseline because of the `files_named` gap. v1 stays production; v3 is not registered.
 
 v1.8.0 ships the Avalonia MarkdownView (Phase 6), the full FlaUI + Avalonia test suite (Phase 7, 23 tests), and the Grok toolchain integration. CodeGraph v1 — a Roslyn + SQLite code knowledge graph that lets the agent query graph structure instead of grepping files — is fully implemented and committed, targeting v1.9.
 
-The honest gaps: the Reviewer Quality Gate is advisory-only (can always be overridden), the Tool Editor hot-reload is a stub, and HIVE MIND multi-step tool calling on remote workers is Phase 3B (not yet built). Native Avalonia modal dialogs shipped partially in v1.8; the remaining dialogs (`AgentBuilderDialog`, `ModelWikiWindow`, `LabWindow`) are v1.9 scope. Everything else on the shipped list below is real, wired, and tested.
+The honest gaps: the Reviewer Quality Gate is advisory-only (can always be overridden), the Tool Editor hot-reload is a stub, and HIVE MIND multi-step tool calling on remote workers is Phase 3B (not yet built). Native Avalonia modal dialogs shipped partially in v1.8; the remaining dialogs (`AgentBuilderDialog`, `ModelWikiWindow`, `LabWindow`) are v1.9 scope. Native Runtime groundwork is now real in code (IModelRuntime, Ollama wrapper, llama.cpp server wrapper, LLamaSharp runtime, shared text tool-call parser, and partial Chat/Swarm migration), but it is **not** production/default and still has known abstraction leaks. Everything else on the shipped list below is real, wired, and tested.
 
 ---
 
@@ -398,7 +398,7 @@ Warchief (GUI)  ──→  Warband 1 (linux-x64, Vast.ai GPU)
 
 **Current shape (now):** each Warband in Docker needs an Ollama sidecar — two containers per deployment.
 
-**Post-Native-Runtime shape (Phase 2):** LlamaSharp in-process eliminates the sidecar. One container, GGUF mounted as a volume, ORCISH TONGUE GBNF constraints work on any model. See `RUNTIME_PHASE0_SPEC.md` §11.
+**Post-Native-Runtime target shape:** LLamaSharp in-process eliminates the sidecar. One container, GGUF mounted as a volume, ORCISH TONGUE GBNF constraints work on any model. See `RUNTIME_PHASE0_SPEC.md` §11. The initial runtime code exists now, but this deployment shape is not shipped yet.
 
 **Mac/Linux Warband binaries** are one CI job away — `net10.0`, AES-256-GCM secrets (no DPAPI), cross-platform Tailscale path detection all shipped in v1.6.2. GitHub Actions publish matrix and release artifacts are the remaining gap.
 
@@ -413,24 +413,25 @@ Warchief (GUI)  ──→  Warband 1 (linux-x64, Vast.ai GPU)
 
 ## TheOrc Native Runtime — v2.0 direction
 
-> Full spec: [`.grok/RUNTIME_PHASE0_SPEC.md`](../.grok/RUNTIME_PHASE0_SPEC.md). Planning only — not started; begins after ORC ACADEMY v3 lands.
+> Full spec: [`.grok/RUNTIME_PHASE0_SPEC.md`](../.grok/RUNTIME_PHASE0_SPEC.md). Status changed after ORC ACADEMY v3 completed: early runtime groundwork has landed, but native runtime is still pre-production and not the default.
 
 **What it is:** an orchestration / swarm-aware layer *on top of* LLamaSharp (llama.cpp bindings) — **not** a from-scratch inference engine. llama.cpp owns the kernels; TheOrc owns scheduling, session management, adapter hot-swap, VRAM-aware dispatch, and direct Avalonia streaming. The moat is making the warband feel like one cohesive mind on the GPU instead of a series of independent HTTP calls.
 
 **Why:** removes the Ollama install/management burden, the per-call model-reload penalty, the HTTP round-trip, and the `ollama create` merge step in ORC ACADEMY deploy. Also advances the cross-platform goal (LLamaSharp runs on Mac/Linux).
 
-| Phase | Scope | Est. | Risk |
+| Phase | Scope | Status | Risk |
 |---|---|---|---|
-| **0** | `IModelRuntime` abstraction + `OllamaRuntime` (wraps existing client). Migrate one call site. Zero behavior change. | 2–3 days | Low |
-| **1** | `LlamaCppServerRuntime` — wraps the **existing** `LlamaServerManager` + `InferenceBackend.LlamaCpp`. | 2–4 days | Low |
-| **2** | `LLamaSharpRuntime` — in-process GGUF + LoRA, streaming, backend detection. The "no Ollama dependency" win. | 1–2 wk | Med |
-| **3** | `ModelDepot` (first-run downloader), `SessionManager` (persistent base model), `AdapterManager` (boss/worker/reviewer LoRAs), telemetry. | 3–5 wk | Med-High |
-| **4** | `OrcScheduler` — capability + VRAM + lane-aware dispatch; pipeline boss→workers. | 2–3 wk | High |
-| **5** | *(Research, non-blocking)* prefix KV cache for the shared warband prompt; multi-LoRA cache experiments. | open | Research |
+| **0** | `IModelRuntime` abstraction + `OllamaRuntime` wrapper. | ✅ Landed — local generation paths can depend on the runtime interface; Ollama remains default. | Low |
+| **1** | `LlamaCppServerRuntime` — wraps the **existing** `LlamaServerManager` + `InferenceBackend.LlamaCpp`. | ✅ Landed — server lifecycle and HTTP routing exist behind the runtime interface. | Low |
+| **2** | `LLamaSharpRuntime` — in-process GGUF streaming, embedded-template probing, stats, shared text tool-call parsing. | ⚠️ Prototype landed — useful for validation, not production/default. LoRA hot-swap, backend install flow, and full runtime selection are not complete. | Med |
+| **2.5** | Close abstraction leaks from the first migration. | ⬜ Next — reviewer gate still uses Ollama-specific service/raw HTTP; SwarmSession still has an Ollama-specific eviction escape hatch; remote HIVE node clients remain Ollama-only. | Med |
+| **3** | `ModelDepot` (first-run downloader), `SessionManager` (persistent base model), `AdapterManager` (boss/worker/reviewer LoRAs), telemetry. | ⬜ Not started | Med-High |
+| **4** | `OrcScheduler` — capability + VRAM + lane-aware dispatch; pipeline boss→workers. | ⬜ Not started | High |
+| **5** | *(Research, non-blocking)* prefix KV cache for the shared warband prompt; multi-LoRA cache experiments. | ⬜ Research | Research |
 
 **Caveat (permanent):** shared KV cache across *different* LoRA-specialized agents is not guaranteed safe — adapters change activations. Start with simple prefix caching of the common system prompt only; deeper sharing is research, never a promised deliverable. LoRA hot-swap requires a verification spike before it joins a committed phase.
 
-Ollama stays the **default and fallback** until the ModelDepot + installer first-run story is bulletproof.
+Ollama stays the **default and fallback** until the ModelDepot + installer first-run story is bulletproof and the reviewer/Swarm abstraction leaks are closed.
 
 ---
 
