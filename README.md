@@ -87,6 +87,55 @@ TheOrc is not trying to replace your editor. It's the AI **project runner** that
 
 ---
 
+## What's new in v1.8
+
+### v1.8.0 — Avalonia markdown renderer + first test suite
+
+The Avalonia cross-platform shell gets its first real renderer and its first test coverage.
+
+**Phase 6 — Native Markdown Renderer (`MarkdownView`)**
+
+Assistant responses in the Avalonia shell now render in rich Markdown — zero new NuGet dependencies. The renderer maps directly to Avalonia's native control tree: headings, bullet and numbered lists, fenced code blocks, blockquotes, inline bold/italic/code/links. It's streaming-safe: an `IsVisible` guard short-circuits rebuilds during token streaming and triggers a single deferred render when the response is complete.
+
+**Phase 7 — First Avalonia test coverage**
+
+| Suite | Tests | What it covers |
+|---|---|---|
+| `MarkdownViewTests` | 12 | Block/inline parse → control tree; streaming deferred-render guard |
+| `PanelConstructionTests` | 10 | Every migrated panel constructs headlessly (AXAML, compiled bindings, resources) |
+| `T20 AvaloniaSmokeTests` | 1 | FlaUI: launches the Avalonia exe, asserts the main window appears via UIA |
+
+142 automated tests green across WPF unit, Avalonia headless, and FlaUI smoke.
+
+**Pit Boss hardening** — 10+ rounds: Hermes-3-Llama-3.2-3B default (2 GB, VRAM-safe), two-phase JSON synthesis, shell injection prevention (`ArgumentList` not shell string), cross-platform gen subprocess, concurrent log-write lock, path-traversal guard.
+
+**ORC ACADEMY v2 dataset finalized** — 1,784 train / 200 eval, registered as `train_v2gold`/`eval_v2gold` for Forge. Training run pending.
+
+---
+
+## What's new in v1.7
+
+### v1.7.0 — Avalonia cross-platform UI (Phases 0–5)
+
+v1.7 is the biggest architectural shift since launch: TheOrc now ships **two UIs on one codebase**.
+
+The new Avalonia shell (`net10.0`, no `-windows` suffix) runs on Windows, macOS, and Linux. The WPF shell remains the primary shipping app; Avalonia runs side-by-side against the same Ollama backend, the same HIVE mesh, and the same workspace.
+
+| Phase | What landed |
+|---|---|
+| **Phase 0** | Blank Avalonia 12 shell — AppBuilder, dark theme, brand colours |
+| **Phase 1** | Service layer decoupled — `OllamaClient`, `SwarmOrchestrator`, `HiveService` etc. extracted to shared project; both UIs wire against the same interfaces |
+| **Phase 2** | Code editor + tool editor ported to `AvaloniaEdit` |
+| **Phase 3A** | Simple panels: File Explorer, Settings, Checkpoint Browser, Session Browser |
+| **Phase 3B** | Agent panel, Chat panel, Update panel, Warm-up editor |
+| **Phase 3C** | HIVE panel, Pit Boss panel, Swarm Board, Training Pit — full dark-theme DataTemplates |
+| **Phase 4** | DiffViewer, ShellApprovalCard, UnknownToolCard — approval flow wired end-to-end |
+| **Phase 5** | Full IDE layout in `MainWindow.axaml` — ribbon nav, pill switcher, panel host, status bar |
+
+121/121 unit tests green. Grok review: CLEAN.
+
+---
+
 ## What's new in v1.6
 
 ### v1.6.1 — HIVE security audit & hardening
@@ -142,13 +191,25 @@ Here's the part that gets genuinely weird in the best way.
 
 Every good swarm run captures the boss's plan. Those captures go through a review pipeline. When you have enough reviewed examples, **ORC ACADEMY** trains a LoRA adapter on your own GPU. The new boss model is better at planning the next run. Which produces better captures. Which trains a better adapter. You get the idea.
 
-**v1 shipped — June 2026:**
+**v1 shipped — June 2026 ✅**
 - 900 reviewed boss plans, harvested overnight by GOBLIN HARVEST while the PC sat idle
 - LoRA trained locally in **148 minutes** on an RTX 5070 Ti
 - Result: **99.3% structured planning pass rate**, up from 94.5% on the base model
 - Shipped as `theorc-boss:gemma4-ft` — a 125 MB GGUF LoRA you can pull right now
 
-The loop — *run → capture → review → train → deploy* — is part of the product. TheOrc is designed to get better the more you use it, entirely on your own hardware, with no data leaving your machine.
+**v2 post-mortem ❌**
+- Trained on 1,784 examples from Pit Boss + Cerebras generation
+- Suitability audit later found 51.3% of examples had write tasks assigned to TESTER-lane roles — teaching the boss exactly the wrong behavior
+- A/B result: structured-plan pass rate dropped from 99.3% (v1) to 77.8%, perfect plans 71% → 54%
+- v1 remains the active production adapter; v2 was retired and the data repurposed
+
+**v3 in progress — June 2026 🔄**
+- Root cause fixed: suitability gate (pre-training contamination check) now blocks tester-poison examples before VRAM is allocated
+- Clean dataset: 906 train / 87 eval (zero tester-poison, zero leakage)
+- Training on RTX 5070 Ti, rubric-in-the-loop checkpoint selection
+- v1 baseline holds until v3 passes A/B eval at ≥ 99%
+
+The loop — *run → capture → review → gate → train → deploy* — is part of the product. TheOrc is designed to get better the more you use it, entirely on your own hardware, with no data leaving your machine.
 
 ---
 
@@ -156,7 +217,7 @@ The loop — *run → capture → review → train → deploy* — is part of th
 
 ORC ACADEMY is powerful. Pit Boss makes it self-serve.
 
-Tell Pit Boss what you want the swarm to get better at. It runs a short interview — eight questions about goal types, languages, edge cases, example count — and turns your answers into a structured training plan. Then it kicks off dataset generation (via Cerebras cloud, local Ollama, or Claude API, your pick) and hands the finished dataset off to ORC ACADEMY's Forge for LoRA training on your GPU.
+Tell Pit Boss what you want the swarm to get better at. It runs a short interview — eight questions about goal types, languages, edge cases, example count — and turns your answers into a structured training plan. Then it kicks off dataset generation (via Cerebras cloud or local Ollama) and hands the finished dataset off to ORC ACADEMY's Forge for LoRA training on your GPU.
 
 You go from "I want a smarter boss" to a queued training run without writing a script or touching the command line.
 

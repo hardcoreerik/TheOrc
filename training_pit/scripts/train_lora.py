@@ -23,11 +23,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="google/gemma-4-12b-it",
                     help="HF base repo (fallback mirror: unsloth/gemma-4-12b-it)")
-    ap.add_argument("--train", default="training_pit/datasets/train_v2gold.jsonl")
-    ap.add_argument("--eval",  default="training_pit/datasets/eval_v2gold.jsonl")
-    ap.add_argument("--out",   default="training_pit/outputs/lora_v2/adapter")
+    ap.add_argument("--train", default="training_pit/datasets/train_v3gold.jsonl")
+    ap.add_argument("--eval",  default="training_pit/datasets/eval_v3gold.jsonl")
+    ap.add_argument("--out",   default="training_pit/outputs/lora_v3/adapter")
     ap.add_argument("--epochs", type=float, default=3)
-    ap.add_argument("--lr", type=float, default=2e-4)
+    ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--max-seq", type=int, default=1536)   # examples are ~600-1200 tokens
     ap.add_argument("--dry-run", action="store_true",
                     help="verify model+data load and a single forward step, then exit")

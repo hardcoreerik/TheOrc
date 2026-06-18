@@ -537,6 +537,18 @@ RULES (apply to all tool call formats):
 - When the task is fully complete, respond with plain text — no more tool calls.
 """;
 
+        // ── CodeGraph: prefer structural tools over grep ─────────────────────
+        // graph_search and trace_path are cheaper and more accurate than grep_code
+        // for navigating the indexed codebase (symbol lookup, call chains, ADRs).
+        prompt += """
+
+
+CODEGRAPH TOOL PREFERENCE:
+- For "where is X defined", "what calls Y", "how does Z flow" — use graph_search or trace_path FIRST.
+- Use grep_code only for literal text search or when the graph has no entry for the symbol.
+- get_architecture gives the fastest codebase overview — prefer it over reading multiple files.
+""";
+
         if (!string.IsNullOrEmpty(rules))
             prompt += $"\n\nProject rules (follow strictly):\n{rules}";
 
