@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Models;
 using OrchestratorIDE.Services.ToolCalls;
 
@@ -17,7 +18,7 @@ namespace OrchestratorIDE.Core;
 /// </summary>
 public class AgentLoop
 {
-    private readonly OllamaClient _ollama;
+    private readonly IModelRuntime _ollama;
     private readonly ToolRegistry _registry;
     private readonly ContextManager _context;
     private readonly Trust.GitCheckpoint _git;
@@ -37,7 +38,7 @@ public class AgentLoop
     public event Action<string?>? OnRulesLoaded;
 
     public AgentLoop(
-        OllamaClient ollama,
+        IModelRuntime ollama,
         ToolRegistry registry,
         ContextManager context,
         Trust.GitCheckpoint git,
@@ -231,7 +232,8 @@ public class AgentLoop
         var messages = BuildMessages(session, userPrompt, planOnly: false, rulesText: rulesText, toolFormat: preferredFormat);
         _context.Update(messages);
 
-        var stepCount = 0;
+        var stepCount    = 0;
+        var nudgeCount   = 0;   // separate from stepCount so nudge fires at any step, not just 1-2
         var finalResponse = "";
 
         // V3: context usage at start of execute
@@ -326,7 +328,7 @@ public class AgentLoop
             {
                 // Detect "I'm sorry / I cannot / here's a guide" refusal patterns.
                 // Push back once with a hard nudge instead of silently finishing.
-                if (IsRefusal(content) && stepCount <= 2)
+                if (IsRefusal(content) && nudgeCount < 2)
                 {
                     Emit(ActivityKind.Warning, "Refusal detected", "Pushing back — telling model to use tools.");
                     var nudge = new AgentMessage
@@ -341,6 +343,7 @@ public class AgentLoop
                     };
                     session.Messages.Add(nudge);
                     messages = [.. messages, nudge];
+                    nudgeCount++;
                     continue;   // re-enter the loop with the nudge
                 }
 
@@ -580,7 +583,13 @@ CODEGRAPH TOOL PREFERENCE:
             for (int j = start; j < stripped.Length; j++)
             {
                 var ch = stripped[j];
-                if (ch == '"' && (j == 0 || stripped[j - 1] != '\\')) inString = !inString;
+                if (ch == '"')
+                {
+                    // Count consecutive preceding backslashes: even = real quote, odd = escaped.
+                    var bs = 0;
+                    for (var k = j - 1; k >= start && stripped[k] == '\\'; k--) bs++;
+                    if (bs % 2 == 0) inString = !inString;
+                }
                 if (inString) continue;
                 if (ch == '{') depth++;
                 else if (ch == '}') { depth--; if (depth == 0) { end = j; break; } }

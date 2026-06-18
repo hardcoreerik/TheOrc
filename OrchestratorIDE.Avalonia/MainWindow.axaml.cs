@@ -12,6 +12,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using OrchestratorIDE.Agents;
 using OrchestratorIDE.Core;
+using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Models;
 using OrchestratorIDE.Services.Models;
 using OrchestratorIDE.Tools;
@@ -115,7 +116,7 @@ public partial class MainWindow : Window
         _git       = new GitCheckpoint();
         _rules     = new RulesLoader();
         _store     = new SessionStore();
-        _loop      = new AgentLoop(_ollama, _registry, _context, _git, _rules);
+        _loop      = new AgentLoop(new OllamaRuntime(_ollama), _registry, _context, _git, _rules);
 
         _session = new ProjectSession
         {
@@ -733,6 +734,7 @@ public partial class MainWindow : Window
 
         ShellTools.Register(_registry, ws, onSandboxBypass: sandboxBypass);
         SearchTools.Register(_registry, ws);
+        GraphTools.Register(_registry, ws);
         TestTools.Register(_registry, ws);
         WebTools.Register(_registry);
         RegisterAskUserTool();

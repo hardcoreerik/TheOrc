@@ -1,6 +1,7 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using OrchestratorIDE.Core;
+using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Models;
 using OrchestratorIDE.Tools;
 using OrchestratorIDE.Trust;
@@ -62,7 +63,7 @@ public class AutoTestRunner
             var git       = new GitCheckpoint();
             var rules     = new RulesLoader();
             var store     = new SessionStore();
-            var loop      = new AgentLoop(ollama, registry, context, git, rules);
+            var loop      = new AgentLoop(new OllamaRuntime(ollama), registry, context, git, rules);
 
             // Wire activity to log
             loop.Activity += ev => Log($"  [{ev.Icon}] {ev.Label}: {ev.Detail}");
@@ -71,6 +72,7 @@ public class AutoTestRunner
             FileTools.Register(registry, workspace, onDiffPreview: null);
             ShellTools.Register(registry, workspace);
             SearchTools.Register(registry, workspace);
+            GraphTools.Register(registry, workspace);
             TestTools.Register(registry, workspace);
 
             // ── Test 0: Ollama connectivity ───────────────────────────────

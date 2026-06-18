@@ -90,6 +90,8 @@
     <Compile Include="..\OrchestratorIDE\Agents\SwarmTraceLogger.cs" />
 
     <!-- Core -->
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\IModelRuntime.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\OllamaRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentFileGenerator.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentLoop.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentPresets.cs" />
