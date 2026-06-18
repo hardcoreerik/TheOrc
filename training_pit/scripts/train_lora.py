@@ -70,7 +70,7 @@ def main():
     # ── Suitability gate: block before VRAM is allocated ─────────────────────
     # Checks for tester_poison (write tasks assigned to TESTER-lane roles) and
     # cross-set hash leakage. Catches the v2 regression class at the front door.
-    if not args.skip_suitability_gate and not args.dry_run:
+    if not args.skip_suitability_gate:
         import sys as _sys
         _scripts_dir = str(Path(__file__).resolve().parent)
         if _scripts_dir not in _sys.path:

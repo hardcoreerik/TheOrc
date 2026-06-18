@@ -68,6 +68,9 @@ def _classify(content: str) -> str:
     if not isinstance(tasks, list) or not tasks:
         return "invalid"
 
+    if len(tasks) > 4:
+        return "invalid"  # out-of-spec plan; useless for boss training
+
     for t in tasks:
         if not isinstance(t, dict):
             continue

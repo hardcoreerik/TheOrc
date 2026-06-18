@@ -132,17 +132,19 @@ def check_file(
     path: Path,
     poison_limit: float = 0.25,
     invalid_limit: float = 0.10,
+    overflow_limit: float = 0.05,
 ) -> FileReport:
     """
     Scan a train JSONL and classify each example.
 
     Parameters
     ----------
-    path          : JSONL file to scan
-    poison_limit  : max allowed fraction of tester_poison examples (default 0.25)
-    invalid_limit : max allowed fraction of no_valid_json examples (default 0.10)
+    path           : JSONL file to scan
+    poison_limit   : max allowed fraction of tester_poison examples (default 0.25)
+    invalid_limit  : max allowed fraction of no_valid_json examples (default 0.10)
+    overflow_limit : max allowed fraction of task_overflow (>4 tasks) examples (default 0.05)
 
-    Returns a FileReport; report.passed is False if either limit exceeded.
+    Returns a FileReport; report.passed is False if any limit is exceeded.
     """
     lines = [l for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
     n = len(lines)
@@ -175,6 +177,7 @@ def check_file(
     report.passed = (
         report.tester_poison_rate <= poison_limit
         and (report.no_valid_json / n) <= invalid_limit
+        and (report.task_overflow / n) <= overflow_limit
     )
     return report
 
