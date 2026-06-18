@@ -23,6 +23,7 @@ using System.Linq;
 using System.Text;
 using OrchestratorIDE.Agents;
 using OrchestratorIDE.Core;
+using OrchestratorIDE.Core.Runtime;
 
 Console.OutputEncoding = Encoding.UTF8;
 
@@ -91,7 +92,7 @@ var before = Directory.Exists(stagingDir)
 // ── Run ──────────────────────────────────────────────────────────────────────
 
 var ollama  = new OllamaClient(host);
-var session = new SwarmSession(ollama, boss, workspace, coder, researcher);
+var session = new SwarmSession(new OllamaRuntime(ollama), boss, workspace, coder, researcher);
 
 bool planSeen = false, errored = false, stopRequested = false;
 

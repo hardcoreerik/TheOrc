@@ -9,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
 using OrchestratorIDE.Core;
+using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Research;
 
 namespace OrchestratorIDE.UI.Panels;
@@ -72,7 +73,7 @@ public partial class ChatPanel : UserControl
 
         // Re-create engine for new model (keeps history if model changes mid-conversation)
         if (_engine is null)
-            _engine = new ChatEngine(OllamaClient, model);
+            _engine = new ChatEngine(new OllamaRuntime(OllamaClient), model);
         else
             _engine.Model = model;
     }
@@ -104,7 +105,7 @@ public partial class ChatPanel : UserControl
         var model = CbModel.SelectedItem as string ?? "";
         if (string.IsNullOrEmpty(model)) return;
 
-        _engine ??= new ChatEngine(OllamaClient, model);
+        _engine ??= new ChatEngine(new OllamaRuntime(OllamaClient), model);
         _engine.Model = model;
 
         // Hide welcome card on first message

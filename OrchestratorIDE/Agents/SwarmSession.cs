@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using OrchestratorIDE.Core;
+using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Models;
 using OrchestratorIDE.Services.Swarm;
 using OrchestratorIDE.Services.ToolCalls;
@@ -31,7 +32,8 @@ namespace OrchestratorIDE.Agents;
 /// </summary>
 public class SwarmSession
 {
-    private readonly OllamaClient _ollama;
+    private readonly IModelRuntime _ollama;
+    private readonly OllamaClient? _ollamaSpecific;
     private readonly string       _bossModel;
     private readonly string       _coderModel;
     private readonly string       _researcherModel;
@@ -91,10 +93,11 @@ public class SwarmSession
     /// <summary>Ollama model for local advisory/gated review.</summary>
     public string          LocalReviewModel      { get; set; } = "qwen2.5-coder:14b";
 
-    public SwarmSession(OllamaClient ollama, string bossModel, string? workspaceRoot,
+    public SwarmSession(IModelRuntime runtime, string bossModel, string? workspaceRoot,
         string? workerModel = null, string? researcherModel = null)
     {
-        _ollama          = ollama;
+        _ollama          = runtime;
+        _ollamaSpecific  = (_ollama as OllamaRuntime)?.Inner;
         _bossModel       = bossModel;
         _coderModel      = workerModel     ?? bossModel;
         _researcherModel = researcherModel ?? _coderModel;
@@ -151,14 +154,14 @@ public class SwarmSession
     }
 
     /// <summary>
-    /// Returns the OllamaClient for the node assigned to this task.
-    /// Caches one client per unique remote URL to avoid reconnect overhead.
+    /// Returns an OllamaClient only when the task is assigned to a remote HIVE node.
+    /// Local inference stays on the configured IModelRuntime.
     /// </summary>
-    private OllamaClient GetOllamaForTask(SwarmTask task)
+    private OllamaClient? GetOllamaForTask(SwarmTask task)
     {
         var url = task.TargetNodeUrl;
         if (string.IsNullOrEmpty(url) || url == _localOllamaUrl || string.IsNullOrEmpty(_localOllamaUrl))
-            return _ollama;
+            return null;
         return _nodeClients.GetOrAdd(url, u => new OllamaClient(u));
     }
 
@@ -368,16 +371,24 @@ public class SwarmSession
             {
                 Activity($"♻ Evicting {_researcherModel} from VRAM before coder phase…", "boss");
                 _trace?.WriteEvent("model_evict", $"Evicting {_researcherModel}");
-                var evicted = await _ollama.EvictAndVerifyAsync(_researcherModel, ct);
-                if (evicted)
+                if (_ollamaSpecific is null)
                 {
-                    Activity($"✓ {_researcherModel} confirmed evicted — VRAM freed for coder", "boss");
-                    _trace?.WriteEvent("model_evict_confirmed", _researcherModel);
+                    Activity("Skipping Ollama-specific eviction for non-Ollama runtime", "boss");
+                    _trace?.WriteEvent("model_evict_skipped", _researcherModel);
                 }
                 else
                 {
-                    Activity($"⚠ {_researcherModel} still in VRAM after eviction — may constrain coder", "boss");
-                    _trace?.WriteEvent("model_evict_unconfirmed", _researcherModel);
+                    var evicted = await _ollamaSpecific.EvictAndVerifyAsync(_researcherModel, ct);
+                    if (evicted)
+                    {
+                        Activity($"✓ {_researcherModel} confirmed evicted — VRAM freed for coder", "boss");
+                        _trace?.WriteEvent("model_evict_confirmed", _researcherModel);
+                    }
+                    else
+                    {
+                        Activity($"⚠ {_researcherModel} still in VRAM after eviction — may constrain coder", "boss");
+                        _trace?.WriteEvent("model_evict_unconfirmed", _researcherModel);
+                    }
                 }
             }
 
@@ -1964,13 +1975,23 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
             var pendingTcs = new List<ToolCall>();
             var contentSb  = new StringBuilder();
 
-            await foreach (var token in (nodeOllama ?? _ollama).StreamCompletionAsync(
-                model, history,
-                tools:       toolsPayload,
-                temperature: 0.25,
-                maxTokens:   8192,
-                onToolCall:  tc => pendingTcs.Add(tc),
-                ct:          ct))
+            var stream = nodeOllama is not null
+                ? nodeOllama.StreamCompletionAsync(
+                    model, history,
+                    tools:       toolsPayload,
+                    temperature: 0.25,
+                    maxTokens:   8192,
+                    onToolCall:  tc => pendingTcs.Add(tc),
+                    ct:          ct)
+                : _ollama.StreamCompletionAsync(
+                    model, history,
+                    tools:       toolsPayload,
+                    temperature: 0.25,
+                    maxTokens:   8192,
+                    onToolCall:  tc => pendingTcs.Add(tc),
+                    ct:          ct);
+
+            await foreach (var token in stream)
             {
                 contentSb.Append(token);
                 task.StreamBuffer = contentSb.ToString();

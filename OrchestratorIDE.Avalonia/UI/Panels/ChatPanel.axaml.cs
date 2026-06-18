@@ -10,6 +10,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using OrchestratorIDE.Core;
+using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Research;
 using OrchestratorIDE.UI.Controls;
 
@@ -58,7 +59,7 @@ public partial class ChatPanel : UserControl
     {
         var model = CbModel.SelectedItem as string;
         if (string.IsNullOrEmpty(model) || OllamaClient is null) return;
-        if (_engine is null) _engine = new ChatEngine(OllamaClient, model);
+        if (_engine is null) _engine = new ChatEngine(new OllamaRuntime(OllamaClient), model);
         else                  _engine.Model = model;
     }
 
@@ -87,7 +88,7 @@ public partial class ChatPanel : UserControl
         var model = CbModel.SelectedItem as string ?? "";
         if (string.IsNullOrEmpty(model)) return;
 
-        _engine       ??= new ChatEngine(OllamaClient, model);
+        _engine       ??= new ChatEngine(new OllamaRuntime(OllamaClient), model);
         _engine.Model   = model;
 
         // Hide welcome card on first send

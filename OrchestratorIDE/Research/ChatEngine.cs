@@ -1,6 +1,7 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using OrchestratorIDE.Core;
+using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Models;
 
 namespace OrchestratorIDE.Research;
@@ -17,7 +18,7 @@ namespace OrchestratorIDE.Research;
 public class ChatEngine
 {
     // ── Dependencies ──────────────────────────────────────────────────────────
-    private readonly OllamaClient  _client;
+    private readonly IModelRuntime _runtime;
     private readonly WebSearchTool _webSearch = new();
     private readonly FetchPageTool _fetchPage = new();
 
@@ -46,9 +47,9 @@ public class ChatEngine
 
     // ── Construction ──────────────────────────────────────────────────────────
 
-    public ChatEngine(OllamaClient client, string model)
+    public ChatEngine(IModelRuntime runtime, string model)
     {
-        _client = client;
+        _runtime = runtime;
         Model   = model;
     }
 
@@ -92,7 +93,7 @@ public class ChatEngine
         var    toolCallsNative = new List<ToolCall>();
 
         // ── Stream from model ───────────────────────────────────────────────
-        await foreach (var token in _client.StreamCompletionAsync(
+        await foreach (var token in _runtime.StreamCompletionAsync(
             Model,
             fullHistory,
             tools,
@@ -179,7 +180,7 @@ public class ChatEngine
             lastText  = "";
             toolCalls = [];
 
-            await foreach (var token in _client.StreamCompletionAsync(
+            await foreach (var token in _runtime.StreamCompletionAsync(
                 Model,
                 PrependSystem(systemMsg),
                 tools,
@@ -260,7 +261,7 @@ public class ChatEngine
             pendingText  = "";
             pendingCalls = [];
 
-            await foreach (var token in _client.StreamCompletionAsync(
+            await foreach (var token in _runtime.StreamCompletionAsync(
                 Model,
                 PrependSystem(systemMsg),
                 null,           // no tools in ReAct continuation — we parse text

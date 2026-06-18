@@ -11,6 +11,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using OrchestratorIDE.Agents;
 using OrchestratorIDE.Core;
+using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Services.Hive;
 using OrchestratorIDE.Services.Swarm;
 
@@ -320,7 +321,7 @@ public partial class SwarmBoardPanel : UserControl
         _activeTab = "boss";
         SwitchTab("boss");
 
-        _session = new SwarmSession(Ollama, bossModel, WorkspaceRoot, workerModel, resModel);
+        _session = new SwarmSession(new OllamaRuntime(Ollama), bossModel, WorkspaceRoot, workerModel, resModel);
 
         if (Settings is not null)
         {

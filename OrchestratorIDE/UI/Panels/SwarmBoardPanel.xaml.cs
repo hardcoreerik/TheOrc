@@ -8,6 +8,7 @@ using System.Windows.Shapes;
 using System.Windows.Threading;
 using OrchestratorIDE.Agents;
 using OrchestratorIDE.Core;
+using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Services.Swarm;
 using OrchestratorIDE.Services.ToolCalls;
 
@@ -842,7 +843,7 @@ public partial class SwarmBoardPanel : UserControl
         var swarmOllama = _runOnUrl is null ? Ollama! : new OllamaClient(_runOnUrl);
         if (_runOnUrl is not null)
             OnActivity?.Invoke($"🐝 Running this swarm on {_runOnName} ({_runOnUrl})");
-        _session = new SwarmSession(swarmOllama, ActiveModel, WorkspaceRoot, coderModel, researcherModel);
+        _session = new SwarmSession(new OllamaRuntime(swarmOllama), ActiveModel, WorkspaceRoot, coderModel, researcherModel);
 
         // Wire sandbox bypass: show the WPF dialog on the UI thread so the swarm can
         // ask the user to approve out-of-sandbox file/shell operations.
