@@ -18,6 +18,7 @@ namespace OrchestratorIDE.Core.Runtime;
 public sealed class OllamaRuntime : IModelRuntime
 {
     private readonly OllamaClient _inner;
+    private volatile bool _lastKnownReachable;
 
     public string RuntimeName => "Ollama";
 
@@ -31,8 +32,11 @@ public sealed class OllamaRuntime : IModelRuntime
     public OllamaRuntime(OllamaClient inner) =>
         _inner = inner ?? throw new ArgumentNullException(nameof(inner));
 
-    public Task<bool>         IsReachableAsync(CancellationToken ct = default) =>
-        _inner.IsReachableAsync(ct);
+    public async Task<bool> IsReachableAsync(CancellationToken ct = default)
+    {
+        _lastKnownReachable = await _inner.IsReachableAsync(ct);
+        return _lastKnownReachable;
+    }
 
     public Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default) =>
         _inner.GetInstalledModelsAsync(ct);
@@ -54,7 +58,7 @@ public sealed class OllamaRuntime : IModelRuntime
     /// callers who need a live check should call IsReachableAsync first.
     /// </summary>
     public RuntimeHealth GetHealth() =>
-        new(IsAvailable: true, RuntimeName: RuntimeName,
+        new(IsAvailable: _lastKnownReachable, RuntimeName: RuntimeName,
             Message: $"Host={_inner.Host}");
 
     /// <summary>All perf fields null — Ollama does not expose per-process VRAM or throughput.</summary>
