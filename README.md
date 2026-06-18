@@ -16,6 +16,18 @@
 
 ---
 
+## Project Credits
+
+TheOrc is created and maintained by [Erik / hardcoreerik](https://github.com/hardcoreerik), with AI-assisted development and review from Claude Sonnet and OpenAI Codex.
+
+| Contributor | Role |
+|---|---|
+| [Erik / hardcoreerik](https://github.com/hardcoreerik) | Creator, maintainer, product direction |
+| Claude Sonnet | Architecture planning, implementation support, code review |
+| OpenAI Codex | Implementation support, adversarial review, verification |
+
+---
+
 ## What is this thing?
 
 GitHub Copilot helps you write the next line. Cursor rewrites the current file. ChatGPT gives you code to paste.
