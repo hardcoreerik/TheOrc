@@ -7,7 +7,7 @@
 
 ## Where we are
 
-TheOrc is a production local AI orchestrator. The core swarm, model intelligence, distributed HIVE MIND, and self-training loop are all shipped and running. The v1 adapter scores **99.3%** on structured planning evals; the **v2 adapter (ORC ACADEMY v2) finished training overnight** — 1,784 examples, Gemma 4 12B, 3 epochs, eval loss 0.2595 (better than v1). Cerebras gold generation is running for the v2 dataset extension.
+TheOrc is a production local AI orchestrator. The core swarm, model intelligence, distributed HIVE MIND, and self-training loop are all shipped and running. The v1 adapter scores **99.3%** on structured planning evals and remains the production adapter. The **v2 adapter regressed** — a post-hoc suitability audit found 51.3% of its 1,784 examples assigned write tasks to TESTER-lane roles, dropping the structured-plan pass rate to 77.8% (perfect plans 71% → 54%); v2 was retired and its data repurposed. **ORC ACADEMY v3** is the clean re-run: a pre-training suitability gate now blocks tester-poison before VRAM is allocated, training on 906 train / 87 eval (zero poison, zero leakage). v1 holds until v3 passes A/B eval at ≥ 99%.
 
 v1.8.0 ships the Avalonia MarkdownView (Phase 6), the full FlaUI + Avalonia test suite (Phase 7, 23 tests), and the Grok toolchain integration. CodeGraph v1 — a Roslyn + SQLite code knowledge graph that lets the agent query graph structure instead of grepping files — is fully implemented and committed, targeting v1.9.
 
@@ -368,6 +368,29 @@ Wire `EVAL_RUBRIC.md` into a UI-driven automated model regression test. After ea
 
 ### HIVE MIND: remote harvest and academy execution
 Allow a HIVE worker node to run GOBLIN HARVEST overnight and return captures to the boss node's Training Pit. Remote adapter training (via HIVE) is further out — needs Phase 3B first.
+
+---
+
+## TheOrc Native Runtime — v2.0 direction
+
+> Full spec: [`.grok/RUNTIME_PHASE0_SPEC.md`](../.grok/RUNTIME_PHASE0_SPEC.md). Planning only — not started; begins after ORC ACADEMY v3 lands.
+
+**What it is:** an orchestration / swarm-aware layer *on top of* LLamaSharp (llama.cpp bindings) — **not** a from-scratch inference engine. llama.cpp owns the kernels; TheOrc owns scheduling, session management, adapter hot-swap, VRAM-aware dispatch, and direct Avalonia streaming. The moat is making the warband feel like one cohesive mind on the GPU instead of a series of independent HTTP calls.
+
+**Why:** removes the Ollama install/management burden, the per-call model-reload penalty, the HTTP round-trip, and the `ollama create` merge step in ORC ACADEMY deploy. Also advances the cross-platform goal (LLamaSharp runs on Mac/Linux).
+
+| Phase | Scope | Est. | Risk |
+|---|---|---|---|
+| **0** | `IModelRuntime` abstraction + `OllamaRuntime` (wraps existing client). Migrate one call site. Zero behavior change. | 2–3 days | Low |
+| **1** | `LlamaCppServerRuntime` — wraps the **existing** `LlamaServerManager` + `InferenceBackend.LlamaCpp`. | 2–4 days | Low |
+| **2** | `LLamaSharpRuntime` — in-process GGUF + LoRA, streaming, backend detection. The "no Ollama dependency" win. | 1–2 wk | Med |
+| **3** | `ModelDepot` (first-run downloader), `SessionManager` (persistent base model), `AdapterManager` (boss/worker/reviewer LoRAs), telemetry. | 3–5 wk | Med-High |
+| **4** | `OrcScheduler` — capability + VRAM + lane-aware dispatch; pipeline boss→workers. | 2–3 wk | High |
+| **5** | *(Research, non-blocking)* prefix KV cache for the shared warband prompt; multi-LoRA cache experiments. | open | Research |
+
+**Caveat (permanent):** shared KV cache across *different* LoRA-specialized agents is not guaranteed safe — adapters change activations. Start with simple prefix caching of the common system prompt only; deeper sharing is research, never a promised deliverable. LoRA hot-swap requires a verification spike before it joins a committed phase.
+
+Ollama stays the **default and fallback** until the ModelDepot + installer first-run story is bulletproof.
 
 ---
 
