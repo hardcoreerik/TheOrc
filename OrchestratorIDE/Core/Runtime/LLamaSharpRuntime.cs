@@ -290,9 +290,15 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // Model has no embedded template or template is malformed — cache the result so
-            // subsequent calls skip the try/catch and go straight to ChatML.
-            _hasEmbeddedTemplate = false;
+            // Only cache false if we haven't already confirmed a working template.
+            // A failure after a successful probe is a runtime error, not a template-absent signal.
+            if (_hasEmbeddedTemplate is null)
+            {
+                _hasEmbeddedTemplate = false;
+                System.Diagnostics.Trace.TraceWarning(
+                    $"[LLamaSharpRuntime] Template probe failed ({ex.GetType().Name}: {ex.Message}); " +
+                    "falling back to ChatML for this session.");
+            }
             return BuildChatMLPrompt(messages);
         }
     }
