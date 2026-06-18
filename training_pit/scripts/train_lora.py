@@ -48,6 +48,11 @@ def main():
     ap.add_argument("--seed", type=int, default=42,
                     help="RNG seed for python/numpy/torch/cuda — fixed so the "
                          "same config reproduces the same adapter (logged in summary)")
+    ap.add_argument("--skip-suitability-gate", action="store_true",
+                    help="bypass the pre-training tester-poison check (use only "
+                         "when you intentionally want to train on mixed data)")
+    ap.add_argument("--poison-limit", type=float, default=0.25,
+                    help="max tester_poison fraction before aborting (default 0.25)")
     args = ap.parse_args()
 
     # ── Progress heartbeat for the WARCHIEF FORGE GUI ─────────────────────────
@@ -61,6 +66,41 @@ def main():
         progress_path.write_text(json.dumps(kw), encoding="utf-8")
 
     beat("starting")
+
+    # ── Suitability gate: block before VRAM is allocated ─────────────────────
+    # Checks for tester_poison (write tasks assigned to TESTER-lane roles) and
+    # cross-set hash leakage. Catches the v2 regression class at the front door.
+    if not args.skip_suitability_gate and not args.dry_run:
+        import sys as _sys
+        _scripts_dir = str(Path(__file__).resolve().parent)
+        if _scripts_dir not in _sys.path:
+            _sys.path.insert(0, _scripts_dir)
+        from suitability_gate import check_file as _gate, check_leakage as _leakage_check
+        _train_report = _gate(Path(args.train), poison_limit=args.poison_limit)
+        _eval_report  = _gate(Path(args.eval),  poison_limit=args.poison_limit)
+        _leakage      = _leakage_check(_train_report, _eval_report)
+        _all_ok = _train_report.passed and _eval_report.passed and _leakage.passed
+        if not _all_ok:
+            print("\n[SUITABILITY GATE] BLOCKED — dataset contamination detected:")
+            if not _train_report.passed:
+                print(f"  TRAIN: tester_poison={_train_report.tester_poison}/{_train_report.total} "
+                      f"({100*_train_report.tester_poison_rate:.1f}%)  limit={100*args.poison_limit:.0f}%")
+                if _train_report.poisoned_lines:
+                    print(f"  poisoned at lines: {_train_report.poisoned_lines[:10]}")
+                print("  Tip: route these examples to ORC ACADEMY v4 (Tester Worker).")
+            if not _eval_report.passed:
+                print(f"  EVAL:  tester_poison={_eval_report.tester_poison}/{_eval_report.total} "
+                      f"({100*_eval_report.tester_poison_rate:.1f}%)")
+            if not _leakage.passed:
+                print(f"  LEAKAGE: {_leakage.overlapping_responses} identical assistant "
+                      "response(s) in both train and eval — eval numbers would be inflated.")
+            print("  Re-run with --skip-suitability-gate to override (document why).")
+            beat("blocked_suitability")
+            raise SystemExit(1)
+        print(f"[SUITABILITY GATE] PASS — "
+              f"train tester_poison={_train_report.tester_poison}/{_train_report.total}, "
+              f"leakage={_leakage.overlapping_responses}")
+        del _gate, _leakage_check, _train_report, _eval_report, _leakage, _all_ok
 
     # Imports deferred so --help works without the training stack installed
     import torch

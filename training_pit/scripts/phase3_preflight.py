@@ -70,6 +70,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 from validate_dataset import validate_file   # noqa: E402
 from sanitize_dataset import sanitize_file   # noqa: E402
+from suitability_gate import check_file as _suitability_check_file  # noqa: E402
 
 # Default paths — overridden by CLI args for test isolation
 _DEFAULT_MANIFEST = REPO_ROOT / "training_pit" / "datasets" / "manifests" / "reviewed_v1.json"
@@ -581,6 +582,54 @@ def _check_eval_isolation(datasets_dir: Path, evals_dir: Path) -> CheckResult:
     )
 
 
+def _check_suitability(datasets_dir: Path, poison_limit: float = 0.25) -> CheckResult:
+    """Check 10: train_v1.jsonl has acceptable tester-poison and invalid-JSON rates."""
+    train_path = datasets_dir / "train_v1.jsonl"
+    if not train_path.exists():
+        return CheckResult(
+            name="suitability",
+            status="SKIP",
+            message="train_v1.jsonl not present — skipped",
+        )
+    try:
+        report = _suitability_check_file(train_path, poison_limit=poison_limit)
+    except Exception as e:
+        return CheckResult(
+            name="suitability",
+            status="ERROR",
+            message=f"Suitability scanner raised: {e}",
+        )
+
+    n = report.total
+    details = [
+        f"  tester_poison  : {report.tester_poison:4d} / {n}  ({100*report.tester_poison_rate:.1f}%)",
+        f"  no_valid_json  : {report.no_valid_json:4d} / {n}",
+        f"  task_overflow  : {report.task_overflow:4d} / {n}",
+    ]
+    if report.poisoned_lines:
+        shown = report.poisoned_lines[:10]
+        tail  = f" … +{len(report.poisoned_lines)-len(shown)} more" if len(report.poisoned_lines) > 10 else ""
+        details.append(f"  poisoned lines : {shown}{tail}")
+        details.append("  Tip: route tester_poison examples to ORC ACADEMY v4 (Tester Worker).")
+
+    if report.passed:
+        return CheckResult(
+            name="suitability",
+            status="PASS",
+            message=f"tester_poison {100*report.tester_poison_rate:.1f}% ≤ {100*poison_limit:.0f}% limit",
+            details=details,
+        )
+    return CheckResult(
+        name="suitability",
+        status="BLOCKED",
+        message=(
+            f"tester_poison {100*report.tester_poison_rate:.1f}% exceeds {100*poison_limit:.0f}% limit — "
+            f"remove or reroute {report.tester_poison} example(s) before training"
+        ),
+        details=details,
+    )
+
+
 def _check_staging_safety(manifest: dict, staging_dirs: list[Path]) -> CheckResult:
     """
     Check 9: staged captures have all been reviewed via the manifest.
@@ -731,14 +780,17 @@ def run_preflight(
         # Check 8: eval isolation
         checks.append(_check_eval_isolation(datasets_dir, evals_dir))
 
-        # Check 9: staging safety
+        # Check 9: suitability gate (tester-poison + invalid JSON rate)
+        checks.append(_check_suitability(datasets_dir))
+
+        # Check 10: staging safety
         checks.append(_check_staging_safety(manifest, staging_dirs))
 
     else:
         # Manifest missing/invalid — remaining checks cannot run
         skipped_names = [
             "counts", "files", "export_consistency", "validation",
-            "sanitization", "duplicates", "eval_isolation", "staging_safety",
+            "sanitization", "duplicates", "eval_isolation", "suitability", "staging_safety",
         ]
         for name in skipped_names:
             checks.append(CheckResult(
