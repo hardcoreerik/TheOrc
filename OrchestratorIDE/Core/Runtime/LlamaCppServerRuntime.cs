@@ -48,8 +48,13 @@ public sealed class LlamaCppServerRuntime : IModelRuntime, IDisposable
         return _client.IsReachableAsync(ct);
     }
 
-    public Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default) =>
-        _client.GetInstalledModelsAsync(ct);
+    public Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default)
+    {
+        // Mirror the IsReachableAsync fast-path: OllamaClient has a 300 s timeout, so calling
+        // it against a stopped server would block the caller for up to 5 minutes.
+        if (!_server.IsRunning) return Task.FromResult<List<string>>([]);
+        return _client.GetInstalledModelsAsync(ct);
+    }
 
     public IAsyncEnumerable<string> StreamCompletionAsync(
         string model,
@@ -59,9 +64,14 @@ public sealed class LlamaCppServerRuntime : IModelRuntime, IDisposable
         int maxTokens = 4096,
         Action<ToolCall>? onToolCall = null,
         Action<int, int>? onUsage = null,
-        CancellationToken ct = default) =>
-        _client.StreamCompletionAsync(
+        CancellationToken ct = default)
+    {
+        if (!_server.IsRunning)
+            throw new InvalidOperationException(
+                "LlamaCpp server is not running. Call StartAsync() before streaming.");
+        return _client.StreamCompletionAsync(
             model, history, tools, temperature, maxTokens, onToolCall, onUsage, ct);
+    }
 
     /// <summary>
     /// Process-level health — no network call. IsAvailable reflects whether

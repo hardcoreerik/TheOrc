@@ -209,9 +209,11 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     /// See RUNTIME_PHASE0_SPEC.md §7.
     /// </summary>
     public Task SwapAdapterAsync(string? adapterName, CancellationToken ct = default) =>
-        throw new NotSupportedException(
+        // Task.FromException so the exception surfaces via the returned Task, not synchronously.
+        // A bare `=> throw` in a non-async Task-returning method bypasses async try/catch.
+        Task.FromException(new NotSupportedException(
             "LoRA hot-swap is spike-gated. See RUNTIME_PHASE0_SPEC.md §7. " +
-            "Use LoadModelAsync with the desired adapterPath instead.");
+            "Use LoadModelAsync with the desired adapterPath instead."));
 
     // ── IAsyncDisposable ─────────────────────────────────────────────────────
 
@@ -233,6 +235,14 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     private string? ActiveModelName => _activeModelPath is null
         ? null
         : Path.GetFileName(_activeModelPath);
+
+    private static string ToRoleString(MessageRole role) => role switch
+    {
+        MessageRole.System => "system",
+        MessageRole.User   => "user",
+        MessageRole.Tool   => "tool",
+        _                  => "assistant",
+    };
 
     /// <summary>
     /// Converts the message history into a raw prompt string using the model's
@@ -273,16 +283,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         {
             var template = new LLamaTemplate(_weights!);
             foreach (var msg in messages)
-            {
-                var role = msg.Role switch
-                {
-                    MessageRole.System    => "system",
-                    MessageRole.User      => "user",
-                    MessageRole.Tool      => "tool",
-                    _                     => "assistant",
-                };
-                template.Add(role, msg.Content ?? "");
-            }
+                template.Add(ToRoleString(msg.Role), msg.Content ?? "");
             var result = Encoding.UTF8.GetString(template.Apply());
             _hasEmbeddedTemplate = true;
             return result;
@@ -301,14 +302,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         var sb = new StringBuilder();
         foreach (var msg in messages)
         {
-            var role = msg.Role switch
-            {
-                MessageRole.System    => "system",
-                MessageRole.User      => "user",
-                MessageRole.Tool      => "tool",
-                _                     => "assistant",
-            };
-            sb.Append("<|im_start|>").Append(role).Append('\n');
+            sb.Append("<|im_start|>").Append(ToRoleString(msg.Role)).Append('\n');
             sb.Append(msg.Content ?? "");
             sb.AppendLine("<|im_end|>");
         }
@@ -395,7 +389,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
                     });
                 }
             }
-            catch { /* malformed JSON — skip */ }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { /* malformed JSON — skip */ }
 
             i = end + 1;
         }
