@@ -18,13 +18,14 @@
 
 ## Project Credits
 
-TheOrc is created and maintained by [Erik / hardcoreerik](https://github.com/hardcoreerik), with AI-assisted development and review from Claude Sonnet and OpenAI Codex.
+TheOrc is created and maintained by [Erik / hardcoreerik](https://github.com/hardcoreerik), with AI-assisted development and review from Claude Sonnet, OpenAI Codex, and Grok Build.
 
 | Contributor | Role |
 |---|---|
 | [Erik / hardcoreerik](https://github.com/hardcoreerik) | Creator, maintainer, product direction |
 | Claude Sonnet | Architecture planning, implementation support, code review |
 | OpenAI Codex | Implementation support, adversarial review, verification |
+| Grok Build | Adversarial review, PROJECT_TRUTH audits, runtime critique |
 
 ---
 
