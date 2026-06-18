@@ -33,9 +33,8 @@
 
   <!-- Stamp git SHA into AssemblyInformationalVersion (same as WPF project) -->
   <Target Name="StampGitCommit" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo">
-    <Exec Command="git describe --always --dirty --match _no_tag_" ConsoleToMSBuild="true"
-          ContinueOnError="true" StandardOutputImportance="low" IgnoreExitCode="true">
-      <Output TaskParameter="ConsoleOutput" PropertyName="GitCommitHash"/>
+    <Exec Command="git describe --always --dirty --match _no_tag_" ConsoleToMSBuild="true" ContinueOnError="true" StandardOutputImportance="low" IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="GitCommitHash" />
     </Exec>
     <PropertyGroup>
       <InformationalVersion Condition="'$(GitCommitHash)' != ''">$(Version)+$(GitCommitHash)</InformationalVersion>
@@ -45,33 +44,30 @@
 
   <ItemGroup>
     <!-- Avalonia core + platform detection + default theme -->
-    <PackageReference Include="Avalonia"               Version="12.0.4" />
-    <PackageReference Include="Avalonia.Desktop"       Version="12.0.4" />
+    <PackageReference Include="Avalonia" Version="12.0.4" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.0.4" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4" />
-    <PackageReference Include="Avalonia.Fonts.Inter"   Version="12.0.4" />
-<PackageReference Include="Avalonia.AvaloniaEdit"  Version="12.0.0" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.4" />
+<PackageReference Include="Avalonia.AvaloniaEdit" Version="12.0.0" />
 
     <!-- Portable libraries shared with WPF project -->
-    <PackageReference Include="DiffPlex"                       Version="1.9.0" />
-    <PackageReference Include="LibGit2Sharp"                   Version="0.31.0" />
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp"  Version="4.13.0" />
-    <PackageReference Include="Microsoft.Data.Sqlite"          Version="10.0.0" />
-    <PackageReference Include="System.Text.Json"               Version="10.0.8" />
+    <PackageReference Include="DiffPlex" Version="1.9.0" />
+    <PackageReference Include="LibGit2Sharp" Version="0.31.0" />
+    <PackageReference Include="LLamaSharp" Version="0.27.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.13.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
+    <PackageReference Include="System.Text.Json" Version="10.0.8" />
 
     <!-- Windows-only packages (build-host conditioned) -->
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0"
-                      Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
-    <PackageReference Include="SharpAvi" Version="2.2.1"
-                      Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+    <PackageReference Include="SharpAvi" Version="2.2.1" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
   </ItemGroup>
 
   <!-- ── Embedded resources (same as WPF project) ────────────────────────── -->
   <ItemGroup>
-    <EmbeddedResource Include="..\OrchestratorIDE\Resources\curated-models.json"
-                      Link="Resources\curated-models.json"/>
-    <EmbeddedResource Include="..\OrchestratorIDE\Resources\model-wiki-observations.json"
-                      Link="Resources\model-wiki-observations.json"/>
-    <EmbeddedResource Include="..\docs\*.md" Link="Resources\docs\%(Filename)%(Extension)"/>
+    <EmbeddedResource Include="..\OrchestratorIDE\Resources\curated-models.json" Link="Resources\curated-models.json" />
+    <EmbeddedResource Include="..\OrchestratorIDE\Resources\model-wiki-observations.json" Link="Resources\model-wiki-observations.json" />
+    <EmbeddedResource Include="..\docs\*.md" Link="Resources\docs\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!--
@@ -93,6 +89,7 @@
     <Compile Include="..\OrchestratorIDE\Core\Runtime\IModelRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\OllamaRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\LlamaCppServerRuntime.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\LLamaSharpRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentFileGenerator.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentLoop.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentPresets.cs" />
@@ -160,8 +157,7 @@
     <Compile Include="..\OrchestratorIDE\Services\Hive\TailscalePeers.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveWorkerAgent.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveScheduler.cs" />
-    <Compile Include="..\OrchestratorIDE\Services\Hive\DpapiSecretProtector.cs"
-             Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\DpapiSecretProtector.cs" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
 
     <!-- AES-256-GCM protector + MachineKey from Daemon (Linux/macOS and also Windows) -->
     <Compile Include="..\OrchestratorIDE.Daemon\AesGcmSecretProtector.cs" />
