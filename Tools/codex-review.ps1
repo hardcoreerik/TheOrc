@@ -20,7 +20,8 @@ param(
     [switch]$Staged,                        # override: review staged changes
     [string]$Focus      = "",              # optional extra reviewer attention
     [int]   $TimeoutSec = 600,
-    [int]   $MaxDiffKB  = 256              # truncate diff if it exceeds this size
+    [int]   $MaxDiffKB  = 256,             # truncate diff if it exceeds this size
+    [string[]]$Exclude  = @()             # extra pathspecs to exclude (e.g. '*.log', 'docs/')
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,9 +42,13 @@ if (-not $exe) {
 # Use `git diff` for the net tree-to-tree patch (avoids per-commit intermediate
 # hunks from `git log -p` that confuse multi-commit reviews) and prepend a short
 # commit list from `git log --oneline` for context.
+$baseExcludes = @(':!publish', ':!*.psv', ':!*.tsv', ':!*.jsonl', ':!*.log')
+$extraExcludes = $Exclude | ForEach-Object { if ($_ -notmatch '^\:\!') { ":!$_" } else { $_ } }
+$allExcludes = $baseExcludes + $extraExcludes
+
 if ($Staged) {
     $logLines = @()
-    $diffRaw  = git diff --cached -- . ':!publish' ':!*.psv' ':!*.tsv' ':!*.jsonl' 2>$null
+    $diffRaw  = git diff --cached -- . @allExcludes 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "git diff --cached failed (exit $LASTEXITCODE). Nothing staged?" -ForegroundColor Red
         exit 1
@@ -57,7 +62,7 @@ if ($Staged) {
         exit 1
     }
     # Net tree-to-tree diff — correct for any range length, no intermediate hunks.
-    $diffRaw  = git diff "$Range" -- . ':!publish' ':!*.psv' ':!*.tsv' ':!*.jsonl' 2>$null
+    $diffRaw  = git diff "$Range" -- . @allExcludes 2>$null
     $statLine = git diff --stat "$Range" 2>$null | Select-Object -Last 1
     $scopeTag = "commit range $Range"
 }
