@@ -290,16 +290,27 @@ The evolutionary fitness map (`FitnessMap.cs`, `SchemaEvolution.cs`) is implemen
 
 ## Active Work
 
-### ORC ACADEMY v2 adapter — post-training steps (2026-06-17)
-Training completed overnight: Gemma 4 12B, 1,784 examples, 3 epochs, **eval loss 0.2595**, 333 min on RTX 5070 Ti. Adapter at `training_pit/outputs/lora_v2/adapter/`.
+### ORC ACADEMY v3 — complete, not promoted (2026-06-17)
 
-**Remaining:**
-- Cerebras v2 dataset extension running now (`tools/generate_cerebras_gold.py`, `gpt-oss-120b`, ~72 batches)
-- A/B eval: `training_pit/scripts/eval_adapter.py` against 200-example holdout vs v1 99.3% baseline
-- Merge and register adapter via `tools/merge_lora.py` → `ollama pull theorc-boss:gemma4-v2-ft`
+Training finished: Gemma 4 12B, 906 clean examples, 3 epochs, 156 min, rubric 99.17%. A/B eval complete.
+
+| Dimension | Base | FT v3 |
+|---|---|---|
+| valid_json | 85/87 | **87/87** ✅ |
+| task_count_ok | 78/87 | **87/87** ✅ |
+| roles_valid | 85/87 | **87/87** ✅ |
+| files_named | 74/87 | **65/87** ⚠️ FT *worse* than base |
+| no_tester_write | 49/87 | **86/87** ✅ |
+| **Overall** | **85.3%** | **94.7%** |
+| Perfect plans | 37/87 | 64/87 |
+
+**v3 does not beat v1's 99.3%.** Root cause: `files_named` — CODER tasks aren't naming output files explicitly enough. Every other dimension is perfect or near-perfect. This is a dataset coverage gap, not a model failure.
+
+**Decision:** v1 stays production. v3 adapter at `training_pit/outputs/lora_v3/` — results in `ab_eval.json`. Not registered.
+
+**v4 fix:** add targeted golden examples where CODER tasks explicitly name output files, rerun suitability gate, retrain.
 
 ### Documentation
-Docs are being normalized around the current implementation. Key gaps:
 - `ARCHITECTURE.md` pre-dates HIVE MIND Phase 3A and SQLite
 - `TRAINING_PIT_GUIDE.md` does not cover the Pit Boss workflow end-to-end
 
@@ -348,8 +359,8 @@ OrchestratorIDE/Tools/
 - Tag captures that use graph tools to measure trajectory-quality lift (Level 2)
 - Measure token-budget reduction on real swarm runs vs grep baseline
 
-### ORC ACADEMY v2 A/B eval + adapter registration
-Run `eval_adapter.py` on the 200-example holdout vs v1 99.3% baseline. Merge and register via `ollama pull theorc-boss:gemma4-v2-ft`. Update Pit Boss model selection to default to v2.
+### ORC ACADEMY v4 Boss — fix files_named gap
+v3 scored 94.7% overall but dropped `files_named` to 65/87 (worse than base 74/87). Fix: audit v3gold examples for file-naming coverage, author targeted golden examples where CODER tasks name explicit output files (`.cs`, `.xaml`, etc.), pass suitability gate, retrain. Target: ≥99% overall, ≥85/87 on files_named.
 
 ### Avalonia remaining modal dialogs
 `AgentBuilderDialog`, `ModelWikiWindow`, `LabWindow` — the last WPF-only dialogs. `UserInputDialog` and `ToolEditorDialog` shipped in v1.8.
@@ -368,6 +379,35 @@ Wire `EVAL_RUBRIC.md` into a UI-driven automated model regression test. After ea
 
 ### HIVE MIND: remote harvest and academy execution
 Allow a HIVE worker node to run GOBLIN HARVEST overnight and return captures to the boss node's Training Pit. Remote adapter training (via HIVE) is further out — needs Phase 3B first.
+
+---
+
+## WARBANDS — Cloud & Headless Deployment
+
+> Full spec: [`.grok/WARBANDS.md`](../.grok/WARBANDS.md). The daemon is the Warband. Binary rename pending: `theorc-daemon` → `theorc-warband`.
+
+A **Warband** is a deployed headless HIVE node — the `OrchestratorIDE.Daemon` binary running on any machine that isn't your main desktop. Your GUI app (the Warchief) stays home. Warbands run in the cloud, on a home-lab machine, or in Docker — headless, no GUI, pulling tasks from your Warchief's queue.
+
+```
+Your machine         Cloud / LAN
+──────────────       ─────────────────────────────────
+Warchief (GUI)  ──→  Warband 1 (linux-x64, Vast.ai GPU)
+                ──→  Warband 2 (win-x64, home lab)
+                ──→  Warband 3 (osx-arm64, MacBook)
+```
+
+**Current shape (now):** each Warband in Docker needs an Ollama sidecar — two containers per deployment.
+
+**Post-Native-Runtime shape (Phase 2):** LlamaSharp in-process eliminates the sidecar. One container, GGUF mounted as a volume, ORCISH TONGUE GBNF constraints work on any model. See `RUNTIME_PHASE0_SPEC.md` §11.
+
+**Mac/Linux Warband binaries** are one CI job away — `net10.0`, AES-256-GCM secrets (no DPAPI), cross-platform Tailscale path detection all shipped in v1.6.2. GitHub Actions publish matrix and release artifacts are the remaining gap.
+
+| Pending | Status |
+|---|---|
+| Binary rename: `theorc-daemon` → `theorc-warband` | ⬜ Next commit |
+| CI publish matrix for `linux-x64` + `osx-arm64` Warband binaries | ⬜ v1.9 / v2.0 |
+| `warband.compose.yml` Docker template | ⬜ v1.9 / v2.0 |
+| GHCR/Docker Hub publish on release | ⬜ v2.0 |
 
 ---
 
@@ -403,7 +443,7 @@ Ollama stays the **default and fallback** until the ModelDepot + installer first
 | **Tool Editor hot-reload (Phase 6/7)** | Stub only | Roslyn pipeline is complex; pay-off unclear until tool definitions are more dynamic |
 | **HIVE MIND C2 (RPC model chain)** | Groundwork laid | llama.cpp RPC plumbing exists; full SwarmSession routing to RPC workers not wired; blocked on Phase 3B |
 | **"Zero idle chatter" message discipline** | Not implemented | Good spec hygiene; no user-visible impact currently; revisit when HIVE worker verbosity becomes a real problem |
-| **Cross-platform (Mac / Linux)** | Avalonia UI shipped v1.7; runtime testing on Mac/Linux pending | Avalonia 12 removes the WPF lock; actual cross-platform CI and packaging not yet wired; revisit after Phase 3B ships |
+| **Cross-platform desktop (Mac / Linux)** | Avalonia UI shipped v1.7; 3 WPF dialogs remain (v1.9 scope) | After v1.9 closes AgentBuilderDialog, ModelWikiWindow, LabWindow — `dotnet publish -r osx-arm64` should work. ScreenRecorder degrades gracefully (SharpAVI Windows-only). Warband (daemon) is already cross-platform — see WARBANDS above. |
 | **On-platform self-improvement (TheOrc trains itself)** | Partial | Pit Boss + Cerebras pipeline makes the dataset side nearly free; the gap is auto-generating and auto-judging training goals without human input; deferred until v2 adapter proves out the data quality |
 
 ---

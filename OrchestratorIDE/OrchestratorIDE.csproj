@@ -28,11 +28,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Resources\curated-models.json"/>
-    <EmbeddedResource Include="Resources\model-wiki-observations.json"/>
+    <EmbeddedResource Include="Resources\curated-models.json" />
+    <EmbeddedResource Include="Resources\model-wiki-observations.json" />
     <!-- Documentation suite embedded for the in-app Help window — published
          single-file installs have no docs/ folder on disk. -->
-    <EmbeddedResource Include="..\docs\*.md" Link="Resources\docs\%(Filename)%(Extension)"/>
+    <EmbeddedResource Include="..\docs\*.md" Link="Resources\docs\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!-- Stamp the git commit into AssemblyInformationalVersion at build time so
@@ -40,9 +40,8 @@
        Falls back silently when git is unavailable (e.g. source-zip builds). -->
   <Target Name="StampGitCommit" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo">
     <!-- match pattern that never hits a tag -> always the short sha (+ -dirty) -->
-    <Exec Command="git describe --always --dirty --match _no_tag_" ConsoleToMSBuild="true"
-          ContinueOnError="true" StandardOutputImportance="low" IgnoreExitCode="true">
-      <Output TaskParameter="ConsoleOutput" PropertyName="GitCommitHash"/>
+    <Exec Command="git describe --always --dirty --match _no_tag_" ConsoleToMSBuild="true" ContinueOnError="true" StandardOutputImportance="low" IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="GitCommitHash" />
     </Exec>
     <PropertyGroup>
       <InformationalVersion Condition="'$(GitCommitHash)' != ''">$(Version)+$(GitCommitHash)</InformationalVersion>
@@ -58,6 +57,7 @@
 
   <ItemGroup>
     <PackageReference Include="AvalonEditB" Version="1.2.0" />
+    <PackageReference Include="LLamaSharp" Version="0.27.0" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
     <PackageReference Include="DiffPlex" Version="1.9.0" />
     <PackageReference Include="LibGit2Sharp" Version="0.31.0" />

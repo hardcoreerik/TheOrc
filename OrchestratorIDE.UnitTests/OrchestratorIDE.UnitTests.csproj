@@ -29,6 +29,7 @@
     <Compile Include="..\OrchestratorIDE.UITests\Tests\T16_WorktreeIsolationTests.cs" />
     <Compile Include="..\OrchestratorIDE.UITests\Tests\T17_HiveSecurityTests.cs" />
     <Compile Include="..\OrchestratorIDE.UITests\Tests\T18_HivePersistenceTests.cs" />
+    <Compile Include="..\OrchestratorIDE.UITests\Tests\T19_GraphRepositoryTests.cs" />
   </ItemGroup>
 
   <ItemGroup>

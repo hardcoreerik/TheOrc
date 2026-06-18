@@ -17,13 +17,14 @@
 
     <Grid Margin="14">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>    <!-- 0 header          -->
-            <RowDefinition Height="180"/>     <!-- 1 inventory       -->
-            <RowDefinition Height="Auto"/>    <!-- 2 night harvest   -->
-            <RowDefinition Height="Auto"/>    <!-- 3 review captures -->
-            <RowDefinition Height="Auto"/>    <!-- 4 FORGE expander  -->
-            <RowDefinition Height="Auto"/>    <!-- 5 queue header    -->
-            <RowDefinition Height="*"/>       <!-- 6 review queue    -->
+            <RowDefinition Height="Auto"/>    <!-- 0 header           -->
+            <RowDefinition Height="180"/>     <!-- 1 inventory        -->
+            <RowDefinition Height="Auto"/>    <!-- 2 night harvest    -->
+            <RowDefinition Height="Auto"/>    <!-- 3 review captures  -->
+            <RowDefinition Height="Auto"/>    <!-- 4 generate dataset -->
+            <RowDefinition Height="Auto"/>    <!-- 5 FORGE expander   -->
+            <RowDefinition Height="Auto"/>    <!-- 6 queue header     -->
+            <RowDefinition Height="*"/>       <!-- 7 review queue     -->
         </Grid.RowDefinitions>
 
         <!-- ── Header ─────────────────────────────────────────────── -->
@@ -92,7 +93,17 @@
                                         <StackPanel>
                                             <DockPanel>
                                                 <TextBlock Text="{Binding Name}" FontSize="11"
-                                                           FontWeight="SemiBold" Foreground="#A8CC80"/>
+                                                           FontWeight="SemiBold" Foreground="#A8CC80"
+                                                           VerticalAlignment="Center"/>
+                                                <Button Content="📁"
+                                                        Click="DatasetOpenFolder_Click"
+                                                        Tag="{Binding}"
+                                                        DockPanel.Dock="Right"
+                                                        Padding="4,1" Margin="2,0,0,0"
+                                                        Background="Transparent" BorderThickness="0"
+                                                        Foreground="#555555" FontSize="10"
+                                                        ToolTip.Tip="Open folder"
+                                                        VerticalAlignment="Center"/>
                                                 <TextBlock Text="{Binding TotalCount}"
                                                            FontSize="10" Foreground="#666666"
                                                            FontFamily="Consolas"
@@ -100,6 +111,12 @@
                                                            DockPanel.Dock="Right"
                                                            VerticalAlignment="Center"/>
                                             </DockPanel>
+                                            <!-- Notes (from .meta.json sidecar) -->
+                                            <TextBlock IsVisible="{Binding HasNotes}"
+                                                       Text="{Binding Notes}"
+                                                       FontSize="9" Foreground="#80C0A0"
+                                                       FontStyle="Italic" Margin="0,2,0,2"
+                                                       TextTrimming="CharacterEllipsis"/>
                                             <!-- New convention: show role/type/source -->
                                             <StackPanel IsVisible="{Binding IsNewConvention}">
                                                 <TextBlock Text="{Binding Role}" FontSize="9"
@@ -335,8 +352,130 @@
             </StackPanel>
         </Border>
 
+        <!-- ── Generate Dataset ──────────────────────────────────────── -->
+        <Expander Grid.Row="4" x:Name="ExpGen" Margin="0,0,0,12"
+                  Expanded="ExpGen_Expanded">
+            <Expander.Header>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="🧪" FontSize="14" VerticalAlignment="Center"/>
+                    <TextBlock Text="GENERATE DATASET" FontSize="12" FontWeight="Bold"
+                               Foreground="#80C0E0" Margin="8,0,10,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Build synthetic boss plans with a local model"
+                               FontSize="11" Foreground="#999999" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="GenBadge" Text="" FontSize="11" FontWeight="SemiBold"
+                               Foreground="#76B900" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Expander.Header>
+
+            <Border Background="#0A100E" BorderBrush="#1A3A2A" BorderThickness="1"
+                    CornerRadius="6" Padding="12,10" Margin="0,6,0,0">
+                <StackPanel>
+                    <!-- Model + key + count row -->
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="70"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0" Text="Model" FontSize="11" Foreground="#999999"
+                                   VerticalAlignment="Center" Margin="0,0,6,0"
+                                   ToolTip.Tip="Local Ollama model that will generate boss plans. Avoid boss-family models (Gemma 4 12B) — they produce circular training data."/>
+                        <ComboBox Grid.Column="1" x:Name="CbGenDatasetModel" FontSize="11" Margin="0,0,14,0">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="local:HarvestModelOptionAva">
+                                    <TextBlock Text="{Binding Display}" Foreground="{Binding TextBrush}" FontSize="11"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+
+                        <TextBlock Grid.Column="2" Text="Key" FontSize="11" Foreground="#999999"
+                                   VerticalAlignment="Center" Margin="0,0,6,0"
+                                   ToolTip.Tip="Output dataset key — saves train_{key}.jsonl and eval_{key}.jsonl"/>
+                        <TextBox Grid.Column="3" x:Name="TbGenKey" Text="v4gold" FontSize="11"
+                                 Background="#0E0E0E" Foreground="#D4D4D4" BorderBrush="#555555"
+                                 Padding="4,3" FontFamily="Consolas" Margin="0,0,14,0"/>
+
+                        <TextBlock Grid.Column="4" Text="Count" FontSize="11" Foreground="#999999"
+                                   VerticalAlignment="Center" Margin="0,0,6,0"
+                                   ToolTip.Tip="Target number of valid examples to generate (rejects don't count)."/>
+                        <TextBox Grid.Column="5" x:Name="TbGenCount" Text="200" FontSize="11"
+                                 Background="#0E0E0E" Foreground="#D4D4D4" BorderBrush="#555555"
+                                 Padding="4,3" FontFamily="Consolas"/>
+                    </Grid>
+
+                    <!-- Controls row -->
+                    <DockPanel Margin="0,0,0,8">
+                        <TextBlock FontSize="10" Foreground="#666666" FontStyle="Italic"
+                                   VerticalAlignment="Center" TextWrapping="Wrap"
+                                   Text="Every CODER/UIDEVELOPER task must name its output file(s) in the title — plans that omit filenames are rejected automatically."/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
+                            <Button x:Name="BtnGenStart" Content="🧪 Generate"
+                                    Click="BtnGenStart_Click"
+                                    Padding="10,4"
+                                    Background="#0A2A1A" BorderBrush="#40A070" Foreground="#80C0A0"
+                                    BorderThickness="1" FontSize="11"/>
+                            <Button x:Name="BtnGenStop" Content="⏹ Stop"
+                                    Click="BtnGenStop_Click"
+                                    Padding="10,4" Margin="8,0,0,0"
+                                    Background="#2A0A0A" BorderBrush="#F44747" Foreground="#F09090"
+                                    BorderThickness="1" FontSize="11" IsEnabled="False"/>
+                        </StackPanel>
+                    </DockPanel>
+
+                    <!-- Live status -->
+                    <DockPanel>
+                        <Ellipse x:Name="GenDot" Width="9" Height="9" Fill="#40A070"
+                                 VerticalAlignment="Center" IsVisible="False" Margin="0,0,8,0"/>
+                        <TextBlock x:Name="GenStatus" Text="Idle — no dataset generated yet"
+                                   FontSize="11" Foreground="#999999" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="GenMetrics" Text="" FontSize="11" Foreground="#80C0A0"
+                                   FontFamily="Consolas" HorizontalAlignment="Right" DockPanel.Dock="Right"/>
+                    </DockPanel>
+                    <ProgressBar x:Name="GenBar" Height="8" Margin="0,6,0,0"
+                                 BorderThickness="0" Background="#111111" Foreground="#40A070"
+                                 Maximum="100" Value="0"/>
+
+                    <!-- Notes editor + open shortcuts -->
+                    <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0" x:Name="TbGenNotes"
+                                 PlaceholderText="Dataset description / notes (saved to .meta.json)…"
+                                 FontSize="11" Background="#0E0E0E" Foreground="#D4D4D4"
+                                 BorderBrush="#333333" Padding="6,4" Margin="0,0,8,0"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Button x:Name="BtnGenSaveNotes" Content="💾 Save notes"
+                                    Click="BtnGenSaveNotes_Click"
+                                    Padding="8,4"
+                                    Background="#0A1A2A" BorderBrush="#406080" Foreground="#80A0C0"
+                                    BorderThickness="1" FontSize="11"
+                                    ToolTip.Tip="Save description to the dataset's .meta.json sidecar"/>
+                            <Button x:Name="BtnGenOpenFolder" Content="📁 Folder"
+                                    Click="BtnGenOpenFolder_Click"
+                                    Padding="8,4" Margin="6,0,0,0"
+                                    Background="#111111" BorderBrush="#2A2A2A" Foreground="#999999"
+                                    BorderThickness="1" FontSize="11"
+                                    ToolTip.Tip="Open generator output folder (gen.log, gen_progress.json)"/>
+                            <Button x:Name="BtnGenViewFile" Content="📄 File"
+                                    Click="BtnGenViewFile_Click"
+                                    Padding="8,4" Margin="6,0,0,0"
+                                    Background="#111111" BorderBrush="#2A2A2A" Foreground="#999999"
+                                    BorderThickness="1" FontSize="11"
+                                    ToolTip.Tip="Open the generated train_{key}.jsonl in the default editor"/>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </Expander>
+
         <!-- ── FORGE (ORC ACADEMY) ─────────────────────────────────── -->
-        <Expander Grid.Row="4" x:Name="ExpForge" Margin="0,0,0,12"
+        <Expander Grid.Row="5" x:Name="ExpForge" Margin="0,0,0,12"
                   Expanded="ExpForge_Expanded">
             <Expander.Header>
                 <StackPanel Orientation="Horizontal">
@@ -472,7 +611,7 @@
         </Expander>
 
         <!-- ── Queue header ───────────────────────────────────────── -->
-        <DockPanel Grid.Row="5" Margin="0,0,0,6">
+        <DockPanel Grid.Row="6" Margin="0,0,0,6">
             <TextBlock Text="Your review queue" FontSize="12" FontWeight="SemiBold"
                        Foreground="#D4D4D4"/>
             <TextBlock Text="  — riskiest first. You make the final call."
@@ -483,7 +622,7 @@
         </DockPanel>
 
         <!-- ── Review queue ───────────────────────────────────────── -->
-        <Border Grid.Row="6" BorderBrush="#2A2A2A" BorderThickness="1" CornerRadius="6">
+        <Border Grid.Row="7" BorderBrush="#2A2A2A" BorderThickness="1" CornerRadius="6">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="QueueList">
                     <ItemsControl.ItemTemplate>

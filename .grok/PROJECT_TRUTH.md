@@ -128,13 +128,15 @@ the machine.
 ### Current Work (2026-06-17, post-v1.8)
 - Suitability gate (suitability_gate.py) — pre-training contamination check; SHIPPED
 - split_v2gold.py — routes v2gold into v3 boss and v4 tester buckets; SHIPPED
-- split output verified by Grok + Codex; all 3 Codex findings fixed
-- **ORC ACADEMY v3 TRAINING IN PROGRESS** (launched 2026-06-17 17:31):
+- **ORC ACADEMY v3 COMPLETE** (2026-06-17):
   - train_v3gold.jsonl: 906 boss-clean examples (0% tester_poison)
-  - eval_v3gold.jsonl: 87 boss-clean examples
-  - Suitability gate passed (0/906 poison, 0 leakage)
-  - Gemma 4 12B, seed=42, lr=1e-4, 3 epochs, rubric-in-the-loop checkpointing
-  - Step 10 logged: loss=3.679 — running normally
+  - Gemma 4 12B, seed=42, lr=1e-4, 3 epochs, 156 min
+  - rubric_pass_pct: 99.17% (checkpoint-best)
+  - A/B eval: **FT 94.7% / Base 85.3%** — does NOT beat v1 99.3%
+  - Root cause: `files_named` dimension — FT 65/87 vs base 74/87 (only failing dim)
+  - All other dimensions perfect: valid_json 87/87, task_count_ok 87/87, roles_valid 87/87, no_tester_write 86/87
+  - **Decision: v1 stays production. v3 not registered. v4 targets files_named gap.**
+  - Results: `training_pit/outputs/lora_v3/ab_eval.json`
 
 ---
 
@@ -190,6 +192,22 @@ any code or plan that violates them.
 | HIVE remote harvest + academy execution | ROADMAP | Needs Phase 3B first |
 | train_lora.py defaults updated to v3gold/lora_v3 | This session | ✅ Done (commit 1735762) |
 
+### WARBANDS — Cloud & Headless Deployment (naming formalized 2026-06-17)
+
+Full spec: `.grok/WARBANDS.md`. The `OrchestratorIDE.Daemon` project IS the Warband. Binary rename: `theorc-daemon` → `theorc-warband` (pending commit). One Warband per deployed headless node. The Warchief (GUI) stays home; Warbands run in Docker, on cloud VMs, or on LAN machines.
+
+- Daemon is already `net10.0` + AES-256-GCM — cross-platform today
+- Current Docker: Warband container + Ollama sidecar (2 containers)
+- Post-Native-Runtime (Phase 2): Warband loads GGUF in-process, no sidecar (1 container)
+- Mac/Linux Warband binaries: one CI publish-matrix job away
+- ORCISH TONGUE GBNF tool-call constraints work in-process on any model (post-Phase 2)
+
+| Pending | Target |
+|---|---|
+| Binary rename (`theorc-warband`) | Next commit |
+| CI linux-x64 / osx-arm64 Warband artifacts | v1.9 or v2.0 |
+| `warband.compose.yml` template | v1.9 or v2.0 |
+
 ### TheOrc Native Runtime — v2.0 Direction (planning only)
 
 Full spec: `.grok/RUNTIME_PHASE0_SPEC.md`. An orchestration/swarm-aware layer **on top of LLamaSharp** (llama.cpp bindings) — NOT a from-scratch inference engine. Goal: drop the Ollama dependency, kill per-call reload + HTTP overhead + the `ollama create` merge step, and make the warband behave as one cohesive GPU mind.
@@ -226,11 +244,12 @@ Key corrections vs the ChatGPT/Grok sketches (both written blind to the code): i
 | v2 regression root-cause identified | ✅ DONE |
 | Suitability gate (blocks contaminated training) | ✅ SHIPPED |
 | v2gold split into v3gold (clean) + tester_v1 (tester seed) | ✅ SHIPPED |
-| v3 training run (906 clean boss examples, rubric-in-loop) | 🔄 IN PROGRESS |
-| v3 A/B eval vs v1 99.3% baseline | ⬜ Pending |
-| v3 adapter registration + Ollama deploy | ⬜ Pending |
-| Gumroad marketplace: upload v3 adapter zip | ⬜ Pending (user must upload) |
-| ORC ACADEMY v4 (Tester Worker, 955+112 examples) | ⬜ Planned |
+| v3 training run (906 clean boss examples, rubric-in-loop) | ✅ DONE — 156 min, rubric 99.17% |
+| v3 A/B eval vs v1 99.3% baseline | ✅ DONE — **v3 94.7% / base 85.3%** — did not beat v1 |
+| v3 adapter registration + Ollama deploy | ❌ BLOCKED — files_named gap (see below) |
+| Gumroad marketplace: upload v3 adapter zip | ❌ BLOCKED — v3 not production |
+| ORC ACADEMY v4 Boss (fix files_named gap, target ≥99%) | ⬜ Planned — add file-naming golden examples, retrain |
+| ORC ACADEMY v4 Tester Worker (955+112 examples) | ⬜ Planned |
 | Automated self-improvement loop (TheOrc trains itself) | ⬜ Future |
 
 ---
@@ -252,7 +271,7 @@ They were shipped but have documented limitations.
 | EVAL_RUBRIC auto-scoring | Defined but not wired to auto-scoring in SwarmSession | Medium |
 | ARCHITECTURE.md | Pre-dates HIVE MIND Phase 3A and SQLite — stale | Low |
 | TRAINING_PIT_GUIDE.md | Does not cover Pit Boss workflow end-to-end | Low |
-| train_lora.py defaults | Still point to train_v2gold.jsonl; should be v3gold | Low |
+| GOBLIN MIND → ORCISH TONGUE rename | Inventory in `.grok/RENAME_GOBLIN_MIND.md`; ~4 code symbols + ~50 display strings; not yet applied | Low |
 
 ---
 
@@ -265,7 +284,7 @@ They were shipped but have documented limitations.
 | Tool Editor hot-reload (Roslyn pipeline) | Complex; payoff unclear until tool defs more dynamic |
 | HIVE MIND C2 (RPC model chain) | Groundwork laid; blocked on Phase 3B |
 | "Zero idle chatter" message discipline | No user-visible impact currently |
-| Cross-platform CI and packaging | Avalonia UI shipped v1.7; runtime testing on Mac/Linux pending |
+| Cross-platform desktop (Mac/Linux) | Avalonia shipped v1.7; 3 WPF dialogs remaining (v1.9); Warband (daemon) already cross-platform |
 | On-platform self-improvement | Gap is auto-generating and auto-judging training goals without human input |
 | Per-role model differentiation within execution lane | Planned for Phase 4 — not yet scheduled |
 
@@ -340,7 +359,7 @@ scheduling rules confirmed + ≥20 eval prompts exist
 
 ### Three core loops
 ```
-[WPF/Avalonia Shell]
+[WPF/Avalonia Shell — Warchief]
   └─ AgentLoop (single agent) / SwarmSession (multi-agent)
        └─ OllamaClient → local Ollama server
             └─ Tool calls: write_file, run_shell, read_file, fetch_url, etc.
@@ -349,7 +368,8 @@ scheduling rules confirmed + ≥20 eval prompts exist
   run → DatasetCapture → review_captures.py → train_lora.py → adapter → Ollama
 
 [HIVE MIND — Distributed Swarm]
-  Boss node (Warchief) → HiveTaskQueue (7079) → Worker nodes (polling)
+  Warchief (GUI node) → HiveTaskQueue (7079) → Warbands (headless nodes, polling)
+  Each Warband = theorc-warband binary (formerly theorc-daemon); runs on LAN/cloud/Docker
   All requests HMAC-SHA256 signed; fail-closed; Bully election for Warchief
 ```
 

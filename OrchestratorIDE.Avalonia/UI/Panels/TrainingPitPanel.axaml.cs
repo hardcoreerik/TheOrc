@@ -60,13 +60,24 @@ public partial class TrainingPitPanel : UserControl
     private Process?        _forgeProcess;
     private DispatcherTimer? _forgeTimer;
     private bool _forgeDotOn;
-    private string _forgeOutName = "lora_v1";
+    private string _forgeOutName = "lora_v4";
 
     private string ForgeOutDir  => Path.Combine(_pitRoot, "training_pit", "outputs", _forgeOutName);
     private string ProgressPath => Path.Combine(ForgeOutDir, "progress.json");
     private string SummaryPath  => Path.Combine(ForgeOutDir, "training_summary.json");
     private string ForgeLogPath => Path.Combine(ForgeOutDir, "forge.log");
     private bool   ForgeRunning   => _forgeProcess is { HasExited: false };
+
+    // Generator
+    private Process?         _genProcess;
+    private DispatcherTimer? _genTimer;
+    private bool   _genDotOn;
+    private string _genKey = "v4gold";
+
+    private string GenOutDir      => Path.Combine(_pitRoot, "training_pit", "outputs", $"gen_{_genKey}");
+    private string GenProgressPath => Path.Combine(GenOutDir, "gen_progress.json");
+    private string GenLogPath     => Path.Combine(GenOutDir, "gen.log");
+    private bool   GenRunning     => _genProcess is { HasExited: false };
     private bool   HarvestRunning => _harvestProcess is { HasExited: false };
     private bool   ReviewRunning  => _reviewProcess is { HasExited: false };
     private string StopFilePath   => Path.Combine(_pitRoot, ".orc", "swarm", "HARVEST_STOP");
@@ -668,7 +679,7 @@ public partial class TrainingPitPanel : UserControl
     private void SuggestOutputName()
     {
         var current = TbOutputName.Text?.Trim() ?? "";
-        if (current.Length > 0 && current != "lora_v1" && !current.StartsWith("lora_", StringComparison.Ordinal))
+        if (current.Length > 0 && current != "lora_v4" && !current.StartsWith("lora_", StringComparison.Ordinal))
             return;
 
         var ds  = CbDataset.SelectedItem   as DatasetOptionAva;
@@ -696,8 +707,8 @@ public partial class TrainingPitPanel : UserControl
         { OnActivity?.Invoke("🏛 Academy refused: invalid output name."); return; }
 
         var dataset    = CbDataset.SelectedItem as DatasetOptionAva;
-        var trainJsonl = dataset?.TrainPath ?? Path.Combine(_pitRoot, "training_pit", "datasets", "train_v1.jsonl");
-        var evalJsonl  = dataset?.EvalPath  ?? Path.Combine(_pitRoot, "training_pit", "datasets", "eval_v1.jsonl");
+        var trainJsonl = dataset?.TrainPath ?? Path.Combine(_pitRoot, "training_pit", "datasets", "train_v4gold_merged.jsonl");
+        var evalJsonl  = dataset?.EvalPath  ?? Path.Combine(_pitRoot, "training_pit", "datasets", "eval_v3gold.jsonl");
 
         _forgeOutName = outputName;
         var adapterDir = Path.Combine(ForgeOutDir, "adapter");
@@ -887,6 +898,272 @@ public partial class TrainingPitPanel : UserControl
         RefreshForge();
     }
 
+    // ── Generator ─────────────────────────────────────────────────────────────
+
+    private void PopulateGenModelPicker(List<Services.TrainingPitRegistry.OllamaModelInfo> models)
+    {
+        var prevSel = (CbGenDatasetModel.SelectedItem as HarvestModelOptionAva)?.Name;
+        var opts = models.Select(m => new HarvestModelOptionAva
+        {
+            Name = m.Name, SizeText = $"{m.SizeGb:F1} GB", IsBlocked = false,
+        }).ToList();
+        CbGenDatasetModel.ItemsSource = opts;
+        CbGenDatasetModel.SelectedItem =
+            opts.FirstOrDefault(o => o.Name == prevSel) ??
+            opts.FirstOrDefault(o => o.Name == "qwen2.5-coder:14b") ??
+            opts.FirstOrDefault(o => !IsBossFamily(o.Name)) ??
+            opts.FirstOrDefault();
+    }
+
+    private void ExpGen_Expanded(object? s, RoutedEventArgs e) => RefreshGen();
+
+    private void RefreshGen()
+    {
+        BtnGenStart.IsEnabled = !GenRunning;
+        BtnGenStop.IsEnabled  = GenRunning;
+
+        if (!GenRunning && File.Exists(GenProgressPath))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(GenProgressPath));
+                var p   = doc.RootElement;
+                var sts = p.GetProperty("status").GetString() ?? "";
+                var gen = p.TryGetProperty("generated", out var g) ? g.GetInt32() : 0;
+                var rej = p.TryGetProperty("rejected",  out var r) ? r.GetInt32() : 0;
+                if (sts == "done")
+                {
+                    GenBadge.Text  = $"✓ {gen} generated";
+                    GenStatus.Text = $"Done — {gen} examples, {rej} rejected";
+                    GenBar.Value   = 100;
+                }
+            }
+            catch { }
+        }
+
+        // Populate notes box from existing .meta.json sidecar
+        if (!GenRunning && TbGenNotes.Text?.Length == 0)
+        {
+            var dsDir = Path.Combine(_pitRoot, "training_pit", "datasets");
+            var existing = Services.TrainingPitRegistry.ReadMetaDescription(dsDir, _genKey);
+            if (existing.Length > 0) TbGenNotes.Text = existing;
+        }
+
+        var trainFile = Path.Combine(_pitRoot, "training_pit", "datasets", $"train_{_genKey}.jsonl");
+        BtnGenViewFile.IsEnabled   = File.Exists(trainFile);
+        BtnGenOpenFolder.IsEnabled = Directory.Exists(GenOutDir);
+    }
+
+    private void BtnGenStart_Click(object? s, RoutedEventArgs e)
+    {
+        if (GenRunning) return;
+        if (ForgeRunning) { OnActivity?.Invoke("🧪 Generator refused: Forge is using the GPU."); return; }
+
+        var model = (CbGenDatasetModel.SelectedItem as HarvestModelOptionAva)?.Name ?? "";
+        if (model.Length == 0) { OnActivity?.Invoke("🧪 Generator: select a model first."); return; }
+
+        var key = TbGenKey.Text?.Trim() ?? "";
+        if (key.Length == 0 || key.Contains(' ') || key.Contains('/') || key.Contains('\\'))
+        { OnActivity?.Invoke("🧪 Generator: dataset key must be a single word (e.g. v4gold)."); return; }
+
+        if (!int.TryParse(TbGenCount.Text, out var count) || count < 10 || count > 2000)
+        { OnActivity?.Invoke("🧪 Generator: count must be 10–2000."); return; }
+
+        _genKey = key;
+        Directory.CreateDirectory(GenOutDir);
+        try { File.Delete(GenProgressPath); } catch { }
+
+        var scriptPath = Path.Combine(_pitRoot, "training_pit", "scripts", "generate_v4gold.py");
+        if (!File.Exists(scriptPath))
+        { OnActivity?.Invoke($"🧪 Generator: script not found at {scriptPath}"); return; }
+
+        File.WriteAllText(GenLogPath, $"=== generate run {DateTime.Now:yyyy-MM-dd HH:mm} ===\n");
+
+        ProcessStartInfo psi;
+        string? tmpScript = null;
+#if WINDOWS
+        {
+            var winArgs = $"-u \"{scriptPath}\" --model \"{model}\" --count {count} --key \"{key}\" --ollama-host \"{OllamaHost}\"";
+            psi = new ProcessStartInfo
+            {
+                FileName         = "cmd.exe",
+                Arguments        = $"/c python {winArgs} >> \"{GenLogPath}\" 2>&1",
+                WorkingDirectory = _pitRoot, UseShellExecute = false, CreateNoWindow = true,
+            };
+        }
+#else
+        try
+        {
+            static string ShQ(string v) => "'" + v.Replace("'", "'\\''") + "'";
+            var python = Environment.GetEnvironmentVariable("PYTHON") ?? "python3";
+            tmpScript = Path.Combine(Path.GetTempPath(), $"orc_gen_{DateTime.Now:yyyyMMdd_HHmmss}.sh");
+            var sb = new System.Text.StringBuilder("#!/bin/sh\n");
+            sb.Append(ShQ(python)).Append(" -u ").Append(ShQ(scriptPath));
+            sb.Append(" --model ").Append(ShQ(model));
+            sb.Append($" --count {count}");
+            sb.Append(" --key ").Append(ShQ(key));
+            sb.Append(" --ollama-host ").Append(ShQ(OllamaHost));
+            sb.Append(" >> ").Append(ShQ(GenLogPath)).Append(" 2>&1\n");
+            File.WriteAllText(tmpScript, sb.ToString());
+            psi = new ProcessStartInfo
+            {
+                FileName = "/bin/sh", WorkingDirectory = _pitRoot,
+                UseShellExecute = false, CreateNoWindow = true,
+            };
+            psi.ArgumentList.Add(tmpScript);
+        }
+        catch (Exception ex)
+        {
+            if (tmpScript is not null) try { File.Delete(tmpScript); } catch { }
+            OnActivity?.Invoke($"🧪 Generator launch failed: {ex.Message}");
+            return;
+        }
+#endif
+        try { _genProcess = Process.Start(psi); }
+        catch (Exception ex)
+        {
+            if (tmpScript is not null) try { File.Delete(tmpScript); } catch { }
+            OnActivity?.Invoke($"🧪 Generator launch failed: {ex.Message}");
+            return;
+        }
+        if (_genProcess is null)
+        {
+            if (tmpScript is not null) try { File.Delete(tmpScript); } catch { }
+            OnActivity?.Invoke("🧪 Generator failed to start.");
+            return;
+        }
+        if (tmpScript is not null)
+        {
+            var ts = tmpScript;
+            _genProcess.EnableRaisingEvents = true;
+            _genProcess.Exited += (_, _) => { try { File.Delete(ts); } catch { } };
+        }
+
+        OnActivity?.Invoke($"🧪 Generator started — model={model}, target={count}, key={key}");
+        GenBadge.Text          = "";
+        GenStatus.Text         = "Starting…";
+        GenBar.Value           = 0;
+        GenBar.IsIndeterminate = true;
+        GenDot.IsVisible       = true;
+        RefreshGen();
+
+        _genTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _genTimer.Tick -= GenTimer_Tick;
+        _genTimer.Tick += GenTimer_Tick;
+        _genTimer.Start();
+
+        BtnGenStart.IsEnabled = false;
+        BtnGenStop.IsEnabled  = true;
+    }
+
+    private void BtnGenStop_Click(object? s, RoutedEventArgs e)
+    {
+        if (!GenRunning) return;
+        try { _genProcess!.Kill(entireProcessTree: true); _genProcess.WaitForExit(5000); } catch { }
+        OnActivity?.Invoke("🧪 Generator stopped — partial dataset kept.");
+        GenStatus.Text = "Stopped.";
+        GenDone();
+    }
+
+    private void GenTimer_Tick(object? s, EventArgs e)
+    {
+        if (!GenRunning)
+        {
+            var ok = File.Exists(GenProgressPath) &&
+                     File.GetLastWriteTime(GenProgressPath) > DateTime.Now.AddMinutes(-2);
+            if (ok)
+            {
+                OnActivity?.Invoke("🧪 Generator finished — dataset saved.");
+                Refresh(); // new JSONL pair now shows up in the Forge dataset picker
+            }
+            else
+            {
+                var tail = File.Exists(GenLogPath)
+                    ? string.Join(" ", File.ReadLines(GenLogPath).TakeLast(2)) : "no log";
+                GenStatus.Text = Truncate($"Generator exited unexpectedly — {tail}", 160);
+                OnActivity?.Invoke("🧪 Generator exited unexpectedly — check gen.log");
+            }
+            GenDone();
+            return;
+        }
+
+        _genDotOn  = !_genDotOn;
+        GenDot.Opacity = _genDotOn ? 1.0 : 0.35;
+
+        if (!File.Exists(GenProgressPath)) return;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(GenProgressPath));
+            var p        = doc.RootElement;
+            var sts      = p.GetProperty("status").GetString() ?? "?";
+            var gen      = p.TryGetProperty("generated",  out var g)  ? g.GetInt32()  : 0;
+            var rej      = p.TryGetProperty("rejected",   out var r)  ? r.GetInt32()  : 0;
+            var tgt      = p.TryGetProperty("target",     out var t)  ? t.GetInt32()  : 0;
+            var lastGoal = p.TryGetProperty("last_goal",  out var lg) ? lg.GetString() ?? "" : "";
+
+            GenBar.IsIndeterminate = tgt <= 0;
+            if (tgt > 0) GenBar.Value = Math.Min(100.0, gen * 100.0 / tgt);
+
+            var goalSnip = lastGoal.Length > 60 ? lastGoal[..60] + "…" : lastGoal;
+            GenStatus.Text = sts switch
+            {
+                "starting"   => "Starting…",
+                "generating" => $"Generating {gen}/{tgt} — {goalSnip}",
+                "done"       => $"Done — {gen} generated, {rej} rejected",
+                _            => sts,
+            };
+            GenMetrics.Text = tgt > 0 ? $"{gen}/{tgt}  ·  {rej} rej" : "";
+        }
+        catch { }
+    }
+
+    private void GenDone()
+    {
+        _genTimer?.Stop();
+        _genProcess?.Dispose();
+        _genProcess = null;
+        GenBar.IsIndeterminate = false;
+        GenDot.IsVisible       = false;
+        RefreshGen();
+    }
+
+    private void DatasetOpenFolder_Click(object? s, RoutedEventArgs e)
+    {
+        if (s is not Button btn || btn.Tag is not DatasetInfoAva item) return;
+        var folder = item.FilePath.Length > 0
+            ? (Directory.Exists(item.FilePath) ? item.FilePath : Path.GetDirectoryName(item.FilePath) ?? "")
+            : Path.Combine(_pitRoot, "training_pit", "datasets");
+        if (folder.Length > 0 && Directory.Exists(folder))
+            Process.Start(new ProcessStartInfo(folder) { UseShellExecute = true })?.Dispose();
+    }
+
+    private void BtnGenSaveNotes_Click(object? s, RoutedEventArgs e)
+    {
+        var notes = TbGenNotes.Text?.Trim() ?? "";
+        var dsDir = Path.Combine(_pitRoot, "training_pit", "datasets");
+        Services.TrainingPitRegistry.WriteMetaDescription(dsDir, _genKey, notes);
+        OnActivity?.Invoke($"🧪 Notes saved for dataset '{_genKey}'.");
+        Refresh();
+    }
+
+    private void BtnGenOpenFolder_Click(object? s, RoutedEventArgs e)
+    {
+        if (Directory.Exists(GenOutDir))
+            Process.Start(new ProcessStartInfo(GenOutDir) { UseShellExecute = true })?.Dispose();
+        else
+            OnActivity?.Invoke("🧪 Generator: output folder not found — generate a dataset first.");
+    }
+
+    private void BtnGenViewFile_Click(object? s, RoutedEventArgs e)
+    {
+        var trainFile = Path.Combine(_pitRoot, "training_pit", "datasets", $"train_{_genKey}.jsonl");
+        if (File.Exists(trainFile))
+            Process.Start(new ProcessStartInfo(trainFile) { UseShellExecute = true })?.Dispose();
+        else
+            OnActivity?.Invoke($"🧪 Generator: train_{_genKey}.jsonl not found.");
+    }
+
     // ── Registry rendering ────────────────────────────────────────────────────
 
     private void RenderDatasets(List<Services.TrainingPitRegistry.DatasetInfo> datasets)
@@ -922,6 +1199,7 @@ public partial class TrainingPitPanel : UserControl
             ModelCount.Text       = models.Count.ToString();
             ModelEmpty.IsVisible  = models.Count == 0;
             PopulateHarvestPickers(models);
+            PopulateGenModelPicker(models);
             _cachedModels = models;
             PopulateForgePickersIfReady();
         });
@@ -1225,6 +1503,9 @@ public sealed class DatasetInfoAva
     public string Source          { get; init; } = "";
     public string CountsLine      { get; init; } = "";
     public bool   InProgress      { get; init; }
+    public string Notes           { get; init; } = "";
+    public string FilePath        { get; init; } = "";
+    public bool   HasNotes        => Notes.Length > 0;
 
     public static DatasetInfoAva From(Services.TrainingPitRegistry.DatasetInfo d) => new()
     {
@@ -1236,6 +1517,8 @@ public sealed class DatasetInfoAva
         Source          = d.Source,
         CountsLine      = $"train {d.TrainCount}  eval {d.EvalCount}  neg {d.NegCount}",
         InProgress      = d.InProgress,
+        Notes           = d.Notes,
+        FilePath        = d.FilePath,
     };
 }
 

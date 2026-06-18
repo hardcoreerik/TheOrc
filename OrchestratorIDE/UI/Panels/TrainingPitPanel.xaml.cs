@@ -748,7 +748,7 @@ public partial class TrainingPitPanel : UserControl
     private void SuggestOutputName()
     {
         var current = TbOutputName.Text.Trim();
-        if (current.Length > 0 && current != "lora_v1" && !current.StartsWith("lora_", StringComparison.Ordinal))
+        if (current.Length > 0 && current != "lora_v4" && !current.StartsWith("lora_", StringComparison.Ordinal))
             return;
 
         var ds   = CbDataset.SelectedItem   as DatasetOption;
@@ -815,10 +815,9 @@ public partial class TrainingPitPanel : UserControl
     private bool _forgeDotOn;
 
     /// <summary>Folder under training_pit/outputs/ that the panel currently
-    /// tracks. Defaults to the legacy "lora_v1" name so refreshing without a
-    /// new run still shows the existing adapter. StartForge updates this when
-    /// the user picks a different output name.</summary>
-    private string _forgeOutName = "lora_v1";
+    /// tracks. Defaults to "lora_v4" (the next planned run). StartForge updates
+    /// this when the user picks a different output name.</summary>
+    private string _forgeOutName = "lora_v4";
 
     private string ForgeOutDir   => Path.Combine(_pitRoot, "training_pit", "outputs", _forgeOutName);
     private string ProgressPath  => Path.Combine(ForgeOutDir, "progress.json");
@@ -939,9 +938,9 @@ public partial class TrainingPitPanel : UserControl
 
         var dataset = CbDataset.SelectedItem as DatasetOption;
         var trainJsonl = dataset?.TrainPath
-            ?? Path.Combine(_pitRoot, "training_pit", "datasets", "train_v1.jsonl");
+            ?? Path.Combine(_pitRoot, "training_pit", "datasets", "train_v4gold_merged.jsonl");
         var evalJsonl  = dataset?.EvalPath
-            ?? Path.Combine(_pitRoot, "training_pit", "datasets", "eval_v1.jsonl");
+            ?? Path.Combine(_pitRoot, "training_pit", "datasets", "eval_v3gold.jsonl");
 
         // Point all ForgeOutDir-derived paths at the user's chosen output name.
         _forgeOutName = outputName;
@@ -1041,7 +1040,7 @@ public partial class TrainingPitPanel : UserControl
                     ? string.Join(" ", File.ReadLines(ForgeLogPath).TakeLast(3))
                     : "no log";
                 ForgeStatus.Text = Truncate($"Trainer exited unexpectedly — {tail}", 160);
-                OnActivity?.Invoke("🏛 Academy exited unexpectedly — see training_pit/outputs/lora_v1/forge.log");
+                OnActivity?.Invoke($"🏛 Academy exited unexpectedly — see training_pit/outputs/{_forgeOutName}/forge.log");
             }
             ForgeDone();
             return;
@@ -1167,9 +1166,8 @@ public partial class TrainingPitPanel : UserControl
     {
         // Dataset picker must populate even when Ollama is unreachable — if
         // we gated both on models being loaded, StartForge would silently
-        // fall back to the hardcoded train_v1.jsonl/eval_v1.jsonl defaults
-        // and train on the wrong (or missing) dataset (Codex review,
-        // 2026-06-13). Each picker fills as soon as ITS data source is ready.
+        // fall back to the hardcoded v2gold defaults and train on the wrong
+        // dataset. Each picker fills as soon as ITS data source is ready.
         if (_cachedDatasets.Count > 0)
             PopulateForgePickers(_cachedModels, _cachedDatasets);
     }

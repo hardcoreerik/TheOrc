@@ -22,8 +22,14 @@ namespace OrchestratorIDE.Tools;
 /// </summary>
 public static class GraphTools
 {
-    public static void Register(ToolRegistry registry, string workspaceRoot)
+    public static void Register(ToolRegistry registry, string workspaceRoot, string? graphDbRoot = null)
     {
+        // graphDbRoot is where the indexed .orc/theorc.db lives (canonical workspace root).
+        // When agents run in a worktree/staging dir, workspaceRoot is the worktree but the
+        // DB is always under the canonical workspace root. Defaults to workspaceRoot.
+        string dbRoot = string.IsNullOrEmpty(graphDbRoot) ? workspaceRoot : graphDbRoot;
+        string dbPath = Path.Combine(dbRoot, ".orc", "theorc.db");
+
         // ── graph_search ───────────────────────────────────────────────────
         registry.Register(new ToolDefinition
         {
@@ -52,9 +58,12 @@ public static class GraphTools
                 if (string.IsNullOrWhiteSpace(query))
                     query = GetString(args, "name_pattern");
 
+                if (!File.Exists(dbPath))
+                    return Task.FromResult("[graph_search] Code graph not available — open a workspace in TheOrc to index it.");
+
                 try
                 {
-                    using var store = new SqliteStore(workspaceRoot);
+                    using var store = new SqliteStore(dbRoot);
                     // Idempotent and cheap when already migrated; ensures graph tables exist.
                     store.Initialize();
                     var repo = new GraphRepository(store);
@@ -79,7 +88,7 @@ public static class GraphTools
                         string displayFile = n.FilePath;
                         if (Path.IsPathRooted(displayFile))
                         {
-                            try { displayFile = Path.GetRelativePath(workspaceRoot, displayFile); }
+                            try { displayFile = Path.GetRelativePath(dbRoot, displayFile); }
                             catch { displayFile = Path.GetFileName(displayFile); }
                         }
                         sb.AppendLine($"{n.QualifiedName} [{n.Label}] {displayFile}:{n.LineStart} (degree={n.Degree})");
@@ -120,9 +129,12 @@ public static class GraphTools
                 string mode = (GetString(args, "mode") ?? "calls").ToLowerInvariant();
                 string edge = mode == "data_flow" ? "DATA_FLOWS" : "CALLS";
 
+                if (!File.Exists(dbPath))
+                    return Task.FromResult("[trace_path] Code graph not available — open a workspace in TheOrc to index it.");
+
                 try
                 {
-                    using var store = new SqliteStore(workspaceRoot);
+                    using var store = new SqliteStore(dbRoot);
                     store.Initialize();
                     var repo = new GraphRepository(store);
 
@@ -161,13 +173,13 @@ public static class GraphTools
                     {
                         var callers = repo.TraceCallers(project, qname, depth, edge);
                         sb.AppendLine("Callers:");
-                        AppendTree(sb, callers, workspaceRoot);
+                        AppendTree(sb, callers, dbRoot);
                     }
                     if (doCallees)
                     {
                         var callees = repo.TraceCallees(project, qname, depth, edge);
                         sb.AppendLine("Callees:");
-                        AppendTree(sb, callees, workspaceRoot);
+                        AppendTree(sb, callees, dbRoot);
                     }
 
                     return Task.FromResult(sb.ToString().TrimEnd());
@@ -189,9 +201,12 @@ public static class GraphTools
             RequiresApproval = false,
             Handler = (args, ct) =>
             {
+                if (!File.Exists(dbPath))
+                    return Task.FromResult("[get_architecture] Code graph not available — open a workspace in TheOrc to index it.");
+
                 try
                 {
-                    using var store = new SqliteStore(workspaceRoot);
+                    using var store = new SqliteStore(dbRoot);
                     store.Initialize();
                     var repo = new GraphRepository(store);
 
@@ -235,7 +250,7 @@ public static class GraphTools
                     sb.AppendLine("Top hubs (by degree):");
                     if (hubs.Count == 0) sb.AppendLine("  (none)");
                     foreach (var h in hubs)
-                        sb.AppendLine($"  {h.QualifiedName} [{h.Label}] degree={h.Degree} {ShortFile(h.FilePath, workspaceRoot)}:{h.LineStart}");
+                        sb.AppendLine($"  {h.QualifiedName} [{h.Label}] degree={h.Degree} {ShortFile(h.FilePath, dbRoot)}:{h.LineStart}");
 
                     sb.AppendLine("Routes:");
                     if (routes.Count == 0) sb.AppendLine("  (none)");
@@ -267,6 +282,9 @@ public static class GraphTools
             {
                 string baseRef = GetString(args, "base_ref") ?? "HEAD~1";
                 string? pathFilter = GetString(args, "path_filter");
+
+                if (!File.Exists(dbPath))
+                    return Task.FromResult("[detect_changes] Code graph not available — open a workspace in TheOrc to index it.");
 
                 try
                 {
@@ -316,14 +334,25 @@ public static class GraphTools
                         }
                     }
 
-                    using var store = new SqliteStore(workspaceRoot);
+                    using var store = new SqliteStore(dbRoot);
                     store.Initialize();
                     var repo = new GraphRepository(store);
 
+                    // The graph DB stores paths captured from the canonical workspace root (dbRoot).
+                    // When running in a worktree (workDir != dbRoot), remap each changed-file path
+                    // so the DB lookup uses the canonical form rather than the worktree-absolute form.
                     var changedNodes = new List<CodeNode>();
                     foreach (var fp in changedFilePaths)
                     {
-                        var nodes = repo.GetNodesByFile(fp);
+                        string lookupPath = fp;
+                        if (!string.Equals(dbRoot, workDir.TrimEnd(Path.DirectorySeparatorChar,
+                                Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
+                            && fp.StartsWith(workDir, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var rel = Path.GetRelativePath(workDir, fp);
+                            lookupPath = Path.GetFullPath(Path.Combine(dbRoot, rel));
+                        }
+                        var nodes = repo.GetNodesByFile(lookupPath);
                         changedNodes.AddRange(nodes);
                     }
 
@@ -362,7 +391,7 @@ public static class GraphTools
                         sb.AppendLine("Changed nodes (by degree desc):");
                         foreach (var n in impact)
                         {
-                            string f = ShortFile(n.FilePath, workspaceRoot);
+                            string f = ShortFile(n.FilePath, dbRoot);
                             sb.AppendLine($"  {n.QualifiedName} [{n.Label}] degree={n.Degree} {f}:{n.LineStart}");
                         }
                     }
@@ -402,9 +431,12 @@ public static class GraphTools
                 string? status = GetString(args, "status");
                 string? body = GetString(args, "body");
 
+                if (!File.Exists(dbPath))
+                    return Task.FromResult("[graph_adr] Code graph not available — open a workspace in TheOrc to index it.");
+
                 try
                 {
-                    using var store = new SqliteStore(workspaceRoot);
+                    using var store = new SqliteStore(dbRoot);
                     store.Initialize();
                     var repo = new GraphRepository(store);
 

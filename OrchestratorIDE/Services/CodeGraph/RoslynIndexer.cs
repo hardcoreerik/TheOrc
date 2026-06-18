@@ -291,6 +291,11 @@ public sealed class RoslynIndexer
             }
         }
 
+        // Bail out before the destructive write if we were cancelled or superseded.
+        // This prevents a loser generation from doing DELETE+insert on the same DB file
+        // after the winner has already started writing (rapid workspace re-open race).
+        ct.ThrowIfCancellationRequested();
+
         // One transaction per project via GraphRepository.
         // ReplaceGraph performs node inserts + CorrectFtsForId (split tokens for BM25) + edge wiring + degree recompute
         // inside a single tx. This satisfies the "write in one transaction" + FTS maintenance after node batch.
@@ -363,42 +368,50 @@ public sealed class RoslynIndexer
             var ws = createMi?.Invoke(null, null);
             if (ws == null) return null;
 
-            // OpenProjectAsync(string, CancellationToken)
-            var openMethods = wsType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                .Where(m => m.Name == "OpenProjectAsync")
-                .ToArray();
-            MethodInfo? open = openMethods.FirstOrDefault(m =>
+            // MSBuildWorkspace implements IDisposable; dispose via cast to release MSBuild loader state.
+            try
             {
-                var ps = m.GetParameters();
-                return ps.Length >= 1 && ps[0].ParameterType == typeof(string);
-            }) ?? openMethods.FirstOrDefault();
+                // OpenProjectAsync(string, CancellationToken)
+                var openMethods = wsType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                    .Where(m => m.Name == "OpenProjectAsync")
+                    .ToArray();
+                MethodInfo? open = openMethods.FirstOrDefault(m =>
+                {
+                    var ps = m.GetParameters();
+                    return ps.Length >= 1 && ps[0].ParameterType == typeof(string);
+                }) ?? openMethods.FirstOrDefault();
 
-            if (open == null) return null;
+                if (open == null) return null;
 
-            object? taskObj;
-            var psig = open.GetParameters();
-            if (psig.Length >= 2 && psig[1].ParameterType == typeof(CancellationToken))
-                taskObj = open.Invoke(ws, new object[] { csprojPath, ct });
-            else
-                taskObj = open.Invoke(ws, new object[] { csprojPath });
+                object? taskObj;
+                var psig = open.GetParameters();
+                if (psig.Length >= 2 && psig[1].ParameterType == typeof(CancellationToken))
+                    taskObj = open.Invoke(ws, new object[] { csprojPath, ct });
+                else
+                    taskObj = open.Invoke(ws, new object[] { csprojPath });
 
-            if (taskObj is not Task task) return null;
-            await task.ConfigureAwait(false);
+                if (taskObj is not Task task) return null;
+                await task.ConfigureAwait(false);
 
-            var resultProp = task.GetType().GetProperty("Result");
-            var project = resultProp?.GetValue(task);
-            if (project == null) return null;
+                var resultProp = task.GetType().GetProperty("Result");
+                var project = resultProp?.GetValue(task);
+                if (project == null) return null;
 
-            // project.GetCompilationAsync(ct)
-            var getComp = project.GetType().GetMethod("GetCompilationAsync", new[] { typeof(CancellationToken) });
-            if (getComp == null) return null;
+                // project.GetCompilationAsync(ct)
+                var getComp = project.GetType().GetMethod("GetCompilationAsync", new[] { typeof(CancellationToken) });
+                if (getComp == null) return null;
 
-            var compTaskObj = getComp.Invoke(project, new object[] { ct });
-            if (compTaskObj is not Task compTask) return null;
-            await compTask.ConfigureAwait(false);
+                var compTaskObj = getComp.Invoke(project, new object[] { ct });
+                if (compTaskObj is not Task compTask) return null;
+                await compTask.ConfigureAwait(false);
 
-            var compResultProp = compTask.GetType().GetProperty("Result");
-            return compResultProp?.GetValue(compTask) as Compilation;
+                var compResultProp = compTask.GetType().GetProperty("Result");
+                return compResultProp?.GetValue(compTask) as Compilation;
+            }
+            finally
+            {
+                (ws as IDisposable)?.Dispose();
+            }
         }
         catch
         {

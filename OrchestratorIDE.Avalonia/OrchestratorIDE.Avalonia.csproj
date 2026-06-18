@@ -138,6 +138,7 @@
     <Compile Include="..\OrchestratorIDE\Services\CodeGraph\ComplexityAnalyzer.cs" />
     <Compile Include="..\OrchestratorIDE\Services\CodeGraph\Data\GraphRepository.cs" />
     <Compile Include="..\OrchestratorIDE\Services\CodeGraph\RoslynIndexer.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\CodeGraph\CodeGraphService.cs" />
 
     <!-- Services / HIVE (DpapiSecretProtector Windows-only) -->
     <Compile Include="..\OrchestratorIDE\Services\Hive\ISecretProtector.cs" />

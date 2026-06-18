@@ -1,0 +1,13 @@
+{
+  "description": "v4gold — files_named gap fix. Cerebras gpt-oss-120b. 627 train / 69 eval.",
+  "purpose": "boss_planning",
+  "generator": "generate_v4gold_cerebras.py",
+  "model": "gpt-oss-120b",
+  "created": "2026-06-18",
+  "generated": 496,
+  "rejected": 132,
+  "reject_rate_pct": 21.0,
+  "train_count": 627,
+  "eval_count": 69,
+  "elapsed_min": 11.8
+}

@@ -1569,6 +1569,7 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
 
         FileTools.Register(reg, rootDir, onDiffPreview: null, onSandboxBypass: bypass);
         SearchTools.Register(reg, rootDir);
+        GraphTools.Register(reg, rootDir, graphDbRoot: _workspaceRoot);
         WebTools.Register(reg);
         ShellTools.Register(reg, rootDir, onSandboxBypass: bypass);
 

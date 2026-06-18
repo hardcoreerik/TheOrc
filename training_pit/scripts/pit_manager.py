@@ -214,8 +214,8 @@ def phase_train(cfg, state):
     rc = run_script([sys.executable, str(train_script),
         "--base", t["base_model"],
         "--out", str(out_dir / "adapter"),
-        "--train", str(ROOT / "training_pit" / "datasets" / "train_v1.jsonl"),
-        "--eval",  str(ROOT / "training_pit" / "datasets" / "eval_v1.jsonl"),
+        "--train", str(ROOT / "training_pit" / "datasets" / "train_v4gold_merged.jsonl"),
+        "--eval",  str(ROOT / "training_pit" / "datasets" / "eval_v3gold.jsonl"),
         "--epochs", str(t["epochs"]),
         "--rank", str(t["lora_rank"]),
         "--alpha", str(t["lora_alpha"]),
@@ -235,7 +235,7 @@ def phase_eval(cfg, state):
     adapter = cfg["pipeline"]["adapter_name"]
     adapter_dir = ROOT / "training_pit" / "outputs" / adapter / "adapter"
     out_file = ROOT / "training_pit" / "outputs" / adapter / "ab_eval.json"
-    eval_set = ROOT / "training_pit" / "datasets" / "eval_v1.jsonl"
+    eval_set = ROOT / "training_pit" / "datasets" / "eval_v3gold.jsonl"
 
     print(f"\n[EVAL] Running A/B eval — base vs {adapter}…")
     rc = run_script([sys.executable, SCRIPTS / "eval_adapter.py",

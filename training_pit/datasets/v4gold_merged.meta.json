@@ -1,0 +1,13 @@
+{
+  "description": "v4gold_merged \u2014 v3gold (906) + v4gold targeted files_named fix (454 clean). 1360 train / 87 eval. Gate PASS.",
+  "purpose": "boss_planning",
+  "sources": [
+    "train_v3gold.jsonl",
+    "train_v4gold.jsonl"
+  ],
+  "train_count": 1360,
+  "eval_key": "eval_v3gold",
+  "eval_count": 87,
+  "created": "2026-06-18",
+  "notes": "v4gold supplement filtered: 173 tester_poison removed from 627. Merge deduped by sha256."
+}

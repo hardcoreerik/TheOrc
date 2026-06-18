@@ -9,7 +9,7 @@ Windows support is too fragile to gate Phase 3 on).
   python train_lora.py --dry-run                       # load model+data, one step, exit
   python train_lora.py --base unsloth/gemma-4-12b-it   # alternate un-gated mirror
 
-Outputs the adapter to training_pit/outputs/lora_v2/adapter (+ a training
+Outputs the adapter to training_pit/outputs/lora_v4/adapter (+ a training
 summary JSON beside it). GGUF export/Ollama deploy is a separate step.
 """
 import argparse, json, os, sys, time
@@ -23,9 +23,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="google/gemma-4-12b-it",
                     help="HF base repo (fallback mirror: unsloth/gemma-4-12b-it)")
-    ap.add_argument("--train", default="training_pit/datasets/train_v3gold.jsonl")
+    ap.add_argument("--train", default="training_pit/datasets/train_v4gold_merged.jsonl")
     ap.add_argument("--eval",  default="training_pit/datasets/eval_v3gold.jsonl")
-    ap.add_argument("--out",   default="training_pit/outputs/lora_v3/adapter")
+    ap.add_argument("--out",   default="training_pit/outputs/lora_v4/adapter")
     ap.add_argument("--epochs", type=float, default=3)
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--max-seq", type=int, default=1536)   # examples are ~600-1200 tokens

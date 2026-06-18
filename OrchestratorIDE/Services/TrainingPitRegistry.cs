@@ -207,6 +207,7 @@ public static class TrainingPitRegistry
                 NegCount     = g.neg,
                 TotalCount   = g.train + g.eval + g.neg,
                 LastModified = g.last,
+                Notes        = ReadMetaDescription(dir, key),
             });
 
         var sorted = results.OrderByDescending(d => d.LastModified).ToList();
@@ -253,6 +254,49 @@ public static class TrainingPitRegistry
     {
         try { return File.ReadLines(path).Count(l => l.Trim().Length > 0); }
         catch { return 0; }
+    }
+
+    /// <summary>Read the description field from {key}.meta.json sidecar.
+    /// Written by generate_v4gold.py and editable from the Training Pit UI.</summary>
+    public static string ReadMetaDescription(string datasetsDir, string key)
+    {
+        var path = System.IO.Path.Combine(datasetsDir, $"{key}.meta.json");
+        if (!File.Exists(path)) return "";
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            return doc.RootElement.TryGetProperty("description", out var d)
+                ? d.GetString() ?? "" : "";
+        }
+        catch { return ""; }
+    }
+
+    /// <summary>Write or update the description field in {key}.meta.json.
+    /// Preserves all other fields already in the file.</summary>
+    public static void WriteMetaDescription(string datasetsDir, string key, string description)
+    {
+        var path = System.IO.Path.Combine(datasetsDir, $"{key}.meta.json");
+        Dictionary<string, object?> meta = [];
+        if (File.Exists(path))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(path));
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                    meta[prop.Name] = prop.Value.ValueKind switch
+                    {
+                        JsonValueKind.String  => (object?)prop.Value.GetString(),
+                        JsonValueKind.Number  => prop.Value.TryGetDouble(out var d) ? d : 0,
+                        JsonValueKind.True    => true,
+                        JsonValueKind.False   => false,
+                        _                    => null,
+                    };
+            }
+            catch { }
+        }
+        meta["description"] = description;
+        File.WriteAllText(path, JsonSerializer.Serialize(meta,
+            new JsonSerializerOptions { WriteIndented = true }));
     }
 
     /// <summary>Scan training_pit/outputs/* for directories holding

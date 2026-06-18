@@ -11,11 +11,11 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>OrchestratorIDE</RootNamespace>
-    <AssemblyName>theorc-daemon</AssemblyName>
-    <Version>1.6.2</Version>
-    <AssemblyVersion>1.6.2.0</AssemblyVersion>
-    <FileVersion>1.6.2.0</FileVersion>
-    <Description>TheOrc HIVE daemon — headless Warchief + worker node for Linux, macOS, and Windows.</Description>
+    <AssemblyName>theorc-warband</AssemblyName>
+    <Version>1.8.0</Version>
+    <AssemblyVersion>1.8.0.0</AssemblyVersion>
+    <FileVersion>1.8.0.0</FileVersion>
+    <Description>TheOrc Warband — headless HIVE node for Linux, macOS, and Windows. Deploy one per machine to extend your HIVE into the cloud.</Description>
   </PropertyGroup>
 
   <!-- Match global usings in main project so shared source compiles cleanly. -->

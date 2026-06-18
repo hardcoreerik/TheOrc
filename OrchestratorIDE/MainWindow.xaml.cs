@@ -40,6 +40,8 @@ public partial class MainWindow : Window
     private          Services.Data.PlanRepository?   _planRepo;
     private          Services.Data.RunRepository?    _runRepo;
     private          Services.Data.DatasetRepository? _datasetRepo;
+    private readonly Services.CodeGraph.CodeGraphService _codeGraph = new();
+    private bool _windowClosed;
 
     // ── State ─────────────────────────────────────────────────────────────
     private ProjectSession           _session;
@@ -85,6 +87,8 @@ public partial class MainWindow : Window
         // Stop llama-server and recorder on window close
         Closed += (_, _) =>
         {
+            _windowClosed = true;
+            _codeGraph.Dispose();
             _llamaServer?.Stop();
             _recorder.Stop();
             _modelStatus?.Stop();
@@ -1860,6 +1864,23 @@ public partial class MainWindow : Window
 
         // Re-bind the data layer to the new workspace's theorc.db.
         InitDataLayer(path);
+
+        // CodeGraph: attach to the confirmed workspace's DB, then start the background index.
+        // Attach is called here (not inside InitDataLayer) so standalone InitDataLayer calls
+        // at startup — before workspace confirmation — don't trigger a premature index.
+        if (_sqlStore is { } store)
+        {
+            _codeGraph.OnStatus -= OnCodeGraphStatus;
+            _codeGraph.OnStatus += OnCodeGraphStatus;
+            _codeGraph.Attach(new Services.CodeGraph.Data.GraphRepository(store));
+            _codeGraph.StartIndexing(path);
+        }
+    }
+
+    private void OnCodeGraphStatus(string msg)
+    {
+        if (_windowClosed) return;
+        Dispatcher.InvokeAsync(() => AddActivity(new ActivityEvent(ActivityKind.Info, "CodeGraph", msg, DateTime.Now)));
     }
 
     /// <summary>
