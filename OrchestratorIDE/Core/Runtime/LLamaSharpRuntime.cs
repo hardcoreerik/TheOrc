@@ -21,13 +21,16 @@ namespace OrchestratorIDE.Core.Runtime;
 ///
 /// Construction:
 ///   var runtime = new LLamaSharpRuntime();
-///   await runtime.LoadModelAsync("path/to/model.gguf", "path/to/lora.gguf");
+///   await runtime.LoadModelAsync("path/to/model.gguf");
 ///   _loop = new AgentLoop(runtime, ...);
 ///
 /// Backend note: LLamaSharp requires a native backend package at runtime:
 ///   - GPU:  LLamaSharp.Backend.Cuda12.Windows (or .Linux)
 ///   - CPU:  LLamaSharp.Backend.Cpu
 /// The native backend is not bundled here — install via NuGet or system PATH.
+///
+/// LoRA note: LLamaSharp 0.27 removed ModelParams.LoraAdapters. Adapter support
+/// is deferred to Phase 3 (RUNTIME_PHASE0_SPEC.md §7).
 /// </summary>
 public sealed class LLamaSharpRuntime : ILocalModelRuntime
 {
@@ -37,9 +40,16 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     private string? _activeAdapterPath;
     private RuntimeOptions _options = new();
 
-    // Telemetry tracking — updated on each generation call
+    // Telemetry tracking — updated on each completed generation call (not cancelled ones).
     private double? _lastTokensPerSecond;
     private TimeSpan? _lastTimeToFirstToken;
+
+    // Fix #7: static so JsonSerializerOptions reflection cache survives across calls.
+    private static readonly JsonSerializerOptions _compactJson = new() { WriteIndented = false };
+
+    // Fix #8: pre-compiled fence-strip regex.
+    private static readonly Regex _fenceRegex =
+        new(@"```(?:json)?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public string RuntimeName => "LLamaSharp";
 
@@ -53,6 +63,12 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             ? []
             : [Path.GetFileName(_activeModelPath)]);
 
+    /// <summary>
+    /// NOTE: the <paramref name="model"/> parameter is unused for local runtimes —
+    /// inference always runs against the GGUF loaded by LoadModelAsync.
+    /// This matches the IModelRuntime contract where local implementations
+    /// are model-instance singletons rather than name-routed dispatchers.
+    /// </summary>
     public async IAsyncEnumerable<string> StreamCompletionAsync(
         string model,
         IEnumerable<AgentMessage> history,
@@ -67,6 +83,8 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             throw new InvalidOperationException(
                 "No model loaded. Call LoadModelAsync before streaming.");
 
+        // StatelessExecutor allocates a full KV-cache context per InferAsync call
+        // (see Phase 3 backlog: pool or cache executor per loaded model).
         var executor = new StatelessExecutor(_weights, _modelParams);
 
         // Build the raw prompt using the GGUF's embedded chat template.
@@ -92,12 +110,12 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             yield return token;
         }
 
-        // Telemetry
+        // Telemetry — only updated when at least one token arrived (not on pre-first-token cancel).
         var elapsed = DateTime.UtcNow - started;
         if (firstTokenAt != default)
             _lastTimeToFirstToken = firstTokenAt - started;
         var outputText = outputBuilder.ToString();
-        var completionTokens = EstimateTokens(outputText);
+        var completionTokens = ContextManager.EstimateTokens(outputText);
         if (elapsed.TotalSeconds > 0)
             _lastTokensPerSecond = completionTokens / elapsed.TotalSeconds;
 
@@ -106,8 +124,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             foreach (var tc in ParseToolCalls(outputText))
                 onToolCall(tc);
 
-        // Estimate prompt token count from input size
-        var promptTokens = EstimateTokens(prompt);
+        var promptTokens = ContextManager.EstimateTokens(prompt);
         onUsage?.Invoke(promptTokens, completionTokens);
     }
 
@@ -128,10 +145,6 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
 
     // ── ILocalModelRuntime ───────────────────────────────────────────────────
 
-    /// <summary>
-    /// Load a GGUF base model, optionally with a LoRA adapter.
-    /// Unloads any previously loaded model first.
-    /// </summary>
     public async Task<ModelLoadResult> LoadModelAsync(
         string baseGgufPath,
         string? adapterPath = null,
@@ -154,9 +167,6 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
                 GpuLayerCount = _options.GpuLayers,
             };
 
-            // LoRA adapter — applied at load time.
-            // Note: hot-swap (SwapAdapterAsync) requires a spike to verify
-            // KV-cache safety before roadmapping. See RUNTIME_PHASE0_SPEC.md §7.
             if (!string.IsNullOrEmpty(adapterPath))
             {
                 if (!File.Exists(adapterPath))
@@ -164,6 +174,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
                         $"Adapter file not found: {adapterPath}");
                 // TODO: LLamaSharp 0.27 removed ModelParams.LoraAdapters. LoRA attach
                 // revisited in Phase 3 after KV-cache safety spike (RUNTIME_PHASE0_SPEC.md §7).
+                // The adapter path is stored so the UI can surface it, but it is NOT applied.
             }
 
             _weights          = await LLamaWeights.LoadFromFileAsync(mp, ct);
@@ -171,11 +182,16 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             _activeModelPath  = baseGgufPath;
             _activeAdapterPath = adapterPath;
 
-            return new ModelLoadResult(true, RuntimeName,
-                Path.GetFileName(baseGgufPath),
-                adapterPath is not null
-                    ? $"+ adapter {Path.GetFileName(adapterPath)}"
-                    : null);
+            // Fix #3: do not claim adapter is active — LoRA is not applied in Phase 2.
+            var detail = adapterPath is not null
+                ? $"(adapter deferred to Phase 3: {Path.GetFileName(adapterPath)})"
+                : null;
+            return new ModelLoadResult(true, RuntimeName, Path.GetFileName(baseGgufPath), detail);
+        }
+        catch (OperationCanceledException)
+        {
+            // Fix #2: let cancellation propagate rather than converting to a failure result.
+            throw;
         }
         catch (Exception ex)
         {
@@ -185,8 +201,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
 
     /// <summary>
     /// LoRA hot-swap: NOT IMPLEMENTED until the KV-cache safety spike runs.
-    /// See RUNTIME_PHASE0_SPEC.md §7. Spike confirms whether detach/reattach
-    /// requires a full context rebuild (expected yes — adapters modify activations).
+    /// See RUNTIME_PHASE0_SPEC.md §7.
     /// </summary>
     public Task SwapAdapterAsync(string? adapterName, CancellationToken ct = default) =>
         throw new NotSupportedException(
@@ -216,7 +231,8 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     /// <summary>
     /// Converts the message history into a raw prompt string using the model's
     /// embedded GGUF chat template. Falls back to ChatML if the model has none.
-    /// Tools are injected into the system message as a JSON block when provided.
+    /// Tools are injected into the system message as a JSON block (Phase 2 text approach;
+    /// Phase 3 will use GBNF grammar constraints instead).
     /// </summary>
     private static string BuildPrompt(
         LLamaWeights weights,
@@ -225,22 +241,38 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     {
         var messages = history.ToList();
 
-        // Inject tool schemas into the system prompt (text-format approach, Phase 2).
-        // Phase 3 will replace this with GBNF grammar constraints.
         if (tools is { Count: > 0 })
         {
-            var toolJson = JsonSerializer.Serialize(tools,
-                new JsonSerializerOptions { WriteIndented = false });
+            var toolJson = JsonSerializer.Serialize(tools, _compactJson);
             var toolBlock = $"\n\nAvailable tools (call as JSON):\n{toolJson}";
             var sysIdx = messages.FindIndex(m => m.Role == MessageRole.System);
             if (sysIdx >= 0)
-                messages[sysIdx].Content += toolBlock;
+            {
+                // Fix #1 (BLOCKER): clone the AgentMessage rather than mutating the caller's object.
+                // history.ToList() is a shallow copy — the AgentMessage references are shared.
+                // Mutating .Content would permanently corrupt the caller's history on every call.
+                var orig = messages[sysIdx];
+                messages[sysIdx] = new AgentMessage
+                {
+                    Id           = orig.Id,
+                    Role         = orig.Role,
+                    Content      = orig.Content + toolBlock,
+                    Status       = orig.Status,
+                    Timestamp    = orig.Timestamp,
+                    ToolCalls    = orig.ToolCalls,
+                    ToolCallId   = orig.ToolCallId,
+                    TokenCount   = orig.TokenCount,
+                };
+            }
             else
+            {
                 messages.Insert(0, new AgentMessage
                     { Role = MessageRole.System, Content = toolBlock });
+            }
         }
 
-        // Try the GGUF-embedded template first
+        // Try the GGUF-embedded template first.
+        // Fix #6: filter OutOfMemoryException so fatal conditions aren't silently swallowed.
         try
         {
             var template = new LLamaTemplate(weights);
@@ -257,9 +289,9 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             }
             return Encoding.UTF8.GetString(template.Apply());
         }
-        catch
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // Model has no embedded template — fall back to ChatML
+            // Model has no embedded template or template is malformed — fall back to ChatML.
             return BuildChatMLPrompt(messages);
         }
     }
@@ -286,14 +318,14 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
 
     /// <summary>
     /// Parses tool calls from the model's text output.
-    /// Looks for JSON objects with a "name" key — same approach as
-    /// AgentLoop.TryParseTextToolCalls (the shared fallback parser).
+    /// Kept in sync with AgentLoop.TryParseTextToolCalls — same aliases, same fallback.
     /// Phase 3 will replace this with GBNF-constrained generation.
     /// </summary>
     private static List<ToolCall> ParseToolCalls(string text)
     {
         var result = new List<ToolCall>();
-        var stripped = Regex.Replace(text, @"```(?:json)?", "", RegexOptions.IgnoreCase).Trim();
+        // Fix #8: use pre-compiled static Regex.
+        var stripped = _fenceRegex.Replace(text, "").Trim();
 
         int i = 0;
         while (i < stripped.Length)
@@ -308,7 +340,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
                 var ch = stripped[j];
                 if (ch == '"')
                 {
-                    // Count consecutive preceding backslashes: even = real quote, odd = escaped
+                    // Count consecutive preceding backslashes: even = real quote, odd = escaped.
                     var bs = 0;
                     for (var k = j - 1; k >= start && stripped[k] == '\\'; k--) bs++;
                     if (bs % 2 == 0) inString = !inString;
@@ -329,9 +361,26 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
 
                 if (!string.IsNullOrEmpty(name))
                 {
-                    var argsNode = node?["arguments"] ?? node?["args"] ?? node?["parameters"];
+                    // Fix #4: align with AgentLoop.TryParseTextToolCalls — add "inputs" alias
+                    // and flat-format fallback (all non-name keys treated as args).
+                    var argsNode = node?["arguments"]
+                                ?? node?["args"]
+                                ?? node?["parameters"]
+                                ?? node?["inputs"];
+
                     var args = new Dictionary<string, object?>();
-                    if (argsNode is JsonObject argsObj)
+                    var argsObj = argsNode as JsonObject
+                               ?? (argsNode == null
+                                   ? node!.AsObject()
+                                         .Where(kv => kv.Key is not ("name" or "tool" or "function"))
+                                         .Aggregate(new JsonObject(), (acc, kv) =>
+                                         {
+                                             acc[kv.Key] = kv.Value?.DeepClone();
+                                             return acc;
+                                         })
+                                   : null);
+
+                    if (argsObj != null)
                         foreach (var kvp in argsObj)
                             args[kvp.Key] = kvp.Value is JsonValue jv && jv.TryGetValue<string>(out var s)
                                 ? s
@@ -353,7 +402,4 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
 
         return result;
     }
-
-    private static int EstimateTokens(string text) =>
-        Math.Max(1, text.Length / 4);  // rough 4-chars/token approximation
 }
