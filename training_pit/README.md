@@ -1,175 +1,220 @@
 # The Training Pit
 
-> **Phase status: PHASE 2.5 ACTIVE — Dataset Review / Approval Valve.**
-> `DatasetCapture.cs` is live. Boss plans are auto-staged after every swarm run.
-> Use `review_captures.py` to inspect, approve, and export captures to training JSONL.
-> Phase 3 training is **blocked** pending ≥150 reviewed positive examples.
-> Run `python training_pit/scripts/review_captures.py --status` for live gate counters.
-> Run `python training_pit/scripts/phase3_preflight.py` to check all 9 Phase 3 readiness conditions.
+> **Phase status: Phase 3 is active.**
+> The Training Pit now has a real Phase 3 trainer, local dataset lanes, adapter
+> outputs, and a registered production Boss Planning LoRA (`lora_v1`).
 >
-> **Live training is not yet implemented. Do not add training scripts or launch jobs
-> until `phase3_preflight.py` exits 0. See ARCHITECTURE.md for the full roadmap.**
+> Public source of truth: `adapters/registry.json`.
+> Local-only source of truth: `datasets/*.jsonl` and `outputs/`, which are
+> intentionally gitignored because they contain large generated data and model
+> artifacts.
 
 ---
 
 ## What The Training Pit Is
 
-The Training Pit is not a generic fine-tuning folder. It is the long-term system for
-evolving TheOrc's models — specifically the boss model and goblin workers — through
-structured data collection, evaluation, and adapter management.
+The Training Pit is TheOrc's model-improvement workspace. It turns reviewed
+TheOrc behavior into datasets, trains LoRA adapters, evaluates those adapters
+against base models, and records which adapters are safe to deploy.
 
-The goal is to move TheOrc's behavior improvements from prompt engineering (which has
-a ceiling) into the model weights themselves, where they survive any prompt and work
-reliably across goals, domains, and model versions.
-
----
-
-## What Training Fixes That Prompt Engineering Cannot
-
-| Problem | Prompt Fix | Fine-Tune Fix |
-|---|---|---|
-| Boss collapse to single empty task | BossPromptSupplement + retry | Bake multi-task decomposition into weights |
-| Plan quality degrades on complex goals | Escalation prompt | Model generalises from diverse examples |
-| Few-shot context consumes ~1800 tokens | Can't reduce | Remove examples; behavior is intrinsic |
-| Hallucinated files/APIs in responses | Explicit instructions | Train on examples that never invent things |
-| Windows/PowerShell defaults wrong | Per-task reminders | Train on PS-native examples |
-| Worker delegation quality varies | Role descriptions | Worker-specific adapters |
-| New models need per-model calibration | New BossPromptSupplement | Adapter generalises |
+It is not a generic fine-tuning folder. The goal is to move TheOrc's best
+behavior out of prompt-only fixes and into durable model behavior: better boss
+planning, cleaner worker delegation, stronger Windows/PowerShell defaults, fewer
+hallucinated files or APIs, and clearer role boundaries.
 
 ---
 
-## Current State (Phase 2.5 Active)
+## Current State
 
-- [x] QAT base model pulled and deployed (`theorc-boss:gemma4` on Ollama server)
-- [x] Canonical dataset schema defined (chat JSONL — `DATASET_SCHEMA.md`)
-- [x] Plan capture schema defined (`PLAN_CAPTURE_SCHEMA.md`)
-- [x] Eval rubric: plan quality + boss behavior (`EVAL_RUBRIC.md`)
-- [x] LoRA / QLoRA job config templates (`configs/`)
-- [x] Adapter registry schema (`adapters/registry.json`)
-- [x] Reference examples (`examples/`) — 5 positive chat SFT + 1 synthetic + 1 eval-only (collapse)
-- [x] Eval prompt starter sets (`evals/`)
-- [x] Utility scripts (`scripts/`)
-- [x] Hardware guide, model compatibility, safety docs
-- [x] **`DatasetCapture.cs` live** — auto-staging boss plans after every swarm run
-- [x] **Dataset strategy documented** (`DATASET_STRATEGY.md`) — three-tier sources, Phase 3 gate
-- [x] **Role architecture documented** (`ROLE_ARCHITECTURE.md`) — logical/execution role split, alias map
-- [x] **`review_captures.py` live (Phase 2.5)** — approval valve with manifest, validate+sanitize gate, atomic export
-- [x] **`phase3_preflight.py` live (Phase 2.5)** — 9-check Phase 3 readiness gate; all future training scripts must call this first
+- [x] Dataset capture and review pipeline exists.
+- [x] Canonical chat JSONL schema exists (`DATASET_SCHEMA.md`).
+- [x] Plan capture schema exists (`PLAN_CAPTURE_SCHEMA.md`).
+- [x] Eval rubric exists (`EVAL_RUBRIC.md`).
+- [x] Dataset approval tooling exists (`scripts/review_captures.py`).
+- [x] Preflight and suitability gates exist (`scripts/phase3_preflight.py`,
+      `scripts/suitability_gate.py`).
+- [x] Phase 3 trainer exists (`scripts/train_lora.py`).
+- [x] Boss/tester dataset split tooling exists (`scripts/split_v2gold.py`).
+- [x] Adapter registry exists (`adapters/registry.json`).
+- [x] `lora_v1` is registered as the production Boss Planning LoRA.
+- [x] Later local experiments (`lora_v2`, `lora_v3`, `lora_v4`) exist in the
+      local artifact workspace, but only registered adapters should be treated as
+      deployable.
+
+Tracked repo files describe the pipeline and registry. Generated JSONL datasets,
+training logs, checkpoints, adapters, and GGUF exports are local artifacts and
+are not committed.
 
 ---
 
-## Planned Pipeline
+## Registered Adapter
 
+`adapters/registry.json` currently registers:
+
+| Adapter | Status | Base | Notes |
+|---|---|---|---|
+| `lora_v1` | `production` | `google/gemma-4-12b-it` | Boss Planning LoRA, trained on 900 examples and evaluated on 87 prompts. Registered target: `theorc-boss:gemma4-ft`. |
+
+The registry records the deployed Ollama adapter path and evaluation summary.
+Do not treat a local `outputs/lora_*` folder as production until it is reviewed
+and registered.
+
+---
+
+## Local Artifact Lanes
+
+These paths may exist in an operator's local checkout, but are intentionally
+gitignored:
+
+| Path | Purpose |
+|---|---|
+| `datasets/train_v1.jsonl` | Original reviewed training lane. |
+| `datasets/train_v2gold.jsonl` | Larger mixed gold lane before boss/tester routing. |
+| `datasets/train_v3gold.jsonl` | Clean boss-training lane produced by `split_v2gold.py`. |
+| `datasets/train_tester_v1.jsonl` | Tester-worker seed lane separated out of mixed data. |
+| `datasets/train_v4gold_merged.jsonl` | Current default train input for `train_lora.py`. |
+| `outputs/lora_v*/` | Local training summaries, checkpoints, adapters, logs, and eval results. |
+
+Because these files can be large and can contain generated model output, they
+belong in the local training workspace, not in git.
+
+---
+
+## Useful Commands
+
+Review captured data:
+
+```powershell
+python training_pit/scripts/review_captures.py --status
+python training_pit/scripts/review_captures.py --list
+python training_pit/scripts/review_captures.py --export-train
 ```
-Phase 1 (DONE):   Scaffolding
-  └── schemas, rubrics, configs, scripts, eval prompts, adapter registry
 
-Phase 2 (DONE):   Data collection infrastructure
-  ├── Auto-capture boss plans via DatasetCapture.cs ← LIVE
-  └── validate_dataset.py + sanitize_dataset.py scripts
+Check phase and dataset gates:
 
-Phase 2.5 (ACTIVE): Dataset Review / Approval Valve
-  ├── review_captures.py — list/inspect/approve/reject/export/status
-  ├── reviewed_v1.json manifest — tracked in git
-  ├── Atomic export gate: validate + sanitize before writing JSONL
-  ├── phase3_preflight.py — 9-check readiness gate (exit 0=READY, 1=BLOCKED)
-  └── Phase 3 counters: 0/150 train, 0/25 negative, 0+/20 eval
+```powershell
+python training_pit/scripts/phase3_preflight.py
+python training_pit/scripts/suitability_gate.py training_pit/datasets/train_v4gold_merged.jsonl
+```
 
-Phase 3 (BLOCKED): Training
-  ├── LoRA fine-tune via Unsloth on QAT base
-  ├── Eval loop using boss_behavior_eval_prompts.jsonl
-  ├── Export adapter to GGUF
-  └── Register in adapters/registry.json
+Split mixed gold data into boss/tester lanes:
 
-Phase 4 (FUTURE): Deployment
-  ├── ModelProfiles entry for fine-tuned model
-  ├── A/B path in SwarmSession (base vs adapter)
-  └── Before/after benchmark vs swarm-metrics.json baselines
+```powershell
+python training_pit/scripts/split_v2gold.py --dry-run
+python training_pit/scripts/split_v2gold.py
+```
+
+Run a trainer smoke check before spending GPU time:
+
+```powershell
+python training_pit/scripts/train_lora.py --dry-run
+```
+
+Run the default Phase 3 trainer:
+
+```powershell
+python training_pit/scripts/train_lora.py
+```
+
+---
+
+## Pipeline
+
+```text
+Phase 1: Scaffolding
+  schemas, rubrics, configs, examples, eval prompts, adapter registry
+
+Phase 2: Data collection
+  DatasetCapture.cs auto-stages boss plans after swarm runs
+
+Phase 2.5: Review / approval valve
+  review_captures.py approves, rejects, exports, validates, and sanitizes data
+
+Phase 3: Training and evaluation
+  train_lora.py trains QLoRA adapters
+  suitability_gate.py blocks contaminated boss-training sets
+  split_v2gold.py separates boss-clean examples from tester-worker examples
+  eval scripts compare base vs adapter behavior
+
+Phase 4: Deployment
+  reviewed adapters are registered in adapters/registry.json
+  deployment/runtime integration consumes registered artifacts only
 ```
 
 ---
 
 ## File Inventory
 
-```
+```text
 training_pit/
-  README.md                       ← this file
-  ARCHITECTURE.md                 ← full system design and phase roadmap
-  DATASET_SCHEMA.md               ← canonical chat-JSONL training format
-  PLAN_CAPTURE_SCHEMA.md          ← specialized boss/swarm plan capture format
-  EVAL_RUBRIC.md                  ← plan quality + boss behavior rubrics
-  MODEL_COMPATIBILITY.md          ← base model compatibility rules and states
-  HARDWARE_GUIDE.md               ← VRAM tiers, WSL2, local training setup
-  SAFETY_AND_PRIVACY.md           ← what not to train on, sanitizer requirements
-
-  configs/
-    lora_job_template.json        ← LoRA training job config (draft/planned)
-    qlora_job_template.json       ← QLoRA 4-bit config for 12–16 GB VRAM
-    base_model_compat.json        ← compatibility matrix with verified/inferred states
-
-  datasets/
-    .gitkeep                      ← datasets NOT committed to git
-    CONTRIBUTING.md               ← capture process, quality bar, format spec
-    manifests/
-      reviewed_v1.json            ← approval manifest (tracked in git)
-    staging/                      ← converted-but-not-yet-reviewed (gitignored)
-
-  examples/
-    plan_capture_good_001.json       ← high-quality plan (Combo A, score 85)
-    plan_capture_good_002.json       ← good plan (Combo E, score 68)
-    plan_capture_bad_001.json        ← collapse pattern (score 5, DPO contrastive pair)
-    chat_sft_good_001.jsonl          ← chat JSONL: boss planning, no hallucination
-    chat_sft_good_002.jsonl          ← chat JSONL: debugging + PowerShell
-    chat_sft_good_003.jsonl          ← chat JSONL: multi-role (RESEARCHER + CODER)
-    chat_sft_good_004.jsonl          ← chat JSONL: UIDEVELOPER-focused task
-    chat_sft_good_005.jsonl          ← chat JSONL: TESTER golden example (no-write lane)
-    chat_sft_synthetic_001.jsonl     ← synthetic example (eval-only, not in train_v1)
-    chat_sft_eval_collapse_001.jsonl ← eval-only collapse negative (never in train)
-
-  evals/
-    boss_behavior_eval_prompts.jsonl   ← 10 starter boss behavior eval prompts
-    plan_quality_eval_prompts.jsonl    ← plan/swarm quality eval prompts
-    scorecards/
-      .gitkeep                         ← future before/after eval results go here
+  README.md
+  ARCHITECTURE.md
+  DATASET_SCHEMA.md
+  PLAN_CAPTURE_SCHEMA.md
+  EVAL_RUBRIC.md
+  MODEL_COMPATIBILITY.md
+  HARDWARE_GUIDE.md
+  SAFETY_AND_PRIVACY.md
 
   adapters/
+    registry.json
     local/
-      .gitkeep                    ← locally trained adapters
     imported/
-      .gitkeep                    ← externally sourced adapters
-    registry.json                 ← adapter registry (status, targets, eval state)
+
+  configs/
+    lora_job_template.json
+    qlora_job_template.json
+    base_model_compat.json
+
+  datasets/
+    CONTRIBUTING.md
+    manifests/reviewed_v1.json
+    *.jsonl                  local-only, gitignored
+
+  evals/
+    boss_behavior_eval_prompts.jsonl
+    plan_quality_eval_prompts.jsonl
+    scorecards/
+
+  examples/
+    chat_sft_good_*.jsonl
+    chat_sft_eval_*.jsonl
+    plan_capture_*.json
+
+  outputs/
+    lora_v*/                 local-only, gitignored
 
   scripts/
-    review_captures.py            ← Phase 2.5 approval valve (list/inspect/approve/reject/export)
-    phase3_preflight.py           ← Phase 3 readiness check (9 checks; exit 0=READY, 1=BLOCKED)
-    validate_dataset.py           ← validates JSONL format, fields, roles
-    sanitize_dataset.py           ← scans for secrets, reports suspicious lines
-    check_hardware.py             ← detects GPU/RAM, prints training tier estimate
-    check_model_compatibility.py  ← reads base_model_compat.json, prints status
-    inspect_adapter.py            ← reads adapter_config.json, prints base model info
-    convert_plan_captures.py      ← converts .orc/swarm/dataset-staging/ captures → chat-JSONL
-    _generate_examples.py         ← regenerates examples/ with canonical BOSS_SYSTEM_PROMPT
-    _make_test_fixtures.py        ← creates synthetic plan captures for e2e pipeline testing
+    review_captures.py
+    phase3_preflight.py
+    validate_dataset.py
+    sanitize_dataset.py
+    suitability_gate.py
+    split_v2gold.py
+    train_lora.py
+    eval_adapter.py
+    inspect_adapter.py
+    convert_plan_captures.py
 
   tests/
-    __init__.py
-    fixtures/review_workflow/     ← test fixtures for review_captures.py
-    test_review_captures.py       ← unit tests for review_captures.py (31 tests)
-    test_phase3_preflight.py      ← unit tests for phase3_preflight.py (36 tests)
+    test_review_captures.py
+    test_phase3_preflight.py
 ```
 
 ---
 
 ## Do Not
 
-- Do not add `trainer.py` or any Unsloth/transformers training scripts yet
-- All future training scripts must call `phase3_preflight.py` before starting — it is the only gate to Phase 3
-- Do not add `requirements-train.txt` or heavy ML deps to the main project
-- Do not launch training jobs until Phase 2 data collection is complete and validated
-- Do not commit raw dataset JSONL files — add `datasets/*.jsonl` to `.gitignore` when Phase 2 starts
-- Do not mark an adapter `approved` until it improves eval results over the base model
-  without increasing hallucination or unsafe behavior
+- Do not commit raw dataset JSONL files.
+- Do not commit `outputs/`, checkpoints, safetensors, GGUFs, or training logs.
+- Do not mark an adapter `production` until it improves the target evals without
+  introducing unsafe behavior or regressions that matter for its role.
+- Do not train the boss model on tester-worker examples. Route those to the
+  tester lane with `split_v2gold.py`.
+- Do not treat local artifacts as shipped behavior unless they are recorded in
+  `adapters/registry.json`.
 
 ---
 
-*Last updated: 2026-06-09 — Phase 2.5 complete. review_captures.py (31 tests) + phase3_preflight.py (36 tests) both green. Phase 3 BLOCKED pending dataset collection.*
+*Last updated: 2026-06-19 — README refreshed to reflect Phase 3 trainer,
+local artifact lanes, and registered `lora_v1` production adapter.*
