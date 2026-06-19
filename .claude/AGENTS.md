@@ -76,7 +76,7 @@ the Ollama dependency, run GGUF in-process via LLamaSharp.
 | 2 | `LLamaSharpRuntime` — in-process GGUF + LoRA; the "no Ollama" win | ✅ Prototype landed (LoRA apply still deferred) |
 | 2.5 | Close abstraction leaks: `HiveWorkerAgent` + reviewer gate now use `IModelRuntime`; remote HIVE task-queue/node HTTP remains separate plumbing, not LLM inference | ✅ Closed |
 | 3 | ModelDepot + SessionManager + AdapterManager (boss/worker/reviewer) + telemetry | 🔶 Near-closed — ModelDepot, SessionManager, AdapterManager, and `RuntimeOrchestrator` (wires all three from one shared runtime; wiring logic Grok-CLEAN, success path unverified by automated tests — see PROJECT_TRUTH.md) landed; §7 spike closed across 2 LoRA samples; telemetry surfaces landed for Ollama and ModelDepot (local-folder scan + per-role resolution, no model load); remaining: SessionManager/AdapterManager-backed telemetry (needs an actual loaded model) + flipping a live call site off Ollama |
-| 4 | `OrcScheduler` — VRAM + lane-aware dispatch, pipeline boss→workers | ⬜ Planned |
+| 4 | `OrcScheduler` — VRAM + lane-aware dispatch, pipeline boss→workers | 🔶 Started — interface + data model + a real VRAM-budget admission check landed; not yet wired into AdapterManager, no live GPU dispatch or pipeline queueing |
 | 5 | Prefix KV cache (research, non-blocking) | ⬜ Research |
 
 When migrating a call site to `IModelRuntime`, follow the pattern already used for

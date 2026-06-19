@@ -58,3 +58,55 @@ public enum SchedulingLane
 /// so a caller can surface something more useful than a bare denial.
 /// </summary>
 public sealed record SchedulingDecision(bool Admitted, SchedulingLane Lane, string? Reason = null);
+
+/// <summary>
+/// First real OrcScheduler capability (Phase 4): a VRAM-budget admission check using
+/// RuntimeModelAsset.SizeBytes as the cost estimate. GGUF file size on disk is a reasonable
+/// proxy for VRAM usage when loaded (not exact — quantization/context-size overhead vary it —
+/// but precise enough for an admission decision, which is inherently a margin-of-safety check,
+/// not a guarantee).
+/// </summary>
+public sealed class OrcScheduler : IOrcScheduler
+{
+    // LoRA adapters are small relative to base models (tens to a few hundred MB). When the
+    // adapter's size is unknown — e.g. a PEFT directory, which AdapterManager doesn't even load
+    // directly today (LoadLoraFromFile requires a GGUF path) — this is a deliberately
+    // conservative fallback estimate, not zero cost and not a refusal for missing metadata.
+    internal const long UnknownAdapterSizeEstimateBytes = 512L * 1024 * 1024; // 512 MB
+
+    public SchedulingDecision TryAdmit(RuntimeRoleBinding binding, VramBudget budget)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        ArgumentNullException.ThrowIfNull(budget);
+
+        var lane = binding.Role is RuntimeRole.Boss or RuntimeRole.Reviewer
+            ? SchedulingLane.Interactive
+            : SchedulingLane.Background;
+
+        var requiredBytes = EstimateRequiredBytes(binding);
+        if (requiredBytes <= budget.AvailableBytes)
+            return new SchedulingDecision(Admitted: true, Lane: lane);
+
+        return new SchedulingDecision(
+            Admitted: false,
+            Lane: lane,
+            Reason: $"Requires ~{FormatGb(requiredBytes)}, only {FormatGb(budget.AvailableBytes)} available.");
+    }
+
+    private static long EstimateRequiredBytes(RuntimeRoleBinding binding)
+    {
+        // BaseModel.SizeBytes is null only if ModelDepot ever classified a directory as
+        // BaseModelGguf, which its own scan logic never does (BaseModelGguf is always a single
+        // .gguf file) — defensive fallback to 0 rather than throwing on a value that shouldn't
+        // occur, consistent with this class being a pure decision function that doesn't assume
+        // its inputs are perfectly well-formed.
+        var baseBytes = binding.BaseModel.SizeBytes ?? 0;
+        var adapterBytes = binding.Adapter is null
+            ? 0
+            : binding.Adapter.SizeBytes ?? UnknownAdapterSizeEstimateBytes;
+        return baseBytes + adapterBytes;
+    }
+
+    private static string FormatGb(long bytes) =>
+        $"{bytes / (1024.0 * 1024 * 1024):F1} GB";
+}
