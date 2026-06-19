@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using LLama;
+using LLama.Batched;
 using LLama.Common;
 using OrchestratorIDE.Models;
 
@@ -61,6 +62,23 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         Task.FromResult<List<string>>(_activeModelPath is null
             ? []
             : [Path.GetFileName(_activeModelPath)]);
+
+    /// <summary>
+    /// Phase 3 / AdapterManager seam (RUNTIME_PHASE0_SPEC.md §7a). AdapterManager needs raw
+    /// LLamaWeights + IContextParams to build its own persistent per-role BatchedExecutor
+    /// instances (separate from the StatelessExecutor this runtime uses for StreamCompletionAsync),
+    /// but _weights/_modelParams must stay private to everyone else. This factory is the only
+    /// seam: AdapterManager never touches either field directly, just asks for an executor.
+    /// Internal because OrchestratorIDE.Core.Runtime compiles into the same assembly as
+    /// AdapterManager via &lt;Compile Include&gt; — no InternalsVisibleTo needed.
+    /// </summary>
+    internal BatchedExecutor CreateBatchedExecutor()
+    {
+        if (_weights is null || _modelParams is null)
+            throw new InvalidOperationException(
+                "No model loaded. Call LoadModelAsync before requesting a BatchedExecutor.");
+        return new BatchedExecutor(_weights, _modelParams);
+    }
 
     /// <summary>
     /// NOTE: the <paramref name="model"/> parameter is unused for local runtimes —

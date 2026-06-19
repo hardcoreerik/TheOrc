@@ -92,6 +92,7 @@
     <Compile Include="..\OrchestratorIDE\Core\Runtime\LLamaSharpRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\ModelDepot.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\SessionManager.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\AdapterManager.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentFileGenerator.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentLoop.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentPresets.cs" />
