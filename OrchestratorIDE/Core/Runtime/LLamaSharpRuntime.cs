@@ -111,48 +111,59 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
                 "No model loaded. Call LoadModelAsync before streaming.");
 
         // StatelessExecutor allocates a full KV-cache context per InferAsync call
-        // (see Phase 3 backlog: pool or cache executor per loaded model).
+        // (see Phase 3 backlog: pool or cache executor per loaded model). StatelessExecutor
+        // itself isn't IDisposable, but the native context it owns (.Context) is — confirmed
+        // via reflection during the Stage 1 smoke test (RUNTIME_SWITCH_PLAN.md) after Grok
+        // caught that this was never disposed, leaking native KV-cache memory on every call.
         var executor = new StatelessExecutor(_weights, _modelParams);
-
-        // Build the raw prompt using the GGUF's embedded chat template.
-        // Falls back to ChatML format if the model has no template.
-        var prompt = BuildPrompt(history, tools);
-
-        var inferParams = new InferenceParams
+        try
         {
-            MaxTokens = maxTokens,
-            SamplingPipeline = new LLama.Sampling.DefaultSamplingPipeline { Temperature = (float)temperature },
-            // Common end-of-turn markers across model families
-            AntiPrompts = ["<|user|>", "<|end|>", "<|im_end|>", "[/INST]", "\nUser:", "\nHuman:"],
-        };
+            // Build the raw prompt using the GGUF's embedded chat template.
+            // Falls back to ChatML format if the model has no template.
+            var prompt = BuildPrompt(history, tools);
 
-        var outputBuilder = new StringBuilder();
-        var firstTokenAt = default(DateTime);
-        var started = DateTime.UtcNow;
+            var inferParams = new InferenceParams
+            {
+                MaxTokens = maxTokens,
+                SamplingPipeline = new LLama.Sampling.DefaultSamplingPipeline { Temperature = (float)temperature },
+                // Common end-of-turn markers across model families
+                AntiPrompts = ["<|user|>", "<|end|>", "<|im_end|>", "[/INST]", "\nUser:", "\nHuman:"],
+            };
 
-        await foreach (var token in executor.InferAsync(prompt, inferParams, ct))
-        {
-            if (firstTokenAt == default) firstTokenAt = DateTime.UtcNow;
-            outputBuilder.Append(token);
-            yield return token;
+            var outputBuilder = new StringBuilder();
+            var firstTokenAt = default(DateTime);
+            var started = DateTime.UtcNow;
+
+            await foreach (var token in executor.InferAsync(prompt, inferParams, ct))
+            {
+                if (firstTokenAt == default) firstTokenAt = DateTime.UtcNow;
+                outputBuilder.Append(token);
+                yield return token;
+            }
+
+            // Telemetry — only updated when at least one token arrived (not on pre-first-token cancel).
+            var elapsed = DateTime.UtcNow - started;
+            if (firstTokenAt != default)
+                _lastTimeToFirstToken = firstTokenAt - started;
+            var outputText = outputBuilder.ToString();
+            var completionTokens = ContextManager.EstimateTokens(outputText);
+            if (elapsed.TotalSeconds > 0)
+                _lastTokensPerSecond = completionTokens / elapsed.TotalSeconds;
+
+            // Tool calls: parse from the text output (GBNF constrained decoding is Phase 3).
+            if (onToolCall != null)
+                foreach (var tc in ParseToolCalls(outputText))
+                    onToolCall(tc);
+
+            var promptTokens = ContextManager.EstimateTokens(prompt);
+            onUsage?.Invoke(promptTokens, completionTokens);
         }
-
-        // Telemetry — only updated when at least one token arrived (not on pre-first-token cancel).
-        var elapsed = DateTime.UtcNow - started;
-        if (firstTokenAt != default)
-            _lastTimeToFirstToken = firstTokenAt - started;
-        var outputText = outputBuilder.ToString();
-        var completionTokens = ContextManager.EstimateTokens(outputText);
-        if (elapsed.TotalSeconds > 0)
-            _lastTokensPerSecond = completionTokens / elapsed.TotalSeconds;
-
-        // Tool calls: parse from the text output (GBNF constrained decoding is Phase 3).
-        if (onToolCall != null)
-            foreach (var tc in ParseToolCalls(outputText))
-                onToolCall(tc);
-
-        var promptTokens = ContextManager.EstimateTokens(prompt);
-        onUsage?.Invoke(promptTokens, completionTokens);
+        finally
+        {
+            // Runs even on cancellation or an exception from InferAsync — the native context
+            // must not leak just because the caller cancelled mid-stream.
+            executor.Context.Dispose();
+        }
     }
 
     public RuntimeHealth GetHealth() => new(

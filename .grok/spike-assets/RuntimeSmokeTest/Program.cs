@@ -29,7 +29,14 @@ if (!File.Exists(basePath))
     return 1;
 }
 
-var resultsPath = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "results.log");
+// CurrentDirectory (not AppContext.BaseDirectory + relative ".." arithmetic, which is fragile
+// across dotnet run / dotnet exec / Release / VS launch profiles) -- dotnet run sets this to
+// the project directory by default, which is exactly where a throwaway harness's log belongs.
+// Default name matches what gets committed as evidence (RUNTIME_SWITCH_PLAN.md references this
+// exact filename) -- override via arg[1] or SMOKETEST_RESULTS_FILE if needed.
+var resultsFileName = args.Length > 1 ? args[1]
+    : Environment.GetEnvironmentVariable("SMOKETEST_RESULTS_FILE") ?? "stage1-results.log";
+var resultsPath = Path.Combine(Directory.GetCurrentDirectory(), resultsFileName);
 var results = new System.Text.StringBuilder();
 void Log(string line) { Console.WriteLine(line); results.AppendLine(line); }
 

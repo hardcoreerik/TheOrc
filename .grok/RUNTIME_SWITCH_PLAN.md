@@ -68,9 +68,14 @@ built, not needed for Stage 1/2/3, which use `LLamaSharpRuntime` directly.
 
 ## Stage 1 — Manual smoke test of `LLamaSharpRuntime` itself (no UI changes)
 
-**✅ Done, 2026-06-19. PASSED.** Harness at `.grok/spike-assets/RuntimeSmokeTest/`, raw output
-committed at `stage1-results.log` in that directory. References the real `OrchestratorIDE.dll`
-via `ProjectReference` (not a reimplementation) so this exercised the actual shipped class.
+**✅ Done, 2026-06-19. PASSED — with a precision correction on what "passed" means**, per Grok
+review: this verified `LLamaSharpRuntime`'s source logic (template cache, tool-injection,
+text-format parsing) end-to-end against a real model — it does **not** mean the class is ready
+to ship as-is in product packaging, since the native backend package gap below (found by this
+same run) would block it regardless. Harness at `.grok/spike-assets/RuntimeSmokeTest/`, raw
+output committed at `stage1-results.log` in that directory. References the real
+`OrchestratorIDE.dll` via `ProjectReference` (not a reimplementation) so this exercised the
+actual shipped class.
 
 **Result:**
 1. Plain message, no tools — coherent output: *"Hello, I'm here to assist you, and I'd like to
@@ -82,13 +87,29 @@ via `ProjectReference` (not a reimplementation) so this exercised the actual shi
    the first call, confirming the `_hasEmbeddedTemplate` cache doesn't introduce inconsistency
    on repeat calls.
 
-**One minor cosmetic finding, not a blocker:** both Test 1 and Test 3's output start with a
-stray `"assistant\n\n"` — a role tag leaking into the visible generation, likely from how the
-ChatML fallback (or the embedded template) renders the assistant turn boundary. Doesn't break
-anything downstream (the tool-call parser in Test 2 worked fine despite similar leading text),
-but would look wrong if ever streamed directly into a chat UI without trimming. Worth a small
-follow-up to strip leading role tokens from `StreamCompletionAsync`'s output before Stage 2/3,
-not blocking either.
+**Real bug found and fixed during this run:** `StreamCompletionAsync` created a fresh
+`StatelessExecutor` per call but never disposed it — `StatelessExecutor` itself isn't
+`IDisposable`, but its `.Context` (an `LLamaContext`, confirmed via reflection) is, and owns the
+native KV-cache memory for that call. Every single completion call was leaking it. Caught by
+Grok review of this Stage 1 commit, not by the smoke test itself (the test ran fine 3 times
+without visibly failing — a leak doesn't announce itself on a single short-lived process). Fixed:
+wrapped the executor's lifetime in `try`/`finally`, disposing `executor.Context` even on
+cancellation or an exception from `InferAsync`. Re-ran the smoke test after the fix — identical
+output on all three tests, confirming the fix doesn't change behavior, only stops the leak.
+
+**One real finding, not yet fixed — root cause identified, deferred:** both Test 1 and Test 3's
+output start with a stray `"assistant\n\n"`. Root cause (Grok identified the exact line):
+`BuildChatMLPrompt`'s trailing `sb.Append("<|im_start|>assistant\n")` — standard ChatML priming
+to tell the model where its turn starts. The local Llama-3.2-3B fork used for this test doesn't
+natively use ChatML special tokens (Llama 3.2 uses `<|start_header_id|>`/`<|eot_id|>` instead),
+so its tokenizer doesn't recognize `<|im_start|>` as a control token — it sees literal text, and
+the model "continues" by echoing the priming text back as part of its own output. This is a
+**ChatML-fallback-vs-model-family mismatch**, not a simple stray-character bug — a one-line
+string trim wouldn't fix the underlying cause, and attempting a deeper fix (e.g. detecting model
+family, or buffering+stripping known-prefix patterns from a live token stream) is real,
+non-trivial work that risks introducing new bugs under time pressure. Deliberately not fixed in
+this pass. Doesn't break tool-call parsing (Test 2 tolerated the same leading text fine), but
+will be visible in any UI wiring — worth fixing before Stage 2 puts this in front of a human.
 
 **Real, separate finding this run surfaced:** neither `OrchestratorIDE.csproj` nor
 `OrchestratorIDE.Avalonia.csproj` reference any `LLamaSharp.Backend.*` native package — only the
@@ -99,10 +120,11 @@ same exception in the shipped app today, regardless of Stage 3's call-site decis
 backend package needs to land in `OrchestratorIDE.csproj`/`OrchestratorIDE.Avalonia.csproj`
 before Stage 3 can do anything real, not after. `LLamaSharpRuntime.cs`'s own doc comment already
 flagged this as a known gap ("not bundled here — install via NuGet or system PATH"), but this is
-the first time anything has concretely hit it. **Decision needed before Stage 2/3:** bundle CUDA
-backend only (GPU-required, smaller download surface), CPU backend only (works everywhere,
-slower), or both with a settings-driven choice (more installer complexity, matches how Ollama
-itself handles CPU/GPU today).
+the first time anything has concretely hit it. **Decision needed before Stage 2/3, not optional:**
+bundle CUDA backend only (GPU-required, smaller download surface), CPU backend only (works
+everywhere, slower), or both with a settings-driven choice (more installer complexity, matches
+how Ollama itself handles CPU/GPU today). Until this is decided and shipped, Stage 2's test
+surface and Stage 3's real call-site switch will fail the same way this harness initially did.
 
 ---
 
