@@ -12,6 +12,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using OrchestratorIDE.Core;
+using OrchestratorIDE.Core.Runtime;
 
 namespace OrchestratorIDE.UI.Panels;
 
@@ -42,6 +43,12 @@ public partial class SettingsPanel : UserControl
     private readonly OllamaClient _ollama;
     private AppSettings _current = new();
     private static readonly HttpClient _ghHttp = BuildGitHubClient();
+
+    // Native Runtime telemetry — wraps the existing OllamaClient in the IModelRuntime
+    // abstraction (Phase 0) so this surface costs nothing new: no model-folder config,
+    // no adapter hot-swap, no SessionManager (that's scoped to ILocalModelRuntime /
+    // in-process GGUF sessions, which Ollama is not — it's a thin passthrough client).
+    private OllamaRuntime? _runtimeProbe;
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
@@ -81,6 +88,7 @@ public partial class SettingsPanel : UserControl
             : $"v{current} installed  •  latest: v{known}";
 
         RefreshParallelStatus();
+        _ = RefreshRuntimeStatusAsync();
         SetComboToSlots(s.OllamaParallelSlots > 1
             ? s.OllamaParallelSlots
             : OllamaParallelHelper.DetectCurrentSlots());
@@ -108,6 +116,44 @@ public partial class SettingsPanel : UserControl
         BtnGrabSource.Content                = hasRepo ? "↺  Pull Latest" : "⬇  Grab Source";
         BtnOpenSourceAsWorkspace.IsEnabled   = Directory.Exists(folder);
     }
+
+    /// <summary>
+    /// Native Runtime telemetry surface. Wraps the existing OllamaClient in OllamaRuntime
+    /// and reads IModelRuntime.GetHealth()/GetStats() directly — no model loading, no
+    /// adapter hot-swap, no new config. Read-only proof-of-life for the IModelRuntime
+    /// abstraction landed in Phase 0; will generalize automatically once the active
+    /// backend can be swapped to LlamaCppServerRuntime/LLamaSharpRuntime.
+    /// </summary>
+    private async Task RefreshRuntimeStatusAsync()
+    {
+        try
+        {
+            _runtimeProbe ??= new OllamaRuntime(_ollama);
+
+            await _ollama.IsReachableAsync().ConfigureAwait(true);
+
+            var health = _runtimeProbe.GetHealth();
+            var stats  = _runtimeProbe.GetStats();
+
+            TbRuntimeStatus.Text       = health.IsAvailable ? "Runtime reachable" : "Runtime unavailable";
+            TbRuntimeStatus.Foreground = new SolidColorBrush(Color.Parse(health.IsAvailable ? "#76B900" : "#CC4444"));
+
+            var statsLine = stats.TokensPerSecond is { } tps
+                ? $" · {tps:F1} tok/s"
+                : "";
+            TbRuntimeExplain.Text =
+                $"{health.RuntimeName} · {health.Message ?? "no detail"}{statsLine}";
+        }
+        catch (Exception ex)
+        {
+            TbRuntimeStatus.Text       = "Runtime check failed";
+            TbRuntimeStatus.Foreground = new SolidColorBrush(Color.Parse("#CC4444"));
+            TbRuntimeExplain.Text      = ex.Message;
+        }
+    }
+
+    private async void BtnRefreshRuntimeStatus_Click(object? sender, RoutedEventArgs e) =>
+        await RefreshRuntimeStatusAsync();
 
     private void SetComboToSlots(int slots)
     {

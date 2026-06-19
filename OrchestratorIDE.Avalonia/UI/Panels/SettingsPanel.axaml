@@ -301,6 +301,38 @@
                             ToolTip.Tip="Copies a PowerShell one-liner to restart Ollama with the selected slot count."/>
                 </StackPanel>
 
+                <!-- ── NATIVE RUNTIME (Phase 3 telemetry) ──────────────── -->
+                <TextBlock Text="NATIVE RUNTIME" Classes="SectionHeader" Margin="0,12,0,0"/>
+
+                <Border x:Name="BdrRuntimeStatus"
+                        Background="#141814" CornerRadius="4"
+                        BorderBrush="#2E3A2E" BorderThickness="1"
+                        Padding="12,10" Margin="8,4,8,4">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <TextBlock Text="⬡" Foreground="#76B900" FontSize="10"
+                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock x:Name="TbRuntimeStatus"
+                                       Text="Checking…"
+                                       Foreground="#CCA700" FontSize="11" FontWeight="Bold"/>
+                        </StackPanel>
+                        <TextBlock x:Name="TbRuntimeExplain"
+                                   Foreground="#5A6A4A" FontSize="10"
+                                   TextWrapping="Wrap" LineHeight="16"
+                                   Text="Loading…"/>
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Classes="SettingRow" Orientation="Horizontal">
+                    <Button x:Name="BtnRefreshRuntimeStatus"
+                            Content="↻  Refresh"
+                            Click="BtnRefreshRuntimeStatus_Click"
+                            Background="{StaticResource Br.Bg.Input}"
+                            Foreground="{StaticResource Br.Text.Primary}"
+                            FontSize="11" Padding="8,6"
+                            ToolTip.Tip="Re-probes the active IModelRuntime via SessionManager.GetHealth()/GetStats()"/>
+                </StackPanel>
+
                 <!-- ── WORKSPACE ───────────────────────────────────────── -->
                 <TextBlock Text="WORKSPACE" Classes="SectionHeader" Margin="0,12,0,0"/>
 
