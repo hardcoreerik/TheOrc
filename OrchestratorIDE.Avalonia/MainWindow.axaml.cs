@@ -532,7 +532,6 @@ public partial class MainWindow : Window
 
         if (_settings.HiveWorkerMode && !string.IsNullOrEmpty(_settings.HiveWarchiefUrl))
         {
-            var workerRuntime = BuildModelRuntime(_settings);
             _hiveWorkerAgent = new Services.Hive.HiveWorkerAgent
             {
                 WorkerId        = name,
@@ -544,7 +543,7 @@ public partial class MainWindow : Window
                                     : _settings.HiveWorkerLanes
                                         .Split(',', StringSplitOptions.RemoveEmptyEntries)
                                         .Select(l => l.Trim()).ToArray(),
-                Runtime         = workerRuntime,
+                Runtime         = BuildModelRuntime(),
                 CoderModel      = _settings.LastWorkerModel,
                 ResearcherModel = _settings.LastResearcherModel,
             };
@@ -1648,10 +1647,10 @@ public partial class MainWindow : Window
         return mgr;
     }
 
-    private IModelRuntime BuildModelRuntime(AppSettings s)
-        => s.Backend == InferenceBackend.LlamaCpp && _llamaServer is not null
+    private IModelRuntime BuildModelRuntime() =>
+        _settings.Backend == InferenceBackend.LlamaCpp && _llamaServer is not null
             ? new LlamaCppServerRuntime(_llamaServer)
-            : new OllamaRuntime(new OllamaClient(s.OllamaHost));
+            : new OllamaRuntime(_ollama);
 
     // ── HIVE MIND C2: Apply RPC workers ──────────────────────────────────
 

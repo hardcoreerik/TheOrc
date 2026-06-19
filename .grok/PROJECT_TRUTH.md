@@ -217,7 +217,7 @@ Full spec: `.grok/RUNTIME_PHASE0_SPEC.md`. An orchestration/swarm-aware layer **
 | 0 | `IModelRuntime` + `OllamaRuntime` (wrap existing `OllamaClient`); migrate one call site; zero behavior change | ✅ Landed |
 | 1 | `LlamaCppServerRuntime` — wraps **existing** `LlamaServerManager` | ✅ Landed |
 | 2 | `LLamaSharpRuntime` — in-process GGUF + LoRA; the "no Ollama" win | ✅ Prototype landed (LoRA apply still deferred) |
-| 2.5 | Close abstraction leaks: `HiveWorkerAgent` + reviewer gate still raw `OllamaClient`/HTTP; remote HIVE node clients remain Ollama-only | 🔶 Next — known leaks called out in ROADMAP |
+| 2.5 | Close abstraction leaks: `HiveWorkerAgent` + reviewer gate now use `IModelRuntime`; remote HIVE task-queue/node HTTP remains separate plumbing, not LLM inference | ✅ Closed |
 | 3 | ModelDepot + SessionManager + AdapterManager (boss/worker/reviewer) + telemetry | ⬜ Planned |
 | 4 | `OrcScheduler` — VRAM + lane-aware dispatch, pipeline boss→workers | ⬜ Planned |
 | 5 | Prefix KV cache (research, non-blocking) | ⬜ Research |

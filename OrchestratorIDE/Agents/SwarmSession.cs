@@ -33,6 +33,7 @@ namespace OrchestratorIDE.Agents;
 public class SwarmSession
 {
     private readonly IModelRuntime _ollama;
+    private readonly IModelRuntime _localReviewRuntime;
     private readonly OllamaClient? _ollamaSpecific;
     private readonly string       _bossModel;
     private readonly string       _coderModel;
@@ -94,14 +95,15 @@ public class SwarmSession
     public string          LocalReviewModel      { get; set; } = "qwen2.5-coder:14b";
 
     public SwarmSession(IModelRuntime runtime, string bossModel, string? workspaceRoot,
-        string? workerModel = null, string? researcherModel = null)
+        string? workerModel = null, string? researcherModel = null, IModelRuntime? localReviewRuntime = null)
     {
-        _ollama          = runtime;
-        _ollamaSpecific  = (_ollama as OllamaRuntime)?.Inner;
-        _bossModel       = bossModel;
-        _coderModel      = workerModel     ?? bossModel;
-        _researcherModel = researcherModel ?? _coderModel;
-        _workspaceRoot   = workspaceRoot;
+        _ollama             = runtime;
+        _localReviewRuntime = localReviewRuntime ?? runtime;
+        _ollamaSpecific     = (_ollama as OllamaRuntime)?.Inner;
+        _bossModel          = bossModel;
+        _coderModel         = workerModel     ?? bossModel;
+        _researcherModel    = researcherModel ?? _coderModel;
+        _workspaceRoot      = workspaceRoot;
     }
 
     // ── Paths ─────────────────────────────────────────────────────────────────
@@ -647,7 +649,7 @@ public class SwarmSession
                 try
                 {
                     var localResult = await Services.Swarm.OllamaReviewService.RunAsync(
-                        OutputProjectDir, _workspaceRoot, LocalReviewModel, ct: ct);
+                        OutputProjectDir, _workspaceRoot, _localReviewRuntime, LocalReviewModel, ct: ct);
                     if (localResult is not null)
                     {
                         Activity($"🔍 {label}: {localResult.Verdict} — {localResult.Findings.Count} finding(s)", "boss");
@@ -658,7 +660,10 @@ public class SwarmSession
                     }
                     else
                     {
-                        Activity($"🔍 {label} skipped — Ollama not reachable or model not installed.", "boss");
+                        var message = LocalReviewMode == "Gated"
+                            ? "⚠ Reviewer Gate unavailable or inconclusive — review staged output manually before applying."
+                            : $"🔍 {label} skipped — reviewer runtime unavailable, output empty, or verdict malformed.";
+                        Activity(message, "boss");
                     }
                 }
                 catch (OperationCanceledException) { throw; }

@@ -843,7 +843,13 @@ public partial class SwarmBoardPanel : UserControl
         var swarmOllama = _runOnUrl is null ? Ollama! : new OllamaClient(_runOnUrl);
         if (_runOnUrl is not null)
             OnActivity?.Invoke($"🐝 Running this swarm on {_runOnName} ({_runOnUrl})");
-        _session = new SwarmSession(new OllamaRuntime(swarmOllama), ActiveModel, WorkspaceRoot, coderModel, researcherModel);
+        _session = new SwarmSession(
+            new OllamaRuntime(swarmOllama),
+            ActiveModel,
+            WorkspaceRoot,
+            coderModel,
+            researcherModel,
+            new OllamaRuntime(Ollama!));
 
         // Wire sandbox bypass: show the WPF dialog on the UI thread so the swarm can
         // ask the user to approve out-of-sandbox file/shell operations.

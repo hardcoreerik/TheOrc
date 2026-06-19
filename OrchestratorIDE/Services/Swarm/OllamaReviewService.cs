@@ -1,21 +1,19 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
-using System.Net.Http;
 using System.Text;
-using System.Text.Json;
 using System.Text.RegularExpressions;
+using OrchestratorIDE.Core.Runtime;
+using OrchestratorIDE.Models;
 
 namespace OrchestratorIDE.Services.Swarm;
 
 /// <summary>
-/// Runs the local Ollama reviewer on swarm-staged output files.
+/// Runs the local reviewer on swarm-staged output files.
 /// Returns a GateResult in the same shape as ReviewGateService so the UI
 /// surface (OnGateResult, ShowGateResult) works unchanged.
 /// </summary>
 public static class OllamaReviewService
 {
-    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(600) };
-
     private static readonly Regex FindingRe = new(
         @"^(BLOCKER|MINOR)\s+(\S+):(\d+)\s+[—\-–]+\s+(.+)$",
         RegexOptions.Compiled | RegexOptions.Multiline);
@@ -23,8 +21,8 @@ public static class OllamaReviewService
     public static async Task<ReviewGateService.GateResult?> RunAsync(
         string            stagingDir,
         string            workspaceRoot,
+        IModelRuntime     runtime,
         string            model   = "qwen2.5-coder:14b",
-        string            baseUrl = "http://localhost:11434",
         string            focus   = "",
         CancellationToken ct      = default)
     {
@@ -36,9 +34,10 @@ public static class OllamaReviewService
         if (files.Length == 0) return null;
 
         var content  = await BuildFileContents(stagingDir, files, ct);
-        var prompt   = BuildPrompt(content, focus);
-        var raw      = await CallOllama(baseUrl, model, prompt, ct);
-        if (raw is null) return null;
+        var messages = BuildMessages(content, focus);
+        var raw      = await CallRuntime(runtime, model, messages, ct);
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        if (LooksLikeRuntimeError(raw)) return null;
 
         var reviewDir = Path.Combine(workspaceRoot, ".orc", "reviews");
         Directory.CreateDirectory(reviewDir);
@@ -77,8 +76,18 @@ public static class OllamaReviewService
         return sb.ToString();
     }
 
-    private static string BuildPrompt(string fileContents, string focus) => $"""
-        You are a senior engineer reviewing new code files produced by an AI coding swarm.
+    private static List<AgentMessage> BuildMessages(string fileContents, string focus) =>
+    [
+        new()
+        {
+            Role = MessageRole.System,
+            Content = "You are a senior engineer reviewing new code files produced by an AI coding swarm.",
+            Status = MessageStatus.Complete,
+        },
+        new()
+        {
+            Role = MessageRole.User,
+            Content = $"""
         These are complete new files, not a diff.
         {(string.IsNullOrEmpty(focus) ? "" : $"\nExtra focus: {focus}\n")}
         Check for, in order of severity:
@@ -101,36 +110,27 @@ public static class OllamaReviewService
 
         FILES TO REVIEW:
         {fileContents}
-        """;
+        """,
+            Status = MessageStatus.Complete,
+        },
+    ];
 
-    private static async Task<string?> CallOllama(
-        string baseUrl, string model, string prompt, CancellationToken ct)
+    private static async Task<string?> CallRuntime(
+        IModelRuntime runtime, string model, IReadOnlyList<AgentMessage> messages, CancellationToken ct)
     {
         try
         {
-            var body = JsonSerializer.Serialize(new
-            {
-                model,
-                prompt,
-                stream  = false,
-                options = new { temperature = 0.05, num_ctx = 32768 }
-            });
-
-            var resp = await _http.PostAsync(
-                $"{baseUrl.TrimEnd('/')}/api/generate",
-                new StringContent(body, Encoding.UTF8, "application/json"),
-                ct);
-
-            resp.EnsureSuccessStatusCode();
-            var json = await resp.Content.ReadAsStringAsync(ct);
-            var doc  = JsonDocument.Parse(json);
-            return doc.RootElement.GetProperty("response").GetString();
+            var sb = new StringBuilder();
+            await foreach (var token in runtime.StreamCompletionAsync(
+                model, messages, temperature: 0.05, maxTokens: 8192, ct: ct))
+                sb.Append(token);
+            return sb.ToString();
         }
         catch (OperationCanceledException) { throw; }
         catch { return null; }
     }
 
-    private static ReviewGateService.GateResult ParseVerdict(string raw, string outFile)
+    private static ReviewGateService.GateResult? ParseVerdict(string raw, string outFile)
     {
         var summaryIdx = raw.IndexOf("FINDINGS_SUMMARY:", StringComparison.OrdinalIgnoreCase);
         var searchIn   = summaryIdx >= 0 ? raw[summaryIdx..] : raw;
@@ -142,10 +142,20 @@ public static class OllamaReviewService
                 $"{m.Groups[2].Value}:{m.Groups[3].Value}",
                 m.Groups[4].Value));
 
+        if (findings.Count == 0 &&
+            !Regex.IsMatch(searchIn, @"\bCLEAN\b", RegexOptions.IgnoreCase))
+            return null;
+
         var verdict = findings.Any(f => f.Severity == "BLOCKER") ? ReviewGateService.GateVerdict.Blocker
                     : findings.Any(f => f.Severity == "MINOR")   ? ReviewGateService.GateVerdict.Minor
                     : ReviewGateService.GateVerdict.Clean;
 
         return new ReviewGateService.GateResult(verdict, findings, outFile, raw);
+    }
+
+    private static bool LooksLikeRuntimeError(string raw)
+    {
+        var trimmed = raw.TrimStart();
+        return trimmed.StartsWith("[ERROR", StringComparison.OrdinalIgnoreCase);
     }
 }

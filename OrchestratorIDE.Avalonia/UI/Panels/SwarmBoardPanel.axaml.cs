@@ -321,7 +321,13 @@ public partial class SwarmBoardPanel : UserControl
         _activeTab = "boss";
         SwitchTab("boss");
 
-        _session = new SwarmSession(new OllamaRuntime(Ollama), bossModel, WorkspaceRoot, workerModel, resModel);
+        _session = new SwarmSession(
+            new OllamaRuntime(Ollama),
+            bossModel,
+            WorkspaceRoot,
+            workerModel,
+            resModel,
+            new OllamaRuntime(Ollama));
 
         if (Settings is not null)
         {
