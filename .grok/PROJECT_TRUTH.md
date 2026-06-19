@@ -218,7 +218,7 @@ Full spec: `.grok/RUNTIME_PHASE0_SPEC.md`. An orchestration/swarm-aware layer **
 | 1 | `LlamaCppServerRuntime` — wraps **existing** `LlamaServerManager` | ✅ Landed |
 | 2 | `LLamaSharpRuntime` — in-process GGUF + LoRA; the "no Ollama" win | ✅ Prototype landed (LoRA apply still deferred) |
 | 2.5 | Close abstraction leaks: `HiveWorkerAgent` + reviewer gate now use `IModelRuntime`; remote HIVE task-queue/node HTTP remains separate plumbing, not LLM inference | ✅ Closed |
-| 3 | ModelDepot + SessionManager + AdapterManager (boss/worker/reviewer) + telemetry | 🔶 In progress — ModelDepot, SessionManager, and first telemetry surface (Ollama-only) landed; §7 hot-swap spike CLOSED empirically (separate persistent contexts per role confirmed, not shared-context swap) — see `RUNTIME_PHASE0_SPEC.md` §7; AdapterManager implementation itself and SessionManager-backed telemetry (once a local runtime is wired into the live chat path) still pending |
+| 3 | ModelDepot + SessionManager + AdapterManager (boss/worker/reviewer) + telemetry | 🔶 Near-closed — ModelDepot, SessionManager, AdapterManager, and `RuntimeOrchestrator` (wires all three) landed and Grok-CLEAN; §7 hot-swap spike closed empirically across 2 LoRA samples; first telemetry surface (Ollama-only) landed. Remaining: SessionManager/AdapterManager-backed telemetry (once a local runtime is wired into the live chat path) and actually flipping any live call site over from Ollama |
 | 4 | `OrcScheduler` — VRAM + lane-aware dispatch, pipeline boss→workers | ⬜ Planned |
 | 5 | Prefix KV cache (research, non-blocking) | ⬜ Research |
 
