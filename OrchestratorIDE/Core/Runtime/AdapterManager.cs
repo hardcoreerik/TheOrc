@@ -165,7 +165,16 @@ public sealed class AdapterManager : IAsyncDisposable
 
     // internal (not private): unit-tested directly in AdapterManagerTests — this is the one
     // piece of AdapterManager's logic with no dependency on real LLamaSharp native objects.
-    internal static bool BindingMatches(RuntimeRoleBinding a, RuntimeRoleBinding b) =>
+    // Explicit null checks because internal makes this reachable by any same-assembly caller,
+    // not just the one already-null-checked call site inside GetOrCreateConversationAsync.
+    internal static bool BindingMatches(RuntimeRoleBinding a, RuntimeRoleBinding b)
+    {
+        ArgumentNullException.ThrowIfNull(a);
+        ArgumentNullException.ThrowIfNull(b);
+        return BindingMatchesCore(a, b);
+    }
+
+    private static bool BindingMatchesCore(RuntimeRoleBinding a, RuntimeRoleBinding b) =>
         a.Role == b.Role &&
         string.Equals(a.BaseModel.Path, b.BaseModel.Path, StringComparison.OrdinalIgnoreCase) &&
         string.Equals(a.Adapter?.Path, b.Adapter?.Path, StringComparison.OrdinalIgnoreCase);

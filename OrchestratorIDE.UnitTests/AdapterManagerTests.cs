@@ -12,9 +12,10 @@ namespace OrchestratorIDE.UnitTests;
 /// the LLamaSharp package with no virtual surface, and LLamaSharpRuntime itself is sealed with
 /// no existing test seam — consistent with LLamaSharpRuntime having zero unit tests of its own
 /// in this codebase today (its native paths are verified by the §7 spike harness at
-/// .grok/spike-assets/HotSwapSpike/, not NUnit). This file covers the logic that genuinely has
-/// no native dependency: BindingMatches' comparison semantics, and the null-argument guards that
-/// run before any native object is touched.
+/// .grok/spike-assets/HotSwapSpike/, not NUnit). This file covers the logic that doesn't
+/// require loading a real model: BindingMatches' comparison semantics, and the null-argument
+/// guards that run before any model loading occurs (constructing an unloaded LLamaSharpRuntime
+/// is cheap and touches no GGUF file — only LoadModelAsync does).
 /// </summary>
 [TestFixture]
 public sealed class AdapterManagerTests
@@ -26,7 +27,8 @@ public sealed class AdapterManagerTests
     [Test]
     public async Task CreateConversationAsync_Throws_When_Binding_Is_Null()
     {
-        await using var manager = new AdapterManager(new LLamaSharpRuntime());
+        await using var runtime = new LLamaSharpRuntime();
+        await using var manager = new AdapterManager(runtime);
 
         Assert.ThrowsAsync<ArgumentNullException>(
             async () => await manager.CreateConversationAsync(null!));
@@ -35,7 +37,8 @@ public sealed class AdapterManagerTests
     [Test]
     public async Task RebindRoleAsync_Throws_When_Binding_Is_Null()
     {
-        await using var manager = new AdapterManager(new LLamaSharpRuntime());
+        await using var runtime = new LLamaSharpRuntime();
+        await using var manager = new AdapterManager(runtime);
 
         Assert.ThrowsAsync<ArgumentNullException>(
             async () => await manager.RebindRoleAsync(null!));
