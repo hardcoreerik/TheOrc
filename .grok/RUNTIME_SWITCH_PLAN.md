@@ -68,26 +68,41 @@ built, not needed for Stage 1/2/3, which use `LLamaSharpRuntime` directly.
 
 ## Stage 1 — Manual smoke test of `LLamaSharpRuntime` itself (no UI changes)
 
-**Goal:** prove `LLamaSharpRuntime.StreamCompletionAsync` works end-to-end before trusting it
-anywhere a user can see it.
+**✅ Done, 2026-06-19. PASSED.** Harness at `.grok/spike-assets/RuntimeSmokeTest/`, raw output
+committed at `stage1-results.log` in that directory. References the real `OrchestratorIDE.dll`
+via `ProjectReference` (not a reimplementation) so this exercised the actual shipped class.
 
-**How:** a throwaway console harness, same shape as `.grok/spike-assets/HotSwapSpike/` —
-construct a real `LLamaSharpRuntime`, call `LoadModelAsync` on a local GGUF (the
-Llama-3.2-3B-Instruct fork already on disk works fine), then call `StreamCompletionAsync` with:
-1. A plain message, no tools — confirm streamed text comes back coherent.
-2. A message + a tool definition — confirm the system-prompt tool-injection block renders
-   correctly and the model's text-format tool-call output gets parsed by `ParseToolCalls`.
-3. Run it twice in the same process — confirm the `_hasEmbeddedTemplate` cache behaves (second
-   call should skip the template-probe try/catch if the first call cached `false`).
+**Result:**
+1. Plain message, no tools — coherent output: *"Hello, I'm here to assist you, and I'd like to
+   mention the color blue."* `GetStats()`: 41.2 tok/s, 343ms TTFT — plausible.
+2. Message + a `get_weather` tool definition — model correctly emitted a text-format tool call
+   and `ParseToolCalls` correctly extracted it: `get_weather(city=Tokyo)`. The tool-injection
+   block and text-format parsing both work end-to-end against a real model, for the first time.
+3. Second `StreamCompletionAsync` call with the same input — byte-for-byte identical output to
+   the first call, confirming the `_hasEmbeddedTemplate` cache doesn't introduce inconsistency
+   on repeat calls.
 
-**Pass criteria:** coherent streamed output, at least one tool call correctly parsed out of
-model text, no exceptions, `GetStats()` reports plausible `TokensPerSecond`/`LastTimeToFirstToken`.
+**One minor cosmetic finding, not a blocker:** both Test 1 and Test 3's output start with a
+stray `"assistant\n\n"` — a role tag leaking into the visible generation, likely from how the
+ChatML fallback (or the embedded template) renders the assistant turn boundary. Doesn't break
+anything downstream (the tool-call parser in Test 2 worked fine despite similar leading text),
+but would look wrong if ever streamed directly into a chat UI without trimming. Worth a small
+follow-up to strip leading role tokens from `StreamCompletionAsync`'s output before Stage 2/3,
+not blocking either.
 
-**Out of scope for this stage:** AdapterManager, SessionManager, RuntimeOrchestrator — this is
-`LLamaSharpRuntime` in isolation, the same way the §7 spike isolated `BatchedExecutor`. Don't
-conflate "the orchestration layer is wired correctly" (already verified by review) with "the
-runtime class actually generates correct output" (not yet verified at all) — they're different
-risks and this stage is only the second one.
+**Real, separate finding this run surfaced:** neither `OrchestratorIDE.csproj` nor
+`OrchestratorIDE.Avalonia.csproj` reference any `LLamaSharp.Backend.*` native package — only the
+managed `LLamaSharp` package. The harness failed immediately on `LoadModelAsync` with `"The type
+initializer for 'LLama.Native.NativeApi' threw an exception"` until `LLamaSharp.Backend.Cuda12.Windows`
+was added to the harness's own `.csproj`. **This means `LLamaSharpRuntime` would fail with the
+same exception in the shipped app today, regardless of Stage 3's call-site decision** — the
+backend package needs to land in `OrchestratorIDE.csproj`/`OrchestratorIDE.Avalonia.csproj`
+before Stage 3 can do anything real, not after. `LLamaSharpRuntime.cs`'s own doc comment already
+flagged this as a known gap ("not bundled here — install via NuGet or system PATH"), but this is
+the first time anything has concretely hit it. **Decision needed before Stage 2/3:** bundle CUDA
+backend only (GPU-required, smaller download surface), CPU backend only (works everywhere,
+slower), or both with a settings-driven choice (more installer complexity, matches how Ollama
+itself handles CPU/GPU today).
 
 ---
 
