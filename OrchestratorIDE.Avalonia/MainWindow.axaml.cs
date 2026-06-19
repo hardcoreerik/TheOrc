@@ -35,6 +35,7 @@ public partial class MainWindow : Window
     private readonly RulesLoader        _rules;
     private readonly AgentLoop          _loop;
     private readonly SessionStore       _store;
+    private readonly UnavailableFeatureRouter _unavailable;
     private          LlamaServerManager?  _llamaServer;
     private          ModelStatusService?  _modelStatus;
     private          Services.Hive.HiveBeacon?      _hiveBeacon;
@@ -120,6 +121,7 @@ public partial class MainWindow : Window
         _git       = new GitCheckpoint();
         _rules     = new RulesLoader();
         _store     = new SessionStore();
+        _unavailable = new UnavailableFeatureRouter(AddActivity);
         _loop      = new AgentLoop(new OllamaRuntime(_ollama), _registry, _context, _git, _rules);
 
         _session = new ProjectSession
@@ -437,9 +439,10 @@ public partial class MainWindow : Window
         // First-run wizard (Phase 4 dialog — skipped until ported)
         if (!_settings.FirstRunComplete && !cliArgs.Contains("--autoapprove"))
         {
-            AddActivity(new ActivityEvent(ActivityKind.Info, "First Run",
-                "First-run wizard not yet ported (Phase 4). Edit .agent.md manually or via Agent → Workspace Rules.",
-                DateTime.Now));
+            _unavailable.Report(
+                "First Run",
+                "First-run wizard",
+                "Edit .agent.md manually or via Agent -> Workspace Rules.");
         }
 
         InitDataLayer(_session.WorkspaceRoot);
@@ -657,9 +660,10 @@ public partial class MainWindow : Window
 
     public async Task RegenerateAgentFileAsync()
     {
-        // FirstRunWindow not yet ported in Phase 4 — log stub
-        AddActivity(new ActivityEvent(ActivityKind.Info, "Agent File",
-            "FirstRunWindow not yet ported (Phase 4) — edit .agent.md directly to regenerate.", DateTime.Now));
+        _unavailable.Report(
+            "Agent File",
+            "FirstRunWindow",
+            "Edit .agent.md directly to regenerate.");
         await Task.CompletedTask;
     }
 
@@ -776,14 +780,10 @@ public partial class MainWindow : Window
 
     private void RegisterAskUserTool()
     {
-        // UserInputDialog not yet ported (Phase 4) — return an error the agent treats as a failure
-        // so it does NOT proceed with fabricated input (fail-safe, not fail-open).
         _registry.OnAskUser = async (question, ct) =>
         {
-            AddActivity(new ActivityEvent(ActivityKind.Warning, "ask_user",
-                $"ask_user blocked (UI dialog not yet ported): {question}", DateTime.Now));
             await Task.CompletedTask;
-            return "[ERROR: ask_user is unavailable in this build — user input dialog not yet ported. Do not proceed with this step.]";
+            return _unavailable.BlockAskUser(question);
         };
 
         _registry.Register(new ToolDefinition
@@ -1948,16 +1948,15 @@ public partial class MainWindow : Window
 
     private void OpenWorkspaceRules()
     {
-        // AgentBuilderDialog not yet ported (Phase 4)
-        AddActivity(new ActivityEvent(ActivityKind.Info, "Workspace Rules",
-            "AgentBuilderDialog not yet ported (Phase 4) — edit .agent.md directly.", DateTime.Now));
+        _unavailable.Report(
+            "Workspace Rules",
+            "AgentBuilderDialog",
+            "Edit .agent.md directly.");
     }
 
     private void OpenGlobalAgentPicker()
     {
-        // AgentBuilderDialog not yet ported (Phase 4)
-        AddActivity(new ActivityEvent(ActivityKind.Info, "Global Agent",
-            "AgentBuilderDialog not yet ported (Phase 4).", DateTime.Now));
+        _unavailable.Report("Global Agent", "AgentBuilderDialog");
     }
 
     private void HandleAgentBuilderResult(object target) { /* stubs for post-Phase 4 wire-up */ }
@@ -1982,9 +1981,7 @@ public partial class MainWindow : Window
 
     private void Menu_ModelDownload(object? sender, RoutedEventArgs e)
     {
-        // ModelDownloaderWindow not yet ported (Phase 4)
-        AddActivity(new ActivityEvent(ActivityKind.Info, "Models",
-            "ModelDownloaderWindow not yet ported (Phase 4).", DateTime.Now));
+        _unavailable.Report("Models", "ModelDownloaderWindow");
     }
 
     private async void Menu_WarmUp(object? sender, RoutedEventArgs e)
@@ -2013,30 +2010,22 @@ public partial class MainWindow : Window
 
     private void Menu_ModelLibrary(object? sender, RoutedEventArgs e)
     {
-        // ModelLibraryWindow not yet ported (Phase 4)
-        AddActivity(new ActivityEvent(ActivityKind.Info, "Models",
-            "ModelLibraryWindow not yet ported (Phase 4).", DateTime.Now));
+        _unavailable.Report("Models", "ModelLibraryWindow");
     }
 
     private void Menu_ModelWiki(object? sender, RoutedEventArgs e)
     {
-        // ModelWikiWindow not yet ported (Phase 4)
-        AddActivity(new ActivityEvent(ActivityKind.Info, "Models",
-            "ModelWikiWindow not yet ported (Phase 4).", DateTime.Now));
+        _unavailable.Report("Models", "ModelWikiWindow");
     }
 
     private void Menu_RunModelCapabilityTest(object? sender, RoutedEventArgs e)
     {
-        // ModelCapabilityTestDialog not yet ported (Phase 4)
-        AddActivity(new ActivityEvent(ActivityKind.Info, "Models",
-            "ModelCapabilityTestDialog not yet ported (Phase 4).", DateTime.Now));
+        _unavailable.Report("Models", "ModelCapabilityTestDialog");
     }
 
     private void Menu_RunToolProbe(object? sender, RoutedEventArgs e)
     {
-        // ToolCallTestWindow not yet ported (Phase 4)
-        AddActivity(new ActivityEvent(ActivityKind.Info, "Models",
-            "ToolCallTestWindow not yet ported (Phase 4).", DateTime.Now));
+        _unavailable.Report("Models", "ToolCallTestWindow");
     }
 
     // ── Menu handlers — Help ──────────────────────────────────────────────
