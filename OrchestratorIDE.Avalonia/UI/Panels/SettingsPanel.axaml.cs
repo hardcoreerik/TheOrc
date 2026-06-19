@@ -303,6 +303,61 @@ public partial class SettingsPanel : UserControl
             TbDefaultWorkspace.Text = folders[0].Path.LocalPath;
     }
 
+    // ── Model Depot scan (Phase 3 — local discovery only, no model loading) ──────
+
+    private async void BtnBrowseDepotScanFolder_Click(object? sender, RoutedEventArgs e)
+    {
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
+        var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(
+            new FolderPickerOpenOptions { Title = "Choose folder to scan for GGUF/LoRA files", AllowMultiple = false });
+        if (folders.Count > 0)
+            TbDepotScanFolder.Text = folders[0].Path.LocalPath;
+    }
+
+    private void BtnScanDepot_Click(object? sender, RoutedEventArgs e)
+    {
+        var folder = TbDepotScanFolder.Text?.Trim() ?? "";
+        if (string.IsNullOrEmpty(folder))
+        {
+            TbDepotResults.Text = "Enter or browse to a folder first.";
+            return;
+        }
+
+        var depot = ModelDepot.Scan(folder);
+        var sb = new StringBuilder();
+
+        if (depot.Assets.Count == 0)
+        {
+            sb.AppendLine("No GGUF files or PEFT adapter directories found under this folder.");
+        }
+        else
+        {
+            var byKind = depot.Assets
+                .GroupBy(a => a.Kind)
+                .OrderBy(g => g.Key);
+            foreach (var group in byKind)
+                sb.AppendLine($"{group.Key}: {group.Count()}");
+
+            sb.AppendLine();
+            foreach (var role in Enum.GetValues<RuntimeRole>())
+            {
+                var binding = depot.ResolveRole(role);
+                if (binding is null)
+                {
+                    sb.AppendLine($"{role}: no base model resolved");
+                }
+                else
+                {
+                    var adapterText = binding.Adapter is null ? "(no adapter)" : binding.Adapter.DisplayName;
+                    sb.AppendLine($"{role}: {binding.BaseModel.DisplayName} + {adapterText}");
+                }
+            }
+        }
+
+        TbDepotResults.Text = sb.ToString().TrimEnd();
+    }
+
     // ── Install folder links ──────────────────────────────────────────────────
 
     private void BtnOpenInstallFolder_Click(object? sender, RoutedEventArgs e)

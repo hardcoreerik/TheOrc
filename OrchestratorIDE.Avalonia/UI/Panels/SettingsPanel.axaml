@@ -333,6 +333,44 @@
                             ToolTip.Tip="Re-probes the active IModelRuntime (OllamaRuntime) via GetHealth()/GetStats()"/>
                 </StackPanel>
 
+                <!-- ── MODEL DEPOT (Phase 3 — local GGUF/LoRA discovery, no model loading) ── -->
+                <TextBlock Text="MODEL DEPOT" Classes="SectionHeader" Margin="0,12,0,0"/>
+
+                <StackPanel Classes="SettingRow">
+                    <TextBlock Text="Scan Folder" Classes="SettingLabel"/>
+                    <TextBlock Text="Local-only — ModelDepot.Scan() finds GGUF/LoRA files, never downloads or loads any model"
+                               Classes="SettingHint"/>
+                    <Grid ColumnDefinitions="*,32">
+                        <TextBox x:Name="TbDepotScanFolder"
+                                 Grid.Column="0" Classes="SettingInput"/>
+                        <Button Grid.Column="1" Content="…" Margin="4,0,0,0"
+                                Background="{StaticResource Br.Bg.Input}"
+                                Foreground="{StaticResource Br.Text.Primary}"
+                                FontSize="12" Click="BtnBrowseDepotScanFolder_Click"/>
+                    </Grid>
+                </StackPanel>
+
+                <StackPanel Classes="SettingRow" Orientation="Horizontal">
+                    <Button x:Name="BtnScanDepot"
+                            Content="🔍  Scan"
+                            Click="BtnScanDepot_Click"
+                            Background="{StaticResource Br.Bg.Input}"
+                            Foreground="{StaticResource Br.Text.Primary}"
+                            FontSize="11" Padding="8,6"
+                            ToolTip.Tip="Runs ModelDepot.Scan() against the folder above — instant, no GPU/VRAM cost"/>
+                </StackPanel>
+
+                <Border x:Name="BdrDepotResults"
+                        Background="#141814" CornerRadius="4"
+                        BorderBrush="#2E3A2E" BorderThickness="1"
+                        Padding="12,10" Margin="8,4,8,4">
+                    <TextBlock x:Name="TbDepotResults"
+                               Text="Not scanned yet."
+                               Foreground="#5A6A4A" FontSize="10"
+                               TextWrapping="Wrap" LineHeight="16"
+                               FontFamily="Consolas, 'Cascadia Code', monospace"/>
+                </Border>
+
                 <!-- ── WORKSPACE ───────────────────────────────────────── -->
                 <TextBlock Text="WORKSPACE" Classes="SectionHeader" Margin="0,12,0,0"/>
 
