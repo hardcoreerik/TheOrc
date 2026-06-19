@@ -230,35 +230,57 @@ never touches `_weights`/`_modelParams` directly, it just asks for an executor. 
 `OrchestratorIDE.Core.Runtime` files compile into `OrchestratorIDE.Avalonia.dll` via `<Compile Include>`
 (not a separate referenced assembly), `internal` is sufficient — no `InternalsVisibleTo` needed.
 
-**Core API surface (revised after Grok BLOCKER on the first draft — see below):**
+**Core API surface (revised twice — once after a design-review BLOCKER, again after 3 more
+BLOCKERs surfaced once the design was actually implemented and reviewed against real code):**
 
 The first draft returned a long-lived `RoleContext` handle from `GetOrCreateContextAsync`,
-which a caller could keep past a `RebindRoleAsync` teardown and crash on stale use (Grok
-caught this). Fixed by removing the long-lived handle entirely — `AdapterManager` never hands
-out anything that can outlive a rebind. Callers ask for a `Conversation` fresh every time they
-need one; the lookup-or-create and the conversation creation happen atomically under one lock,
-so a concurrent rebind can never race a caller into using a torn-down executor.
+which a caller could keep past a `RebindRoleAsync` teardown and crash on stale use. Fixed by
+removing that handle — but the *second* draft (returning a bare `Conversation`) had a subtler
+version of the same bug: a `Conversation` itself holds a reference to its owning executor, and
+nothing stopped a concurrent `RebindRoleAsync` from disposing that executor while a caller was
+still actively using a `Conversation` it had already received and the lock had already been
+released for. Atomicity of the *lookup-or-create decision* is not the same as atomicity of
+*use* — the implementation review caught this. Fixed by reference-counting: `CreateConversationAsync`
+returns a `TrackedConversation` wrapper that increments the role's active-use count on creation
+and decrements it on `Dispose()`; `RebindRoleAsync` throws `InvalidOperationException` rather
+than tearing down an executor with any outstanding `TrackedConversation`, instead of silently
+proceeding. A second implementation-review BLOCKER: `LLamaSharpRuntime.LoadModelAsync` always
+disposes the previous `LLamaWeights` before loading new ones — every `RoleEntry` built from the
+old weights is now dangling, not just whichever role happens to be requested next, and
+path-based `BindingMatches` can't detect a same-path reload. Fixed with a `WeightsGeneration`
+counter on `LLamaSharpRuntime` (bumped on every load/unload) that `AdapterManager` checks on
+every call, invalidating all entries if the generation changed. A third: `LoraAdapter` is not
+`IDisposable` — it has an explicit `Unload()` method that must be called or the native handle
+leaks on every rebuild; fixed by storing it in `RoleEntry` and calling `Unload()` alongside
+`executor.Dispose()`.
 
 ```csharp
 public sealed class AdapterManager : IAsyncDisposable
 {
-    // Atomically resolves-or-creates the role's persistent BatchedExecutor, then returns a
-    // FRESH Conversation on it. Never returns the executor or context itself — nothing here
-    // can outlive a later RebindRoleAsync teardown, because nothing long-lived is handed out.
-    // Adapter (if any) is loaded via weights.NativeHandle.LoadLoraFromFile(...) and attached
-    // via executor.Context.NativeHandle.SetLoraAdapters(...) exactly once, at executor creation
-    // — matching the §7 harness call path exactly, never called again on that executor.
-    public Task<Conversation> CreateConversationAsync(
+    // Atomically resolves-or-creates the role's persistent BatchedExecutor (after checking
+    // WeightsGeneration hasn't changed since last seen), then returns a reference-counted
+    // TrackedConversation. Adapter (if any) is loaded via weights.NativeHandle.LoadLoraFromFile(...)
+    // and attached via executor.Context.NativeHandle.SetLoraAdapters(...) exactly once, at
+    // executor creation — matching the §7 harness call path exactly, never called again on
+    // that executor.
+    public Task<TrackedConversation> CreateConversationAsync(
         RuntimeRoleBinding binding, CancellationToken ct = default);
 
-    // If binding.Adapter differs from what the role's current executor was built with,
-    // disposes the old BatchedExecutor and builds a fresh one before creating the
-    // Conversation — per §7, there is no safe in-place adapter change on a live context,
-    // so this is always teardown+rebuild, never a SetLoraAdapters call on existing state.
-    public Task<Conversation> RebindRoleAsync(
+    // Throws InvalidOperationException if the role's current executor has any outstanding
+    // TrackedConversation — callers must dispose them first. Otherwise disposes the old
+    // executor (and Unload()s its LoraAdapter) and builds a fresh one. Per §7, there is no
+    // safe in-place adapter change on a live context, so this is always teardown+rebuild.
+    public Task<TrackedConversation> RebindRoleAsync(
         RuntimeRoleBinding newBinding, CancellationToken ct = default);
 
     public ValueTask DisposeAsync(); // disposes every role's BatchedExecutor/context
+}
+
+// Caller must Dispose() this when done with the conversation — until then, RebindRoleAsync
+// for the owning role will refuse to tear down the executor it came from.
+public sealed class TrackedConversation : IDisposable
+{
+    public Conversation Inner { get; }
 }
 ```
 

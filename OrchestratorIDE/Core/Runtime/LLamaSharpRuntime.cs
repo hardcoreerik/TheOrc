@@ -81,6 +81,14 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     }
 
     /// <summary>
+    /// Bumped every time _weights is reassigned (new load or unload via DisposeAsync).
+    /// AdapterManager compares this against the generation it built its executors against —
+    /// a model reload disposes the previous LLamaWeights, so every BatchedExecutor built from
+    /// the old weights is now dangling and must be invalidated, not just the role being asked for.
+    /// </summary>
+    internal int WeightsGeneration { get; private set; }
+
+    /// <summary>
     /// NOTE: the <paramref name="model"/> parameter is unused for local runtimes —
     /// inference always runs against the GGUF loaded by LoadModelAsync.
     /// This matches the IModelRuntime contract where local implementations
@@ -198,6 +206,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             _modelParams      = mp;
             _activeModelPath  = baseGgufPath;
             _activeAdapterPath = adapterPath;
+            WeightsGeneration++;
 
             // Fix #3: do not claim adapter is active — LoRA is not applied in Phase 2.
             var detail = adapterPath is not null
@@ -231,6 +240,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
 
     public ValueTask DisposeAsync()
     {
+        var hadWeights = _weights is not null;
         _weights?.Dispose();
         _weights              = null;
         _modelParams          = null;
@@ -239,6 +249,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         _lastTokensPerSecond  = null;
         _lastTimeToFirstToken = null;
         _hasEmbeddedTemplate  = null;
+        if (hadWeights) WeightsGeneration++;
         return ValueTask.CompletedTask;
     }
 
