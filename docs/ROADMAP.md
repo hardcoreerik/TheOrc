@@ -425,7 +425,7 @@ Warchief (GUI)  ──→  Warband 1 (linux-x64, Vast.ai GPU)
 | **1** | `LlamaCppServerRuntime` — wraps the **existing** `LlamaServerManager` + `InferenceBackend.LlamaCpp`. | ✅ Landed — server lifecycle and HTTP routing exist behind the runtime interface. | Low |
 | **2** | `LLamaSharpRuntime` — in-process GGUF streaming, embedded-template probing, stats, shared text tool-call parsing. | ⚠️ Prototype landed — useful for validation, not production/default. LoRA hot-swap, backend install flow, and full runtime selection are not complete. | Med |
 | **2.5** | Close abstraction leaks from the first migration. | ✅ Closed for `HiveWorkerAgent` and reviewer inference — both use `IModelRuntime`; SwarmSession's Ollama-specific eviction escape hatch and remote HIVE task-queue/node HTTP remain separate follow-up plumbing. | Med |
-| **3** | `ModelDepot` (local registry first; downloader later), `SessionManager` (persistent base model), `AdapterManager` (boss/worker/reviewer LoRAs), telemetry. | 🔶 Started — local-only ModelDepot registry landed; SessionManager, AdapterManager, and telemetry pending. | Med-High |
+| **3** | `ModelDepot` (local registry first; downloader later), `SessionManager` (persistent base model), `AdapterManager` (boss/worker/reviewer LoRAs), telemetry. | 🔶 Started — local-only ModelDepot registry and SessionManager base-load coordinator landed; AdapterManager and telemetry UI pending. | Med-High |
 | **4** | `OrcScheduler` — capability + VRAM + lane-aware dispatch; pipeline boss→workers. | ⬜ Not started | High |
 | **5** | *(Research, non-blocking)* prefix KV cache for the shared warband prompt; multi-LoRA cache experiments. | ⬜ Research | Research |
 
