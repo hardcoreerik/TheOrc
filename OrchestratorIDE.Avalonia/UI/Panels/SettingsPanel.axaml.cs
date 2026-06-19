@@ -130,7 +130,9 @@ public partial class SettingsPanel : UserControl
         {
             _runtimeProbe ??= new OllamaRuntime(_ollama);
 
-            await _ollama.IsReachableAsync().ConfigureAwait(true);
+            // Must call the runtime wrapper's IsReachableAsync, not the raw client's —
+            // OllamaRuntime.GetHealth() reads _lastKnownReachable, which only this call updates.
+            await _runtimeProbe.IsReachableAsync().ConfigureAwait(true);
 
             var health = _runtimeProbe.GetHealth();
             var stats  = _runtimeProbe.GetStats();

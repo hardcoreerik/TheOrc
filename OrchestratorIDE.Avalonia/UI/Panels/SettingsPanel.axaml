@@ -330,7 +330,7 @@
                             Background="{StaticResource Br.Bg.Input}"
                             Foreground="{StaticResource Br.Text.Primary}"
                             FontSize="11" Padding="8,6"
-                            ToolTip.Tip="Re-probes the active IModelRuntime via SessionManager.GetHealth()/GetStats()"/>
+                            ToolTip.Tip="Re-probes the active IModelRuntime (OllamaRuntime) via GetHealth()/GetStats()"/>
                 </StackPanel>
 
                 <!-- ── WORKSPACE ───────────────────────────────────────── -->
