@@ -80,13 +80,15 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         return new BatchedExecutor(_weights, _modelParams);
     }
 
-    /// <summary>
-    /// Bumped every time _weights is reassigned (new load or unload via DisposeAsync).
-    /// AdapterManager compares this against the generation it built its executors against —
-    /// a model reload disposes the previous LLamaWeights, so every BatchedExecutor built from
-    /// the old weights is now dangling and must be invalidated, not just the role being asked for.
-    /// </summary>
-    internal int WeightsGeneration { get; private set; }
+    // Bumped every time _weights is reassigned (new load or unload via DisposeAsync).
+    // AdapterManager compares this against the generation it built its executors against —
+    // a model reload disposes the previous LLamaWeights, so every BatchedExecutor built from
+    // the old weights is now dangling and must be invalidated, not just the role being asked for.
+    // volatile (not a plain auto-property — C# disallows volatile on those) because
+    // AdapterManager reads this from its own lock, not LLamaSharpRuntime's; without it, a
+    // reader thread isn't guaranteed to observe a writer thread's increment promptly.
+    private volatile int _weightsGeneration;
+    internal int WeightsGeneration => _weightsGeneration;
 
     /// <summary>
     /// NOTE: the <paramref name="model"/> parameter is unused for local runtimes —
@@ -206,7 +208,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             _modelParams      = mp;
             _activeModelPath  = baseGgufPath;
             _activeAdapterPath = adapterPath;
-            WeightsGeneration++;
+            Interlocked.Increment(ref _weightsGeneration);
 
             // Fix #3: do not claim adapter is active — LoRA is not applied in Phase 2.
             var detail = adapterPath is not null
@@ -249,7 +251,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         _lastTokensPerSecond  = null;
         _lastTimeToFirstToken = null;
         _hasEmbeddedTemplate  = null;
-        if (hadWeights) WeightsGeneration++;
+        if (hadWeights) Interlocked.Increment(ref _weightsGeneration);
         return ValueTask.CompletedTask;
     }
 

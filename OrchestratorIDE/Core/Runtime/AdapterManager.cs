@@ -15,18 +15,27 @@ namespace OrchestratorIDE.Core.Runtime;
 /// adapters on a live context with populated KV cache is silent and unsafe; the only safe
 /// path is teardown+rebuild, which is what <see cref="RebindRoleAsync"/> does explicitly.
 ///
-/// Two safety properties added after the first Grok review pass on the implementation:
-/// 1. Conversations are reference-counted per role. RebindRoleAsync refuses (throws) to tear
-///    down a role's executor while any conversation from it is still outstanding — the first
-///    draft only guarded the lookup-or-create decision, not concurrent *use* of an already
-///    -returned Conversation racing a rebind on another thread.
+/// Safety properties added across two Grok review passes on the implementation (not just the
+/// design — several of these only surface once real exception/concurrency paths exist):
+/// 1. Conversations are reference-counted per role (<see cref="TrackedConversation"/>).
+///    RebindRoleAsync refuses (throws) to tear down a role's executor while any conversation
+///    from it is still outstanding.
 /// 2. A weights-generation check: LLamaSharpRuntime.LoadModelAsync always disposes the
-///    previous LLamaWeights before loading new ones. If that happens while AdapterManager
-///    holds executors built from the old weights, every one of them is now dangling — not
-///    just whichever role is next requested. Every call compares the runtime's current
-///    generation against the one this manager last saw and invalidates all entries if it
-///    changed, rather than relying on per-role path comparison (which can't detect a same
-///    -path reload).
+///    previous LLamaWeights before loading new ones, which would dangle every existing
+///    RoleEntry, not just whichever role is next requested. Every call compares the runtime's
+///    current generation against the one last seen and invalidates all entries if it changed.
+/// 3. The active-conversation counter only increments after executor.Create() succeeds, and
+///    only decrements inside a finally — so a throw on either side can never leave the count
+///    permanently elevated (which would otherwise lock a role out of RebindRoleAsync forever).
+/// 4. Building a new executor (CreateBatchedExecutor + LoadLoraFromFile + SetLoraAdapters) is
+///    wrapped so a failure partway through disposes/unloads whatever was already created
+///    instead of leaking it.
+/// 5. The internal gate (SemaphoreSlim) is intentionally never disposed. Disposing it from
+///    DisposeAsync while another thread might be mid-WaitAsync (queued before disposal began)
+///    risks that thread's own `finally { _gate.Release() }` throwing ObjectDisposedException
+///    against a semaphore that was disposed out from under it. SemaphoreSlim has no unmanaged
+///    wait-handle cost unless AvailableWaitHandle is requested (never is, here), so leaving it
+///    for GC is the standard, safe tradeoff — not an oversight.
 /// </summary>
 public sealed class AdapterManager : IAsyncDisposable
 {
@@ -86,18 +95,7 @@ public sealed class AdapterManager : IAsyncDisposable
                 stale.DisposeNative();
             }
 
-            var executor = _runtime.CreateBatchedExecutor();
-            LoraAdapter? lora = null;
-            if (binding.Adapter is not null)
-            {
-                // Matches the §7 harness call path exactly: weights.NativeHandle.LoadLoraFromFile
-                // + executor.Context.NativeHandle.SetLoraAdapters, attached once, at creation.
-                lora = executor.Model.NativeHandle.LoadLoraFromFile(binding.Adapter.Path);
-                executor.Context.NativeHandle.SetLoraAdapters(
-                    new (LoraAdapter Adapter, float Scale)[] { (lora, 1.0f) });
-            }
-
-            var entry = new RoleEntry(executor, lora, binding);
+            var entry = BuildRoleEntry(binding);
             _entries[binding.Role] = entry;
             return entry.CreateTrackedConversation();
         }
@@ -113,9 +111,9 @@ public sealed class AdapterManager : IAsyncDisposable
     /// not just whichever role is being requested — must be dropped. Entries with outstanding
     /// conversations are dropped from tracking anyway (their underlying native weights are
     /// already gone at this point; there is nothing left to safely wait for or drain), so this
-    /// is logged as a best-effort cleanup, not a guarantee that in-flight callers won't fault.
-    /// Callers are responsible for draining role usage before triggering a model reload
-    /// elsewhere in the app — AdapterManager cannot retroactively make a dead native handle safe.
+    /// is best-effort cleanup, not a guarantee that in-flight callers won't fault. Callers are
+    /// responsible for draining role usage before triggering a model reload elsewhere in the
+    /// app — AdapterManager cannot retroactively make a dead native handle safe.
     /// </summary>
     private void InvalidateIfRuntimeReloaded()
     {
@@ -124,7 +122,7 @@ public sealed class AdapterManager : IAsyncDisposable
             return;
 
         foreach (var entry in _entries.Values)
-            entry.DisposeNative(skipIfActive: true);
+            entry.DisposeNative();
         _entries.Clear();
         _lastSeenWeightsGeneration = current;
     }
@@ -143,13 +141,12 @@ public sealed class AdapterManager : IAsyncDisposable
             _disposed = true;
 
             foreach (var entry in _entries.Values)
-                entry.DisposeNative(skipIfActive: true);
+                entry.DisposeNative();
             _entries.Clear();
         }
         finally
         {
-            _gate.Release();
-            _gate.Dispose();
+            _gate.Release(); // _gate itself is never Dispose()'d — see class doc point 5.
         }
     }
 
@@ -171,27 +168,53 @@ public sealed class AdapterManager : IAsyncDisposable
 
         public TrackedConversation CreateTrackedConversation()
         {
+            // Create the conversation BEFORE incrementing: if Create() throws, the count must
+            // stay untouched, or a role would be permanently locked out of RebindRoleAsync
+            // (ActiveCount > 0 forever with no TrackedConversation able to decrement it).
+            var conversation = executor.Create();
             Interlocked.Increment(ref _activeCount);
-            return new TrackedConversation(executor.Create(), () => Interlocked.Decrement(ref _activeCount));
+            return new TrackedConversation(conversation, () => Interlocked.Decrement(ref _activeCount));
         }
 
         /// <summary>
         /// Disposes the executor and unloads the adapter (LoraAdapter is not IDisposable —
         /// it has an explicit Unload() method that must be called or the native handle leaks).
-        /// skipIfActive: true means "best effort" — used for reload invalidation and manager
-        /// shutdown, where there is no safe alternative to dropping a still-referenced handle.
+        /// Called unconditionally even with ActiveCount > 0 in reload/shutdown paths — there is
+        /// no safe alternative to dropping a still-referenced handle in those cases (the
+        /// underlying weights may already be gone), so this is intentionally not conditional.
         /// </summary>
-        public void DisposeNative(bool skipIfActive = false)
+        public void DisposeNative()
         {
-            if (skipIfActive && ActiveCount > 0)
-            {
-                // Nothing safe to do here — the underlying weights may already be gone
-                // (reload case) or the manager is shutting down regardless of callers.
-                // Dispose anyway; an in-flight caller's next native call will fault, which
-                // is the same outcome a dangling pointer would produce either way.
-            }
             lora?.Unload();
             executor.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Builds a fresh RoleEntry against this manager's runtime. Instance method (not the
+    /// earlier static placeholder) so it can call _runtime.CreateBatchedExecutor() directly.
+    /// </summary>
+    private RoleEntry BuildRoleEntry(RuntimeRoleBinding binding)
+    {
+        var executor = _runtime.CreateBatchedExecutor();
+        try
+        {
+            LoraAdapter? lora = null;
+            if (binding.Adapter is not null)
+            {
+                // Matches the §7 harness call path exactly: weights.NativeHandle.LoadLoraFromFile
+                // + executor.Context.NativeHandle.SetLoraAdapters, attached once, at creation.
+                lora = executor.Model.NativeHandle.LoadLoraFromFile(binding.Adapter.Path);
+                executor.Context.NativeHandle.SetLoraAdapters(
+                    new (LoraAdapter Adapter, float Scale)[] { (lora, 1.0f) });
+            }
+            return new RoleEntry(executor, lora, binding);
+        }
+        catch
+        {
+            // Whatever was created before the throw must not leak.
+            executor.Dispose();
+            throw;
         }
     }
 }
@@ -200,18 +223,36 @@ public sealed class AdapterManager : IAsyncDisposable
 /// Reference-counted handle to a Conversation created by AdapterManager. Dispose this when
 /// done with the conversation — RebindRoleAsync for the owning role will throw rather than
 /// tear down the executor while any TrackedConversation from it is still undisposed.
+/// Constructor is internal: only AdapterManager can mint one with a valid callback, preventing
+/// external code from constructing a bogus instance with a null/wrong onDisposed action.
 /// </summary>
-public sealed class TrackedConversation(Conversation inner, Action onDisposed) : IDisposable
+public sealed class TrackedConversation : IDisposable
 {
+    private readonly Conversation _inner;
+    private readonly Action _onDisposed;
     private bool _disposed;
 
-    public Conversation Inner { get; } = inner;
+    internal TrackedConversation(Conversation inner, Action onDisposed)
+    {
+        _inner = inner;
+        _onDisposed = onDisposed;
+    }
+
+    public Conversation Inner => _inner;
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
-        Inner.Dispose();
-        onDisposed();
+        try
+        {
+            _inner.Dispose();
+        }
+        finally
+        {
+            // Must always run, even if Inner.Dispose() throws — otherwise the role's
+            // active-count never decrements and RebindRoleAsync is locked out forever.
+            _onDisposed();
+        }
     }
 }
