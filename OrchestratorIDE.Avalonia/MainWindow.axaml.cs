@@ -701,11 +701,46 @@ public partial class MainWindow : Window
         Func<string, string, string, CancellationToken, Task<bool>> sandboxBypass =
             async (toolName, escapedPath, sandboxRoot, ct) =>
             {
-                // SandboxBypassDialog not yet ported (Phase 4) — auto-deny
-                AddActivity(new ActivityEvent(ActivityKind.Warning, "Sandbox",
-                    $"{toolName} tried to escape sandbox root. Denied (dialog not yet ported).", DateTime.Now));
-                await Task.CompletedTask;
-                return false;
+                if (ct.IsCancellationRequested)
+                    return false;
+
+                var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                using var _ = ct.Register(() => tcs.TrySetResult(false));
+
+                await Dispatcher.UIThread.InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        var allowed = await DialogHelper.ShowYesNoAsync(
+                            this,
+                            "Sandbox Escape Attempt",
+                            $"{PathSandbox.EscapeLabel(toolName, escapedPath)}\n\n" +
+                            $"Sandbox root:\n{sandboxRoot}\n\n" +
+                            $"Requested path:\n{escapedPath}\n\n" +
+                            "Allow this single operation?");
+
+                        AddActivity(new ActivityEvent(
+                            allowed ? ActivityKind.Warning : ActivityKind.Info,
+                            "Sandbox",
+                            allowed
+                                ? $"{toolName} sandbox escape allowed once."
+                                : $"{toolName} sandbox escape denied.",
+                            DateTime.Now));
+
+                        tcs.TrySetResult(!ct.IsCancellationRequested && allowed);
+                    }
+                    catch (Exception ex)
+                    {
+                        AddActivity(new ActivityEvent(
+                            ActivityKind.Warning,
+                            "Sandbox",
+                            $"Sandbox escape prompt failed: {ex.Message}",
+                            DateTime.Now));
+                        tcs.TrySetResult(false);
+                    }
+                });
+
+                return await tcs.Task;
             };
 
         FileTools.Register(_registry, ws,
@@ -1149,8 +1184,7 @@ public partial class MainWindow : Window
         if (e.Key == Key.F1 && e.KeyModifiers == KeyModifiers.None)
         {
             e.Handled = true;
-            AddActivity(new ActivityEvent(ActivityKind.Info, "Help",
-                "HelpWindow not yet ported (Phase 4).", DateTime.Now));
+            HelpWindow.ShowGuide(this);
         }
         if (e.Key == Key.F12 && e.KeyModifiers == KeyModifiers.None)
         {
@@ -1824,9 +1858,9 @@ public partial class MainWindow : Window
 
     private void OpenSelfUpdateDialog(string latestVersion)
     {
-        // SelfUpdateDialog not yet ported (Phase 4)
+        SelfUpdateWindow.ShowWindow(this, _settings);
         AddActivity(new ActivityEvent(ActivityKind.Info, "Update",
-            $"SelfUpdateDialog not yet ported (Phase 4). Visit Help → GitHub Repository to update manually.", DateTime.Now));
+            $"Opened update window (latest known: v{latestVersion}).", DateTime.Now));
     }
 
     // ── Menu handlers — File ──────────────────────────────────────────────
@@ -2008,24 +2042,19 @@ public partial class MainWindow : Window
     // ── Menu handlers — Help ──────────────────────────────────────────────
 
     private void Menu_HelpTopics(object? sender, RoutedEventArgs e)
-        => AddActivity(new ActivityEvent(ActivityKind.Info, "Help",
-            "HelpWindow not yet ported (Phase 4).", DateTime.Now));
+        => HelpWindow.ShowGuide(this);
 
     private void Menu_HelpDocumentation(object? sender, RoutedEventArgs e)
-        => AddActivity(new ActivityEvent(ActivityKind.Info, "Help",
-            "HelpWindow not yet ported (Phase 4).", DateTime.Now));
+        => HelpWindow.ShowGuide(this, "USER_GUIDE.md");
 
     private void Menu_HelpTroubleshooting(object? sender, RoutedEventArgs e)
-        => AddActivity(new ActivityEvent(ActivityKind.Info, "Help",
-            "HelpWindow not yet ported (Phase 4).", DateTime.Now));
+        => HelpWindow.ShowGuide(this, "TROUBLESHOOTING.md");
 
     private void Menu_HelpModelGuide(object? sender, RoutedEventArgs e)
-        => AddActivity(new ActivityEvent(ActivityKind.Info, "Help",
-            "HelpWindow not yet ported (Phase 4).", DateTime.Now));
+        => HelpWindow.ShowGuide(this, "MODEL_GUIDE.md");
 
     private void Menu_HelpTrainingPitGuide(object? sender, RoutedEventArgs e)
-        => AddActivity(new ActivityEvent(ActivityKind.Info, "Help",
-            "HelpWindow not yet ported (Phase 4).", DateTime.Now));
+        => HelpWindow.ShowGuide(this, "TRAINING_PIT_GUIDE.md");
 
     private async Task Menu_CheckUpdatesAsync(bool force)
     {

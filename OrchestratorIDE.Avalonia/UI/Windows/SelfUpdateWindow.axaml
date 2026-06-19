@@ -1,0 +1,15 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<Window x:Class="OrchestratorIDE.UI.Windows.SelfUpdateWindow"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:panels="clr-namespace:OrchestratorIDE.UI.Panels"
+        Width="980"
+        Height="760"
+        MinWidth="860"
+        MinHeight="620"
+        Background="#111411"
+        Title="TheOrc Update"
+        AutomationProperties.AutomationId="SelfUpdateWindow.Root">
+
+    <panels:UpdatePanel x:Name="UpdatePanelHost"/>
+</Window>

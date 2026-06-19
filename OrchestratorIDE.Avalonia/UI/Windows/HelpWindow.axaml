@@ -1,0 +1,111 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<Window x:Class="OrchestratorIDE.UI.Windows.HelpWindow"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:windows="clr-namespace:OrchestratorIDE.UI.Windows"
+        xmlns:controls="clr-namespace:OrchestratorIDE.UI.Controls"
+        Width="1180"
+        Height="760"
+        MinWidth="960"
+        MinHeight="620"
+        Background="#111411"
+        Title="TheOrc Help"
+        AutomationProperties.AutomationId="HelpWindow.Root">
+
+    <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="300,*">
+        <Border Grid.Row="0" Grid.ColumnSpan="2"
+                Background="#141814"
+                BorderBrush="#2E3A2E"
+                BorderThickness="0,0,0,1"
+                Padding="16,12">
+            <StackPanel>
+                <TextBlock x:Name="TbTitle"
+                           Text="Help"
+                           FontSize="20"
+                           FontWeight="Bold"
+                           Foreground="#76B900"/>
+                <TextBlock x:Name="TbSubtitle"
+                           Text=""
+                           Margin="0,4,0,0"
+                           FontSize="11"
+                           Foreground="#7A8A6A"/>
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="1" Grid.Column="0"
+                Background="#101510"
+                BorderBrush="#2E3A2E"
+                BorderThickness="0,0,1,0"
+                Padding="12">
+            <DockPanel>
+                <TextBlock x:Name="TbSearchHint"
+                           DockPanel.Dock="Bottom"
+                           Margin="0,8,0,0"
+                           FontSize="10"
+                           Foreground="#7A8A6A"/>
+
+                <TextBox x:Name="TxtSearch"
+                         DockPanel.Dock="Top"
+                         PlaceholderText="Search guides"
+                         TextChanged="TxtSearch_TextChanged"
+                         Background="#1E251E"
+                         Foreground="#D4D4D4"
+                         BorderBrush="#2E3A2E"
+                         Padding="8,6"/>
+
+                <ListBox x:Name="LstGuides"
+                         Margin="0,10,0,0"
+                         SelectionChanged="LstGuides_SelectionChanged"
+                         Background="#101510"
+                         BorderBrush="#2E3A2E"
+                         Foreground="#D4D4D4">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="windows:HelpGuide">
+                            <StackPanel Margin="0,2" Spacing="2">
+                                <TextBlock Text="{Binding Title}"
+                                           FontWeight="SemiBold"
+                                           TextWrapping="Wrap"
+                                           Foreground="#D4D4D4"/>
+                                <TextBlock Text="{Binding FileName}"
+                                           FontSize="10"
+                                           TextWrapping="Wrap"
+                                           Foreground="#7A8A6A"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <ScrollViewer Grid.Row="1" Grid.Column="1"
+                      Padding="18,16"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <controls:MarkdownView x:Name="DocView"
+                                   IsVisible="True"/>
+        </ScrollViewer>
+
+        <Border Grid.Row="2" Grid.ColumnSpan="2"
+                Background="#141814"
+                BorderBrush="#2E3A2E"
+                BorderThickness="0,1,0,0"
+                Padding="12">
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Spacing="8">
+                <Button Content="Open On GitHub"
+                        Click="BtnOpenGitHub_Click"
+                        Background="#1E251E"
+                        Foreground="#D4D4D4"
+                        BorderBrush="#2E3A2E"
+                        Padding="10,6"/>
+                <Button Content="Close"
+                        Click="BtnClose_Click"
+                        Background="#1E251E"
+                        Foreground="#D4D4D4"
+                        BorderBrush="#2E3A2E"
+                        Padding="10,6"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

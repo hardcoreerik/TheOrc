@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Interactivity;
 
 namespace OrchestratorIDE.UI.Controls;
 
@@ -26,6 +27,8 @@ public sealed class MarkdownView : ContentControl
         set => SetValue(TextProperty, value);
     }
 
+    public Action<string>? LinkClicked { get; set; }
+
     static MarkdownView()
     {
         TextProperty.Changed.AddClassHandler<MarkdownView>((v, _) => v.Rebuild());
@@ -42,7 +45,7 @@ public sealed class MarkdownView : ContentControl
     {
         // Guard: do nothing while hidden.  Content is set once when IsVisible flips to true.
         if (!IsVisible) return;
-        Content = MarkdownBuilder.Build(GetValue(TextProperty) ?? "");
+        Content = MarkdownBuilder.Build(GetValue(TextProperty) ?? "", LinkClicked);
     }
 }
 
@@ -68,18 +71,18 @@ file static class MarkdownBuilder
 {
     private static readonly FontFamily Mono = new("Consolas,Menlo,monospace");
 
-    public static Control Build(string md)
+    public static Control Build(string md, Action<string>? onLinkClicked = null)
     {
         var panel = new StackPanel { Spacing = 5 };
         if (string.IsNullOrEmpty(md)) return panel;
-        foreach (var block in ParseBlocks(md.Replace("\r\n", "\n")))
+        foreach (var block in ParseBlocks(md.Replace("\r\n", "\n"), onLinkClicked))
             panel.Children.Add(block);
         return panel;
     }
 
     // ── Block parser ──────────────────────────────────────────────────────────
 
-    private static IEnumerable<Control> ParseBlocks(string md)
+    private static IEnumerable<Control> ParseBlocks(string md, Action<string>? onLinkClicked)
     {
         var lines = md.Split('\n');
         int i = 0;
@@ -101,9 +104,9 @@ file static class MarkdownBuilder
             }
 
             // Headings
-            if      (line.StartsWith("### ")) { yield return Heading(line[4..], 3); i++; continue; }
-            else if (line.StartsWith("## "))  { yield return Heading(line[3..], 2); i++; continue; }
-            else if (line.StartsWith("# "))   { yield return Heading(line[2..], 1); i++; continue; }
+            if      (line.StartsWith("### ")) { yield return Heading(line[4..], 3, onLinkClicked); i++; continue; }
+            else if (line.StartsWith("## "))  { yield return Heading(line[3..], 2, onLinkClicked); i++; continue; }
+            else if (line.StartsWith("# "))   { yield return Heading(line[2..], 1, onLinkClicked); i++; continue; }
 
             // Horizontal rule
             var trimmed = line.Trim();
@@ -115,7 +118,7 @@ file static class MarkdownBuilder
                 var sb = new StringBuilder();
                 while (i < lines.Length && lines[i].StartsWith("> "))
                     sb.AppendLine(lines[i++][2..]);
-                yield return Blockquote(sb.ToString().TrimEnd());
+                yield return Blockquote(sb.ToString().TrimEnd(), onLinkClicked);
                 continue;
             }
 
@@ -126,7 +129,7 @@ file static class MarkdownBuilder
                 while (i < lines.Length && lines[i].Length > 2
                     && (lines[i].StartsWith("- ") || lines[i].StartsWith("* ")))
                     items.Add(lines[i++][2..]);
-                yield return BulletList(items);
+                yield return BulletList(items, onLinkClicked);
                 continue;
             }
 
@@ -136,7 +139,7 @@ file static class MarkdownBuilder
                 var items = new List<string>();
                 while (i < lines.Length && NumberedRx.IsMatch(lines[i]))
                     items.Add(NumberedRx.Replace(lines[i++], ""));
-                yield return NumberedList(items);
+                yield return NumberedList(items, onLinkClicked);
                 continue;
             }
 
@@ -158,13 +161,13 @@ file static class MarkdownBuilder
                 para.Append(lines[i].Trim());
                 i++;
             }
-            yield return Paragraph(para.ToString());
+            yield return Paragraph(para.ToString(), onLinkClicked);
         }
     }
 
     // ── Block renderers ───────────────────────────────────────────────────────
 
-    private static Control Heading(string text, int level)
+    private static Control Heading(string text, int level, Action<string>? onLinkClicked)
     {
         var (fg, size, weight) = level switch
         {
@@ -180,7 +183,7 @@ file static class MarkdownBuilder
             TextWrapping = TextWrapping.Wrap,
             Margin       = new Thickness(0, level == 1 ? 6 : 3, 0, 2),
         };
-        foreach (var inline in ParseInlines(text)) tb.Inlines!.Add(inline);
+        foreach (var inline in ParseInlines(text, onLinkClicked)) tb.Inlines!.Add(inline);
 
         if (level > 1) return tb;
 
@@ -217,7 +220,7 @@ file static class MarkdownBuilder
             },
         };
 
-    private static Control Blockquote(string text)
+    private static Control Blockquote(string text, Action<string>? onLinkClicked)
         => new Border
         {
             Background      = Palette.BgQuote,
@@ -225,7 +228,7 @@ file static class MarkdownBuilder
             BorderThickness = new Thickness(3, 0, 0, 0),
             Padding         = new Thickness(10, 6),
             Margin          = new Thickness(0, 2, 0, 2),
-            Child           = Paragraph(text),
+            Child           = Paragraph(text, onLinkClicked),
         };
 
     private static Control HRule()
@@ -237,23 +240,23 @@ file static class MarkdownBuilder
             Margin     = new Thickness(0, 6, 0, 6),
         };
 
-    private static Control BulletList(IReadOnlyList<string> items)
+    private static Control BulletList(IReadOnlyList<string> items, Action<string>? onLinkClicked)
     {
         var panel = new StackPanel { Spacing = 3, Margin = new Thickness(8, 2, 0, 2) };
         foreach (var item in items)
-            panel.Children.Add(ListRow("•", item, bullet: true));
+            panel.Children.Add(ListRow("•", item, bullet: true, onLinkClicked));
         return panel;
     }
 
-    private static Control NumberedList(IReadOnlyList<string> items)
+    private static Control NumberedList(IReadOnlyList<string> items, Action<string>? onLinkClicked)
     {
         var panel = new StackPanel { Spacing = 3, Margin = new Thickness(8, 2, 0, 2) };
         for (int n = 0; n < items.Count; n++)
-            panel.Children.Add(ListRow($"{n + 1}.", items[n], bullet: false));
+            panel.Children.Add(ListRow($"{n + 1}.", items[n], bullet: false, onLinkClicked));
         return panel;
     }
 
-    private static Control ListRow(string marker, string text, bool bullet)
+    private static Control ListRow(string marker, string text, bool bullet, Action<string>? onLinkClicked)
     {
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition(bullet ? 18 : 26, GridUnitType.Pixel));
@@ -268,7 +271,7 @@ file static class MarkdownBuilder
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin              = new Thickness(0, 0, 4, 0),
         };
-        var content = InlineTextBlock(text);
+        var content = InlineTextBlock(text, onLinkClicked);
         Grid.SetColumn(markerTb, 0);
         Grid.SetColumn(content,  1);
         grid.Children.Add(markerTb);
@@ -276,9 +279,10 @@ file static class MarkdownBuilder
         return grid;
     }
 
-    private static TextBlock Paragraph(string text) => InlineTextBlock(text);
+    private static TextBlock Paragraph(string text, Action<string>? onLinkClicked)
+        => InlineTextBlock(text, onLinkClicked);
 
-    private static TextBlock InlineTextBlock(string text)
+    private static TextBlock InlineTextBlock(string text, Action<string>? onLinkClicked)
     {
         var tb = new TextBlock
         {
@@ -286,7 +290,7 @@ file static class MarkdownBuilder
             FontSize     = 13,
             Foreground   = Palette.Fg,
         };
-        foreach (var inline in ParseInlines(text))
+        foreach (var inline in ParseInlines(text, onLinkClicked))
             tb.Inlines!.Add(inline);
         return tb;
     }
@@ -306,7 +310,7 @@ file static class MarkdownBuilder
         + @"|(?<url>https?://\S+)",        // bare URL
         RegexOptions.Compiled | RegexOptions.Singleline);
 
-    private static IEnumerable<Inline> ParseInlines(string text)
+    private static IEnumerable<Inline> ParseInlines(string text, Action<string>? onLinkClicked)
     {
         int pos = 0;
         foreach (Match m in InlineRx.Matches(text))
@@ -337,21 +341,11 @@ file static class MarkdownBuilder
             }
             else if (m.Groups["lt"].Success)
             {
-                yield return new Run
-                {
-                    Text            = m.Groups["lt"].Value,
-                    Foreground      = Palette.Link,
-                    TextDecorations = TextDecorations.Underline,
-                };
+                yield return MakeLinkInline(m.Groups["lt"].Value, m.Groups["lu"].Value, onLinkClicked);
             }
             else if (m.Groups["url"].Success)
             {
-                yield return new Run
-                {
-                    Text            = m.Value,
-                    Foreground      = Palette.Link,
-                    TextDecorations = TextDecorations.Underline,
-                };
+                yield return MakeLinkInline(m.Value, m.Value, onLinkClicked);
             }
 
             pos = m.Index + m.Length;
@@ -359,5 +353,29 @@ file static class MarkdownBuilder
 
         if (pos < text.Length)
             yield return new Run { Text = text[pos..] };
+    }
+
+    private static Inline MakeLinkInline(string text, string url, Action<string>? onLinkClicked)
+    {
+        var link = new HyperlinkButton
+        {
+            Content = text,
+            Padding = new Thickness(0),
+            Margin = new Thickness(0),
+            Foreground = Palette.Link,
+            Background = Brushes.Transparent,
+        };
+
+        if (onLinkClicked is null)
+        {
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                link.NavigateUri = uri;
+        }
+        else
+        {
+            link.Click += (_, _) => onLinkClicked(url);
+        }
+
+        return new InlineUIContainer(link);
     }
 }
