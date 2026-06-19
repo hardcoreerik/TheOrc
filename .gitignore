@@ -95,3 +95,18 @@ training_pit/flag_review.txt
 
 # Test result artifacts
 test-results/
+
+# Scratch review/diff artifacts (codex-review.ps1, dataset verification runs, etc.)
+.grok/*_run.log
+.grok/*run*.log
+training_pit/datasets/*_run.log
+training_pit/datasets/*.log
+/*.diff
+/temp_*.diff
+/*_diffs.diff
+/staged_*.diff
+/combined_review_diff.txt
+
+# Marketplace release packages (binary artifacts, not source)
+marketplace/*.zip
+marketplace/**/*.zip

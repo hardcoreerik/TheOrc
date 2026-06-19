@@ -184,7 +184,7 @@ any code or plan that violates them.
 | CodeGraphService lifecycle façade (background re-index) | ROADMAP | Not yet built |
 | System prompt nudge for graph tools | ROADMAP | Not yet built |
 | Avalonia remaining modal dialogs (AgentBuilderDialog, ModelWikiWindow, LabWindow) | ROADMAP | Deferred from v1.7 |
-| ORC ACADEMY v3 A/B eval + adapter registration | This session | Training in progress |
+| ORC ACADEMY v3 A/B eval + adapter registration | This session | A/B done; registration blocked by files_named gap |
 | HIVE MIND Phase 3B (multi-step tool calling on remote workers) | ROADMAP | Not started |
 | Reviewer gate hardening — true blocking mode | ROADMAP | Advisory only today |
 | Trust Tier config UI | ROADMAP | Framework exists; no Settings surface |
@@ -208,15 +208,16 @@ Full spec: `.grok/WARBANDS.md`. The `OrchestratorIDE.Daemon` project IS the Warb
 | CI linux-x64 / osx-arm64 Warband artifacts | v1.9 or v2.0 |
 | `warband.compose.yml` template | v1.9 or v2.0 |
 
-### TheOrc Native Runtime — v2.0 Direction (planning only)
+### TheOrc Native Runtime — v2.0 Direction (Phase 0-2 landed, Phase 2.5 closing abstraction leaks)
 
 Full spec: `.grok/RUNTIME_PHASE0_SPEC.md`. An orchestration/swarm-aware layer **on top of LLamaSharp** (llama.cpp bindings) — NOT a from-scratch inference engine. Goal: drop the Ollama dependency, kill per-call reload + HTTP overhead + the `ollama create` merge step, and make the warband behave as one cohesive GPU mind.
 
 | Phase | Scope | Status |
 |---|---|---|
-| 0 | `IModelRuntime` + `OllamaRuntime` (wrap existing `OllamaClient`); migrate one call site; zero behavior change | ⬜ Not started (after v3) |
-| 1 | `LlamaCppServerRuntime` — wraps **existing** `LlamaServerManager` | ⬜ Planned |
-| 2 | `LLamaSharpRuntime` — in-process GGUF + LoRA; the "no Ollama" win | ⬜ Planned |
+| 0 | `IModelRuntime` + `OllamaRuntime` (wrap existing `OllamaClient`); migrate one call site; zero behavior change | ✅ Landed |
+| 1 | `LlamaCppServerRuntime` — wraps **existing** `LlamaServerManager` | ✅ Landed |
+| 2 | `LLamaSharpRuntime` — in-process GGUF + LoRA; the "no Ollama" win | ✅ Prototype landed (LoRA apply still deferred) |
+| 2.5 | Close abstraction leaks: `HiveWorkerAgent` + reviewer gate still raw `OllamaClient`/HTTP; remote HIVE node clients remain Ollama-only | 🔶 Next — known leaks called out in ROADMAP |
 | 3 | ModelDepot + SessionManager + AdapterManager (boss/worker/reviewer) + telemetry | ⬜ Planned |
 | 4 | `OrcScheduler` — VRAM + lane-aware dispatch, pipeline boss→workers | ⬜ Planned |
 | 5 | Prefix KV cache (research, non-blocking) | ⬜ Research |
@@ -399,7 +400,7 @@ When reviewing this project against this document, check:
 6. **SQL guardrails** — Any string concatenation into SQL? Any second process writing to theorc.db?
 7. **Role expansion policy** — Any new role added to BOSS_SYSTEM_PROMPT without lane implementation?
 8. **README accuracy** — Does the README still accurately describe the current state?
-   (Check ORC ACADEMY section especially — v2 regressed, v3 in progress.)
+   (Check ORC ACADEMY section especially — v2 regressed, v3 complete but not promoted, v4 planned.)
 9. **Deferred creep** — Are deferred items getting tacitly built without proper gating?
 10. **New commitments** — Any new promises made in code comments, commit messages, or docs
     that aren't tracked in this document?
