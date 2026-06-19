@@ -206,6 +206,68 @@ Used a locally-available Llama-3.2-3B-Instruct fork (not the exact Gemma 4 12B/v
 
 ---
 
+## 7a. AdapterManager design (Phase 3, post-spike)
+
+Informed directly by §7's empirical verdict — separate persistent contexts per role,
+adapter attached once at context creation, never swapped live.
+
+**Where it sits:** Below `IModelRuntime`, paired specifically with `LLamaSharpRuntime` —
+not a generic abstraction across all backends. `OllamaRuntime` and `LlamaCppServerRuntime`
+have no local adapter-hot-swap concern (Ollama/llama-server manage adapter application
+server-side); `AdapterManager` only matters for in-process GGUF inference, the same scope
+`ILocalModelRuntime` already carves out.
+
+**The weights-sharing problem:** `AdapterManager` needs `LLamaWeights` + `BatchedExecutor`
+directly (the primitives the §7 spike validated), but `LLamaSharpRuntime` holds `_weights`
+as a private field — there's no existing seam for `AdapterManager` to share the same loaded
+weights without either (a) loading a second copy (wastes VRAM, defeats the point of a
+persistent base model), or (b) a bigger refactor making `AdapterManager` the weights owner
+and `LLamaSharpRuntime`/`SessionManager` thin facades over it (too large a change for one
+slice). **Chosen: (a) is rejected, (b) is deferred — add a minimal `internal` accessor** on
+`LLamaSharpRuntime` exposing `_weights` to same-assembly callers. Since `OrchestratorIDE.Core.Runtime`
+files compile into `OrchestratorIDE.Avalonia.dll` via `<Compile Include>` (not a separate
+referenced assembly), `internal` is sufficient — no `InternalsVisibleTo` needed, and external
+consumers of the public API surface are unaffected.
+
+**Core API surface:**
+
+```csharp
+public sealed class AdapterManager : IAsyncDisposable
+{
+    // One persistent BatchedExecutor + Conversation per role. Adapter (if any) is loaded
+    // via SafeLlamaModelHandle.LoadLoraFromFile and attached via SetLoraAdapters exactly
+    // once, at context creation — never again on that context instance.
+    public Task<RoleContext> GetOrCreateContextAsync(
+        RuntimeRoleBinding binding, CancellationToken ct = default);
+
+    // If binding.Adapter changes for a role already holding a context, the old context
+    // is disposed and a fresh one created — per §7, there is no safe in-place adapter
+    // change on a live context, so this is a teardown+rebuild, not a SetLoraAdapters call.
+    public Task<RoleContext> RebindRoleAsync(
+        RuntimeRoleBinding newBinding, CancellationToken ct = default);
+
+    public ValueTask DisposeAsync(); // disposes every role's BatchedExecutor/context
+}
+
+public sealed class RoleContext // returned handle, not separately constructible
+{
+    public RuntimeRole Role { get; }
+    public RuntimeRoleBinding Binding { get; }
+    public Conversation CreateConversation(); // fresh sequence on the role's shared context
+}
+```
+
+**Concurrency:** TheOrc's warband runs roles concurrently via Swarm — this independently
+requires separate contexts per role regardless of the LoRA question (one `LLamaContext`
+cannot safely serve concurrent independent sequences). `AdapterManager`'s role-keyed
+dictionary of contexts is therefore the natural fit, not an extra cost layered on for safety.
+
+**Explicitly NOT in this slice:** hot-swap-in-place (rejected by §7), any GPU/VRAM budget
+awareness (that's Phase 4's `OrcScheduler`, §14 in PROJECT_TRUTH's task list), any UI surface
+beyond what the existing telemetry section already shows for `OllamaRuntime`.
+
+---
+
 ## 8. Hard-rule compliance (carry into acceptance criteria)
 
 - **Local-only.** No new cloud dependency. ✅ (runtime is in-process or local server)
