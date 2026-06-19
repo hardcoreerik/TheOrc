@@ -1,17 +1,25 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
-using LLama.Batched;
-
 namespace OrchestratorIDE.Core.Runtime;
 
 /// <summary>
 /// Native Runtime Phase 3 — the single entry point connecting all three pieces:
 /// <see cref="ModelDepot"/> (what GGUF/LoRA assets exist locally) resolves a role's binding,
 /// <see cref="SessionManager"/> ensures the binding's base model is loaded into the shared
-/// <see cref="ILocalModelRuntime"/> (reusing the current load if it already matches), and
-/// <see cref="AdapterManager"/> returns a per-role, adapter-attached <see cref="Conversation"/>
-/// on a persistent executor. Before this class, the three were standalone and nothing called
-/// all of them together — this is what "Phase 3 is wired up" means.
+/// runtime (reusing the current load if it already matches), and <see cref="AdapterManager"/>
+/// returns a per-role, adapter-attached <see cref="TrackedConversation"/> on a persistent
+/// executor. Before this class, the three were standalone and nothing called all of them
+/// together — this is what "Phase 3 is wired up" means.
+///
+/// <b>Constructs SessionManager and AdapterManager itself from one LLamaSharpRuntime, rather
+/// than accepting independently-constructed instances of either.</b> The first draft took both
+/// as constructor parameters — review caught that nothing then enforced they shared the same
+/// underlying runtime. A caller could (accidentally) build a SessionManager over one
+/// LLamaSharpRuntime and an AdapterManager over a different one: SessionManager would report a
+/// successful load on instance A, then AdapterManager would call CreateBatchedExecutor on
+/// instance B, which never had LoadModelAsync called on it, and throw "No model loaded" despite
+/// the success check just above having passed. Owning construction from a single instance makes
+/// that mismatch structurally impossible instead of relying on caller discipline.
 ///
 /// <b>Known scope limitation, not a bug introduced here:</b> SessionManager manages a single
 /// shared base model load (RUNTIME_PHASE0_SPEC.md §3 — "persistent base model", singular). If
@@ -25,16 +33,29 @@ namespace OrchestratorIDE.Core.Runtime;
 /// warband needs multiple different base models loaded concurrently — at that point
 /// SessionManager itself needs to become base-model-keyed instead of singular, which is out of
 /// scope for this slice.
+///
+/// <b>Verification scope:</b> structurally guaranteed by construction (this class owns both
+/// managers from one runtime) and Grok-reviewed for the wiring logic itself; the actual success
+/// path — a real model load followed by a real adapter-attached generation — is not exercised
+/// by an automated test, same precedent as AdapterManager and LLamaSharpRuntime (no mockable
+/// seam for the native LLamaSharp objects involved). Verified by the §7 spike harness and manual
+/// smoke-testing, not NUnit.
 /// </summary>
 public sealed class RuntimeOrchestrator : IAsyncDisposable
 {
     private readonly SessionManager _sessionManager;
     private readonly AdapterManager _adapterManager;
 
-    public RuntimeOrchestrator(SessionManager sessionManager, AdapterManager adapterManager)
+    /// <param name="runtime">
+    /// Owned by both managers this constructs. Pass <paramref name="disposeRuntime"/> = true if
+    /// this RuntimeOrchestrator should own the runtime's lifetime too (disposing it alongside
+    /// SessionManager/AdapterManager on DisposeAsync); false if some other owner disposes it.
+    /// </param>
+    public RuntimeOrchestrator(LLamaSharpRuntime runtime, bool disposeRuntime = false)
     {
-        _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
-        _adapterManager = adapterManager ?? throw new ArgumentNullException(nameof(adapterManager));
+        ArgumentNullException.ThrowIfNull(runtime);
+        _sessionManager = new SessionManager(runtime, disposeRuntime);
+        _adapterManager = new AdapterManager(runtime);
     }
 
     /// <summary>
@@ -61,7 +82,16 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await _adapterManager.DisposeAsync().ConfigureAwait(false);
-        await _sessionManager.DisposeAsync().ConfigureAwait(false);
+        try
+        {
+            await _adapterManager.DisposeAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            // Must run even if AdapterManager's disposal faults — otherwise a failure tearing
+            // down per-role executors would leak the SessionManager (and, if disposeRuntime was
+            // true, the runtime/weights it owns) entirely.
+            await _sessionManager.DisposeAsync().ConfigureAwait(false);
+        }
     }
 }

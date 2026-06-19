@@ -75,7 +75,7 @@ the Ollama dependency, run GGUF in-process via LLamaSharp.
 | 1 | `LlamaCppServerRuntime` — wraps **existing** `LlamaServerManager` | ✅ Landed |
 | 2 | `LLamaSharpRuntime` — in-process GGUF + LoRA; the "no Ollama" win | ✅ Prototype landed (LoRA apply still deferred) |
 | 2.5 | Close abstraction leaks: `HiveWorkerAgent` + reviewer gate now use `IModelRuntime`; remote HIVE task-queue/node HTTP remains separate plumbing, not LLM inference | ✅ Closed |
-| 3 | ModelDepot + SessionManager + AdapterManager (boss/worker/reviewer) + telemetry | 🔶 Near-closed — ModelDepot, SessionManager, AdapterManager, and `RuntimeOrchestrator` (wires all three) landed and Grok-CLEAN; §7 spike closed across 2 LoRA samples; first telemetry surface (Ollama only) landed; remaining: local-runtime-backed telemetry + flipping a live call site off Ollama |
+| 3 | ModelDepot + SessionManager + AdapterManager (boss/worker/reviewer) + telemetry | 🔶 Near-closed — ModelDepot, SessionManager, AdapterManager, and `RuntimeOrchestrator` (wires all three from one shared runtime; wiring logic Grok-CLEAN, success path unverified by automated tests — see PROJECT_TRUTH.md) landed; §7 spike closed across 2 LoRA samples; first telemetry surface (Ollama only) landed; remaining: local-runtime-backed telemetry + flipping a live call site off Ollama |
 | 4 | `OrcScheduler` — VRAM + lane-aware dispatch, pipeline boss→workers | ⬜ Planned |
 | 5 | Prefix KV cache (research, non-blocking) | ⬜ Research |
 
