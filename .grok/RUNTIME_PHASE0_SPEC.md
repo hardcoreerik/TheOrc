@@ -217,43 +217,48 @@ have no local adapter-hot-swap concern (Ollama/llama-server manage adapter appli
 server-side); `AdapterManager` only matters for in-process GGUF inference, the same scope
 `ILocalModelRuntime` already carves out.
 
-**The weights-sharing problem:** `AdapterManager` needs `LLamaWeights` + `BatchedExecutor`
-directly (the primitives the §7 spike validated), but `LLamaSharpRuntime` holds `_weights`
-as a private field — there's no existing seam for `AdapterManager` to share the same loaded
-weights without either (a) loading a second copy (wastes VRAM, defeats the point of a
-persistent base model), or (b) a bigger refactor making `AdapterManager` the weights owner
+**The weights-sharing problem:** `AdapterManager` needs `LLamaWeights` + `IContextParams` to
+construct a `BatchedExecutor` (the primitives the §7 spike validated), but `LLamaSharpRuntime`
+holds both `_weights` and `_modelParams` as private fields — there's no existing seam to share
+the loaded weights without either (a) loading a second copy (wastes VRAM, defeats the point of
+a persistent base model), or (b) a bigger refactor making `AdapterManager` the weights owner
 and `LLamaSharpRuntime`/`SessionManager` thin facades over it (too large a change for one
-slice). **Chosen: (a) is rejected, (b) is deferred — add a minimal `internal` accessor** on
-`LLamaSharpRuntime` exposing `_weights` to same-assembly callers. Since `OrchestratorIDE.Core.Runtime`
-files compile into `OrchestratorIDE.Avalonia.dll` via `<Compile Include>` (not a separate
-referenced assembly), `internal` is sufficient — no `InternalsVisibleTo` needed, and external
-consumers of the public API surface are unaffected.
+slice). **Chosen: (a) is rejected, (b) is deferred — add a single `internal CreateBatchedExecutor()`
+factory method** on `LLamaSharpRuntime` that captures both private fields internally and returns
+a ready-to-use `BatchedExecutor`. This is narrower than exposing the fields themselves — `AdapterManager`
+never touches `_weights`/`_modelParams` directly, it just asks for an executor. Since
+`OrchestratorIDE.Core.Runtime` files compile into `OrchestratorIDE.Avalonia.dll` via `<Compile Include>`
+(not a separate referenced assembly), `internal` is sufficient — no `InternalsVisibleTo` needed.
 
-**Core API surface:**
+**Core API surface (revised after Grok BLOCKER on the first draft — see below):**
+
+The first draft returned a long-lived `RoleContext` handle from `GetOrCreateContextAsync`,
+which a caller could keep past a `RebindRoleAsync` teardown and crash on stale use (Grok
+caught this). Fixed by removing the long-lived handle entirely — `AdapterManager` never hands
+out anything that can outlive a rebind. Callers ask for a `Conversation` fresh every time they
+need one; the lookup-or-create and the conversation creation happen atomically under one lock,
+so a concurrent rebind can never race a caller into using a torn-down executor.
 
 ```csharp
 public sealed class AdapterManager : IAsyncDisposable
 {
-    // One persistent BatchedExecutor + Conversation per role. Adapter (if any) is loaded
-    // via SafeLlamaModelHandle.LoadLoraFromFile and attached via SetLoraAdapters exactly
-    // once, at context creation — never again on that context instance.
-    public Task<RoleContext> GetOrCreateContextAsync(
+    // Atomically resolves-or-creates the role's persistent BatchedExecutor, then returns a
+    // FRESH Conversation on it. Never returns the executor or context itself — nothing here
+    // can outlive a later RebindRoleAsync teardown, because nothing long-lived is handed out.
+    // Adapter (if any) is loaded via weights.NativeHandle.LoadLoraFromFile(...) and attached
+    // via executor.Context.NativeHandle.SetLoraAdapters(...) exactly once, at executor creation
+    // — matching the §7 harness call path exactly, never called again on that executor.
+    public Task<Conversation> CreateConversationAsync(
         RuntimeRoleBinding binding, CancellationToken ct = default);
 
-    // If binding.Adapter changes for a role already holding a context, the old context
-    // is disposed and a fresh one created — per §7, there is no safe in-place adapter
-    // change on a live context, so this is a teardown+rebuild, not a SetLoraAdapters call.
-    public Task<RoleContext> RebindRoleAsync(
+    // If binding.Adapter differs from what the role's current executor was built with,
+    // disposes the old BatchedExecutor and builds a fresh one before creating the
+    // Conversation — per §7, there is no safe in-place adapter change on a live context,
+    // so this is always teardown+rebuild, never a SetLoraAdapters call on existing state.
+    public Task<Conversation> RebindRoleAsync(
         RuntimeRoleBinding newBinding, CancellationToken ct = default);
 
     public ValueTask DisposeAsync(); // disposes every role's BatchedExecutor/context
-}
-
-public sealed class RoleContext // returned handle, not separately constructible
-{
-    public RuntimeRole Role { get; }
-    public RuntimeRoleBinding Binding { get; }
-    public Conversation CreateConversation(); // fresh sequence on the role's shared context
 }
 ```
 
