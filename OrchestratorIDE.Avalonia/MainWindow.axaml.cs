@@ -221,6 +221,7 @@ public partial class MainWindow : Window
         _settingsPanel.CheckUpdatesRequested        += async () => await Menu_CheckUpdatesAsync(force: true);
         _settingsPanel.RegenerateAgentFileRequested += async () => await RegenerateAgentFileAsync();
         _settingsPanel.OpenFolderAsWorkspaceRequested += folder => _ = OpenWorkspaceAsync(folder);
+        _settingsPanel.ActivityRequested            += ev => Dispatcher.UIThread.InvokeAsync(() => AddActivity(ev));
         _settingsPanel.ScanAnalysisReady            += prompt =>
         {
             BtnAgent_Click(this, new RoutedEventArgs());

@@ -5,8 +5,10 @@ Mini-roadmap for actually routing a live call site through the Native Runtime st
 `RuntimeOrchestrator`) instead of Ollama. Companion to `.grok/RUNTIME_PHASE0_SPEC.md` (the
 architecture spec) — this doc is sequencing and decision-making, not design.
 
-**Status as of 2026-06-19: Stage 0 done. Nothing past Stage 0 has started.** Ollama remains
-default and fallback everywhere, per `docs/ROADMAP.md`'s standing commitment.
+**Status as of 2026-06-19: Stages 0-2 done.** Ollama remains default everywhere; the only new
+live native surface is an **opt-in Avalonia Settings smoke tool** with explicit "retry with
+Ollama?" fallback and local evidence capture, per `docs/ROADMAP.md`'s standing commitment to
+keep native non-default until a real call site is deliberately switched.
 
 **Revision note (two rounds):** the first draft had three factual errors about call-site state.
 The fix for those introduced a *fourth* wrong claim (that `BuildModelRuntime()` is the main
@@ -111,64 +113,45 @@ non-trivial work that risks introducing new bugs under time pressure. Deliberate
 this pass. Doesn't break tool-call parsing (Test 2 tolerated the same leading text fine), but
 will be visible in any UI wiring — worth fixing before Stage 2 puts this in front of a human.
 
-**Real, separate finding this run surfaced:** neither `OrchestratorIDE.csproj` nor
-`OrchestratorIDE.Avalonia.csproj` reference any `LLamaSharp.Backend.*` native package — only the
-managed `LLamaSharp` package. The harness failed immediately on `LoadModelAsync` with `"The type
-initializer for 'LLama.Native.NativeApi' threw an exception"` until `LLamaSharp.Backend.Cuda12.Windows`
-was added to the harness's own `.csproj`. **This means `LLamaSharpRuntime` would fail with the
-same exception in the shipped app today, regardless of Stage 3's call-site decision** — the
-backend package needs to land in `OrchestratorIDE.csproj`/`OrchestratorIDE.Avalonia.csproj`
-before Stage 3 can do anything real, not after. `LLamaSharpRuntime.cs`'s own doc comment already
-flagged this as a known gap ("not bundled here — install via NuGet or system PATH"), but this is
-the first time anything has concretely hit it. **Decision needed before Stage 2/3, not optional:**
-bundle CUDA backend only (GPU-required, smaller download surface), CPU backend only (works
-everywhere, slower), or both with a settings-driven choice (more installer complexity, matches
-how Ollama itself handles CPU/GPU today). Until this is decided and shipped, Stage 2's test
-surface and Stage 3's real call-site switch will fail the same way this harness initially did.
+**Real, separate finding this run surfaced and is now fixed for the Windows app builds:** neither
+`OrchestratorIDE.csproj` nor `OrchestratorIDE.Avalonia.csproj` originally referenced any
+`LLamaSharp.Backend.*` native package — only the managed `LLamaSharp` package. The harness failed
+immediately on `LoadModelAsync` with `"The type initializer for 'LLama.Native.NativeApi' threw an
+exception"` until `LLamaSharp.Backend.Cuda12.Windows` was added. That same package is now
+referenced by both shipped app projects, so the Settings-native smoke surface can actually load a
+model on this Windows CUDA path. This is **not** a full installer/backend matrix story yet — CPU
+fallback and cross-platform native-backend packaging remain future decisions — but the "managed
+wrapper with no backend at all" blocker is gone.
 
 ---
 
 ## Stage 2 — Opt-in test surface in Settings (no live-chat changes)
 
-**Goal:** let a human (you) manually verify the same thing Stage 1 verified programmatically,
-through the UI, without touching anything the app currently depends on.
+**✅ Done, 2026-06-19 — Avalonia-only by design for this slice.** This landed exactly as an
+experimental operator-facing test surface, not a runtime selector:
 
-**Corrected project location:** the "MODEL DEPOT" scan section and "NATIVE RUNTIME" telemetry
-section built earlier this session exist **only in `OrchestratorIDE.Avalonia/UI/Panels/
-SettingsPanel.axaml`**. The primary/shipping WPF app's `OrchestratorIDE/UI/Panels/SettingsPanel.xaml`
-has neither — confirmed by direct grep, zero matches. Per `.agents.md`, WPF is the primary
-shipping app and Avalonia is the cross-platform preview. This matters for where Stage 2 actually
-needs to land to be useful to you day-to-day, not just where it's cheapest for me to extend
-existing code.
+- Reuses the existing Avalonia `SettingsPanel` MODEL DEPOT scan to populate resolved
+  per-role bindings.
+- Adds a native test area that runs one fixed deterministic prompt against a selected binding's
+  **base GGUF only** through a throwaway `LLamaSharpRuntime` (`AdapterManager` remains out of
+  scope for this slice).
+- Streams native output into the Settings result box, then shows TTFT/tok-s/availability after
+  completion.
+- On native failure, asks explicitly whether to retry the same prompt through `OllamaRuntime`
+  using the configured default model. There is **no silent fallback**.
+- Persists every native-failure case (declined fallback, fallback success, fallback failure) to
+  `.orc/runtime-fallback/*.json` via a purpose-built evidence writer; native success writes
+  nothing.
+- Adds three automated backstops around this slice:
+  - unit tests for fallback outcome semantics,
+  - unit tests for evidence sanitization/truncation,
+  - an opt-in real-model smoke test gated by `THEORC_TEST_GGUF`, plus a headless Avalonia test
+    that the new Settings controls construct with the expected default state.
 
-**Decision needed:** build the Stage 2 test surface in WPF's `SettingsPanel.xaml` (duplicating
-the MODEL DEPOT scan UI there too, since it doesn't exist yet), or accept that Stage 2 lives in
-Avalonia only for now (you'd need to run the Avalonia build to test) with WPF parity deferred.
-Given WPF is what you actually run day-to-day, I'd lean toward building it in WPF directly even
-though Avalonia already has the scan UI — but this is your call, not mine to default.
-
-**Design (once the project is decided):** mirrors the existing `BtnTestConn_Click` pattern
-(Ollama "Test Connection" button — that generic click-test-show-result shape exists in both
-`SettingsPanel`s independently). The thing it would attach to — the Model Depot scan results
-list — exists only in Avalonia's `SettingsPanel`, so if this lands in WPF it needs that scan UI
-built there first too (see the project-location decision above), not just the test button itself.
-Add a "▶ Test" action per resolved role binding in the Model Depot scan results:
-- Click: constructs a throwaway `LLamaSharpRuntime`, calls `LoadModelAsync` on that binding's
-  base model (no adapter — Stage 1/2 deliberately don't touch AdapterManager), sends one fixed
-  test prompt ("Say hello and name one tool you have access to."), streams the response into a
-  result text area.
-- Fully disposed after the test — no persistent state, no effect on any other panel.
-- **WPF convention reminder:** any new interactive control needs `AutomationProperties.AutomationId`
-  set (FlaUI targets them) — this applies if Stage 2 lands in WPF, not Avalonia.
-
-**Why this and not a chat window:** a full chat UI for the native runtime is real surface area
-(message history, markdown rendering, streaming UI state) that duplicates what `ChatPanel`
-already does for Ollama — not worth building before Stage 1 even confirms the runtime works.
-A single fixed test prompt with a plain-text result area is enough to manually confirm
-generation + tool-call parsing work, which is all this stage needs to prove.
-
-**Pass criteria:** same as Stage 1, but seen with your own eyes in the running app, against
-whatever real local GGUF(s) you actually have, not just the one used in Stage 1's harness.
+**Why Avalonia only right now:** the MODEL DEPOT scan and native telemetry surfaces already lived
+there, while WPF has neither. Per `.agents.md`, new Native Runtime operator-facing UI/status
+surfaces land in Avalonia first; WPF parity stays deferred until the native path is worth making
+part of the primary daily workflow.
 
 ---
 

@@ -333,6 +333,53 @@
                             ToolTip.Tip="Re-probes the active IModelRuntime (OllamaRuntime) via GetHealth()/GetStats()"/>
                 </StackPanel>
 
+                <StackPanel Classes="SettingRow">
+                    <TextBlock Text="Manual Native Test" Classes="SettingLabel"/>
+                    <TextBlock Text="Isolated opt-in smoke tool. Runs a fixed prompt against one resolved ModelDepot binding, then offers explicit Ollama fallback if native fails."
+                               Classes="SettingHint"/>
+                    <ComboBox x:Name="CbNativeBinding"
+                              Background="{StaticResource Br.Bg.Input}"
+                              Foreground="{StaticResource Br.Text.Primary}"
+                              BorderBrush="{StaticResource Br.Border}"
+                              FontSize="11"
+                              PlaceholderText="Scan Model Depot to populate bindings"/>
+                </StackPanel>
+
+                <StackPanel Classes="SettingRow" Orientation="Horizontal">
+                    <Button x:Name="BtnRunNativeRuntimeTest"
+                            Content="▶  Run Native Test"
+                            Click="BtnRunNativeRuntimeTest_Click"
+                            IsEnabled="False"
+                            Background="#1A2A0A"
+                            Foreground="#76B900"
+                            BorderBrush="#2A4A0A"
+                            FontSize="11" Padding="8,6"
+                            ToolTip.Tip="Attempts the fixed prompt with LLamaSharpRuntime first, then asks before retrying the same test through Ollama."/>
+                </StackPanel>
+
+                <Border x:Name="BdrNativeRuntimeTestResult"
+                        Background="#141814" CornerRadius="4"
+                        BorderBrush="#2E3A2E" BorderThickness="1"
+                        Padding="12,10" Margin="8,4,8,4">
+                    <StackPanel>
+                        <TextBlock x:Name="TbNativeRuntimeTestResult"
+                                   Text="Not run yet."
+                                   Foreground="#5A6A4A" FontSize="10"
+                                   TextWrapping="Wrap" LineHeight="16"
+                                   FontFamily="Consolas, 'Cascadia Code', monospace"/>
+                        <TextBlock Text="Live output"
+                                   Margin="0,10,0,4"
+                                   Foreground="{StaticResource Br.Text.Muted}"
+                                   FontSize="10"
+                                   FontWeight="Bold"/>
+                        <TextBlock x:Name="TbNativeRuntimeLiveOutput"
+                                   Text="(none)"
+                                   Foreground="#5A6A4A" FontSize="10"
+                                   TextWrapping="Wrap" LineHeight="16"
+                                   FontFamily="Consolas, 'Cascadia Code', monospace"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- ── MODEL DEPOT (Phase 3 — local GGUF/LoRA discovery, no model loading) ── -->
                 <TextBlock Text="MODEL DEPOT" Classes="SectionHeader" Margin="0,12,0,0"/>
 

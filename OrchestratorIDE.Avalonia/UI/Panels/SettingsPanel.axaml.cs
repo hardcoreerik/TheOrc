@@ -11,8 +11,11 @@ using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Core.Runtime;
+using CoreActivityEvent = OrchestratorIDE.Core.ActivityEvent;
+using CoreActivityKind = OrchestratorIDE.Core.ActivityKind;
 
 namespace OrchestratorIDE.UI.Panels;
 
@@ -37,18 +40,30 @@ public partial class SettingsPanel : UserControl
     public event Func<Task>?          RegenerateAgentFileRequested;
     public event Action<string>?      OpenFolderAsWorkspaceRequested;
     public event Action<string>?      ScanAnalysisReady;
+    public event Action<CoreActivityEvent>? ActivityRequested;
 
     // ── State ─────────────────────────────────────────────────────────────────
 
     private readonly OllamaClient _ollama;
     private AppSettings _current = new();
     private static readonly HttpClient _ghHttp = BuildGitHubClient();
+    private ModelDepot? _scannedDepot;
+    private readonly List<NativeBindingOption> _nativeBindingOptions = [];
 
     // Native Runtime telemetry — wraps the existing OllamaClient in the IModelRuntime
     // abstraction (Phase 0) so this surface costs nothing new: no model-folder config,
     // no adapter hot-swap, no SessionManager (that's scoped to ILocalModelRuntime /
     // in-process GGUF sessions, which Ollama is not — it's a thin passthrough client).
     private OllamaRuntime? _runtimeProbe;
+
+    private sealed record NativeBindingOption(RuntimeRoleBinding Binding)
+    {
+        public override string ToString()
+        {
+            var adapterText = Binding.Adapter is null ? "base only" : Binding.Adapter.DisplayName;
+            return $"{Binding.Role}: {Binding.BaseModel.DisplayName} ({adapterText})";
+        }
+    }
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
@@ -331,17 +346,40 @@ public partial class SettingsPanel : UserControl
             // ModelDepot.Scan recursively walks the directory tree and hashes every path found —
             // can be slow on large folders. Off the UI thread, matching the async pattern every
             // other long-running action in this panel already uses (BtnTestConn, BtnGrabSource, etc).
-            var depot = await Task.Run(() => ModelDepot.Scan(folder));
-            TbDepotResults.Text = FormatDepotResults(depot);
+            _scannedDepot = await Task.Run(() => ModelDepot.Scan(folder));
+            PopulateNativeBindingOptions(_scannedDepot);
+            TbDepotResults.Text = FormatDepotResults(_scannedDepot);
         }
         catch (Exception ex)
         {
+            _scannedDepot = null;
+            PopulateNativeBindingOptions(null);
             TbDepotResults.Text = $"Scan failed: {ex.Message}";
         }
         finally
         {
             BtnScanDepot.IsEnabled = true;
         }
+    }
+
+    private void PopulateNativeBindingOptions(ModelDepot? depot)
+    {
+        _nativeBindingOptions.Clear();
+
+        if (depot is not null)
+        {
+            foreach (var role in Enum.GetValues<RuntimeRole>())
+            {
+                var binding = depot.ResolveRole(role);
+                if (binding is not null)
+                    _nativeBindingOptions.Add(new NativeBindingOption(binding));
+            }
+        }
+
+        CbNativeBinding.ItemsSource = null;
+        CbNativeBinding.ItemsSource = _nativeBindingOptions;
+        CbNativeBinding.SelectedIndex = _nativeBindingOptions.Count > 0 ? 0 : -1;
+        BtnRunNativeRuntimeTest.IsEnabled = _nativeBindingOptions.Count > 0;
     }
 
     private static string FormatDepotResults(ModelDepot depot)
@@ -378,6 +416,176 @@ public partial class SettingsPanel : UserControl
 
         return sb.ToString().TrimEnd();
     }
+
+    private void BtnRunNativeRuntimeTest_Click(object? sender, RoutedEventArgs e) =>
+        _ = RunNativeRuntimeTestAsync();
+
+    private async Task RunNativeRuntimeTestAsync()
+    {
+        if (CbNativeBinding.SelectedItem is not NativeBindingOption option)
+        {
+            TbNativeRuntimeTestResult.Text = "Scan a model folder and choose a resolved binding first.";
+            return;
+        }
+
+        var fallbackModel = TbDefaultModel.Text?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(fallbackModel))
+        {
+            TbNativeRuntimeTestResult.Text = "Default Model is empty, so there is no Ollama fallback target.";
+            return;
+        }
+
+        BtnRunNativeRuntimeTest.IsEnabled = false;
+        TbNativeRuntimeTestResult.Text = $"Running native test for {option.Binding.Role}...";
+        TbNativeRuntimeLiveOutput.Text = "(starting)";
+
+        try
+        {
+            var binding = option.Binding;
+            var promptText = NativeRuntimeTestPrompt.PromptText;
+            var outcome = await NativeRuntimeFallbackCoordinator.ExecuteAsync(
+                async ct =>
+                {
+                    TbNativeRuntimeTestResult.Text =
+                        $"Native runtime test\nBinding: {option}\nBackend: LLamaSharpRuntime";
+                    TbNativeRuntimeLiveOutput.Text = string.Empty;
+
+                    return await NativeRuntimeTestRunner.RunLocalAsync(
+                        binding.BaseModel.Path,
+                        promptText: promptText,
+                        onToken: AppendNativeRuntimeLiveOutput,
+                        ct: ct);
+                },
+                async (nativeAttempt, ct) =>
+                {
+                    var topLevel = TopLevel.GetTopLevel(this) as Window;
+                    if (topLevel is null)
+                        return false;
+
+                    TbNativeRuntimeTestResult.Text =
+                        $"Native runtime failed: {nativeAttempt.ErrorType ?? "UnknownError"} - {nativeAttempt.ErrorMessage ?? "no detail"}";
+
+                    return await DialogHelper.ShowYesNoAsync(
+                        topLevel,
+                        "Native Runtime Failed",
+                        $"Native runtime failed for {binding.BaseModel.DisplayName}.\n\n" +
+                        $"{nativeAttempt.ErrorType ?? "Error"}: {nativeAttempt.ErrorMessage ?? "No detail"}\n\n" +
+                        $"Retry the same Settings test with Ollama model '{fallbackModel}'?");
+                },
+                async ct =>
+                {
+                    TbNativeRuntimeTestResult.Text =
+                        $"Retrying with Ollama fallback ({fallbackModel})...";
+                    TbNativeRuntimeLiveOutput.Text +=
+                        $"{Environment.NewLine}{Environment.NewLine}--- Ollama fallback ---{Environment.NewLine}";
+
+                    return await NativeRuntimeTestRunner.RunRuntimeAsync(
+                        new OllamaRuntime(_ollama),
+                        fallbackModel,
+                        promptText: promptText,
+                        onToken: AppendNativeRuntimeLiveOutput,
+                        ct: ct);
+                });
+
+            var evidencePath = await NativeRuntimeFallbackEvidenceStore.WriteAsync(
+                outcome,
+                workspaceRoot: !string.IsNullOrWhiteSpace(_current.DefaultWorkspace) ? _current.DefaultWorkspace : null);
+
+            TbNativeRuntimeTestResult.Text = FormatNativeRuntimeOutcome(option.Binding, fallbackModel, outcome, evidencePath);
+            RaiseActivity(outcome);
+        }
+        catch (OperationCanceledException)
+        {
+            TbNativeRuntimeTestResult.Text += "\nCancelled.";
+        }
+        catch (Exception ex)
+        {
+            TbNativeRuntimeTestResult.Text = $"Native runtime test failed: {ex.Message}";
+        }
+        finally
+        {
+            BtnRunNativeRuntimeTest.IsEnabled = _nativeBindingOptions.Count > 0;
+        }
+    }
+
+    private static string FormatNativeRuntimeOutcome(
+        RuntimeRoleBinding binding,
+        string fallbackModel,
+        NativeRuntimeTestOutcome outcome,
+        string? evidencePath)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Native runtime Settings test");
+        sb.AppendLine($"State: {outcome.Kind}");
+        sb.AppendLine($"Binding: {binding.Role} -> {binding.BaseModel.DisplayName}");
+        sb.AppendLine($"Adapter: {(binding.Adapter?.DisplayName ?? "(none in this slice)")}");
+        sb.AppendLine($"Fallback model: {fallbackModel}");
+        sb.AppendLine();
+        AppendAttempt(sb, "Native", outcome.NativeAttempt);
+
+        if (outcome.FallbackAttempt is not null)
+        {
+            sb.AppendLine();
+            AppendAttempt(sb, "Fallback", outcome.FallbackAttempt);
+        }
+
+        if (!string.IsNullOrWhiteSpace(evidencePath))
+        {
+            sb.AppendLine();
+            sb.AppendLine($"Evidence: {evidencePath}");
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private static void AppendAttempt(StringBuilder sb, string label, NativeRuntimeTestAttempt attempt)
+    {
+        sb.AppendLine($"{label}: {(attempt.Success ? "PASS" : "FAIL")} via {attempt.RuntimeName}");
+        sb.AppendLine($"Model: {attempt.ModelRef}");
+        sb.AppendLine($"Availability: {(attempt.Health.IsAvailable ? "available" : "unavailable")}");
+        sb.AppendLine($"TTFT: {FormatTtft(attempt.Stats.LastTimeToFirstToken)}");
+        sb.AppendLine($"tok/s: {FormatRate(attempt.Stats.TokensPerSecond)}");
+
+        if (!string.IsNullOrWhiteSpace(attempt.ErrorType) || !string.IsNullOrWhiteSpace(attempt.ErrorMessage))
+            sb.AppendLine($"Error: {attempt.ErrorType ?? "Error"} - {attempt.ErrorMessage ?? "no detail"}");
+
+    }
+
+    private static string FormatRate(double? tokensPerSecond) =>
+        tokensPerSecond is { } rate ? $"{rate:F1}" : "n/a";
+
+    private static string FormatTtft(TimeSpan? ttft) =>
+        ttft is { } value ? $"{value.TotalMilliseconds:F0} ms" : "n/a";
+
+    private void RaiseActivity(NativeRuntimeTestOutcome outcome)
+    {
+        var summary = outcome.Kind switch
+        {
+            NativeRuntimeTestOutcomeKind.NativeSuccess =>
+                $"Native Settings test passed ({outcome.NativeAttempt.ModelRef})",
+            NativeRuntimeTestOutcomeKind.NativeFailedFallbackAcceptedOllamaSuccess =>
+                $"Native Settings test failed; Ollama fallback passed ({outcome.FallbackAttempt?.ModelRef})",
+            NativeRuntimeTestOutcomeKind.NativeFailedFallbackAcceptedOllamaFailed =>
+                $"Native Settings test failed; Ollama fallback also failed ({outcome.FallbackAttempt?.ModelRef})",
+            _ =>
+                $"Native Settings test failed and fallback was declined ({outcome.NativeAttempt.ModelRef})",
+        };
+
+        var kind = outcome.Kind is NativeRuntimeTestOutcomeKind.NativeSuccess
+            ? CoreActivityKind.Info
+            : CoreActivityKind.Warning;
+
+        ActivityRequested?.Invoke(new CoreActivityEvent(kind, "Native Runtime", summary, DateTime.Now));
+    }
+
+    private void AppendNativeRuntimeLiveOutput(string token) =>
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (TbNativeRuntimeLiveOutput.Text == "(starting)" || TbNativeRuntimeLiveOutput.Text == "(none)")
+                TbNativeRuntimeLiveOutput.Text = string.Empty;
+
+            TbNativeRuntimeLiveOutput.Text += token;
+        });
 
     // ── Install folder links ──────────────────────────────────────────────────
 
