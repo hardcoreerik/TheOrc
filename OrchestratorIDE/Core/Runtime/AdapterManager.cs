@@ -121,10 +121,36 @@ public sealed class AdapterManager : IAsyncDisposable
         if (current == _lastSeenWeightsGeneration)
             return;
 
-        foreach (var entry in _entries.Values)
-            entry.DisposeNative();
-        _entries.Clear();
+        DisposeAllEntries();
         _lastSeenWeightsGeneration = current;
+    }
+
+    /// <summary>
+    /// Disposes every entry's native state, continuing through the rest even if one faults —
+    /// otherwise a single bad disposal could abort the loop and leave _entries non-empty plus
+    /// (for the reload caller) _lastSeenWeightsGeneration never updated, both of which would
+    /// make this method appear to need re-running on the next call when it already ran.
+    /// Always clears _entries when done; rethrows (after attempting every entry) if any failed.
+    /// </summary>
+    private void DisposeAllEntries()
+    {
+        List<Exception>? failures = null;
+        foreach (var entry in _entries.Values)
+        {
+            try
+            {
+                entry.DisposeNative();
+            }
+            catch (Exception ex)
+            {
+                (failures ??= []).Add(ex);
+            }
+        }
+        _entries.Clear();
+
+        if (failures is not null)
+            throw new AggregateException(
+                "One or more AdapterManager role entries failed to dispose cleanly.", failures);
     }
 
     private static bool BindingMatches(RuntimeRoleBinding a, RuntimeRoleBinding b) =>
@@ -140,9 +166,7 @@ public sealed class AdapterManager : IAsyncDisposable
             if (_disposed) return;
             _disposed = true;
 
-            foreach (var entry in _entries.Values)
-                entry.DisposeNative();
-            _entries.Clear();
+            DisposeAllEntries();
         }
         finally
         {
@@ -185,8 +209,16 @@ public sealed class AdapterManager : IAsyncDisposable
         /// </summary>
         public void DisposeNative()
         {
-            lora?.Unload();
-            executor.Dispose();
+            try
+            {
+                lora?.Unload();
+            }
+            finally
+            {
+                // Must run even if Unload() throws — otherwise a faulting adapter unload
+                // leaks the (likely larger) executor/context on top of the adapter handle.
+                executor.Dispose();
+            }
         }
     }
 
@@ -197,9 +229,9 @@ public sealed class AdapterManager : IAsyncDisposable
     private RoleEntry BuildRoleEntry(RuntimeRoleBinding binding)
     {
         var executor = _runtime.CreateBatchedExecutor();
+        LoraAdapter? lora = null;
         try
         {
-            LoraAdapter? lora = null;
             if (binding.Adapter is not null)
             {
                 // Matches the §7 harness call path exactly: weights.NativeHandle.LoadLoraFromFile
@@ -212,7 +244,10 @@ public sealed class AdapterManager : IAsyncDisposable
         }
         catch
         {
-            // Whatever was created before the throw must not leak.
+            // Whatever was created before the throw must not leak — including the LoRA native
+            // handle if LoadLoraFromFile succeeded but SetLoraAdapters then threw (the first
+            // fix only disposed the executor, missing this; caught in a follow-up review pass).
+            lora?.Unload();
             executor.Dispose();
             throw;
         }
