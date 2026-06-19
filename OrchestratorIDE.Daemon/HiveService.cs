@@ -3,6 +3,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Services.Data;
 using OrchestratorIDE.Services.Hive;
 
@@ -14,7 +15,7 @@ namespace OrchestratorIDE.Daemon;
 ///   • HiveTaskQueue   (configurable, default 7079) — Warchief task queue + durable SQL history
 ///   • HiveMeshHeartbeat           — 15 s/30 s peer-liveness pulses (started inside NodeServer.Start)
 ///   • HiveElectionService         — Bully-style Warchief election (created inside NodeServer.Start)
-///   • HiveWorkerAgent             — polls Warchief queue, executes tasks via Ollama (optional)
+///   • HiveWorkerAgent             — polls Warchief queue, executes tasks via model runtime (optional)
 ///   • HiveBeacon      (UDP)       — multicast peer discovery
 /// </summary>
 public sealed class HiveService : BackgroundService
@@ -108,10 +109,13 @@ public sealed class HiveService : BackgroundService
             var ollama   = new Core.OllamaClient(_cfg.OllamaUrl, settings.Backend);
             _worker = new HiveWorkerAgent
             {
-                Ollama       = ollama,
-                WorkerId     = _cfg.NodeName,
-                Lanes        = [.. _cfg.WorkerLanes],
-                WarchiefUrl  = _taskQueue.BaseUrl,
+                Runtime         = new OllamaRuntime(ollama),
+                WorkerId        = _cfg.NodeName,
+                WorkerUrl       = _cfg.OllamaUrl,
+                Lanes           = [.. _cfg.WorkerLanes],
+                WarchiefUrl     = _taskQueue.BaseUrl,
+                CoderModel      = settings.LastWorkerModel,
+                ResearcherModel = settings.LastResearcherModel,
             };
             _worker.Start();
             _log.LogInformation("Worker agent started (lanes: {Lanes})",

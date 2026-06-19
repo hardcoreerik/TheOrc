@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using OrchestratorIDE.Core;
+using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Models;
 
 namespace OrchestratorIDE.Services.Hive;
@@ -13,7 +14,7 @@ namespace OrchestratorIDE.Services.Hive;
 ///
 /// When HiveWorkerMode is enabled this agent runs alongside the existing
 /// HiveNodeServer. It polls the Warchief's HiveTaskQueue (port 7079) for
-/// available tasks, claims them, executes them locally using OllamaClient,
+/// available tasks, claims them, executes them locally using IModelRuntime,
 /// and POSTs results back so the Warchief's SwarmSession can continue.
 ///
 /// Execution model (Phase 3A): single-pass LLM call — the worker builds a
@@ -56,7 +57,7 @@ public sealed class HiveWorkerAgent : IDisposable
 
     // ── Inference configuration ───────────────────────────────────────────────
 
-    public OllamaClient? Ollama         { get; set; }
+    public IModelRuntime? Runtime       { get; set; }
     public string        CoderModel     { get; set; } = "";
     public string        ResearcherModel { get; set; } = "";
 
@@ -309,8 +310,8 @@ public sealed class HiveWorkerAgent : IDisposable
 
     private async Task<string> ExecuteTaskAsync(HiveTaskBundle bundle, CancellationToken ct)
     {
-        if (Ollama is null)
-            throw new InvalidOperationException("Worker: OllamaClient not configured");
+        if (Runtime is null)
+            throw new InvalidOperationException("Worker: model runtime not configured");
 
         // Choose model: use hint from Warchief, fall back to local config
         var model = bundle.Role.ToLower() == "researcher"
@@ -338,7 +339,7 @@ public sealed class HiveWorkerAgent : IDisposable
             $"⚡ {WorkerId} · [{bundle.Role}] {bundle.Title} · {model}", bundle.TaskId, ct);
 
         var result = new StringBuilder();
-        await foreach (var token in Ollama.StreamCompletionAsync(model, messages, ct: ct))
+        await foreach (var token in Runtime.StreamCompletionAsync(model, messages, ct: ct))
             result.Append(token);
 
         Log($"🐝 [{bundle.Role}] '{bundle.Title}' — done ({result.Length} chars)");

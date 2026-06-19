@@ -530,18 +530,13 @@ public partial class MainWindow : Window
             AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
                 "⚠ Worker mode is enabled but Warchief URL is empty — set it in Settings → HIVE MIND.", DateTime.Now));
 
-        if (_settings.HiveWorkerMode && _settings.Backend == InferenceBackend.LlamaCpp)
-            AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
-                "⚠ Worker mode requires Ollama. llama.cpp backend not supported for distributed workers in Phase 3A.", DateTime.Now));
-
-        if (_settings.HiveWorkerMode && !string.IsNullOrEmpty(_settings.HiveWarchiefUrl)
-            && _settings.Backend != InferenceBackend.LlamaCpp)
+        if (_settings.HiveWorkerMode && !string.IsNullOrEmpty(_settings.HiveWarchiefUrl))
         {
-            var workerOllama = new OllamaClient(_settings.OllamaHost);
+            var workerRuntime = BuildModelRuntime(_settings);
             _hiveWorkerAgent = new Services.Hive.HiveWorkerAgent
             {
                 WorkerId        = name,
-                WorkerUrl       = _settings.OllamaHost,
+                WorkerUrl       = _settings.InferenceBaseUrl,
                 WarchiefUrl     = _settings.HiveWarchiefUrl,
                 WarchiefNodeId  = ResolveWarchiefNodeId(_settings.HiveWarchiefUrl),
                 Lanes           = string.IsNullOrWhiteSpace(_settings.HiveWorkerLanes)
@@ -549,7 +544,7 @@ public partial class MainWindow : Window
                                     : _settings.HiveWorkerLanes
                                         .Split(',', StringSplitOptions.RemoveEmptyEntries)
                                         .Select(l => l.Trim()).ToArray(),
-                Ollama          = workerOllama,
+                Runtime         = workerRuntime,
                 CoderModel      = _settings.LastWorkerModel,
                 ResearcherModel = _settings.LastResearcherModel,
             };
@@ -1652,6 +1647,11 @@ public partial class MainWindow : Window
                 SetStatus(running ? "⚙ llama.cpp server running" : "⚠ llama.cpp server stopped"));
         return mgr;
     }
+
+    private IModelRuntime BuildModelRuntime(AppSettings s)
+        => s.Backend == InferenceBackend.LlamaCpp && _llamaServer is not null
+            ? new LlamaCppServerRuntime(_llamaServer)
+            : new OllamaRuntime(new OllamaClient(s.OllamaHost));
 
     // ── HIVE MIND C2: Apply RPC workers ──────────────────────────────────
 

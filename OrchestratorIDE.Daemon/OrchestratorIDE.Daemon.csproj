@@ -64,6 +64,8 @@
     <Compile Include="..\OrchestratorIDE\Core\AppSettings.cs" />
     <Compile Include="..\OrchestratorIDE\Core\UpdateChecker.cs" />
     <Compile Include="..\OrchestratorIDE\Core\OllamaClient.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\IModelRuntime.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\OllamaRuntime.cs" />
     <!-- Self-updater (best-effort; Linux/macOS: .exe check will just fail gracefully) -->
     <Compile Include="..\OrchestratorIDE\Services\SelfUpdater.cs" />
     <!-- Models -->
