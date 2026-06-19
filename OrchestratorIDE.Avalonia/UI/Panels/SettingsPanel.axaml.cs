@@ -315,7 +315,7 @@ public partial class SettingsPanel : UserControl
             TbDepotScanFolder.Text = folders[0].Path.LocalPath;
     }
 
-    private void BtnScanDepot_Click(object? sender, RoutedEventArgs e)
+    private async void BtnScanDepot_Click(object? sender, RoutedEventArgs e)
     {
         var folder = TbDepotScanFolder.Text?.Trim() ?? "";
         if (string.IsNullOrEmpty(folder))
@@ -324,7 +324,28 @@ public partial class SettingsPanel : UserControl
             return;
         }
 
-        var depot = ModelDepot.Scan(folder);
+        BtnScanDepot.IsEnabled = false;
+        TbDepotResults.Text = "Scanning…";
+        try
+        {
+            // ModelDepot.Scan recursively walks the directory tree and hashes every path found —
+            // can be slow on large folders. Off the UI thread, matching the async pattern every
+            // other long-running action in this panel already uses (BtnTestConn, BtnGrabSource, etc).
+            var depot = await Task.Run(() => ModelDepot.Scan(folder));
+            TbDepotResults.Text = FormatDepotResults(depot);
+        }
+        catch (Exception ex)
+        {
+            TbDepotResults.Text = $"Scan failed: {ex.Message}";
+        }
+        finally
+        {
+            BtnScanDepot.IsEnabled = true;
+        }
+    }
+
+    private static string FormatDepotResults(ModelDepot depot)
+    {
         var sb = new StringBuilder();
 
         if (depot.Assets.Count == 0)
@@ -355,7 +376,7 @@ public partial class SettingsPanel : UserControl
             }
         }
 
-        TbDepotResults.Text = sb.ToString().TrimEnd();
+        return sb.ToString().TrimEnd();
     }
 
     // ── Install folder links ──────────────────────────────────────────────────
