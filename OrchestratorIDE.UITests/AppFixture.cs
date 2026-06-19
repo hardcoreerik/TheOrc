@@ -8,7 +8,7 @@ using NUnit.Framework;
 namespace OrchestratorIDE.UITests;
 
 /// <summary>
-/// Shared NUnit fixture that launches OrchestratorIDE.exe once per test assembly,
+/// Shared NUnit fixture that launches the Avalonia shell once per test assembly,
 /// gets the main window, and tears it all down afterwards.
 ///
 /// Individual test classes use [SetUpFixture] indirectly by calling
@@ -31,11 +31,15 @@ public class AppFixture
 
     private static string ResolveExePath()
     {
+        var avaloniaOverride = Environment.GetEnvironmentVariable("ORCHESTRATOR_AVALONIA_EXE");
+        if (!string.IsNullOrWhiteSpace(avaloniaOverride) && File.Exists(avaloniaOverride))
+            return avaloniaOverride;
+
         return ExecutableResolver.Resolve(
             environmentVariable: "ORCHESTRATOR_EXE",
-            projectDirectoryName: "OrchestratorIDE",
-            targetFramework: "net10.0-windows",
-            executableName: "OrchestratorIDE.exe");
+            projectDirectoryName: "OrchestratorIDE.Avalonia",
+            targetFramework: "net10.0",
+            executableName: "OrchestratorIDE.Avalonia.exe");
     }
 
     // ── One-time setup ────────────────────────────────────────────────────
@@ -44,7 +48,7 @@ public class AppFixture
     public void LaunchApp()
     {
         var exePath = ResolveExePath();
-        TestContext.Progress.WriteLine($"Launching OrchestratorIDE: {exePath}");
+        TestContext.Progress.WriteLine($"Launching OrchestratorIDE.Avalonia: {exePath}");
 
         _automation = new UIA3Automation();
         _app        = Application.Launch(exePath);

@@ -600,9 +600,15 @@ public class T06_BuildResearchTool : RecordingTestBase
     // ── Exe resolution ────────────────────────────────────────────────────────
 
     private static string ResolveExePath()
-        => ExecutableResolver.Resolve(
+    {
+        var avaloniaOverride = Environment.GetEnvironmentVariable("ORCHESTRATOR_AVALONIA_EXE");
+        if (!string.IsNullOrWhiteSpace(avaloniaOverride) && File.Exists(avaloniaOverride))
+            return avaloniaOverride;
+
+        return ExecutableResolver.Resolve(
             environmentVariable: "ORCHESTRATOR_EXE",
-            projectDirectoryName: "OrchestratorIDE",
-            targetFramework: "net10.0-windows",
-            executableName: "OrchestratorIDE.exe");
+            projectDirectoryName: "OrchestratorIDE.Avalonia",
+            targetFramework: "net10.0",
+            executableName: "OrchestratorIDE.Avalonia.exe");
+    }
 }
