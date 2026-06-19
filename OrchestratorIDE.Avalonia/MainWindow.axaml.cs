@@ -1946,29 +1946,78 @@ public partial class MainWindow : Window
 
     // ── Workspace / agent rules ───────────────────────────────────────────
 
-    private void OpenWorkspaceRules()
+    private async void OpenWorkspaceRules()
     {
-        _unavailable.Report(
-            "Workspace Rules",
-            "AgentBuilderDialog",
-            "Edit .agent.md directly.");
+        try
+        {
+            var win = new AgentRulesWindow(_session.WorkspaceRoot, _rules, globalMode: false);
+            await win.ShowDialog(this);
+            if (win.AppliedTarget != AgentRulesApplyTarget.None)
+                HandleAgentBuilderResult(win.AppliedTarget);
+        }
+        catch (Exception ex)
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Warning, "Workspace Rules",
+                $"Failed to open rules window: {ex.Message}", DateTime.Now));
+        }
     }
 
-    private void OpenGlobalAgentPicker()
+    private async void OpenGlobalAgentPicker()
     {
-        _unavailable.Report("Global Agent", "AgentBuilderDialog");
+        try
+        {
+            var win = new AgentRulesWindow(_session.WorkspaceRoot, _rules, globalMode: true);
+            await win.ShowDialog(this);
+            if (win.AppliedTarget != AgentRulesApplyTarget.None)
+                HandleAgentBuilderResult(win.AppliedTarget);
+        }
+        catch (Exception ex)
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Warning, "Global Agent",
+                $"Failed to open rules window: {ex.Message}", DateTime.Now));
+        }
     }
 
-    private void HandleAgentBuilderResult(object target) { /* stubs for post-Phase 4 wire-up */ }
+    private void HandleAgentBuilderResult(AgentRulesApplyTarget target)
+    {
+        switch (target)
+        {
+            case AgentRulesApplyTarget.WorkspaceRules:
+                _ = _loop.RefreshRulesAsync(_session.WorkspaceRoot);
+                _explorerPanel.LoadWorkspace(_session.WorkspaceRoot);
+                var rulesPath = _rules.FindRulesFile(_session.WorkspaceRoot);
+                if (rulesPath is not null)
+                {
+                    ShowEditorPane();
+                    _editorPanel.OpenFile(rulesPath);
+                }
+                AddActivity(new ActivityEvent(ActivityKind.Info, "Workspace Rules",
+                    $"Rules updated for {Path.GetFileName(_session.WorkspaceRoot)}", DateTime.Now));
+                break;
+
+            case AgentRulesApplyTarget.GlobalAgent:
+                RefreshGlobalAgentBadge();
+                AddActivity(new ActivityEvent(ActivityKind.Info, "Global Agent",
+                    "Global agent updated", DateTime.Now));
+                break;
+        }
+    }
 
     private void RefreshGlobalAgentBadge()
     {
         var path = AgentPresets.GlobalAgentPath;
         if (!File.Exists(path)) { _agentPanel.SetGlobalAgentLabel("No global agent"); return; }
-        var content   = File.ReadAllText(path);
-        var firstLine = content.TrimStart().Split('\n').FirstOrDefault() ?? "";
-        var name = firstLine.TrimStart('#').Trim();
-        _agentPanel.SetGlobalAgentLabel(string.IsNullOrEmpty(name) ? "Custom" : name);
+        try
+        {
+            var content   = File.ReadAllText(path);
+            var firstLine = content.TrimStart().Split('\n').FirstOrDefault() ?? "";
+            var name = firstLine.TrimStart('#').Trim();
+            _agentPanel.SetGlobalAgentLabel(string.IsNullOrEmpty(name) ? "Custom" : name);
+        }
+        catch
+        {
+            _agentPanel.SetGlobalAgentLabel("Custom");
+        }
     }
 
     private string? GetBestSecurityModel()
