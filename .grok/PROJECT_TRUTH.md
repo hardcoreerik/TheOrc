@@ -8,6 +8,38 @@
 
 ---
 
+## BLOCKER (2026-06-19, overnight autonomous session) — Codex CLI non-interactive task dispatch produced no output
+
+Per the user's instructions, directed Codex CLI at ~04:00 to do research + in-app docs work
+(separate track from the Native Runtime loop, deliberately scoped away from
+`OrchestratorIDE/Core/Runtime/` to avoid collision). Built `Tools/codex-task.ps1` — a
+write-enabled sibling to the existing read-only `Tools/codex-review.ps1`, using the same
+proven exe-location + stdin-piping pattern, with `--sandbox workspace-write` (verified via
+`codex exec --help`, not guessed — confirmed valid values are `read-only` / `workspace-write`
+/ `danger-full-access`).
+
+**Result: the dispatch completed with exit code 0, no error on stdout/stderr, but produced a
+completely empty result and made zero file changes / zero commits** (confirmed via `git log`
+and `git status` immediately after — nothing from Codex). The same exe + stdin pattern works
+correctly for `codex-review.ps1` (read-only review mode, used successfully many times this
+session), so the difference is specifically in `workspace-write` mode behavior for a
+multi-part, open-ended task prompt — not a wrong flag name or a broken stdin pipe (those would
+typically surface as a hang or a visible error, not a clean empty exit).
+
+**Per explicit instruction, not retried or guessed further.** Plausible causes, not verified:
+non-interactive `workspace-write` mode may require an additional approval/config step that
+differs from `read-only` review mode; the task prompt's two-part open-ended scope (research +
+docs) may not suit a single non-interactive shot the way a bounded diff-review prompt does;
+or there may be an auth/session state issue specific to unattended invocation. `Tools/codex-task.ps1`
+is committed and reusable for a future attempt with a narrower, single-action prompt and closer
+output inspection (e.g. checking `.orc/tasks/codex_*.md.last` before it's deleted, or running
+foreground instead of backgrounded to see live output) — but that diagnosis is for the user or
+a future session, not something to keep attempting unattended overnight.
+
+The Native Runtime loop (tasks #8-#17, this same session) was unaffected and continued normally.
+
+---
+
 ## 1. CORE IDENTITY — What This Project Claims to Be
 
 **TheOrc** is a 100% local AI coding orchestrator for Windows. It receives a
