@@ -3,6 +3,7 @@
 using FlaUI.Core;
 using FlaUI.UIA3;
 using NUnit.Framework;
+using OrchestratorIDE.UITests;
 
 // File lives in Tests/ as T20_*.cs per the suite convention, BUT the namespace is
 // deliberately a SIBLING of OrchestratorIDE.UITests (not nested under it): NUnit's
@@ -28,34 +29,11 @@ public class AvaloniaSmokeTests
     private UIA3Automation? _automation;
 
     private static string ResolveAvaloniaExe()
-    {
-        var envPath = Environment.GetEnvironmentVariable("ORCHESTRATOR_AVALONIA_EXE");
-        if (!string.IsNullOrWhiteSpace(envPath) && File.Exists(envPath))
-            return envPath;
-
-        var dir = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
-        for (int i = 0; i < 8 && dir is not null; i++)
-        {
-            if (dir.GetFiles("*.slnx").Length > 0) break;
-            dir = dir.Parent;
-        }
-        if (dir is null)
-            throw new FileNotFoundException("Could not locate solution root (.slnx).");
-
-        var root = dir.FullName;
-        string[] candidates =
-        [
-            Path.Combine(root, "OrchestratorIDE.Avalonia", "bin", "Release", "net10.0", "OrchestratorIDE.Avalonia.exe"),
-            Path.Combine(root, "OrchestratorIDE.Avalonia", "bin", "Release", "net10.0", "win-x64", "OrchestratorIDE.Avalonia.exe"),
-            Path.Combine(root, "OrchestratorIDE.Avalonia", "bin", "Debug",   "net10.0", "OrchestratorIDE.Avalonia.exe"),
-        ];
-        foreach (var c in candidates)
-            if (File.Exists(c)) return c;
-
-        throw new FileNotFoundException(
-            "OrchestratorIDE.Avalonia.exe not found. Build the Avalonia project (Release) first, " +
-            "or set ORCHESTRATOR_AVALONIA_EXE.\nTried:\n  " + string.Join("\n  ", candidates));
-    }
+        => ExecutableResolver.Resolve(
+            environmentVariable: "ORCHESTRATOR_AVALONIA_EXE",
+            projectDirectoryName: "OrchestratorIDE.Avalonia",
+            targetFramework: "net10.0",
+            executableName: "OrchestratorIDE.Avalonia.exe");
 
     [OneTimeTearDown]
     public void TearDown()
@@ -69,6 +47,7 @@ public class AvaloniaSmokeTests
     public void Avalonia_shell_launches_and_shows_main_window()
     {
         var exe = ResolveAvaloniaExe();
+        TestContext.Progress.WriteLine($"Launching OrchestratorIDE.Avalonia: {exe}");
 
         _automation = new UIA3Automation();
         _app        = Application.Launch(exe);

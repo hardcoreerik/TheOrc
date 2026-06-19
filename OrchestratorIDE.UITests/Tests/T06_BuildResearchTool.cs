@@ -4,6 +4,7 @@ using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.UIA3;
 using NUnit.Framework;
+using OrchestratorIDE.UITests;
 using System.Text.RegularExpressions;
 
 namespace OrchestratorIDE.UITests.Tests;
@@ -599,21 +600,9 @@ public class T06_BuildResearchTool : RecordingTestBase
     // ── Exe resolution ────────────────────────────────────────────────────────
 
     private static string ResolveExePath()
-    {
-        var envPath = Environment.GetEnvironmentVariable("ORCHESTRATOR_EXE");
-        if (!string.IsNullOrWhiteSpace(envPath) && File.Exists(envPath)) return envPath;
-
-        var dir = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
-        for (int i = 0; i < 8; i++) { if (dir?.GetFiles("*.slnx").Length > 0) break; dir = dir?.Parent; }
-        if (dir is null) throw new FileNotFoundException("Cannot find .slnx root");
-
-        string[] c =
-        [
-            Path.Combine(dir.FullName, "OrchestratorIDE", "bin", "Debug",   "net10.0-windows", "OrchestratorIDE.exe"),
-            Path.Combine(dir.FullName, "OrchestratorIDE", "bin", "Release", "net10.0-windows", "OrchestratorIDE.exe"),
-            Path.Combine(dir.FullName, "OrchestratorIDE", "bin", "Release", "net10.0-windows", "win-x64", "OrchestratorIDE.exe"),
-        ];
-        foreach (var candidate in c) if (File.Exists(candidate)) return candidate;
-        throw new FileNotFoundException("OrchestratorIDE.exe not found. Tried:\n" + string.Join("\n", c));
-    }
+        => ExecutableResolver.Resolve(
+            environmentVariable: "ORCHESTRATOR_EXE",
+            projectDirectoryName: "OrchestratorIDE",
+            targetFramework: "net10.0-windows",
+            executableName: "OrchestratorIDE.exe");
 }

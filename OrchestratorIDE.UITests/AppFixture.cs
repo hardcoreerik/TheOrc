@@ -31,43 +31,11 @@ public class AppFixture
 
     private static string ResolveExePath()
     {
-        // 1. Environment variable (CI / publish overrides)
-        var envPath = Environment.GetEnvironmentVariable("ORCHESTRATOR_EXE");
-        if (!string.IsNullOrWhiteSpace(envPath) && File.Exists(envPath))
-            return envPath;
-
-        // 2. Walk up from the test output directory to the solution root.
-        var testDir = AppDomain.CurrentDomain.BaseDirectory;
-
-        var dir = new DirectoryInfo(testDir);
-        for (int i = 0; i < 8; i++)
-        {
-            if (dir?.GetFiles("*.slnx").Length > 0) break;
-            dir = dir?.Parent;
-        }
-
-        if (dir is null)
-            throw new FileNotFoundException(
-                "Could not locate solution root (.slnx) while searching upward from: " + testDir);
-
-        var solutionRoot = dir.FullName;
-
-        // Release first: capture/test runs must hit the same build the swarm uses.
-        // A stale Debug build silently lacking DatasetCapture cost us a full overnight run.
-        string[] candidates =
-        [
-            Path.Combine(solutionRoot, "OrchestratorIDE", "bin", "Release",  "net10.0-windows", "OrchestratorIDE.exe"),
-            Path.Combine(solutionRoot, "OrchestratorIDE", "bin", "Release",  "net10.0-windows", "win-x64", "OrchestratorIDE.exe"),
-            Path.Combine(solutionRoot, "OrchestratorIDE", "bin", "Debug",   "net10.0-windows", "OrchestratorIDE.exe"),
-        ];
-
-        foreach (var candidate in candidates)
-            if (File.Exists(candidate)) return candidate;
-
-        throw new FileNotFoundException(
-            $"OrchestratorIDE.exe not found under solution root '{solutionRoot}'. " +
-            $"Build the main project first, or set ORCHESTRATOR_EXE env var.\n" +
-            $"Tried:\n  " + string.Join("\n  ", candidates));
+        return ExecutableResolver.Resolve(
+            environmentVariable: "ORCHESTRATOR_EXE",
+            projectDirectoryName: "OrchestratorIDE",
+            targetFramework: "net10.0-windows",
+            executableName: "OrchestratorIDE.exe");
     }
 
     // ── One-time setup ────────────────────────────────────────────────────
@@ -76,6 +44,7 @@ public class AppFixture
     public void LaunchApp()
     {
         var exePath = ResolveExePath();
+        TestContext.Progress.WriteLine($"Launching OrchestratorIDE: {exePath}");
 
         _automation = new UIA3Automation();
         _app        = Application.Launch(exePath);
