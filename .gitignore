@@ -107,6 +107,9 @@ training_pit/datasets/*.log
 /staged_*.diff
 /combined_review_diff.txt
 
+# Spike harness re-run output (regenerable; canonical finding lives in RUNTIME_PHASE0_SPEC.md)
+.grok/spike-assets/**/results.log
+
 # Marketplace release packages (binary artifacts, not source)
 marketplace/*.zip
 marketplace/**/*.zip
