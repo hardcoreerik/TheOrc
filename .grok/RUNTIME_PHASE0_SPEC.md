@@ -146,7 +146,7 @@ public sealed record ModelLoadResult(
     bool Success, string RuntimeName, string ModelRef, string? Message = null);
 ```
 
-Callers that only generate depend on `IModelRuntime`. Only the native-runtime owner (a future `SessionManager`) depends on `ILocalModelRuntime`.
+Callers that only generate depend on `IModelRuntime`. Only the native-runtime owner (`SessionManager`, landed Phase 3) depends on `ILocalModelRuntime` — note this scopes `SessionManager` to in-process GGUF runtimes only; `OllamaRuntime` is a thin `IModelRuntime` passthrough and does not implement `ILocalModelRuntime`, so it is never managed by `SessionManager`.
 
 ---
 
