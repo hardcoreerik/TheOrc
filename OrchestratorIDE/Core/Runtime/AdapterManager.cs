@@ -163,7 +163,9 @@ public sealed class AdapterManager : IAsyncDisposable
                 "One or more AdapterManager role entries failed to dispose cleanly.", failures);
     }
 
-    private static bool BindingMatches(RuntimeRoleBinding a, RuntimeRoleBinding b) =>
+    // internal (not private): unit-tested directly in AdapterManagerTests — this is the one
+    // piece of AdapterManager's logic with no dependency on real LLamaSharp native objects.
+    internal static bool BindingMatches(RuntimeRoleBinding a, RuntimeRoleBinding b) =>
         a.Role == b.Role &&
         string.Equals(a.BaseModel.Path, b.BaseModel.Path, StringComparison.OrdinalIgnoreCase) &&
         string.Equals(a.Adapter?.Path, b.Adapter?.Path, StringComparison.OrdinalIgnoreCase);
