@@ -293,6 +293,16 @@ dictionary of contexts is therefore the natural fit, not an extra cost layered o
 awareness (that's Phase 4's `OrcScheduler`, §14 in PROJECT_TRUTH's task list), any UI surface
 beyond what the existing telemetry section already shows for `OllamaRuntime`.
 
+**Converged cleanup philosophy (after a fourth review pass on the implementation kept finding
+new exception-safety gaps in the previous fix — each individually correct but inconsistent with
+each other):** disposal of *superseded* native state (an entry replaced by `RebindRoleAsync`, or
+every entry invalidated by a weights-generation change) is unconditionally best-effort and never
+throws to the caller — that caller is mid-way through satisfying a *different*, fresh request,
+and the resources being freed are already dead or already being replaced regardless of whether
+freeing them cleanly succeeds. Only explicit `DisposeAsync` — where the caller asked specifically
+for cleanup and nothing else is in flight — surfaces failures, via `AggregateException` after
+every entry was attempted (never abandoning the rest of the cleanup on the first failure).
+
 ---
 
 ## 8. Hard-rule compliance (carry into acceptance criteria)

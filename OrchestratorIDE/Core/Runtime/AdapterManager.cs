@@ -92,7 +92,10 @@ public sealed class AdapterManager : IAsyncDisposable
                         $"Cannot rebuild role {binding.Role}: {stale.ActiveCount} conversation(s) " +
                         "still active on its current executor. Dispose them before rebinding.");
                 _entries.Remove(binding.Role);
-                stale.DisposeNative();
+                // Best-effort: a failure disposing the SUPERSEDED entry must not block building
+                // the NEW one the caller actually asked for. The old entry is already removed
+                // from tracking either way, so a leak here is the worst case, not a crash.
+                try { stale.DisposeNative(); } catch { /* superseded entry — best effort only */ }
             }
 
             var entry = BuildRoleEntry(binding);
@@ -121,18 +124,25 @@ public sealed class AdapterManager : IAsyncDisposable
         if (current == _lastSeenWeightsGeneration)
             return;
 
-        DisposeAllEntries();
+        // Best-effort (throwOnFailure: false): the caller here is mid-way through satisfying a
+        // CreateConversationAsync/RebindRoleAsync request for a DIFFERENT, fresh binding. A
+        // failure freeing the OLD, now-dangling entries must not block that request — the
+        // weights backing those old entries are already gone regardless of whether this
+        // cleanup succeeds, so there is nothing left to protect by surfacing the failure here.
+        DisposeAllEntries(throwOnFailure: false);
         _lastSeenWeightsGeneration = current;
     }
 
     /// <summary>
     /// Disposes every entry's native state, continuing through the rest even if one faults —
-    /// otherwise a single bad disposal could abort the loop and leave _entries non-empty plus
-    /// (for the reload caller) _lastSeenWeightsGeneration never updated, both of which would
-    /// make this method appear to need re-running on the next call when it already ran.
-    /// Always clears _entries when done; rethrows (after attempting every entry) if any failed.
+    /// otherwise a single bad disposal could abort the loop and leave _entries non-empty.
+    /// Always clears _entries when done. Only rethrows (after attempting every entry) when
+    /// <paramref name="throwOnFailure"/> is true — used for explicit DisposeAsync, where the
+    /// caller asked specifically for cleanup and deserves to know it didn't fully succeed.
+    /// The reload-invalidation caller passes false: it's mid-way through a different request
+    /// and a failure freeing superseded state must not block that request from completing.
     /// </summary>
-    private void DisposeAllEntries()
+    private void DisposeAllEntries(bool throwOnFailure)
     {
         List<Exception>? failures = null;
         foreach (var entry in _entries.Values)
@@ -148,7 +158,7 @@ public sealed class AdapterManager : IAsyncDisposable
         }
         _entries.Clear();
 
-        if (failures is not null)
+        if (throwOnFailure && failures is not null)
             throw new AggregateException(
                 "One or more AdapterManager role entries failed to dispose cleanly.", failures);
     }
@@ -166,7 +176,7 @@ public sealed class AdapterManager : IAsyncDisposable
             if (_disposed) return;
             _disposed = true;
 
-            DisposeAllEntries();
+            DisposeAllEntries(throwOnFailure: true);
         }
         finally
         {
@@ -245,10 +255,10 @@ public sealed class AdapterManager : IAsyncDisposable
         catch
         {
             // Whatever was created before the throw must not leak — including the LoRA native
-            // handle if LoadLoraFromFile succeeded but SetLoraAdapters then threw (the first
-            // fix only disposed the executor, missing this; caught in a follow-up review pass).
-            lora?.Unload();
-            executor.Dispose();
+            // handle if LoadLoraFromFile succeeded but SetLoraAdapters then threw. Nested
+            // try/finally because Unload() itself throwing must not skip executor.Dispose() —
+            // the executor is the larger resource of the two (a prior fix missed this nesting).
+            try { lora?.Unload(); } finally { executor.Dispose(); }
             throw;
         }
     }
