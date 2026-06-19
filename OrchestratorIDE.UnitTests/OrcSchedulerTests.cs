@@ -126,6 +126,64 @@ public sealed class OrcSchedulerTests
         Assert.That(decision.Admitted, Is.True);
     }
 
+    [Test]
+    public void TryAdmit_Treats_Null_BaseModel_SizeBytes_As_Zero_Cost()
+    {
+        // ModelDepot never produces a BaseModelGguf asset with SizeBytes: null (it's always a
+        // single file, never a directory) -- but TryAdmit doesn't assume that invariant holds,
+        // it falls back to 0 defensively. Documents that this is a fail-OPEN (under-estimate,
+        // always admits) rather than fail-closed default, since a caller passing malformed data
+        // gets "admitted" rather than a thrown exception or a denial with no clear reason.
+        var scheduler = new OrcScheduler();
+        var baseModel = BaseModelAsset(RuntimeRole.Boss, sizeBytes: 0) with { SizeBytes = null };
+        var binding = new RuntimeRoleBinding(RuntimeRole.Boss, baseModel, Adapter: null);
+        var budget = new VramBudget(TotalBytes: 1, ReservedBytes: 0); // tiny budget — only admits if cost is treated as 0
+
+        var decision = scheduler.TryAdmit(binding, budget);
+
+        Assert.That(decision.Admitted, Is.True);
+    }
+
+    [Test]
+    public void TryAdmit_Denial_Still_Assigns_Correct_Lane()
+    {
+        // The lane-by-role tests above only exercise the admitted path. Confirms lane assignment
+        // doesn't depend on the admission outcome -- a denied Worker request is still Background,
+        // not accidentally defaulted to Interactive or omitted from the decision.
+        var scheduler = new OrcScheduler();
+        var binding = new RuntimeRoleBinding(
+            RuntimeRole.Worker, BaseModelAsset(RuntimeRole.Worker, GB(100)), Adapter: null);
+        var budget = new VramBudget(TotalBytes: GB(1), ReservedBytes: 0);
+
+        var decision = scheduler.TryAdmit(binding, budget);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision.Admitted, Is.False);
+            Assert.That(decision.Lane, Is.EqualTo(SchedulingLane.Background));
+        });
+    }
+
+    [Test]
+    public void TryAdmit_Treats_Fully_Reserved_Budget_As_Zero_Available()
+    {
+        // VramBudget.AvailableBytes clamps to zero rather than going negative when
+        // ReservedBytes exceeds TotalBytes (e.g. stale accounting after a role was admitted
+        // against a budget that has since shrunk). Any non-zero requirement must be denied.
+        var scheduler = new OrcScheduler();
+        var binding = new RuntimeRoleBinding(
+            RuntimeRole.Boss, BaseModelAsset(RuntimeRole.Boss, GB(1)), Adapter: null);
+        var budget = new VramBudget(TotalBytes: GB(4), ReservedBytes: GB(10)); // over-reserved
+
+        var decision = scheduler.TryAdmit(binding, budget);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(budget.AvailableBytes, Is.EqualTo(0));
+            Assert.That(decision.Admitted, Is.False);
+        });
+    }
+
     private static long GB(double gb) => (long)(gb * 1024 * 1024 * 1024);
 
     private static RuntimeRoleBinding Binding(RuntimeRole role, long baseSizeBytes, long? adapterSizeBytes)

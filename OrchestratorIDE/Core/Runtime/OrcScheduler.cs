@@ -12,10 +12,9 @@ namespace OrchestratorIDE.Core.Runtime;
 /// whether there's actually room), OrcScheduler decides whether a role's request can be admitted
 /// right now against a single process's VRAM budget, or must be queued.
 ///
-/// Interface + data model only in this slice — pure decision logic, no live GPU dispatch (no
-/// actual VRAM measurement, no real queueing/pipeline execution). The next slice
-/// (RUNTIME_PHASE0_SPEC.md §6, Phase 4 admission check) implements TryAdmit's real logic against
-/// RuntimeModelAsset.SizeBytes estimates; this one defines the contract it implements.
+/// Pure decision logic, no live GPU dispatch — no actual VRAM measurement (the implementation
+/// estimates from RuntimeModelAsset.SizeBytes, see <see cref="OrcScheduler"/>), no real
+/// queueing/pipeline execution, and not yet wired into AdapterManager/RuntimeOrchestrator.
 /// </summary>
 public interface IOrcScheduler
 {
