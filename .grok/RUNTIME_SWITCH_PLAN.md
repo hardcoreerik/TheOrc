@@ -8,10 +8,12 @@ architecture spec) — this doc is sequencing and decision-making, not design.
 **Status as of 2026-06-19: Stage 0 done. Nothing past Stage 0 has started.** Ollama remains
 default and fallback everywhere, per `docs/ROADMAP.md`'s standing commitment.
 
-**Revision note:** the first draft of this doc had three factual errors about current call
--site state, caught by Grok review — corrected below. The errors mattered enough to be worth
-naming: they would have led Stage 3 to "migrate" call sites that don't need migrating, and
-Stage 2 to build UI in the wrong project.
+**Revision note (two rounds):** the first draft had three factual errors about call-site state.
+The fix for those introduced a *fourth* wrong claim (that `BuildModelRuntime()` is the main
+chat's active backend switch — it isn't, it's only used for `HiveWorkerAgent`). Both rounds
+caught by Grok review, both verified by reading full method bodies, not just grep snippets, on
+this pass. Listing this because the pattern matters more than any single fact: claims about
+which call site does what need the full surrounding method read, not a grep match.
 
 ---
 
@@ -23,39 +25,44 @@ Stage 2 to build UI in the wrong project.
 (wires the last three together), `OrcScheduler` (VRAM-budget admission check, not yet wired in).
 All landed, all Grok-CLEAN, all unit-tested where a native object isn't required.
 
-**Corrected: every real local-generation call site is already behind `IModelRuntime`.** Verified
-directly in code, not assumed:
-- `MainWindow.xaml.cs:2018` `BuildModelRuntime()` already branches on `_settings.Backend`
-  (`InferenceBackend.Ollama` / `LlamaCpp`) and returns `new LlamaCppServerRuntime(...)` or
-  `new OllamaRuntime(_ollama)` — **this existing switch is the natural extension point**, not
-  something to build from scratch. Adding a third `InferenceBackend` value and a third branch
-  here is a small, well-precedented change.
-- `ChatPanel.xaml.cs:76/108` constructs `ChatEngine` with `new OllamaRuntime(OllamaClient)` —
-  already `IModelRuntime`-wrapped, but **unconditionally Ollama, regardless of `_settings.Backend`**.
-  This is a real, pre-existing gap unrelated to Native Runtime: the Research tab doesn't even
-  follow the *existing* Ollama/LlamaCpp choice today. Worth fixing either way.
-- `SwarmSession.cs` — `_ollama` field and constructor parameter are typed `IModelRuntime`
-  already. Only `GetOllamaForRemoteNode` (the remote HIVE node path) constructs a raw
-  `OllamaClient`, and that's correctly out of scope — remote nodes are a distributed concern,
-  not a local in-process one.
-- `HiveWorkerAgent` — migrated to `IModelRuntime` this session (Phase 2.5).
+**Corrected, fully verified by reading complete method bodies (not grep snippets):**
 
-**The actual gap is narrower than "migrate call sites to an abstraction" — that part is done.**
-It's: (a) nobody has ever constructed an `LLamaSharpRuntime` and handed it to any of these
-already-`IModelRuntime`-shaped call sites, and (b) `LLamaSharpRuntime` itself has never run
-end-to-end against a real model inside the app. The §7 spike harness
-(`.grok/spike-assets/HotSwapSpike/`) exercised raw `BatchedExecutor` directly — it never touched
-`LLamaSharpRuntime`'s own logic (embedded-template detection, `StatelessExecutor`-per-call
-streaming, text-format tool-call parsing). That's Stage 1.
+- **The main chat (`AgentLoop`, `MainWindow.xaml.cs:117`) hardcodes `new OllamaRuntime(_ollama)`
+  at construction, once, forever.** There is no `IModelRuntime`-level switch for it. The
+  existing Ollama-vs-llama.cpp "Backend" setting works by **mutating the shared `OllamaClient`
+  instance's `Backend`/`Host` properties live** (`OnSettingsSaved`, `MainWindow.xaml.cs:1933-1962`:
+  `_ollama.Host = ...; _ollama.Backend = ...;`) — `OllamaRuntime` is a thin pass-through wrapper,
+  so it inherits whatever the underlying `OllamaClient` is configured to do, but the wrapper
+  class itself never changes. **There is no existing switch to extend for this call site** —
+  adding Native Runtime here means introducing genuinely new selection logic.
+- **`BuildModelRuntime()` (`MainWindow.xaml.cs:2018`) is the only place real `IModelRuntime`
+  class-swapping happens today, and it's used for exactly one thing: constructing
+  `HiveWorkerAgent`'s `Runtime` property (`MainWindow.xaml.cs:599`).** It already branches on
+  `_settings.Backend` between `LlamaCppServerRuntime` and `OllamaRuntime`. **This is the smallest,
+  most precedented place to add a third branch for `LLamaSharpRuntime`** — not the main chat.
+- **`ChatPanel`/`ChatEngine` constructs `new OllamaRuntime(OllamaClient)`** using the same shared
+  `OllamaClient` instance as the main chat — so it inherits the same live `Backend`/`Host`
+  mutation, the same way the main chat does. My first-round claim that it "ignores
+  `_settings.Backend` entirely" was wrong (Grok caught this); it follows the setting exactly as
+  well as the main chat does, via the same shared-instance mechanism, not its own logic.
+- **`SwarmSession`'s constructor takes `IModelRuntime` directly from its caller** — *not fully
+  traced this round*; I'm flagging this rather than asserting it, after getting two other claims
+  wrong already. Before Stage 3 touches `SwarmSession`, re-verify who constructs it and what
+  they pass in, by reading that call site's full body, not a grep match.
+
+**The actual gap, restated accurately:** nobody has ever constructed an `LLamaSharpRuntime` and
+handed it to any call site, and `LLamaSharpRuntime` itself has never run end-to-end against a
+real model inside the app. The §7 spike harness (`.grok/spike-assets/HotSwapSpike/`) exercised
+raw `BatchedExecutor` directly — it never touched `LLamaSharpRuntime`'s own logic
+(embedded-template detection, `StatelessExecutor`-per-call streaming, text-format tool-call
+parsing). That's Stage 1.
 
 **Separate architectural note:** `RuntimeOrchestrator` does **not** implement `IModelRuntime` —
 its method shape is role-and-conversation-based (`GetConversationForRoleAsync` returning a
 `TrackedConversation`), not the `StreamCompletionAsync(model, history, tools, ...)` shape every
-existing call site expects. Plugging the full Phase 3 stack (ModelDepot/SessionManager/
-AdapterManager/RuntimeOrchestrator) into `BuildModelRuntime()` would need a new adapter class
-implementing `IModelRuntime` on top of `RuntimeOrchestrator` — not yet built, and not needed for
-Stage 1/2/3 below, which use `LLamaSharpRuntime` directly. Building that adapter is a Stage 4+
-concern once the simpler path is proven.
+existing call site expects. Plugging the full Phase 3 stack into `BuildModelRuntime()` would
+need a new adapter class implementing `IModelRuntime` on top of `RuntimeOrchestrator` — not yet
+built, not needed for Stage 1/2/3, which use `LLamaSharpRuntime` directly.
 
 ---
 
@@ -104,8 +111,11 @@ Given WPF is what you actually run day-to-day, I'd lean toward building it in WP
 though Avalonia already has the scan UI — but this is your call, not mine to default.
 
 **Design (once the project is decided):** mirrors the existing `BtnTestConn_Click` pattern
-(Ollama "Test Connection" button) already present in both `SettingsPanel`s. Add a "▶ Test"
-action per resolved role binding in the Model Depot scan results:
+(Ollama "Test Connection" button — that generic click-test-show-result shape exists in both
+`SettingsPanel`s independently). The thing it would attach to — the Model Depot scan results
+list — exists only in Avalonia's `SettingsPanel`, so if this lands in WPF it needs that scan UI
+built there first too (see the project-location decision above), not just the test button itself.
+Add a "▶ Test" action per resolved role binding in the Model Depot scan results:
 - Click: constructs a throwaway `LLamaSharpRuntime`, calls `LoadModelAsync` on that binding's
   base model (no adapter — Stage 1/2 deliberately don't touch AdapterManager), sends one fixed
   test prompt ("Say hello and name one tool you have access to."), streams the response into a
@@ -129,34 +139,44 @@ whatever real local GGUF(s) you actually have, not just the one used in Stage 1'
 
 **Not started. Requires your decision, not mine, before any code changes here.**
 
-Corrected candidate call sites — all of these are already `IModelRuntime`-shaped; "switching"
-one means changing which concrete instance it's constructed with, not migrating an abstraction:
+Corrected candidate call sites, per the fully-verified facts above:
 
-| Call site | Current concrete instance | Respects existing `Backend` setting? | Stakes if something's wrong |
+| Call site | Current mechanism | Has an existing `IModelRuntime`-level switch? | Stakes if something's wrong |
 |---|---|---|---|
-| `MainWindow.BuildModelRuntime()` (main IDE chat) | `OllamaRuntime` or `LlamaCppServerRuntime`, switched on `_settings.Backend` | Yes — already has the switch | High — used constantly |
-| `ChatPanel`/`ChatEngine` (Research tab) | `OllamaRuntime`, unconditional | **No** — pre-existing gap, ignores `_settings.Backend` entirely | Low — research tab, no swarm/file-write dependents |
-| `SwarmSession` main path | Whatever `IModelRuntime` its caller constructs and passes in | Depends on caller | Medium — swarm runs are a core workflow |
-| `HiveWorkerAgent` | Whatever `IModelRuntime` its caller constructs and passes in | Depends on caller | Medium — distributed swarm workers |
+| `HiveWorkerAgent` (via `BuildModelRuntime()`) | Genuine class-swap: `OllamaRuntime` or `LlamaCppServerRuntime` based on `_settings.Backend` | **Yes — the only one that does** | Medium — distributed swarm workers |
+| Main chat (`AgentLoop`) | Hardcoded `OllamaRuntime(_ollama)`; Ollama-vs-llama.cpp choice is `OllamaClient`-internal HTTP routing, not class-swap | No | High — used constantly |
+| `ChatPanel`/`ChatEngine` | Hardcoded `OllamaRuntime(OllamaClient)`, same shared instance as main chat, same inherited behavior | No | Low — research tab, no swarm/file-write dependents |
+| `SwarmSession` | Constructor takes `IModelRuntime` from caller | **Not verified this round** — check before touching | Medium — swarm runs are a core workflow |
 
-**My recommendation, unchanged in conclusion but now for the right reason:** `ChatEngine`
-(Research tab) first — not because it needs migrating (it doesn't), but because it's the
-lowest-blast-radius place to add a *third* `InferenceBackend` value and observe it actually
-working under real usage, separate from fixing the pre-existing "ignores Backend entirely" gap
-(which should probably be fixed regardless, as its own small task, before or after this).
+**My recommendation, changed from the previous two drafts:** `HiveWorkerAgent` via
+`BuildModelRuntime()` first, not `ChatEngine`. It's the only call site with a real, already
+-working `IModelRuntime` switch to extend — every other option requires building new selection
+logic from nothing, which is real implementation work, not a config change. Extending an
+existing three-line switch with a fourth case is the smallest possible Stage 3, and it's also
+genuinely useful: it lets a HIVE worker run fully offline on a local GGUF with no Ollama/llama
+-server process at all, which is closer to the actual "no Ollama required" goal than adding a
+fourth chat-tab option would be.
 
-**My recommendation on opt-in vs. default:** extend the existing `InferenceBackend` enum
-(`Ollama`, `LlamaCpp`, → add `LlamaSharp` or similar) rather than inventing a new toggle
-mechanism — this reuses a pattern you already have, defaults stay `Ollama`, and "opt-in" simply
-means the user picks the new enum value in Settings, same as choosing `LlamaCpp` today. No new
-UI paradigm needed.
+**Trade-off to weigh:** `HiveWorkerAgent` is lower visibility than the main chat or Research tab
+— you won't see it working unless you're actively running a HIVE worker. If the goal is "see
+Native Runtime working in something I look at daily," `ChatEngine` is still the better target,
+but it requires writing a new selector (e.g. a per-tab or Settings dropdown), not extending
+`BuildModelRuntime()`'s existing one. Both are valid; they optimize for different things
+(least-new-code vs. most-visible-result).
+
+**My recommendation on opt-in vs. default, unchanged:** extend the existing `InferenceBackend`
+enum (`Ollama`, `LlamaCpp` → add `LlamaSharp` or similar). For `HiveWorkerAgent` this is a
+one-line addition to `BuildModelRuntime()`'s existing switch. For `ChatEngine`/main chat, it
+would mean introducing a Backend-style check at construction time where none exists today —
+more work, but still the same mechanism conceptually (an enum value the user picks, defaulting
+to Ollama).
 
 **Open questions for you to answer before Stage 3 starts:**
-1. Confirm `ChatEngine`/Research tab as the first call site (or pick a different one — `MainWindow`
-   is also low-effort now that I know its switch already exists, but higher stakes).
-2. Confirm extending `InferenceBackend` as the mechanism (or you want something else).
-3. Decide whether to fix "`ChatPanel` ignores `_settings.Backend` entirely" as part of this work
-   or as a separate, unrelated task — it's a real bug either way, just not one this plan created.
+1. Pick `HiveWorkerAgent` (smallest change, lowest visibility) or `ChatEngine`/main chat
+   (more code, more visible) as the first real target.
+2. If `ChatEngine` or the main chat: confirm extending `InferenceBackend` as the mechanism, and
+   accept that new selection logic needs writing (not just a new enum case).
+3. If `SwarmSession`: re-verify its actual construction call site first — not done this round.
 4. Decide the GGUF path story: does the user pick a folder manually each time, or does Settings
    remember a "Native Runtime models folder" path so this doesn't require re-browsing every
    session?
