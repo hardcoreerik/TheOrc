@@ -19,10 +19,20 @@ proven exe-location + stdin-piping pattern, with `--sandbox workspace-write` (ve
 / `danger-full-access`).
 
 **Result: the dispatch completed with exit code 0, no error on stdout/stderr, but produced a
-completely empty result and made zero file changes / zero commits** (confirmed via `git log`
-and `git status` immediately after — nothing from Codex). The same exe + stdin pattern works
-correctly for `codex-review.ps1` (read-only review mode, used successfully many times this
-session), so the difference is specifically in `workspace-write` mode behavior for a
+completely empty result and made zero file changes / zero commits.** Raw evidence (full
+captured stdout, the script's own banner line is the only output produced):
+```
+dispatching codex task (sandbox=workspace-write, timeout=2400s)...
+
+
+
+saved -> F:\Ai\OrchestratorIDE-dev\.orc\tasks\codex_20260619_035922.md
+```
+`git log --oneline -5` and `git status --short` immediately after showed the same 5 commits
+from this session's own Native Runtime work and no new untracked/modified files from Codex —
+i.e. nothing from Codex at all, not even a partial or malformed change. The same exe + stdin
+pattern works correctly for `codex-review.ps1` (read-only review mode, used successfully many
+times this session), so the difference is specifically in `workspace-write` mode behavior for a
 multi-part, open-ended task prompt — not a wrong flag name or a broken stdin pipe (those would
 typically surface as a hang or a visible error, not a clean empty exit).
 

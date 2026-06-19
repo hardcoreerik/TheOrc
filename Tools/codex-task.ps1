@@ -68,29 +68,42 @@ $psi.RedirectStandardError  = $true
 $psi.UseShellExecute        = $false
 
 $p = [System.Diagnostics.Process]::Start($psi)
-$p.StandardInput.Write($Prompt)   # write prompt via stdin (no cmd-line length limit)
-$p.StandardInput.Close()          # EOF tells codex stdin is done
-$stdout = $p.StandardOutput.ReadToEndAsync()
-$stderr = $p.StandardError.ReadToEndAsync()
+try {
+    $p.StandardInput.Write($Prompt)   # write prompt via stdin (no cmd-line length limit)
+    $p.StandardInput.Close()          # EOF tells codex stdin is done
+    $stdoutTask = $p.StandardOutput.ReadToEndAsync()
+    $stderrTask = $p.StandardError.ReadToEndAsync()
 
-if (-not $p.WaitForExit($TimeoutSec * 1000)) {
-    try { $p.Kill($true) } catch {}
-    Write-Host "codex task TIMED OUT after ${TimeoutSec}s" -ForegroundColor Red
-    exit 2
+    if (-not $p.WaitForExit($TimeoutSec * 1000)) {
+        try { $p.Kill($true) } catch {}
+        Write-Host "codex task TIMED OUT after ${TimeoutSec}s" -ForegroundColor Red
+        exit 2
+    }
+
+    $stdout = $stdoutTask.Result
+    $stderr = $stderrTask.Result
+}
+finally {
+    $p.Dispose()
 }
 
 # Prefer the clean last-message file; fall back to raw stdout
 $result = if (Test-Path "$outFile.last") {
     Get-Content "$outFile.last" -Raw
 } else {
-    $stdout.Result
+    $stdout
 }
 Remove-Item "$outFile.last" -ErrorAction SilentlyContinue
 
+# stderr is captured and saved even when $result is non-empty, not just on failure -- an empty
+# result with non-empty stderr (or vice versa) is itself a useful diagnostic signal that was
+# previously discarded.
 @("# Codex task — $(Get-Date -Format 'yyyy-MM-dd HH:mm')",
   "Sandbox: $Sandbox", "",
   "## Prompt", "", $Prompt, "",
-  "## Result", "", $result.Trim()) | Set-Content $outFile -Encoding utf8
+  "## Result", "", $result.Trim(), "",
+  "## Stderr", "", $(if ($stderr.Trim()) { $stderr.Trim() } else { "(empty)" })) |
+  Set-Content $outFile -Encoding utf8
 
 Write-Host ""
 Write-Host $result.Trim()

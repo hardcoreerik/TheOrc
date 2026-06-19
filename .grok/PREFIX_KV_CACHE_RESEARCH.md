@@ -26,10 +26,12 @@ not a per-sequence one.
   Note that this does not allocate extra memory — it simply assigns the tokens to the new
   sequence."* Confirmed via the package's shipped XML docs
   (`LLamaSharp.xml`), not inferred.
-- `Conversation.Fork()` — official doc: *"Create a copy of the current conversation. The copy
-  shares internal state, so consumes very little extra memory."* This is the high-level wrapper
-  over `MemorySequenceCopy` that `BatchedExecutor`'s `Conversation` API exposes directly — no
-  manual native calls needed to use it.
+- `Conversation.Fork()` — official doc, `<summary>`: *"Create a copy of the current
+  conversation"*; `<remarks>`: *"The copy shares internal state, so consumes very little extra
+  memory."* (two separate XML tags on the same member, quoted together above as "official doc"
+  — both are Fork()'s own documentation, neither is borrowed from `MemorySequenceCopy`.) This is
+  the high-level wrapper over `MemorySequenceCopy` that `BatchedExecutor`'s `Conversation` API
+  exposes directly — no manual native calls needed to use it.
 - `SafeLLamaContextHandle.SetLoraAdapters(Span<(LoraAdapter, float)>)` — official doc: *"Set the
   LoRa adapters on the context"* (singular "the context" — confirms context scope, matching what
   the §7 spike's empirical run already demonstrated: one call affects the whole context, not a
