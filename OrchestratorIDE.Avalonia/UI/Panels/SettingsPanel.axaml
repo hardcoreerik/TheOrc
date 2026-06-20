@@ -333,6 +333,51 @@
                             ToolTip.Tip="Re-probes the active IModelRuntime (OllamaRuntime) via GetHealth()/GetStats()"/>
                 </StackPanel>
 
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <ToggleButton x:Name="TglNativeHiveWorker"
+                                      DockPanel.Dock="Right"
+                                      Theme="{StaticResource ToggleStyle}"
+                                      IsChecked="False"/>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Experimental Native HIVE worker" Classes="SettingLabel"/>
+                            <TextBlock Text="Opt-in only. HIVE worker tries local ModelDepot/LLamaSharp role runtime first, then falls back to the configured model runtime on failure."
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <StackPanel Classes="SettingRow">
+                    <TextBlock Text="Native Model Root" Classes="SettingLabel"/>
+                    <TextBlock Text="Folder scanned for GGUF/LoRA role bindings. Empty uses the normal model storage folder."
+                               Classes="SettingHint"/>
+                    <Grid ColumnDefinitions="*,32">
+                        <TextBox x:Name="TbNativeRuntimeModelRoot"
+                                 Grid.Column="0" Classes="SettingInput"/>
+                        <Button Grid.Column="1" Content="…" Margin="4,0,0,0"
+                                Background="{StaticResource Br.Bg.Input}"
+                                Foreground="{StaticResource Br.Text.Primary}"
+                                FontSize="12" Click="BtnBrowseNativeRuntimeModelRoot_Click"/>
+                    </Grid>
+                </StackPanel>
+
+                <Grid Classes="SettingRow" ColumnDefinitions="*,8,*">
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Native Context" Classes="SettingLabel"/>
+                        <TextBlock Text="Tokens" Classes="SettingHint"/>
+                        <TextBox x:Name="TbNativeRuntimeContextSize"
+                                 Classes="SettingInput"
+                                 Text="8192"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Native GPU Layers" Classes="SettingLabel"/>
+                        <TextBlock Text="-1 = all" Classes="SettingHint"/>
+                        <TextBox x:Name="TbNativeRuntimeGpuLayers"
+                                 Classes="SettingInput"
+                                 Text="-1"/>
+                    </StackPanel>
+                </Grid>
+
                 <StackPanel Classes="SettingRow">
                     <TextBlock Text="Manual Native Test" Classes="SettingLabel"/>
                     <TextBlock Text="Isolated opt-in smoke tool. Runs a fixed prompt against one resolved ModelDepot binding, then offers explicit Ollama fallback if native fails."

@@ -90,6 +90,11 @@ public partial class SettingsPanel : UserControl
         TglAutoModelSwitch.IsChecked  = s.AutoModelSwitch;
         TglCheckUpdates.IsChecked     = s.CheckForUpdates;
         TbDefaultWorkspace.Text       = s.DefaultWorkspace;
+        TglNativeHiveWorker.IsChecked = s.ExperimentalNativeHiveWorkerEnabled;
+        TbNativeRuntimeModelRoot.Text = s.NativeRuntimeModelRoot;
+        TbNativeRuntimeContextSize.Text = s.NativeRuntimeContextSize.ToString();
+        TbNativeRuntimeGpuLayers.Text = s.NativeRuntimeGpuLayers.ToString();
+        TbDepotScanFolder.Text        = s.ResolvedNativeRuntimeModelRoot;
         TbStatus.Text                 = "";
 
         TbSourceFolder.Text = string.IsNullOrEmpty(s.SourceFolderPath)
@@ -207,6 +212,14 @@ public partial class SettingsPanel : UserControl
         s.DefaultWorkspace    = TbDefaultWorkspace.Text?.Trim() ?? "";
         s.OllamaParallelSlots = SelectedSlots();
         s.SourceFolderPath    = TbSourceFolder.Text?.Trim() ?? "";
+        s.ExperimentalNativeHiveWorkerEnabled = TglNativeHiveWorker.IsChecked == true;
+        s.NativeRuntimeModelRoot = TbNativeRuntimeModelRoot.Text?.Trim() ?? "";
+        s.NativeRuntimeContextSize = int.TryParse(TbNativeRuntimeContextSize.Text, out var nativeCtx)
+            ? Math.Max(512, nativeCtx)
+            : 8192;
+        s.NativeRuntimeGpuLayers = int.TryParse(TbNativeRuntimeGpuLayers.Text, out var nativeGpu)
+            ? nativeGpu
+            : -1;
         return s;
     }
 
@@ -319,6 +332,19 @@ public partial class SettingsPanel : UserControl
     }
 
     // ── Model Depot scan (Phase 3 — local discovery only, no model loading) ──────
+
+    private async void BtnBrowseNativeRuntimeModelRoot_Click(object? sender, RoutedEventArgs e)
+    {
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
+        var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(
+            new FolderPickerOpenOptions { Title = "Choose native runtime model root", AllowMultiple = false });
+        if (folders.Count > 0)
+        {
+            TbNativeRuntimeModelRoot.Text = folders[0].Path.LocalPath;
+            TbDepotScanFolder.Text = folders[0].Path.LocalPath;
+        }
+    }
 
     private async void BtnBrowseDepotScanFolder_Click(object? sender, RoutedEventArgs e)
     {

@@ -549,6 +549,7 @@ public partial class MainWindow : Window
                                         .Split(',', StringSplitOptions.RemoveEmptyEntries)
                                         .Select(l => l.Trim()).ToArray(),
                 Runtime         = BuildModelRuntime(),
+                NativeRoleRuntime = BuildExperimentalNativeHiveWorkerRuntime(),
                 CoderModel      = _settings.LastWorkerModel,
                 ResearcherModel = _settings.LastResearcherModel,
             };
@@ -1687,6 +1688,44 @@ public partial class MainWindow : Window
         _settings.Backend == InferenceBackend.LlamaCpp && _llamaServer is not null
             ? new LlamaCppServerRuntime(_llamaServer)
             : new OllamaRuntime(_ollama);
+
+    private IRoleRuntime? BuildExperimentalNativeHiveWorkerRuntime()
+    {
+        if (!_settings.ExperimentalNativeHiveWorkerEnabled)
+            return null;
+
+        var root = _settings.ResolvedNativeRuntimeModelRoot;
+        try
+        {
+            var depot = ModelDepot.Scan(root);
+            var baseCount = depot.Assets.Count(a => a.Kind == RuntimeAssetKind.BaseModelGguf);
+            if (baseCount == 0)
+            {
+                AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
+                    $"Experimental native HIVE worker is enabled, but no base GGUF was found under '{root}'. Worker will use configured model runtime.",
+                    DateTime.Now));
+                return null;
+            }
+
+            AddActivity(new ActivityEvent(ActivityKind.Info, "Native Runtime",
+                $"Experimental native HIVE worker enabled: {baseCount} base GGUF(s) found under '{root}'.",
+                DateTime.Now));
+
+            return new NativeRoleRuntime(
+                depot,
+                new RuntimeOptions(
+                    ContextLength: Math.Max(512, _settings.NativeRuntimeContextSize),
+                    GpuLayers: _settings.NativeRuntimeGpuLayers,
+                    PreferGpu: _settings.NativeRuntimeGpuLayers != 0));
+        }
+        catch (Exception ex)
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
+                $"Experimental native HIVE worker could not initialize: {ex.Message}. Worker will use configured model runtime.",
+                DateTime.Now));
+            return null;
+        }
+    }
 
     // ── HIVE MIND C2: Apply RPC workers ──────────────────────────────────
 

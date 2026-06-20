@@ -58,6 +58,7 @@ public sealed class HiveWorkerAgent : IDisposable
     // ── Inference configuration ───────────────────────────────────────────────
 
     public IModelRuntime? Runtime       { get; set; }
+    public IRoleRuntime?  NativeRoleRuntime { get; set; }
     public string        CoderModel     { get; set; } = "";
     public string        ResearcherModel { get; set; } = "";
 
@@ -310,8 +311,40 @@ public sealed class HiveWorkerAgent : IDisposable
 
     private async Task<string> ExecuteTaskAsync(HiveTaskBundle bundle, CancellationToken ct)
     {
-        if (Runtime is null)
+        if (Runtime is null && NativeRoleRuntime is null)
             throw new InvalidOperationException("Worker: model runtime not configured");
+
+        var sysPrompt = BuildSystemPrompt(bundle.Role);
+        var userMsg   = BuildUserMessage(bundle);
+
+        var messages = new List<AgentMessage>
+        {
+            new() { Role = MessageRole.System, Content = sysPrompt,  Status = MessageStatus.Complete },
+            new() { Role = MessageRole.User,   Content = userMsg,    Status = MessageStatus.Complete },
+        };
+
+        if (NativeRoleRuntime is not null)
+        {
+            try
+            {
+                return await ExecuteNativeRoleTaskAsync(bundle, messages, ct);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                Log($"⚠ [{bundle.Role}] '{bundle.Title}' — native role runtime failed: {ex.Message}; falling back to configured model runtime");
+                TaskActivity(bundle.TaskId, $"⚠ Native runtime failed; falling back to configured model runtime: {ex.Message}");
+                await PostEventAsync("task_warning",
+                    $"⚠ {WorkerId} · [{bundle.Role}] native runtime failed; falling back: {ex.Message}",
+                    bundle.TaskId,
+                    ct);
+
+                if (Runtime is null)
+                    throw new InvalidOperationException(
+                        "Worker: native role runtime failed and no fallback model runtime is configured.",
+                        ex);
+            }
+        }
 
         // Choose model: use hint from Warchief, fall back to local config
         var model = bundle.Role.ToLower() == "researcher"
@@ -324,25 +357,46 @@ public sealed class HiveWorkerAgent : IDisposable
         if (string.IsNullOrWhiteSpace(model))
             throw new InvalidOperationException("Worker: no model configured — set CoderModel in HIVE settings");
 
-        var sysPrompt = BuildSystemPrompt(bundle.Role);
-        var userMsg   = BuildUserMessage(bundle);
-
-        var messages = new List<AgentMessage>
-        {
-            new() { Role = MessageRole.System, Content = sysPrompt,  Status = MessageStatus.Complete },
-            new() { Role = MessageRole.User,   Content = userMsg,    Status = MessageStatus.Complete },
-        };
-
         Log($"🐝 Executing [{bundle.Role}] '{bundle.Title}' with {model}…");
         TaskActivity(bundle.TaskId, $"⚡ Running on {WorkerId} with {model}");
         await PostEventAsync("task_executing",
             $"⚡ {WorkerId} · [{bundle.Role}] {bundle.Title} · {model}", bundle.TaskId, ct);
 
         var result = new StringBuilder();
-        await foreach (var token in Runtime.StreamCompletionAsync(model, messages, ct: ct))
+        var fallbackRuntime = Runtime
+            ?? throw new InvalidOperationException("Worker: fallback model runtime not configured");
+
+        await foreach (var token in fallbackRuntime.StreamCompletionAsync(model, messages, ct: ct))
             result.Append(token);
 
         Log($"🐝 [{bundle.Role}] '{bundle.Title}' — done ({result.Length} chars)");
+        return result.ToString();
+    }
+
+    private async Task<string> ExecuteNativeRoleTaskAsync(
+        HiveTaskBundle bundle,
+        IReadOnlyList<AgentMessage> messages,
+        CancellationToken ct)
+    {
+        if (NativeRoleRuntime is null)
+            throw new InvalidOperationException("Worker: native role runtime not configured");
+
+        var runtimeRole = MapHiveRoleToRuntimeRole(bundle.Role);
+        Log($"🐝 Executing [{bundle.Role}] '{bundle.Title}' with native role runtime ({runtimeRole})…");
+        TaskActivity(bundle.TaskId, $"⚡ Running on {WorkerId} with native role runtime ({runtimeRole})");
+        await PostEventAsync("task_executing",
+            $"⚡ {WorkerId} · [{bundle.Role}] {bundle.Title} · NativeRoleRuntime/{runtimeRole}",
+            bundle.TaskId,
+            ct);
+
+        var result = new StringBuilder();
+        await foreach (var token in NativeRoleRuntime.StreamRoleCompletionAsync(runtimeRole, messages, ct: ct))
+            result.Append(token);
+
+        if (string.IsNullOrWhiteSpace(result.ToString()))
+            throw new InvalidOperationException("Native role runtime emitted no output.");
+
+        Log($"🐝 [{bundle.Role}] '{bundle.Title}' — native runtime done ({result.Length} chars)");
         return result.ToString();
     }
 
@@ -383,6 +437,13 @@ public sealed class HiveWorkerAgent : IDisposable
 
         _ => $"You are a specialist agent in TheOrc HIVE MIND. Complete the assigned task thoroughly.",
     };
+
+    internal static RuntimeRole MapHiveRoleToRuntimeRole(string? role) =>
+        (role ?? "").Trim().ToLowerInvariant() switch
+        {
+            "researcher" => RuntimeRole.Researcher,
+            _ => RuntimeRole.Worker,
+        };
 
     private static string BuildUserMessage(HiveTaskBundle bundle)
     {
@@ -449,5 +510,10 @@ public sealed class HiveWorkerAgent : IDisposable
     private void Log(string msg)          => OnLog?.Invoke(msg);
     private void TaskActivity(string id, string msg) => OnTaskActivity?.Invoke(id, msg);
 
-    public void Dispose() => Stop();
+    public void Dispose()
+    {
+        Stop();
+        if (NativeRoleRuntime is IAsyncDisposable asyncDisposable)
+            asyncDisposable.DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
 }
