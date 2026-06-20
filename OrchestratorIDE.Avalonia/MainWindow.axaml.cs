@@ -440,16 +440,32 @@ public partial class MainWindow : Window
             await Dispatcher.UIThread.InvokeAsync(RebuildRecentMenu);
         }
 
-        // First-run wizard (Phase 4 dialog — skipped until ported)
+        // First-run personalisation wizard — ported from WPF 2026-06-20 (FirstRunWindow).
+        // Skipped in --autoapprove mode (headless/automated runs) to avoid a modal dialog
+        // blocking startup, same as the WPF original.
         if (!_settings.FirstRunComplete && !cliArgs.Contains("--autoapprove"))
-        {
-            _unavailable.Report(
-                "First Run",
-                "First-run wizard",
-                "Edit .agent.md manually or via Agent -> Workspace Rules.");
-        }
+            await Dispatcher.UIThread.InvokeAsync(ShowFirstRunWizardAsync);
 
         InitDataLayer(_session.WorkspaceRoot);
+    }
+
+    /// <summary>
+    /// Passed to Dispatcher.UIThread.InvokeAsync as a method group (Func&lt;Task&gt;), not an
+    /// inline async lambda — a review pass caught that an inline `async () => { ... }` risks
+    /// binding to InvokeAsync's Action overload instead of a Task-returning one, in which case
+    /// the awaited outer call would return as soon as the delegate's first await yields rather
+    /// than once the dialog actually closes, and any exception after that point becomes an
+    /// unobservable async-void failure. A method group with an explicit Task return type cannot
+    /// silently bind to an Action overload — it is a compile error if no Func&lt;Task&gt;-shaped
+    /// overload exists, which is the correctness guarantee actually wanted here.
+    /// </summary>
+    private async Task ShowFirstRunWizardAsync()
+    {
+        var wizard = new FirstRunWindow(_settings, _session.WorkspaceRoot, _installedModels);
+        var saved = await wizard.ShowDialog<bool>(this);
+        if (saved)
+            AddActivity(new ActivityEvent(ActivityKind.Info, "Agent File",
+                $"Personalised .agent.md written to {_session.WorkspaceRoot}", DateTime.Now));
     }
 
     // ── HIVE MIND startup ─────────────────────────────────────────────────
@@ -665,11 +681,16 @@ public partial class MainWindow : Window
 
     public async Task RegenerateAgentFileAsync()
     {
-        _unavailable.Report(
-            "Agent File",
-            "FirstRunWindow",
-            "Edit .agent.md directly to regenerate.");
-        await Task.CompletedTask;
+        var wizard = new FirstRunWindow(_settings, _session.WorkspaceRoot, _installedModels);
+        var saved = await wizard.ShowDialog<bool>(this);
+        if (saved)
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Info, "Agent File",
+                $"Agent file regenerated in {_session.WorkspaceRoot}", DateTime.Now));
+
+            // Reload rules so the agent picks up the new file immediately
+            await _rules.LoadAsync(_session.WorkspaceRoot);
+        }
     }
 
     private void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
