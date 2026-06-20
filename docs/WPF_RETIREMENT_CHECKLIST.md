@@ -93,11 +93,18 @@ model/test utility flows:
 
 Remaining blocker for WPF deletion: `ModelWikiWindow` only.
 
-### 3. First-Run / Agent File Regeneration Still Stubbed
+### 3. First-Run / Agent File Regeneration — ✅ CLOSED (2026-06-20)
 
-Avalonia still logs unavailable messages for the first-run wizard and agent-file
-regeneration flow. The manual `.agent.md` / Agent Rules path exists, but the
-original guided flow is not yet restored.
+`FirstRunWindow` ported to Avalonia (`OrchestratorIDE.Avalonia/UI/Windows/FirstRunWindow.axaml`).
+Both call sites updated: the first-run-on-startup check in `MainWindow.axaml.cs`
+(via `ShowFirstRunWizardAsync`) and `RegenerateAgentFileAsync()` for Settings'
+"Regenerate Agent File" button — same dual-purpose window as the WPF original,
+so one port closed both. 4 new headless tests (`T24_FirstRunWindowTests.cs`)
+plus a permanent regression test (`T26_DispatcherInvokeAsyncTests.cs`, see its
+doc comment for why). Found and fixed a real Avalonia 12.0.4 headless layout
+bug along the way (wrapped read-only TextBox hangs `RunJobs()` — switched to
+TextBlock) and two real bugs in the port's save-ordering/exception-safety via
+Codex CLI review.
 
 ### 4. UI Automation Still Treats WPF As Canonical
 
@@ -127,16 +134,15 @@ Exit criterion:
 Models menu and model-management workflows no longer route operators back to
  WPF-only windows. (Not yet met — `ModelWikiWindow` still does.)
 
-### Phase 3. Guided Setup Cleanup
+### Phase 3. Guided Setup Cleanup — ✅ DONE (2026-06-20, see "Remaining Blockers" #3)
 
-Goal: close the onboarding gaps that still justify keeping the old shell.
-
-- Restore or explicitly retire the first-run wizard.
-- Restore or explicitly retire the regenerate-agent-file flow.
-- Update docs/help so the supported Avalonia path is clear.
+- ~~Restore or explicitly retire the first-run wizard.~~ Restored (ported).
+- ~~Restore or explicitly retire the regenerate-agent-file flow.~~ Restored (same window).
+- Update docs/help so the supported Avalonia path is clear. **Not done** — no
+  user-facing docs change made yet; low priority since behavior now matches WPF.
 
 Exit criterion:
-Fresh-user and rules-file setup stories are supported without WPF.
+Fresh-user and rules-file setup stories are supported without WPF. ✅ Met.
 
 ### Phase 4. Automation Lane Cutover
 
@@ -176,8 +182,8 @@ This is the order we should actually work in next:
    retire into a new Avalonia diagnostics surface.~~ DONE — both retired
    2026-06-19, Sponsor Test Lab paused for that section.
 3. `ModelWikiWindow` fold-in or direct port. **Next real blocker.**
-4. First-run/regenerate-agent cleanup.
-5. Avalonia desktop automation lane.
+4. ~~First-run/regenerate-agent cleanup.~~ DONE 2026-06-20 — see "Remaining Blockers" #3.
+5. Avalonia desktop automation lane. **Other remaining real blocker, likely the bigger of the two.**
 6. WPF project removal and doc truth sync.
 
 **Project-level decision (2026-06-19):** WPF retirement is the gate for the
