@@ -35,15 +35,6 @@
                 </StackPanel>
 
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="BtnRunCapabilityTest"
-                            Content="▶  Run Capability Test…"
-                            Click="BtnRunCapabilityTest_Click"
-                            Padding="14,6" Margin="0,0,10,0"
-                            Background="{StaticResource Br.Accent.Green}"
-                            Foreground="White" BorderThickness="0"
-                            FontFamily="Segoe UI" FontSize="12"
-                            Cursor="Hand"
-                            AutomationProperties.AutomationId="ModelWiki.RunCapabilityTest"/>
                     <Button x:Name="BtnCompare"
                             Content="⚖ Compare"
                             Click="BtnCompare_Click"
@@ -313,14 +304,6 @@
                                                Foreground="{StaticResource Br.Accent.Green}"
                                                FontSize="11" FontFamily="Segoe UI"/>
                                 </Border>
-                                <Button x:Name="BtnProbeNow" Content="🧠 Probe Now"
-                                        Click="BtnProbeNow_Click"
-                                        ToolTip="Run the GOBLIN MIND capability probe (format fingerprint + category map) for this model"
-                                        Padding="10,3" Cursor="Hand"
-                                        Background="#0A1A2A" Foreground="#4A9FD9"
-                                        BorderBrush="#1A3A5A" BorderThickness="1"
-                                        FontFamily="Segoe UI" FontSize="11"
-                                        AutomationProperties.AutomationId="ModelWiki.ProbeNow"/>
                             </StackPanel>
                         </Grid>
                     </Border>

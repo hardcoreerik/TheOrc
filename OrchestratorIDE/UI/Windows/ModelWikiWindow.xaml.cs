@@ -205,34 +205,6 @@ public partial class ModelWikiWindow : Window
         OnLoaded(this, new RoutedEventArgs());
     }
 
-    private void BtnProbeNow_Click(object sender, RoutedEventArgs e)
-    {
-        // Opens the GOBLIN MIND probe window. On close, the selected entry is
-        // REBUILT from the stores (not just re-rendered) so fresh probe results
-        // actually appear — the cached entry predates the probe run.
-        var win = new Tests.ToolCallTestWindow(_settings) { Owner = this };
-        win.Closed += (_, _) =>
-        {
-            if (_selected is null) return;
-
-            var installed = _allItems
-                .Where(i => i.Entry.IsInstalled)
-                .Select(i => i.Entry.ModelId)
-                .ToList();
-            var fresh = ModelWikiService.BuildEntry(_selected.Entry.ModelId, installed);
-            var freshItem = new ModelWikiListItem(fresh);
-
-            int idx = _allItems.FindIndex(i =>
-                string.Equals(i.Entry.ModelId, fresh.ModelId, StringComparison.OrdinalIgnoreCase));
-            if (idx >= 0) _allItems[idx] = freshItem;
-
-            _selected = freshItem;
-            ApplyFilters();
-            ShowDetail(fresh);
-        };
-        win.Show();
-    }
-
     private void BtnCompare_Click(object sender, RoutedEventArgs e)
     {
         if (_allItems.Count < 2)
@@ -272,26 +244,6 @@ public partial class ModelWikiWindow : Window
         catch (Exception ex)
         {
             SetStatus($"Export failed: {ex.Message}");
-        }
-    }
-
-    private void BtnRunCapabilityTest_Click(object sender, RoutedEventArgs e)
-    {
-        var modelId = _selected?.Entry.ModelId ?? "";
-        var dlg = new ModelCapabilityTestDialog(_settings, modelId) { Owner = this };
-        dlg.ShowDialog();
-
-        // Refresh the selected entry's detail pane after a test run
-        if (_selected != null)
-        {
-            var all = ModelWikiService.BuildAll(
-                _selected.Entry.IsInstalled
-                    ? new[] { _selected.Entry.ModelId }
-                    : Array.Empty<string>());
-            var refreshed = all.FirstOrDefault(e =>
-                string.Equals(e.ModelId, _selected.Entry.ModelId,
-                    StringComparison.OrdinalIgnoreCase));
-            if (refreshed != null) ShowDetail(refreshed);
         }
     }
 

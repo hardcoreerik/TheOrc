@@ -230,11 +230,6 @@
                     <MenuItem Header="Edit Warm-Up Scripts…" Click="Menu_WarmUpEdit"/>
                 </MenuItem>
                 <Separator/>
-                <MenuItem Header="Run Tool Call Tests…"        Click="Menu_RunToolProbe"/>
-                <MenuItem Header="Run Model Capability Test…"
-                          AutomationProperties.AutomationId="Menu.ModelCapabilityTest"
-                          Click="Menu_RunModelCapabilityTest"/>
-                <Separator/>
                 <MenuItem Header="Model Wiki / Lab…"
                           AutomationProperties.AutomationId="Menu.ModelWiki"
                           Click="Menu_ModelWiki"/>

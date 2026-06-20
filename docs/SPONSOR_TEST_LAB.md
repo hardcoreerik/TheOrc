@@ -16,7 +16,7 @@ It is built on top of Ollama and llama.cpp, and exposes a full agent loop with p
 |---|---|
 | Single-agent mode | Plan → Review → Execute loop with diff approval and shell approval cards |
 | Goblin Swarm | Multi-agent orchestration across 4 specialist roles |
-| Model Wiki / Lab | Browseable model catalogue with per-model capability scores and a live test runner |
+| Model Wiki / Lab | Browseable model catalogue with per-model capability scores (live test runner UI paused — see "Tool-call reliability tests" below) |
 | Training Pit | Structured tool-call training data generation for LoRA fine-tuning |
 | GOBLIN MIND | Runtime tool-call compatibility prober — behavioral format fingerprinting, category boundary mapping, schema reduction middleware |
 | Hardware-aware routing | Reads your GPU, VRAM, and run history to recommend the right model per swarm role |
@@ -96,10 +96,21 @@ For every piece of hardware added to the test matrix, the following protocol is 
 - Measure parse success rate across 10 runs
 - Note any format drift at high quant compression levels
 
-### Tool-call reliability tests (GOBLIN MIND)
-- Run the full `tool-probe full` suite: dispatch mode detection, format fingerprinting (5 formats), category boundary mapping (7 categories)
-- Record results in `tool-call-profiles.json` and import into Model Wiki
-- FileWriteSmall / FileWriteMedium / FileWriteLarge payload tests via ModelCapabilityTestDialog
+### Tool-call reliability tests (GOBLIN MIND) — PAUSED 2026-06-19
+
+> **This section is paused, not removed.** `ToolCallTestWindow` (the `tool-probe`
+> CLI/GUI mode) and `ModelCapabilityTestDialog` were WPF-only and were retired as
+> part of the v1.9 Avalonia-only cutover (`docs/WPF_RETIREMENT_CHECKLIST.md`)
+> rather than ported. The underlying probing logic (`FormatProbeEngine`,
+> `ModelCapabilityTestService`) is untouched and still runs live during normal
+> swarm/chat execution — only the standalone manual-testing UI is gone for now.
+> If you were running this section of the Sponsor Test Lab program, pause here
+> until an Avalonia-native diagnostics surface replaces it; there is no
+> replacement yet and no committed date.
+
+~~- Run the full `tool-probe full` suite: dispatch mode detection, format fingerprinting (5 formats), category boundary mapping (7 categories)~~
+~~- Record results in `tool-call-profiles.json` and import into Model Wiki~~
+~~- FileWriteSmall / FileWriteMedium / FileWriteLarge payload tests via ModelCapabilityTestDialog~~
 
 ### Swarm boss/worker tests
 - Launch a 3-role Goblin Swarm (Boss + Coder + Researcher) with a representative goal

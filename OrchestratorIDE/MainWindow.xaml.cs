@@ -2730,22 +2730,6 @@ public partial class MainWindow : Window
         win.Show();
     }
 
-    private void Menu_RunModelCapabilityTest(object sender, RoutedEventArgs e)
-    {
-        var win = new OrchestratorIDE.UI.Windows.ModelCapabilityTestDialog(_settings) { Owner = this };
-        win.ShowDialog();
-    }
-
-    private void Menu_RunToolProbe(object sender, RoutedEventArgs e)
-    {
-        var win = new OrchestratorIDE.Tests.ToolCallTestWindow(_settings)
-        {
-            Owner  = this,
-            Ollama = _ollama,
-        };
-        win.Show();
-    }
-
     // ── Model status bar click ─────────────────────────────────────────────────
 
     private void SbModelStatus_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)

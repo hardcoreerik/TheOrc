@@ -611,14 +611,6 @@
                             </DockPanel>
                             <!-- GOBLIN MIND capability badges -->
                             <DockPanel Margin="0,6,0,0">
-                                <Button x:Name="BtnProbeBoss" DockPanel.Dock="Right"
-                                        Content="Probe Now" Click="BtnProbeNow_Click"
-                                        AutomationProperties.AutomationId="Swarm.ProbeBoss"
-                                        Background="Transparent" Foreground="#4EC9B0"
-                                        BorderBrush="#2E3A2E" BorderThickness="1"
-                                        Padding="8,2" FontSize="10" FontFamily="Segoe UI"
-                                        VerticalAlignment="Center" Cursor="Hand"
-                                        ToolTip="Run the GOBLIN MIND capability probe for this model"/>
                                 <TextBlock x:Name="TbBossBadges" Text=""
                                            Foreground="#666666" FontSize="10" FontFamily="Consolas"
                                            VerticalAlignment="Center" Margin="0,0,8,0"
@@ -659,14 +651,6 @@
                             </DockPanel>
                             <!-- GOBLIN MIND capability badges -->
                             <DockPanel Margin="0,6,0,0">
-                                <Button x:Name="BtnProbeWorker" DockPanel.Dock="Right"
-                                        Content="Probe Now" Click="BtnProbeNow_Click"
-                                        AutomationProperties.AutomationId="Swarm.ProbeWorker"
-                                        Background="Transparent" Foreground="#4EC9B0"
-                                        BorderBrush="#2E3A2E" BorderThickness="1"
-                                        Padding="8,2" FontSize="10" FontFamily="Segoe UI"
-                                        VerticalAlignment="Center" Cursor="Hand"
-                                        ToolTip="Run the GOBLIN MIND capability probe for this model"/>
                                 <TextBlock x:Name="TbWorkerBadges" Text=""
                                            Foreground="#666666" FontSize="10" FontFamily="Consolas"
                                            VerticalAlignment="Center" Margin="0,0,8,0"
@@ -712,14 +696,6 @@
                             </DockPanel>
                             <!-- GOBLIN MIND capability badges -->
                             <DockPanel Margin="0,6,0,0">
-                                <Button x:Name="BtnProbeResearcher" DockPanel.Dock="Right"
-                                        Content="Probe Now" Click="BtnProbeNow_Click"
-                                        AutomationProperties.AutomationId="Swarm.ProbeResearcher"
-                                        Background="Transparent" Foreground="#4EC9B0"
-                                        BorderBrush="#2E3A2E" BorderThickness="1"
-                                        Padding="8,2" FontSize="10" FontFamily="Segoe UI"
-                                        VerticalAlignment="Center" Cursor="Hand"
-                                        ToolTip="Run the GOBLIN MIND capability probe for this model"/>
                                 <TextBlock x:Name="TbResearcherBadges" Text=""
                                            Foreground="#666666" FontSize="10" FontFamily="Consolas"
                                            VerticalAlignment="Center" Margin="0,0,8,0"

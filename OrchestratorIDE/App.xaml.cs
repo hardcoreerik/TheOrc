@@ -18,27 +18,23 @@ public partial class App : Application
         }
         else if (e.Args.Contains("--tool-probe"))
         {
-            // Tool call capability probe mode.
-            // Usage: OrchestratorIDE.exe --tool-probe [--model <name>]
-            //
-            // Shows the ToolCallTestWindow which runs probes and saves profiles,
-            // then auto-closes after completion.
-            var modelArg = GetArgValue(e.Args, "--model");
-            var settings = Core.AppSettings.Load();
-            var win      = new ToolCallTestWindow(settings);
-            win.Show();
-            _ = win.RunHeadlessAsync(modelArg);
+            // Retired 2026-06-19 alongside ToolCallTestWindow/ModelCapabilityTestDialog —
+            // see docs/SPONSOR_TEST_LAB.md. Fail closed and exit immediately rather than
+            // falling through to a full GUI launch, since a caller still scripting this
+            // flag expects a headless probe-and-exit. No modal dialog here — a review pass
+            // caught that MessageBox.Show is itself a blocking call nothing automated can
+            // dismiss, which defeats the entire point of failing closed for a script. The
+            // non-zero exit code is the signal; Console.Error reaches a caller that has a
+            // console attached, but the exit code must not depend on that being true.
+            Console.Error.WriteLine(
+                "--tool-probe was retired along with ToolCallTestWindow (exit code 1). " +
+                "See docs/SPONSOR_TEST_LAB.md.");
+            Shutdown(1);
         }
         else
         {
             // Normal launch
             new MainWindow().Show();
         }
-    }
-
-    private static string? GetArgValue(string[] args, string key)
-    {
-        var idx = Array.IndexOf(args, key);
-        return idx >= 0 && idx + 1 < args.Length ? args[idx + 1] : null;
     }
 }

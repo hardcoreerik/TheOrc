@@ -2248,15 +2248,8 @@ public partial class MainWindow : Window
         _unavailable.Report("Models", "ModelWikiWindow");
     }
 
-    private void Menu_RunModelCapabilityTest(object? sender, RoutedEventArgs e)
-    {
-        _unavailable.Report("Models", "ModelCapabilityTestDialog");
-    }
-
-    private void Menu_RunToolProbe(object? sender, RoutedEventArgs e)
-    {
-        _unavailable.Report("Models", "ToolCallTestWindow");
-    }
+    // Menu_RunModelCapabilityTest / Menu_RunToolProbe retired 2026-06-19 along with
+    // ModelCapabilityTestDialog/ToolCallTestWindow — see docs/SPONSOR_TEST_LAB.md.
 
     // ── Menu handlers — Help ──────────────────────────────────────────────
 

@@ -146,7 +146,6 @@ public class T08_ModelWikiTests : RecordingTestBase
             "ModelWiki.Search",
             "ModelWiki.ModelList",
             "ModelWiki.Detail",
-            "ModelWiki.RunCapabilityTest",
         ];
 
         foreach (var id in required)
@@ -217,58 +216,9 @@ public class T08_ModelWikiTests : RecordingTestBase
         Assert.That(detail, Is.Not.Null, "ModelWiki.Detail ScrollViewer not found.");
     }
 
-    [Test]
-    public void ModelWiki_RunCapabilityTest_ButtonIsPresent()
-    {
-        var wikiWin = GetWikiWindow();
-        var btn     = wikiWin.FindFirstDescendant(c => c.ByAutomationId("ModelWiki.RunCapabilityTest"));
-
-        Assert.That(btn, Is.Not.Null, "ModelWiki.RunCapabilityTest button not found.");
-        Assert.That(btn!.AsButton().IsEnabled, Is.True,
-            "Run Capability Test button should be enabled.");
-    }
-
-    [Test]
-    public void ModelWiki_RunCapabilityTest_OpensDialog()
-    {
-        var wikiWin = GetWikiWindow();
-        var btn     = wikiWin.FindFirstDescendant(
-            c => c.ByAutomationId("ModelWiki.RunCapabilityTest"));
-        Assert.That(btn, Is.Not.Null);
-
-        btn!.AsButton().Click();
-        Thread.Sleep(300);
-
-        // The capability test dialog is opened with ShowDialog() + Owner = wikiWin.
-        // Search by AutomationId first (most reliable), then by title fragment,
-        // then via wikiWin.ModalWindows — all scoped to the app process.
-        var appeared = AppFixture.WaitUntil(
-            () => AppFixture.FindWindowByAutomationId("ModelCapTest.Root") != null
-               || AppFixture.FindWindowByTitle("Capability Test") != null
-               || AppFixture.FindWindowByTitle("Model Capability") != null
-               || (AppFixture.FindWindowByAutomationId("ModelWiki.Root")
-                      ?.ModalWindows.Length ?? 0) > 0,
-            TimeSpan.FromSeconds(5));
-
-        if (!appeared)
-        {
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("Capability test dialog did not open after clicking Run Capability Test.");
-            sb.AppendLine("Windows currently in app process:");
-            foreach (var (name, aid) in AppFixture.EnumerateAppWindows())
-                sb.AppendLine($"  Name='{name}'  AutomationId='{aid}'");
-            Assert.Fail(sb.ToString());
-        }
-
-        // Close the dialog so TearDown is clean
-        var dlg = AppFixture.FindWindowByAutomationId("ModelCapTest.Root")
-               ?? AppFixture.FindWindowByTitle("Capability Test")
-               ?? AppFixture.FindWindowByTitle("Model Capability")
-               ?? AppFixture.FindWindowByAutomationId("ModelWiki.Root")
-                      ?.ModalWindows.FirstOrDefault();
-        try { dlg?.Close(); } catch { /* ok */ }
-        Thread.Sleep(200);
-    }
+    // ModelWiki_RunCapabilityTest_ButtonIsPresent / _OpensDialog removed 2026-06-19:
+    // ModelCapabilityTestDialog was retired along with ToolCallTestWindow (Sponsor Test
+    // Lab pause) — see docs/SPONSOR_TEST_LAB.md.
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 

@@ -74,17 +74,24 @@ Starting now, WPF enters maintenance-only mode:
 `UnavailableFeatureRouter.BlockAskUser(...)`...~~ — stale as of 2026-06-19;
 verified closed against actual code, not assumed from this doc.
 
-### 2. Model Utility Windows Still Stubbed
+### 2. Model Utility Windows — PARTIALLY CLOSED (2026-06-19)
 
-The high-use model library/downloader path is ported, but three model/test
-utility flows still report unavailable in Avalonia:
+The high-use model library/downloader path is ported. Of the three remaining
+model/test utility flows:
 
-- `ModelWikiWindow`
-- `ModelCapabilityTestDialog`
-- `ToolCallTestWindow`
+- **`ModelCapabilityTestDialog` — RETIRED.** Deleted (WPF window + Avalonia stub
+  + the SwarmBoardPanel/ModelWikiWindow launch points + its UI test coverage).
+  Was part of the Sponsor Test Lab community workflow — that program is paused
+  for this section, not silently broken; see `docs/SPONSOR_TEST_LAB.md`.
+- **`ToolCallTestWindow` — RETIRED.** Same treatment, including the `--tool-probe`
+  CLI mode in `App.xaml.cs`.
+- **`ModelWikiWindow` — still stubbed, deliberately deferred, not retired.** This
+  one is a real user-facing feature (browseable model catalogue), not a pure
+  diagnostic tool. It needs a proper "fold into the existing Avalonia model
+  management surface" design (per Phase 2's own original suggestion below),
+  not a rushed 1:1 port or a retirement decision made under time pressure.
 
-These do not block Native Runtime Phase 3, but they do block a truthful
-Avalonia-only desktop release.
+Remaining blocker for WPF deletion: `ModelWikiWindow` only.
 
 ### 3. First-Run / Agent File Regeneration Still Stubbed
 
@@ -105,18 +112,20 @@ retired.
 
 ### Phase 1. Trust Parity — ✅ DONE (verified 2026-06-19, see "Recently Closed")
 
-### Phase 2. Model Utility Parity
+### Phase 2. Model Utility Parity — PARTIALLY DONE (2026-06-19)
 
 Goal: eliminate the most visible WPF-only utility windows.
 
-- Port or retire `ModelCapabilityTestDialog`.
-- Port or retire `ToolCallTestWindow`.
+- ~~Port or retire `ModelCapabilityTestDialog`.~~ ✅ Retired.
+- ~~Port or retire `ToolCallTestWindow`.~~ ✅ Retired.
 - Port `ModelWikiWindow`, or fold its remaining value into the Avalonia model
-  management surface instead of cloning the old WPF shape exactly.
+  management surface instead of cloning the old WPF shape exactly. **Not done —
+  deliberately deferred, this is the one remaining real WPF-deletion blocker
+  from this phase.**
 
 Exit criterion:
 Models menu and model-management workflows no longer route operators back to
- WPF-only windows.
+ WPF-only windows. (Not yet met — `ModelWikiWindow` still does.)
 
 ### Phase 3. Guided Setup Cleanup
 
@@ -163,9 +172,10 @@ No release-critical workflow, automation lane, or truth doc still depends on
 This is the order we should actually work in next:
 
 1. ~~`ask_user` Avalonia modal and resume flow.~~ DONE — see "Recently Closed".
-2. `ModelCapabilityTestDialog` and `ToolCallTestWindow` decision: port or
-   retire into a new Avalonia diagnostics surface.
-3. `ModelWikiWindow` fold-in or direct port.
+2. ~~`ModelCapabilityTestDialog` and `ToolCallTestWindow` decision: port or
+   retire into a new Avalonia diagnostics surface.~~ DONE — both retired
+   2026-06-19, Sponsor Test Lab paused for that section.
+3. `ModelWikiWindow` fold-in or direct port. **Next real blocker.**
 4. First-run/regenerate-agent cleanup.
 5. Avalonia desktop automation lane.
 6. WPF project removal and doc truth sync.

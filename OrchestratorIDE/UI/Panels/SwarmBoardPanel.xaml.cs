@@ -379,23 +379,6 @@ public partial class SwarmBoardPanel : UserControl
         }
     }
 
-    private void BtnProbeNow_Click(object sender, RoutedEventArgs e)
-    {
-        if (Settings is null)
-        {
-            StatusChanged?.Invoke("Probe window unavailable — settings not wired.");
-            return;
-        }
-
-        var win = new Tests.ToolCallTestWindow(Settings)
-        {
-            Owner = Window.GetWindow(this),
-        };
-        // Refresh badges when the probe window closes — new results may exist
-        win.Closed += (_, _) => UpdateCapabilityBadges();
-        win.Show();
-    }
-
     // ── Gate logic ────────────────────────────────────────────────────────────
 
     // ── Minimum capability thresholds for swarm roles ─────────────────────────
