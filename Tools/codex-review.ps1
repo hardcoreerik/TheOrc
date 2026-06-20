@@ -14,7 +14,8 @@
 #
 # Output: findings ("BLOCKER file:line — issue" / "MINOR ..." / "CLEAN") on
 # stdout and in .orc\reviews\codex_<timestamp>.md. Exit codes:
-#   0 = review completed   2 = timed out   3 = codex exe not found
+#   0 = CLEAN or MINORs only    1 = one or more BLOCKERs
+#   2 = timed out    3 = codex exe not found    5 = tool error (git/codex failure)
 param(
     [string]$Range      = "HEAD~1..HEAD",  # default = latest commit
     [switch]$Staged,                        # override: review staged changes
@@ -51,7 +52,7 @@ if ($Staged) {
     $diffRaw  = git diff --cached -- . @allExcludes 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "git diff --cached failed (exit $LASTEXITCODE). Nothing staged?" -ForegroundColor Red
-        exit 1
+        exit 5
     }
     $statLine = git diff --cached --stat | Select-Object -Last 1
     $scopeTag = "staged changes"
@@ -59,7 +60,7 @@ if ($Staged) {
     $logLines = git log --oneline "$Range" 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "git log failed for range '$Range' (exit $LASTEXITCODE). Invalid range?" -ForegroundColor Red
-        exit 1
+        exit 5
     }
     # Net tree-to-tree diff — correct for any range length, no intermediate hunks.
     $diffRaw  = git diff "$Range" -- . @allExcludes 2>$null
@@ -121,7 +122,7 @@ Conventions to enforce:
 $truncNote = if ($truncated) { "`n[DIFF TRUNCATED at ${MaxDiffKB}KB — review visible portion only]" } else { "" }
 
 $prompt = @"
-You are reviewing changes in TheOrc (WPF/.NET 10 local AI coding assistant on branch '$branch').
+You are reviewing changes in TheOrc (Avalonia-primary/.NET 10 local AI coding assistant, WPF in retirement, on branch '$branch').
 Scope: $scopeTag.
 
 $conventions
@@ -189,4 +190,4 @@ Write-Host ""
 Write-Host $verdict.Trim()
 Write-Host ""
 Write-Host "saved -> $outFile" -ForegroundColor DarkGray
-exit 0
+if ($verdict -match '(?m)^BLOCKER\b') { exit 1 } else { exit 0 }

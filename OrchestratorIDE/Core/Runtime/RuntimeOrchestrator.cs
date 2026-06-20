@@ -82,6 +82,16 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
     // landed under.
     private readonly Dictionary<RuntimeRole, (long Bytes, int Generation)> _reservedByRole = new();
     private readonly SemaphoreSlim _admissionGate = new(1, 1);
+    // Separate from _admissionGate: that semaphore serializes the async admission DECISION
+    // pipeline (check -> load -> commit), but Dictionary itself is not thread-safe even for a
+    // read concurrent with a write, and GetReservationSnapshot is a synchronous telemetry read
+    // that deliberately does NOT wait on _admissionGate (it must never block behind an in-flight
+    // model load). Without a separate guard, a UI thread calling GetReservationSnapshot while
+    // GetConversationForBindingAsync commits or DisposeAsync clears could throw
+    // InvalidOperationException ("Collection was modified") — a review pass caught this missing
+    // from the first telemetry draft. Held only for the brief, synchronous dictionary touch in
+    // each of the four call sites below, never across an await.
+    private readonly object _telemetryGate = new();
     private bool _disposed;
 
     /// <param name="runtime">
@@ -161,7 +171,8 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
             if (_scheduler is not null && _budgetProvider is not null)
             {
                 var requiredBytes = OrcScheduler.EstimateRequiredBytes(binding);
-                _reservedByRole[binding.Role] = (requiredBytes, _runtime.WeightsGeneration);
+                lock (_telemetryGate)
+                    _reservedByRole[binding.Role] = (requiredBytes, _runtime.WeightsGeneration);
             }
 
             return conversation;
@@ -196,9 +207,11 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
         // admitting it again either reuses the existing executor (no new memory) or tears the old
         // one down before building the replacement (old footprint already gone by the time the
         // new one would exist) — counting it here would double-charge a role against itself.
-        var otherRolesReserved = _reservedByRole
-            .Where(kv => kv.Key != binding.Role && kv.Value.Generation == currentGeneration)
-            .Sum(kv => kv.Value.Bytes);
+        long otherRolesReserved;
+        lock (_telemetryGate)
+            otherRolesReserved = _reservedByRole
+                .Where(kv => kv.Key != binding.Role && kv.Value.Generation == currentGeneration)
+                .Sum(kv => kv.Value.Bytes);
         var budget = baseline with { ReservedBytes = baseline.ReservedBytes + otherRolesReserved };
 
         var decision = _scheduler.TryAdmit(binding, budget);
@@ -234,7 +247,8 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
         }
         finally
         {
-            _reservedByRole.Clear();
+            lock (_telemetryGate)
+                _reservedByRole.Clear();
             // _admissionGate is intentionally never Dispose()'d here, same rationale as
             // AdapterManager's own gate (see its class doc point 5): a thread already queued on
             // WaitAsync before disposal began must not have its own `finally { Release() }` throw
@@ -243,12 +257,81 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Read-only snapshot of current VRAM admission state — RUNTIME_PHASE0_SPEC.md §3's
+    /// "surface SessionManager/AdapterManager-backed telemetry" item. Deliberately does NOT wait
+    /// on <see cref="_admissionGate"/>: this is a status read for UI/diagnostics, not a decision,
+    /// so it never blocks behind an in-flight model load. It still takes the short, synchronous
+    /// <see cref="_telemetryGate"/> lock around the dictionary touch (see that field's doc) —
+    /// without it, this read could throw a concurrent-modification exception against a write or
+    /// clear happening on another thread, not just return a stale value. With the lock, the
+    /// remaining race is benign: a snapshot taken concurrently with disposal may reflect either
+    /// just-before or just-after the clear, never a torn read, and
+    /// <see cref="EnsureAdmitted"/> never trusts this snapshot — it always re-reads the live
+    /// state itself under both gates when it makes an actual admission decision.
+    /// Returns null if no scheduler/budget provider is configured (admission control is a no-op,
+    /// so there is nothing meaningful to report) or if the budget provider throws/returns null.
+    /// </summary>
+    public RuntimeReservationSnapshot? GetReservationSnapshot()
+    {
+        ThrowIfDisposed();
+
+        if (_scheduler is null || _budgetProvider is null)
+            return null;
+
+        VramBudget? baseline;
+        try
+        {
+            baseline = _budgetProvider();
+        }
+        catch
+        {
+            // Best-effort telemetry: a misbehaving provider must not crash a status display.
+            // EnsureAdmitted is the path that actually enforces correctness and will surface a
+            // clear failure there instead.
+            return null;
+        }
+
+        if (baseline is null)
+            return null;
+
+        var currentGeneration = _runtime.WeightsGeneration;
+        List<RuntimeRoleReservation> active;
+        lock (_telemetryGate)
+            active = _reservedByRole
+                .Where(kv => kv.Value.Generation == currentGeneration)
+                .Select(kv => new RuntimeRoleReservation(kv.Key, kv.Value.Bytes))
+                .ToList();
+        var reservedBytes = baseline.ReservedBytes + active.Sum(r => r.Bytes);
+
+        return new RuntimeReservationSnapshot(
+            active,
+            baseline.TotalBytes,
+            reservedBytes,
+            AvailableBytes: Math.Max(0, baseline.TotalBytes - reservedBytes));
+    }
+
     private void ThrowIfDisposed()
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(RuntimeOrchestrator));
     }
 }
+
+/// <summary>One role's current VRAM footprint as tracked by <see cref="RuntimeOrchestrator"/>.</summary>
+public sealed record RuntimeRoleReservation(RuntimeRole Role, long Bytes);
+
+/// <summary>
+/// Point-in-time view of <see cref="RuntimeOrchestrator"/>'s admission state. <see cref="Reservations"/>
+/// lists only roles whose reservation generation still matches the runtime's current generation —
+/// stale entries (torn down by an intervening reload) are excluded, same filter <see cref="RuntimeOrchestrator"/>
+/// itself uses for admission decisions.
+/// </summary>
+public sealed record RuntimeReservationSnapshot(
+    IReadOnlyList<RuntimeRoleReservation> Reservations,
+    long TotalBytes,
+    long ReservedBytes,
+    long AvailableBytes);
 
 public sealed class RuntimeAdmissionDeniedException : InvalidOperationException
 {

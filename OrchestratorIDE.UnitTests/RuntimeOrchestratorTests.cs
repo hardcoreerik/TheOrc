@@ -108,6 +108,57 @@ public sealed class RuntimeOrchestratorTests
         Assert.That(ex!.Budget.ReservedBytes, Is.EqualTo(sizeBytes));
     }
 
+    [Test]
+    public async Task GetReservationSnapshot_Returns_Null_When_No_Scheduler_Configured()
+    {
+        await using var runtime = new LLamaSharpRuntime();
+        await using var orchestrator = new RuntimeOrchestrator(runtime);
+
+        Assert.That(orchestrator.GetReservationSnapshot(), Is.Null);
+    }
+
+    [Test]
+    public async Task GetReservationSnapshot_Reports_Empty_Reservations_Before_Any_Admission()
+    {
+        var budget = new VramBudget(TotalBytes: 10_000_000_000, ReservedBytes: 1_000_000_000);
+        await using var runtime = new LLamaSharpRuntime();
+        await using var orchestrator = new RuntimeOrchestrator(
+            runtime, scheduler: new OrcScheduler(), budgetProvider: () => budget);
+
+        var snapshot = orchestrator.GetReservationSnapshot();
+
+        Assert.That(snapshot, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(snapshot!.Reservations, Is.Empty);
+            Assert.That(snapshot.TotalBytes, Is.EqualTo(10_000_000_000));
+            Assert.That(snapshot.ReservedBytes, Is.EqualTo(1_000_000_000));
+            Assert.That(snapshot.AvailableBytes, Is.EqualTo(9_000_000_000));
+        });
+    }
+
+    [Test]
+    public async Task GetReservationSnapshot_Returns_Null_When_Budget_Provider_Throws()
+    {
+        await using var runtime = new LLamaSharpRuntime();
+        await using var orchestrator = new RuntimeOrchestrator(
+            runtime,
+            scheduler: new OrcScheduler(),
+            budgetProvider: () => throw new InvalidOperationException("VRAM probe unavailable"));
+
+        Assert.That(orchestrator.GetReservationSnapshot(), Is.Null);
+    }
+
+    [Test]
+    public async Task GetReservationSnapshot_Throws_After_Dispose()
+    {
+        var runtime = new LLamaSharpRuntime();
+        var orchestrator = new RuntimeOrchestrator(runtime, disposeRuntime: true);
+        await orchestrator.DisposeAsync();
+
+        Assert.Throws<ObjectDisposedException>(() => orchestrator.GetReservationSnapshot());
+    }
+
     private string NewTempRoot()
     {
         var root = Path.Combine(Path.GetTempPath(), "orc-runtime-orchestrator-" + Guid.NewGuid().ToString("N"));
