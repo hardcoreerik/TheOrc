@@ -97,6 +97,19 @@ training_pit/flag_review.txt
 # Test result artifacts
 test-results/
 
+# .grok/ is internal dev scratch (specs, prompts, launch scripts, spike code) —
+# not user-facing, kept local-only by default. PROJECT_TRUTH.md is the one
+# exception: explicit decision 2026-06-20 to keep it public.
+.grok/*
+!.grok/PROJECT_TRUTH.md
+
+# Root-level dev-planning notes — internal, not user-facing (2026-06-20)
+/Avalonia_Migration.md
+/CodeGraph_v1.md
+/ContentAwareDatasets_v1.md
+/TrainingFlags_Guide.md
+/MARKER_NOTE.md
+
 # Scratch review/diff artifacts (codex-review.ps1, dataset verification runs, etc.)
 .grok/*_run.log
 .grok/*run*.log
