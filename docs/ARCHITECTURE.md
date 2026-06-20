@@ -1,369 +1,289 @@
 # TheOrc — Architecture
 
-> This is the implementation-grounded architecture paper for the current Windows build of TheOrc. Read it with [GLOSSARY.md](GLOSSARY.md) for naming and [USER_GUIDE.md](USER_GUIDE.md) for operator workflow.
+> Implementation-grounded system view for the current branch. Read this with
+> [GLOSSARY.md](GLOSSARY.md) for naming, [ROADMAP.md](ROADMAP.md) for phased
+> status, and [`../.grok/PROJECT_TRUTH.md`](../.grok/PROJECT_TRUTH.md) for the
+> stricter "what is actually true right now" ledger.
 
 ---
 
 ## What This System Is
 
-TheOrc is a local-first orchestration shell around three tightly connected loops:
+TheOrc is a local-first AI orchestration shell with three connected loops:
 
-- a WPF desktop shell that hosts the operator experience
-- an execution layer that turns user goals into single-agent or swarm tool runs
-- a learning loop that turns successful and failed swarm plans into reviewed training data and, eventually, LoRA adapters
+- an operator shell, now **Avalonia-primary**, with WPF still present as a
+  compatibility surface while the last dialogs are ported
+- an execution layer that runs single-agent, chat, swarm, and distributed HIVE
+  workflows against local model runtimes
+- a learning loop that captures swarm behavior, curates datasets, trains
+  adapters, and feeds the results back into future planning
 
-The codebase is opinionated about trust boundaries. The UI is not a thin skin over a CLI. `AgentLoop`, `ToolRegistry`, the approval queue, the sandbox rules, and `SwarmSession` all participate directly in keeping local execution inspectable and reviewable.
+The codebase is opinionated about trust and inspectability. The UI is not a thin
+skin over a CLI. `AgentLoop`, `ToolRegistry`, `SwarmSession`, the approval flow,
+the reviewer gate, dataset capture, and the runtime abstractions all participate
+in keeping local execution reviewable.
 
 ---
 
 ## System Map
 
 ```text
-+-------------------- WPF SHELL --------------------+
-| MainWindow                                        |
-|  - mode switch: Single / Swarm / Chat             |
-|  - status bar: workspace, branch, build, model    |
-|  - activity bar + sidebar panels                  |
-|  - embedded docs/help viewer (F1)                 |
-+-------------------------+-------------------------+
++------------------ OPERATOR SHELL -------------------+
+| Avalonia app (primary)                              |
+| WPF app (compatibility / remaining dialogs)         |
+|  - Single / Swarm / Chat / Pit / Hive / Settings    |
+|  - docs/help viewer                                 |
+|  - status: workspace / git / build / model/runtime  |
++-------------------------+---------------------------+
                           |
           +---------------+----------------+
           |                                |
           v                                v
 +-----------------------+      +------------------------+
-| Single-Agent Runtime  |      | Swarm Runtime          |
+| Single + Chat         |      | Swarm + HIVE           |
 | AgentLoop             |      | SwarmSession           |
-| ToolRegistry          |      | SwarmSteering          |
-| ApprovalQueue         |      | SwarmRunMetrics        |
+| ChatEngine            |      | HiveTaskQueue          |
+| ToolRegistry          |      | HiveWorkerAgent        |
+| Approval queue        |      | HiveScheduler          |
 +-----------+-----------+      +-----------+------------+
             |                              |
             v                              v
      +------+------------------------------+------+
-     | Tools, files, shell, web, tests, research  |
+     | files, shell, web, tests, git, research    |
      +--------------------+-----------------------+
                           |
                           v
                +----------+-----------+
                | Training Pit         |
-               | DatasetCapture       |
-               | review/prescreen     |
-               | judge/preflight      |
-               | train_lora.py        |
+               | capture/review       |
+               | ORC ACADEMY          |
+               | adapter registry     |
+               +----------+-----------+
+                          |
+                          v
+               +----------+-----------+
+               | Runtime layer        |
+               | OllamaRuntime        |
+               | LlamaCppServerRuntime|
+               | LLamaSharpRuntime    |
+               | ModelDepot / Session |
+               | Adapter / Scheduler  |
                +----------------------+
 ```
 
 ---
 
-## WPF Shell And Panel Architecture
+## UI Shell
 
-`MainWindow` is the composition root for the operator UI. It instantiates the major panels in code-behind and swaps them into the main content and sidebar presenters instead of relying on a large MVVM shell registry.
+The operator shell is in transition:
 
-The main shell pieces verified in `MainWindow.xaml` and `MainWindow.xaml.cs` are:
+- **Avalonia is the primary direction** for new operator-facing runtime work and
+  test-heavy UI work.
+- **WPF still exists** and cannot be dropped yet because a few dialogs and some
+  compatibility paths remain there.
+- Shared core/runtime logic is intentionally kept outside any one desktop shell
+  so both shells can call into the same execution and runtime services.
 
-- mode selector buttons for `Single`, `Swarm`, and `Chat`
-- a sidebar presenter used for the file explorer, sessions, checkpoints, and settings
-- panel instances for `AgentPanel`, `SwarmBoardPanel`, `ChatPanel`, `TrainingPitPanel`, `CodeEditorPanel`, `ToolEditorPanel`, `SettingsPanel`, `SessionBrowserPanel`, and `CheckpointBrowserPanel`
-- a status bar that surfaces workspace, git branch, build stamp, active model, and current status
-- help entry points from both the Help menu and the `F1` shortcut
+The status bar remains an architectural trust surface:
 
-The status bar matters architecturally because it is the fastest trust surface in the app:
+- workspace badge shows tool root
+- branch badge shows git context
+- build stamp proves which binary is running
+- model/runtime label surfaces the active inference path
 
-- workspace badge shows where file tools are rooted
-- branch badge reflects git context
-- build stamp proves exactly which binary is running
-- model label reflects the active model or role selection
-
-That build stamp is sourced from `AssemblyInformationalVersion` and is shown specifically to prevent "stale exe" confusion.
-
----
-
-## Documentation And Research Surfaces
-
-The in-app help system is a first-class shell feature, not a browser link-out.
-
-- `HelpWindow` loads `docs/*.md` from disk when present and falls back to embedded resources in published builds
-- relative guide links such as `[User Guide](USER_GUIDE.md)` are rewritten to an internal `orcdoc://` scheme so navigation stays inside the viewer
-- `MarkdownFlowDocument` renders headings, lists, fenced code blocks, blockquotes, emphasis, inline code, links, and horizontal rules
-
-This explains why the docs must avoid raw HTML-heavy layouts and why simple Markdown cross-links are the stable documentation contract.
+That build stamp exists specifically to reduce stale-exe confusion during local
+development and test runs.
 
 ---
 
-## Single-Agent Execution Path
+## Documentation Surface
 
-Single-agent mode is driven by `AgentLoop`.
+The in-app help/docs viewer is a first-class feature, not a browser link-out.
+Markdown files under `docs/` are part of the product surface, which is why stale
+architecture docs are more than cosmetic drift: they actively mislead operator
+and developer decisions.
+
+Practical rule for this repo: `README.md`, `ROADMAP.md`, `PROJECT_TRUTH.md`, and
+the architecture docs need to move together whenever a phase closes or the
+primary execution path changes.
+
+---
+
+## Single-Agent And Chat Execution
+
+Single-agent mode is driven by `AgentLoop`. Chat mode shares the same model
+runtime abstraction through `ChatEngine`.
 
 At a high level:
 
-1. `PlanAsync` builds a plan-only prompt, injects workspace rules, and asks the model for a plan without tools.
-2. The approved plan is stored in session history.
-3. `ExecuteAsync` loads the active tool set from `ToolRegistry`, adds project rules, creates a git checkpoint, and enters a tool-calling loop.
-4. Tool calls are executed through `ToolRegistry`, which routes approval-gated calls through the approval queue.
-5. Tool results are fed back into the model until the model stops issuing calls or hits its step limit.
+1. Plan mode builds a plan-only prompt and avoids tools.
+2. Execute mode loads the active tool profile from `ToolRegistry`.
+3. Tool calls are parsed, executed, approval-gated when needed, and fed back to
+   the model until it stops or hits limits.
+4. Verification and checkpointing can run around write operations.
 
-The tool runtime is deliberately defensive:
-
-- unknown tools return rich self-correction messages instead of generic failures
-- write operations and shell commands can require explicit approval
-- `AgentLoop` can detect refusal-style answers and push the model back toward real tool use
-- automatic post-write verification can run `run_tests`
+`ToolRegistry` owns which tools exist and how they are approval-gated.
+`AgentLoop` owns conversation state, prompt construction, tool-call parsing, and
+retry/nudge behavior.
 
 ---
 
-## AgentLoop And ToolRegistry
+## GOBLIN MIND / Tool-Call Adaptation
 
-`AgentLoop` and `ToolRegistry` split responsibility cleanly:
+The model-adaptation layer still exists under the GOBLIN MIND name in code and
+docs, though a broader rename inventory already exists.
 
-- `AgentLoop` owns prompt construction, conversation state, context pressure, tool-call parsing, and retry/nudge behavior
-- `ToolRegistry` owns which tools exist, which profiles can see them, unknown-tool recovery, and approval-aware execution
+Implemented capability areas:
 
-That separation is important because GOBLIN MIND augments `AgentLoop` without requiring the tool handlers themselves to understand model quirks.
+- format fingerprinting
+- category boundary mapping
+- schema library and adaptive schema generation
+- schema simplification / reduction
+- evolutionary fitness storage
+- steering surfaces that feed capability data back into routing decisions
 
----
-
-## GOBLIN MIND
-
-GOBLIN MIND is the model-adaptation layer under `Services/ToolCalls/`.
-
-Its implemented phases are:
-
-- Phase 1: format fingerprinting via `FormatProbeEngine`
-- Phase 2: category boundary mapping via `CategoryProbeEngine`
-- Phase 3: adaptive schema generation via `SchemaGenerator`
-- Phase 4: schema reduction middleware via `SchemaSimplifier`
-- Phase 5: evolutionary schema fitness tracking via `FitnessMap`
-- Phase 6: capability-aware swarm steering via `SwarmSteering`
-
-The key idea is simple: local models do not all fail in the same way, so TheOrc profiles them and changes how it talks to them.
-
-### Format fingerprinting
-
-`FormatProbeEngine` tests five output conventions:
-
-- bare JSON
-- OpenAI-style JSON
-- Hermes XML wrapper
-- Python-style function syntax
-- YAML block syntax
-
-`AgentLoop` then injects the preferred format instructions for that model instead of hardcoding one universal tool-call format.
-
-### Category boundary mapping
-
-`CategoryProbeEngine` scores whether a model can reliably handle seven categories:
-
-- `FileOps`
-- `Network`
-- `CodeExec`
-- `DataTransform`
-- `SystemInspect`
-- `StructuredOutput`
-- `TaskPlanning`
-
-Those scores are not informational only. `SwarmSteering` uses them to decide whether a requested goblin should keep its assigned model or fall back.
-
-### Schema reduction
-
-`SchemaGenerator` first looks for confirmed schemas in `SchemaLibrary`. If none exist, it builds them dynamically. `SchemaSimplifier` can then reduce complexity by flattening nested objects, dropping optional fields, shortening descriptions, and similar transformations.
-
-This means schema complexity is treated as a runtime compatibility variable, not as a fixed tool definition.
-
-### Evolutionary search
-
-`FitnessMap` stores tested schema variants and tracks winners. The GUI surface for this is the Evolution tab in `ToolCallTestWindow`, and winning variants can be promoted into `SchemaLibrary`.
-
-### Steering integration
-
-`SwarmSteering` converts capability maps into routing decisions and warning text. The boss prompt also receives a compact "Goblin Capability Map" summary so decomposition is informed by model capability, not just role labels.
+The important architectural point is unchanged: TheOrc does not assume one
+universal tool-call format works for every local model. It probes and adapts.
 
 ---
 
-## Swarm Session Lifecycle
+## Swarm And HIVE Execution
 
-`SwarmSession` is the orchestration engine for swarm mode. The current implementation supports one boss and up to four worker lanes: `RESEARCHER`, `CODER`, `UIDEVELOPER`, and `TESTER`.
+`SwarmSession` is the core swarm orchestrator. It runs one boss plus up to four
+ worker lanes: `RESEARCHER`, `CODER`, `UIDEVELOPER`, and `TESTER`.
 
-The lifecycle is:
+Current swarm lifecycle:
 
 ```text
 user goal
   -> boss decomposition
   -> optional dataset capture
-  -> researcher phase
-  -> implementation phase (coder + uideveloper + planned tester)
-  -> auto tester verification phase
-  -> optional fix task
+  -> researcher pass
+  -> coder/ui/tester execution
+  -> tester verification / optional fix task
   -> boss merge
   -> staged outputs + run artifacts
 ```
 
-More concretely:
+Important current properties:
 
-1. The boss model decomposes the goal into JSON tasks.
-2. The boss plan is parsed into `SwarmTask` records.
-3. `DatasetCapture.StageAsync` may write a plan capture if the rubric score is high enough or low enough.
-4. Researcher tasks run first.
-5. If the researcher model differs from the coder model, the researcher model can be evicted from VRAM before the coder phase.
-6. Coder, UI, and planned tester tasks run concurrently.
-7. Empty or ghost researcher output is filtered before it contaminates coder prompts.
-8. Completed implementation tasks can be retried when they produce no files.
-9. Tester results can spawn a targeted fix task.
-10. The boss merges worker results into the final report and emits a staged-files event.
+- dataset capture is live in the swarm path
+- tester is a read-only lane
+- run artifacts are written under `.orc/swarm/runs/<runId>/`
+- reviewer verdicts are advisory, not hard-enforced
+- swarm/runtime code now depends on `IModelRuntime` rather than hard-wiring
+  inference calls to raw Ollama APIs
 
-The swarm keeps durable run artifacts under `.orc/swarm/runs/<runId>/`, including plan JSON, trace data, task files, and staged output.
+### HIVE MIND state
 
----
+HIVE is no longer just a spec.
 
-## Co-Work, Steering, And Continuations
+Shipped groundwork:
 
-Swarm mode is not fire-and-forget only.
+- named host store and reachability probing
+- Tailscale-aware peer discovery
+- distributed task queue and worker claiming
+- capability-aware scheduler
+- remote worker execution through `HiveWorkerAgent`
 
-`SwarmSession` supports:
+Still missing:
 
-- worker pauses for user input via `ask_user`
-- user steering messages queued into the next worker iteration
-- follow-up continuation on a finished worker thread using preserved conversation history
-
-This is why the swarm board is built around live per-lane streams and task-state transitions instead of only a final report.
+- Phase 3B multi-step tool calling on remote workers
+- fuller runtime-native routing across remote nodes
+- some recovery and polishing around the distributed path
 
 ---
 
-## Metrics, Capability Badges, And Model Intelligence
+## Training Pit / ORC ACADEMY
 
-Three subsystems turn swarm runs into operational feedback:
+The Training Pit is live and no longer a future placeholder. It captures good
+and bad boss plans, routes them through review, exports curated datasets, and
+supports real LoRA training runs.
 
-- `SwarmMetricsStore` appends a JSONL record for each run and aggregates per-configuration quality
-- `SwarmConfigAdvisor` detects hardware with `nvidia-smi` and recommends boss/coder/researcher/tester assignments
-- `ToolCallProfileStore` provides the data behind capability badges
-
-User-visible surfaces backed by those services include:
-
-- Swarm Board capability badges: dispatch mode, format, categories, schema reduction, probe age
-- Swarm Board metrics history: best-known configurations and quality score
-- Model Wiki / Lab trends strip and local result history
-- model comparison window
-
----
-
-## Training Pit Pipeline
-
-The Training Pit is the data and adapter loop that sits downstream of swarm planning.
-
-The code path today is:
+High-level pipeline:
 
 ```text
 swarm run
-  -> DatasetCapture stages qualifying boss plans
-  -> human/judge review tooling triages captures
-  -> reviewed_v1.json manifest records decisions
-  -> export builds train/eval/negative JSONL files
-  -> phase3_preflight verifies readiness
-  -> ORC ACADEMY launches train_lora.py
-  -> adapter + checkpoints + summary land in outputs/lora_v1
+  -> DatasetCapture
+  -> review / prescreen / judge tooling
+  -> curated JSONL lanes
+  -> suitability / preflight checks
+  -> ORC ACADEMY train_lora.py
+  -> adapter eval + registry decision
 ```
 
-### 1. Capture
+Important current truth:
 
-`DatasetCapture.cs` scores the parsed boss plan with `EvalRubric`.
+- production `lora_v1` is registered
+- later datasets and adapters exist locally beyond the original v1 lane
+- v2 was retired after suitability findings
+- v3 completed and beat base, but did not beat the production v1 baseline
+- training artifacts and dataset JSONL lanes are local-only and intentionally
+  gitignored; the committed public contract is the registry plus the scripts/docs
 
-- score `>= 70`: stage as `plan_capture_good_*`
-- score `<= 39`: stage as `plan_capture_bad_*`
-- score `40-69`: skip silently
-
-The staged file is a plan-capture JSON document, not a trainable chat row yet.
-
-### 2. Prescreen
-
-`prescreen_captures.py` is the deterministic first pass used by GOBLIN HARVEST. It auto-flags mechanical problems such as:
-
-- too few tasks
-- invalid role strings
-- TESTER tasks that use write verbs
-- wrong-stack file extensions
-- obvious greenfield/fabricated file references
-
-### 3. Judge
-
-`judge_captures.py` is the second pass. It uses a local judge model to assign `low`, `medium`, or `high` fabrication risk, but it does not approve or reject captures by itself.
-
-### 4. Human review and manifest
-
-`review_captures.py` is the approval valve.
-
-- approvals and rejections are written to `training_pit/datasets/manifests/reviewed_v1.json`
-- exports are rebuilt from the manifest, not from raw staging files
-- export is fail-closed: convert -> validate -> sanitize -> replace final file only on success
-
-As of the current manifest and preflight output, the reviewed dataset stands at:
-
-- 900 approved train examples
-- 87 approved eval examples
-- 25 approved negative examples
-
-### 5. Preflight
-
-`phase3_preflight.py` verifies readiness before training. Its checks include:
-
-- manifest validity
-- split counts
-- export consistency
-- validation and sanitization
-- duplicate detection
-- eval isolation
-- staging safety
-
-### 6. ORC ACADEMY training
-
-The current trainer is `training_pit/scripts/train_lora.py`.
-
-Verified properties from the script and GUI:
-
-- target workflow is QLoRA on `google/gemma-4-12b-it` by default
-- training and eval data come from `train_v1.jsonl` and `eval_v1.jsonl`
-- progress heartbeat is written to `training_pit/outputs/lora_v1/progress.json`
-- resume uses the latest checkpoint when available
-- a VRAM cap can be passed from the Training Pit GUI
-- the GUI can re-attach to a surviving trainer process after an app restart
-- final artifacts include adapter files, checkpoints, `training_summary.json`, and `forge.log`
-
-The UI label is now ORC ACADEMY, while some code comments and backing field names still use the older WARCHIEF FORGE naming.
+See [../training_pit/ARCHITECTURE.md](../training_pit/ARCHITECTURE.md) for the
+training-loop-specific view.
 
 ---
 
-## NIGHT HARVEST And Marker Watching
+## Runtime Layer
 
-The harvest loop is intentionally separate from training:
+This is the biggest recent architectural shift.
 
-- `night_harvest.ps1` farms plans
-- `TrainingPitPanel` watches staging activity and surfaces live collection state
-- `harvest_marker_watch.ps1` can stop harvest automatically when the train-data marker is reached
+The app used to depend directly on Ollama-oriented call sites. The current branch
+has a real runtime abstraction:
 
-That keeps capture farming, review, and training decoupled enough that operators can collect aggressively without automatically promoting raw data into training.
+- `IModelRuntime` is the common generation surface
+- `OllamaRuntime` wraps the current default backend
+- `LlamaCppServerRuntime` wraps the existing llama.cpp server bridge
+- `LLamaSharpRuntime` is the in-process native runtime prototype
+
+Phase 3 runtime orchestration pieces now exist:
+
+- `ModelDepot` scans local model/adaptor assets
+- `SessionManager` owns persistent base-model load logic
+- `AdapterManager` owns per-role persistent LoRA-backed executors
+- `RuntimeOrchestrator` wires the managers together from one shared runtime
+- `IRoleRuntime` / `NativeRoleRuntime` expose that stack as a role-aware
+  streaming surface for opt-in call sites
+- `OrcScheduler` has started with a real VRAM-budget admission check
+
+Important caveats:
+
+- Native Runtime is **not** the default path yet
+- the first live path is limited to experimental HIVE worker opt-in; main
+  chat, research chat, and SwarmSession still stay on the configured default
+  runtime for this release
+- Session/Adapter telemetry is only partially surfaced
+- prefix KV cache is research, not a promised feature
+- cross-role shared KV cache is specifically unsafe with different adapters
+
+That last point matters because architecture docs should not imply "one giant
+shared cached brain" when the actual branch truth is more constrained.
 
 ---
 
-## HIVE MIND, Summarized
+## Persistence And Truth Sources
 
-[HIVE_MIND_SPEC.md](HIVE_MIND_SPEC.md) describes a planned distributed layer. The important architectural idea is not "remote shelling into another PC." It is a capability-aware roster of TheOrc nodes that can host the right workload on the right machine.
+The repo has several classes of truth now:
 
-The planned phases in the spec are:
+- code truth: what the app actually does
+- operator truth: `README.md`, `docs/ROADMAP.md`, and the help guides
+- engineering truth: `.grok/PROJECT_TRUTH.md` and runtime-phase docs
+- local artifact truth: dataset JSONL, checkpoints, adapters, eval outputs
 
-- remote Ollama host routing as the first useful slice
-- discovery and roster management
-- remote jobs and artifact return for harvest and academy workflows
-- trust and confirmation for first contact
+A recurring docs failure mode here is letting architecture docs describe either:
 
-The current codebase does not implement HIVE MIND yet, but the spec is consistent with existing local primitives:
+- an older shipped state after the code has moved on, or
+- a desired future shape as if it already exists
 
-- capability profiles
-- heartbeat files
-- model and VRAM awareness
-- artifact directories and resumable jobs
+For this branch, `PROJECT_TRUTH.md` is the safest anchor when docs disagree.
 
 ---
 
 ## Architectural Through-Line
 
-The best way to understand TheOrc is as a closed local loop:
+TheOrc is best understood as a closed local loop:
 
 ```text
 goal
@@ -376,4 +296,12 @@ goal
   -> better future planning
 ```
 
-That loop is why the shell, the swarm, GOBLIN MIND, and the Training Pit belong in one product. TheOrc is not only an agent runner. It is an agent runner that records evidence about how its own models behave and then feeds that evidence back into the next generation of behavior.
+Native Runtime extends that loop instead of replacing it. The point is not to
+become an inference engine from scratch; it is to own more of the scheduling,
+session, adapter, and feedback path locally while keeping the operator in
+control.
+
+---
+
+*Last updated: 2026-06-19 — architecture refreshed for Avalonia-primary UI,
+shipped HIVE/Training Pit state, and Native Runtime branch work.*

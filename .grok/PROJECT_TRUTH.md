@@ -250,7 +250,7 @@ Full spec: `.grok/WARBANDS.md`. The `OrchestratorIDE.Daemon` project IS the Warb
 | CI linux-x64 / osx-arm64 Warband artifacts | v1.9 or v2.0 |
 | `warband.compose.yml` template | v1.9 or v2.0 |
 
-### TheOrc Native Runtime — v2.0 Direction (Phase 0-2 landed, Phase 2.5 closing abstraction leaks)
+### TheOrc Native Runtime — v2.0 Direction (Phase 0-3 groundwork landed; first live path is opt-in)
 
 Full spec: `.grok/RUNTIME_PHASE0_SPEC.md`. An orchestration/swarm-aware layer **on top of LLamaSharp** (llama.cpp bindings) — NOT a from-scratch inference engine. Goal: drop the Ollama dependency, kill per-call reload + HTTP overhead + the `ollama create` merge step, and make the warband behave as one cohesive GPU mind.
 
@@ -260,18 +260,18 @@ Full spec: `.grok/RUNTIME_PHASE0_SPEC.md`. An orchestration/swarm-aware layer **
 | 1 | `LlamaCppServerRuntime` — wraps **existing** `LlamaServerManager` | ✅ Landed |
 | 2 | `LLamaSharpRuntime` — in-process GGUF + LoRA; the "no Ollama" win | ✅ Prototype landed (LoRA apply still deferred) |
 | 2.5 | Close abstraction leaks: `HiveWorkerAgent` + reviewer gate now use `IModelRuntime`; remote HIVE task-queue/node HTTP remains separate plumbing, not LLM inference | ✅ Closed |
-| 3 | ModelDepot + SessionManager + AdapterManager (boss/worker/reviewer) + telemetry | 🔶 Near-closed — ModelDepot, SessionManager, AdapterManager, and `RuntimeOrchestrator` (wires all three from one shared runtime instance — review caught and fixed a mismatched-runtime risk in the first draft) landed, with the wiring logic itself Grok-CLEAN. The *success path* (a real model load + real adapter-attached generation) still has no automated end-to-end proof, but the opt-in smoke lane now exists: `THEORC_TEST_GGUF` drives a real `LLamaSharpRuntime` load/generate/dispose/repeat test, and Avalonia Settings now exposes an isolated manual native smoke surface with explicit Ollama fallback plus local `.orc/runtime-fallback/` evidence capture. §7 hot-swap spike closed empirically across 2 LoRA samples; telemetry/test surfaces landed for both Ollama (GetHealth/GetStats) and ModelDepot (live local-folder scan: asset counts by kind + per-role resolved binding, in Settings — no GPU/model-load cost). Remaining: SessionManager/AdapterManager-backed telemetry (requires an actual loaded local model, not just a scan) and actually flipping any live call site over from Ollama |
+| 3 | ModelDepot + SessionManager + AdapterManager (boss/worker/reviewer) + telemetry | 🔶 Live opt-in proof path landed — ModelDepot, SessionManager, AdapterManager, and `RuntimeOrchestrator` (wires all three from one shared runtime instance — review caught and fixed a mismatched-runtime risk in the first draft) landed, with the wiring logic itself Grok-CLEAN. `IRoleRuntime`/`NativeRoleRuntime` now expose the stack as a role-aware streaming surface; `THEORC_TEST_GGUF` drives both the existing `LLamaSharpRuntime` load/generate/dispose/repeat smoke lane and a new opt-in role-runtime smoke lane. Avalonia Settings exposes manual native smoke with explicit Ollama fallback plus local `.orc/runtime-fallback/` evidence capture, and `HiveWorkerAgent` has the first live native path: experimental opt-in only, role-mapped researcher/worker execution, logged fallback to configured `IModelRuntime`. §7 hot-swap spike closed empirically across 2 LoRA samples. Remaining: keep proving the real-model path, SessionManager/AdapterManager-backed telemetry, OrcScheduler wiring into AdapterManager, and no native default for main chat/research/SwarmSession yet |
 | 4 | `OrcScheduler` — VRAM + lane-aware dispatch, pipeline boss→workers | 🔶 Started — interface + data model landed (IOrcScheduler, VramBudget, SchedulingLane/Decision), plus a real VRAM-budget admission check (TryAdmit estimates cost from RuntimeModelAsset.SizeBytes, denies with a reason when it exceeds available budget); not yet wired into AdapterManager/RuntimeOrchestrator, no live GPU dispatch or pipeline queueing yet |
 | 5 | Prefix KV cache (research, non-blocking) | ✅ Research closed — `Conversation.Fork()` is a real, cheap shared-prefix mechanism (confirmed via LLamaSharp's shipped XML docs), blocked for cross-role sharing since `SetLoraAdapters` is context-scoped not per-sequence; same-role prefix forking is a viable future win, see `.grok/PREFIX_KV_CACHE_RESEARCH.md` |
 
 Key corrections vs the ChatGPT/Grok sketches (both written blind to the code): interface must carry **message history + tools + tool-call callback** (not single-prompt/no-tools); **there is no DI** — its introduction is a deliberate decision, not a Phase 0 assumption; the llama.cpp server bridge **already exists** as `LlamaServerManager`; LoRA hot-swap needs a verification spike before roadmapping. Ollama stays default/fallback until ModelDepot + installer are solid.
 
-**Routing a live call site through the stack (not started):** full staged plan in
-`.grok/RUNTIME_SWITCH_PLAN.md` — Stage 1 (`LLamaSharpRuntime` smoke test against a real model),
-Stage 2 (opt-in Settings test surface with explicit Ollama fallback and evidence capture),
-Stage 3 (decide which live call site + opt-in-vs-default), Stage 4 (implement Stage 3's
-decision). Read that doc before assuming
-any call site has been or is about to be flipped off Ollama.
+**Routing a live call site through the stack:** Stage 1 (`LLamaSharpRuntime` smoke
+test against a real model) and Stage 2 (opt-in Settings test surface with explicit
+Ollama fallback and evidence capture) landed. Stage 3/4's first decision is
+implemented narrowly: `HiveWorkerAgent` can opt into `NativeRoleRuntime`, with
+fallback to the configured `IModelRuntime`. Do not generalize this to main chat,
+research chat, or SwarmSession; those remain on the configured default runtime.
 
 **ORCISH TONGUE** (universal tool caller, formerly GOBLIN MIND — renamed to end the GOBLIN MIND / HIVE MIND collision; inventory in `.grok/RENAME_GOBLIN_MIND.md`, not yet applied to code). Native runtime is the substrate that upgrades it from prompt-layer format adaptation (probe + parse defensively) to **decoder-layer grammar-constrained tool calls (GBNF)** — valid by construction, works on any model even untrained-for-tools. This is the real "why native" capability, not just dropping the Ollama install. See `RUNTIME_PHASE0_SPEC.md` §11.
 
