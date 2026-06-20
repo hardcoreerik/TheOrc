@@ -1,13 +1,13 @@
 {
-  "_comment": "The Orc model manifest v1. The installer fetches this file at runtime so models and runtime URLs can be updated without releasing a new setup.exe. Update this file and push to master — users get the new list on their next install.",
+  "_comment": "The Orc model manifest v1. This file is compiled into OrchestratorSetup.exe as an embedded resource (EmbeddedResources.ReadManifestJson()) -- despite manifest_url below, there is no live HTTP fetch of it at runtime. Editing this file and pushing to master only takes effect on the NEXT OrchestratorSetup.exe build+release; the already-published installer keeps whatever was embedded when it was compiled. (manifest_url is only consulted by future tooling, if any is built to actually fetch it live -- it is not consulted today.) The llama.cpp/Ollama runtime URLs ARE resolved live via GitHub's releases API at install time (see LlamaCppResolver.cs); only this manifest itself is build-time-baked.",
   "manifest_url": "https://raw.githubusercontent.com/hardcoreerik/TheOrc/master/Setup/model-manifest.json",
-  "version": "1.0.1",
-  "updated": "2026-06-06",
+  "version": "1.0.2",
+  "updated": "2026-06-20",
 
   "app": {
-    "_comment": "The main OrchestratorIDE.exe published as a self-contained single-file win-x64 binary. The installer downloads this before anything else. URL points at the 'latest' release asset so old installers always pull the newest app.",
+    "_comment": "The main OrchestratorIDE.exe published as a self-contained single-file win-x64 binary (Avalonia since v1.9.0 -- WPF deleted). The installer downloads this before anything else. download_url points at GitHub's evergreen 'latest' release-asset alias, so it always resolves to whatever release is currently marked Latest -- this part needs no installer rebuild when a new app version ships. size_mb is only a progress-bar estimate (the real download uses the HTTP response's actual Content-Length) -- kept roughly accurate for UX, not load-bearing.",
     "download_url": "https://github.com/hardcoreerik/TheOrc/releases/latest/download/OrchestratorIDE.exe",
-    "size_mb": 190
+    "size_mb": 647
   },
 
   "runtimes": {
