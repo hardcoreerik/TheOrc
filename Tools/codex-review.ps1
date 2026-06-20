@@ -186,8 +186,25 @@ Remove-Item "$outFile.last" -ErrorAction SilentlyContinue
   "Branch: $branch  |  Scope: $scopeTag",
   "", $verdict.Trim()) | Set-Content $outFile -Encoding utf8
 
+$verdictTrimmed = $verdict.Trim()
+
+# An empty verdict is NOT the same as CLEAN — codex has occasionally returned a clean exit with
+# no output on this exact read-only review path (observed in production use, not hypothetical).
+# Silently treating that as "0 = passed" would let a flaked review masquerade as a real one.
+if ([string]::IsNullOrWhiteSpace($verdictTrimmed)) {
+    Write-Host ""
+    Write-Host "codex produced no output — treating as a tool error, NOT as CLEAN. Re-run the review." -ForegroundColor Red
+    $stderrText = $stderr.Result
+    if (-not [string]::IsNullOrWhiteSpace($stderrText)) {
+        Write-Host "codex stderr:" -ForegroundColor Yellow
+        Write-Host $stderrText.Trim()
+    }
+    Write-Host "saved -> $outFile" -ForegroundColor DarkGray
+    exit 5
+}
+
 Write-Host ""
-Write-Host $verdict.Trim()
+Write-Host $verdictTrimmed
 Write-Host ""
 Write-Host "saved -> $outFile" -ForegroundColor DarkGray
-if ($verdict -match '(?m)^BLOCKER\b') { exit 1 } else { exit 0 }
+if ($verdictTrimmed -match '(?m)^BLOCKER\b') { exit 1 } else { exit 0 }
