@@ -1,9 +1,0 @@
-**Analysis complete.** The read-only gap analysis has been written to [.grok/TRAINING_PIT_GAP_ANALYSIS.md](.grok/TRAINING_PIT_GAP_ANALYSIS.md).
-
-It contains:
-- 5-bullet executive summary of the most dangerous gaps (centered on the v2 regression root cause, unimplemented ContentAware design, rubric-in-loop fragility, eval contract risks, and reproducibility/failure holes).
-- Severity-ranked findings table (Critical/High/Medium/Low) with columns exactly as specified: Severity | Area | Gap | Evidence (file:line) | Failure scenario | Suggested fix.
-- All citations are from files actually opened and read (e.g., SwarmSession.cs:2407 for the alias map, train_lora.py:160 + rubric_callback.py:58, Migrations.cs:24, finalize_training_set.py:133, qlora_job_template.json:75, TrainingPitPanel.axaml.cs:835, generate_claude_gold.py:21, outputs/lora_v2/training_summary.json:7, phase3_preflight.py, prescreen_captures.py, EvalRubric.cs:49, DatasetCapture.cs, etc.).
-- "Top 5 recommended next builds" section, prioritized by leverage against the documented v2 failure and the five-nines goal.
-
-All project rules were checked (no committed secrets found in the tree thanks to *.env in .gitignore, but the Anthropic generator + docs is a clear violation). No source files were edited. The review was deliberately harsh and assumed breakage until code proved otherwise.

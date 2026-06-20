@@ -70,6 +70,7 @@ Tools/**/obj/
 # Training Pit — dataset JSONL files (large, contain model outputs, not versioned)
 # Only examples/ and evals/ are committed; datasets/ is local-only
 training_pit/datasets/*.jsonl
+training_pit/datasets/*.jsonl.bak
 training_pit/datasets/staging/
 
 # Training outputs (LoRA adapters, GGUFs — large binary artifacts)
@@ -101,14 +102,20 @@ test-results/
 .grok/*run*.log
 training_pit/datasets/*_run.log
 training_pit/datasets/*.log
+Tools/*.log
 /*.diff
 /temp_*.diff
 /*_diffs.diff
 /staged_*.diff
 /combined_review_diff.txt
 
+# Scratch files from ad-hoc file-diffing/inventory work during a session —
+# not a deliverable, never meant to be committed (found accumulating 2026-06-20)
+/staged_*.txt
+*.staged.tmp
+
 # Spike harness re-run output (regenerable; canonical finding lives in RUNTIME_PHASE0_SPEC.md)
-.grok/spike-assets/**/results.log
+.grok/spike-assets/**/*.log
 
 # Marketplace release packages (binary artifacts, not source)
 marketplace/*.zip
