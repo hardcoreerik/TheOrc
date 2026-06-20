@@ -38,29 +38,36 @@ public sealed class ModelDownloadService : IDisposable
     {
         Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
 
-        using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
-
-        var total  = response.Content.Headers.ContentLength ?? 0L;
-        var sw     = Stopwatch.StartNew();
-        var buffer = new byte[81_920];
-        var done   = 0L;
-        var lastReport = sw.ElapsedMilliseconds;
-
         // Support resuming a partial download
         var startOffset = 0L;
+        var done = 0L;
         if (File.Exists(destPath))
         {
             var existing = new FileInfo(destPath).Length;
-            if (existing > 0 && existing < total)
+            if (existing > 0)
             {
                 startOffset = existing;
                 done = existing;
             }
         }
 
+        using var response = await SendDownloadRequestAsync(url, startOffset, ct);
+        response.EnsureSuccessStatusCode();
+
+        if (startOffset > 0 && response.StatusCode != System.Net.HttpStatusCode.PartialContent)
+        {
+            startOffset = 0;
+            done = 0;
+        }
+
+        var total = response.Content.Headers.ContentRange?.Length
+            ?? (response.Content.Headers.ContentLength is long contentLength ? contentLength + startOffset : 0L);
+        var sw = Stopwatch.StartNew();
+        var buffer = new byte[81_920];
+        var lastReport = sw.ElapsedMilliseconds;
+
         var fileMode = startOffset > 0 ? FileMode.Append : FileMode.Create;
-        await using var dest   = new FileStream(destPath, fileMode, FileAccess.Write, FileShare.None);
+        await using var dest = new FileStream(destPath, fileMode, FileAccess.Write, FileShare.None);
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
 
         while (true)
@@ -196,6 +203,23 @@ public sealed class ModelDownloadService : IDisposable
             return proc.ExitCode == 0;
         }
         catch { return false; }
+    }
+
+    private async Task<HttpResponseMessage> SendDownloadRequestAsync(
+        string url, long startOffset, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (startOffset > 0)
+            request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(startOffset, null);
+
+        var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (startOffset > 0 && response.StatusCode == System.Net.HttpStatusCode.RequestedRangeNotSatisfiable)
+        {
+            response.Dispose();
+            return await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+        }
+
+        return response;
     }
 
     public void Dispose() => _http.Dispose();

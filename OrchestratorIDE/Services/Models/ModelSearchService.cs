@@ -201,7 +201,7 @@ public sealed class ModelSearchService : IDisposable
     /// </summary>
     public async Task<List<string>> VerifyCuratedReposAsync(CancellationToken ct = default)
     {
-        var stale = new List<string>();
+        var stale = new System.Collections.Concurrent.ConcurrentBag<string>();
         var tasks = CuratedModelCatalog.All
             .Where(e => !string.IsNullOrEmpty(e.HuggingFaceId))
             .Select(async e =>
@@ -211,7 +211,7 @@ public sealed class ModelSearchService : IDisposable
             });
 
         await Task.WhenAll(tasks);
-        return stale;
+        return stale.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     public void Dispose() => _hf.Dispose();

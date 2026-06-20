@@ -1,0 +1,382 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<Window x:Class="OrchestratorIDE.UI.Windows.ModelDownloaderWindow"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="1080"
+        Height="760"
+        MinWidth="900"
+        MinHeight="620"
+        Background="#101310"
+        Title="Model Downloader"
+        WindowStartupLocation="CenterOwner"
+        AutomationProperties.AutomationId="ModelDownloaderWindow.Root">
+
+    <Grid RowDefinitions="Auto,*,Auto,Auto">
+        <Border Grid.Row="0"
+                Background="#141814"
+                BorderBrush="#2E3A2E"
+                BorderThickness="0,0,0,1"
+                Padding="16,12">
+            <Grid ColumnDefinitions="*,420">
+                <StackPanel>
+                    <TextBlock Text="Model Downloader"
+                               FontSize="20"
+                               FontWeight="Bold"
+                               Foreground="#76B900"/>
+                    <TextBlock Margin="0,6,0,0"
+                               FontSize="12"
+                               Foreground="#D4D4D4"
+                               Text="Search Hugging Face GGUF models, inspect variants, then download or pull into your library."/>
+                </StackPanel>
+
+                <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8" VerticalAlignment="Center">
+                    <TextBox x:Name="TxtSearch"
+                             Grid.Column="0"
+                             Height="34"
+                             PlaceholderText="Search models... press Enter to search"
+                             Background="#0E120E"
+                             Foreground="#F3F3F3"
+                             BorderBrush="#2E3A2E"
+                             Padding="10,6"
+                             FontSize="13"
+                             KeyDown="TxtSearch_KeyDown"
+                             AutomationProperties.AutomationId="ModelDownloaderWindow.SearchBox"/>
+                    <Button x:Name="BtnSearch"
+                            Grid.Column="1"
+                            Height="34"
+                            MinWidth="92"
+                            Content="Search"
+                            Click="BtnSearch_Click"
+                            Background="#76B900"
+                            Foreground="#0F120F"
+                            BorderBrush="#76B900"
+                            FontWeight="SemiBold"
+                            AutomationProperties.AutomationId="ModelDownloaderWindow.SearchButton"/>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1" ColumnDefinitions="360,6,*">
+            <Border Grid.Column="0"
+                    Background="#0C100C"
+                    BorderBrush="#1F281F"
+                    BorderThickness="0,0,1,0">
+                <Grid RowDefinitions="Auto,*">
+                    <Border Grid.Row="0"
+                            Background="#111511"
+                            BorderBrush="#1F281F"
+                            BorderThickness="0,0,0,1"
+                            Padding="12,8">
+                        <DockPanel>
+                            <TextBlock x:Name="TxtResultCount"
+                                       DockPanel.Dock="Left"
+                                       FontSize="11"
+                                       Foreground="#A6B0A6"
+                                       Text="Type a query to search"/>
+                            <TextBlock x:Name="TxtSearchStatus"
+                                       DockPanel.Dock="Right"
+                                       FontSize="11"
+                                       Foreground="#76B900"
+                                       HorizontalAlignment="Right"/>
+                        </DockPanel>
+                    </Border>
+
+                    <ScrollViewer Grid.Row="1"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="ResultsPanel"
+                                    Margin="8"
+                                    Spacing="6"/>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
+            <GridSplitter Grid.Column="1"
+                          ResizeDirection="Columns"
+                          Background="#1C231C"/>
+
+            <Grid Grid.Column="2">
+                <Border x:Name="PanelNoSelection"
+                        Background="#0A0D0A"
+                        IsVisible="True">
+                    <StackPanel HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Spacing="10">
+                        <TextBlock Text="Select a model to inspect details"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Foreground="#EAEAEA"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock Text="The curated catalog will still enrich live Hugging Face hits when it has extra guidance."
+                                   FontSize="12"
+                                   Foreground="#98A198"
+                                   TextWrapping="Wrap"
+                                   MaxWidth="440"
+                                   HorizontalAlignment="Center"
+                                   TextAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <ScrollViewer x:Name="PanelDetail"
+                              IsVisible="False"
+                              Background="#0A0D0A"
+                              VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="20,16" Spacing="12">
+                        <StackPanel Spacing="6">
+                            <WrapPanel>
+                                <Border x:Name="BdrCuratedBadge"
+                                        IsVisible="False"
+                                        Background="#173117"
+                                        CornerRadius="3"
+                                        Padding="6,2">
+                                    <TextBlock Text="CURATED"
+                                               FontSize="10"
+                                               FontWeight="Bold"
+                                               Foreground="#7CE67C"/>
+                                </Border>
+                                <Border x:Name="BdrSwarmBadge"
+                                        IsVisible="False"
+                                        Background="#152537"
+                                        CornerRadius="3"
+                                        Padding="6,2">
+                                    <TextBlock Text="SWARM READY"
+                                               FontSize="10"
+                                               FontWeight="Bold"
+                                               Foreground="#72B7FF"/>
+                                </Border>
+                            </WrapPanel>
+
+                            <TextBlock x:Name="TxtDetailName"
+                                       FontSize="22"
+                                       FontWeight="Bold"
+                                       Foreground="#F6F6F6"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock x:Name="TxtDetailPublisher"
+                                       FontSize="12"
+                                       Foreground="#A6B0A6"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <WrapPanel x:Name="WpDetailStats"/>
+
+                        <TextBlock x:Name="TxtDetailDesc"
+                                   FontSize="13"
+                                   Foreground="#DFDFDF"
+                                   TextWrapping="Wrap"
+                                   LineHeight="20"/>
+
+                        <Border x:Name="BdrIntendedUse"
+                                IsVisible="False"
+                                Background="#122012"
+                                BorderBrush="#214421"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="12,10">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="INTENDED USE"
+                                           FontSize="10"
+                                           FontWeight="Bold"
+                                           Foreground="#7CE67C"/>
+                                <TextBlock x:Name="TxtIntendedUse"
+                                           FontSize="12"
+                                           Foreground="#E6E6E6"
+                                           TextWrapping="Wrap"
+                                           LineHeight="18"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="BdrToolUse"
+                                IsVisible="False"
+                                Background="#221A08"
+                                BorderBrush="#4A3410"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="12,10">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="TOOL USE / FUNCTION CALLING"
+                                           FontSize="10"
+                                           FontWeight="Bold"
+                                           Foreground="#FFCA57"/>
+                                <TextBlock x:Name="TxtToolUse"
+                                           FontSize="12"
+                                           Foreground="#E6E6E6"
+                                           TextWrapping="Wrap"
+                                           LineHeight="18"/>
+                            </StackPanel>
+                        </Border>
+
+                        <WrapPanel x:Name="SpSwarmRoles"
+                                   IsVisible="False"
+                                   VerticalAlignment="Center">
+                            <TextBlock Text="Swarm roles:"
+                                       FontSize="11"
+                                       Foreground="#A6B0A6"
+                                       VerticalAlignment="Center"/>
+                        </WrapPanel>
+
+                        <Border Background="#0F130F"
+                                BorderBrush="#243024"
+                                BorderThickness="1"
+                                CornerRadius="4">
+                            <Grid RowDefinitions="Auto,*">
+                                <Border Grid.Row="0"
+                                        Background="#131813"
+                                        BorderBrush="#243024"
+                                        BorderThickness="0,0,0,1"
+                                        Padding="12,8">
+                                    <DockPanel>
+                                        <TextBlock Text="QUANTIZATION OPTIONS"
+                                                   DockPanel.Dock="Left"
+                                                   FontSize="10"
+                                                   FontWeight="Bold"
+                                                   Foreground="#7CE67C"/>
+                                        <TextBlock x:Name="TxtVariantLoadStatus"
+                                                   DockPanel.Dock="Right"
+                                                   FontSize="10"
+                                                   Foreground="#A6B0A6"
+                                                   HorizontalAlignment="Right"
+                                                   Text="Choose a model"/>
+                                    </DockPanel>
+                                </Border>
+                                <StackPanel x:Name="SpVariants"
+                                            Grid.Row="1"/>
+                            </Grid>
+                        </Border>
+
+                        <Border Background="#0F1116"
+                                BorderBrush="#283044"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="12,10">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="ASSIGN ROLE AFTER DOWNLOAD"
+                                           FontSize="10"
+                                           FontWeight="Bold"
+                                           Foreground="#A6B0A6"/>
+                                <WrapPanel>
+                                    <RadioButton x:Name="RbRoleWorker"
+                                                 GroupName="DownloadRole"
+                                                 Content="Worker · Coder"
+                                                 IsChecked="True"
+                                                 Foreground="#7CE67C"
+                                                 Margin="0,0,14,0"/>
+                                    <RadioButton x:Name="RbRoleBoss"
+                                                 GroupName="DownloadRole"
+                                                 Content="Boss · Orchestrator"
+                                                 Foreground="#FFCA57"
+                                                 Margin="0,0,14,0"/>
+                                    <RadioButton x:Name="RbRoleResearcher"
+                                                 GroupName="DownloadRole"
+                                                 Content="Researcher"
+                                                 Foreground="#72B7FF"
+                                                 Margin="0,0,14,0"/>
+                                    <RadioButton x:Name="RbRoleLibrary"
+                                                 GroupName="DownloadRole"
+                                                 Content="Library only"
+                                                 Foreground="#A6B0A6"/>
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <WrapPanel>
+                            <Button x:Name="BtnDownloadGguf"
+                                    Content="Download GGUF"
+                                    Click="BtnDownloadGguf_Click"
+                                    IsEnabled="False"
+                                    MinWidth="150"
+                                    Padding="14,8"
+                                    Margin="0,0,10,0"
+                                    Background="#76B900"
+                                    Foreground="#0F120F"
+                                    BorderBrush="#76B900"
+                                    FontWeight="SemiBold"
+                                    AutomationProperties.AutomationId="ModelDownloaderWindow.DownloadButton"/>
+                            <Button x:Name="BtnOllamaPull"
+                                    Content="Ollama Pull"
+                                    Click="BtnOllamaPull_Click"
+                                    IsEnabled="False"
+                                    MinWidth="130"
+                                    Padding="14,8"
+                                    Margin="0,0,10,0"
+                                    Background="#142033"
+                                    Foreground="#72B7FF"
+                                    BorderBrush="#314C71"/>
+                            <Button Content="Close"
+                                    Click="BtnClose_Click"
+                                    MinWidth="90"
+                                    Padding="14,8"
+                                    Background="#1B211B"
+                                    Foreground="#DADADA"
+                                    BorderBrush="#2E3A2E"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+
+        <Border x:Name="PanelDownloadProgress"
+                Grid.Row="2"
+                IsVisible="False"
+                Background="#121812"
+                BorderBrush="#2E3A2E"
+                BorderThickness="0,1,0,1"
+                Padding="16,10">
+            <Grid RowDefinitions="Auto,Auto,Auto">
+                <DockPanel Grid.Row="0" Margin="0,0,0,6">
+                    <TextBlock x:Name="TxtDlFileName"
+                               DockPanel.Dock="Left"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="#F2F2F2"/>
+                    <TextBlock x:Name="TxtDlStats"
+                               DockPanel.Dock="Right"
+                               HorizontalAlignment="Right"
+                               FontSize="11"
+                               Foreground="#76B900"
+                               FontFamily="Consolas"/>
+                </DockPanel>
+                <ProgressBar Grid.Row="1"
+                             x:Name="PbDownload"
+                             Minimum="0"
+                             Maximum="100"
+                             Height="8"
+                             Margin="0,0,0,6"/>
+                <DockPanel Grid.Row="2">
+                    <TextBlock x:Name="TxtDlStatus"
+                               DockPanel.Dock="Left"
+                               FontSize="11"
+                               Foreground="#A6B0A6"
+                               TextWrapping="Wrap"/>
+                    <Button x:Name="BtnCancelDownload"
+                            DockPanel.Dock="Right"
+                            HorizontalAlignment="Right"
+                            Content="Cancel"
+                            Click="BtnCancelDownload_Click"
+                            Padding="10,4"
+                            Background="#311616"
+                            Foreground="#FF8A8A"
+                            BorderBrush="#5A2A2A"/>
+                </DockPanel>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="3"
+                Background="#111411"
+                BorderBrush="#2E3A2E"
+                BorderThickness="0,1,0,0"
+                Padding="12,6">
+            <DockPanel>
+                <TextBlock x:Name="TxtWindowStatus"
+                           DockPanel.Dock="Left"
+                           FontSize="11"
+                           Foreground="#A6B0A6"
+                           Text="Ready — enter a search query and press Enter"/>
+                <TextBlock x:Name="TxtHardwareSummary"
+                           DockPanel.Dock="Right"
+                           HorizontalAlignment="Right"
+                           FontSize="11"
+                           Foreground="#76B900"/>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

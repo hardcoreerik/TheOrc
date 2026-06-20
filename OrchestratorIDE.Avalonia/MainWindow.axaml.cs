@@ -2029,9 +2029,7 @@ public partial class MainWindow : Window
     private void Menu_ModelChoose(object? sender, RoutedEventArgs e)  => SbModel_Click(this, null);
 
     private void Menu_ModelDownload(object? sender, RoutedEventArgs e)
-    {
-        _unavailable.Report("Models", "ModelDownloaderWindow");
-    }
+        => RunMenuTask(ShowModelDownloaderAsync(), "Model downloader failed to open");
 
     private async void Menu_WarmUp(object? sender, RoutedEventArgs e)
     {
@@ -2058,8 +2056,36 @@ public partial class MainWindow : Window
     }
 
     private void Menu_ModelLibrary(object? sender, RoutedEventArgs e)
+        => RunMenuTask(ShowModelLibraryAsync(), "Model library failed to open");
+
+    private async Task ShowModelDownloaderAsync()
     {
-        _unavailable.Report("Models", "ModelLibraryWindow");
+        var win = new ModelDownloaderWindow(_settings);
+        await win.ShowDialog(this);
+    }
+
+    private async Task ShowModelLibraryAsync()
+    {
+        var win = new ModelLibraryWindow(_settings);
+        await win.ShowDialog(this);
+    }
+
+    private void RunMenuTask(Task task, string failurePrefix)
+    {
+        task.ContinueWith(
+            t =>
+            {
+                var message = t.Exception?.GetBaseException().Message ?? "unknown error";
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (!IsVisible)
+                        return;
+                    SetStatus($"{failurePrefix}: {message}");
+                });
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
     }
 
     private void Menu_ModelWiki(object? sender, RoutedEventArgs e)
