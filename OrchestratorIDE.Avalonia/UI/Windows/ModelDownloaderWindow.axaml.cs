@@ -20,6 +20,8 @@ public partial class ModelDownloaderWindow : Window
     private readonly ModelSearchService _search;
     private readonly ModelDownloadService _downloader;
     private readonly HuggingFaceClient _hf;
+    private readonly Func<Task<(string Summary, int VramGb)>> _probeHardwareAsync;
+    private readonly Func<Task<List<string>>> _verifyCuratedAsync;
 
     private List<ModelSearchResult> _results = [];
     private ModelSearchResult? _selected;
@@ -35,12 +37,17 @@ public partial class ModelDownloaderWindow : Window
 
     private static readonly HashSet<string> StaleCuratedIds = new(StringComparer.OrdinalIgnoreCase);
 
-    public ModelDownloaderWindow(AppSettings settings)
+    public ModelDownloaderWindow(
+        AppSettings settings,
+        Func<Task<(string Summary, int VramGb)>>? probeHardwareAsync = null,
+        Func<Task<List<string>>>? verifyCuratedAsync = null)
     {
         _settings = settings;
         _search = new ModelSearchService();
         _downloader = new ModelDownloadService();
         _hf = new HuggingFaceClient();
+        _probeHardwareAsync = probeHardwareAsync ?? ProbeHardwareAsync;
+        _verifyCuratedAsync = verifyCuratedAsync ?? (() => _search.VerifyCuratedReposAsync());
 
         InitializeComponent();
         Opened += OnOpened;
@@ -52,7 +59,7 @@ public partial class ModelDownloaderWindow : Window
         Opened -= OnOpened;
         TxtHardwareSummary.Text = "GPU: probing hardware...";
 
-        _ = Task.Run(ProbeHardwareAsync).ContinueWith(t =>
+        _ = Task.Run(_probeHardwareAsync).ContinueWith(t =>
         {
             if (t.Status != TaskStatus.RanToCompletion)
                 return;
@@ -68,7 +75,7 @@ public partial class ModelDownloaderWindow : Window
         {
             try
             {
-                var stale = await _search.VerifyCuratedReposAsync();
+                var stale = await _verifyCuratedAsync();
                 lock (StaleCuratedIds)
                 {
                     foreach (var id in stale)

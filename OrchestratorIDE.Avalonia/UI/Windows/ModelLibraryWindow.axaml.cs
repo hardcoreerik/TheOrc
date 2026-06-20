@@ -11,10 +11,12 @@ namespace OrchestratorIDE.UI.Windows;
 public partial class ModelLibraryWindow : Window
 {
     private readonly AppSettings _settings;
+    private readonly Func<Window>? _createDownloaderWindow;
 
-    public ModelLibraryWindow(AppSettings settings)
+    public ModelLibraryWindow(AppSettings settings, Func<Window>? createDownloaderWindow = null)
     {
         _settings = settings;
+        _createDownloaderWindow = createDownloaderWindow;
         InitializeComponent();
         Opened += OnOpened;
     }
@@ -153,7 +155,8 @@ public partial class ModelLibraryWindow : Window
 
     private async Task OpenDownloaderAsync()
     {
-        await new ModelDownloaderWindow(_settings).ShowDialog(this);
+        var downloader = _createDownloaderWindow?.Invoke() ?? new ModelDownloaderWindow(_settings);
+        await downloader.ShowDialog(this);
         await Dispatcher.UIThread.InvokeAsync(PopulateLibrary);
     }
 
