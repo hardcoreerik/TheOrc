@@ -109,10 +109,24 @@ public sealed class HiveNodeServer : IDisposable
         MeshHeartbeat.Start();
 
         _listener = new HttpListener();
-        if (!TryBind($"http://+:{ApiPort}/hive/"))
-            TryBind($"http://localhost:{ApiPort}/hive/");
+        var bound = TryBind($"http://+:{ApiPort}/hive/");
+        if (!bound)
+        {
+            // A failed Start() (e.g. the wildcard "+" bind needs admin rights or a URL ACL
+            // reservation neither of which a normal user process has) can leave the listener
+            // disposed/unusable internally -- replace it before retrying rather than reusing it.
+            // Close() is best-effort here: the listener may already be in that same broken
+            // state, so swallow rather than risk a second exception while merely cleaning up.
+            try { _listener.Close(); } catch { /* already disposed/unusable -- nothing to clean up */ }
+            _listener = new HttpListener();
+            bound = TryBind($"http://localhost:{ApiPort}/hive/");
+        }
 
-        if (_listener.IsListening)
+        // Track success via TryBind's own return value rather than re-reading
+        // _listener.IsListening afterward -- if this second bind also failed, the listener
+        // may be in the same disposed-but-not-null state that caused the first failure,
+        // and IsListening's getter can throw ObjectDisposedException just like Prefixes did.
+        if (bound)
             _ = ServeAsync(_cts.Token);
     }
 
@@ -220,8 +234,20 @@ public sealed class HiveNodeServer : IDisposable
 
     private bool TryBind(string prefix)
     {
-        try { _listener!.Prefixes.Add(prefix); _listener.Start(); return true; }
-        catch { _listener!.Prefixes.Clear(); return false; }
+        try
+        {
+            _listener!.Prefixes.Add(prefix);
+            _listener.Start();
+            return true;
+        }
+        catch
+        {
+            // Don't touch _listener further here -- a failed Start() can leave it
+            // disposed internally, and accessing .Prefixes on it then throws
+            // ObjectDisposedException, masking the real failure. The caller is
+            // responsible for swapping in a fresh HttpListener before retrying.
+            return false;
+        }
     }
 
     private async Task ServeAsync(CancellationToken ct)
