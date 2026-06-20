@@ -125,6 +125,7 @@ public static class GraphTools
 - Exit codes: `0 = CLEAN or MINOR-only`, `1 = BLOCKER`, `2 = timeout`, `5 = tool/model error`
 - Verify build after every change: `dotnet build OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj --no-restore -v q` — expect 0 errors.
 - Commit each logical fix separately so history stays bisectable.
+- **Commit attribution (2026-06-20):** if a commit was reviewed/approved via `Tools\codex-review.ps1`, add `Co-Authored-By: Codex <noreply@openai.com>` as its own trailer line (in addition to whichever AI did the implementation work, e.g. `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>`). This links to the real `github.com/codex` account on GitHub's contributor graph, the same mechanism that already credits Claude. Grok has no equivalent official account/email — do not invent one; Grok's credit stays in the README's "Project Credits" table only, not commit trailers, until a real account exists.
 
 ---
 

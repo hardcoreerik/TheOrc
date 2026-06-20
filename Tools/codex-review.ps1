@@ -16,6 +16,11 @@
 # stdout and in .orc\reviews\codex_<timestamp>.md. Exit codes:
 #   0 = CLEAN or MINORs only    1 = one or more BLOCKERs
 #   2 = timed out    3 = codex exe not found    5 = tool error (git/codex failure)
+#
+# Attribution convention: a commit reviewed/approved via this script should
+# add "Co-Authored-By: Codex <noreply@openai.com>" as its own trailer line —
+# this links to the real github.com/codex account on GitHub's contributor
+# graph (verified 2026-06-20; same mechanism that already credits Claude).
 param(
     [string]$Range      = "HEAD~1..HEAD",  # default = latest commit
     [switch]$Staged,                        # override: review staged changes
