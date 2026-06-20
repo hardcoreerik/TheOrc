@@ -29,10 +29,10 @@ jobs:
       - name: Restore
         run: dotnet restore OrchestratorIDE.slnx
 
-      # Build OrchestratorIDE (main app)
-      - name: Build OrchestratorIDE
+      # Build OrchestratorIDE.Avalonia (main app — the only desktop shell since WPF was deleted)
+      - name: Build OrchestratorIDE.Avalonia
         run: |
-          dotnet build OrchestratorIDE/OrchestratorIDE.csproj ^
+          dotnet build OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj ^
             --configuration Release ^
             --no-restore ^
             --no-incremental
@@ -54,4 +54,17 @@ jobs:
             --configuration Release ^
             --no-restore ^
             --no-incremental
+        shell: cmd
+
+      - name: Run UnitTests
+        run: |
+          dotnet test OrchestratorIDE.UnitTests/OrchestratorIDE.UnitTests.csproj ^
+            --configuration Release
+        shell: cmd
+
+      - name: Run Avalonia HeadlessTests
+        run: |
+          dotnet test OrchestratorIDE.Avalonia.HeadlessTests/OrchestratorIDE.Avalonia.HeadlessTests.csproj ^
+            --configuration Release ^
+            --no-restore
         shell: cmd

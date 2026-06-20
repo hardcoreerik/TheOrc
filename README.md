@@ -100,6 +100,22 @@ TheOrc is not trying to replace your editor. It's the AI **project runner** that
 
 ---
 
+## What's new in v1.9
+
+### v1.9.0 — WPF deleted, CodeGraph v1, experimental Native Runtime opt-in
+
+The biggest cutover since the Avalonia migration started: **WPF is gone.** `OrchestratorIDE/OrchestratorIDE.csproj` and every WPF-only window, dialog, panel, and control were deleted outright. Avalonia is no longer "primary" — it's the only desktop shell. `ModelWikiWindow`/`ModelCompareWindow` were retired rather than ported (their data layer stays; a from-scratch, data-bound rebuild is a future feature, not a blocker); everything else operators actually use (`ask_user`, the first-run wizard, sandbox bypass, self-update, model library/downloader, workspace/global agent rules) already had a real Avalonia home before tonight.
+
+**CodeGraph v1** — a Roslyn + SQLite code knowledge graph lets the agent query structure (callers, callees, complexity hotspots) instead of grepping files for every question. Five tools wired into the swarm; ships with the `codegraph-query` dev skill for low-token structural lookups.
+
+**Native Runtime — experimental, opt-in, Ollama stays default.** Full groundwork landed for running GGUF models in-process instead of through Ollama: `IModelRuntime` abstraction, an in-process llama.cpp server wrapper and an in-process LLamaSharp runtime, `AdapterManager` for per-role persistent LoRA contexts with hot-swap, `RuntimeOrchestrator` tying it together, and `OrcScheduler` doing real VRAM-budget admission control so concurrent roles don't blow out a GPU. The first live path is an experimental HIVE worker / main-chat opt-in with automatic fallback to Ollama on any runtime fault — main chat, research chat, and SwarmSession all stay on Ollama by default. v2.0 will flip this default, gated on multi-machine HIVE MIND validation, not on this release.
+
+**Training Pit suitability gate** — a deterministic pre-training check that blocks write-task examples mislabeled into TESTER-lane roles before they reach the trainer, the exact contamination pattern that regressed ORC ACADEMY v2.
+
+**CI fix** — `.github/workflows/ci.yml` now builds the Avalonia project (it was still pointed at the deleted WPF csproj) and actually runs both test suites on every push, not just build-checks them.
+
+---
+
 ## What's new in v1.8
 
 ### v1.8.0 — Avalonia markdown renderer + first test suite
