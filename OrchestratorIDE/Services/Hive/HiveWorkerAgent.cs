@@ -25,9 +25,11 @@ namespace OrchestratorIDE.Services.Hive;
 /// Lanes: a worker advertises which task roles it accepts
 /// (e.g. "researcher", "coder"). Empty lanes = accept all roles.
 /// </summary>
-public sealed class HiveWorkerAgent : IDisposable
+public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 {
     private CancellationTokenSource? _cts;
+    private Task? _runLoopTask;
+    private bool _disposed;
     private static readonly JsonSerializerOptions _json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -76,14 +78,17 @@ public sealed class HiveWorkerAgent : IDisposable
 
     public void Start()
     {
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(HiveWorkerAgent));
+
         if (IsRunning) return;
         _cts = new CancellationTokenSource();
-        _ = RunLoopAsync(_cts.Token);
+        _runLoopTask = RunLoopAsync(_cts.Token);
     }
 
     public void Stop()
     {
-        _cts?.Cancel();
+        try { _cts?.Cancel(); } catch { /* best-effort shutdown */ }
         _cts = null;
     }
 
@@ -512,8 +517,56 @@ public sealed class HiveWorkerAgent : IDisposable
 
     public void Dispose()
     {
+        if (_disposed)
+            return;
+
+        _disposed = true;
         Stop();
+        var runLoopTask = _runLoopTask;
+        var nativeRoleRuntime = NativeRoleRuntime;
+        NativeRoleRuntime = null;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (runLoopTask is not null)
+                    await runLoopTask.ConfigureAwait(false);
+                if (nativeRoleRuntime is IAsyncDisposable asyncDisposable)
+                    await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // Best-effort cleanup from the synchronous IDisposable path.
+            }
+        });
+
+        GC.SuppressFinalize(this);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        var runLoopTask = _runLoopTask;
+        Stop();
+
+        try
+        {
+            if (runLoopTask is not null)
+                await runLoopTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when Stop cancels an active worker loop.
+        }
+
         if (NativeRoleRuntime is IAsyncDisposable asyncDisposable)
-            asyncDisposable.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+        NativeRoleRuntime = null;
+
+        GC.SuppressFinalize(this);
     }
 }

@@ -90,7 +90,7 @@ public partial class MainWindow : Window
         _llamaServer = BuildServerManager(_settings);
 
         // Tidy up on close
-        Closed += (_, _) =>
+        Closed += async (_, _) =>
         {
             _windowClosed = true;
             _codeGraph.Dispose();
@@ -102,7 +102,8 @@ public partial class MainWindow : Window
             _hiveNodeServer?.Dispose();
             _hiveRpcWorker?.Dispose();
             _hiveTaskQueue?.Dispose();
-            _hiveWorkerAgent?.Dispose();
+            if (_hiveWorkerAgent is not null)
+                await _hiveWorkerAgent.DisposeAsync();
             _flaUIWatcher?.Dispose();
         };
 
