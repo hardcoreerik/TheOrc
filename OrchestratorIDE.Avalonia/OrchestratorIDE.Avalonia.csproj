@@ -98,6 +98,7 @@
     <Compile Include="..\OrchestratorIDE\Core\Runtime\AdapterManager.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\RuntimeOrchestrator.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\OrcScheduler.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\NativeWithFallbackRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentFileGenerator.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentLoop.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentPresets.cs" />

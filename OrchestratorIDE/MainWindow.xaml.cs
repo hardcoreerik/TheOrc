@@ -118,7 +118,7 @@ public partial class MainWindow : Window
         _git       = new GitCheckpoint();
         _rules     = new RulesLoader();
         _store     = new SessionStore();
-        _loop      = new AgentLoop(new OllamaRuntime(_ollama), _registry, _context, _git, _rules);
+        _loop      = new AgentLoop(BuildAgentLoopRuntime(), _registry, _context, _git, _rules);
 
         // Default session — use saved settings, refine model in OnLoadedAsync
         _session = new ProjectSession
@@ -2068,9 +2068,27 @@ public partial class MainWindow : Window
             ? new LlamaCppServerRuntime(_llamaServer)
             : new OllamaRuntime(_ollama);
 
-    private IRoleRuntime? BuildExperimentalNativeHiveWorkerRuntime()
+    private IRoleRuntime? BuildExperimentalNativeHiveWorkerRuntime() =>
+        BuildExperimentalNativeRoleRuntime("native HIVE worker", _settings.ExperimentalNativeHiveWorkerEnabled);
+
+    /// <summary>
+    /// Mirrors <see cref="BuildExperimentalNativeHiveWorkerRuntime"/> exactly, but gated by
+    /// <see cref="AppSettings.ExperimentalNativeMainChatEnabled"/> for the single-agent chat
+    /// loop instead of the HIVE worker. A separate toggle and a separate NativeRoleRuntime
+    /// instance — see that setting's doc for the VRAM double-booking caveat if both are enabled.
+    /// </summary>
+    private IRoleRuntime? BuildExperimentalNativeMainChatRuntime() =>
+        BuildExperimentalNativeRoleRuntime("native main chat", _settings.ExperimentalNativeMainChatEnabled);
+
+    /// <summary>
+    /// Shared scan/budget/construction logic extracted from the original HIVE-worker-only
+    /// builder so the main-chat opt-in (added later) doesn't duplicate it. <paramref name="featureLabel"/>
+    /// is folded into every activity-log message so the two callers stay distinguishable in the
+    /// log even though the underlying construction is identical.
+    /// </summary>
+    private IRoleRuntime? BuildExperimentalNativeRoleRuntime(string featureLabel, bool enabled)
     {
-        if (!_settings.ExperimentalNativeHiveWorkerEnabled)
+        if (!enabled)
             return null;
 
         var root = _settings.ResolvedNativeRuntimeModelRoot;
@@ -2081,20 +2099,20 @@ public partial class MainWindow : Window
             if (baseCount == 0)
             {
                 AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
-                    $"Experimental native HIVE worker is enabled, but no base GGUF was found under '{root}'. Worker will use configured model runtime.",
+                    $"Experimental {featureLabel} is enabled, but no base GGUF was found under '{root}'. Will use configured model runtime.",
                     DateTime.Now));
                 return null;
             }
 
             AddActivity(new ActivityEvent(ActivityKind.Info, "Native Runtime",
-                $"Experimental native HIVE worker enabled: {baseCount} base GGUF(s) found under '{root}'.",
+                $"Experimental {featureLabel} enabled: {baseCount} base GGUF(s) found under '{root}'.",
                 DateTime.Now));
 
             var budget = TryBuildNativeHiveBudget();
             if (budget is null)
             {
                 AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
-                    "Experimental native HIVE worker could not derive a local VRAM budget. OrcScheduler admission checks are disabled for this worker.",
+                    $"Experimental {featureLabel} could not derive a local VRAM budget. OrcScheduler admission checks are disabled.",
                     DateTime.Now));
             }
 
@@ -2110,7 +2128,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
-                $"Experimental native HIVE worker could not initialize: {ex.Message}. Worker will use configured model runtime.",
+                $"Experimental {featureLabel} could not initialize: {ex.Message}. Will use configured model runtime.",
                 DateTime.Now));
             return null;
         }
@@ -2124,6 +2142,34 @@ public partial class MainWindow : Window
 
         var totalBytes = (long)(detectedVramGb * 1024 * 1024 * 1024);
         return totalBytes > 0 ? new VramBudget(totalBytes, ReservedBytes: 0) : null;
+    }
+
+    /// <summary>
+    /// Runtime for the single-agent chat loop (<c>_loop</c>). Native opt-in is OFF by default —
+    /// <see cref="AppSettings.ExperimentalNativeMainChatEnabled"/> gates it, and any native
+    /// failure before the first observable output falls back to the same Ollama runtime this
+    /// method returns unconditionally when the toggle is off, matching today's behavior exactly.
+    /// </summary>
+    private IModelRuntime BuildAgentLoopRuntime()
+    {
+        var fallback = new OllamaRuntime(_ollama);
+        var native = BuildExperimentalNativeMainChatRuntime();
+        if (native is null)
+            return fallback;
+
+        if (_settings.ExperimentalNativeHiveWorkerEnabled)
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
+                "Both experimental native main chat and native HIVE worker are enabled. Each builds its own NativeRoleRuntime and loads its own copy of the base model into VRAM independently — there is no shared session between them yet. Consider enabling only one at a time on memory-constrained hardware.",
+                DateTime.Now));
+        }
+
+        return new NativeWithFallbackRuntime(
+            native,
+            RuntimeRole.Boss,
+            fallback,
+            onFallback: reason => AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
+                $"Main chat native generation failed, fell back to Ollama: {reason}", DateTime.Now)));
     }
 
     // ── HIVE MIND C2: Apply RPC workers ──────────────────────────────────────

@@ -233,6 +233,15 @@ public class AppSettings
     public bool ExperimentalNativeHiveWorkerEnabled { get; set; } = false;
 
     /// <summary>
+    /// Experimental Native Runtime opt-in for the main single-agent chat loop. Default remains
+    /// false: AgentLoop keeps using Ollama unless this is explicitly enabled. Independent of
+    /// <see cref="ExperimentalNativeHiveWorkerEnabled"/> — enabling both at once builds two
+    /// separate NativeRoleRuntime instances (no shared session yet), each loading its own copy
+    /// of the base model into VRAM.
+    /// </summary>
+    public bool ExperimentalNativeMainChatEnabled { get; set; } = false;
+
+    /// <summary>
     /// Root folder scanned by ModelDepot for native HIVE worker models/adapters.
     /// Empty = use ResolvedModelStoragePath.
     /// </summary>
