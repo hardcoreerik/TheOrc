@@ -23,6 +23,15 @@ These are no longer retirement blockers:
 - `ModelDownloaderWindow` and `ModelLibraryWindow` have Avalonia windows.
 - `GlobalAgentDialog` / `WorkspaceRulesDialog` are replaced by the Avalonia
   `AgentRulesWindow` flow rather than one-for-one dialog ports.
+- **`ask_user` (2026-06-19 — this doc was stale, verified against code, not assumed):**
+  `OrchestratorIDE.Avalonia/MainWindow.axaml.cs` registers `ask_user` against a
+  real `UserInputDialog.ShowAsync(...)` call (`RegisterAskUserTool`, ~line 829),
+  not `UnavailableFeatureRouter`. `UserInputDialog.axaml.cs` is a complete modal
+  (text input, OK/Cancel, Escape-to-cancel, focus management, hint extraction
+  from parenthetical question text). A dedicated headless test already exists:
+  `OrchestratorIDE.Avalonia.HeadlessTests/T23_UserInputDialogTests.cs`. Phase 1's
+  exit criterion is met. The "Remaining Blockers #1" and "Phase 1" sections below
+  are kept as a record of what this doc *used to* claim — do not action them.
 
 ---
 
@@ -59,14 +68,11 @@ Starting now, WPF enters maintenance-only mode:
 
 ## Remaining Blockers
 
-### 1. `ask_user` Still Lacks An Avalonia Dialog
+### 1. `ask_user` — CLOSED, see "Recently Closed" above
 
-WPF wires `ask_user` to `UserInputDialog`. Avalonia still routes it through
-`UnavailableFeatureRouter.BlockAskUser(...)`, returning an error string instead
-of asking the operator.
-
-This is now the most trust-critical remaining parity gap. It affects agent
-behavior, not just menu polish.
+~~WPF wires `ask_user` to `UserInputDialog`. Avalonia still routes it through
+`UnavailableFeatureRouter.BlockAskUser(...)`...~~ — stale as of 2026-06-19;
+verified closed against actual code, not assumed from this doc.
 
 ### 2. Model Utility Windows Still Stubbed
 
@@ -97,18 +103,7 @@ retired.
 
 ## Sunset Phases
 
-### Phase 1. Trust Parity
-
-Goal: remove the last trust-critical reason to keep WPF around.
-
-- Port/replace `ask_user` with an Avalonia-native modal.
-- Verify agent, swarm, and approval paths no longer fall back to
-  `UnavailableFeatureRouter` for user-input pauses.
-- Add at least one headless/UI test that proves the Avalonia `ask_user` path
-  can render, accept input, and resume.
-
-Exit criterion:
-Avalonia no longer silently degrades a trust/approval/user-input flow.
+### Phase 1. Trust Parity — ✅ DONE (verified 2026-06-19, see "Recently Closed")
 
 ### Phase 2. Model Utility Parity
 
@@ -167,13 +162,19 @@ No release-critical workflow, automation lane, or truth doc still depends on
 
 This is the order we should actually work in next:
 
-1. `ask_user` Avalonia modal and resume flow.
+1. ~~`ask_user` Avalonia modal and resume flow.~~ DONE — see "Recently Closed".
 2. `ModelCapabilityTestDialog` and `ToolCallTestWindow` decision: port or
    retire into a new Avalonia diagnostics surface.
 3. `ModelWikiWindow` fold-in or direct port.
 4. First-run/regenerate-agent cleanup.
 5. Avalonia desktop automation lane.
 6. WPF project removal and doc truth sync.
+
+**Project-level decision (2026-06-19):** WPF retirement is the gate for the
+v1.9 release specifically — v1.9 should ship Avalonia-only with WPF deleted,
+once items 2-5 above are closed and verified (not before). v2.0 (Native
+Runtime default, Ollama dropped) follows v1.9 and is gated on multi-machine
+HIVE MIND validation of v1.9's native opt-in path, not on this checklist.
 
 If we want the fastest route to real WPF sunset, the first slice is not
 "delete the old project." It is removing the remaining reasons operators or
