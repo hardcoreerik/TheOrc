@@ -71,12 +71,21 @@ jobs:
       - name: Restore
         run: dotnet restore OrchestratorIDE.slnx --runtime win-x64
 
-      # ── Publish OrchestratorIDE (main app, self-contained single-file) ────────
+      # ── Publish OrchestratorIDE (Avalonia shell, self-contained single-file) ──
+      # Publishes OrchestratorIDE.Avalonia.csproj, not the WPF project — WPF
+      # retirement Phase 4.5 (docs/WPF_RETIREMENT_CHECKLIST.md). The
+      # output filename is pinned to OrchestratorIDE.exe via -p:AssemblyName
+      # so every downstream step (zip, asset verification, release notes,
+      # OrchestratorSetup's installer/shortcut logic, SelfUpdater) keeps
+      # working unchanged — only the source project being published changed.
+      # -p:OutputType=WinExe overrides the Avalonia csproj's dev-time `Exe`
+      # (console-attached, useful for `dotnet run` diagnostics) so the
+      # shipped binary doesn't flash a console window like a dev build would.
       - name: Publish OrchestratorIDE
         shell: pwsh
         run: |
           $ver = '${{ steps.ver.outputs.VERSION }}'
-          dotnet publish OrchestratorIDE/OrchestratorIDE.csproj `
+          dotnet publish OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj `
             --configuration Release `
             --runtime win-x64 `
             --self-contained `
@@ -88,6 +97,8 @@ jobs:
             -p:Version=$ver `
             -p:AssemblyVersion=$ver `
             -p:FileVersion=$ver `
+            -p:AssemblyName=OrchestratorIDE `
+            -p:OutputType=WinExe `
             --output publish/app
 
       # ── Publish OrchestratorSetup (installer, self-contained single-file) ─────
