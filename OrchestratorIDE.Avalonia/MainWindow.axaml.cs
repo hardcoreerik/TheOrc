@@ -694,16 +694,16 @@ public partial class MainWindow : Window
         catch (OperationCanceledException)
         {
             worker.Stop();
-            AddActivity(new ActivityEvent(
+            await Dispatcher.UIThread.InvokeAsync(() => AddActivity(new ActivityEvent(
                 ActivityKind.Warning,
                 "Hive",
                 $"Worker shutdown exceeded {HiveWorkerShutdownTimeout.TotalSeconds:F0}s; forcing window close.",
-                DateTime.Now));
+                DateTime.Now)));
         }
         catch (Exception ex)
         {
-            AddActivity(new ActivityEvent(ActivityKind.Warning, "Hive",
-                $"Worker shutdown failed during close: {ex.Message}", DateTime.Now));
+            await Dispatcher.UIThread.InvokeAsync(() => AddActivity(new ActivityEvent(ActivityKind.Warning, "Hive",
+                $"Worker shutdown failed during close: {ex.Message}", DateTime.Now)));
         }
         finally
         {
@@ -1760,12 +1760,22 @@ public partial class MainWindow : Window
                 $"Experimental native HIVE worker enabled: {baseCount} base GGUF(s) found under '{root}'.",
                 DateTime.Now));
 
+            var budget = TryBuildNativeHiveBudget();
+            if (budget is null)
+            {
+                AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
+                    "Experimental native HIVE worker could not derive a local VRAM budget. OrcScheduler admission checks are disabled for this worker.",
+                    DateTime.Now));
+            }
+
             return new NativeRoleRuntime(
                 depot,
                 new RuntimeOptions(
                     ContextLength: Math.Max(512, _settings.NativeRuntimeContextSize),
                     GpuLayers: _settings.NativeRuntimeGpuLayers,
-                    PreferGpu: _settings.NativeRuntimeGpuLayers != 0));
+                    PreferGpu: _settings.NativeRuntimeGpuLayers != 0),
+                scheduler: budget is null ? null : new OrcScheduler(),
+                budgetProvider: budget is null ? null : () => budget);
         }
         catch (Exception ex)
         {
@@ -1774,6 +1784,16 @@ public partial class MainWindow : Window
                 DateTime.Now));
             return null;
         }
+    }
+
+    private VramBudget? TryBuildNativeHiveBudget()
+    {
+        var detectedVramGb = _settings.DetectedVramGb;
+        if (detectedVramGb <= 0)
+            return null;
+
+        var totalBytes = (long)(detectedVramGb * 1024 * 1024 * 1024);
+        return totalBytes > 0 ? new VramBudget(totalBytes, ReservedBytes: 0) : null;
     }
 
     // ── HIVE MIND C2: Apply RPC workers ──────────────────────────────────

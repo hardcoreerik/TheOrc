@@ -57,12 +57,22 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IAsyncDisposable
     private readonly LLamaSharpRuntime _runtime;
     private readonly RuntimeOrchestrator _orchestrator;
     private readonly object _telemetryGate = new();
-    private readonly Dictionary<RuntimeRole, RuntimeRoleBinding> _lastBindings = new();
+    private readonly Dictionary<RuntimeRole, RuntimeHealth> _lastHealthByRole = new();
     private readonly Dictionary<RuntimeRole, RuntimeStats> _lastStatsByRole = new();
     private bool _disposed;
 
-    public NativeRoleRuntime(ModelDepot depot, RuntimeOptions? options = null)
-        : this(depot, new LLamaSharpRuntime(), options, disposeRuntime: true)
+    public NativeRoleRuntime(
+        ModelDepot depot,
+        RuntimeOptions? options = null,
+        IOrcScheduler? scheduler = null,
+        Func<VramBudget>? budgetProvider = null)
+        : this(
+            depot,
+            new LLamaSharpRuntime(),
+            options,
+            disposeRuntime: true,
+            scheduler,
+            budgetProvider)
     {
     }
 
@@ -70,12 +80,14 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IAsyncDisposable
         ModelDepot depot,
         LLamaSharpRuntime runtime,
         RuntimeOptions? options = null,
-        bool disposeRuntime = false)
+        bool disposeRuntime = false,
+        IOrcScheduler? scheduler = null,
+        Func<VramBudget>? budgetProvider = null)
     {
         _depot = depot ?? throw new ArgumentNullException(nameof(depot));
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _options = options ?? new RuntimeOptions();
-        _orchestrator = new RuntimeOrchestrator(_runtime, disposeRuntime);
+        _orchestrator = new RuntimeOrchestrator(_runtime, disposeRuntime, scheduler, budgetProvider);
     }
 
     public string RuntimeName => "NativeRoleRuntime";
@@ -96,100 +108,50 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IAsyncDisposable
         var binding = _depot.ResolveRole(role)
             ?? throw new InvalidOperationException($"No base GGUF resolved for runtime role {role}.");
 
-        using var tracked = await _orchestrator
-            .GetConversationForRoleAsync(_depot, role, _options, ct)
-            .ConfigureAwait(false);
+        await using var enumerator = StreamRoleCompletionCoreAsync(
+                role,
+                binding,
+                history,
+                tools,
+                temperature,
+                maxTokens,
+                onToolCall,
+                onUsage,
+                ct)
+            .GetAsyncEnumerator(ct);
 
-        lock (_telemetryGate)
-            _lastBindings[role] = binding;
-
-        var conversation = tracked.Inner;
-        var executor = conversation.Executor;
-        using var sampler = new DefaultSamplingPipeline
+        while (true)
         {
-            Temperature = (float)Math.Clamp(temperature, 0.0, 2.0),
-        };
-
-        var prompt = BuildPrompt(history, tools);
-        var started = DateTime.UtcNow;
-        var firstTokenAt = default(DateTime);
-        var outputBuilder = new StringBuilder();
-
-        conversation.Prompt(prompt, addBos: true, special: true);
-        await executor.Infer(ct).ConfigureAwait(false);
-
-        for (var i = 0; i < Math.Max(0, maxTokens); i++)
-        {
-            ct.ThrowIfCancellationRequested();
-
-            var sampleIndex = conversation.GetSampleIndex(0);
-            var token = sampler.Sample(executor.Context.NativeHandle, sampleIndex);
-            if (IsStopToken(executor.Model.Vocab, token))
-                break;
-
-            sampler.Accept(token);
-
-            var text = executor.Model.Vocab.LLamaTokenToString(token, isSpecialToken: false) ?? "";
-            if (!string.IsNullOrEmpty(text))
+            string token;
+            try
             {
-                if (firstTokenAt == default)
-                    firstTokenAt = DateTime.UtcNow;
-
-                outputBuilder.Append(text);
-                yield return text;
-
-                if (EndsWithAntiPrompt(outputBuilder))
-                    break;
+                if (!await enumerator.MoveNextAsync().ConfigureAwait(false))
+                    yield break;
+                token = enumerator.Current;
             }
 
-            conversation.Prompt(token);
-            await executor.Infer(ct).ConfigureAwait(false);
+            catch (Exception ex)
+            {
+                RecordFailure(role, binding, ex.Message);
+                throw;
+            }
+
+            yield return token;
         }
-
-        var elapsed = DateTime.UtcNow - started;
-        var outputText = outputBuilder.ToString();
-        var completionTokens = string.IsNullOrEmpty(outputText)
-            ? 0
-            : ContextManager.EstimateTokens(outputText);
-
-        var stats = new RuntimeStats(
-            RuntimeName,
-            ActiveModel: $"{role}:{binding.BaseModel.DisplayName}",
-            TokensPerSecond: elapsed.TotalSeconds > 0 && completionTokens > 0
-                ? completionTokens / elapsed.TotalSeconds
-                : null,
-            LastTimeToFirstToken: firstTokenAt == default ? null : firstTokenAt - started,
-            EstimatedVramBytes: binding.BaseModel.SizeBytes);
-
-        lock (_telemetryGate)
-            _lastStatsByRole[role] = stats;
-
-        onUsage?.Invoke(ContextManager.EstimateTokens(prompt), completionTokens);
-
-        if (onToolCall is not null)
-            foreach (var tc in ToolCallTextParser.Parse(outputText))
-                onToolCall(tc);
     }
 
     public RuntimeHealth GetHealth(RuntimeRole? role = null)
     {
         ThrowIfDisposed();
 
-        var health = _runtime.GetHealth();
-        RuntimeRoleBinding? binding = null;
         if (role is { } r)
         {
             lock (_telemetryGate)
-                _lastBindings.TryGetValue(r, out binding);
+                if (_lastHealthByRole.TryGetValue(r, out var lastHealth))
+                    return lastHealth;
         }
 
-        return health with
-        {
-            RuntimeName = RuntimeName,
-            ActiveModel = binding is null
-                ? health.ActiveModel
-                : $"{binding.Role}:{binding.BaseModel.DisplayName}",
-        };
+        return _runtime.GetHealth() with { RuntimeName = RuntimeName };
     }
 
     public RuntimeStats GetStats(RuntimeRole? role = null)
@@ -269,5 +231,134 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IAsyncDisposable
         var text = output.ToString();
         return _antiPrompts.Any(marker =>
             text.EndsWith(marker, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async IAsyncEnumerable<string> StreamRoleCompletionCoreAsync(
+        RuntimeRole role,
+        RuntimeRoleBinding binding,
+        IEnumerable<AgentMessage> history,
+        IReadOnlyList<object>? tools,
+        double temperature,
+        int maxTokens,
+        Action<ToolCall>? onToolCall,
+        Action<int, int>? onUsage,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        using var tracked = await _orchestrator
+            .GetConversationForBindingAsync(binding, _options, ct)
+            .ConfigureAwait(false);
+
+        var conversation = tracked.Inner;
+        var executor = conversation.Executor;
+        using var sampler = new DefaultSamplingPipeline
+        {
+            Temperature = (float)Math.Clamp(temperature, 0.0, 2.0),
+        };
+
+        var prompt = BuildPrompt(history, tools);
+        var started = DateTime.UtcNow;
+        var firstTokenAt = default(DateTime);
+        var outputBuilder = new StringBuilder();
+
+        conversation.Prompt(prompt, addBos: true, special: true);
+        await executor.Infer(ct).ConfigureAwait(false);
+
+        for (var i = 0; i < Math.Max(0, maxTokens); i++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var sampleIndex = conversation.GetSampleIndex(0);
+            var token = sampler.Sample(executor.Context.NativeHandle, sampleIndex);
+            if (IsStopToken(executor.Model.Vocab, token))
+                break;
+
+            sampler.Accept(token);
+
+            var text = executor.Model.Vocab.LLamaTokenToString(token, isSpecialToken: false) ?? "";
+            if (!string.IsNullOrEmpty(text))
+            {
+                if (firstTokenAt == default)
+                    firstTokenAt = DateTime.UtcNow;
+
+                outputBuilder.Append(text);
+                yield return text;
+
+                if (EndsWithAntiPrompt(outputBuilder))
+                    break;
+            }
+
+            conversation.Prompt(token);
+            await executor.Infer(ct).ConfigureAwait(false);
+        }
+
+        var elapsed = DateTime.UtcNow - started;
+        var outputText = outputBuilder.ToString();
+        var completionTokens = string.IsNullOrEmpty(outputText)
+            ? 0
+            : ContextManager.EstimateTokens(outputText);
+
+        var stats = new RuntimeStats(
+            RuntimeName,
+            ActiveModel: FormatActiveModel(binding),
+            TokensPerSecond: elapsed.TotalSeconds > 0 && completionTokens > 0
+                ? completionTokens / elapsed.TotalSeconds
+                : null,
+            LastTimeToFirstToken: firstTokenAt == default ? null : firstTokenAt - started,
+            EstimatedVramBytes: EstimateBindingBytes(binding));
+
+        var health = _runtime.GetHealth() with
+        {
+            RuntimeName = RuntimeName,
+            ActiveModel = FormatActiveModel(binding),
+            Message = binding.Adapter is null
+                ? null
+                : $"Adapter attached: {binding.Adapter.DisplayName}",
+        };
+
+        lock (_telemetryGate)
+        {
+            _lastHealthByRole[role] = health;
+            _lastStatsByRole[role] = stats;
+        }
+
+        onUsage?.Invoke(ContextManager.EstimateTokens(prompt), completionTokens);
+
+        if (onToolCall is not null)
+            foreach (var tc in ToolCallTextParser.Parse(outputText))
+                onToolCall(tc);
+    }
+
+    private static string FormatActiveModel(RuntimeRoleBinding binding) =>
+        binding.Adapter is null
+            ? $"{binding.Role}:{binding.BaseModel.DisplayName}"
+            : $"{binding.Role}:{binding.BaseModel.DisplayName} + {binding.Adapter.DisplayName}";
+
+    private static long? EstimateBindingBytes(RuntimeRoleBinding binding)
+    {
+        var baseBytes = binding.BaseModel.SizeBytes ?? 0;
+        var adapterBytes = binding.Adapter?.SizeBytes ?? 0;
+        var total = baseBytes + adapterBytes;
+        return total > 0 ? total : null;
+    }
+
+    private void RecordFailure(RuntimeRole role, RuntimeRoleBinding binding, string? runtimeMessage)
+    {
+        lock (_telemetryGate)
+        {
+            var message = runtimeMessage;
+            if (message is null && _lastHealthByRole.TryGetValue(role, out var existing))
+                message = existing.Message;
+
+            _lastHealthByRole[role] = new RuntimeHealth(
+                IsAvailable: false,
+                RuntimeName: RuntimeName,
+                ActiveModel: FormatActiveModel(binding),
+                Message: message);
+
+            _lastStatsByRole[role] = new RuntimeStats(
+                RuntimeName,
+                ActiveModel: FormatActiveModel(binding),
+                EstimatedVramBytes: EstimateBindingBytes(binding));
+        }
     }
 }

@@ -245,6 +245,35 @@ public sealed class NativeRuntimeTestSupportTests
     }
 
     [Test]
+    public async Task NativeRoleRuntime_SchedulerDenial_Returns_ClearFailure_Before_ModelLoad()
+    {
+        var root = NewTempRoot();
+        var ggufPath = Path.Combine(root, "worker-base.gguf");
+        await File.WriteAllTextAsync(ggufPath, "not-a-real-gguf");
+
+        await using var runtime = new NativeRoleRuntime(
+            ModelDepot.Scan(root),
+            scheduler: new OrcScheduler(),
+            budgetProvider: () => new VramBudget(TotalBytes: 1, ReservedBytes: 0));
+
+        var attempt = await NativeRuntimeTestRunner.RunRoleAsync(
+            runtime,
+            RuntimeRole.Worker,
+            ggufPath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(attempt.Success, Is.False);
+            Assert.That(attempt.ErrorType, Is.EqualTo(nameof(RuntimeAdmissionDeniedException)));
+            Assert.That(attempt.ErrorMessage, Does.Contain("Runtime admission denied"));
+            Assert.That(attempt.Health.IsAvailable, Is.False);
+            Assert.That(attempt.Health.Message, Does.Contain("Runtime admission denied"));
+            Assert.That(attempt.Health.ActiveModel, Does.Contain("worker-base.gguf"));
+            Assert.That(attempt.Stats.EstimatedVramBytes, Is.Not.Null.And.GreaterThan(0));
+        });
+    }
+
+    [Test]
     public async Task NativeRoleRuntime_WithConfiguredGguf_ResolvesRole_Generates_AndReportsStats()
     {
         var ggufPath = Environment.GetEnvironmentVariable("THEORC_TEST_GGUF");

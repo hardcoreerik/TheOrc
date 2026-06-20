@@ -344,9 +344,27 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 return await ExecuteNativeRoleTaskAsync(bundle, messages, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { throw; }
+            catch (RuntimeAdmissionDeniedException ex)
+            {
+                var runtimeRole = MapHiveRoleToRuntimeRole(bundle.Role);
+                var telemetry = DescribeNativeRuntimeTelemetry(runtimeRole);
+                Log($"⚠ [{bundle.Role}] '{bundle.Title}' — native role runtime admission denied: {ex.Message}; falling back to configured model runtime{telemetry}");
+                TaskActivity(bundle.TaskId, $"⚠ Native runtime admission denied; falling back to configured model runtime: {ex.Decision.Reason ?? ex.Message}");
+                await PostEventAsync("task_warning",
+                    $"⚠ {WorkerId} · [{bundle.Role}] native runtime admission denied; falling back: {ex.Decision.Reason ?? ex.Message}",
+                    bundle.TaskId,
+                    ct).ConfigureAwait(false);
+
+                if (Runtime is null)
+                    throw new InvalidOperationException(
+                        "Worker: native role runtime admission was denied and no fallback model runtime is configured.",
+                        ex);
+            }
             catch (Exception ex)
             {
-                Log($"⚠ [{bundle.Role}] '{bundle.Title}' — native role runtime failed: {ex.Message}; falling back to configured model runtime");
+                var runtimeRole = MapHiveRoleToRuntimeRole(bundle.Role);
+                var telemetry = DescribeNativeRuntimeTelemetry(runtimeRole);
+                Log($"⚠ [{bundle.Role}] '{bundle.Title}' — native role runtime failed: {ex.Message}; falling back to configured model runtime{telemetry}");
                 TaskActivity(bundle.TaskId, $"⚠ Native runtime failed; falling back to configured model runtime: {ex.Message}");
                 await PostEventAsync("task_warning",
                     $"⚠ {WorkerId} · [{bundle.Role}] native runtime failed; falling back: {ex.Message}",
@@ -410,7 +428,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         if (string.IsNullOrWhiteSpace(result.ToString()))
             throw new InvalidOperationException("Native role runtime emitted no output.");
 
-        Log($"🐝 [{bundle.Role}] '{bundle.Title}' — native runtime done ({result.Length} chars)");
+        Log($"🐝 [{bundle.Role}] '{bundle.Title}' — native runtime done ({result.Length} chars){DescribeNativeRuntimeTelemetry(runtimeRole)}");
         return result.ToString();
     }
 
@@ -523,6 +541,36 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
     private void Log(string msg)          => OnLog?.Invoke(msg);
     private void TaskActivity(string id, string msg) => OnTaskActivity?.Invoke(id, msg);
+
+    private string DescribeNativeRuntimeTelemetry(RuntimeRole role)
+    {
+        if (NativeRoleRuntime is null)
+            return "";
+
+        try
+        {
+            var health = NativeRoleRuntime.GetHealth(role);
+            var stats = NativeRoleRuntime.GetStats(role);
+            var parts = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(health.ActiveModel))
+                parts.Add($"model={health.ActiveModel}");
+            if (stats.LastTimeToFirstToken is { } ttft)
+                parts.Add($"ttft={ttft.TotalMilliseconds:F0}ms");
+            if (stats.TokensPerSecond is { } tps)
+                parts.Add($"tok/s={tps:F1}");
+            if (stats.EstimatedVramBytes is { } bytes)
+                parts.Add($"est_vram={bytes / (1024.0 * 1024 * 1024):F1}GB");
+            if (!string.IsNullOrWhiteSpace(health.Message))
+                parts.Add($"status={health.Message}");
+
+            return parts.Count == 0 ? "" : $" ({string.Join(", ", parts)})";
+        }
+        catch
+        {
+            return "";
+        }
+    }
 
     public async Task ShutdownAsync(CancellationToken ct = default)
     {

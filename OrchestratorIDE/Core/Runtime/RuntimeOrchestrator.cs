@@ -45,17 +45,25 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
 {
     private readonly SessionManager _sessionManager;
     private readonly AdapterManager _adapterManager;
+    private readonly IOrcScheduler? _scheduler;
+    private readonly Func<VramBudget>? _budgetProvider;
 
     /// <param name="runtime">
     /// Owned by both managers this constructs. Pass <paramref name="disposeRuntime"/> = true if
     /// this RuntimeOrchestrator should own the runtime's lifetime too (disposing it alongside
     /// SessionManager/AdapterManager on DisposeAsync); false if some other owner disposes it.
     /// </param>
-    public RuntimeOrchestrator(LLamaSharpRuntime runtime, bool disposeRuntime = false)
+    public RuntimeOrchestrator(
+        LLamaSharpRuntime runtime,
+        bool disposeRuntime = false,
+        IOrcScheduler? scheduler = null,
+        Func<VramBudget>? budgetProvider = null)
     {
         ArgumentNullException.ThrowIfNull(runtime);
         _sessionManager = new SessionManager(runtime, disposeRuntime);
         _adapterManager = new AdapterManager(runtime);
+        _scheduler = scheduler;
+        _budgetProvider = budgetProvider;
     }
 
     /// <summary>
@@ -72,12 +80,38 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(depot);
 
-        var loadResult = await _sessionManager.LoadRoleAsync(depot, role, options, ct).ConfigureAwait(false);
+        var binding = depot.ResolveRole(role);
+        if (binding is null)
+            throw new InvalidOperationException($"No base GGUF resolved for runtime role {role}.");
+
+        return await GetConversationForBindingAsync(binding, options, ct).ConfigureAwait(false);
+    }
+
+    public async Task<TrackedConversation> GetConversationForBindingAsync(
+        RuntimeRoleBinding binding,
+        RuntimeOptions? options = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        EnsureAdmitted(binding);
+
+        var loadResult = await _sessionManager.LoadBindingAsync(binding, options, ct).ConfigureAwait(false);
         if (!loadResult.Success || loadResult.Binding is null)
             throw new InvalidOperationException(
-                $"Could not load base model for role {role}: {loadResult.Message}");
+                $"Could not load base model for role {binding.Role}: {loadResult.Message}");
 
         return await _adapterManager.CreateConversationAsync(loadResult.Binding, ct).ConfigureAwait(false);
+    }
+
+    private void EnsureAdmitted(RuntimeRoleBinding binding)
+    {
+        if (_scheduler is null || _budgetProvider is null)
+            return;
+
+        var budget = _budgetProvider();
+        var decision = _scheduler.TryAdmit(binding, budget);
+        if (!decision.Admitted)
+            throw new RuntimeAdmissionDeniedException(binding, budget, decision);
     }
 
     public async ValueTask DisposeAsync()
@@ -94,4 +128,36 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
             await _sessionManager.DisposeAsync().ConfigureAwait(false);
         }
     }
+}
+
+public sealed class RuntimeAdmissionDeniedException : InvalidOperationException
+{
+    public RuntimeAdmissionDeniedException(
+        RuntimeRoleBinding binding,
+        VramBudget budget,
+        SchedulingDecision decision)
+        : base(BuildMessage(binding, budget, decision))
+    {
+        Binding = binding ?? throw new ArgumentNullException(nameof(binding));
+        Budget = budget ?? throw new ArgumentNullException(nameof(budget));
+        Decision = decision ?? throw new ArgumentNullException(nameof(decision));
+    }
+
+    public RuntimeRoleBinding Binding { get; }
+
+    public VramBudget Budget { get; }
+
+    public SchedulingDecision Decision { get; }
+
+    private static string BuildMessage(
+        RuntimeRoleBinding binding,
+        VramBudget budget,
+        SchedulingDecision decision)
+    {
+        var adapterLabel = binding.Adapter is null ? "" : $" + {binding.Adapter.DisplayName}";
+        return $"Runtime admission denied for {binding.Role} ({binding.BaseModel.DisplayName}{adapterLabel}, lane {decision.Lane}): {decision.Reason ?? "scheduler denied the request."} " +
+               $"Budget total={FormatGb(budget.TotalBytes)}, reserved={FormatGb(budget.ReservedBytes)}, available={FormatGb(budget.AvailableBytes)}.";
+    }
+
+    private static string FormatGb(long bytes) => $"{bytes / (1024.0 * 1024 * 1024):F1} GB";
 }
