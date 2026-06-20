@@ -201,6 +201,78 @@ public sealed class NativeRuntimeTestSupportTests
         });
     }
 
+    [Test]
+    public async Task RunRoleAsync_Streams_Output_And_Reports_Role_Stats()
+    {
+        var runtime = new FakeRoleRuntime("role-a", "role-b");
+        var seenTokens = new List<string>();
+
+        var attempt = await NativeRuntimeTestRunner.RunRoleAsync(
+            runtime,
+            RuntimeRole.Worker,
+            "worker.gguf",
+            onToken: seenTokens.Add);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(attempt.Success, Is.True);
+            Assert.That(attempt.Output, Is.EqualTo("role-arole-b"));
+            Assert.That(seenTokens, Is.EqualTo(new[] { "role-a", "role-b" }));
+            Assert.That(attempt.Health.ActiveModel, Is.EqualTo("Worker:worker.gguf"));
+            Assert.That(attempt.Stats.LastTimeToFirstToken, Is.EqualTo(TimeSpan.FromMilliseconds(33)));
+            Assert.That(attempt.Stats.TokensPerSecond, Is.EqualTo(88.8));
+        });
+    }
+
+    [Test]
+    public async Task NativeRoleRuntime_EmptyDepot_Returns_ClearFailure_Before_ModelLoad()
+    {
+        var root = NewTempRoot();
+        await using var runtime = new NativeRoleRuntime(ModelDepot.Scan(root));
+
+        var attempt = await NativeRuntimeTestRunner.RunRoleAsync(
+            runtime,
+            RuntimeRole.Worker,
+            "missing-worker.gguf");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(attempt.Success, Is.False);
+            Assert.That(attempt.ErrorType, Is.EqualTo("InvalidOperationException"));
+            Assert.That(attempt.ErrorMessage, Does.Contain("No base GGUF resolved"));
+            Assert.That(attempt.Health.IsAvailable, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task NativeRoleRuntime_WithConfiguredGguf_ResolvesRole_Generates_AndReportsStats()
+    {
+        var ggufPath = Environment.GetEnvironmentVariable("THEORC_TEST_GGUF");
+        if (string.IsNullOrWhiteSpace(ggufPath))
+            Assert.Ignore("Set THEORC_TEST_GGUF to run the native role-runtime smoke lane.");
+
+        var root = Path.GetDirectoryName(Path.GetFullPath(ggufPath!));
+        if (string.IsNullOrWhiteSpace(root))
+            Assert.Fail("THEORC_TEST_GGUF must point to a GGUF file.");
+
+        await using var runtime = new NativeRoleRuntime(
+            ModelDepot.Scan(root!),
+            new RuntimeOptions(ContextLength: 2048, GpuLayers: -1));
+
+        var attempt = await NativeRuntimeTestRunner.RunRoleAsync(
+            runtime,
+            RuntimeRole.Worker,
+            ggufPath!);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(attempt.Success, Is.True, attempt.ErrorMessage ?? "role-runtime smoke failed");
+            Assert.That(attempt.Output, Is.Not.Null.And.Not.Empty);
+            Assert.That(attempt.Stats.LastTimeToFirstToken, Is.Not.Null);
+            Assert.That(attempt.Stats.TokensPerSecond, Is.Not.Null);
+        });
+    }
+
     private string NewTempRoot()
     {
         var root = Path.Combine(Path.GetTempPath(), "orc-native-runtime-" + Guid.NewGuid().ToString("N"));
@@ -265,5 +337,40 @@ public sealed class NativeRuntimeTestSupportTests
             TokensPerSecond: 77.7,
             LastTimeToFirstToken: TimeSpan.FromMilliseconds(25),
             EstimatedVramBytes: null);
+    }
+
+    private sealed class FakeRoleRuntime(params string[] tokens) : IRoleRuntime
+    {
+        public string RuntimeName => "FakeRoleRuntime";
+
+        public async IAsyncEnumerable<string> StreamRoleCompletionAsync(
+            RuntimeRole role,
+            IEnumerable<AgentMessage> history,
+            IReadOnlyList<object>? tools = null,
+            double temperature = 0.1,
+            int maxTokens = 4096,
+            Action<ToolCall>? onToolCall = null,
+            Action<int, int>? onUsage = null,
+            [EnumeratorCancellation] CancellationToken ct = default)
+        {
+            foreach (var token in tokens)
+            {
+                await Task.Yield();
+                yield return token;
+            }
+
+            onUsage?.Invoke(10, 2);
+        }
+
+        public RuntimeHealth GetHealth(RuntimeRole? role = null) =>
+            new(true, RuntimeName, ActiveModel: $"{role ?? RuntimeRole.Worker}:worker.gguf");
+
+        public RuntimeStats GetStats(RuntimeRole? role = null) =>
+            new(
+                RuntimeName,
+                ActiveModel: $"{role ?? RuntimeRole.Worker}:worker.gguf",
+                TokensPerSecond: 88.8,
+                LastTimeToFirstToken: TimeSpan.FromMilliseconds(33),
+                EstimatedVramBytes: 123);
     }
 }

@@ -88,6 +88,7 @@
 
     <!-- Core -->
     <Compile Include="..\OrchestratorIDE\Core\Runtime\IModelRuntime.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\IRoleRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\OllamaRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\LlamaCppServerRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\LLamaSharpRuntime.cs" />

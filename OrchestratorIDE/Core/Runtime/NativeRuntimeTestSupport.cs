@@ -60,6 +60,67 @@ public sealed record NativeRuntimeTestOutcome(
 
 public static class NativeRuntimeTestRunner
 {
+    public static async Task<NativeRuntimeTestAttempt> RunRoleAsync(
+        IRoleRuntime runtime,
+        RuntimeRole role,
+        string modelRef,
+        string promptCategory = NativeRuntimeTestPrompt.PromptCategory,
+        string promptText = NativeRuntimeTestPrompt.PromptText,
+        Action<string>? onToken = null,
+        CancellationToken ct = default)
+    {
+        var messages = NativeRuntimeTestPrompt.BuildMessages(promptText);
+        try
+        {
+            var sb = new StringBuilder();
+            await foreach (var token in runtime.StreamRoleCompletionAsync(
+                               role,
+                               messages,
+                               temperature: 0.0,
+                               maxTokens: 64,
+                               ct: ct))
+            {
+                sb.Append(token);
+                onToken?.Invoke(token);
+            }
+
+            var output = sb.ToString();
+            var success = !string.IsNullOrWhiteSpace(output);
+            var health = runtime.GetHealth(role);
+            var stats = runtime.GetStats(role);
+
+            return new NativeRuntimeTestAttempt(
+                runtime.RuntimeName,
+                modelRef,
+                promptCategory,
+                promptText,
+                Success: success,
+                Output: output,
+                Health: health,
+                Stats: stats,
+                ErrorType: success ? null : "EmptyOutput",
+                ErrorMessage: success ? null : "Runtime completed without emitting any output.");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new NativeRuntimeTestAttempt(
+                runtime.RuntimeName,
+                modelRef,
+                promptCategory,
+                promptText,
+                Success: false,
+                Output: null,
+                Health: SafeRoleHealth(runtime, role),
+                Stats: SafeRoleStats(runtime, role),
+                ErrorType: ex.GetType().Name,
+                ErrorMessage: ex.Message);
+        }
+    }
+
     public static async Task<NativeRuntimeTestAttempt> RunLocalAsync(
         string baseGgufPath,
         string promptCategory = NativeRuntimeTestPrompt.PromptCategory,
@@ -163,6 +224,24 @@ public static class NativeRuntimeTestRunner
     private static RuntimeStats SafeStats(IModelRuntime runtime)
     {
         try { return runtime.GetStats(); }
+        catch
+        {
+            return new RuntimeStats(runtime.RuntimeName);
+        }
+    }
+
+    private static RuntimeHealth SafeRoleHealth(IRoleRuntime runtime, RuntimeRole role)
+    {
+        try { return runtime.GetHealth(role); }
+        catch
+        {
+            return new RuntimeHealth(false, runtime.RuntimeName, Message: "Health probe failed after role-runtime exception.");
+        }
+    }
+
+    private static RuntimeStats SafeRoleStats(IRoleRuntime runtime, RuntimeRole role)
+    {
+        try { return runtime.GetStats(role); }
         catch
         {
             return new RuntimeStats(runtime.RuntimeName);

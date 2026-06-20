@@ -225,6 +225,31 @@ public class AppSettings
     /// </summary>
     public string HiveWorkerLanes { get; set; } = "";
 
+    /// <summary>
+    /// Experimental Native Runtime opt-in for HIVE worker execution. Default remains false:
+    /// normal chat, swarm, and worker paths keep using the configured IModelRuntime unless
+    /// this is explicitly enabled.
+    /// </summary>
+    public bool ExperimentalNativeHiveWorkerEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Root folder scanned by ModelDepot for native HIVE worker models/adapters.
+    /// Empty = use ResolvedModelStoragePath.
+    /// </summary>
+    public string NativeRuntimeModelRoot { get; set; } = "";
+
+    /// <summary>Native HIVE worker context window size. Default: 8192 tokens.</summary>
+    public int NativeRuntimeContextSize { get; set; } = 8192;
+
+    /// <summary>Native HIVE worker GPU layers. -1 = offload all supported layers.</summary>
+    public int NativeRuntimeGpuLayers { get; set; } = -1;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ResolvedNativeRuntimeModelRoot =>
+        !string.IsNullOrWhiteSpace(NativeRuntimeModelRoot)
+            ? NativeRuntimeModelRoot
+            : ResolvedModelStoragePath;
+
     /// <summary>Port for the Warchief's HiveTaskQueue service. Default: 7079.</summary>
     public int HiveTaskQueuePort { get; set; } = 7079;
 
