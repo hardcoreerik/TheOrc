@@ -68,6 +68,46 @@ public sealed class RuntimeOrchestratorTests
         Assert.That(ex!.Message, Does.Contain("No base GGUF resolved"));
     }
 
+    [Test]
+    public async Task EnsureAdmitted_TracksReservationsAcrossRoles_DeniesSecondRoleWhenBudgetExhausted()
+    {
+        var ggufPath = Environment.GetEnvironmentVariable("THEORC_TEST_GGUF");
+        if (string.IsNullOrWhiteSpace(ggufPath))
+            Assert.Ignore("Set THEORC_TEST_GGUF to run this native-load-dependent reservation test.");
+
+        // Reproduces the gap a static budget snapshot leaves open: the provider below always
+        // reports ReservedBytes=0 (exactly like MainWindow.TryBuildNativeHiveBudget today), and
+        // TotalBytes is sized to fit exactly ONE base model. Without RuntimeOrchestrator's own
+        // active-reservation accounting, a second role would be admitted against the same
+        // always-zero ReservedBytes and silently over-commit VRAM.
+        var sizeBytes = new FileInfo(ggufPath!).Length;
+        var asset = new RuntimeModelAsset(
+            Id: "base",
+            Kind: RuntimeAssetKind.BaseModelGguf,
+            Path: ggufPath!,
+            DisplayName: "base",
+            SizeBytes: sizeBytes,
+            LastModifiedUtc: DateTimeOffset.UtcNow,
+            SuggestedRoles: [RuntimeRole.Boss, RuntimeRole.Worker]);
+
+        var bossBinding = new RuntimeRoleBinding(RuntimeRole.Boss, asset, null);
+        var workerBinding = new RuntimeRoleBinding(RuntimeRole.Worker, asset, null);
+        var budget = new VramBudget(TotalBytes: sizeBytes, ReservedBytes: 0);
+
+        await using var runtime = new LLamaSharpRuntime();
+        await using var orchestrator = new RuntimeOrchestrator(
+            runtime, scheduler: new OrcScheduler(), budgetProvider: () => budget);
+
+        using var bossConversation = await orchestrator
+            .GetConversationForBindingAsync(bossBinding)
+            .ConfigureAwait(false);
+
+        var ex = Assert.ThrowsAsync<RuntimeAdmissionDeniedException>(
+            async () => await orchestrator.GetConversationForBindingAsync(workerBinding));
+
+        Assert.That(ex!.Budget.ReservedBytes, Is.EqualTo(sizeBytes));
+    }
+
     private string NewTempRoot()
     {
         var root = Path.Combine(Path.GetTempPath(), "orc-runtime-orchestrator-" + Guid.NewGuid().ToString("N"));

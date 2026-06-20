@@ -43,10 +43,46 @@ namespace OrchestratorIDE.Core.Runtime;
 /// </summary>
 public sealed class RuntimeOrchestrator : IAsyncDisposable
 {
+    private readonly LLamaSharpRuntime _runtime;
     private readonly SessionManager _sessionManager;
     private readonly AdapterManager _adapterManager;
     private readonly IOrcScheduler? _scheduler;
     private readonly Func<VramBudget>? _budgetProvider;
+
+    // Active-reservation accounting (the gap flagged in OrcScheduler's review: a static budget
+    // snapshot with no tracking lets concurrent role admissions over-admit). Two review passes
+    // landed on this shape — the first draft (a single check-then-write lock plus a global
+    // "last seen generation, clear everything if it changed" flag) had two bugs a second review
+    // caught:
+    //
+    // 1. TOCTOU between the budget check and the load: admitting role A and admitting role B are
+    //    separate async operations: a lock held only around the cheap check-and-record step does
+    //    not stop both from observing "nothing reserved yet" and both passing TryAdmit when only
+    //    one of them actually fits. Fix: _admissionGate is an async-compatible SemaphoreSlim held
+    //    across the ENTIRE check -> load -> commit pipeline for one role, not just the check, so
+    //    only one role's admission can be in flight at a time. (SessionManager only supports one
+    //    persistent base model anyway, and AdapterManager already serializes its own build step
+    //    internally, so this does not remove real parallelism that previously existed safely —
+    //    see the class doc's "known scope limitation" above.)
+    //
+    // 2. Generation timing: WeightsGeneration bumps DURING the load this method gates, not
+    //    before it. A scheme that reads/stores "last seen generation" at admission-CHECK time
+    //    (pre-load) sees the pre-load value, then the very next role's check sees the post-load
+    //    value as "changed" and wrongly invalidates the role that JUST succeeded. Fix: each
+    //    reservation is tagged with the generation observed AFTER its own load succeeded, not a
+    //    single shared "last seen" scalar read before any load happens. A later admission only
+    //    counts another role's reservation if its tagged generation still matches the runtime's
+    //    current generation — which is automatically false once some load tears that role's
+    //    executor down (mirrors AdapterManager's own per-call generation check), with no separate
+    //    "clear everything" step needed.
+    //
+    // A consequence of committing only after success: there is nothing to roll back on failure.
+    // No entry is written until the load and the conversation build both succeed, so a failed
+    // admission costs nothing and a successful one is recorded with the generation it actually
+    // landed under.
+    private readonly Dictionary<RuntimeRole, (long Bytes, int Generation)> _reservedByRole = new();
+    private readonly SemaphoreSlim _admissionGate = new(1, 1);
+    private bool _disposed;
 
     /// <param name="runtime">
     /// Owned by both managers this constructs. Pass <paramref name="disposeRuntime"/> = true if
@@ -60,6 +96,7 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
         Func<VramBudget>? budgetProvider = null)
     {
         ArgumentNullException.ThrowIfNull(runtime);
+        _runtime = runtime;
         _sessionManager = new SessionManager(runtime, disposeRuntime);
         _adapterManager = new AdapterManager(runtime);
         _scheduler = scheduler;
@@ -93,22 +130,77 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(binding);
-        EnsureAdmitted(binding);
+        ThrowIfDisposed();
 
-        var loadResult = await _sessionManager.LoadBindingAsync(binding, options, ct).ConfigureAwait(false);
-        if (!loadResult.Success || loadResult.Binding is null)
-            throw new InvalidOperationException(
-                $"Could not load base model for role {binding.Role}: {loadResult.Message}");
+        await _admissionGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            // Re-check after the wait: a concurrent DisposeAsync could have started (and set
+            // _disposed) while this call was queued on the gate. Without this, a caller that
+            // raced disposal would proceed to load/create against managers already mid-teardown
+            // (same hazard class AdapterManager/SessionManager/NativeRoleRuntime already guard
+            // against on their own gates — this class was missing the equivalent check).
+            ThrowIfDisposed();
 
-        return await _adapterManager.CreateConversationAsync(loadResult.Binding, ct).ConfigureAwait(false);
+            EnsureAdmitted(binding);
+
+            var loadResult = await _sessionManager.LoadBindingAsync(binding, options, ct).ConfigureAwait(false);
+            if (!loadResult.Success || loadResult.Binding is null)
+                throw new InvalidOperationException(
+                    $"Could not load base model for role {binding.Role}: {loadResult.Message}");
+
+            var conversation = await _adapterManager
+                .CreateConversationAsync(loadResult.Binding, ct)
+                .ConfigureAwait(false);
+
+            // Commit only now, with the generation observed AFTER the load — never the pre-load
+            // generation EnsureAdmitted saw. The load above may have been the one that bumped
+            // WeightsGeneration (first-ever load) or left it untouched (same-base-model reuse);
+            // tagging with whatever it actually is right now is what makes a LATER call's
+            // generation-match filter correct in both cases.
+            if (_scheduler is not null && _budgetProvider is not null)
+            {
+                var requiredBytes = OrcScheduler.EstimateRequiredBytes(binding);
+                _reservedByRole[binding.Role] = (requiredBytes, _runtime.WeightsGeneration);
+            }
+
+            return conversation;
+        }
+        finally
+        {
+            _admissionGate.Release();
+        }
     }
 
+    /// <summary>
+    /// Pure check, no bookkeeping write — the caller (<see cref="GetConversationForBindingAsync"/>,
+    /// holding <see cref="_admissionGate"/> for the whole pipeline) only commits a reservation
+    /// after the load and conversation build both succeed. Throws
+    /// <see cref="RuntimeAdmissionDeniedException"/> if denied.
+    /// </summary>
     private void EnsureAdmitted(RuntimeRoleBinding binding)
     {
         if (_scheduler is null || _budgetProvider is null)
             return;
 
-        var budget = _budgetProvider();
+        var currentGeneration = _runtime.WeightsGeneration;
+        var baseline = _budgetProvider()
+            ?? throw new InvalidOperationException(
+                "Native Runtime budget provider returned null; cannot evaluate admission.");
+
+        // The provider's own ReservedBytes (if any) plus every OTHER role's footprint — but only
+        // entries whose tagged generation still matches the runtime's current generation. A
+        // mismatch means that role's executor was torn down by some load that happened since
+        // (mirrors AdapterManager's own per-call generation check), so counting it would
+        // under-report what's actually available. Never this role's own prior footprint:
+        // admitting it again either reuses the existing executor (no new memory) or tears the old
+        // one down before building the replacement (old footprint already gone by the time the
+        // new one would exist) — counting it here would double-charge a role against itself.
+        var otherRolesReserved = _reservedByRole
+            .Where(kv => kv.Key != binding.Role && kv.Value.Generation == currentGeneration)
+            .Sum(kv => kv.Value.Bytes);
+        var budget = baseline with { ReservedBytes = baseline.ReservedBytes + otherRolesReserved };
+
         var decision = _scheduler.TryAdmit(binding, budget);
         if (!decision.Admitted)
             throw new RuntimeAdmissionDeniedException(binding, budget, decision);
@@ -116,17 +208,45 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        // Wait for the gate the same way every admission does, so disposal cannot interleave
+        // with an in-flight GetConversationForBindingAsync call (which would otherwise drive a
+        // load/create against managers already mid-teardown). Once acquired, _disposed is set
+        // before release so any call that was queued behind this wait sees it on its own
+        // post-wait ThrowIfDisposed() check instead of proceeding.
+        await _admissionGate.WaitAsync().ConfigureAwait(false);
         try
         {
-            await _adapterManager.DisposeAsync().ConfigureAwait(false);
+            if (_disposed)
+                return;
+            _disposed = true;
+
+            try
+            {
+                await _adapterManager.DisposeAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                // Must run even if AdapterManager's disposal faults — otherwise a failure tearing
+                // down per-role executors would leak the SessionManager (and, if disposeRuntime
+                // was true, the runtime/weights it owns) entirely.
+                await _sessionManager.DisposeAsync().ConfigureAwait(false);
+            }
         }
         finally
         {
-            // Must run even if AdapterManager's disposal faults — otherwise a failure tearing
-            // down per-role executors would leak the SessionManager (and, if disposeRuntime was
-            // true, the runtime/weights it owns) entirely.
-            await _sessionManager.DisposeAsync().ConfigureAwait(false);
+            _reservedByRole.Clear();
+            // _admissionGate is intentionally never Dispose()'d here, same rationale as
+            // AdapterManager's own gate (see its class doc point 5): a thread already queued on
+            // WaitAsync before disposal began must not have its own `finally { Release() }` throw
+            // against a semaphore that was disposed out from under it.
+            _admissionGate.Release();
         }
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(RuntimeOrchestrator));
     }
 }
 

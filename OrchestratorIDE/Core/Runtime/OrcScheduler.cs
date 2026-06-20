@@ -31,8 +31,12 @@ public interface IOrcScheduler
 /// <summary>
 /// A single process's VRAM accounting. <see cref="ReservedBytes"/> is whatever the caller has
 /// already committed to currently-active role executors — OrcScheduler does not track this
-/// itself; the caller (eventually RuntimeOrchestrator or AdapterManager) owns that bookkeeping
-/// and passes the current snapshot in on every TryAdmit call.
+/// itself; the caller passes the current snapshot in on every TryAdmit call.
+/// <see cref="RuntimeOrchestrator"/> is that caller: it layers its own per-role active-reservation
+/// total (one estimate per currently-admitted role, keyed by <see cref="RuntimeRole"/>) on top of
+/// whatever baseline <see cref="ReservedBytes"/> the budget provider reports, so a second role
+/// admitted concurrently with a first is checked against the first's actual footprint instead of
+/// always seeing the provider's static snapshot.
 /// </summary>
 public sealed record VramBudget(long TotalBytes, long ReservedBytes)
 {
@@ -92,7 +96,11 @@ public sealed class OrcScheduler : IOrcScheduler
             Reason: $"Requires ~{FormatGb(requiredBytes)}, only {FormatGb(budget.AvailableBytes)} available.");
     }
 
-    private static long EstimateRequiredBytes(RuntimeRoleBinding binding)
+    // internal (not private): RuntimeOrchestrator needs the same estimate to maintain its own
+    // active-reservation accounting across concurrent role admissions (see its ReservedBytes
+    // doc) — duplicating the GGUF-size-as-VRAM-proxy heuristic in two places would let them
+    // drift out of sync silently.
+    internal static long EstimateRequiredBytes(RuntimeRoleBinding binding)
     {
         // BaseModel.SizeBytes is null only if ModelDepot ever classified a directory as
         // BaseModelGguf, which its own scan logic never does (BaseModelGguf is always a single
