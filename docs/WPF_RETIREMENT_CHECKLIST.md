@@ -106,12 +106,30 @@ bug along the way (wrapped read-only TextBox hangs `RunJobs()` — switched to
 TextBlock) and two real bugs in the port's save-ordering/exception-safety via
 Codex CLI review.
 
-### 4. UI Automation Still Treats WPF As Canonical
+### 4. UI Automation — ✅ ALREADY CLOSED (this doc was stale a third time, 2026-06-20)
 
-`OrchestratorIDE.UITests` still launches the WPF desktop binary for the main
-FlaUI lane. Avalonia has headless/window smoke coverage, but WPF cannot be
-removed until the black-box UI lane moves to Avalonia or is deliberately
-retired.
+~~`OrchestratorIDE.UITests` still launches the WPF desktop binary for the main
+FlaUI lane.~~ — verified against actual code, not assumed: `AppFixture.cs`
+(the shared fixture every T01–T20 FlaUI test uses) resolves and launches
+`OrchestratorIDE.Avalonia.exe` (`ResolveExePath()`, `projectDirectoryName:
+"OrchestratorIDE.Avalonia"`), not the WPF binary. Confirmed no other test file
+launches WPF separately (`T06_BuildResearchTool.cs` uses the same Avalonia
+path). The FlaUI black-box lane has been Avalonia-only for a while; this doc
+just never caught up — same pattern as blockers #1 and (partially) #2 above.
+
+### 5. NEW — Release Packaging Still Ships WPF As The Product (found 2026-06-20)
+
+This is a different, more consequential gap than #4 and wasn't on this
+checklist before tonight. `.github/workflows/release.yml` runs
+`dotnet publish OrchestratorIDE/OrchestratorIDE.csproj` and packages/ships
+`OrchestratorIDE.exe` (the WPF build) as the actual binary real users download
+in every release artifact — the portable zip, the GitHub release asset list,
+and the install instructions in the release notes template all reference it
+by name. Avalonia is not published or shipped at all today. This is a
+release-pipeline/CI change, not a local dev-time change like everything else
+on this checklist tonight — touching it affects what actual users get when
+they download the next release, not just this repo's local state. **Flagged
+to the user rather than changed unilaterally; not yet actioned.**
 
 ---
 
@@ -144,18 +162,44 @@ Models menu and model-management workflows no longer route operators back to
 Exit criterion:
 Fresh-user and rules-file setup stories are supported without WPF. ✅ Met.
 
-### Phase 4. Automation Lane Cutover
+### Phase 4. Automation Lane Cutover — PARTIALLY DONE (verified 2026-06-20, see "Remaining Blockers" #4)
 
-Goal: stop treating WPF as the canonical Windows desktop binary.
+The original scope of this phase bundled two things that turned out to have
+very different status — split apart below instead of marking the whole phase
+done while one part of it isn't:
 
-- Move the main UI automation lane from WPF FlaUI-first assumptions to Avalonia
-  coverage.
-- Keep the current Avalonia headless tests, then add one black-box desktop lane
-  that launches the Avalonia shell for high-value workflows.
+- ~~Move the main UI automation lane from WPF FlaUI-first assumptions to Avalonia
+  coverage.~~ ✅ Already done — `AppFixture` launches Avalonia exclusively.
+- ~~Keep the current Avalonia headless tests, then add one black-box desktop lane
+  that launches the Avalonia shell for high-value workflows.~~ ✅ Already exists
+  (`T20_AvaloniaSmokeTests.cs` + all of T01–T19 now run against Avalonia via
+  the shared fixture).
 - Update any packaging/test scripts that still hardcode the WPF executable.
+  ❌ **Not done for the release pipeline specifically** — moved to its own
+  Phase 4.5 below rather than left as a checked-off bullet under a "done"
+  phase, since `.github/workflows/release.yml` still hardcodes
+  `OrchestratorIDE.exe` throughout and that's a materially bigger, different
+  kind of change than the test-lane part of this phase.
 
 Exit criterion:
-Release verification no longer depends on launching the WPF shell.
+Release verification (the test suite) no longer depends on launching the WPF
+shell. ✅ Met for tests. The release *artifact* itself is Phase 4.5, not met.
+
+### Phase 4.5. Release Packaging Cutover — NEW, NOT STARTED (found 2026-06-20)
+
+Goal: ship Avalonia, not WPF, as the actual downloaded product.
+
+- `.github/workflows/release.yml` publishes and packages
+  `OrchestratorIDE/OrchestratorIDE.csproj` (WPF) today. Needs to switch to
+  `OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj`.
+- Release notes template, asset list, and required-files check all reference
+  `OrchestratorIDE.exe` by name and need updating to match.
+- This is a CI/release-pipeline change with real user-facing consequences
+  (what people actually download) — review and execute deliberately, not as
+  a quick automated edit.
+
+Exit criterion:
+A cut release installs and runs the Avalonia shell, not WPF.
 
 ### Phase 5. Project Removal
 
@@ -181,10 +225,15 @@ This is the order we should actually work in next:
 2. ~~`ModelCapabilityTestDialog` and `ToolCallTestWindow` decision: port or
    retire into a new Avalonia diagnostics surface.~~ DONE — both retired
    2026-06-19, Sponsor Test Lab paused for that section.
-3. `ModelWikiWindow` fold-in or direct port. **Next real blocker.**
+3. `ModelWikiWindow` fold-in or direct port. **Remaining blocker #1.**
 4. ~~First-run/regenerate-agent cleanup.~~ DONE 2026-06-20 — see "Remaining Blockers" #3.
-5. Avalonia desktop automation lane. **Other remaining real blocker, likely the bigger of the two.**
-6. WPF project removal and doc truth sync.
+5. ~~Avalonia desktop automation lane.~~ Already done, verified 2026-06-20 —
+   see "Remaining Blockers" #4. Was assumed to be the bigger remaining item;
+   turned out to already be closed.
+6. Release packaging cutover (`.github/workflows/release.yml` ships WPF, not
+   Avalonia). **Remaining blocker #2 — newly found 2026-06-20, likely the
+   actual bigger remaining item now.**
+7. WPF project removal and doc truth sync.
 
 **Project-level decision (2026-06-19):** WPF retirement is the gate for the
 v1.9 release specifically — v1.9 should ship Avalonia-only with WPF deleted,
