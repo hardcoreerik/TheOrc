@@ -230,10 +230,6 @@
                     <MenuItem Header="Edit Warm-Up Scripts…" Click="Menu_WarmUpEdit"/>
                 </MenuItem>
                 <Separator/>
-                <MenuItem Header="Model Wiki / Lab…"
-                          AutomationProperties.AutomationId="Menu.ModelWiki"
-                          Click="Menu_ModelWiki"/>
-                <Separator/>
                 <MenuItem Header="Manage Library…" Click="Menu_ModelLibrary"/>
             </MenuItem>
 

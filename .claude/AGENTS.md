@@ -10,9 +10,9 @@ or rules from scratch.
 ## Project identity
 
 - **Local AI coding assistant** — 100% on-device, no cloud in the shipped product
-- **Dual UI:** WPF (`net10.0-windows`, primary shipping app) + Avalonia 12 (`net10.0`, cross-platform preview)
-- Both UIs share `OrchestratorIDE/` service layer — never duplicate logic between them
-- **Avalonia-first migration work:** new Native Runtime operator-facing UI/status surfaces land in Avalonia first; touch WPF only for shared core compatibility or an explicit fallback fix.
+- **Single UI: Avalonia 12** (`net10.0`, cross-platform). WPF (`OrchestratorIDE/OrchestratorIDE.csproj`) was deleted 2026-06-20 — there is no WPF shell anymore.
+- Avalonia pulls shared logic (`Core/`, `Services/`, `Models/`, `Trust/`) from `OrchestratorIDE/` via explicit `<Compile Include>` paths — that folder still holds shared source, it's just no longer a buildable app on its own.
+- All new operator-facing UI/status surfaces land in Avalonia — there's nowhere else for them to go now.
 - **License:** AGPL-3.0-or-later · SPDX headers required on every new source file
 - Repo: `hardcoreerik/TheOrc` on GitHub. Dev work happens in worktree `F:\Ai\OrchestratorIDE-dev`, branch `master`.
 
@@ -37,7 +37,7 @@ or rules from scratch.
 ## Architecture quick-map
 
 ```
-OrchestratorIDE/            WPF app (net10.0-windows)
+OrchestratorIDE/            Shared source only — no .csproj here anymore (WPF deleted 2026-06-20)
   Core/                     OllamaClient, AgentLoop, ContextManager, UpdateChecker, ScreenRecorder, ...
   Core/Runtime/             IModelRuntime abstraction — OllamaRuntime, LlamaCppServerRuntime,
                             LLamaSharpRuntime (Native Runtime migration, see status below)
@@ -48,14 +48,12 @@ OrchestratorIDE/            WPF app (net10.0-windows)
   Agents/                    SwarmSession
   Research/                  ChatEngine
   Tools/                     ToolRegistry, SearchTools, ShellTools, GraphTools (v1.9)
-  UI/Panels/                 WPF panels (.xaml + .xaml.cs)
-  UI/Dialogs/                WPF dialogs
-OrchestratorIDE.Avalonia/   Avalonia app (net10.0)
+OrchestratorIDE.Avalonia/   The desktop app (net10.0) — only desktop shell
   UI/Panels/                 Avalonia panels (.axaml + .axaml.cs)
   UI/Controls/                MarkdownView, ...
-OrchestratorIDE.UnitTests/          WPF unit tests (NUnit, in-memory SQLite)
+OrchestratorIDE.UnitTests/          Unit tests (NUnit, in-memory SQLite) — references OrchestratorIDE.Avalonia.csproj
 OrchestratorIDE.Avalonia.HeadlessTests/  Avalonia headless tests
-OrchestratorIDE.UITests/    WPF UI/FlaUI and shared headless test sources (`T{NN}_*.cs`)
+OrchestratorIDE.UITests/    Avalonia UI/FlaUI and shared headless test sources (`T{NN}_*.cs`)
 training_pit/               Dataset pipeline + Forge training scripts
 .grok/                      Project truth, specs, review scratch — PROJECT_TRUTH.md is canonical
 docs/ROADMAP.md             Public roadmap/status narrative; keep in sync with PROJECT_TRUTH
@@ -145,7 +143,7 @@ public static class GraphTools
 2. Check `.grok/PROJECT_TRUTH.md` and `docs/ROADMAP.md` for current accurate status before assuming a feature is or isn't done.
 3. For DB work: extend `RepositoryBase`, add a forward-only migration.
 4. For new tools: follow `ToolRegistry.Register` pattern, `RequiresApproval = false` for read-only.
-5. Wire into both WPF and Avalonia if it's a UI feature.
+5. Wire into Avalonia if it's a UI feature — there is only one shell now.
 6. Run a review pass before committing.
 7. Run `dotnet test` — must stay green.
 8. Update `.grok/PROJECT_TRUTH.md` and `docs/ROADMAP.md` when your change closes a known gap, changes a shipped/planned status, or alters the project direction — don't let docs drift from reality.

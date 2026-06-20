@@ -11,8 +11,8 @@
 
 TheOrc is a local-first AI orchestration shell with three connected loops:
 
-- an operator shell, now **Avalonia-primary**, with WPF still present as a
-  compatibility surface while the last dialogs are ported
+- an operator shell, **Avalonia-only** — WPF (`OrchestratorIDE/OrchestratorIDE.csproj`)
+  was deleted 2026-06-20; there is no compatibility surface left
 - an execution layer that runs single-agent, chat, swarm, and distributed HIVE
   workflows against local model runtimes
 - a learning loop that captures swarm behavior, curates datasets, trains
@@ -29,8 +29,7 @@ in keeping local execution reviewable.
 
 ```text
 +------------------ OPERATOR SHELL -------------------+
-| Avalonia app (primary)                              |
-| WPF app (compatibility / remaining dialogs)         |
+| Avalonia app (only desktop shell — WPF deleted)     |
 |  - Single / Swarm / Chat / Pit / Hive / Settings    |
 |  - docs/help viewer                                 |
 |  - status: workspace / git / build / model/runtime  |
@@ -75,14 +74,17 @@ in keeping local execution reviewable.
 
 ## UI Shell
 
-The operator shell is in transition:
+The operator shell transition is complete:
 
-- **Avalonia is the primary direction** for new operator-facing runtime work and
-  test-heavy UI work.
-- **WPF still exists** and cannot be dropped yet because a few dialogs and some
-  compatibility paths remain there.
-- Shared core/runtime logic is intentionally kept outside any one desktop shell
-  so both shells can call into the same execution and runtime services.
+- **Avalonia is the only desktop shell.** WPF (`OrchestratorIDE/OrchestratorIDE.csproj`)
+  was deleted 2026-06-20 along with all 70 WPF-only window/dialog/panel/control
+  files. `ModelWikiWindow`/`ModelCompareWindow` were retired rather than ported
+  — their data layer (`ModelWikiService`, `ModelWikiExporter`) is still shared
+  code; the window itself is gone, not yet rebuilt.
+- Shared core/runtime logic was already kept outside any one desktop shell
+  (`Core/`, `Services/`, `Models/`, `Trust/` under `OrchestratorIDE/` are pulled
+  into Avalonia via explicit `<Compile Include>`, not duplicated) — this is
+  exactly what made deleting WPF tractable without rewriting that logic.
 
 The status bar remains an architectural trust surface:
 

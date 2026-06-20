@@ -37,7 +37,6 @@ public partial class MainWindow : Window
     private readonly RulesLoader        _rules;
     private readonly AgentLoop          _loop;
     private readonly SessionStore       _store;
-    private readonly UnavailableFeatureRouter _unavailable;
     private          LlamaServerManager?  _llamaServer;
     private          ModelStatusService?  _modelStatus;
     private          Services.Hive.HiveBeacon?      _hiveBeacon;
@@ -125,7 +124,6 @@ public partial class MainWindow : Window
         _git       = new GitCheckpoint();
         _rules     = new RulesLoader();
         _store     = new SessionStore();
-        _unavailable = new UnavailableFeatureRouter(AddActivity);
         _loop      = new AgentLoop(BuildAgentLoopRuntime(), _registry, _context, _git, _rules);
 
         _session = new ProjectSession
@@ -568,7 +566,9 @@ public partial class MainWindow : Window
                                         .Split(',', StringSplitOptions.RemoveEmptyEntries)
                                         .Select(l => l.Trim()).ToArray(),
                 Runtime         = BuildModelRuntime(),
-                NativeRoleRuntime = BuildExperimentalNativeHiveWorkerRuntime(),
+                NativeRoleExecutor = BuildExperimentalNativeHiveWorkerRuntime() is { } nativeHiveRuntime
+                    ? new NativeHiveRoleExecutorAdapter(nativeHiveRuntime)
+                    : null,
                 CoderModel      = _settings.LastWorkerModel,
                 ResearcherModel = _settings.LastResearcherModel,
             };
@@ -2264,10 +2264,13 @@ public partial class MainWindow : Window
             TaskScheduler.Default);
     }
 
-    private void Menu_ModelWiki(object? sender, RoutedEventArgs e)
-    {
-        _unavailable.Report("Models", "ModelWikiWindow");
-    }
+    // Menu_ModelWiki retired 2026-06-20 along with the rest of WPF (Phase 5 — full
+    // WPF deletion). ModelWikiWindow/ModelCompareWindow were the one remaining
+    // WPF-only window pair and were not ported — see docs/WPF_RETIREMENT_CHECKLIST.md.
+    // Their underlying data services (ModelWikiService, ModelWikiExporter,
+    // ModelWikiEntry) are untouched and still compiled into this project; only the
+    // WPF-specific rendering window is gone. A future Avalonia rebuild (data-bound,
+    // not the old imperative widget-construction style) is tracked there, not here.
 
     // Menu_RunModelCapabilityTest / Menu_RunToolProbe retired 2026-06-19 along with
     // ModelCapabilityTestDialog/ToolCallTestWindow — see docs/SPONSOR_TEST_LAB.md.

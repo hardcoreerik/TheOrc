@@ -37,7 +37,7 @@ public class ApprovalQueue
 
     /// <summary>
     /// When true every request is immediately granted without UI interaction.
-    /// Used only by --autotest / FlaUI headless tests.
+    /// Used only by --autoapprove / FlaUI headless tests.
     /// </summary>
     public bool AutoApprove { get; set; } = false;
 

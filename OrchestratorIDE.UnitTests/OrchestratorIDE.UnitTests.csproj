@@ -39,7 +39,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\OrchestratorIDE\OrchestratorIDE.csproj" />
+    <ProjectReference Include="..\OrchestratorIDE.Avalonia\OrchestratorIDE.Avalonia.csproj" />
   </ItemGroup>
 
 </Project>

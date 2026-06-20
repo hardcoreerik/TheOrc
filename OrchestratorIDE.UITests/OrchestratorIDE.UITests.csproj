@@ -30,8 +30,9 @@
 
   <ItemGroup>
     <!-- Direct reference for white-box unit tests (language detection etc.);
-         FlaUI black-box tests still launch the built exe separately -->
-    <ProjectReference Include="..\OrchestratorIDE\OrchestratorIDE.csproj" />
+         FlaUI black-box tests still launch the built exe separately.
+         Avalonia, not WPF, since WPF retirement Phase 5 deleted OrchestratorIDE.csproj. -->
+    <ProjectReference Include="..\OrchestratorIDE.Avalonia\OrchestratorIDE.Avalonia.csproj" />
   </ItemGroup>
 
 </Project>

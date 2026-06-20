@@ -1,6 +1,6 @@
 # TheOrc — Roadmap
 
-> Last updated: 2026-06-19 (Avalonia-primary + experimental native HIVE worker opt-in).
+> Last updated: 2026-06-20 (WPF deleted — Avalonia-only + experimental native HIVE worker opt-in).
 > This document is updated after every GitHub release. It reflects actual code state, not aspirations — features marked Shipped have been verified in the running app.
 
 ---
@@ -11,7 +11,7 @@ TheOrc is a production local AI orchestrator. The core swarm, model intelligence
 
 v1.8.0 ships the Avalonia MarkdownView (Phase 6), the full FlaUI + Avalonia test suite (Phase 7, 23 tests), and the Grok toolchain integration. CodeGraph v1 — a Roslyn + SQLite code knowledge graph that lets the agent query graph structure instead of grepping files — is fully implemented and committed, targeting v1.9.
 
-The honest gaps: the Reviewer Quality Gate is advisory-only (can always be overridden), the Tool Editor hot-reload is a stub, and HIVE MIND multi-step tool calling on remote workers is Phase 3B (not yet built). Avalonia is now the primary shell for new runtime/model-management work, but WPF is not fully retired: `ask_user`, `ModelWikiWindow`, `ModelCapabilityTestDialog`, and `ToolCallTestWindow` still need real Avalonia paths, and the main Windows UIA lane still targets WPF. Native Runtime groundwork is now real in code (IModelRuntime, Ollama wrapper, llama.cpp server wrapper, LLamaSharp runtime, shared text tool-call parser, Chat/Swarm/HIVE worker/reviewer migration, ModelDepot, SessionManager, AdapterManager with per-role persistent LoRA contexts, RuntimeOrchestrator wiring all three together, `IRoleRuntime`/`NativeRoleRuntime`, Settings-panel telemetry/smoke surfaces with explicit Ollama fallback and evidence capture, and a first OrcScheduler VRAM-budget admission check). It is still **not** production/default: the first live path is an experimental HIVE worker opt-in only; main chat, research chat, and SwarmSession stay on the configured default runtime, with Ollama remaining default/fallback.
+The honest gaps: the Reviewer Quality Gate is advisory-only (can always be overridden), the Tool Editor hot-reload is a stub, and HIVE MIND multi-step tool calling on remote workers is Phase 3B (not yet built). **WPF is deleted (2026-06-20)** — `OrchestratorIDE/OrchestratorIDE.csproj` and every WPF-only file are gone from the repo; Avalonia is the only desktop shell. `ask_user`, `ModelCapabilityTestDialog`, and `ToolCallTestWindow` all have real Avalonia resolutions (the latter two retired as diagnostics, not ported); `ModelWikiWindow`/`ModelCompareWindow` were retired rather than ported (data layer kept, window itself dropped — a future from-scratch Avalonia rebuild is a real feature request, not a blocker). The UIA automation lane already targeted Avalonia exclusively. Native Runtime groundwork is now real in code (IModelRuntime, Ollama wrapper, llama.cpp server wrapper, LLamaSharp runtime, shared text tool-call parser, Chat/Swarm/HIVE worker/reviewer migration, ModelDepot, SessionManager, AdapterManager with per-role persistent LoRA contexts, RuntimeOrchestrator wiring all three together, `IRoleRuntime`/`NativeRoleRuntime`, Settings-panel telemetry/smoke surfaces with explicit Ollama fallback and evidence capture, and a first OrcScheduler VRAM-budget admission check). It is still **not** production/default: the first live path is an experimental HIVE worker opt-in only; main chat, research chat, and SwarmSession stay on the configured default runtime, with Ollama remaining default/fallback.
 
 ---
 
@@ -362,8 +362,8 @@ OrchestratorIDE/Tools/
 ### ORC ACADEMY v4 Boss — fix files_named gap
 v3 scored 94.7% overall but dropped `files_named` to 65/87 (worse than base 74/87). Fix: audit v3gold examples for file-naming coverage, author targeted golden examples where CODER tasks name explicit output files (`.cs`, `.xaml`, etc.), pass suitability gate, retrain. Target: ≥99% overall, ≥85/87 on files_named.
 
-### Avalonia remaining modal dialogs
-`AgentBuilderDialog`, `ModelWikiWindow`, `LabWindow` — the last WPF-only dialogs. `UserInputDialog` and `ToolEditorDialog` shipped in v1.8.
+### Avalonia remaining modal dialogs — ✅ CLOSED (2026-06-20, WPF deleted)
+`AgentBuilderDialog`'s functionality was already replaced by Avalonia's `AgentRulesWindow` before this closed. `ModelWikiWindow`/`ModelCompareWindow` were retired (not ported) as part of deleting WPF outright. ("`LabWindow`" never existed as an actual file in this repo — a stale planning reference, removed here.) `UserInputDialog` and `ToolEditorDialog` shipped in v1.8.
 
 ### HIVE MIND Phase 3B — multi-step tool calling on remote workers
 `HiveWorkerAgent` currently executes single-pass LLM calls. Phase 3B adds full `AgentLoop`-style multi-step tool execution on remote nodes (file writes, shell commands, web search — all running on the worker machine). This is the primary remaining HIVE gap.
@@ -444,7 +444,7 @@ Ollama stays the **default and fallback** until the ModelDepot + installer first
 | **Tool Editor hot-reload (Phase 6/7)** | Stub only | Roslyn pipeline is complex; pay-off unclear until tool definitions are more dynamic |
 | **HIVE MIND C2 (RPC model chain)** | Groundwork laid | llama.cpp RPC plumbing exists; full SwarmSession routing to RPC workers not wired; blocked on Phase 3B |
 | **"Zero idle chatter" message discipline** | Not implemented | Good spec hygiene; no user-visible impact currently; revisit when HIVE worker verbosity becomes a real problem |
-| **Cross-platform desktop (Mac / Linux)** | Avalonia UI shipped v1.7; 3 WPF dialogs remain (v1.9 scope) | After v1.9 closes AgentBuilderDialog, ModelWikiWindow, LabWindow — `dotnet publish -r osx-arm64` should work. ScreenRecorder degrades gracefully (SharpAVI Windows-only). Warband (daemon) is already cross-platform — see WARBANDS above. |
+| **Cross-platform desktop (Mac / Linux)** | WPF deleted 2026-06-20, Avalonia is the only desktop shell | `dotnet publish -r osx-arm64` should work — not yet verified on real macOS/Linux hardware. ScreenRecorder degrades gracefully (SharpAVI Windows-only). Warband (daemon) is already cross-platform — see WARBANDS above. |
 | **On-platform self-improvement (TheOrc trains itself)** | Partial | Pit Boss + Cerebras pipeline makes the dataset side nearly free; the gap is auto-generating and auto-judging training goals without human input; deferred until v2 adapter proves out the data quality |
 
 ---

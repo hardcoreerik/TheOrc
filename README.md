@@ -333,7 +333,7 @@ HIVE MIND lets multiple TheOrc machines coordinate over your local network. One 
 The long game: TheOrc writes its own training goals, runs them through the swarm, and feeds the results back into ORC ACADEMY — closing the loop with minimal human input. The Pit Boss pipeline makes the dataset generation side of this almost free. The remaining work is getting the swarm to generate and judge its own goals.
 
 ### 💻 Cross-platform
-TheOrc is Windows-first (WPF/.NET). A Mac and Linux path is on the roadmap once the core stabilizes. Ollama already runs everywhere — the UI is the hold-out.
+TheOrc's desktop shell is Avalonia (.NET), built to run on Windows, macOS, and Linux from one codebase — not yet verified on real Mac/Linux hardware. Ollama already runs everywhere; the daemon (Warband) is already cross-platform too.
 
 ---
 

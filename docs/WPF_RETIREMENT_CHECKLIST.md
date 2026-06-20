@@ -1,14 +1,48 @@
 <!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
 # WPF Retirement Checklist
 
+> ## ✅ STATUS: WPF DELETED (2026-06-20)
+>
+> `OrchestratorIDE/OrchestratorIDE.csproj` and every WPF-only file (70 files:
+> App.xaml, MainWindow.xaml, every WPF-only window/dialog/panel/control) are
+> gone from the repository. Avalonia (`OrchestratorIDE.Avalonia`) is now the
+> **only** desktop shell — not "primary," not "being retired," actually the
+> only one. `OrchestratorIDE.UnitTests`, `OrchestratorIDE.UITests`, and
+> `Tools/SwarmCli` were repointed from a `OrchestratorIDE.csproj`
+> `ProjectReference` to `OrchestratorIDE.Avalonia.csproj` (with
+> `InternalsVisibleTo` grants moved across). `.github/workflows/release.yml`
+> ships the Avalonia build. The 123 shared source files (`Core/`, `Services/`,
+> `Models/`, `Trust/`, etc.) that Avalonia includes via relative `<Compile
+> Include>` paths are untouched and still physically live under
+> `OrchestratorIDE/` — only the WPF-exclusive UI files were removed, not the
+> whole folder.
+>
+> **`ModelWikiWindow` / `ModelCompareWindow` were retired, not ported** — per
+> explicit user decision, given the choice between porting an 862-line
+> imperative-UI window or deleting WPF outright now. Their data layer
+> (`ModelWikiService`, `ModelWikiExporter`, `ModelWikiEntry`) is untouched and
+> still compiled into Avalonia; only the WPF rendering window is gone. A future
+> from-scratch, data-bound Avalonia version (or a fold-in to
+> `ModelDownloaderWindow`/`ModelLibraryWindow`) is a real future feature
+> request, not part of this retirement.
+>
+> The rest of this document is kept as the historical record of how this
+> happened — including three separate cases where this same document was
+> stale and got corrected against actual code rather than trusted blindly.
+> Read it for that; do not action anything in it as if WPF still existed.
+
+---
+
 Repo-grounded execution plan for removing the WPF shell and going full
-Avalonia.
+Avalonia. (Original framing, kept for history — see status banner above for
+where this actually ended up.)
 
-Current answer: **sunset WPF in controlled slices, starting now**.
-
-Avalonia is the primary shell for new work, but WPF still anchors a few
-operator flows and the main Windows UI automation lane. Retirement should be a
-deliberate final slice, not a side effect of Native Runtime work.
+Original plan: **sunset WPF in controlled slices, starting now**, ending in a
+deliberate final removal slice. What actually happened: the final slice
+arrived in one night once the last real blocker (`ModelWikiWindow`) got
+resolved by retiring it instead of porting it, on explicit user instruction
+("I'm so over WPF at this point. please just kill it.") rather than a side
+effect of Native Runtime work, as originally planned.
 
 ---
 
@@ -35,20 +69,26 @@ These are no longer retirement blockers:
 
 ---
 
-## Exit Rule
+## Exit Rule — all 4 met as of 2026-06-20
 
 We can retire `OrchestratorIDE/OrchestratorIDE.csproj` as the primary desktop
 shell only after all of the following are true:
 
-1. No operator-facing menu flow in `MainWindow.axaml.cs` falls back to
-   `UnavailableFeatureRouter`.
-2. No trust/approval/user-input path silently degrades because a WPF-only dialog
-   is missing.
-3. The main Windows UI automation lane no longer assumes `OrchestratorIDE.exe`
-   from the WPF project is the canonical desktop binary.
-4. `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `.grok/PROJECT_TRUTH.md`,
+1. ✅ No operator-facing menu flow in `MainWindow.axaml.cs` falls back to
+   `UnavailableFeatureRouter`. Met — `UnavailableFeatureRouter.cs` itself was
+   deleted; the field that held it (`_unavailable`) had zero remaining call
+   sites once `ModelWikiWindow`'s menu item was retired.
+2. ✅ No trust/approval/user-input path silently degrades because a WPF-only dialog
+   is missing. Met — `ask_user` (real modal) and the first-run wizard /
+   regenerate-agent-file flow (real ported window) both work.
+3. ✅ The main Windows UI automation lane no longer assumes `OrchestratorIDE.exe`
+   from the WPF project is the canonical desktop binary. Met — it never did;
+   `AppFixture` already launched Avalonia, this doc was just wrong about it.
+4. ✅ `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `.grok/PROJECT_TRUTH.md`,
    `.agents.md`, and `.claude/AGENTS.md` all describe Avalonia as primary
-   without claiming WPF is already deleted.
+   without claiming WPF is already deleted. Superseded — WPF really is
+   deleted now, so these docs need to say that plainly, not hedge. Updated
+   alongside this commit.
 
 ---
 
@@ -85,13 +125,15 @@ model/test utility flows:
   for this section, not silently broken; see `docs/SPONSOR_TEST_LAB.md`.
 - **`ToolCallTestWindow` — RETIRED.** Same treatment, including the `--tool-probe`
   CLI mode in `App.xaml.cs`.
-- **`ModelWikiWindow` — still stubbed, deliberately deferred, not retired.** This
-  one is a real user-facing feature (browseable model catalogue), not a pure
-  diagnostic tool. It needs a proper "fold into the existing Avalonia model
-  management surface" design (per Phase 2's own original suggestion below),
-  not a rushed 1:1 port or a retirement decision made under time pressure.
+- **`ModelWikiWindow` (+ `ModelCompareWindow`) — ✅ RETIRED (2026-06-20), not ported.**
+  Explicit user decision, made after weighing the port-vs-rewrite-vs-retire
+  options: rather than spend more time translating an 862-line imperative-UI
+  window, delete WPF outright tonight and leave a from-scratch Avalonia
+  rebuild (data-bound this time, and possibly folded into
+  `ModelDownloaderWindow`/`ModelLibraryWindow`) as a genuine future feature
+  request. Data layer untouched.
 
-Remaining blocker for WPF deletion: `ModelWikiWindow` only.
+No remaining blockers for WPF deletion. WPF is deleted.
 
 ### 3. First-Run / Agent File Regeneration — ✅ CLOSED (2026-06-20)
 
@@ -142,20 +184,20 @@ the user first, who confirmed fixing it now rather than deferring it.
 
 ### Phase 1. Trust Parity — ✅ DONE (verified 2026-06-19, see "Recently Closed")
 
-### Phase 2. Model Utility Parity — PARTIALLY DONE (2026-06-19)
+### Phase 2. Model Utility Parity — ✅ DONE (2026-06-20)
 
 Goal: eliminate the most visible WPF-only utility windows.
 
 - ~~Port or retire `ModelCapabilityTestDialog`.~~ ✅ Retired.
 - ~~Port or retire `ToolCallTestWindow`.~~ ✅ Retired.
-- Port `ModelWikiWindow`, or fold its remaining value into the Avalonia model
-  management surface instead of cloning the old WPF shape exactly. **Not done —
-  deliberately deferred, this is the one remaining real WPF-deletion blocker
-  from this phase.**
+- ~~Port `ModelWikiWindow`, or fold its remaining value into the Avalonia model
+  management surface instead of cloning the old WPF shape exactly.~~ ✅ Retired
+  (not ported) 2026-06-20, per explicit user decision — see "Remaining
+  Blockers" #2.
 
 Exit criterion:
 Models menu and model-management workflows no longer route operators back to
- WPF-only windows. (Not yet met — `ModelWikiWindow` still does.)
+WPF-only windows. ✅ Met — there is no more WPF to route back to.
 
 ### Phase 3. Guided Setup Cleanup — ✅ DONE (2026-06-20, see "Remaining Blockers" #3)
 
@@ -212,19 +254,43 @@ verified against an actual tagged release/CI run, only a local publish test,
 which is the practical limit of what could be verified without cutting a
 real release tonight.
 
-### Phase 5. Project Removal
+### Phase 5. Project Removal — ✅ DONE (2026-06-20)
 
 Goal: remove the WPF shell without leaving truth drift behind.
 
-- Archive or delete `OrchestratorIDE/OrchestratorIDE.csproj` and remaining
-  WPF-only windows/panels once Avalonia is the verified desktop path.
-- Remove WPF-only test assets and launcher assumptions.
-- Update `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `.grok/PROJECT_TRUTH.md`,
+- ✅ Deleted `OrchestratorIDE/OrchestratorIDE.csproj` and all 70 WPF-only
+  files (App.xaml, MainWindow.xaml, every WPF-only window/dialog/panel/
+  control — `ModelWikiWindow`/`ModelCompareWindow` included, retired not
+  ported). The 123 shared source files Avalonia already includes by relative
+  path were left in place under `OrchestratorIDE/` — deleting the whole
+  folder would have broken Avalonia's own build.
+- ✅ Repointed `OrchestratorIDE.UnitTests`, `OrchestratorIDE.UITests`, and
+  `Tools/SwarmCli` from a `ProjectReference` to `OrchestratorIDE.csproj` →
+  `OrchestratorIDE.Avalonia.csproj` (moving the `InternalsVisibleTo` grants
+  across too — these were real compile-time dependencies discovered during
+  the deletion, not anticipated up front). Removed `OrchestratorIDE.csproj`
+  from `OrchestratorIDE.slnx`. Deleted `T08_ModelWikiTests.cs` (FlaUI coverage
+  for the now-retired window; `T12_ModelWikiExportTests.cs`, which tests the
+  *data* layer with no window dependency, was kept).
+- ✅ Removed WPF-only test assets and launcher assumptions — see above; also
+  removed `UnavailableFeatureRouter.cs` itself once its last call site
+  (`ModelWikiWindow`'s menu entry) was retired, since nothing else used it.
+- ✅ Updated `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `.grok/PROJECT_TRUTH.md`,
   `.agents.md`, and `.claude/AGENTS.md`.
+- Found and fixed one real, unrelated pre-existing break while validating
+  every project still builds: `OrchestratorIDE.Daemon.csproj` (its own
+  independent `<Compile Include>` list, no `ProjectReference` to WPF at all)
+  has been failing to compile since commit `bd65420` — predates this session
+  — because `HiveWorkerAgent.cs`'s native-runtime-opt-in code needs
+  `IRoleRuntime`/`RuntimeRole` that Daemon's compile list was never updated
+  to include. Flagged as a separate background task rather than fixed inline,
+  since the right fix is a real design choice (pull the full native LLamaSharp
+  stack into the lightweight cross-platform daemon, vs. splitting that code
+  path out) — see the spawned task, not this checklist.
 
 Exit criterion:
 No release-critical workflow, automation lane, or truth doc still depends on
- WPF existing.
+WPF existing. ✅ Met.
 
 ---
 
@@ -236,23 +302,24 @@ This is the order we should actually work in next:
 2. ~~`ModelCapabilityTestDialog` and `ToolCallTestWindow` decision: port or
    retire into a new Avalonia diagnostics surface.~~ DONE — both retired
    2026-06-19, Sponsor Test Lab paused for that section.
-3. `ModelWikiWindow` fold-in or direct port. **The one remaining real blocker.**
+3. ~~`ModelWikiWindow` fold-in or direct port.~~ Retired instead, 2026-06-20 —
+   user call: "I'm so over WPF at this point. please just kill it." Not a
+   fold-in, not a port — deleted, with a future-feature note left behind.
 4. ~~First-run/regenerate-agent cleanup.~~ DONE 2026-06-20 — see "Remaining Blockers" #3.
 5. ~~Avalonia desktop automation lane.~~ Already done, verified 2026-06-20 —
    see "Remaining Blockers" #4. Was assumed to be the bigger remaining item;
    turned out to already be closed.
 6. ~~Release packaging cutover.~~ DONE 2026-06-20 — see "Remaining Blockers" #5.
-7. WPF project removal and doc truth sync. **Gated on item 3 only now.**
+7. ~~WPF project removal and doc truth sync.~~ DONE 2026-06-20 — see Phase 5.
 
-**Project-level decision (2026-06-19):** WPF retirement is the gate for the
-v1.9 release specifically — v1.9 should ship Avalonia-only with WPF deleted,
-once items 2-5 above are closed and verified (not before). v2.0 (Native
-Runtime default, Ollama dropped) follows v1.9 and is gated on multi-machine
-HIVE MIND validation of v1.9's native opt-in path, not on this checklist.
-
-If we want the fastest route to real WPF sunset, the first slice is not
-"delete the old project." It is removing the remaining reasons operators or
-tests still need it.
+**Project-level decision (2026-06-19), superseded (2026-06-20):** WPF
+retirement was originally planned as the gate for v1.9 specifically, with v2.0
+(Native Runtime default, Ollama dropped) following separately, gated on
+multi-machine HIVE MIND validation. WPF retirement is now simply *done* —
+ahead of schedule, by user decision to stop incrementally porting and just
+delete it. The v2.0 gate (multi-machine HIVE validation before flipping
+Native Runtime's default and dropping Ollama) is unaffected and still applies
+— that decision was never about WPF.
 
 ---
 

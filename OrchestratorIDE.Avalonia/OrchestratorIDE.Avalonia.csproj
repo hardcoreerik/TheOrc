@@ -31,6 +31,14 @@
     <Using Include="System.Threading.Tasks" />
   </ItemGroup>
 
+  <!-- Expose internals to both test projects — moved here from OrchestratorIDE.csproj
+       (WPF retirement Phase 5); OrchestratorIDE.UnitTests/.UITests now reference this
+       project instead. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="OrchestratorIDE.UITests" />
+    <InternalsVisibleTo Include="OrchestratorIDE.UnitTests" />
+  </ItemGroup>
+
   <!-- Stamp git SHA into AssemblyInformationalVersion (same as WPF project) -->
   <Target Name="StampGitCommit" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo">
     <Exec Command="git describe --always --dirty --match _no_tag_" ConsoleToMSBuild="true" ContinueOnError="true" StandardOutputImportance="low" IgnoreExitCode="true">
@@ -166,6 +174,7 @@
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveRpcWorker.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveBeacon.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\TailscalePeers.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\IHiveNativeRoleExecutor.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveWorkerAgent.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveScheduler.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\DpapiSecretProtector.cs" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
@@ -213,8 +222,7 @@
     <Compile Include="..\OrchestratorIDE\Services\ToolCalls\ToolCallProbeEngine.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ToolCalls\ToolCallProfileStore.cs" />
 
-    <!-- Tests (headless test runner + fake client) -->
-    <Compile Include="..\OrchestratorIDE\Tests\AutoTestRunner.cs" />
+    <!-- Tests (fake client; the headless autotest runner was retired with AutoTestWindow, WPF deletion 2026-06-20) -->
     <Compile Include="..\OrchestratorIDE\Tests\FakeOllamaClient.cs" />
 
     <!-- Tools -->

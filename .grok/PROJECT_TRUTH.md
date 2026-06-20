@@ -334,7 +334,7 @@ They were shipped but have documented limitations.
 | Tool Editor hot-reload (Roslyn pipeline) | Complex; payoff unclear until tool defs more dynamic |
 | HIVE MIND C2 (RPC model chain) | Groundwork laid; blocked on Phase 3B |
 | "Zero idle chatter" message discipline | No user-visible impact currently |
-| Cross-platform desktop (Mac/Linux) | Avalonia shipped v1.7; 3 WPF dialogs remaining (v1.9); Warband (daemon) already cross-platform |
+| Cross-platform desktop (Mac/Linux) | Avalonia shipped v1.7; WPF deleted 2026-06-20 (Avalonia-only now); not yet verified on real macOS/Linux hardware; Warband (daemon) already cross-platform |
 | On-platform self-improvement | Gap is auto-generating and auto-judging training goals without human input |
 | Per-role model differentiation within execution lane | Planned for Phase 4 — not yet scheduled |
 
@@ -409,7 +409,7 @@ scheduling rules confirmed + ≥20 eval prompts exist
 
 ### Three core loops
 ```
-[WPF/Avalonia Shell — Warchief]
+[Avalonia Shell — Warchief] (WPF deleted 2026-06-20)
   └─ AgentLoop (single agent) / SwarmSession (multi-agent)
        └─ OllamaClient → local Ollama server
             └─ Tool calls: write_file, run_shell, read_file, fetch_url, etc.
