@@ -1,8 +1,8 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using NUnit.Framework;
+using OrchestratorIDE;
 using OrchestratorIDE.Core.Runtime;
-using OrchestratorIDE.Services.Hive;
 
 namespace OrchestratorIDE.UnitTests;
 
@@ -20,6 +20,6 @@ public sealed class HiveWorkerAgentTests
         string? hiveRole,
         RuntimeRole expected)
     {
-        Assert.That(HiveWorkerAgent.MapHiveRoleToRuntimeRole(hiveRole), Is.EqualTo(expected));
+        Assert.That(NativeHiveRoleExecutorAdapter.MapHiveRoleToRuntimeRole(hiveRole), Is.EqualTo(expected));
     }
 }

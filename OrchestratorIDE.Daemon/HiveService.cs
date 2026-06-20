@@ -129,15 +129,26 @@ public sealed class HiveService : BackgroundService
     public override async Task StopAsync(CancellationToken ct)
     {
         _log.LogInformation("HIVE daemon stopping…");
-        if (_worker is not null)
-            await _worker.ShutdownAsync(ct).ConfigureAwait(false);
-        _beacon?.Dispose();
-        _nodeServer?.MeshHeartbeat?.Stop();
-        _nodeServer?.Dispose();
-        _taskQueue?.Dispose();
-        // SqliteStore has no IDisposable — WAL and connection pool clean up on process exit.
-        await base.StopAsync(ct);
-        _log.LogInformation("HIVE daemon stopped.");
+        try
+        {
+            if (_worker is not null)
+                await _worker.ShutdownAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            _log.LogWarning("Worker shutdown timed out or was cancelled; continuing daemon teardown.");
+            _worker?.Stop();
+        }
+        finally
+        {
+            _beacon?.Dispose();
+            _nodeServer?.MeshHeartbeat?.Stop();
+            _nodeServer?.Dispose();
+            _taskQueue?.Dispose();
+            // SqliteStore has no IDisposable — WAL and connection pool clean up on process exit.
+            await base.StopAsync(ct);
+            _log.LogInformation("HIVE daemon stopped.");
+        }
     }
 
     private static async Task<string[]> TryGetOllamaModelsAsync(string baseUrl)

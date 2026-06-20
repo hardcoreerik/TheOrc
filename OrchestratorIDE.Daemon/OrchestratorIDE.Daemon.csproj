@@ -51,6 +51,7 @@
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveBeacon.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\TailscalePeers.cs" />
     <!-- HIVE: worker execution (polls Warchief queue + calls local Ollama) -->
+    <Compile Include="..\OrchestratorIDE\Services\Hive\IHiveNativeRoleExecutor.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveWorkerAgent.cs" />
     <!-- Data: durable task + event history (SQLite) -->
     <Compile Include="..\OrchestratorIDE\Services\Data\DataRecords.cs" />
