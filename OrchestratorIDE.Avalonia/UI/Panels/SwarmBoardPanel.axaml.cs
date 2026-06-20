@@ -14,6 +14,7 @@ using OrchestratorIDE.Core;
 using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Services.Hive;
 using OrchestratorIDE.Services.Swarm;
+using OrchestratorIDE.UI.Dialogs;
 
 namespace OrchestratorIDE.UI.Panels;
 
@@ -347,9 +348,23 @@ public partial class SwarmBoardPanel : UserControl
         }
 
         _session.SandboxBypassRequestHandler = async (toolName, escapedPath, sandboxRoot, ct) =>
-            await (ConfirmAsync?.Invoke(
-                $"Allow '{toolName}' to write outside sandbox?\n\n{escapedPath}",
-                "Sandbox Bypass Request") ?? Task.FromResult(false));
+            await Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                if (ct.IsCancellationRequested)
+                    return false;
+
+                var owner = TopLevel.GetTopLevel(this) as Window;
+                if (owner is null)
+                    return false;
+
+                return await SandboxBypassDialog.ShowAsync(
+                    owner,
+                    toolName,
+                    escapedPath,
+                    sandboxRoot,
+                    $"Swarm {_activeTab}",
+                    ct);
+            });
 
         WireSessionEvents(_session);
         EnterActiveMode();

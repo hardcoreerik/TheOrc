@@ -19,6 +19,7 @@ using OrchestratorIDE.Tools;
 using OrchestratorIDE.Trust;
 using OrchestratorIDE.UI;
 using OrchestratorIDE.UI.Controls;
+using OrchestratorIDE.UI.Dialogs;
 using OrchestratorIDE.UI.Panels;
 using OrchestratorIDE.UI.Windows;
 
@@ -715,13 +716,13 @@ public partial class MainWindow : Window
                 {
                     try
                     {
-                        var allowed = await DialogHelper.ShowYesNoAsync(
+                        var allowed = await SandboxBypassDialog.ShowAsync(
                             this,
-                            "Sandbox Escape Attempt",
-                            $"{PathSandbox.EscapeLabel(toolName, escapedPath)}\n\n" +
-                            $"Sandbox root:\n{sandboxRoot}\n\n" +
-                            $"Requested path:\n{escapedPath}\n\n" +
-                            "Allow this single operation?");
+                            toolName,
+                            escapedPath,
+                            sandboxRoot,
+                            "Agent",
+                            ct);
 
                         AddActivity(new ActivityEvent(
                             allowed ? ActivityKind.Warning : ActivityKind.Info,

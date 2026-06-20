@@ -1,0 +1,131 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<Window x:Class="OrchestratorIDE.UI.Dialogs.SandboxBypassDialog"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Sandbox Escape Detected"
+        Width="560"
+        SizeToContent="Height"
+        MinWidth="520"
+        Background="#111111"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        AutomationProperties.AutomationId="SandboxBypassDialog.Root">
+
+    <StackPanel>
+        <Border Background="#1C1400"
+                BorderBrush="#C08000"
+                BorderThickness="0,0,0,2"
+                Padding="16,12">
+            <StackPanel>
+                <TextBlock Text="SANDBOX ESCAPE DETECTED"
+                           Foreground="#F0C060"
+                           FontSize="13"
+                           FontWeight="Bold"
+                           FontFamily="Consolas"/>
+                <TextBlock x:Name="TbSubtitle"
+                           Margin="0,4,0,0"
+                           Foreground="#AA8840"
+                           FontSize="11"
+                           FontFamily="Consolas"
+                           TextWrapping="Wrap"/>
+            </StackPanel>
+        </Border>
+
+        <StackPanel Margin="16,12,16,0" Spacing="8">
+            <TextBlock Text="An agent is trying to access a path outside the workspace sandbox."
+                       Foreground="#D4D4D4"
+                       FontSize="12"
+                       TextWrapping="Wrap"/>
+            <TextBlock Text="This may be intentional, or it may indicate prompt injection or a runaway agent."
+                       Foreground="#888888"
+                       FontSize="10"
+                       TextWrapping="Wrap"/>
+
+            <TextBlock Text="TOOL" FontFamily="Consolas" FontSize="10" Foreground="#777777"/>
+            <TextBox x:Name="TbTool"
+                     IsReadOnly="True"
+                     TextWrapping="Wrap"
+                     FontFamily="Consolas"
+                     FontSize="11"
+                     Background="#0D0D0D"
+                     Foreground="#D4D4D4"
+                     BorderBrush="#333333"/>
+
+            <TextBlock Text="AGENT" FontFamily="Consolas" FontSize="10" Foreground="#777777"/>
+            <TextBox x:Name="TbAgent"
+                     IsReadOnly="True"
+                     TextWrapping="Wrap"
+                     FontFamily="Consolas"
+                     FontSize="11"
+                     Background="#0D0D0D"
+                     Foreground="#D4D4D4"
+                     BorderBrush="#333333"/>
+
+            <TextBlock Text="SANDBOX ROOT (safe zone)" FontFamily="Consolas" FontSize="10" Foreground="#777777"/>
+            <TextBox x:Name="TbSandboxRoot"
+                     IsReadOnly="True"
+                     TextWrapping="Wrap"
+                     FontFamily="Consolas"
+                     FontSize="11"
+                     Background="#0D0D0D"
+                     BorderBrush="#333333"
+                     Foreground="#76B900"/>
+
+            <TextBlock Text="TARGET PATH (outside sandbox)" FontFamily="Consolas" FontSize="10" Foreground="#777777"/>
+            <TextBox x:Name="TbTargetPath"
+                     IsReadOnly="True"
+                     TextWrapping="Wrap"
+                     FontFamily="Consolas"
+                     FontSize="11"
+                     Background="#0D0D0D"
+                     BorderBrush="#333333"
+                     Foreground="#F0C060"/>
+        </StackPanel>
+
+        <Border Margin="16,12,16,0"
+                Background="#120C00"
+                BorderBrush="#3A2800"
+                BorderThickness="1"
+                CornerRadius="3"
+                Padding="10,8">
+            <TextBlock Text="Allowing once lets this single operation proceed. Future escapes will ask again. Denying feeds an error back to the agent so it can try a path inside the workspace instead."
+                       TextWrapping="Wrap"
+                       FontFamily="Consolas"
+                       FontSize="10"
+                       Foreground="#887744"/>
+        </Border>
+
+        <Grid Margin="16,14,16,16" ColumnDefinitions="*,Auto,Auto">
+            <TextBlock Grid.Column="0"
+                       VerticalAlignment="Center"
+                       FontFamily="Consolas"
+                       FontSize="9"
+                       Foreground="#666666"
+                       Text="Esc = Deny"/>
+            <Button x:Name="BtnAllow"
+                    Grid.Column="1"
+                    MinWidth="112"
+                    Height="32"
+                    Margin="0,0,8,0"
+                    Content="Allow Once"
+                    Background="#1C1400"
+                    Foreground="#F0C060"
+                    BorderBrush="#6A5010"
+                    FontFamily="Consolas"
+                    Click="BtnAllow_Click"
+                    AutomationProperties.AutomationId="SandboxBypassDialog.AllowOnce"/>
+            <Button x:Name="BtnDeny"
+                    Grid.Column="2"
+                    MinWidth="90"
+                    Height="32"
+                    Content="Deny"
+                    Background="#2A0000"
+                    Foreground="#F44747"
+                    BorderBrush="#6A1010"
+                    FontFamily="Consolas"
+                    IsCancel="True"
+                    Click="BtnDeny_Click"
+                    AutomationProperties.AutomationId="SandboxBypassDialog.Deny"/>
+        </Grid>
+    </StackPanel>
+</Window>
