@@ -1,0 +1,102 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<Window x:Class="OrchestratorIDE.UI.Dialogs.UserInputDialog"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Agent Question"
+        Width="560"
+        SizeToContent="Height"
+        MinWidth="480"
+        Background="#111111"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        AutomationProperties.AutomationId="UserInputDialog.Root"
+        KeyDown="Window_KeyDown">
+
+    <StackPanel>
+        <Border Background="#10191F"
+                BorderBrush="#4A9FD9"
+                BorderThickness="0,0,0,2"
+                Padding="16,12">
+            <StackPanel Spacing="4">
+                <TextBlock Text="AGENT NEEDS INPUT"
+                           Foreground="#7FC8FF"
+                           FontSize="13"
+                           FontWeight="Bold"
+                           FontFamily="Consolas"/>
+                <TextBlock Text="Execution is paused until you answer or cancel."
+                           Foreground="#7A97AC"
+                           FontSize="11"
+                           FontFamily="Consolas"
+                           TextWrapping="Wrap"/>
+            </StackPanel>
+        </Border>
+
+        <StackPanel Margin="16,12,16,0" Spacing="8">
+            <TextBlock Text="QUESTION"
+                       FontFamily="Consolas"
+                       FontSize="10"
+                       Foreground="#777777"/>
+            <TextBox x:Name="TbQuestion"
+                     IsReadOnly="True"
+                     TextWrapping="Wrap"
+                     FontFamily="Consolas"
+                     FontSize="11"
+                     Background="#0D0D0D"
+                     Foreground="#D4D4D4"
+                     BorderBrush="#333333"/>
+
+            <TextBlock x:Name="TbHint"
+                       IsVisible="False"
+                       FontFamily="Consolas"
+                       FontSize="10"
+                       Foreground="#88AACC"
+                       TextWrapping="Wrap"/>
+
+            <TextBlock Text="YOUR ANSWER"
+                       FontFamily="Consolas"
+                       FontSize="10"
+                       Foreground="#777777"/>
+            <TextBox x:Name="TbAnswer"
+                     AcceptsReturn="True"
+                     MinHeight="92"
+                     TextWrapping="Wrap"
+                     FontFamily="Consolas"
+                     FontSize="11"
+                     Background="#0D0D0D"
+                     Foreground="#D4D4D4"
+                     BorderBrush="#333333"
+                     TextChanged="TbAnswer_TextChanged"/>
+        </StackPanel>
+
+        <Grid Margin="16,14,16,16" ColumnDefinitions="*,Auto,Auto">
+            <TextBlock Grid.Column="0"
+                       VerticalAlignment="Center"
+                       FontFamily="Consolas"
+                       FontSize="9"
+                       Foreground="#666666"
+                       Text="Esc = Cancel"/>
+            <Button x:Name="BtnCancel"
+                    Grid.Column="1"
+                    MinWidth="92"
+                    Height="32"
+                    Margin="0,0,8,0"
+                    Content="Cancel"
+                    Background="#202020"
+                    Foreground="#BBBBBB"
+                    BorderBrush="#444444"
+                    FontFamily="Consolas"
+                    Click="BtnCancel_Click"/>
+            <Button x:Name="BtnOk"
+                    Grid.Column="2"
+                    MinWidth="124"
+                    Height="32"
+                    Content="Send To Agent"
+                    Background="#102A12"
+                    Foreground="#76E084"
+                    BorderBrush="#2F7A39"
+                    FontFamily="Consolas"
+                    Click="BtnOk_Click"
+                    AutomationProperties.AutomationId="UserInputDialog.Send"/>
+        </Grid>
+    </StackPanel>
+</Window>

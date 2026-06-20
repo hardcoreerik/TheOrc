@@ -784,8 +784,11 @@ public partial class MainWindow : Window
     {
         _registry.OnAskUser = async (question, ct) =>
         {
-            await Task.CompletedTask;
-            return _unavailable.BlockAskUser(question);
+            if (ct.IsCancellationRequested)
+                return "";
+
+            return await Dispatcher.UIThread.InvokeAsync(
+                async () => await UserInputDialog.ShowAsync(this, question, ct));
         };
 
         _registry.Register(new ToolDefinition
