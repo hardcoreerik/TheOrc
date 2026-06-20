@@ -27,8 +27,10 @@ namespace OrchestratorIDE.Services.Hive;
 /// </summary>
 public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 {
+    private static readonly TimeSpan DefaultDisposeWaitTimeout = TimeSpan.FromSeconds(5);
     private CancellationTokenSource? _cts;
     private Task? _runLoopTask;
+    private Task? _shutdownTask;
     private int _disposeState;
     private static readonly JsonSerializerOptions _json = new()
     {
@@ -69,6 +71,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
     }
     public string        CoderModel     { get; set; } = "";
     public string        ResearcherModel { get; set; } = "";
+    public TimeSpan DisposeWaitTimeout  { get; set; } = DefaultDisposeWaitTimeout;
 
     // ── Events ────────────────────────────────────────────────────────────────
 
@@ -521,11 +524,30 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
     private void Log(string msg)          => OnLog?.Invoke(msg);
     private void TaskActivity(string id, string msg) => OnTaskActivity?.Invoke(id, msg);
 
+    public async Task ShutdownAsync(CancellationToken ct = default)
+    {
+        var shutdownTask = Volatile.Read(ref _shutdownTask);
+        if (shutdownTask is null)
+        {
+            var created = ShutdownCoreAsync();
+            shutdownTask = Interlocked.CompareExchange(ref _shutdownTask, created, null) ?? created;
+        }
+
+        if (ct.CanBeCanceled)
+            await shutdownTask.WaitAsync(ct).ConfigureAwait(false);
+        else
+            await shutdownTask.ConfigureAwait(false);
+    }
+
     public void Dispose()
     {
         try
         {
-            DisposeCoreAsync(asyncDisposal: false).GetAwaiter().GetResult();
+            ShutdownAsync().WaitAsync(DisposeWaitTimeout).GetAwaiter().GetResult();
+        }
+        catch (TimeoutException)
+        {
+            Log($"⚠ Worker shutdown timed out after {DisposeWaitTimeout.TotalSeconds:F0}s; continuing close.");
         }
         catch (Exception ex)
         {
@@ -535,10 +557,10 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await DisposeCoreAsync(asyncDisposal: true).ConfigureAwait(false);
+        await ShutdownAsync().ConfigureAwait(false);
     }
 
-    private async Task DisposeCoreAsync(bool asyncDisposal)
+    private async Task ShutdownCoreAsync()
     {
         if (Interlocked.Exchange(ref _disposeState, 1) != 0)
             return;
@@ -550,18 +572,15 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         {
             try
             {
-                if (asyncDisposal)
-                    await runLoopTask.ConfigureAwait(false);
-                else
-                    runLoopTask.GetAwaiter().GetResult();
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected when Stop cancels an active worker loop.
+                await runLoopTask.ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 Log($"⚠ Worker shutdown observed loop failure: {ex.Message}");
+            }
+            finally
+            {
+                _runLoopTask = null;
             }
         }
 
@@ -570,10 +589,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         {
             try
             {
-                if (asyncDisposal)
-                    await asyncDisposable.DisposeAsync().ConfigureAwait(false);
-                else
-                    asyncDisposable.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                await asyncDisposable.DisposeAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -581,6 +597,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             }
         }
 
+        Interlocked.Exchange(ref _disposeState, 2);
         GC.SuppressFinalize(this);
     }
 }

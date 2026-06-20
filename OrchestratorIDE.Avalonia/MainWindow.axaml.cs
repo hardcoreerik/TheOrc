@@ -27,6 +27,7 @@ namespace OrchestratorIDE;
 
 public partial class MainWindow : Window
 {
+    private static readonly TimeSpan HiveWorkerShutdownTimeout = TimeSpan.FromSeconds(5);
     // ── Services ──────────────────────────────────────────────────────────
     private readonly OllamaClient       _ollama;
     private readonly ApprovalQueue      _approvals;
@@ -50,6 +51,7 @@ public partial class MainWindow : Window
     private          Services.Data.DatasetRepository? _datasetRepo;
     private readonly Services.CodeGraph.CodeGraphService _codeGraph = new();
     private bool _windowClosed;
+    private bool _closingAfterHiveWorkerShutdown;
 
     // ── State ─────────────────────────────────────────────────────────────
     private ProjectSession           _session;
@@ -89,6 +91,8 @@ public partial class MainWindow : Window
         _ollama      = new OllamaClient(_settings.InferenceBaseUrl, _settings.Backend);
         _llamaServer = BuildServerManager(_settings);
 
+        Closing += MainWindow_Closing;
+
         // Tidy up on close
         Closed += (_, _) =>
         {
@@ -102,7 +106,6 @@ public partial class MainWindow : Window
             _hiveNodeServer?.Dispose();
             _hiveRpcWorker?.Dispose();
             _hiveTaskQueue?.Dispose();
-            _hiveWorkerAgent?.Dispose();
             _flaUIWatcher?.Dispose();
         };
 
@@ -667,6 +670,49 @@ public partial class MainWindow : Window
             "FirstRunWindow",
             "Edit .agent.md directly to regenerate.");
         await Task.CompletedTask;
+    }
+
+    private void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
+    {
+        if (_closingAfterHiveWorkerShutdown || _hiveWorkerAgent is null)
+            return;
+
+        e.Cancel = true;
+
+        var worker = _hiveWorkerAgent;
+        _hiveWorkerAgent = null;
+        _ = ShutdownHiveWorkerAndCloseAsync(worker);
+    }
+
+    private async Task ShutdownHiveWorkerAndCloseAsync(Services.Hive.HiveWorkerAgent worker)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(HiveWorkerShutdownTimeout);
+            await worker.ShutdownAsync(cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            worker.Stop();
+            AddActivity(new ActivityEvent(
+                ActivityKind.Warning,
+                "Hive",
+                $"Worker shutdown exceeded {HiveWorkerShutdownTimeout.TotalSeconds:F0}s; forcing window close.",
+                DateTime.Now));
+        }
+        catch (Exception ex)
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Warning, "Hive",
+                $"Worker shutdown failed during close: {ex.Message}", DateTime.Now));
+        }
+        finally
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                _closingAfterHiveWorkerShutdown = true;
+                Close();
+            });
+        }
     }
 
     // ── Portable-zip bootstrap ────────────────────────────────────────────

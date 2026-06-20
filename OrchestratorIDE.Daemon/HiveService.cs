@@ -130,7 +130,7 @@ public sealed class HiveService : BackgroundService
     {
         _log.LogInformation("HIVE daemon stopping…");
         if (_worker is not null)
-            await _worker.DisposeAsync().ConfigureAwait(false);
+            await _worker.ShutdownAsync(ct).ConfigureAwait(false);
         _beacon?.Dispose();
         _nodeServer?.MeshHeartbeat?.Stop();
         _nodeServer?.Dispose();
