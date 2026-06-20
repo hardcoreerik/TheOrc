@@ -107,13 +107,21 @@ Conventions to enforce:
 - Shared service files use <Compile Include> from the WPF project — no copies, no new files.
 - SecretProtection.Initialize() must be called before any HIVE store access (App.axaml.cs init).
 - Phase gates from Avalonia_Migration.md must not be bypassed — only flag if the gate is currently marked 🔄 or ⬜ (not ✅ Done).
-- NUnit tests live in OrchestratorIDE.UITests/Tests as T##_*.cs.
+- FlaUI UI-automation tests live in OrchestratorIDE.UITests/Tests as T##_*.cs ONLY. Pure-logic
+  NUnit tests (no FlaUI, no live model dependency) correctly live in OrchestratorIDE.UnitTests
+  with descriptive names (e.g. FooBarTests.cs) — this is the established, intentional convention
+  for that project, not a violation. Do NOT flag a test file's name or location unless it is a
+  FlaUI UI-automation test outside OrchestratorIDE.UITests/Tests.
 "@
 } else {
 @"
 Conventions to enforce:
 - Every interactive/testable WPF control gets AutomationProperties.AutomationId (FlaUI targets them).
-- NUnit tests live in OrchestratorIDE.UITests/Tests as T##_*.cs; pure-logic tests must not require FlaUI or a live model.
+- FlaUI UI-automation tests live in OrchestratorIDE.UITests/Tests as T##_*.cs ONLY. Pure-logic
+  NUnit tests (no FlaUI, no live model dependency) correctly live in OrchestratorIDE.UnitTests
+  with descriptive names (e.g. FooBarTests.cs) — this is the established, intentional convention
+  for that project, not a violation. Do NOT flag a test file's name or location unless it is a
+  FlaUI UI-automation test outside OrchestratorIDE.UITests/Tests.
 - Commit behavior claims (e.g. "byte-identical", "verified") must be backed by the diff.
 "@
 }
