@@ -129,7 +129,8 @@ public sealed class HiveService : BackgroundService
     public override async Task StopAsync(CancellationToken ct)
     {
         _log.LogInformation("HIVE daemon stopping…");
-        _worker?.Dispose();
+        if (_worker is not null)
+            await _worker.DisposeAsync().ConfigureAwait(false);
         _beacon?.Dispose();
         _nodeServer?.MeshHeartbeat?.Stop();
         _nodeServer?.Dispose();

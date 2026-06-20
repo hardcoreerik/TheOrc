@@ -29,7 +29,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 {
     private CancellationTokenSource? _cts;
     private Task? _runLoopTask;
-    private bool _disposed;
+    private int _disposeState;
     private static readonly JsonSerializerOptions _json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -59,8 +59,14 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
     // ── Inference configuration ───────────────────────────────────────────────
 
+    private IRoleRuntime? _nativeRoleRuntime;
+
     public IModelRuntime? Runtime       { get; set; }
-    public IRoleRuntime?  NativeRoleRuntime { get; set; }
+    public IRoleRuntime?  NativeRoleRuntime
+    {
+        get => _nativeRoleRuntime;
+        set => _nativeRoleRuntime = value;
+    }
     public string        CoderModel     { get; set; } = "";
     public string        ResearcherModel { get; set; } = "";
 
@@ -78,7 +84,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
     public void Start()
     {
-        if (_disposed)
+        if (Volatile.Read(ref _disposeState) != 0)
             throw new ObjectDisposedException(nameof(HiveWorkerAgent));
 
         if (IsRunning) return;
@@ -103,21 +109,21 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         {
             try
             {
-                var bundle = await PollNextTaskAsync(ct);
+                var bundle = await PollNextTaskAsync(ct).ConfigureAwait(false);
                 if (bundle is null)
                 {
-                    await Task.Delay(3_000, ct);
+                    await Task.Delay(3_000, ct).ConfigureAwait(false);
                     continue;
                 }
 
                 Log($"🐝 Received [{bundle.Role}] '{bundle.Title}' from Warchief");
-                await ClaimAndExecuteAsync(bundle, ct);
+                await ClaimAndExecuteAsync(bundle, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
                 Log($"⚠ Worker loop error: {ex.Message}");
-                try { await Task.Delay(5_000, ct); } catch { break; }
+                try { await Task.Delay(5_000, ct).ConfigureAwait(false); } catch { break; }
             }
         }
 
@@ -138,12 +144,12 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         SignIfPaired(req, []);
 
         using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-        var resp = await http.SendAsync(req, ct);
+        var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
 
         if (resp.StatusCode == System.Net.HttpStatusCode.NoContent) return null;
         if (!resp.IsSuccessStatusCode) return null;
 
-        var json = await resp.Content.ReadAsStringAsync(ct);
+        var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         return JsonSerializer.Deserialize<HiveTaskBundle>(json, _json);
     }
 
@@ -151,7 +157,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
     private async Task ClaimAndExecuteAsync(HiveTaskBundle bundle, CancellationToken ct)
     {
-        var claimToken = await ClaimTaskAsync(bundle, ct);
+        var claimToken = await ClaimTaskAsync(bundle, ct).ConfigureAwait(false);
         if (claimToken is null)
         {
             Log($"🐝 [{bundle.Role}] '{bundle.Title}' — already claimed by another worker");
@@ -168,7 +174,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
         try
         {
-            result = await ExecuteTaskAsync(bundle, ct);
+            result = await ExecuteTaskAsync(bundle, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
@@ -180,7 +186,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         finally
         {
             heartbeatCts.Cancel();
-            try { await heartbeatTask; } catch { }
+            try { await heartbeatTask.ConfigureAwait(false); } catch { }
         }
 
         var taskResult = new HiveTaskResult
@@ -196,7 +202,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         };
 
         var action = status == "completed" ? "complete" : "fail";
-        await PostResultAsync(bundle.TaskId, action, taskResult, ct);
+        await PostResultAsync(bundle.TaskId, action, taskResult, ct).ConfigureAwait(false);
         TaskActivity(bundle.TaskId,
             status == "completed"
                 ? $"✅ Sent to Warchief ({taskResult.DurationMs / 1000.0:F1}s, {result?.Length ?? 0} chars)"
@@ -220,10 +226,10 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         SignIfPaired(req, body);
 
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-        var resp = await http.SendAsync(req, ct);
+        var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode) return null;
 
-        var json = await resp.Content.ReadAsStringAsync(ct);
+        var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         try
         {
             using var doc = System.Text.Json.JsonDocument.Parse(json);
@@ -244,7 +250,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
         while (!ct.IsCancellationRequested)
         {
-            try { await Task.Delay(10_000, ct); } catch { break; }
+            try { await Task.Delay(10_000, ct).ConfigureAwait(false); } catch { break; }
             if (ct.IsCancellationRequested) break;
 
             try
@@ -257,7 +263,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 SignIfPaired(req, hbBytes);
 
                 using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-                await http.SendAsync(req, ct);
+                await http.SendAsync(req, ct).ConfigureAwait(false);
             }
             catch { /* non-fatal */ }
         }
@@ -275,7 +281,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         SignIfPaired(req, bytes);
 
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        await http.SendAsync(req, ct);
+        await http.SendAsync(req, ct).ConfigureAwait(false);
     }
 
     // ── Auth signing helper ───────────────────────────────────────────────────
@@ -332,7 +338,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         {
             try
             {
-                return await ExecuteNativeRoleTaskAsync(bundle, messages, ct);
+                return await ExecuteNativeRoleTaskAsync(bundle, messages, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -342,7 +348,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 await PostEventAsync("task_warning",
                     $"⚠ {WorkerId} · [{bundle.Role}] native runtime failed; falling back: {ex.Message}",
                     bundle.TaskId,
-                    ct);
+                    ct).ConfigureAwait(false);
 
                 if (Runtime is null)
                     throw new InvalidOperationException(
@@ -365,13 +371,13 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         Log($"🐝 Executing [{bundle.Role}] '{bundle.Title}' with {model}…");
         TaskActivity(bundle.TaskId, $"⚡ Running on {WorkerId} with {model}");
         await PostEventAsync("task_executing",
-            $"⚡ {WorkerId} · [{bundle.Role}] {bundle.Title} · {model}", bundle.TaskId, ct);
+            $"⚡ {WorkerId} · [{bundle.Role}] {bundle.Title} · {model}", bundle.TaskId, ct).ConfigureAwait(false);
 
         var result = new StringBuilder();
         var fallbackRuntime = Runtime
             ?? throw new InvalidOperationException("Worker: fallback model runtime not configured");
 
-        await foreach (var token in fallbackRuntime.StreamCompletionAsync(model, messages, ct: ct))
+        await foreach (var token in fallbackRuntime.StreamCompletionAsync(model, messages, ct: ct).ConfigureAwait(false))
             result.Append(token);
 
         Log($"🐝 [{bundle.Role}] '{bundle.Title}' — done ({result.Length} chars)");
@@ -392,10 +398,10 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         await PostEventAsync("task_executing",
             $"⚡ {WorkerId} · [{bundle.Role}] {bundle.Title} · NativeRoleRuntime/{runtimeRole}",
             bundle.TaskId,
-            ct);
+            ct).ConfigureAwait(false);
 
         var result = new StringBuilder();
-        await foreach (var token in NativeRoleRuntime.StreamRoleCompletionAsync(runtimeRole, messages, ct: ct))
+        await foreach (var token in NativeRoleRuntime.StreamRoleCompletionAsync(runtimeRole, messages, ct: ct).ConfigureAwait(false))
             result.Append(token);
 
         if (string.IsNullOrWhiteSpace(result.ToString()))
@@ -507,7 +513,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             SignIfPaired(req, bytes);
 
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-            await http.SendAsync(req, ct);
+            await http.SendAsync(req, ct).ConfigureAwait(false);
         }
         catch { /* non-fatal — observability must not break execution */ }
     }
@@ -517,55 +523,63 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
     public void Dispose()
     {
-        if (_disposed)
-            return;
-
-        _disposed = true;
-        Stop();
-        var runLoopTask = _runLoopTask;
-        var nativeRoleRuntime = NativeRoleRuntime;
-        NativeRoleRuntime = null;
-
-        _ = Task.Run(async () =>
+        try
         {
-            try
-            {
-                if (runLoopTask is not null)
-                    await runLoopTask.ConfigureAwait(false);
-                if (nativeRoleRuntime is IAsyncDisposable asyncDisposable)
-                    await asyncDisposable.DisposeAsync().ConfigureAwait(false);
-            }
-            catch
-            {
-                // Best-effort cleanup from the synchronous IDisposable path.
-            }
-        });
-
-        GC.SuppressFinalize(this);
+            DisposeCoreAsync(asyncDisposal: false).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            Log($"⚠ Worker shutdown cleanup failed: {ex.Message}");
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        await DisposeCoreAsync(asyncDisposal: true).ConfigureAwait(false);
+    }
+
+    private async Task DisposeCoreAsync(bool asyncDisposal)
+    {
+        if (Interlocked.Exchange(ref _disposeState, 1) != 0)
             return;
 
-        _disposed = true;
         var runLoopTask = _runLoopTask;
         Stop();
 
-        try
+        if (runLoopTask is not null)
         {
-            if (runLoopTask is not null)
-                await runLoopTask.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // Expected when Stop cancels an active worker loop.
+            try
+            {
+                if (asyncDisposal)
+                    await runLoopTask.ConfigureAwait(false);
+                else
+                    runLoopTask.GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when Stop cancels an active worker loop.
+            }
+            catch (Exception ex)
+            {
+                Log($"⚠ Worker shutdown observed loop failure: {ex.Message}");
+            }
         }
 
-        if (NativeRoleRuntime is IAsyncDisposable asyncDisposable)
-            await asyncDisposable.DisposeAsync().ConfigureAwait(false);
-        NativeRoleRuntime = null;
+        var nativeRoleRuntime = Interlocked.Exchange(ref _nativeRoleRuntime, null);
+        if (nativeRoleRuntime is IAsyncDisposable asyncDisposable)
+        {
+            try
+            {
+                if (asyncDisposal)
+                    await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+                else
+                    asyncDisposable.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                Log($"⚠ Worker shutdown cleanup failed: {ex.Message}");
+            }
+        }
 
         GC.SuppressFinalize(this);
     }

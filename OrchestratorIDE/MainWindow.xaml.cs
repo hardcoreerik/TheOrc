@@ -85,7 +85,7 @@ public partial class MainWindow : Window
         _llamaServer = BuildServerManager(_settings);
 
         // Stop llama-server and recorder on window close
-        Closed += async (_, _) =>
+        Closed += (_, _) =>
         {
             _windowClosed = true;
             _codeGraph.Dispose();
@@ -97,8 +97,7 @@ public partial class MainWindow : Window
             _hiveNodeServer?.Dispose();
             _hiveRpcWorker?.Dispose();
             _hiveTaskQueue?.Dispose();
-            if (_hiveWorkerAgent is not null)
-                await _hiveWorkerAgent.DisposeAsync();
+            _hiveWorkerAgent?.Dispose();
         };
 
         // Recorder events → status bar
