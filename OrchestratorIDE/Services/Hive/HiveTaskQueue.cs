@@ -126,21 +126,38 @@ public sealed class HiveTaskQueue : IDisposable
         // remote workers are not handed a LAN IP that resolves to localhost only.
         var lanIp        = HiveRpcWorker.LocalAddresses().FirstOrDefault() ?? "127.0.0.1";
         var wideSucceeded = TryBind($"http://+:{port}/hive/");
+        var bound         = wideSucceeded;
 
         if (wideSucceeded)
         {
             BaseUrl = $"http://{lanIp}:{port}";
         }
-        else if (TryBind($"http://localhost:{port}/hive/"))
+        else
         {
-            // Bound to loopback only — workers must be on the same machine
-            BaseUrl = $"http://localhost:{port}";
-            Log($"⚠ HiveTaskQueue bound to localhost only (no admin ACL). " +
-                $"Workers on remote machines cannot connect. " +
-                $"Run OrchestratorSetup to open the firewall/ACL for port {port}.");
+            // A failed Start() (e.g. the wildcard bind needs admin rights or a URL ACL
+            // reservation) can leave the listener disposed internally -- replace it
+            // before the fallback attempt rather than reusing it. Same root cause and
+            // fix as HiveNodeServer.Start() (2026-06-20). Close() is best-effort: the
+            // listener may already be in that same broken state, so swallow rather
+            // than risk a second exception while merely cleaning up.
+            try { _listener.Close(); } catch { /* already disposed/unusable */ }
+            _listener = new HttpListener();
+            bound = TryBind($"http://localhost:{port}/hive/");
+            if (bound)
+            {
+                // Bound to loopback only — workers must be on the same machine
+                BaseUrl = $"http://localhost:{port}";
+                Log($"⚠ HiveTaskQueue bound to localhost only (no admin ACL). " +
+                    $"Workers on remote machines cannot connect. " +
+                    $"Run OrchestratorSetup to open the firewall/ACL for port {port}.");
+            }
         }
 
-        if (_listener.IsListening)
+        // Track success via TryBind's own return value rather than re-reading
+        // _listener.IsListening afterward -- if the fallback bind also failed, the
+        // listener may be in the same disposed-but-not-null state, and IsListening's
+        // getter can throw ObjectDisposedException the same way Prefixes' did.
+        if (bound)
         {
             _ = ServeAsync(_cts.Token);
             Log($"🐝 HiveTaskQueue listening on :{port} — workers connect to {BaseUrl}");

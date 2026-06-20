@@ -122,6 +122,19 @@ The biggest cutover since the Avalonia migration started: **WPF is gone.** `Orch
 - `OrchestratorIDE.Daemon` (the headless cross-platform HIVE node, `theorc-warband`) had been failing to build since before this release cycle started — a dependency on the heavy native LLamaSharp stack that a lightweight daemon shouldn't need. Decoupled via a new `IHiveNativeRoleExecutor` interface; the daemon now builds clean without pulling in native-runtime dependencies at all.
 - Internal dev-only docs and scratch files (`.grok/` specs, prompts, spike code; loose planning notes) stopped being published to GitHub — they're still on disk for development, just not part of the public repo going forward. `README.md`, `SECURITY.md`, `LICENSING.md`, `CLA.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, and `.grok/PROJECT_TRUTH.md` stay public.
 
+### v1.9.1 — HIVE MIND actually reachable across machines now
+
+v1.9.0's HIVE fix made the node server start without crashing; it didn't make it *reachable*. Real multi-machine testing (NewcorePC ↔ HARDCOREPC, both on v1.9.0, one over Tailscale) found that the fix's own fallback path — binding `localhost` only when the wildcard bind fails — was *itself* the unfixed problem: a localhost-only listener is invisible to every other machine, even though the app shows no error and looks like it started fine.
+
+**Root cause:** binding the wildcard prefix (`http://+:port/`, all interfaces) as a normal, non-admin process requires an **http.sys URL ACL reservation** (`netsh http add urlacl`). Nothing — not the installer, not the app — ever created one. So on every non-elevated install, the wildcard bind was silently denied and the app fell back to loopback-only, with no indication to the user that the node had effectively not started for HIVE's actual purpose.
+
+**Fixed:**
+- The installer's HIVE enrollment step now reserves the URL ACLs for both HIVE ports (`7078`, `7079`) alongside its existing firewall rules. Everything is tried unelevated first (no-op if already granted); anything still missing is batched into a **single** UAC prompt instead of one popup per item.
+- `HiveTaskQueue` (the Warchief's distributed-task-queue listener, used by Phase 3 Distributed Swarm) had the identical listener-reuse bug as `HiveNodeServer` did in v1.9.0 — fixed the same way, found by code review of the parallel class rather than waiting to hit it live.
+- The gated Phi-4 Mini boss-model download (HTTP 401 on every fresh install since that HuggingFace repo got gated after the manifest was written) now points at a working, non-gated mirror.
+
+If you installed v1.9.0 and HIVE MIND only ever seemed to discover other nodes one-directionally (or not at all), this is why — update to v1.9.1.
+
 ### Looking ahead to v2.0
 
 v2.0's defining change: **Native Runtime becomes the default, Ollama becomes fully optional.** That flip is explicitly gated on multi-machine HIVE MIND validation of this release's native opt-in path across a real LAN/Tailscale network — not a fixed date. Also planned, not yet started:
