@@ -275,18 +275,42 @@ Goal: remove the WPF shell without leaving truth drift behind.
 - ✅ Removed WPF-only test assets and launcher assumptions — see above; also
   removed `UnavailableFeatureRouter.cs` itself once its last call site
   (`ModelWikiWindow`'s menu entry) was retired, since nothing else used it.
+- ✅ Removed `OrchestratorIDE/Tests/AutoTestRunner.cs` too, found during final
+  build validation: its only caller, `AutoTestWindow`, was already gone, and a
+  `<Compile Include>` in `OrchestratorIDE.Avalonia.csproj` was the only thing
+  still pulling it in — confirmed zero other references before deleting.
+- ✅ `OrchestratorIDE.Avalonia/Program.cs` now fails closed on `--tool-probe`
+  and `--autotest` (prints an error, exits 1) instead of silently falling
+  through to a normal GUI launch — two real Codex CLI findings caught across
+  4 review passes on the final staged diff (2 BLOCKER, 2 CLEAN after fixes).
+  Both flags' implementations were deleted with WPF; nothing currently invokes
+  either flag (verified via repo-wide grep), but failing closed costs nothing
+  and matches the documented intent for `--tool-probe` (see Blocker #2 above).
+- ✅ Verified `AgentBuilderDialog`'s deletion is not a feature loss: its
+  workspace-rules/global-agent flow was already replaced by Avalonia's
+  `AgentRulesWindow` before this session (`MainWindow.axaml.cs`'s
+  `OpenWorkspaceRules`/`OpenGlobalAgentPicker`, wired to `_agentPanel`'s
+  events) — two different implementations of the same feature, not a gap.
+  (`docs/ROADMAP.md`'s "LabWindow" mention never corresponded to an actual
+  file anywhere in the repo — removed as a stale planning reference.)
 - ✅ Updated `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `.grok/PROJECT_TRUTH.md`,
-  `.agents.md`, and `.claude/AGENTS.md`.
-- Found and fixed one real, unrelated pre-existing break while validating
-  every project still builds: `OrchestratorIDE.Daemon.csproj` (its own
+  `.agents.md`, `.claude/AGENTS.md`, and `README.md`.
+- Committed locally as `1903f8c` (not pushed) — 90 files changed, 198
+  insertions, 26,560 deletions. Build clean across
+  `OrchestratorIDE.Avalonia`, `OrchestratorIDE.UnitTests` (204/207, 3
+  skipped), `OrchestratorIDE.UITests`, `OrchestratorIDE.Avalonia.HeadlessTests`
+  (36/36), `Tools/SwarmCli`, `OrchestratorSetup`. Verified the published
+  Avalonia exe launches and stays alive under `--autoapprove`.
+- Found (did **not** fix) one real, unrelated pre-existing break while
+  validating every project still builds: `OrchestratorIDE.Daemon.csproj` (its own
   independent `<Compile Include>` list, no `ProjectReference` to WPF at all)
   has been failing to compile since commit `bd65420` — predates this session
   — because `HiveWorkerAgent.cs`'s native-runtime-opt-in code needs
   `IRoleRuntime`/`RuntimeRole` that Daemon's compile list was never updated
-  to include. Flagged as a separate background task rather than fixed inline,
-  since the right fix is a real design choice (pull the full native LLamaSharp
-  stack into the lightweight cross-platform daemon, vs. splitting that code
-  path out) — see the spawned task, not this checklist.
+  to include. Flagged as a separate background task (`task_ea1ff604`) rather
+  than fixed inline, since the right fix is a real design choice (pull the
+  full native LLamaSharp stack into the lightweight cross-platform daemon, vs.
+  splitting that code path out) — not part of this commit or this checklist.
 
 Exit criterion:
 No release-critical workflow, automation lane, or truth doc still depends on
