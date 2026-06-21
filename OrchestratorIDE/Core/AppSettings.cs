@@ -206,6 +206,17 @@ public class AppSettings
     public bool HiveLiteMode { get; set; } = false;
 
     /// <summary>
+    /// HIVE_MEMBERSHIP_SPEC.md §6.4 — default HiveAcceptControlPolicy applied to a newly
+    /// paired peer at pairing-approval time, instead of the previously hardcoded "Ask".
+    /// Stored as a string (not the enum directly) so a future enum rename/reorder can't
+    /// silently corrupt an existing settings.json the way a numeric enum value would.
+    /// Existing peers are unaffected -- this only changes the default for peers paired AFTER
+    /// the setting is changed; change it per-peer via the HIVE panel's context menu instead.
+    /// "Ask" remains the safe out-of-the-box default; the user opts into automation.
+    /// </summary>
+    public string HiveDefaultAcceptControlFrom { get; set; } = "Ask";
+
+    /// <summary>
     /// Phase 3 — Distributed Swarm. When true AND HiveMindEnabled, this machine
     /// acts as a Warchief: it opens a HiveTaskQueue (port 7079) and distributes
     /// SwarmTasks to worker nodes instead of running them all locally.

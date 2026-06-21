@@ -52,6 +52,12 @@ public sealed class HiveNodeServer : IDisposable
     public HiveMeshHeartbeat?   MeshHeartbeat    { get; set; }
     public HiveElectionService? ElectionService  { get; set; }
     /// <summary>
+    /// HIVE_MEMBERSHIP_SPEC.md §6.4 — applied to newly paired (non-mobile) peers at
+    /// approval time instead of the previously hardcoded Ask. Set from AppSettings.
+    /// HiveDefaultAcceptControlFrom by the app at startup/on settings change.
+    /// </summary>
+    public HiveAcceptControlPolicy DefaultAcceptControlFrom { get; set; } = HiveAcceptControlPolicy.Ask;
+    /// <summary>
     /// Called on the calling thread after a successful remote /hive/update/deploy.
     /// WPF: <c>() =&gt; Dispatcher.InvokeAsync(() =&gt; Application.Current.Shutdown())</c>.
     /// Daemon: <c>() =&gt; Environment.Exit(0)</c>.
@@ -72,6 +78,16 @@ public sealed class HiveNodeServer : IDisposable
     /// UI subscribes, shows the approval card, then calls ApprovePairing / RejectPairing.
     /// </summary>
     public event Action<string, HivePairingRequest>? OnPairingRequestReceived;
+
+    /// <summary>
+    /// Fired when a role-assignment request (HIVE_MEMBERSHIP_SPEC.md §6) arrives from a peer
+    /// whose AcceptControlFrom policy is Ask. UI subscribes, shows an approval card, and on
+    /// approval calls <c>HiveIdentity.Load().SetSelfRole(role)</c> directly — there is no
+    /// session/poll mechanism for this (unlike pairing): the assigner's immediate HTTP
+    /// response already says "pending_approval" and does not wait to learn the eventual
+    /// human decision.
+    /// </summary>
+    public event Action<string, HiveNodeRole>? OnRoleAssignReceived;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -224,7 +240,7 @@ public sealed class HiveNodeServer : IDisposable
                 Role                = grantedRole,
                 MaxRole             = isMobile ? HiveNodeRole.Worker : grantedRole,
                 AllowedLanes        = allowedLanes,
-                AcceptControlFrom   = isMobile ? HiveAcceptControlPolicy.Never : HiveAcceptControlPolicy.Ask,
+                AcceptControlFrom   = isMobile ? HiveAcceptControlPolicy.Never : DefaultAcceptControlFrom,
                 IsMobile            = isMobile,
                 PairedAt            = DateTime.UtcNow,
                 LastKnownAddress    = string.IsNullOrEmpty(remoteIp) ? "" : $"{remoteIp}:{ApiPort}",
@@ -418,6 +434,13 @@ public sealed class HiveNodeServer : IDisposable
             if (method == "POST" && path.StartsWith("/hive/mesh/election/"))
             {
                 HandleElection(path, body, authResult.NodeId, resp); return;
+            }
+
+            // Role assignment (HIVE_MEMBERSHIP_SPEC.md §6) — manual, human-invoked override,
+            // distinct from HiveElectionService's automatic failover above.
+            if (method == "POST" && path == "/hive/mesh/role-assign")
+            {
+                HandleRoleAssign(body, authResult.NodeId, resp); return;
             }
 
             // Remote deploy — Warchief-only (authResult already enforced strict auth above)
@@ -616,6 +639,133 @@ public sealed class HiveNodeServer : IDisposable
             RejectPairing(sessionId);
             Ok(resp, Json(new { status = "rejected" }));
         }
+    }
+
+    // ── /hive/mesh/role-assign ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Never Controller through this path, regardless of what the wire body's NewRole says
+    /// (HIVE_MEMBERSHIP_SPEC.md §6.1, §8 T14) -- enforced here, not just by UI convention.
+    /// Pulled out of HandleRoleAssign as its own static method specifically so this
+    /// security-critical restriction is unit-testable without standing up a real
+    /// HttpListener (mirrors HiveAuthMiddleware's ValidateCore/IsValidGuid testing pattern).
+    /// </summary>
+    internal static bool TryParseAssignableRole(string? newRoleStr, out HiveNodeRole role)
+    {
+        role = default;
+        if (!Enum.TryParse<HiveNodeRole>(newRoleStr, ignoreCase: true, out var parsed)) return false;
+        if (parsed == HiveNodeRole.Controller) return false;
+        role = parsed;
+        return true;
+    }
+
+    private void HandleRoleAssign(byte[] body, string authenticatedNodeId, HttpListenerResponse resp)
+    {
+        HiveRoleAssignRequest? req;
+        try { req = JsonSerializer.Deserialize<HiveRoleAssignRequest>(body, _jsonIn); }
+        catch { resp.StatusCode = 400; Error(resp, "invalid JSON"); return; }
+        if (req is null) { resp.StatusCode = 400; Error(resp, "missing body"); return; }
+
+        // The wire body is attacker-shaped input the moment this endpoint exists --
+        // AssignerNodeId is self-reported and informational only; the HMAC-authenticated
+        // sender is the only identity that matters for authorization decisions below.
+        if (!string.IsNullOrEmpty(req.AssignerNodeId)
+            && !string.Equals(req.AssignerNodeId, authenticatedNodeId, StringComparison.OrdinalIgnoreCase))
+        {
+            resp.StatusCode = 403; Error(resp, "assigner_mismatch"); return;
+        }
+
+        if (!TryParseAssignableRole(req.NewRole, out var newRole))
+        {
+            resp.StatusCode = 400; Error(resp, "newRole must be Observer or Worker"); return;
+        }
+
+        var identity = HiveIdentity.Load();
+        if (!string.IsNullOrEmpty(req.HiveId) && !string.IsNullOrEmpty(identity.HiveId)
+            && req.HiveId != identity.HiveId)
+        {
+            resp.StatusCode = 409; Error(resp, "hiveid_mismatch"); return;
+        }
+
+        var assigner = _peers.Find(authenticatedNodeId);
+        if (assigner is null || assigner.Revoked)
+        {
+            resp.StatusCode = 403; Error(resp, "not_paired"); return;
+        }
+
+        // First real enforcement of AcceptControlFrom -- previously defined but never
+        // checked anywhere (HIVE_MEMBERSHIP_SPEC.md §2.4).
+        string outcome;
+        switch (assigner.AcceptControlFrom)
+        {
+            case HiveAcceptControlPolicy.Never:
+                outcome = "rejected";
+                break;
+            case HiveAcceptControlPolicy.AnyPaired:
+                identity.SetSelfRole(newRole);
+                outcome = "accepted";
+                break;
+            case HiveAcceptControlPolicy.Allowlist:
+                if (assigner.ControlAllowlist.Contains(authenticatedNodeId, StringComparer.OrdinalIgnoreCase))
+                {
+                    identity.SetSelfRole(newRole);
+                    outcome = "accepted";
+                }
+                else
+                {
+                    outcome = "rejected";
+                }
+                break;
+            case HiveAcceptControlPolicy.Ask:
+            default:
+                outcome = "pending_approval";
+                _ = Task.Run(() => OnRoleAssignReceived?.Invoke(authenticatedNodeId, newRole));
+                break;
+        }
+
+        Ok(resp, Json(new { status = outcome }));
+    }
+
+    /// <summary>
+    /// Client-side: sends a signed role-assignment request to <paramref name="peer"/>.
+    /// Returns the peer's reported status ("accepted" | "pending_approval" | "rejected") or
+    /// "unreachable" (no shared secret / no known address) / "error:&lt;detail&gt;" on failure.
+    /// Never throws. Used by the "Declare this machine Warchief" UI action
+    /// (HIVE_MEMBERSHIP_SPEC.md §6.3).
+    /// </summary>
+    public static async Task<string> SendRoleAssignAsync(
+        HivePeer peer, HiveNodeRole newRole, HiveIdentity identity, HivePeerStore peers,
+        int timeoutMs = 8000)
+    {
+        if (string.IsNullOrEmpty(peer.LastKnownAddress)) return "unreachable";
+        var secret = peers.GetSharedSecret(peer.NodeId);
+        if (secret is null) return "unreachable";
+
+        try
+        {
+            var reqBody = new HiveRoleAssignRequest
+            {
+                HiveId         = identity.HiveId,
+                AssignerNodeId = identity.NodeId,
+                NewRole        = newRole.ToString(),
+                Reason         = "warchief-declaration",
+            };
+            var bodyBytes = JsonSerializer.SerializeToUtf8Bytes(reqBody, _jsonOut);
+
+            using var http = new HttpClient { Timeout = TimeSpan.FromMilliseconds(timeoutMs) };
+            using var req  = new HttpRequestMessage(HttpMethod.Post, $"http://{peer.LastKnownAddress}/hive/mesh/role-assign")
+                { Content = new ByteArrayContent(bodyBytes) };
+            req.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+            HiveAuthMiddleware.SignRequest(req, bodyBytes, identity.NodeId, secret);
+
+            using var resp = await http.SendAsync(req);
+            var respBody = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode) return $"error:HTTP {(int)resp.StatusCode}";
+
+            using var doc = JsonDocument.Parse(respBody);
+            return doc.RootElement.TryGetProperty("status", out var s) ? (s.GetString() ?? "unknown") : "unknown";
+        }
+        catch (Exception ex) { return $"error:{ex.Message}"; }
     }
 
     // ── /hive/mesh/heartbeat ──────────────────────────────────────────────────

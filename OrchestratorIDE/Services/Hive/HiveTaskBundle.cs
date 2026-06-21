@@ -232,6 +232,27 @@ public sealed class HivePairingResponse
     public string? MembershipCert    { get; set; }
 }
 
+// ── HIVE Role Assignment (HIVE_MEMBERSHIP_SPEC.md §6) ─────────────────────────
+
+/// <summary>
+/// Body for POST /hive/mesh/role-assign — a human-invoked, authenticated request from an
+/// already-paired peer asking the receiver to change its own role. NOT the same mechanism
+/// as HiveElectionService's automatic Warchief failover; this is a manual override a human
+/// explicitly triggers. <see cref="NewRole"/> is attacker-shaped wire input the moment this
+/// endpoint exists — the server enforces Observer/Worker-only regardless of what this field
+/// says (HIVE_MEMBERSHIP_SPEC.md §8 T14), so a malicious or buggy sender cannot request
+/// Controller through this path no matter what string it sends.
+/// </summary>
+public sealed class HiveRoleAssignRequest
+{
+    public string HiveId         { get; set; } = "";
+    /// <summary>Informational only — the server uses the HMAC-authenticated sender NodeId
+    /// for the actual authorization decision, never this self-reported field.</summary>
+    public string AssignerNodeId { get; set; } = "";
+    public string NewRole        { get; set; } = "";
+    public string Reason         { get; set; } = "";
+}
+
 // ── HIVE Election ─────────────────────────────────────────────────────────────
 
 /// <summary>Body for POST /hive/mesh/election/* messages.</summary>

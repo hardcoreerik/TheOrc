@@ -507,6 +507,9 @@ public partial class MainWindow : Window
             name, ollamaUrlForPeers, [.. models], vramMb, vramMb, lanes, rpcPort);
 
         _hiveNodeServer = new Services.Hive.HiveNodeServer();
+        if (Enum.TryParse<Services.Hive.HiveAcceptControlPolicy>(
+                _settings.HiveDefaultAcceptControlFrom, ignoreCase: true, out var defaultPolicy))
+            _hiveNodeServer.DefaultAcceptControlFrom = defaultPolicy;
         _hiveNodeServer.ShutdownCallback = () =>
             Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -515,6 +518,8 @@ public partial class MainWindow : Window
             });
         _hiveNodeServer.OnPairingRequestReceived += (sessionId, pairingReq) =>
             Dispatcher.UIThread.InvokeAsync(() => _hivePanel.OnPairingRequest(sessionId, pairingReq));
+        _hiveNodeServer.OnRoleAssignReceived += (assignerNodeId, newRole) =>
+            Dispatcher.UIThread.InvokeAsync(() => _hivePanel.OnRoleAssignRequest(assignerNodeId, newRole));
         _hivePanel.NodeServer = _hiveNodeServer;
         // Without this, every ConfirmAsync?.Invoke(...) ?? Task.FromResult(false) call in
         // HivePanel (pairing approval, "Set as Warchief", "Remove from hive", etc.) silently
@@ -1709,6 +1714,10 @@ public partial class MainWindow : Window
         _hivePanel.LiteMode = newSettings.HiveLiteMode;
         if (_settings.LastMode == "hive")
             _hivePanel.Refresh();
+
+        if (_hiveNodeServer is not null && Enum.TryParse<Services.Hive.HiveAcceptControlPolicy>(
+                newSettings.HiveDefaultAcceptControlFrom, ignoreCase: true, out var defaultPolicy))
+            _hiveNodeServer.DefaultAcceptControlFrom = defaultPolicy;
 
         if (newSettings.Backend != oldBackend ||
             (newSettings.Backend == InferenceBackend.LlamaCpp &&

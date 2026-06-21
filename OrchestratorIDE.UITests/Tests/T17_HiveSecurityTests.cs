@@ -753,6 +753,42 @@ public class T17_HiveSecurityTests
         Assert.That(provisional, Is.Null);
     }
 
+    // ── HiveNodeServer.TryParseAssignableRole (HIVE_MEMBERSHIP_SPEC.md §6.1, §8 T14) ────
+
+    [Test]
+    public void TryParseAssignableRole_Worker_Allowed()
+    {
+        Assert.That(HiveNodeServer.TryParseAssignableRole("Worker", out var role), Is.True);
+        Assert.That(role, Is.EqualTo(HiveNodeRole.Worker));
+    }
+
+    [Test]
+    public void TryParseAssignableRole_Observer_Allowed()
+    {
+        Assert.That(HiveNodeServer.TryParseAssignableRole("Observer", out var role), Is.True);
+        Assert.That(role, Is.EqualTo(HiveNodeRole.Observer));
+    }
+
+    [Test]
+    public void TryParseAssignableRole_Controller_NeverAllowed()
+    {
+        // The one invariant this method exists to enforce -- a malicious or buggy sender
+        // must never be able to request Controller through the role-assign wire endpoint.
+        Assert.That(HiveNodeServer.TryParseAssignableRole("Controller", out _), Is.False);
+    }
+
+    [Test]
+    public void TryParseAssignableRole_Garbage_Rejected()
+    {
+        Assert.That(HiveNodeServer.TryParseAssignableRole("not-a-real-role", out _), Is.False);
+    }
+
+    [Test]
+    public void TryParseAssignableRole_Null_Rejected()
+    {
+        Assert.That(HiveNodeServer.TryParseAssignableRole(null, out _), Is.False);
+    }
+
     [Test]
     public void TryAcceptViaMembershipCert_WrongLocalHiveId_Rejected()
     {

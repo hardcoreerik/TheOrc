@@ -92,6 +92,13 @@ public partial class SettingsPanel : UserControl
         TbDefaultWorkspace.Text       = s.DefaultWorkspace;
         TglHiveMindEnabled.IsChecked  = s.HiveMindEnabled;
         TglHiveLiteMode.IsChecked     = s.HiveLiteMode;
+        // Matched by Tag, not index -- avoids a fragile magic-number mapping to the XAML
+        // item order (grok review MINOR, 2026-06-21). Falls back to "Ask each time" (index 1)
+        // for an unrecognized/missing value.
+        CmbHiveAcceptControlFrom.SelectedItem =
+            CmbHiveAcceptControlFrom.Items.OfType<ComboBoxItem>()
+                .FirstOrDefault(i => (string?)i.Tag == s.HiveDefaultAcceptControlFrom)
+            ?? CmbHiveAcceptControlFrom.Items.OfType<ComboBoxItem>().ElementAt(1);
         TglNativeHiveWorker.IsChecked = s.ExperimentalNativeHiveWorkerEnabled;
         TbNativeRuntimeModelRoot.Text = s.NativeRuntimeModelRoot;
         TbNativeRuntimeContextSize.Text = s.NativeRuntimeContextSize.ToString();
@@ -216,6 +223,8 @@ public partial class SettingsPanel : UserControl
         s.SourceFolderPath    = TbSourceFolder.Text?.Trim() ?? "";
         s.HiveMindEnabled = TglHiveMindEnabled.IsChecked == true;
         s.HiveLiteMode    = TglHiveLiteMode.IsChecked == true;
+        s.HiveDefaultAcceptControlFrom =
+            (CmbHiveAcceptControlFrom.SelectedItem as ComboBoxItem)?.Tag as string ?? "Ask";
         s.ExperimentalNativeHiveWorkerEnabled = TglNativeHiveWorker.IsChecked == true;
         s.NativeRuntimeModelRoot = TbNativeRuntimeModelRoot.Text?.Trim() ?? "";
         s.NativeRuntimeContextSize = int.TryParse(TbNativeRuntimeContextSize.Text, out var nativeCtx)

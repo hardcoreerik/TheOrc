@@ -332,6 +332,24 @@
                     </DockPanel>
                 </Border>
 
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <ComboBox x:Name="CmbHiveAcceptControlFrom"
+                                  DockPanel.Dock="Right" Width="200"
+                                  SelectedIndex="1">
+                            <ComboBoxItem Content="Never" Tag="Never"/>
+                            <ComboBoxItem Content="Ask each time (default)" Tag="Ask"/>
+                            <ComboBoxItem Content="Allowlist only" Tag="Allowlist"/>
+                            <ComboBoxItem Content="Always (any paired peer)" Tag="AnyPaired"/>
+                        </ComboBox>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Default auto-accept for new peers" Classes="SettingLabel"/>
+                            <TextBlock Text="Applied to newly paired nodes -- governs whether they auto-accept a role-assignment request (e.g. &quot;Declare this machine Warchief&quot;) without a per-event approval click. Change an already-paired peer's policy from its card's right-click menu instead."
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
                 <!-- ── NATIVE RUNTIME (Phase 3 telemetry) ──────────────── -->
                 <TextBlock Text="NATIVE RUNTIME" Classes="SectionHeader" Margin="0,12,0,0"/>
 

@@ -77,6 +77,10 @@ string  lanesArg     = "";
 string? pairTarget   = null;
 string? expectFp     = null;
 var     allowFps     = new List<string>();
+bool    listPeers      = false;
+bool    declareWarchief = false;
+string? setAcceptControlPeer   = null;
+string? setAcceptControlPolicy = null;
 
 for (int i = 0; i < args.Length; i++)
 {
@@ -107,6 +111,12 @@ for (int i = 0; i < args.Length; i++)
         case "--expect-fingerprint": expectFp = Next();         break;
         case "--allow-fingerprint":
             { var fp = Next(); if (fp is not null) allowFps.Add(fp.Trim()); break; }
+        case "--list-peers":        listPeers       = true; break;
+        case "--declare-warchief":  declareWarchief = true; break;
+        case "--set-accept-control":
+            setAcceptControlPeer   = Next();
+            setAcceptControlPolicy = Next();
+            break;
         case "-h" or "--help":
             Console.WriteLine("""
                 swarmcli — headless TheOrc swarm runner
@@ -133,6 +143,21 @@ for (int i = 0; i < args.Length; i++)
                 Pair with a Warchief (initiator side; refuses unless the response fingerprint
                 matches --expect-fingerprint, which you obtain from the target out-of-band):
                   swarmcli --pair --target <host> --expect-fingerprint "<8-word phrase>"
+
+                List paired peers and their hive role / AcceptControlFrom policy
+                (HIVE_MEMBERSHIP_SPEC.md §2.4, §6):
+                  swarmcli --list-peers
+
+                Declare this machine the hive's Warchief -- broadcasts a role-assignment
+                request to every currently paired peer asking it to become a Worker
+                (HIVE_MEMBERSHIP_SPEC.md §6.3; same action as the GUI's "Declare this machine
+                Warchief" context-menu item):
+                  swarmcli --declare-warchief
+
+                Change a paired peer's AcceptControlFrom policy (Never|Ask|Allowlist|AnyPaired)
+                -- governs whether that peer's role-assignment requests need a per-event
+                approval. Identify the peer by NodeId (full or any unique prefix) or by name:
+                  swarmcli --set-accept-control <nodeId-or-name> <policy>
 
                 Warchief mode (dispatches to remote workers; opens pairing + task queue):
                   swarmcli --warchief --goal "<text>" [--workspace <dir>] [--port 7079]
@@ -178,6 +203,84 @@ if (showIdentity)
     Console.WriteLine($"NodeId:      {id.NodeId}");
     Console.WriteLine($"Fingerprint: {id.Fingerprint}");
     Console.WriteLine($"Machine:     {Environment.MachineName}");
+    Console.WriteLine($"HiveId:      {(string.IsNullOrEmpty(id.HiveId) ? "(none -- not yet founded/joined a hive)" : id.HiveId)}");
+    Console.WriteLine($"HiveRole:    {id.HiveRole}");
+    Console.WriteLine($"SelfRole:    {id.SelfRole}  (role this node's pairing approver granted it)");
+    Console.WriteLine($"CanIssueMembershipCerts: {id.CanIssueMembershipCerts}");
+    Console.WriteLine($"OwnMembershipCert:       {(string.IsNullOrEmpty(id.OwnMembershipCertJson) ? "(none)" : "present")}");
+    return 0;
+}
+
+// ── --list-peers — print paired peers and their hive-relevant fields ─────────
+
+if (listPeers)
+{
+    var peers = HivePeerStore.Default.All();
+    if (peers.Count == 0)
+    {
+        Console.WriteLine("No paired peers.");
+        return 0;
+    }
+    foreach (var p in peers)
+    {
+        Console.WriteLine($"{p.Name}  ({p.NodeId[..Math.Min(16, p.NodeId.Length)]}…)");
+        Console.WriteLine($"  Role: {p.Role}   MaxRole: {p.MaxRole}   AcceptControlFrom: {p.AcceptControlFrom}");
+        Console.WriteLine($"  LastKnownAddress: {(string.IsNullOrEmpty(p.LastKnownAddress) ? "(unknown)" : p.LastKnownAddress)}" +
+                           $"   Mobile: {p.IsMobile}   Revoked: {p.Revoked}");
+        Console.WriteLine();
+    }
+    return 0;
+}
+
+// ── --declare-warchief — broadcast a role-assignment request to every peer ───
+// HIVE_MEMBERSHIP_SPEC.md §6.3. Headless equivalent of HivePanel.DeclareWarchiefAsync.
+
+if (declareWarchief)
+{
+    var peers = HivePeerStore.Default.All().Where(p => !p.Revoked).ToList();
+    if (peers.Count == 0)
+    {
+        Console.Error.WriteLine("No paired peers to promote -- pair with at least one node first.");
+        return 1;
+    }
+
+    Console.WriteLine($"swarmcli --declare-warchief — broadcasting role-assign (Worker) to {peers.Count} peer(s)…");
+    var identity = HiveIdentity.Load();
+    var anyFailed = false;
+    foreach (var peer in peers)
+    {
+        var outcome = await HiveNodeServer.SendRoleAssignAsync(peer, HiveNodeRole.Worker, identity, HivePeerStore.Default);
+        Console.WriteLine($"  {peer.Name}: {outcome}");
+        if (outcome == "unreachable" || outcome.StartsWith("error:")) anyFailed = true;
+    }
+    return anyFailed ? 1 : 0;
+}
+
+// ── --set-accept-control — change a paired peer's AcceptControlFrom policy ────
+
+if (setAcceptControlPeer is not null)
+{
+    if (setAcceptControlPolicy is null ||
+        !Enum.TryParse<HiveAcceptControlPolicy>(setAcceptControlPolicy, ignoreCase: true, out var policy))
+    {
+        Console.Error.WriteLine(
+            "--set-accept-control <nodeId-or-name> <policy> requires a valid policy: " +
+            "Never | Ask | Allowlist | AnyPaired");
+        return 1;
+    }
+
+    var match = HivePeerStore.Default.All().FirstOrDefault(p =>
+        string.Equals(p.Name, setAcceptControlPeer, StringComparison.OrdinalIgnoreCase) ||
+        p.NodeId.StartsWith(setAcceptControlPeer, StringComparison.OrdinalIgnoreCase));
+    if (match is null)
+    {
+        Console.Error.WriteLine($"No paired peer matches '{setAcceptControlPeer}' (by name or NodeId prefix).");
+        return 1;
+    }
+
+    match.AcceptControlFrom = policy;
+    HivePeerStore.Default.AddOrUpdate(match);
+    Console.WriteLine($"{match.Name}: AcceptControlFrom set to {policy}.");
     return 0;
 }
 

@@ -461,6 +461,11 @@ public partial class HivePanel : UserControl
             cm.Items.Add(CmItem("🧹  Clear event log",    ClearEventLog));
             cm.Items.Add(new Separator());
             cm.Items.Add(CmItem("⟳  Probe all nodes",    () => _ = ProbeAndDrawAsync()));
+            cm.Items.Add(new Separator());
+            // Mesh-authority Warchief declaration (HIVE_MEMBERSHIP_SPEC.md §6) -- a manual
+            // override distinct from HiveElectionService's automatic failover. Only makes
+            // sense from the local "This PC" card, since it's declaring THIS machine.
+            cm.Items.Add(CmItem("👑  Declare this machine Warchief", () => _ = DeclareWarchiefAsync()));
         }
         else
         {
@@ -474,7 +479,13 @@ public partial class HivePanel : UserControl
             // (found 2026-06-21 from a live pairing-failure report).
             cm.Items.Add(CmItem("🤝  Pair with this node", () => _ = PairWithHostAsync(host), host.HiveApiReachable == true));
             cm.Items.Add(CmItem("⚡  Use as RPC worker",   () => ApplyRpcWorker(host), host.RpcPort > 0 && alive));
-            cm.Items.Add(CmItem("🎯  Set as Warchief",     () => SetAsWarchiefTarget(host)));
+            // Renamed from "🎯 Set as Warchief" (2026-06-21) -- that label now collides with
+            // the unrelated mesh-authority "Declare this machine Warchief" action above. This
+            // item only ever pointed this machine's own swarm-task dispatcher at a remote
+            // Ollama host; it never touched HiveElectionService or mesh authority at all.
+            cm.Items.Add(CmItem("📤  Route my swarm tasks here", () => SetAsWarchiefTarget(host)));
+            var acceptMenu = BuildAcceptControlSubmenu(host);
+            if (acceptMenu is not null) cm.Items.Add(acceptMenu);
             cm.Items.Add(new Separator());
             cm.Items.Add(CmItem("⟳  Probe now",           () => _ = ProbeOneAndDrawAsync(host)));
             cm.Items.Add(new Separator());
@@ -482,6 +493,43 @@ public partial class HivePanel : UserControl
         }
 
         return cm;
+    }
+
+    /// <summary>
+    /// HIVE_MEMBERSHIP_SPEC.md §6.4 — AcceptControlFrom had no UI anywhere before this; every
+    /// peer was permanently stuck at the pairing-time default (Ask) with no way to change it,
+    /// which meant role-assignment (§6) could never actually auto-promote without a per-event
+    /// click no matter what the user wanted. Returns null if <paramref name="host"/> doesn't
+    /// resolve to a paired peer (nothing to configure for an unpaired node).
+    /// </summary>
+    private MenuItem? BuildAcceptControlSubmenu(HiveHost host)
+    {
+        var nodeId = HivePeerStore.Default.ResolveNodeIdForUrl(host.Url);
+        if (string.IsNullOrEmpty(nodeId)) return null;
+        var peer = HivePeerStore.Default.Find(nodeId);
+        if (peer is null) return null;
+
+        var submenu = new MenuItem { Header = "🔒  Auto-accept role assignment from this peer" };
+        foreach (var policy in Enum.GetValues<HiveAcceptControlPolicy>())
+        {
+            var label = policy switch
+            {
+                HiveAcceptControlPolicy.Never     => "Never",
+                HiveAcceptControlPolicy.Ask       => "Ask each time (default)",
+                HiveAcceptControlPolicy.Allowlist => "Allowlist only",
+                HiveAcceptControlPolicy.AnyPaired => "Always (any paired peer)",
+                _                                  => policy.ToString(),
+            };
+            var prefix = peer.AcceptControlFrom == policy ? "● " : "○ ";
+            submenu.Items.Add(CmItem(prefix + label, () =>
+            {
+                peer.AcceptControlFrom = policy;
+                HivePeerStore.Default.AddOrUpdate(peer);
+                AddEvent($"[{DateTime.Now:HH:mm:ss}] {peer.Name}: auto-accept role assignment set to {policy}.",
+                    new SolidColorBrush(Colors.Gray));
+            }));
+        }
+        return submenu;
     }
 
     private static MenuItem CmItem(string header, Action action, bool enabled = true)
@@ -558,12 +606,70 @@ public partial class HivePanel : UserControl
 
     private async void SetAsWarchiefTarget(HiveHost host)
     {
+        // Despite the method name (left as-is to avoid an unrelated rename churning the
+        // diff -- the menu label is what users actually see, and that's already fixed),
+        // this has nothing to do with mesh-authority Warchief/HiveElectionService. It only
+        // points this machine's own swarm-task dispatcher at a remote Ollama host.
         var targetUri = new UriBuilder(host.Url) { Port = HiveTaskQueue.QueuePort }.ToString().TrimEnd('/');
         var ok = await (ConfirmAsync?.Invoke(
-            $"Set {host.Name} as this machine's Warchief?\n\n{targetUri}\n\n" +
+            $"Route this machine's swarm tasks to {host.Name}?\n\n{targetUri}\n\n" +
             $"This machine will send all swarm tasks to {host.Name} for distribution.",
-            "HIVE MIND — Set Warchief Target") ?? Task.FromResult(false));
+            "HIVE MIND — Route Swarm Tasks") ?? Task.FromResult(false));
         if (ok) OnWarchiefTargetSelected?.Invoke(targetUri);
+    }
+
+    /// <summary>
+    /// HIVE_MEMBERSHIP_SPEC.md §6.3 — a manual, human-invoked override that broadcasts a
+    /// role-assignment request to every currently-paired peer, asking each to become a
+    /// Worker. NOT the same mechanism as HiveElectionService's automatic Warchief failover
+    /// -- refuses to run while an election is underway rather than racing it.
+    /// </summary>
+    private async Task DeclareWarchiefAsync()
+    {
+        var election = NodeServer?.ElectionService;
+        if (election is not null && election.State != ElectionState.Normal)
+        {
+            await (AlertAsync?.Invoke(
+                $"An election is currently in progress ({election.State}) — wait for it to resolve before declaring a Warchief manually.",
+                "HIVE MIND — Declare Warchief") ?? Task.CompletedTask);
+            return;
+        }
+
+        var peers = HivePeerStore.Default.All().Where(p => !p.Revoked).ToList();
+        if (peers.Count == 0)
+        {
+            await (AlertAsync?.Invoke("No paired peers to promote — pair with at least one node first.",
+                "HIVE MIND — Declare Warchief") ?? Task.CompletedTask);
+            return;
+        }
+
+        var ok = await (ConfirmAsync?.Invoke(
+            $"Declare this machine the hive's Warchief? This sends a role-assignment request to all " +
+            $"{peers.Count} currently paired peer(s), asking each to set their role to Worker.\n\n" +
+            "Peers configured to auto-accept will update immediately; others will show an approval prompt on their end.",
+            "HIVE MIND — Declare Warchief") ?? Task.FromResult(false));
+        if (!ok) return;
+
+        var identity = HiveIdentity.Load();
+        var peerStore = HivePeerStore.Default;
+        foreach (var peer in peers)
+        {
+            var outcome = await HiveNodeServer.SendRoleAssignAsync(peer, HiveNodeRole.Worker, identity, peerStore);
+            IBrush color = outcome switch
+            {
+                "accepted"         => Brushes.LimeGreen,
+                "pending_approval" => new SolidColorBrush(Colors.DeepSkyBlue),
+                "unreachable"      => Brushes.OrangeRed,
+                _ when outcome.StartsWith("error:") => Brushes.OrangeRed,
+                _                  => Brushes.Gray, // "rejected"
+            };
+            // AddEvent touches an ObservableCollection + TextBlock + ScrollViewer -- after an
+            // await, the continuation isn't guaranteed to still be on the UI thread (contrast
+            // PairWithHostAsync, which dispatches explicitly for the same reason). Matching
+            // that established convention here too (grok review BLOCKER, 2026-06-21).
+            await Dispatcher.UIThread.InvokeAsync(() =>
+                AddEvent($"[{DateTime.Now:HH:mm:ss}] Role-assign to {peer.Name}: {outcome}", color));
+        }
     }
 
     private async void RemoveHost(HiveHost host)
@@ -870,6 +976,44 @@ public partial class HivePanel : UserControl
         var color = approved ? Brushes.LimeGreen : Brushes.OrangeRed;
         var label = approved ? "approved" : "rejected";
         AddEvent($"[{DateTime.Now:HH:mm:ss}] Pairing {label}: {req.InitiatorName}", color);
+    }
+
+    /// <summary>
+    /// Approval card for a role-assignment request from a peer whose AcceptControlFrom
+    /// policy is Ask (HIVE_MEMBERSHIP_SPEC.md §6). Unlike pairing, there is no session/poll
+    /// mechanism here -- the assigner's HTTP response already said "pending_approval" and is
+    /// not waiting on this dialog's outcome; this just applies the role locally on approval.
+    /// </summary>
+    public async void OnRoleAssignRequest(string? assignerNodeId, HiveNodeRole newRole)
+    {
+        // async void: an unobserved exception here would crash the process. Catch broadly --
+        // this is a UI notification handler, not a place that should ever propagate a fault
+        // to the dispatcher's unhandled-exception path (grok review BLOCKER, 2026-06-21).
+        try
+        {
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => OnRoleAssignRequest(assignerNodeId, newRole));
+                return;
+            }
+
+            assignerNodeId ??= "";
+            var assignerName = HivePeerStore.Default.Find(assignerNodeId)?.Name
+                ?? assignerNodeId[..Math.Min(8, assignerNodeId.Length)];
+            AddEvent($"[{DateTime.Now:HH:mm:ss}] Role-assignment request from {assignerName} — requesting role: {newRole}…",
+                new SolidColorBrush(Colors.DeepSkyBlue));
+
+            var approved = await (ConfirmAsync?.Invoke(
+                $"{assignerName} is requesting that this machine's role change to {newRole}.\n\nApprove?",
+                "HIVE — Role Assignment Request") ?? Task.FromResult(false));
+
+            if (approved) HiveIdentity.Load().SetSelfRole(newRole);
+
+            var color = approved ? Brushes.LimeGreen : Brushes.OrangeRed;
+            var label = approved ? $"approved — role now {newRole}" : "declined";
+            AddEvent($"[{DateTime.Now:HH:mm:ss}] Role-assignment from {assignerName}: {label}", color);
+        }
+        catch { /* see comment above -- async void must never let an exception escape */ }
     }
 
     public void OnElectionStateChanged(ElectionState state, string? warchiefNodeId)
