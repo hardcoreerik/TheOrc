@@ -67,6 +67,7 @@ bool    workerMode   = false;
 bool    showIdentity = false;
 bool    pairMode     = false;
 bool    noRun        = false;
+string? nativeTestGgufPath = null;
 int     warchiefPort = HiveTaskQueue.QueuePort;
 string? warchiefUrl  = null;
 string? warchiefNodeId = null;
@@ -99,6 +100,7 @@ for (int i = 0; i < args.Length; i++)
         case "--show-identity": showIdentity = true;            break;
         case "--pair":          pairMode     = true;            break;
         case "--no-run":        noRun        = true;            break;
+        case "--native-test":   nativeTestGgufPath = Next();    break;
         case "--target":        pairTarget   = Next();          break;
         case "--expect-fingerprint": expectFp = Next();         break;
         case "--allow-fingerprint":
@@ -113,6 +115,10 @@ for (int i = 0; i < args.Length; i++)
 
                 Show this node's HIVE identity (NodeId + fingerprint, for out-of-band verification):
                   swarmcli --show-identity
+
+                Headless native-runtime smoke test (same prompt/checks as the GUI Settings
+                "Run Native Test" button, no Ollama fallback -- just the native attempt):
+                  swarmcli --native-test <path-to-gguf-or-ollama-blob>
 
                 Pair with a Warchief (initiator side; refuses unless the response fingerprint
                 matches --expect-fingerprint, which you obtain from the target out-of-band):
@@ -163,6 +169,42 @@ if (showIdentity)
     Console.WriteLine($"Fingerprint: {id.Fingerprint}");
     Console.WriteLine($"Machine:     {Environment.MachineName}");
     return 0;
+}
+
+// ── --native-test — headless equivalent of the GUI's Settings "Run Native Test"
+// button. Calls the exact same NativeRuntimeTestRunner.RunLocalAsync API the GUI uses
+// (OrchestratorIDE.Avalonia/UI/Panels/SettingsPanel.axaml.cs's BtnRunNativeRuntimeTest_Click)
+// so this validates the real native-inference path without needing a GUI session or
+// computer-use (which needs a live human to approve access -- unavailable unattended).
+
+if (nativeTestGgufPath is not null)
+{
+    if (!File.Exists(nativeTestGgufPath))
+    {
+        Console.Error.WriteLine($"--native-test: file not found: {nativeTestGgufPath}");
+        return 1;
+    }
+
+    Console.WriteLine($"swarmcli --native-test — model: {nativeTestGgufPath}");
+    Console.WriteLine($"  prompt: {NativeRuntimeTestPrompt.PromptText.Replace("\n", " / ")}");
+    Console.WriteLine();
+
+    var attempt = await NativeRuntimeTestRunner.RunLocalAsync(
+        nativeTestGgufPath,
+        onToken: t => Console.Write(t));
+
+    Console.WriteLine();
+    Console.WriteLine();
+    Console.WriteLine($"Runtime:  {attempt.RuntimeName}");
+    Console.WriteLine($"Success:  {attempt.Success}");
+    if (!attempt.Success)
+        Console.WriteLine($"Error:    {attempt.ErrorType} — {attempt.ErrorMessage}");
+    Console.WriteLine($"Health:   available={attempt.Health.IsAvailable}  {attempt.Health.Message}");
+    Console.WriteLine($"Stats:    {attempt.Stats.TokensPerSecond:F1} tok/s, " +
+        $"ttft={attempt.Stats.LastTimeToFirstToken?.TotalMilliseconds:F0}ms, " +
+        $"vram~{(attempt.Stats.EstimatedVramBytes is { } vramBytes ? $"{vramBytes / 1024 / 1024}MB" : "n/a")}");
+
+    return attempt.Success ? 0 : 1;
 }
 
 // ── --pair — initiator side of the pairing ceremony, fingerprint-gated ────────
