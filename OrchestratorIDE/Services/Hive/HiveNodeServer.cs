@@ -624,7 +624,10 @@ public sealed class HiveNodeServer : IDisposable
 
     private static string Json(object o) => JsonSerializer.Serialize(o, _jsonOut);
 
-    private static byte[] XorNodeIds(string a, string b)
+    // internal: shared with HivePairingClient, which must derive the identical
+    // salt on the initiator side (XOR is commutative, so argument order doesn't
+    // need to match the responder's call).
+    internal static byte[] XorNodeIds(string a, string b)
     {
         var ba = Convert.FromHexString(a.Length >= 64 ? a[..64] : a.PadRight(64, '0'));
         var bb = Convert.FromHexString(b.Length >= 64 ? b[..64] : b.PadRight(64, '0'));

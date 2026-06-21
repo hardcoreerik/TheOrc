@@ -361,6 +361,7 @@ public partial class HivePanel : UserControl
             cm.Items.Add(CmItem("📋  Copy URL",            () => _ = CopyTextAsync(host.Url)));
             cm.Items.Add(CmItem("🌐  Open in browser",     () => OpenUrl(host.Url + "/api/tags")));
             cm.Items.Add(new Separator());
+            cm.Items.Add(CmItem("🤝  Pair with this node", () => _ = PairWithHostAsync(host), alive));
             cm.Items.Add(CmItem("⚡  Use as RPC worker",   () => ApplyRpcWorker(host), host.RpcPort > 0 && alive));
             cm.Items.Add(CmItem("🎯  Set as Warchief",     () => SetAsWarchiefTarget(host)));
             cm.Items.Add(new Separator());
@@ -403,10 +404,17 @@ public partial class HivePanel : UserControl
             : "";
         var vram = host.VramFreeMb > 0 ? $"\nVRAM free: {host.VramFreeMb / 1024.0:F1} GB" : "";
         var rpc  = host.RpcPort > 0   ? $"\nRPC: :{host.RpcPort}" : "";
+        // "This PC"'s own fingerprint, shown so it can be read aloud/compared against
+        // what a remote operator sees after pairing with this machine -- pairing's
+        // approval response is unauthenticated at the transport level, so this manual
+        // comparison is the actual defense against an on-path attacker (see
+        // HivePairingClient.CompletePairing).
+        var fingerprint = host.Name == "This PC"
+            ? $"\nFingerprint: {HiveIdentity.Load().Fingerprint}" : "";
         await (AlertAsync?.Invoke(
             $"{host.Name}\n{host.Url}" +
             $"\nStatus: {(host.Reachable == false ? "offline" : "online")}" +
-            vram + rpc + models +
+            vram + rpc + fingerprint + models +
             (host.Name == "This PC" ? "" : "\n\nRight-click for actions."),
             $"HIVE MIND — {host.Name}") ?? Task.CompletedTask);
     }
@@ -464,6 +472,76 @@ public partial class HivePanel : UserControl
         if (host.Reachable == true && host.Name != "This PC")
             await HiveHosts.ProbeHiveApiAsync(host);
         DrawConstellation();
+    }
+
+    private async Task PairWithHostAsync(HiveHost host)
+    {
+        var targetHost = SafeUriHost(host.Url);
+        var ok = await (ConfirmAsync?.Invoke(
+            $"Send a pairing request to {host.Name} ({targetHost})?\n\n" +
+            "That machine will need to approve it before this completes — " +
+            "this will wait up to 2 minutes for a response.",
+            "HIVE MIND — Pair") ?? Task.FromResult(false));
+        if (!ok) return;
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(125));
+        // PairAsync never throws (it converts every failure mode, including
+        // cancellation, into a Result) -- no try/catch needed here.
+        var result = await HivePairingClient.PairAsync(targetHost, ct: cts.Token);
+
+        // Explicit UI-thread dispatch for the visual-tree mutation, even though the
+        // await above should already resume on this method's original (UI) context --
+        // belt-and-suspenders per Grok CLI review, no ambiguity left either way.
+        await Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            if (result.Outcome == HivePairingClient.Outcome.Approved && result.Pending is { } pending)
+            {
+                // Trust is NOT yet persisted at this point (HivePairingClient.PendingTrust's
+                // doc comment) -- GET /hive/pair/{sessionId} is unauthenticated, so this
+                // fingerprint comparison is the actual defense against an on-path attacker
+                // forging the "approved" response. Only ConfirmAndTrust() if the operator
+                // explicitly confirms it matches what the target machine itself displays --
+                // persisting before this check (as the first version of this code did) is
+                // fail-open (Codex CLI BLOCKER, 2026-06-20).
+                var confirmed = await (ConfirmAsync?.Invoke(
+                    $"{host.Name} approved the pairing request.\n\n" +
+                    $"Fingerprint: {pending.Fingerprint}\n\n" +
+                    "Compare this against the fingerprint shown on the OTHER machine's own " +
+                    "HIVE panel (click \"This PC\" there) before continuing — the approval " +
+                    "response isn't transport-authenticated, so this comparison is the real " +
+                    "check against an on-path attacker. Do they match?",
+                    "HIVE MIND — Verify Fingerprint") ?? Task.FromResult(false));
+
+                if (confirmed)
+                {
+                    HivePairingClient.ConfirmAndTrust(pending);
+                    await (AlertAsync?.Invoke($"✓ Paired with {host.Name}.", "HIVE MIND — Pair")
+                        ?? Task.CompletedTask);
+                    DrawConstellation();
+                }
+                else
+                {
+                    await (AlertAsync?.Invoke(
+                        "Pairing not completed — fingerprint mismatch (or unconfirmed). " +
+                        "No peer was trusted.", "HIVE MIND — Pair") ?? Task.CompletedTask);
+                }
+                return;
+            }
+
+            var msg = result.Outcome switch
+            {
+                HivePairingClient.Outcome.Rejected =>
+                    $"{host.Name} rejected the pairing request.",
+                HivePairingClient.Outcome.Expired =>
+                    "The pairing request expired before it was answered.",
+                HivePairingClient.Outcome.TimedOut =>
+                    "Timed out waiting for a response.",
+                HivePairingClient.Outcome.AlreadyPaired =>
+                    $"Already paired with {host.Name}.",
+                _ => $"Pairing failed: {result.Message}",
+            };
+            await (AlertAsync?.Invoke(msg, "HIVE MIND — Pair") ?? Task.CompletedTask);
+        });
     }
 
     private async void ApplyRpcWorker(HiveHost clickedHost)
@@ -563,6 +641,7 @@ public partial class HivePanel : UserControl
         var host = new HiveHost { Name = msg.Name, Url = msg.OllamaUrl, Source = "lan" };
         _hosts.Add(host);
         HiveHosts.Save(_hosts.Where(h => h.Name != "This PC"));
+        DrawConstellation();
         await ProbeAndDrawAsync();
     }
 
@@ -583,6 +662,7 @@ public partial class HivePanel : UserControl
         var url = addr.StartsWith("http") ? addr : $"http://{addr}";
         _hosts.Add(new HiveHost { Name = name, Url = url });
         HiveHosts.Save(_hosts.Where(h => h.Name != "This PC"));
+        DrawConstellation();
         await ProbeAndDrawAsync();
     }
 
@@ -608,6 +688,7 @@ public partial class HivePanel : UserControl
             added++;
         }
         HiveHosts.Save(_hosts.Where(h => h.Name != "This PC"));
+        DrawConstellation();
         await (AlertAsync?.Invoke(
             peers.Count == 0
                 ? "No Tailscale peers found (is Tailscale up and are other nodes online?)."

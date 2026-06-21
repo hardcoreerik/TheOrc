@@ -169,6 +169,7 @@
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveEventBus.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveTaskQueue.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveNodeServer.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HivePairingClient.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveElectionService.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveMeshHeartbeat.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveRpcWorker.cs" />
