@@ -9,9 +9,11 @@ namespace OrchestratorSetup.Pages;
 
 /// <summary>
 /// Hardware detection wizard page.
-/// Runs <see cref="HardwareDetector.DetectAsync"/> on a background thread,
-/// streams log messages into the collapsible log box, then populates the
-/// result grid and writes detected values into <see cref="InstallerViewModel"/>.
+/// Runs <see cref="PlatformInstaller.Current"/>'s <c>DetectHardwareAsync</c> (the Windows
+/// implementation delegates straight through to <see cref="HardwareDetector.DetectAsync"/>;
+/// see INSTALLER_REVAMP_SPEC.md §7 Phase 2) on a background thread, streams log messages
+/// into the collapsible log box, then populates the result grid and writes detected values
+/// into <see cref="InstallerViewModel"/>.
 /// </summary>
 public partial class HardwareDetectPage : UserControl, IInstallerPage
 {
@@ -48,7 +50,10 @@ public partial class HardwareDetectPage : UserControl, IInstallerPage
         HardwareDetector.HardwareInfo info;
         try
         {
-            info = await HardwareDetector.DetectAsync(progress);
+            // INSTALLER_REVAMP_SPEC.md §7 Phase 2 -- goes through IPlatformInstaller now,
+            // not the static HardwareDetector class directly, though the Windows
+            // implementation just delegates straight through to it unchanged.
+            info = await PlatformInstaller.Current.DetectHardwareAsync(progress, CancellationToken.None);
         }
         catch (Exception ex)
         {

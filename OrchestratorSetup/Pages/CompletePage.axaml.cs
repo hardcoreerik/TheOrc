@@ -65,18 +65,20 @@ public partial class CompletePage : UserControl, IInstallerPage
     private async void BtnConfigureHive_Click(object? sender, RoutedEventArgs e)
     {
         // async void: an unobserved exception here would crash the process (grok review
-        // BLOCKER, 2026-06-21). HiveEnroller.Enroll's own call is already try/caught below,
-        // but the await itself (Task infrastructure) is not -- wrap the whole thing.
+        // BLOCKER, 2026-06-21). This try/catch is the ONLY exception guard for the call
+        // below -- IPlatformInstaller.ConfigureFirewallAsync deliberately does NOT swallow
+        // internally (see WindowsPlatformInstaller's own comment on that method: the
+        // install-time caller in InstallOrchestrator relies on exceptions propagating to
+        // fail the install step, so swallowing in the shared implementation would have
+        // silently changed that caller's behavior too).
         try
         {
             BtnConfigureHive.IsEnabled = false;
             TxtHiveStatus.Text = "Configuring HIVE ports…";
 
-            var ok = await Task.Run(() =>
-            {
-                try { return HiveEnroller.Enroll(msg => Dispatcher.UIThread.Post(() => TxtHiveStatus.Text = msg)); }
-                catch { return false; }
-            });
+            // INSTALLER_REVAMP_SPEC.md §7 Phase 2 -- goes through IPlatformInstaller now.
+            var ok = await PlatformInstaller.Current.ConfigureFirewallAsync(
+                msg => Dispatcher.UIThread.Post(() => TxtHiveStatus.Text = msg), CancellationToken.None);
 
             TxtHiveStatus.Text = ok
                 ? "✓ HIVE MIND ports are open. Other TheOrc installs on this network can now find this machine."
@@ -98,8 +100,20 @@ public partial class CompletePage : UserControl, IInstallerPage
     {
         if (_vm.State.LaunchAfterInstall)
         {
-            var exeName = OperatingSystem.IsWindows() ? "OrchestratorIDE.exe" : "OrchestratorIDE";
-            var exePath = Path.Combine(_vm.State.AppInstallPath, exeName);
+            // INSTALLER_REVAMP_SPEC.md §7 Phase 2 -- goes through IPlatformInstaller now.
+            // PlatformInstaller.Current can throw PlatformNotSupportedException on an OS
+            // without an implementation yet (Phases 4-5); the old OperatingSystem.IsWindows()
+            // ternary it replaced never threw, so this needs its own guard to stay a "no
+            // behavior change" refactor (grok review MINOR, 2026-06-21). Not reachable on
+            // Windows today, same reasoning as UninstallWindow.OnLoaded's identical guard.
+            string exePath;
+            try { exePath = PlatformInstaller.Current.LaunchCommand(_vm.State.AppInstallPath); }
+            catch (Exception ex)
+            {
+                TxtLaunchStatus.Text      = $"Could not determine the launch path: {ex.Message}";
+                TxtLaunchStatus.IsVisible = true;
+                return;
+            }
             if (File.Exists(exePath))
             {
                 try { Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true }); }

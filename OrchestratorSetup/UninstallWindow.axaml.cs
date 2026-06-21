@@ -19,7 +19,15 @@ public partial class UninstallWindow : Window
 
     private void OnLoaded(object? sender, RoutedEventArgs e)
     {
-        _installPath = UninstallService.ReadInstallPath() ?? "";
+        // INSTALLER_REVAMP_SPEC.md §7 Phase 2 -- goes through IPlatformInstaller now.
+        // PlatformInstaller.Current itself can throw PlatformNotSupportedException on an OS
+        // without an implementation yet (Phases 4-5); the old UninstallService.ReadInstallPath
+        // always caught internally and returned null instead, so match that here rather than
+        // letting an unhandled exception crash the window on first open (grok review MINOR,
+        // 2026-06-21). Not reachable on Windows today -- Resolve() always picks Windows -- but
+        // worth being correct now rather than revisiting every call site again in Phase 4.
+        try { _installPath = PlatformInstaller.Current.ReadInstallPath() ?? ""; }
+        catch { _installPath = ""; }
 
         TbInstallPath.Text = string.IsNullOrWhiteSpace(_installPath)
             ? "(install location not found in registry)"
@@ -47,7 +55,7 @@ public partial class UninstallWindow : Window
 
             await Task.Run(() =>
             {
-                UninstallService.Uninstall(_installPath, removeUserData, msg =>
+                PlatformInstaller.Current.Uninstall(_installPath, removeUserData, msg =>
                 {
                     log.AppendLine(msg);
                     Dispatcher.UIThread.Post(() => TbProgress.Text = log.ToString());

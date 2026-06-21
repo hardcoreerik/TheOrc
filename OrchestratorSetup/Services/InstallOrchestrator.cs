@@ -393,12 +393,12 @@ public sealed class InstallOrchestrator : IDisposable
             }
 
             // ── HIVE MIND enrollment (spec §8) ──────────────────────────────
+            // INSTALLER_REVAMP_SPEC.md §7 Phase 2 -- goes through IPlatformInstaller now;
+            // ConfigureFirewallAsync already wraps the call on its own (no need for this
+            // step to do its own Task.Run on top of it).
             if (_state.JoinHiveMind)
             {
-                await Step("Joining HIVE MIND", () => Task.Run(() =>
-                {
-                    HiveEnroller.Enroll(Log);
-                }, ct), ct);
+                await Step("Joining HIVE MIND", () => PlatformInstaller.Current.ConfigureFirewallAsync(Log, ct), ct);
             }
             else
             {
@@ -418,14 +418,14 @@ public sealed class InstallOrchestrator : IDisposable
             // ── Step N: Create shortcuts ────────────────────────────────────
             await Step("Creating shortcuts", () => Task.Run(() =>
             {
-                ProfileMerger.CreateShortcuts(_state);
+                PlatformInstaller.Current.CreateLaunchers(_state);
                 Log("  Desktop/Start Menu shortcuts created (if exe present).");
             }, ct), ct);
 
             // ── Step N+1: Register uninstaller ──────────────────────────────
             await Step("Registering uninstaller", () => Task.Run(() =>
             {
-                UninstallService.Register(_state);
+                PlatformInstaller.Current.RegisterUninstall(_state);
                 Log("  Uninstall entry registered in Apps & Features.");
             }, ct), ct);
 
