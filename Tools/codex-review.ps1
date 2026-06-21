@@ -166,7 +166,12 @@ $outFile = Join-Path $reviewDir "codex_$(Get-Date -Format yyyyMMdd_HHmmss).md"
 
 $psi = [System.Diagnostics.ProcessStartInfo]::new($exe)
 # '-' tells codex exec to read the prompt from stdin (avoids Windows 32K cmd-line limit)
-foreach ($a in @('exec', '--sandbox', 'read-only', '-C', $root,
+# -m gpt-5.4: the global default (gpt-5.5, see ~/.codex/config.toml) repeatedly
+# false-positives on legitimate security/crypto-adjacent review content (HIVE
+# pairing, key exchange, elevation code) with "flagged for possible
+# cybersecurity risk" tool errors -- gpt-5.4 is meaningfully less prone to this
+# per direct comparison, 2026-06-20.
+foreach ($a in @('exec', '-m', 'gpt-5.4', '--sandbox', 'read-only', '-C', $root,
                  '--output-last-message', "$outFile.last", '-')) {
     $psi.ArgumentList.Add($a)
 }
