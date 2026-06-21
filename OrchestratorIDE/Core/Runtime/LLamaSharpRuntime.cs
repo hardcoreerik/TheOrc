@@ -317,7 +317,14 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         // metadata once; Phase 3 will explore caching the parsed template string.
         try
         {
-            var template = new LLamaTemplate(_weights!);
+            var template = new LLamaTemplate(_weights!) { AddAssistant = true };
+            // AddAssistant defaults to false (confirmed via reflection against LLamaSharp
+            // 0.27.0, 2026-06-21) -- without it, Apply() renders a "closed" conversation with
+            // no open assistant-turn cue (the standard chat-template "add_generation_prompt"
+            // concept), so the model has no signal to generate a reply. This was the root
+            // cause of every native-runtime test producing EmptyOutput despite real token
+            // activity (non-zero tok/s and time-to-first-token) -- the model was almost
+            // certainly predicting an immediate EOS against a prompt that looked complete.
             foreach (var msg in messages)
                 template.Add(ToRoleString(msg.Role), msg.Content ?? "");
             var result = Encoding.UTF8.GetString(template.Apply());
