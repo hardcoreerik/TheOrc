@@ -1,10 +1,11 @@
 # TheOrc — Cross-Platform Installer Revamp Specification
 
-> Status: Phase 1 (§7, WPF→Avalonia UI port) implemented 2026-06-21, ported directly to the
->         final 8-page flow below rather than the old 10 pages. Phases 2-5 (IPlatformInstaller
->         extraction, Linux impl, macOS impl + packaging) design only. Page-by-page direction
->         confirmed with the user 2026-06-21 via a structured walk-through of all 10 then-
->         current pages.
+> Status: Phases 1-2 (§7) implemented 2026-06-21 — WPF→Avalonia UI port (Phase 3's page
+>         restructure folded in, since rebuilding-then-deleting the 3 pages it would have
+>         changed was wasted work) and the `IPlatformInstaller` extraction with a Windows
+>         implementation. Phases 4-5 (Linux impl, macOS impl + packaging) design only.
+>         Page-by-page direction confirmed with the user 2026-06-21 via a structured
+>         walk-through of all 10 then-current pages.
 > Scope: Rewrite `OrchestratorSetup` (today a Windows-only WPF wizard) as a cross-platform
 >        Avalonia GUI installer; abstract every Windows-coupled action (hardware detection,
 >        firewall, shortcuts, registry/uninstall) behind a per-OS layer; pivot runtime
@@ -283,15 +284,26 @@ throughout (no big-bang cutover).
   other branch, just skip the call) so a future non-Windows build degrades to a safe CPU
   default instead of crashing.
 
-### Phase 2 — Extract `IPlatformInstaller` + Windows impl
-- Define the interface (§4.1); move `HardwareDetector`/`HiveEnroller`/`ProfileMerger`-shortcuts/
-  `UninstallService` behind the Windows implementation. Pure refactor, Windows behavior
-  unchanged, now structured for other OSes.
+### Phase 2 — Extract `IPlatformInstaller` + Windows impl — **Shipped 2026-06-21.**
+- `IPlatformInstaller` defined (§4.1, with two documented deviations from the original sketch:
+  `ConfigureFirewallAsync` takes no `ports` param since `HiveEnroller.Enroll` doesn't vary it,
+  and returns `Task<bool>` not `Task<string?>` since there's no Linux/macOS manual-fallback
+  string yet to return). `WindowsPlatformInstaller` is pure delegation to the existing
+  `HardwareDetector`/`HiveEnroller`/`ProfileMerger.CreateShortcuts`/`UninstallService` — no
+  rewrite. `PlatformInstaller.Current` (`Lazy<T>`-backed) resolves it on Windows, throws
+  `PlatformNotSupportedException` elsewhere until Phases 4-5. Took three review rounds to
+  actually land "no behavior change": the subtle one was a swallow-and-return-false wrapper
+  around `HiveEnroller.Enroll` that looked like it preserved the retry button's old try/catch
+  but silently changed `InstallOrchestrator`'s install-time HIVE step from "exception fails
+  the install" to "swallowed, proceeds as if it succeeded" — that caller never had a
+  try/catch before. Exceptions now propagate from the shared implementation; only the two
+  callers that always handled them locally still do, in their own code.
 
-### Phase 3 — Page restructure
-- Fold License into Welcome; drop Profile; convert OllamaCheck → Runtime Setup (native-first);
-  wire ModelSelect to the app's internal download stack; add the Complete HIVE button. Still
-  Windows-only at runtime, but the *flow* is the final flow.
+### Phase 3 — Page restructure — **folded into Phase 1, shipped 2026-06-21.**
+- Ported directly to the final 8-page flow during the WPF→Avalonia port itself, rather than
+  porting the old 10 pages first and restructuring them in a separate pass — rebuilding pages
+  slated for deletion (License as separate, Profile, OllamaCheck) would have been wasted work.
+  See Phase 1's entry above; nothing left to do here.
 
 ### Phase 4 — Linux implementation
 - `LinuxPlatformInstaller`: `/proc`+`nvidia-smi` detection, XDG paths, `ufw`/`firewalld` via
