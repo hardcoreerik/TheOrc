@@ -135,6 +135,19 @@ v1.9.0's HIVE fix made the node server start without crashing; it didn't make it
 
 If you installed v1.9.0 and HIVE MIND only ever seemed to discover other nodes one-directionally (or not at all), this is why — update to v1.9.1.
 
+### v1.9.2 — pairing actually works now
+
+Validating v1.9.1's reachability fix across three real machines (not just a single dev box) surfaced the next real gap: **pairing — the step where two machines agree to trust each other — never had a way to actually start.** The "approve" side was fully built (the responder endpoints, the approval prompt), but nothing in either UI, current or the now-deleted WPF one, ever called the endpoint that *initiates* a pairing request. It wasn't a bug so much as an unfinished feature nobody had hit yet, because nothing could reach it.
+
+**Added:** a "Pair with this node" action on any reachable HIVE node card, building the missing initiator side end to end — request, approval polling, shared-secret derivation.
+
+This one went through real adversarial review (two independent AI reviewers, multiple rounds) before shipping, and it caught genuine problems with the first draft, not nitpicks:
+- The approval-polling endpoint is unauthenticated by design, and the first version trusted a new peer as soon as it got an "approved" response — before the one real check (comparing a human-readable fingerprint between the two machines) ever happened. Fixed: trust is no longer written until the operator explicitly confirms the fingerprint matches what the other machine displays.
+- A newly-paired peer was being granted enough standing to become eligible for real Warchief authority later, regardless of whether it should be. Capped to a safer default — becoming Controller-eligible is now a separate, deliberate decision, not a side effect of pairing.
+- A few smaller correctness/cleanup fixes alongside those.
+
+Also: the code-review tooling used throughout this project's development kept falsely flagging legitimate security-related code as a risk and refusing to review it. Switched the underlying model, confirmed by direct comparison that the new one doesn't have this problem.
+
 ### Looking ahead to v2.0
 
 v2.0's defining change: **Native Runtime becomes the default, Ollama becomes fully optional.** That flip is explicitly gated on multi-machine HIVE MIND validation of this release's native opt-in path across a real LAN/Tailscale network — not a fixed date. Also planned, not yet started:
