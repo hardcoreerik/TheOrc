@@ -1,5 +1,11 @@
 # TheOrc — Reviewer Adapter Guide
 
+> **Status: PARKED (since 2026-06-13), not abandoned.** The investigation
+> phase (B-3/B-4 below) reached its conclusion and work paused for other
+> priorities. Still a valid goal — see
+> [`reviewer-adapter/00-index.md`](reviewer-adapter/00-index.md) for why it
+> paused and how to resume.
+
 > This guide explains how TheOrc learns to review its own code. Read the [Training Pit Guide](TRAINING_PIT_GUIDE.md) for the planning-adapter story; this one covers the **reviewer adapter** — a separate, parallel pipeline that turns Codex code reviews into training data for a local reviewer model. Read [DATASET_REVIEW_WORKFLOW.md](DATASET_REVIEW_WORKFLOW.md) for the manifest-driven approval flow used by both pipelines.
 
 ---
@@ -183,9 +189,9 @@ The capture saved on 2026-06-13 09:05 is the first valid Tier-1 row.
 
 Phase 2 training is **blocked** until all of these are true:
 
-| Condition | Required | Current (2026-06-13) |
+| Condition | Required | Current (2026-06-20, parked) |
 |---|---|---|
-| Tier 1 paired captures (both verdicts non-null) | ≥ 50 | 3 |
+| Tier 1 paired captures (both verdicts non-null) | ≥ 50 | 4 — unchanged since work paused; resume `tools/review-capture.ps1` during normal dev to grow this passively |
 | Tier 2 hand-authored examples | ≥ 20 | 0 |
 | Tier 3 public C# subset prepared | ≥ 100 cleaned examples | not started |
 | Semi-formal certificate prompt deployed in `tools/theorc-review.ps1` | Done | **Done** (2026-06-13) |

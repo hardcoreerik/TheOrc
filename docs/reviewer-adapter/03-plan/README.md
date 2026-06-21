@@ -10,3 +10,6 @@ trust-promotion ladder.
 This folder exists for plan *deltas* — when a planning decision changes, record
 the dated decision here and update the canonical guide to match. As of
 2026-06-13 there are no deltas; the guide is current.
+
+**PARKED, not abandoned** — see [00-index.md](../00-index.md) for why the
+project paused after this plan was set and how to resume it.

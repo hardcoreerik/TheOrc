@@ -494,6 +494,7 @@ Ollama stays the **default and fallback** until the ModelDepot + installer first
 | **"Zero idle chatter" message discipline** | Not implemented | Good spec hygiene; no user-visible impact currently; revisit when HIVE worker verbosity becomes a real problem |
 | **Cross-platform desktop (Mac / Linux)** | WPF deleted 2026-06-20, Avalonia is the only desktop shell | `dotnet publish -r osx-arm64` should work — not yet verified on real macOS/Linux hardware. ScreenRecorder degrades gracefully (SharpAVI Windows-only). Warband (daemon) is already cross-platform — see WARBANDS above. |
 | **On-platform self-improvement (TheOrc trains itself)** | Partial | Pit Boss + Cerebras pipeline makes the dataset side nearly free; the gap is auto-generating and auto-judging training goals without human input; deferred until v2 adapter proves out the data quality |
+| **Reviewer adapter (local model trained to review TheOrc's own code, replacing Codex)** | PARKED 2026-06-13 — investigation concluded, build not started | B-3/B-4 baseline series proved prompt-engineering alone has a hard ceiling on `qwen2.5-coder:14b` (0/3 Codex catches); Stage 1 SFT needs off-machine compute that went to ORC ACADEMY training instead. Still considered valuable — not cancelled. See [`reviewer-adapter/00-index.md`](reviewer-adapter/00-index.md) for the resume plan and phase gate. |
 
 ---
 
