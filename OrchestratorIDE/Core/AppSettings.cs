@@ -199,6 +199,13 @@ public class AppSettings
     public bool HiveMindEnabled { get; set; } = false;
 
     /// <summary>
+    /// Disables the constellation view's flowing-data/breathing-center animations,
+    /// falling back to the static rendering. Off (animations on) by default; opt-in
+    /// for machines where the animation loop isn't worth the CPU cost.
+    /// </summary>
+    public bool HiveLiteMode { get; set; } = false;
+
+    /// <summary>
     /// Phase 3 — Distributed Swarm. When true AND HiveMindEnabled, this machine
     /// acts as a Warchief: it opens a HiveTaskQueue (port 7079) and distributes
     /// SwarmTasks to worker nodes instead of running them all locally.

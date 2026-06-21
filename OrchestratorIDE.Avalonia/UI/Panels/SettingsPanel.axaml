@@ -318,6 +318,20 @@
                     </DockPanel>
                 </Border>
 
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <ToggleButton x:Name="TglHiveLiteMode"
+                                      DockPanel.Dock="Right"
+                                      Theme="{StaticResource ToggleStyle}"
+                                      IsChecked="False"/>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Lite Mode" Classes="SettingLabel"/>
+                            <TextBlock Text="Turns off the constellation view's flowing-data animation and breathing center node. The warband stops marching, but everything still works — flip this on if the Hive tab feels sluggish on this machine."
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
                 <!-- ── NATIVE RUNTIME (Phase 3 telemetry) ──────────────── -->
                 <TextBlock Text="NATIVE RUNTIME" Classes="SectionHeader" Margin="0,12,0,0"/>
 

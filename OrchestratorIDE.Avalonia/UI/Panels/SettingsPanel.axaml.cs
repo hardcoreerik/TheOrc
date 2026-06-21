@@ -91,6 +91,7 @@ public partial class SettingsPanel : UserControl
         TglCheckUpdates.IsChecked     = s.CheckForUpdates;
         TbDefaultWorkspace.Text       = s.DefaultWorkspace;
         TglHiveMindEnabled.IsChecked  = s.HiveMindEnabled;
+        TglHiveLiteMode.IsChecked     = s.HiveLiteMode;
         TglNativeHiveWorker.IsChecked = s.ExperimentalNativeHiveWorkerEnabled;
         TbNativeRuntimeModelRoot.Text = s.NativeRuntimeModelRoot;
         TbNativeRuntimeContextSize.Text = s.NativeRuntimeContextSize.ToString();
@@ -214,6 +215,7 @@ public partial class SettingsPanel : UserControl
         s.OllamaParallelSlots = SelectedSlots();
         s.SourceFolderPath    = TbSourceFolder.Text?.Trim() ?? "";
         s.HiveMindEnabled = TglHiveMindEnabled.IsChecked == true;
+        s.HiveLiteMode    = TglHiveLiteMode.IsChecked == true;
         s.ExperimentalNativeHiveWorkerEnabled = TglNativeHiveWorker.IsChecked == true;
         s.NativeRuntimeModelRoot = TbNativeRuntimeModelRoot.Text?.Trim() ?? "";
         s.NativeRuntimeContextSize = int.TryParse(TbNativeRuntimeContextSize.Text, out var nativeCtx)

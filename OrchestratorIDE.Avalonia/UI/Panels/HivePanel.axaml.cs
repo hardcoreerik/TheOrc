@@ -58,6 +58,24 @@ public partial class HivePanel : UserControl
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromSeconds(8) };
     private string? _warchiefNodeId;
 
+    /// <summary>
+    /// Disables the flowing-data/breathing-center animation, falling back to the static
+    /// constellation rendering. Set by MainWindow from AppSettings.HiveLiteMode.
+    /// </summary>
+    public bool LiteMode { get; set; }
+
+    // ── Constellation animation ("the warband marching") ───────────────────────
+    // Deliberately a fixed ~20fps tick (not 60fps) -- this is ambient decoration on a
+    // developer tool's background panel, not core functionality, so it trades visual
+    // smoothness for a meaningfully lower CPU floor. LiteMode (Settings) skips this
+    // entirely for machines where even that isn't worth it.
+    private readonly DispatcherTimer _animTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
+    private double _animT;   // 0..1, drives spark position along each line (loops)
+    private double _breathT; // unbounded, drives the slow center-node breathing pulse
+    private sealed record AnimatedLine(Point Start, Point End, Ellipse Spark, SolidColorBrush SparkFill);
+    private readonly List<AnimatedLine> _animatedLines = [];
+    private Border? _centerCardRef;
+
     // ── Discovered nodes (beacon / scan) ──────────────────────────────────────
     private readonly Dictionary<string, HiveBeaconMessage> _discovered = [];
 
@@ -72,9 +90,10 @@ public partial class HivePanel : UserControl
 
         _poll.Tick      += async (_, _) => await ProbeAndDrawAsync();
         _eventPoll.Tick += (_, _) => PollEvents();
+        _animTimer.Tick += (_, _) => AnimTick();
 
         Loaded   += async (_, _) => { Refresh(); await ProbeAndDrawAsync(); _poll.Start(); };
-        Unloaded += (_, _) => { _poll.Stop(); _eventPoll.Stop(); };
+        Unloaded += (_, _) => { _poll.Stop(); _eventPoll.Stop(); _animTimer.Stop(); };
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -149,8 +168,10 @@ public partial class HivePanel : UserControl
     {
         var c = HiveCanvas;
         c.Children.Clear();
+        _animatedLines.Clear();
+        _centerCardRef = null;
         double w = c.Bounds.Width, h = c.Bounds.Height;
-        if (w < 50 || h < 50 || _hosts.Count == 0) return;
+        if (w < 50 || h < 50 || _hosts.Count == 0) { _animTimer.Stop(); return; }
 
         double cx = w / 2, cy = h / 2;
         var peers = _hosts.Where(x => x.Name != "This PC").ToList();
@@ -192,6 +213,24 @@ public partial class HivePanel : UserControl
                 line.StrokeDashArray = new AvaloniaList<double> { 4.0, 4.0 };
             c.Children.Add(line);
 
+            if (alive && !LiteMode)
+            {
+                // One spark per active connection -- the "data flowing to/from the
+                // HIVEMIND" effect. Deliberately not one per direction (in+out): with
+                // many peers connected simultaneously, doubling the moving elements adds
+                // visual noise for marginal benefit; a single spark alternating direction
+                // each half-cycle (see AnimTick) reads as "back and forth" just as well.
+                var sparkFill = new SolidColorBrush(Color.FromRgb(0xFF, 0xC8, 0x40));
+                var spark = new Ellipse { Width = 7, Height = 7, Fill = sparkFill };
+                Canvas.SetLeft(spark, cx - 3.5);
+                Canvas.SetTop(spark, cy - 3.5);
+                c.Children.Add(spark);
+                // Hold the brush directly rather than casting it back out of spark.Fill in
+                // AnimTick -- an unchecked cast there would throw on every timer tick if Fill
+                // were ever reassigned to something else (Grok CLI MINOR, 2026-06-21).
+                _animatedLines.Add(new AnimatedLine(new Point(cx, cy), new Point(px, py), spark, sparkFill));
+            }
+
             bool isPeerWarchief = warchiefIp is not null
                 && SafeUriHost(peers[i].Url) == warchiefIp;
             var card = BuildNodeCard(peers[i], isCenter: false, isWarchief: isPeerWarchief);
@@ -204,6 +243,12 @@ public partial class HivePanel : UserControl
         Canvas.SetLeft(center, cx - 105);
         Canvas.SetTop(center, cy - 50);
         c.Children.Add(center);
+        _centerCardRef = center;
+
+        // Runs even with zero peers connected -- the center node's breathing pulse alone
+        // still conveys "alive and coordinating," not just spark movement along lines.
+        if (!LiteMode) _animTimer.Start();
+        else _animTimer.Stop();
 
         if (peers.Count == 0)
         {
@@ -218,6 +263,40 @@ public partial class HivePanel : UserControl
             Canvas.SetTop(hint, cy + 70);
             c.Children.Add(hint);
         }
+    }
+
+    /// <summary>
+    /// One tick (~20fps) of the constellation's ambient animation: moves each active
+    /// connection's spark back and forth along its line, and breathes the center node's
+    /// opacity slowly. Cheap by design -- no path recalculation, just linear interpolation
+    /// between two cached points per spark and a single opacity write on the center card.
+    /// </summary>
+    private void AnimTick()
+    {
+        // Full back-and-forth cycle: ~2.5s out, ~2.5s back (50 ticks each way at 50ms/tick).
+        _animT = (_animT + 1.0 / 50.0) % 2.0;
+        bool outbound = _animT <= 1.0;
+        double progress = outbound ? _animT : 2.0 - _animT;
+        var sparkColor = outbound
+            ? Color.FromRgb(0xFF, 0xC8, 0x40)   // amber: task dispatching outward
+            : Color.FromRgb(0x4E, 0xC9, 0x4E);  // green: result flowing back to center
+
+        foreach (var line in _animatedLines)
+        {
+            double x = line.Start.X + (line.End.X - line.Start.X) * progress;
+            double y = line.Start.Y + (line.End.Y - line.Start.Y) * progress;
+            Canvas.SetLeft(line.Spark, x - line.Spark.Width / 2);
+            Canvas.SetTop(line.Spark, y - line.Spark.Height / 2);
+            line.SparkFill.Color = sparkColor;
+        }
+
+        // Slow ~3.5s breathing cycle on the center node -- "alive and coordinating"
+        // without being distracting. Unbounded growth of _breathT is fine: Math.Sin
+        // handles arbitrarily large doubles without meaningful precision loss over any
+        // realistic app session length.
+        _breathT += 2.0 * Math.PI / 70.0;
+        if (_centerCardRef is not null)
+            _centerCardRef.Opacity = 0.86 + 0.14 * (0.5 + 0.5 * Math.Sin(_breathT));
     }
 
     private Border BuildNodeCard(HiveHost host, bool isCenter, bool isWarchief = false)

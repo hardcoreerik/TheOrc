@@ -1446,6 +1446,7 @@ public partial class MainWindow : Window
         else if (mode == "hive")
         {
             _hivePanel.LocalUrl = _settings.OllamaHost;
+            _hivePanel.LiteMode = _settings.HiveLiteMode;
             _hivePanel.Refresh();
             _hivePanel.OnApplyRpcWorkers        -= OnApplyRpcWorkers;
             _hivePanel.OnApplyRpcWorkers        += OnApplyRpcWorkers;
@@ -1699,6 +1700,15 @@ public partial class MainWindow : Window
     {
         var oldBackend = _settings.Backend;
         _settings = newSettings;
+
+        // Push HiveLiteMode and apply it immediately if the user is sitting on the Hive
+        // tab right now -- otherwise the toggle change waits until they navigate away and
+        // back (SetMode("hive") is the only other place that currently pushes this value),
+        // which is a confusing place for it to silently not take effect (Grok CLI MINOR,
+        // 2026-06-21).
+        _hivePanel.LiteMode = newSettings.HiveLiteMode;
+        if (_settings.LastMode == "hive")
+            _hivePanel.Refresh();
 
         if (newSettings.Backend != oldBackend ||
             (newSettings.Backend == InferenceBackend.LlamaCpp &&
