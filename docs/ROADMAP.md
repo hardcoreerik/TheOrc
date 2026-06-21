@@ -382,6 +382,12 @@ Wire `EVAL_RUBRIC.md` into a UI-driven automated model regression test. After ea
 ### HIVE MIND: remote harvest and academy execution
 Allow a HIVE worker node to run GOBLIN HARVEST overnight and return captures to the boss node's Training Pit. Remote adapter training (via HIVE) is further out — needs Phase 3B first.
 
+### HIVE MIND: hive identity, membership certs, auto-promotion — targeting v1.9.4
+Full spec written 2026-06-21: [`HIVE_MEMBERSHIP_SPEC.md`](HIVE_MEMBERSHIP_SPEC.md). Adds a hive-wide `HiveId` (survives Warchief elections, unlike per-node identity), membership certificates so a node can prove hive membership to a peer it never directly paired with (avoids O(n²) manual-approval pairing at "100s of nodes" scale), an authenticated `/hive/mesh/role-assign` RPC + "Declare this machine Warchief" UI action (first real consumer of the long-dormant `HiveAcceptControlPolicy` enum), and a first-run/repair discovery wizard (scan LAN/Tailscale → join existing hive or found a new one). Four independently-shippable phases, no code yet — spec precedes implementation per explicit instruction. Also flags and fixes a naming collision: the existing "🎯 Set as Warchief" context-menu item is an unrelated swarm-task-routing preference, not mesh authority — gets renamed before the new same-named-sounding action ships.
+
+### HIVE MIND: duplicate node-entry merging + Warchief/Worker topology layout
+Deferred "next version" items from live pairing testing (2026-06-21): merge duplicate node cards for the same machine (e.g. one via LAN, one via Tailscale IP, one via Tailscale MagicDNS) into a single card showing all reachable paths; change the constellation's visual layout once roles are assigned (Warchief vs Worker) to reflect hive topology, not just a flat node list. Both visual-only, unrelated to the trust-model work in `HIVE_MEMBERSHIP_SPEC.md`.
+
 ---
 
 ## WARBANDS — Cloud & Headless Deployment
