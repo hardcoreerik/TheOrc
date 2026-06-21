@@ -75,16 +75,28 @@ public static class HiveEnroller
                    ("TheOrc Hive - Queue",   TaskQueuePort, "TCP"),
                    ("TheOrc Hive - RPC",     RpcPort,       "TCP") })
         {
-            RunNetsh($"advfirewall firewall delete rule name=\"{name}\"");
+            // Skip entirely if a correctly-configured rule already exists -- the previous
+            // version unconditionally ran "delete rule" first (unelevated), but deleting an
+            // existing admin-created firewall rule needs elevation too, so that delete
+            // silently failed every time, then the add succeeded via the one elevated batch
+            // below and piled a new rule on top of the old one(s). Confirmed in the field: a
+            // machine re-enrolled across several install/repair runs had FOUR duplicate rule
+            // objects per port (found 2026-06-21). Checking existence first makes this
+            // idempotent instead of additive.
+            if (FirewallRuleExists(name, port, proto))
+            {
+                log($"  Firewall rule '{name}' already correct ({proto} {port}, Private profile).");
+                continue;
+            }
             var addArgs =
                 $"advfirewall firewall add rule name=\"{name}\" dir=in action=allow " +
                 $"protocol={proto} localport={port} profile=private";
-            if (RunNetsh(addArgs) == 0 && FirewallRuleExists(name))
+            if (RunNetsh(addArgs) == 0 && FirewallRuleExists(name, port, proto))
             {
                 log($"  ✓ Firewall rule '{name}' ({proto} {port}, Private profile).");
                 continue;
             }
-            pending.Add(new PendingStep(addArgs, () => FirewallRuleExists(name),
+            pending.Add(new PendingStep(addArgs, () => FirewallRuleExists(name, port, proto),
                 $"firewall rule '{name}'"));
         }
 
@@ -173,7 +185,17 @@ public static class HiveEnroller
         }
     }
 
-    private static bool FirewallRuleExists(string name)
+    /// <summary>
+    /// True only if a rule with this exact name AND the expected port/protocol exists --
+    /// matching by name alone (the previous behavior) would consider a rule "present" even
+    /// if its port/protocol drifted from what the current code expects (e.g. a future
+    /// constant change), silently leaving the real port unprotected. "netsh ... show rule"
+    /// prints one full block per matching rule (Protocol:/LocalPort: lines included), so a
+    /// stale-port duplicate is distinguishable from a correct one rather than just counted
+    /// as "exists" (Codex/Grok-style hardening added 2026-06-21 alongside the duplicate-rule
+    /// fix above).
+    /// </summary>
+    private static bool FirewallRuleExists(string name, int port, string protocol)
     {
         try
         {
@@ -185,7 +207,16 @@ public static class HiveEnroller
             });
             var output = p!.StandardOutput.ReadToEnd();
             p.WaitForExit(10000);
-            return p.ExitCode == 0 && !output.Contains("No rules match", StringComparison.OrdinalIgnoreCase);
+            if (p.ExitCode != 0 || output.Contains("No rules match", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            // Each matching rule prints its own "Protocol:"/"LocalPort:" pair; check that at
+            // least one block has both the expected protocol and port (a rule could exist
+            // under this name with stale settings from an older code version).
+            var blocks = output.Split("Rule Name:", StringSplitOptions.RemoveEmptyEntries);
+            return blocks.Any(b =>
+                System.Text.RegularExpressions.Regex.IsMatch(b, $@"Protocol:\s*{protocol}\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase) &&
+                System.Text.RegularExpressions.Regex.IsMatch(b, $@"LocalPort:\s*{port}\b"));
         }
         catch
         {
