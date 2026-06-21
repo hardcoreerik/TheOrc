@@ -18,6 +18,16 @@ namespace OrchestratorIDE.Services.Hive;
 /// </summary>
 public static class HivePairingClient
 {
+    // HiveNodeServer serializes responses with PropertyNamingPolicy.CamelCase (_jsonOut,
+    // e.g. "status", "warchiefNodeId"). Deserializing with default (case-sensitive, PascalCase-
+    // matching) options means every property silently misses and stays at its type default --
+    // HivePairingResponse.Status defaults to "pending", so EVERY poll looked like "pending"
+    // forever regardless of the server's real state, masking a real "approved" response and
+    // eventually returning Outcome.TimedOut even when the server approved within seconds.
+    // Found 2026-06-21 in a live pairing test: server's hive-peers.json showed the peer paired
+    // ~5s after the request, but the client (with --timeout up to 90s) still reported timeout.
+    private static readonly JsonSerializerOptions _jsonIn = new() { PropertyNameCaseInsensitive = true };
+
     public enum Outcome { Approved, Rejected, Expired, TimedOut, AlreadyPaired, Error }
 
     public sealed record Result(Outcome Outcome, string? Message = null, PendingTrust? Pending = null);
@@ -155,7 +165,7 @@ public static class HivePairingClient
             try
             {
                 var json = await http.GetStringAsync(pollUrl, ct).ConfigureAwait(false);
-                resp = JsonSerializer.Deserialize<HivePairingResponse>(json);
+                resp = JsonSerializer.Deserialize<HivePairingResponse>(json, _jsonIn);
             }
             catch
             {
