@@ -301,6 +301,23 @@
                             ToolTip.Tip="Copies a PowerShell one-liner to restart Ollama with the selected slot count."/>
                 </StackPanel>
 
+                <!-- ── HIVE MIND ────────────────────────────────────────── -->
+                <TextBlock Text="HIVE MIND" Classes="SectionHeader" Margin="0,12,0,0"/>
+
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <ToggleButton x:Name="TglHiveMindEnabled"
+                                      DockPanel.Dock="Right"
+                                      Theme="{StaticResource ToggleStyle}"
+                                      IsChecked="False"/>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Enable HIVE MIND" Classes="SettingLabel"/>
+                            <TextBlock Text="Lets this machine join a HIVE MIND mesh (pairing, distributed task dispatch). Takes effect after restarting the app."
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
                 <!-- ── NATIVE RUNTIME (Phase 3 telemetry) ──────────────── -->
                 <TextBlock Text="NATIVE RUNTIME" Classes="SectionHeader" Margin="0,12,0,0"/>
 
