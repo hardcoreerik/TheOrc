@@ -1,0 +1,106 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<Window x:Class="OrchestratorIDE.UI.Windows.HiveDiscoveryWizard"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="TheOrc — Join or Create a HIVE"
+        Width="560" Height="620"
+        WindowStartupLocation="CenterScreen"
+        CanResize="False"
+        Background="#161616"
+        Foreground="#D4D4D4"
+        FontFamily="Consolas, 'Cascadia Code', monospace"
+        AutomationProperties.AutomationId="HiveWizard.Root">
+
+    <Window.Styles>
+        <Style Selector="TextBlock">
+            <Setter Property="Foreground" Value="#D4D4D4"/>
+            <Setter Property="FontFamily" Value="Consolas, 'Cascadia Code', monospace"/>
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="Background"  Value="#252525"/>
+            <Setter Property="Foreground"  Value="#D4D4D4"/>
+            <Setter Property="BorderBrush" Value="#2E3A2E"/>
+            <Setter Property="Padding"     Value="14,7"/>
+            <Setter Property="Cursor"      Value="Hand"/>
+            <Setter Property="FontFamily"  Value="Consolas, 'Cascadia Code', monospace"/>
+            <Setter Property="FontSize"    Value="12"/>
+        </Style>
+        <Style Selector="ListBoxItem">
+            <Setter Property="Padding" Value="10,8"/>
+        </Style>
+    </Window.Styles>
+
+    <DockPanel>
+
+        <!-- Header -->
+        <Border DockPanel.Dock="Top" Background="#0E0E0E"
+                BorderBrush="#2A3A2A" BorderThickness="0,0,0,1">
+            <DockPanel>
+                <Border DockPanel.Dock="Left" Width="4" Background="#76B900"/>
+                <StackPanel Margin="16,14,16,14">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="⬡" Foreground="#76B900" FontSize="20"
+                                   VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <TextBlock Text="TheOrc" Foreground="#FFFFFF"
+                                   FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <TextBlock Text="  ·  HIVE MIND Setup"
+                                   Foreground="#7A8A6A" FontSize="12"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock x:Name="TbReason" FontSize="10" Foreground="#5A6A4A"
+                               TextWrapping="Wrap"
+                               Text="Scanning this network for an existing hive before deciding whether to join one or create a new one."/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Footer -->
+        <Border DockPanel.Dock="Bottom" Background="#0E0E0E"
+                BorderBrush="#2A3A2A" BorderThickness="0,1,0,0"
+                Padding="20,12">
+            <DockPanel>
+                <Button x:Name="BtnSkip" DockPanel.Dock="Left"
+                        Content="Skip for now"
+                        Background="Transparent" BorderBrush="#2E3A2E"
+                        Foreground="#7A8A6A" Click="BtnSkip_Click"
+                        AutomationProperties.AutomationId="HiveWizard.Skip"/>
+                <Button x:Name="BtnCreate" DockPanel.Dock="Right"
+                        Content="✨  Create New Hive"
+                        Background="#2A5200" BorderBrush="#3A7000"
+                        Foreground="#76B900" FontWeight="Bold"
+                        Click="BtnCreate_Click"
+                        AutomationProperties.AutomationId="HiveWizard.Create"/>
+                <Button x:Name="BtnJoin" DockPanel.Dock="Right" Margin="0,0,10,0"
+                        Content="🤝  Join Selected Hive"
+                        IsEnabled="False"
+                        Click="BtnJoin_Click"
+                        AutomationProperties.AutomationId="HiveWizard.Join"/>
+            </DockPanel>
+        </Border>
+
+        <!-- Body -->
+        <DockPanel Margin="20,16,20,16">
+
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                <Button x:Name="BtnRescan" DockPanel.Dock="Right"
+                        Content="🔄  Rescan" Click="BtnRescan_Click"
+                        AutomationProperties.AutomationId="HiveWizard.Rescan"/>
+                <TextBlock x:Name="TbStatus" VerticalAlignment="Center"
+                           FontSize="11" Foreground="#7A8A6A"
+                           Text="Scanning for nearby hives…"
+                           AutomationProperties.AutomationId="HiveWizard.Status"/>
+            </DockPanel>
+
+            <TextBlock DockPanel.Dock="Top" Text="DISCOVERED ON THIS NETWORK" FontSize="10"
+                       FontWeight="Bold" Foreground="#76B900" Margin="0,0,0,6"/>
+
+            <ListBox x:Name="LstHives"
+                     SelectionChanged="LstHives_SelectionChanged"
+                     Background="#0A0A0A"
+                     BorderBrush="#2E3A2E" BorderThickness="1"
+                     AutomationProperties.AutomationId="HiveWizard.HiveList"/>
+
+        </DockPanel>
+
+    </DockPanel>
+</Window>

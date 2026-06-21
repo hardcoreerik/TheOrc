@@ -15,6 +15,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.Input.Platform;
 using OrchestratorIDE.Services.Hive;
+using OrchestratorIDE.UI.Windows;
 
 namespace OrchestratorIDE.UI.Panels;
 
@@ -35,6 +36,13 @@ public partial class HivePanel : UserControl
     // ── Events ────────────────────────────────────────────────────────────────
     public event Action<string>?                  OnWarchiefTargetSelected;
     public event Action<IReadOnlyList<string>>?   OnApplyRpcWorkers;
+    /// <summary>
+    /// Raised when the discovery/repair wizard (opened from this panel) founded or joined a
+    /// hive — i.e. this node's HiveId changed. MainWindow subscribes to re-broadcast the
+    /// beacon payload so the new HiveId propagates (HIVE_MEMBERSHIP_SPEC.md §7; the beacon
+    /// lives in MainWindow, not here).
+    /// </summary>
+    public event Action?                          OnHiveAssociationChanged;
 
     // ── Event log ─────────────────────────────────────────────────────────────
     private const int MaxEventRows = 150;
@@ -466,6 +474,11 @@ public partial class HivePanel : UserControl
             // override distinct from HiveElectionService's automatic failover. Only makes
             // sense from the local "This PC" card, since it's declaring THIS machine.
             cm.Items.Add(CmItem("👑  Declare this machine Warchief", () => _ = DeclareWarchiefAsync()));
+            // Manual re-invocation of the discovery wizard (HIVE_MEMBERSHIP_SPEC.md §7.1) --
+            // the same scan/join/create flow shown automatically at first HIVE start, in case
+            // the operator skipped it then or wants to reassociate after a "Reset node
+            // identity" (Settings → HIVE).
+            cm.Items.Add(CmItem("🔧  Repair HIVE association", () => _ = OpenHiveDiscoveryWizardAsync()));
         }
         else
         {
@@ -672,6 +685,32 @@ public partial class HivePanel : UserControl
         }
     }
 
+    /// <summary>
+    /// Opens the discovery wizard (HIVE_MEMBERSHIP_SPEC.md §7) -- manually via the "Repair
+    /// HIVE association" context-menu item, or automatically after a hiveid_mismatch pairing
+    /// failure (PairWithHostAsync, below). HivePanel is a UserControl, not a Window, so it
+    /// needs its TopLevel to host the dialog -- mirrors CopyTextAsync's existing
+    /// TopLevel.GetTopLevel(this) lookup just above.
+    /// </summary>
+    private async Task OpenHiveDiscoveryWizardAsync(string? reason = null)
+    {
+        if (TopLevel.GetTopLevel(this) is not Window owner)
+        {
+            await (AlertAsync?.Invoke("Could not open the HIVE wizard — no parent window.",
+                "HIVE MIND") ?? Task.CompletedTask);
+            return;
+        }
+        var wizard = new HiveDiscoveryWizard(reason);
+        var changed = await wizard.ShowDialog<bool>(owner);
+        if (changed)
+        {
+            // Founded/joined a hive — let MainWindow re-broadcast the beacon with the new
+            // HiveId, then redraw to reflect any newly-trusted peer.
+            OnHiveAssociationChanged?.Invoke();
+            DrawConstellation();
+        }
+    }
+
     private async void RemoveHost(HiveHost host)
     {
         var ok = await (ConfirmAsync?.Invoke(
@@ -778,6 +817,22 @@ public partial class HivePanel : UserControl
             };
             AddEvent($"[{DateTime.Now:HH:mm:ss}] {msg}", new SolidColorBrush(Colors.OrangeRed));
             await (AlertAsync?.Invoke(msg, "HIVE MIND — Pair") ?? Task.CompletedTask);
+
+            // HIVE_MEMBERSHIP_SPEC.md §7.1 auto-detected-problem trigger -- a hiveid_mismatch
+            // refusal (either the request-time check in HiveNodeServer, or CompletePairing's
+            // own double-check) is a strong signal the operator is trying to join a different
+            // hive than the one this machine already belongs to. Keyed off the dedicated
+            // Result.HiveIdConflict flag rather than substring-matching the human-readable
+            // message, so a reworded message can't silently break this trigger.
+            if (result.HiveIdConflict)
+            {
+                var openWizard = await (ConfirmAsync?.Invoke(
+                    "This looks like a hive-identity conflict. Open the HIVE repair wizard to resolve it?",
+                    "HIVE MIND — Hive Conflict") ?? Task.FromResult(false));
+                if (openWizard)
+                    await OpenHiveDiscoveryWizardAsync(
+                        $"Reopened after a hive-identity conflict pairing with {host.Name}.");
+            }
         });
     }
 

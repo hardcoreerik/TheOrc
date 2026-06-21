@@ -444,6 +444,17 @@ public partial class MainWindow : Window
         if (!_settings.FirstRunComplete && !cliArgs.Contains("--autoapprove"))
             await Dispatcher.UIThread.InvokeAsync(ShowFirstRunWizardAsync);
 
+        // HIVE_MEMBERSHIP_SPEC.md §7.1 first-run trigger — sequenced AFTER the personalisation
+        // wizard above (rather than fired from inside the background StartHiveAsync Task.Run,
+        // which raced it into two concurrent owner-modal dialogs). Only when HIVE is enabled
+        // and this install hasn't yet founded/joined a hive (HiveRole.Unset); skipped in
+        // --autoapprove (headless) runs, same as first-run. Founding is purely local and
+        // joining is a client-initiated pairing, so neither depends on this node's own beacon/
+        // node-server (started concurrently by StartHiveAsync) being up yet.
+        if (_settings.HiveMindEnabled && !cliArgs.Contains("--autoapprove")
+            && Services.Hive.HiveIdentity.Load().HiveRole == Services.Hive.HiveRole.Unset)
+            await Dispatcher.UIThread.InvokeAsync(() => ShowHiveDiscoveryWizardAsync());
+
         InitDataLayer(_session.WorkspaceRoot);
     }
 
@@ -538,6 +549,9 @@ public partial class MainWindow : Window
                     _hivePanel.OnElectionStateChanged(state, warchiefNodeId));
 
         _hiveBeacon = new Services.Hive.HiveBeacon();
+        // Captured so RefreshHiveBeaconHiveId can re-broadcast after a wizard-driven HiveId
+        // change without re-deriving these (see that method's doc comment).
+        _beaconPayloadArgs = (name, ollamaUrlForPeers, models, vramMb);
         _hiveBeacon.Start(name, ollamaUrlForPeers, models, vramMb);
         _hiveBeacon.OnNodeSeen += msg =>
             Dispatcher.UIThread.InvokeAsync(() => _hivePanel.OnBeaconNodeSeen(msg));
@@ -594,6 +608,38 @@ public partial class MainWindow : Window
         var workerNote = _settings.HiveWorkerMode        ? $" · Worker→{_settings.HiveWarchiefUrl}"       : "";
         AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE MIND",
             $"Active as {name}{rpcNote}{queueNote}{workerNote}", DateTime.Now));
+    }
+
+    /// <summary>
+    /// Re-broadcasts this node's beacon payload so a HiveId change (founded/joined via the
+    /// discovery wizard after StartHiveAsync already started the beacon) reaches the network
+    /// on the next tick instead of continuing to advertise the pre-wizard (empty) HiveId.
+    /// HiveBeacon.UpdatePayload reads HiveId fresh from HiveIdentity each call (Phase 1), so
+    /// this only needs to re-supply the same name/url/models/vram it was started with --
+    /// captured into fields by StartHiveAsync. Null-safe: if the beacon hasn't started yet,
+    /// its own Start will pick up the fresh HiveId, so there's nothing to refresh.
+    /// </summary>
+    private void RefreshHiveBeaconHiveId()
+    {
+        if (_hiveBeacon is null || _beaconPayloadArgs is null) return;
+        var (n, url, models, vram) = _beaconPayloadArgs.Value;
+        _hiveBeacon.UpdatePayload(n, url, models, vram);
+    }
+
+    private (string Name, string Url, IReadOnlyList<string> Models, int VramMb)? _beaconPayloadArgs;
+
+    /// <summary>
+    /// HIVE_MEMBERSHIP_SPEC.md §7 — first-run/repair discovery wizard. Shown after first-run
+    /// personalisation completes (sequenced, NOT raced — both are owner-modal on this window),
+    /// from HivePanel's "Repair HIVE association" item, and after a hiveid_mismatch pairing
+    /// failure (the latter two pass a <paramref name="reason"/> string). On success the node's
+    /// beacon payload is refreshed so its new HiveId propagates immediately.
+    /// </summary>
+    private async Task ShowHiveDiscoveryWizardAsync(string? reason = null)
+    {
+        var wizard = new HiveDiscoveryWizard(reason);
+        var changed = await wizard.ShowDialog<bool>(this);
+        if (changed) RefreshHiveBeaconHiveId();
     }
 
     // ── SQLite data layer ─────────────────────────────────────────────────
@@ -1457,6 +1503,8 @@ public partial class MainWindow : Window
             _hivePanel.OnApplyRpcWorkers        += OnApplyRpcWorkers;
             _hivePanel.OnWarchiefTargetSelected -= OnWarchiefTargetSelected;
             _hivePanel.OnWarchiefTargetSelected += OnWarchiefTargetSelected;
+            _hivePanel.OnHiveAssociationChanged -= RefreshHiveBeaconHiveId;
+            _hivePanel.OnHiveAssociationChanged += RefreshHiveBeaconHiveId;
             MainContent.Content    = _hivePanel;
             SidebarContent.Content = _explorerPanel;
         }

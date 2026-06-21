@@ -30,7 +30,14 @@ public static class HivePairingClient
 
     public enum Outcome { Approved, Rejected, Expired, TimedOut, AlreadyPaired, Error }
 
-    public sealed record Result(Outcome Outcome, string? Message = null, PendingTrust? Pending = null);
+    /// <param name="HiveIdConflict">
+    /// True when the failure is specifically a hive-identity mismatch (both sides belong to
+    /// different hives, HIVE_MEMBERSHIP_SPEC.md §4.3) — a distinct, machine-checkable signal so
+    /// callers (e.g. HivePanel's repair-wizard prompt) don't have to substring-match the
+    /// human-readable <paramref name="Message"/>, which would silently drift if reworded.
+    /// </param>
+    public sealed record Result(Outcome Outcome, string? Message = null, PendingTrust? Pending = null,
+                                bool HiveIdConflict = false);
 
     /// <summary>
     /// A derived peer + shared secret awaiting explicit operator confirmation before
@@ -154,16 +161,12 @@ public static class HivePairingClient
                 catch { /* fall through with status == null -> Outcome.Error below */ }
 
                 return new Result(
-                    status switch
-                    {
-                        "already_paired"  => Outcome.AlreadyPaired,
-                        "hiveid_mismatch" => Outcome.Error,
-                        _                  => Outcome.Error,
-                    },
+                    status == "already_paired" ? Outcome.AlreadyPaired : Outcome.Error,
                     status == "hiveid_mismatch"
                         ? $"{targetHost} already belongs to a different hive than this machine. " +
                           "Pairing across two separate hives isn't supported — see HIVE_MEMBERSHIP_SPEC.md §4.3."
-                        : body);
+                        : body,
+                    HiveIdConflict: status == "hiveid_mismatch");
             }
             if (!initResp.IsSuccessStatusCode)
             {
@@ -239,7 +242,8 @@ public static class HivePairingClient
                 identity.SetHive(resp.HiveId, HiveRole.Member);
             else if (identity.HiveId != resp.HiveId)
                 return new Result(Outcome.Error,
-                    "This machine and the target belong to different hives -- refusing to complete pairing.");
+                    "This machine and the target belong to different hives -- refusing to complete pairing.",
+                    HiveIdConflict: true);
         }
 
         byte[] secret;

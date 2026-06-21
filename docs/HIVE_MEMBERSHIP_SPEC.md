@@ -1,8 +1,10 @@
 # HIVE MIND — Hive Identity, Membership Certificates, and Auto-Promotion Specification
 
-> Status: Phase 1 (HiveId foundation, §9) implemented 2026-06-21. Phases 2-4 design only.
+> Status: Phases 1-4 implemented 2026-06-21 (all four §9 phases landed same day). One
+>         deferred remainder: cert-presentation at the request-time auth gate (§5.5
+>         implementation note) — needs its own signature scheme, intentionally not bolted on.
 >         Spec preceded implementation per explicit instruction: "write a fuller spec for
->         this before any code lands" — Phase 1 is the first phase actually built.
+>         this before any code lands."
 > Scope: Hive-wide identity (`HiveId`), membership certificates for non-transitive-pairing
 >        trust propagation, an authenticated role-assignment RPC + "declare Warchief and
 >        promote all peers" UI action, and a first-run/repair discovery wizard.
@@ -571,14 +573,22 @@ pairing rollout.
 - New per-peer `AcceptControlFrom` UI surface + Settings-level default (Section 6.4) — this
   is required for Phase 3 to be usable at all, not a follow-up.
 
-### Phase 4 — First-run wizard + repair flow
+### Phase 4 — First-run wizard + repair flow — **Shipped 2026-06-21.**
 
-- Extend `HiveBeacon.ScanAsync` result type to group by `hiveId` for display (built in
-  Phase 1; this phase is the UI consuming it).
-- New wizard screen (built on the in-progress `FirstRunWindow` Avalonia port).
-- Wire the three auto-trigger conditions (Section 7.1) to open the same wizard with a
-  context message.
-- Settings/menu entry point for manual "Repair HIVE association."
+- `HiveDiscoveryWizard` (`OrchestratorIDE.Avalonia/UI/Windows/`): scans via
+  `HiveBeacon.ScanAsync`, groups results by `hiveId`, offers Join (normal pairing ceremony
+  with fingerprint confirm) or Create (purely local founding). Flat single-screen `Window`
+  shown via `ShowDialog<bool>` (true = HiveId changed), matching `FirstRunWindow` rather than
+  building paged-wizard infrastructure for one screen.
+- Three trigger sites wired (Section 7.1): first HIVE start with `HiveRole.Unset`
+  (`MainWindow.InitializeAsync`, **sequenced after the first-run personalisation wizard**, not
+  raced from inside the background `StartHiveAsync` — a concurrent-modal bug caught in review);
+  manual "🔧 Repair HIVE association" (HivePanel center-card context menu); and a
+  `Result.HiveIdConflict` pairing refusal (HivePanel auto-prompts to open the repair wizard —
+  keyed off a dedicated flag, not a substring match on the message).
+- On success the node's beacon payload is re-broadcast (`MainWindow.RefreshHiveBeaconHiveId`,
+  fired via the new `HivePanel.OnHiveAssociationChanged` event) so the new HiveId propagates
+  immediately rather than waiting for the next restart.
 
 ---
 
@@ -589,16 +599,18 @@ pairing rollout.
 | `HiveId` + `HiveRole` on identity | `HiveIdentity.cs` | ✅ Implemented (`SetHive`, instance-locked + persist-before-mutate) |
 | `HiveId` on pairing request/response | `HiveNodeServer.cs`, `HivePairingClient.cs` | ✅ Implemented (§4.3 three-case reconciliation both sides; early `hiveid_mismatch` refusal at request time) |
 | `HiveId` on beacon payload | `HiveBeacon.cs` | ✅ Implemented |
-| `MembershipCert` model + signing | new file `HiveMembershipCert.cs` | 🔲 Not started |
-| Cert issuance at pairing | `HiveNodeServer.ApprovePairing` | 🔲 Not started |
-| Cert verification / provisional peer admission | `HivePeerStore.cs` | 🔲 Not started |
-| `POST /hive/mesh/role-assign` | `HiveNodeServer.cs` | 🔲 Not started |
-| `AcceptControlFrom` enforcement (first real use) | `HiveNodeServer.cs` | 🔲 Not started |
-| "🎯 Set as Warchief" rename | `HivePanel.axaml.cs` | 🔲 Not started |
-| "👑 Declare this machine Warchief" action | `HivePanel.axaml.cs` | 🔲 Not started |
-| Per-peer `AcceptControlFrom` UI | `HivePanel.axaml.cs` / Settings | 🔲 Not started |
-| First-run/repair wizard | new, built on `FirstRunWindow` | 🔲 Not started |
-| Beacon scan grouped by `hiveId` | `HiveBeacon.cs` + wizard UI | 🔲 Not started |
+| `HiveMembershipCert` model + signing | new file `HiveMembershipCert.cs` | ✅ Implemented |
+| Cert issuance at pairing | `HiveNodeServer.ApprovePairing` | ✅ Implemented (gated on `CanIssueMembershipCerts`) |
+| Cert verification / provisional peer admission | `HivePeerStore.cs` | ✅ Implemented (`TryAcceptViaMembershipCert`, unit-tested) |
+| Cert presentation at request-time auth gate | `HiveNodeServer.HandleAsync` | 🔲 Deferred — needs subject-proves-key signature scheme (§5.5) |
+| `POST /hive/mesh/role-assign` | `HiveNodeServer.cs` | ✅ Implemented (server-side Observer/Worker-only, `TryParseAssignableRole` unit-tested) |
+| `AcceptControlFrom` enforcement (first real use) | `HiveNodeServer.HandleRoleAssign` | ✅ Implemented |
+| "🎯 Set as Warchief" rename → "📤 Route my swarm tasks here" | `HivePanel.axaml.cs` | ✅ Implemented |
+| "👑 Declare this machine Warchief" action | `HivePanel.axaml.cs` | ✅ Implemented |
+| Per-peer `AcceptControlFrom` UI + Settings default | `HivePanel.axaml.cs` / `SettingsPanel` | ✅ Implemented |
+| First-run/repair wizard | `HiveDiscoveryWizard` (new) | ✅ Implemented (3 trigger sites) |
+| Beacon scan grouped by `hiveId` | `HiveBeacon.cs` + wizard UI | ✅ Implemented |
+| swarmcli parity (`--list-peers`, `--declare-warchief`, `--set-accept-control`, extended `--show-identity`) | `Tools/SwarmCli/Program.cs` | ✅ Implemented |
 
 ---
 
