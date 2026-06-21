@@ -68,6 +68,7 @@ bool    showIdentity = false;
 bool    pairMode     = false;
 bool    noRun        = false;
 string? nativeTestGgufPath = null;
+string? nativeGgufPath     = null;
 int     warchiefPort = HiveTaskQueue.QueuePort;
 string? warchiefUrl  = null;
 string? warchiefNodeId = null;
@@ -101,6 +102,7 @@ for (int i = 0; i < args.Length; i++)
         case "--pair":          pairMode     = true;            break;
         case "--no-run":        noRun        = true;            break;
         case "--native-test":   nativeTestGgufPath = Next();    break;
+        case "--native":        nativeGgufPath     = Next();    break;
         case "--target":        pairTarget   = Next();          break;
         case "--expect-fingerprint": expectFp = Next();         break;
         case "--allow-fingerprint":
@@ -112,6 +114,14 @@ for (int i = 0; i < args.Length; i++)
                 Local mode (default):
                   swarmcli --goal "<text>" [--workspace <dir>] [--plan-only]
                            [--boss <m>] [--coder <m>] [--researcher <m>] [--host <url>] [--timeout <s>]
+
+                Local mode, native runtime (LLamaSharp) instead of Ollama for ALL roles
+                (boss/coder/researcher) -- LLamaSharpRuntime.StreamCompletionAsync ignores its
+                `model` argument and always runs whatever's currently loaded, so this can't be
+                split per-role with today's SwarmSession API; one native model serves every
+                role. Tests real SwarmSession tool-calling reliability under native runtime,
+                not just a raw completion (--native-test does that):
+                  swarmcli --goal "<text>" --native <path-to-gguf-or-ollama-blob> [--workspace <dir>]
 
                 Show this node's HIVE identity (NodeId + fingerprint, for out-of-band verification):
                   swarmcli --show-identity
@@ -388,8 +398,44 @@ var before = Directory.Exists(stagingDir)
 
 // ── Run ──────────────────────────────────────────────────────────────────────
 
-var ollama  = new OllamaClient(host);
-var session = new SwarmSession(new OllamaRuntime(ollama), boss, workspace, coder, researcher);
+var ollama = new OllamaClient(host);
+
+IModelRuntime swarmRuntime;
+// Plain nullable (not an "await using" declaration) -- C# forbids reassigning a using-declared
+// variable (CS1656), and this needs assigning inside the if-block below. Every return site
+// from here on that exits before the final fallthrough disposal must explicitly dispose this
+// (Grok CLI BLOCKER x5, 2026-06-21: the first version of this loaded a model on several paths
+// and never disposed it on any of them -- match the existing queue/nodeServer convention
+// already used elsewhere in this file: explicit dispose at each early-return site).
+LLamaSharpRuntime? nativeRuntime = null;
+// --native is irrelevant to --no-run (a pairing/queue-server-only mode that never touches
+// SwarmSession) -- skip loading a model nothing will use, and don't fail --no-run just
+// because an unrelated --native path happens to be bad (Grok CLI MINOR, 2026-06-21).
+if (nativeGgufPath is not null && !noRun)
+{
+    if (!File.Exists(nativeGgufPath))
+    {
+        Console.Error.WriteLine($"--native: file not found: {nativeGgufPath}");
+        return 1;
+    }
+    nativeRuntime = new LLamaSharpRuntime();
+    var load = await nativeRuntime.LoadModelAsync(nativeGgufPath);
+    if (!load.Success)
+    {
+        Console.Error.WriteLine($"--native: failed to load model: {load.Message}");
+        await nativeRuntime.DisposeAsync();
+        return 1;
+    }
+    Console.WriteLine($"--native: loaded {nativeGgufPath} via LLamaSharp -- " +
+        "serving boss/coder/researcher (model strings below are ignored by this runtime).");
+    swarmRuntime = nativeRuntime;
+}
+else
+{
+    swarmRuntime = new OllamaRuntime(ollama);
+}
+
+var session = new SwarmSession(swarmRuntime, boss, workspace, coder, researcher);
 
 HiveTaskQueue? queue = null;
 HiveNodeServer? nodeServer = null;
@@ -445,6 +491,7 @@ if (warchiefMode)
         Console.Error.WriteLine($"  [warchief] ✗ FAILED to bind pairing server on :{HiveNodeServer.ApiPort} " +
             "(port in use, or insufficient permission for the URL ACL). Pairing will not work.");
         nodeServer.Dispose(); // Grok CLI MINOR, 2026-06-21: was left allocated on this path.
+        if (nativeRuntime is not null) await nativeRuntime.DisposeAsync();
         return 1;
     }
     // IsListening alone doesn't mean remote pairing works -- Start() can fall back to a
@@ -478,6 +525,7 @@ if (warchiefMode)
             "(port in use, or insufficient permission for the URL ACL). Distributed dispatch will not work.");
         nodeServer.Dispose();
         queue.Dispose(); // Grok CLI MINOR, 2026-06-21: watchdog timer + listener were left allocated.
+        if (nativeRuntime is not null) await nativeRuntime.DisposeAsync();
         return 1;
     }
 
@@ -562,6 +610,19 @@ if (timedOut)
     stopRequested = true;
     session.Stop();
     await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(10)));
+
+    // Under --native, the "await using" declaration above disposes nativeRuntime (and its
+    // live LLamaWeights/native context) at scope-exit regardless of whether runTask actually
+    // finished. Racing a 10s delay is fine for Ollama (an HttpClient), but disposing live
+    // unmanaged native weights while a stream/InferAsync call might still be running is a
+    // real crash risk, not just a benign ObjectDisposedException -- wait for the real
+    // completion in that case instead of moving on after the bound (Grok CLI BLOCKER,
+    // 2026-06-21).
+    if (nativeRuntime is not null && !runTask.IsCompleted)
+    {
+        Console.Error.WriteLine("  Waiting for native inference to actually stop before disposing the model...");
+        try { await runTask; } catch { /* already reported via stopRequested/errored above */ }
+    }
 }
 else
 {
@@ -572,6 +633,7 @@ else
 
 queue?.Dispose();
 nodeServer?.Dispose();
+if (nativeRuntime is not null) await nativeRuntime.DisposeAsync();
 
 // ── Report staged captures ───────────────────────────────────────────────────
 
