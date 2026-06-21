@@ -66,6 +66,7 @@ bool    warchiefMode = false;
 bool    workerMode   = false;
 bool    showIdentity = false;
 bool    pairMode     = false;
+bool    noRun        = false;
 int     warchiefPort = HiveTaskQueue.QueuePort;
 string? warchiefUrl  = null;
 string? warchiefNodeId = null;
@@ -97,6 +98,7 @@ for (int i = 0; i < args.Length; i++)
         case "--lanes":         lanesArg     = Next() ?? "";    break;
         case "--show-identity": showIdentity = true;            break;
         case "--pair":          pairMode     = true;            break;
+        case "--no-run":        noRun        = true;            break;
         case "--target":        pairTarget   = Next();          break;
         case "--expect-fingerprint": expectFp = Next();         break;
         case "--allow-fingerprint":
@@ -121,6 +123,13 @@ for (int i = 0; i < args.Length; i++)
                            [--allow-fingerprint "<phrase>" ...]   (auto-approve pairing from these)
                            [--boss <m>] [--coder <m>] [--researcher <m>] [--host <url>] [--timeout <s>]
 
+                Warchief, pairing/queue-server only -- no swarm run at all (no --goal needed,
+                immune to boss/coder model-not-found or ask_user hangs on a remote machine
+                with different installed models). Use this when the only thing this machine
+                needs to do is be a pairing responder / accept dispatched tasks:
+                  swarmcli --warchief --no-run [--port 7079] [--timeout <s>]
+                           [--allow-fingerprint "<phrase>" ...]
+
                 Worker mode (polls a remote Warchief, runs until Ctrl+C; must be paired first):
                   swarmcli --worker --warchief-url <url> [--warchief-nodeid <id>]
                            [--lanes coder,researcher] [--host <url>] [--worker-id <name>]
@@ -137,6 +146,11 @@ for (int i = 0; i < args.Length; i++)
 if (warchiefMode && workerMode)
 {
     Console.Error.WriteLine("--warchief and --worker are mutually exclusive.");
+    return 1;
+}
+if (noRun && !warchiefMode)
+{
+    Console.Error.WriteLine("--no-run only applies to --warchief (pairing/queue-server only, no swarm run).");
     return 1;
 }
 
@@ -297,14 +311,19 @@ if (workerMode)
 
 // ── Local + Warchief modes — both run a goal through SwarmSession ───────────
 
-if (string.IsNullOrWhiteSpace(goal))
+// --no-run is the pairing/queue-server-only path -- no goal is ever run, so neither
+// requirement applies (a placeholder/default goal or workspace would be misleading here,
+// and on a remote machine with different installed models, a real goal can hang forever
+// on an unanswerable ask_user prompt with nothing to ever answer it -- found 2026-06-21
+// running HARDCOREPC as a headless responder with a goal/model that don't resolve there).
+if (string.IsNullOrWhiteSpace(goal) && !noRun)
 {
     Console.Error.WriteLine("Missing required --goal");
     return 1;
 }
 
 workspace = Path.GetFullPath(workspace);
-if (!Directory.Exists(workspace))
+if (!Directory.Exists(workspace) && !noRun)
 {
     Console.Error.WriteLine($"Workspace does not exist: {workspace}");
     return 1;
@@ -439,6 +458,22 @@ if (warchiefMode)
     Console.WriteLine();
 
     session.SetDistributedQueue(queue);
+}
+
+if (noRun)
+{
+    // Pairing/queue-server-only path: nothing left to do but stay alive (the pairing and
+    // task-queue handlers above are already running via HttpListener callbacks) until
+    // --timeout elapses or the operator hits Ctrl+C. No SwarmSession.RunAsync, no boss/coder
+    // activity, no model dependency at all -- this is the headless-pairing-responder mode.
+    Console.WriteLine($"--no-run: pairing/queue server only. Waiting up to {timeoutSec}s (Ctrl+C to stop early)...");
+    var stopSignal = new TaskCompletionSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; stopSignal.TrySetResult(); };
+    await Task.WhenAny(stopSignal.Task, Task.Delay(TimeSpan.FromSeconds(timeoutSec)));
+    Console.WriteLine("Shutting down...");
+    queue?.Dispose();
+    nodeServer?.Dispose();
+    return 0;
 }
 
 bool planSeen = false, errored = false, stopRequested = false;
