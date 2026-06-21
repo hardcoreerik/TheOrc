@@ -411,6 +411,52 @@ Warchief (GUI)  ──→  Warband 1 (linux-x64, Vast.ai GPU)
 | `warband.compose.yml` Docker template | ⬜ v1.9 / v2.0 |
 | GHCR/Docker Hub publish on release | ⬜ v2.0 |
 
+### Daemon-centric HIVE — the v2.5 architectural changeover (vision, not started)
+
+> Captured 2026-06-20 as a deliberate future direction. **Not** to be started as a
+> refactor now — the current dual-path setup works and must not be broken first.
+> Target window: ~v2.5, after the v1.9 multi-machine HIVE validation and the v2.0
+> native-runtime-default work settle.
+
+**The vision:** the Warband/Daemon becomes the *one canonical HIVE node*, running
+on **every** machine — not just remote headless boxes, but the local desktop too —
+as an always-on background service (Windows Service / systemd) that starts at boot
+and survives the GUI being closed. The daemon is the privileged layer that owns the
+machine-level handshakes, install/enrollment, peer trust, and (eventually)
+hardware-level "control this PC" capabilities that the whole distributed-computing
+vision depends on. **TheOrc's GUI becomes a client of its own local daemon** — a
+dashboard that connects to manage/monitor HIVE, rather than building and running its
+own separate in-process HIVE stack.
+
+**Why this is the right end-state (not just convenient):**
+- A machine can be a fully-participating HIVE worker with the GUI never opened —
+  exactly what persistent worker nodes (HARDCOREPC, the laptop) need.
+- It collapses today's **duplication**: right now the GUI (`MainWindow`) constructs
+  its *own* `HiveNodeServer`/`HiveTaskQueue`/`HiveWorkerAgent`/`HiveBeacon`
+  in-process, and `OrchestratorIDE.Daemon` has a *second, independent* copy of the
+  same stack. Two non-cooperating implementations of "be a HIVE node," built from
+  the same classes. The changeover makes the daemon the single implementation.
+- It makes the daemon a genuinely **separable, shippable module** — the GUI depends
+  on the daemon's interface, not the reverse.
+
+**The hard requirement this forces (and the open design question):** once HIVE lives
+in a separate always-on process (which is the whole point), the GUI — a different
+process — can't share live objects with it (peer store, secrets, election state all
+live in the daemon's memory). So the GUI must talk to the local daemon across the
+process boundary. The **mesh/peer transport is already HTTP and stays HTTP** (it's
+genuinely talking to other machines). The **GUI↔local-daemon *control* channel**
+(settings, model selection, start/stop, peer enroll/revoke — operations a remote
+peer must never reach) should almost certainly be a **strictly-local mechanism
+(named pipe / localhost-only control socket), not the network-exposed HTTP port.**
+That split is the core design decision to settle when this is scoped for real.
+
+**Current integration gap (today):** the daemon has *zero* install or launch
+wiring — no installer step deploys it, no GUI button starts/manages it. It's
+complete, working code that nothing currently turns on. A near-term, low-risk
+stepping stone (does NOT require the full refactor) is an "Install Warband (daemon)
+as a service" action + the CI binaries above, so the daemon can at least be deployed
+and run as a service before the GUI-as-client changeover happens.
+
 ---
 
 ## TheOrc Native Runtime — v2.0 direction
