@@ -561,7 +561,22 @@ public partial class HivePanel : UserControl
             "That machine will need to approve it before this completes — " +
             "this will wait up to 2 minutes for a response.",
             "HIVE MIND — Pair") ?? Task.FromResult(false));
-        if (!ok) return;
+        if (!ok)
+        {
+            AddEvent($"[{DateTime.Now:HH:mm:ss}] Pairing with {host.Name} cancelled before sending.",
+                new SolidColorBrush(Colors.Gray));
+            return;
+        }
+
+        // The initiator side previously logged NOTHING to the Activity feed -- every status
+        // update only ever went through a modal dialog. If that dialog was missed (not
+        // focused, behind another window) or the operator just wasn't looking at the right
+        // moment, there was no way to tell afterward whether pairing was even attempted, let
+        // alone what happened. The responder side (OnPairingRequest, below) already logs
+        // here; this brings the initiator side to parity (found 2026-06-21 from a live
+        // confusing-popup report).
+        AddEvent($"[{DateTime.Now:HH:mm:ss}] Pairing request sent to {host.Name} ({targetHost})…",
+            new SolidColorBrush(Colors.DeepSkyBlue));
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(125));
         // PairAsync never throws (it converts every failure mode, including
@@ -594,12 +609,16 @@ public partial class HivePanel : UserControl
                 if (confirmed)
                 {
                     HivePairingClient.ConfirmAndTrust(pending);
+                    AddEvent($"[{DateTime.Now:HH:mm:ss}] ✓ Paired with {host.Name} (fingerprint verified).",
+                        new SolidColorBrush(Colors.LimeGreen));
                     await (AlertAsync?.Invoke($"✓ Paired with {host.Name}.", "HIVE MIND — Pair")
                         ?? Task.CompletedTask);
                     DrawConstellation();
                 }
                 else
                 {
+                    AddEvent($"[{DateTime.Now:HH:mm:ss}] ✗ Pairing with {host.Name} declined — fingerprint mismatch or unconfirmed.",
+                        new SolidColorBrush(Colors.OrangeRed));
                     await (AlertAsync?.Invoke(
                         "Pairing not completed — fingerprint mismatch (or unconfirmed). " +
                         "No peer was trusted.", "HIVE MIND — Pair") ?? Task.CompletedTask);
@@ -619,6 +638,7 @@ public partial class HivePanel : UserControl
                     $"Already paired with {host.Name}.",
                 _ => $"Pairing failed: {result.Message}",
             };
+            AddEvent($"[{DateTime.Now:HH:mm:ss}] {msg}", new SolidColorBrush(Colors.OrangeRed));
             await (AlertAsync?.Invoke(msg, "HIVE MIND — Pair") ?? Task.CompletedTask);
         });
     }
@@ -787,6 +807,14 @@ public partial class HivePanel : UserControl
             await Dispatcher.UIThread.InvokeAsync(() => OnPairingRequest(sessionId, req));
             return;
         }
+
+        // Log the moment the request ARRIVES, not just after the dialog resolves -- if the
+        // confirm dialog is missed (not focused, appears behind another window, operator
+        // away) the Activity feed previously showed nothing at all until/unless someone
+        // eventually interacted with it (found 2026-06-21 alongside the matching initiator-
+        // side gap in PairWithHostAsync, above).
+        AddEvent($"[{DateTime.Now:HH:mm:ss}] Incoming pairing request from {req.InitiatorName} — awaiting approval…",
+            new SolidColorBrush(Colors.DeepSkyBlue));
 
         var msg = $"HIVE pairing request\n\nNode:        {req.InitiatorName}" +
                   $"\nFingerprint: {req.InitiatorFingerprint}\nSession:     {sessionId}" +
