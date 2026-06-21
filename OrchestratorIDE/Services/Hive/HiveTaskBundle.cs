@@ -223,6 +223,13 @@ public sealed class HivePairingResponse
     /// { "status": "hiveid_mismatch" } body before a HivePairingResponse is ever built.
     /// </summary>
     public string? HiveId            { get; set; }
+    /// <summary>
+    /// Base64 JSON of a HiveMembershipCert (HIVE_MEMBERSHIP_SPEC.md §5.4) for the newly
+    /// paired node, present only when the approver currently holds CanIssueMembershipCerts.
+    /// Null when the approver isn't authorized to issue — pairing still completes normally,
+    /// the new peer just can't vouch for itself to third parties later.
+    /// </summary>
+    public string? MembershipCert    { get; set; }
 }
 
 // ── HIVE Election ─────────────────────────────────────────────────────────────

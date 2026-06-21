@@ -265,6 +265,36 @@ public static class HivePairingClient
             return new Result(Outcome.Error, $"Key derivation failed: {ex.Message}");
         }
 
+        // Record the role this approver granted us (HIVE_MEMBERSHIP_SPEC.md §5.4 — there was
+        // previously no field anywhere for "what role did somebody else grant me"), and store
+        // the membership cert the approver issued us, if any -- only after verifying it
+        // against the SAME signing key just bound to WarchiefNodeId above, so a tampered poll
+        // response can't plant a forged cert under a key we haven't actually verified. Both
+        // wrapped in their own try/catch: a disk/DPAPI failure on either of these cosmetic
+        // fields must not fail an otherwise-successful pairing whose shared secret was
+        // already derived above (grok review MINOR, 2026-06-21 — mirrors the same
+        // non-fatal-on-the-server-side discipline already used in ApprovePairing's cert
+        // issuance).
+        try
+        {
+            if (Enum.TryParse<HiveNodeRole>(resp.AssignedRole, ignoreCase: true, out var grantedRole))
+                identity.SetSelfRole(grantedRole);
+
+            if (!string.IsNullOrEmpty(resp.MembershipCert))
+            {
+                var cert = HiveMembershipCert.FromBase64Json(resp.MembershipCert);
+                if (cert is not null && cert.SubjectNodeId == identity.NodeId
+                    && HiveMembershipCert.Verify(cert, Convert.FromBase64String(resp.WarchiefSigningPublicKeyDer)))
+                {
+                    identity.SetOwnMembershipCert(resp.MembershipCert);
+                }
+                // Silently discard an unverifiable cert -- pairing already succeeded via the
+                // shared-secret path above; a bad cert just means this node can't vouch for
+                // itself to third parties later, not that pairing itself should fail.
+            }
+        }
+        catch { /* non-fatal -- see comment above */ }
+
         var peer = new HivePeer
         {
             NodeId              = resp.WarchiefNodeId,

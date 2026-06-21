@@ -166,6 +166,7 @@
     <Compile Include="..\OrchestratorIDE\Services\Hive\SecretProtection.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveAuthMiddleware.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveIdentity.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveMembershipCert.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HivePeerStore.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveHosts.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveTaskBundle.cs" />

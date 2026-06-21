@@ -51,6 +51,36 @@ public sealed class HiveIdentity : IDisposable
     /// </summary>
     public HiveRole           HiveRole            { get; private set; } = HiveRole.Unset;
 
+    /// <summary>
+    /// The role THIS node was granted within the hive, as recorded in the
+    /// <c>AssignedRole</c> field of the <see cref="HivePairingResponse"/> the approver sent
+    /// back when this node joined (HIVE_MEMBERSHIP_SPEC.md §5.4). Distinct from
+    /// <c>HivePeer.Role</c>, which records roles THIS node has granted to OTHERS — there was
+    /// previously no field anywhere for "what role did somebody else grant me." Defaults to
+    /// Observer (safe/no-authority) until a pairing completes and sets it explicitly. A
+    /// founder's authority comes from <see cref="HiveRole"/> == Founder, not from this field
+    /// — see <see cref="CanIssueMembershipCerts"/>.
+    /// </summary>
+    public HiveNodeRole       SelfRole            { get; private set; } = HiveNodeRole.Observer;
+
+    /// <summary>
+    /// Base64 JSON of the membership certificate this node received when it joined the hive
+    /// (HIVE_MEMBERSHIP_SPEC.md §5.4) — "" if none was issued (approver wasn't a Controller)
+    /// or this node is the founder (founders don't need a cert; they ARE the root of trust).
+    /// Presented to third-party peers this node has never directly paired with, via the
+    /// X-Hive-Membership-Cert header (§5.5).
+    /// </summary>
+    public string             OwnMembershipCertJson { get; private set; } = "";
+
+    /// <summary>
+    /// Whether this node may issue membership certificates to others (§5.2: Controllers only,
+    /// no delegation chains — a Controller introduced transitively through someone else's
+    /// vouching does not count, only a role this node's own pairing approver directly granted,
+    /// or founder status). Founders are implicitly authoritative from the moment they mint
+    /// HiveId; everyone else needs an explicit Controller grant recorded in <see cref="SelfRole"/>.
+    /// </summary>
+    public bool CanIssueMembershipCerts => HiveRole == HiveRole.Founder || SelfRole == HiveNodeRole.Controller;
+
     private readonly ECDsa             _signingKey;
     private readonly ECDiffieHellman   _exchangeKey;
     // CreateEphemeral() identities must never touch the real hive-identity.json on disk --
@@ -65,7 +95,8 @@ public sealed class HiveIdentity : IDisposable
     private readonly Lock              _hiveLock = new();
 
     private HiveIdentity(ECDsa signing, ECDiffieHellman exchange, string hiveId = "",
-                         HiveRole hiveRole = HiveRole.Unset, bool isEphemeral = false)
+                         HiveRole hiveRole = HiveRole.Unset, bool isEphemeral = false,
+                         HiveNodeRole selfRole = HiveNodeRole.Observer, string ownCertJson = "")
     {
         _signingKey  = signing;
         _exchangeKey = exchange;
@@ -80,6 +111,8 @@ public sealed class HiveIdentity : IDisposable
 
         HiveId   = hiveId;
         HiveRole = hiveRole;
+        SelfRole = selfRole;
+        OwnMembershipCertJson = ownCertJson;
     }
 
     /// <summary>
@@ -107,19 +140,47 @@ public sealed class HiveIdentity : IDisposable
             // (disk/DPAPI failure), HiveId/HiveRole are untouched -- the caller's pairing
             // attempt fails cleanly instead of leaving memory and disk disagreeing about
             // which hive this node belongs to (grok review BLOCKER, 2026-06-21).
-            if (!_isEphemeral) Persist(hiveId, role);
+            if (!_isEphemeral) Persist(hiveId: hiveId, hiveRole: role);
 
             HiveId   = hiveId;
             HiveRole = role;
         }
     }
 
-    private void Persist(string? hiveId = null, HiveRole? role = null) =>
+    /// <summary>
+    /// Records the role this node's pairing approver granted it (HivePairingResponse.
+    /// AssignedRole) — see <see cref="SelfRole"/>. Unlike <see cref="SetHive"/>, overwriting
+    /// is always allowed: a node's granted role can legitimately change (re-pairing,
+    /// promotion) without that implying any hive-bridging risk.
+    /// </summary>
+    public void SetSelfRole(HiveNodeRole role)
+    {
+        lock (_hiveLock)
+        {
+            if (!_isEphemeral) Persist(selfRole: role);
+            SelfRole = role;
+        }
+    }
+
+    /// <summary>Stores the membership certificate this node received at pairing time (§5.4).</summary>
+    public void SetOwnMembershipCert(string certJson)
+    {
+        lock (_hiveLock)
+        {
+            if (!_isEphemeral) Persist(ownCertJson: certJson);
+            OwnMembershipCertJson = certJson;
+        }
+    }
+
+    private void Persist(string? hiveId = null, HiveRole? hiveRole = null,
+                         HiveNodeRole? selfRole = null, string? ownCertJson = null) =>
         DpapiSave(IdentityPath, JsonSerializer.Serialize(new StoredIdentity(
             Convert.ToBase64String(_signingKey.ExportPkcs8PrivateKey()),
             Convert.ToBase64String(_exchangeKey.ExportPkcs8PrivateKey()),
-            hiveId ?? HiveId,
-            role   ?? HiveRole)));
+            hiveId      ?? HiveId,
+            hiveRole    ?? HiveRole,
+            selfRole    ?? SelfRole,
+            ownCertJson ?? OwnMembershipCertJson)));
 
     // ── Singleton load-or-generate ─────────────────────────────────────────────
 
@@ -162,7 +223,8 @@ public sealed class HiveIdentity : IDisposable
                         signing.ImportPkcs8PrivateKey(Convert.FromBase64String(stored.SigningPriv), out _);
                         var exchange = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
                         exchange.ImportPkcs8PrivateKey(Convert.FromBase64String(stored.ExchangePriv), out _);
-                        _instance = new HiveIdentity(signing, exchange, stored.HiveId, stored.HiveRole);
+                        _instance = new HiveIdentity(signing, exchange, stored.HiveId, stored.HiveRole,
+                            selfRole: stored.SelfRole, ownCertJson: stored.OwnMembershipCertJson);
                         return _instance;
                     }
                 }
@@ -172,7 +234,7 @@ public sealed class HiveIdentity : IDisposable
             var newSign = ECDsa.Create(ECCurve.NamedCurves.nistP256);
             var newExch = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
             _instance   = new HiveIdentity(newSign, newExch);
-            _instance.Persist(hiveId: "", role: HiveRole.Unset);
+            _instance.Persist(hiveId: "", hiveRole: HiveRole.Unset);
 
             return _instance;
         }
@@ -272,7 +334,8 @@ public sealed class HiveIdentity : IDisposable
 
     private sealed record StoredIdentity(
         string SigningPriv, string ExchangePriv,
-        string HiveId = "", HiveRole HiveRole = HiveRole.Unset);
+        string HiveId = "", HiveRole HiveRole = HiveRole.Unset,
+        HiveNodeRole SelfRole = HiveNodeRole.Observer, string OwnMembershipCertJson = "");
 
     public void Dispose()
     {

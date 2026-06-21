@@ -232,6 +232,22 @@ public sealed class HiveNodeServer : IDisposable
             _peers.AddOrUpdate(peer);
             _peers.SetSharedSecret(req.InitiatorNodeId, secret);
 
+            // HIVE_MEMBERSHIP_SPEC.md §5.4 — only issue when both authorized to issue AND
+            // the granted role is cert-eligible (never Controller, per §5.2). A Controller
+            // grant still completes pairing normally; it just isn't backed by a cert, since
+            // certs can never represent that authority tier. Best-effort: a failure to issue
+            // must not fail the pairing that already succeeded above.
+            string? membershipCert = null;
+            if (identity.CanIssueMembershipCerts && grantedRole != HiveNodeRole.Controller)
+            {
+                try
+                {
+                    membershipCert = HiveMembershipCert.Issue(
+                        identity, req.InitiatorNodeId, req.InitiatorName, grantedRole).ToBase64Json();
+                }
+                catch { /* non-fatal — peer is still paired, just without a cert to vouch with later */ }
+            }
+
             _pairingResults[sessionId] = (new HivePairingResponse
             {
                 Status                      = "approved",
@@ -243,6 +259,7 @@ public sealed class HiveNodeServer : IDisposable
                 AssignedRole                = grantedRole.ToString(),
                 AllowedLanes                = allowedLanes,
                 HiveId                      = identity.HiveId,
+                MembershipCert              = membershipCert,
             }, DateTime.UtcNow);
             _pendingPairings.Remove(sessionId);
             return true;
@@ -373,6 +390,15 @@ public sealed class HiveNodeServer : IDisposable
 
             // ── Authenticated endpoints (all fail-closed — no grace period) ──
 
+            // NOT YET WIRED: HIVE_MEMBERSHIP_SPEC.md §5.5 describes an X-Hive-Membership-Cert
+            // header letting an unpaired-but-vouched-for node in via
+            // HivePeerStore.TryAcceptViaMembershipCert (implemented, unit-tested). Deliberately
+            // NOT consumed here yet -- _strictAuth.Validate's HMAC check requires a shared
+            // secret from a completed ECDH exchange, which a cert-admitted node never had with
+            // THIS verifier. Accepting a cert at this gate needs its own signature scheme (the
+            // subject proving possession of its own signing key, not an HMAC it can't have) and
+            // that's new security-critical surface that deserves a focused design+review pass
+            // of its own, not a bolt-on here. Tracked as the explicit remainder of Phase 2.
             var authResult = _strictAuth.Validate(req, body);
 
             if (!authResult.Ok)

@@ -130,6 +130,44 @@ public sealed class HivePeerStore
     }
 
     /// <summary>
+    /// HIVE_MEMBERSHIP_SPEC.md §5.5 — admits a node this store has never directly paired
+    /// with, based on a membership certificate vouching for it. Trusts the cert IFF its
+    /// issuer is already a directly-paired, non-revoked Controller in THIS store -- no
+    /// delegation chains, no second-hand trust (§5.2: only a Controller the verifier
+    /// personally paired with counts). The returned peer is provisional: NOT persisted to
+    /// hive-peers.json by this method (callers must not call AddOrUpdate on it), capped at
+    /// the role the cert grants (cannot become Controller via this path, ever — §5.2), and
+    /// must be re-verified on the node's next contact rather than trusted indefinitely.
+    /// </summary>
+    public bool TryAcceptViaMembershipCert(HiveMembershipCert? cert, string localHiveId,
+        out HivePeer? provisionalPeer)
+    {
+        provisionalPeer = null;
+
+        if (cert is null) return false;
+        if (string.IsNullOrEmpty(localHiveId) || cert.HiveId != localHiveId) return false;
+
+        var issuer = Find(cert.IssuerNodeId);
+        if (issuer is null || issuer.Revoked || issuer.Role != HiveNodeRole.Controller) return false;
+
+        byte[] issuerKeyDer;
+        try { issuerKeyDer = Convert.FromBase64String(issuer.SigningPublicKeyDer); }
+        catch { return false; }
+
+        if (!HiveMembershipCert.Verify(cert, issuerKeyDer)) return false;
+
+        provisionalPeer = new HivePeer
+        {
+            NodeId            = cert.SubjectNodeId,
+            Name              = cert.SubjectName,
+            Role              = cert.Role,
+            MaxRole           = cert.Role,
+            AcceptControlFrom = HiveAcceptControlPolicy.Ask,
+        };
+        return true;
+    }
+
+    /// <summary>
     /// Resolve a trusted peer's NodeId from a "http://host:port" URL by matching the host
     /// against stored <see cref="HivePeer.LastKnownAddress"/> values, falling back to DNS
     /// resolution if no exact host-string match is found (so a peer paired under an IP still

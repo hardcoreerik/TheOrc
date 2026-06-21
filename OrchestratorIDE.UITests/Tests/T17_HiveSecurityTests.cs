@@ -373,6 +373,19 @@ public class T17_HiveSecurityTests
             LastHeartbeat       = online ? DateTime.UtcNow : (DateTime?)null,
         };
 
+    /// <summary>A peer record describing <paramref name="id"/> as a trusted Controller --
+    /// the verifier-side trust a membership cert's issuer must have to be honored
+    /// (HIVE_MEMBERSHIP_SPEC.md §5.5).</summary>
+    private static HivePeer ControllerPeer(HiveIdentity id)
+        => new HivePeer
+        {
+            NodeId              = id.NodeId,
+            Name                = "controller",
+            Role                = HiveNodeRole.Controller,
+            MaxRole             = HiveNodeRole.Controller,
+            SigningPublicKeyDer = Convert.ToBase64String(id.SigningPublicKeyDer),
+        };
+
     /// <summary>Builds an election message signed by <paramref name="sender"/> over NodeId+Payload —
     /// the exact canonical form HiveElectionService.SignElectionPayload produces.</summary>
     private static ElectionMessage SignedElectionMsg(HiveIdentity sender, string payload)
@@ -560,5 +573,199 @@ public class T17_HiveSecurityTests
         var canonical = $"{method.ToUpperInvariant()}\n{path}\n{nonce}\n{tsMs}\n{bodyHash}";
         using var hmac = new HMACSHA256(secret);
         return Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
+    }
+
+    // ── HiveMembershipCert + HivePeerStore.TryAcceptViaMembershipCert (HIVE_MEMBERSHIP_SPEC.md §5) ──
+
+    private static HiveIdentity MakeFounder()
+    {
+        var id = HiveIdentity.CreateEphemeral();
+        id.SetHive("hive-test-1", HiveRole.Founder);
+        return id;
+    }
+
+    [Test]
+    public void MembershipCert_IssueThenVerify_RoundTrips()
+    {
+        var founder = MakeFounder();
+        var subject = HiveIdentity.CreateEphemeral();
+
+        var cert = HiveMembershipCert.Issue(founder, subject.NodeId, "subject-name", HiveNodeRole.Worker);
+
+        Assert.That(HiveMembershipCert.Verify(cert, founder.SigningPublicKeyDer), Is.True);
+    }
+
+    [Test]
+    public void MembershipCert_Issue_NonIssuerThrows()
+    {
+        // Plain ephemeral identity: HiveRole.Unset, SelfRole.Observer -- CanIssueMembershipCerts is false.
+        var notAnIssuer = HiveIdentity.CreateEphemeral();
+        var subject     = HiveIdentity.CreateEphemeral();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            HiveMembershipCert.Issue(notAnIssuer, subject.NodeId, "subject-name", HiveNodeRole.Worker));
+    }
+
+    [Test]
+    public void MembershipCert_Issue_ControllerRoleThrows()
+    {
+        var founder = MakeFounder();
+        var subject = HiveIdentity.CreateEphemeral();
+
+        Assert.Throws<ArgumentException>(() =>
+            HiveMembershipCert.Issue(founder, subject.NodeId, "subject-name", HiveNodeRole.Controller));
+    }
+
+    [Test]
+    public void MembershipCert_Verify_TamperedRole_Fails()
+    {
+        var founder = MakeFounder();
+        var subject = HiveIdentity.CreateEphemeral();
+        var cert     = HiveMembershipCert.Issue(founder, subject.NodeId, "subject-name", HiveNodeRole.Worker);
+
+        cert.Role = HiveNodeRole.Controller; // tamper after signing -- and also hits the never-Controller rule
+        Assert.That(HiveMembershipCert.Verify(cert, founder.SigningPublicKeyDer), Is.False);
+    }
+
+    [Test]
+    public void MembershipCert_Verify_WrongIssuerKey_Fails()
+    {
+        var founder    = MakeFounder();
+        var subject    = HiveIdentity.CreateEphemeral();
+        var impostor   = HiveIdentity.CreateEphemeral();
+        var cert       = HiveMembershipCert.Issue(founder, subject.NodeId, "subject-name", HiveNodeRole.Worker);
+
+        Assert.That(HiveMembershipCert.Verify(cert, impostor.SigningPublicKeyDer), Is.False);
+    }
+
+    [Test]
+    public void MembershipCert_Verify_Expired_Fails()
+    {
+        var founder = MakeFounder();
+        var subject = HiveIdentity.CreateEphemeral();
+        // Zero validity -- ExpiresAt == IssuedAt, already in the past by the time Verify
+        // runs (no sleep needed, avoids a timing-dependent/flaky test).
+        var cert = HiveMembershipCert.Issue(founder, subject.NodeId, "subject-name", HiveNodeRole.Worker,
+            validity: TimeSpan.Zero);
+
+        Assert.That(HiveMembershipCert.Verify(cert, founder.SigningPublicKeyDer), Is.False);
+    }
+
+    [Test]
+    public void MembershipCert_Base64JsonRoundTrip_PreservesAllFields()
+    {
+        var founder = MakeFounder();
+        var subject = HiveIdentity.CreateEphemeral();
+        var cert    = HiveMembershipCert.Issue(founder, subject.NodeId, "subject-name", HiveNodeRole.Worker);
+
+        var roundTripped = HiveMembershipCert.FromBase64Json(cert.ToBase64Json());
+
+        Assert.That(roundTripped, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(roundTripped!.HiveId,        Is.EqualTo(cert.HiveId));
+            Assert.That(roundTripped.SubjectNodeId,   Is.EqualTo(cert.SubjectNodeId));
+            Assert.That(roundTripped.Role,            Is.EqualTo(cert.Role));
+            Assert.That(roundTripped.IssuerNodeId,    Is.EqualTo(cert.IssuerNodeId));
+            Assert.That(roundTripped.Signature,       Is.EqualTo(cert.Signature));
+        });
+        Assert.That(HiveMembershipCert.Verify(roundTripped!, founder.SigningPublicKeyDer), Is.True);
+    }
+
+    [Test]
+    public void MembershipCert_FromBase64Json_Garbage_ReturnsNullNotThrow()
+    {
+        Assert.That(HiveMembershipCert.FromBase64Json("not-valid-base64!!!"), Is.Null);
+    }
+
+    [Test]
+    public void TryAcceptViaMembershipCert_IssuerIsKnownController_Admits()
+    {
+        var founder = MakeFounder();
+        var subject = HiveIdentity.CreateEphemeral();
+        var cert    = HiveMembershipCert.Issue(founder, subject.NodeId, "subject-name", HiveNodeRole.Worker);
+
+        var verifierStore = HivePeerStore.CreateForTest(
+            [ControllerPeer(founder)]);
+
+        var ok = verifierStore.TryAcceptViaMembershipCert(cert, founder.HiveId, out var provisional);
+
+        Assert.That(ok, Is.True);
+        Assert.That(provisional, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(provisional!.NodeId, Is.EqualTo(subject.NodeId));
+            Assert.That(provisional.Role,     Is.EqualTo(HiveNodeRole.Worker));
+            Assert.That(provisional.MaxRole,  Is.EqualTo(HiveNodeRole.Worker)); // capped -- cannot become Controller via this path
+        });
+    }
+
+    [Test]
+    public void TryAcceptViaMembershipCert_IssuerNotKnownToVerifier_Rejected()
+    {
+        var founder = MakeFounder();
+        var subject = HiveIdentity.CreateEphemeral();
+        var cert    = HiveMembershipCert.Issue(founder, subject.NodeId, "subject-name", HiveNodeRole.Worker);
+
+        // Verifier has never paired with the issuer at all -- no delegation chains, no
+        // second-hand trust (HIVE_MEMBERSHIP_SPEC.md §5.2).
+        var verifierStore = HivePeerStore.CreateForTest();
+
+        var ok = verifierStore.TryAcceptViaMembershipCert(cert, founder.HiveId, out var provisional);
+
+        Assert.That(ok, Is.False);
+        Assert.That(provisional, Is.Null);
+    }
+
+    [Test]
+    public void TryAcceptViaMembershipCert_IssuerKnownButNotController_Rejected()
+    {
+        var founder = MakeFounder();
+        var subject = HiveIdentity.CreateEphemeral();
+        var cert    = HiveMembershipCert.Issue(founder, subject.NodeId, "subject-name", HiveNodeRole.Worker);
+
+        // Verifier knows the issuer, but only trusts it as a Worker, not a Controller --
+        // the issuer isn't actually authorized in the verifier's own peer store, regardless
+        // of what the cert itself claims.
+        var verifierStore = HivePeerStore.CreateForTest(
+            [SignedPeer(founder)]); // SignedPeer's default Role is Observer -- not Controller either way
+
+        var ok = verifierStore.TryAcceptViaMembershipCert(cert, founder.HiveId, out var provisional);
+
+        Assert.That(ok, Is.False);
+        Assert.That(provisional, Is.Null);
+    }
+
+    [Test]
+    public void TryAcceptViaMembershipCert_IssuerRevoked_Rejected()
+    {
+        var founder = MakeFounder();
+        var subject = HiveIdentity.CreateEphemeral();
+        var cert    = HiveMembershipCert.Issue(founder, subject.NodeId, "subject-name", HiveNodeRole.Worker);
+
+        var revokedController = ControllerPeer(founder);
+        revokedController.Revoked = true;
+        var verifierStore = HivePeerStore.CreateForTest([revokedController]);
+
+        var ok = verifierStore.TryAcceptViaMembershipCert(cert, founder.HiveId, out var provisional);
+
+        Assert.That(ok, Is.False);
+        Assert.That(provisional, Is.Null);
+    }
+
+    [Test]
+    public void TryAcceptViaMembershipCert_WrongLocalHiveId_Rejected()
+    {
+        var founder = MakeFounder();
+        var subject = HiveIdentity.CreateEphemeral();
+        var cert    = HiveMembershipCert.Issue(founder, subject.NodeId, "subject-name", HiveNodeRole.Worker);
+
+        var verifierStore = HivePeerStore.CreateForTest([ControllerPeer(founder)]);
+
+        // Verifier belongs to a different hive entirely.
+        var ok = verifierStore.TryAcceptViaMembershipCert(cert, "some-other-hive", out var provisional);
+
+        Assert.That(ok, Is.False);
+        Assert.That(provisional, Is.Null);
     }
 }

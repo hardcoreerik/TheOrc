@@ -291,6 +291,14 @@ own certificate locally (new field on the persisted identity file, not `HivePeer
 it's the *subject's own* credential to present to others — not something the issuer
 tracks per-peer beyond the issuance moment).
 
+**Implementation note (2026-06-21):** "holds `Role == Controller` for itself" assumes a field
+that didn't actually exist before this phase — `HivePeer.Role` only ever records roles *this*
+node has granted to *others*; there was no field anywhere for "what role did my own pairing
+approver grant me." Phase 2 added `HiveIdentity.SelfRole` (set from `HivePairingResponse.
+AssignedRole` when a pairing completes — that field already existed on the wire, it just
+wasn't being captured) and a computed `CanIssueMembershipCerts => HiveRole == Founder ||
+SelfRole == Controller`, which is what `ApprovePairing` actually checks.
+
 If the approving node does **not** hold `Controller`, no certificate is issued at pairing
 time — pairing still completes exactly as it does today (this spec adds capability, it
 doesn't make ordinary Worker-to-Worker pairing require Controller involvement).
@@ -344,6 +352,18 @@ claim, RPC call) and re-verified on the next contact rather than persisted. This
 silently growing the trust store from automated, non-human-confirmed admissions. If the same
 node is later directly paired through the normal ceremony, it becomes a regular persisted
 `HivePeer` at that point, same as any other pairing today.
+
+**Implementation note (2026-06-21):** `HivePeerStore.TryAcceptViaMembershipCert` (the
+verification logic above) shipped in Phase 2, unit-tested in isolation. Wiring it into
+`HiveNodeServer.HandleAsync`'s request-time auth gate is deliberately **not** part of that
+same change. The existing `_strictAuth.Validate` HMAC check requires a shared secret from a
+completed ECDH exchange — a cert-admitted node has never done that exchange with this
+specific verifier, so it cannot pass that check today. Accepting a cert at the wire level
+needs the *subject* to instead prove possession of its own signing key on each request (akin
+to the pairing-proof signature, not an HMAC it structurally cannot have) — a small but
+genuinely new piece of security-critical surface that deserves its own focused design+review
+pass rather than being bolted onto an unrelated commit. Tracked as the explicit remainder of
+Phase 2 in Section 10.
 
 ---
 
@@ -525,14 +545,20 @@ pairing rollout.
 
 ### Phase 2 — Membership certificates
 
-- New `MembershipCert` model + canonical signing-input builder (Section 5.3).
-- `ApprovePairing`: issue a cert when the approving node holds `Role == Controller`
-  (Section 5.4).
-- `HivePeerStore.TryAcceptViaMembershipCert` (Section 5.5).
+- New `HiveMembershipCert` model + canonical signing-input builder (Section 5.3). **Shipped
+  2026-06-21.**
+- `ApprovePairing`: issue a cert when the approving node holds `CanIssueMembershipCerts`
+  (Section 5.4; required adding `HiveIdentity.SelfRole` — see implementation note there, this
+  field didn't exist before Phase 2 and the spec's original wording assumed it did). **Shipped.**
+- `HivePeerStore.TryAcceptViaMembershipCert` (Section 5.5). **Shipped, unit-tested in isolation.**
 - `HiveNodeServer.HandleAsync`: accept the new `X-Hive-Membership-Cert` header on the path
   where the sender is not already a known peer; construct a provisional, non-persisted
-  `HivePeer` on success.
-- Reissuance piggybacked on `HiveMeshHeartbeat` traffic (Section 5.3).
+  `HivePeer` on success. **Deliberately deferred** — needs a subject-proves-key-possession
+  signature scheme that doesn't exist yet (see the implementation note at the end of Section
+  5.5); rushing this into the wire-level auth gate without its own review pass is how you get
+  a forgeable-identity hole, not a feature.
+- Reissuance piggybacked on `HiveMeshHeartbeat` traffic (Section 5.3). **Deferred** — has no
+  caller until the item above lands, so reissuance has nothing to refresh yet.
 
 ### Phase 3 — Role-assignment RPC + "Declare Warchief" UI action
 
