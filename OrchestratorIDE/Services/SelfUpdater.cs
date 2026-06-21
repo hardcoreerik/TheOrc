@@ -149,12 +149,17 @@ public sealed class SelfUpdater
         var buf        = new byte[65536];
         long downloaded = 0;
         int  read;
+        var sw         = Stopwatch.StartNew();
+        var lastReport = 0L;
         while ((read = await src.ReadAsync(buf, CancellationToken)) > 0)
         {
             await dest.WriteAsync(buf.AsMemory(0, read), CancellationToken);
             downloaded += read;
-            if (total.HasValue && total > 0)
+            if (total.HasValue && total > 0 && sw.ElapsedMilliseconds - lastReport >= 200)
+            {
+                lastReport = sw.ElapsedMilliseconds;
                 progress.Report($"  {downloaded / 1024:N0} KB / {total / 1024:N0} KB");
+            }
         }
 
         progress.Report($"✓ Downloaded to {destPath}");

@@ -44,6 +44,9 @@ public partial class UpdatePanel : UserControl
     private bool                                 _updateRunning;
     private readonly ObservableCollection<FleetRow> _fleetRows = [];
 
+    private const int MaxLogLines = 1000;
+    private readonly List<string> _logLines = [];
+
     // ── Constructor ───────────────────────────────────────────────────────────
 
     public UpdatePanel()
@@ -448,14 +451,23 @@ public partial class UpdatePanel : UserControl
 
     private void AppendLog(string msg)
     {
-        TbLog.Text += msg + "\n";
+        _logLines.Add(msg);
+        if (_logLines.Count > MaxLogLines)
+            _logLines.RemoveRange(0, _logLines.Count - MaxLogLines);
+
+        TbLog.Text = string.Join("\n", _logLines) + "\n";
+
         // Scroll to bottom after layout pass
         Dispatcher.UIThread.Post(
             () => SvLog.Offset = new Avalonia.Vector(SvLog.Offset.X, double.MaxValue),
             DispatcherPriority.Render);
     }
 
-    private void ClearLog() => TbLog.Text = "";
+    private void ClearLog()
+    {
+        _logLines.Clear();
+        TbLog.Text = "";
+    }
 
     // ── Status chip ───────────────────────────────────────────────────────────
 
