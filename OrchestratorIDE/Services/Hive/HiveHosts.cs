@@ -28,9 +28,21 @@ public sealed class HiveHost
     /// <summary>"manual" | "lan" | "tailscale" — how this node was added.</summary>
     public string Source { get; set; } = "manual";
 
-    /// <summary>Set by ProbeAsync — not persisted.</summary>
+    /// <summary>Set by ProbeAsync — not persisted. This is OLLAMA (port 11434) reachability,
+    /// NOT whether the node's HIVE port (7078) is up -- see <see cref="HiveApiReachable"/>
+    /// for that. A node can show "online" here while pairing still fails, because the two
+    /// ports are independent (found 2026-06-21: a node's Ollama was reachable while its
+    /// HIVE node server wasn't running at all, and nothing distinguished the two in the UI).</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool? Reachable { get; set; }
+
+    /// <summary>
+    /// Set by ProbeHiveApiAsync (port 7078) -- distinct from <see cref="Reachable"/> (Ollama,
+    /// port 11434). True/false once probed; null before the first probe. Pairing and other
+    /// HIVE-protocol actions need THIS to be true, not just Reachable.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool? HiveApiReachable { get; set; }
 
     [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlyList<string> Models { get; set; } = [];
@@ -115,6 +127,12 @@ public static class HiveHosts
         {
             var addr = new Uri(host.Url).Host;
             var info = await HiveNodeServer.ProbeAsync(addr, timeoutMs);
+            // Explicitly record success/failure -- the previous version silently returned on
+            // null with nothing set, so a node whose Ollama (Reachable) was up but whose HIVE
+            // port wasn't running looked identical to one that had never been probed at all,
+            // and "online" in the UI meant only Ollama, not HIVE-readiness (Codex/Grok-style
+            // finding from a live pairing-failure report, 2026-06-21).
+            host.HiveApiReachable = info is not null;
             if (info is null) return;
             host.VramFreeMb = info.VramFreeMb;
             host.Lanes      = info.Lanes;
@@ -123,7 +141,10 @@ public static class HiveHosts
             if (info.Models.Length > 0 && host.Models.Count == 0)
                 host.Models = info.Models;
         }
-        catch { /* non-fatal */ }
+        catch
+        {
+            host.HiveApiReachable = false;
+        }
     }
 
     /// <summary>

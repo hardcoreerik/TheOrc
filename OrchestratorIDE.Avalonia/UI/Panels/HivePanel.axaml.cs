@@ -357,6 +357,21 @@ public partial class HivePanel : UserControl
                 ? Color.FromRgb(0xA8, 0xCC, 0x80) : Color.FromRgb(0x88, 0x88, 0x88)),
         });
 
+        // "online" above means Ollama (port 11434) is reachable -- that does NOT mean this
+        // node's HIVE port (7078) is up, and pairing/distributed-dispatch specifically need
+        // the latter. Without this, a node could show fully green/online while having no
+        // running HIVE node server at all, and the only symptom was a confusing 10s timeout
+        // when actually trying to pair (found 2026-06-21 from a live pairing-failure report).
+        if (!isCenter && host.Reachable != false && host.HiveApiReachable == false)
+            sp.Children.Add(new TextBlock
+            {
+                Text       = "⚠ HIVE port not reachable — can't pair",
+                FontFamily = new FontFamily("Segoe UI"), FontSize = 9,
+                Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xA0, 0x40)),
+                Margin     = new Thickness(0, 1, 0, 0),
+                TextWrapping = TextWrapping.Wrap,
+            });
+
         if (!isCenter && host.RpcPort > 0 && alive)
         {
             var rpcRow = new StackPanel
@@ -414,8 +429,20 @@ public partial class HivePanel : UserControl
             ? "\nModels: " + string.Join(", ", host.Models!.Take(6)) +
               (host.Models!.Count > 6 ? $" (+{host.Models.Count - 6})" : "")
             : "";
+        // "Status: online" is Ollama-port reachability -- a separate line is needed for the
+        // HIVE port specifically, since the two are independent (see HiveApiReachable's doc
+        // comment). Not shown for the center node, which doesn't probe itself this way.
+        var hiveStatus = isCenter
+            ? ""
+            : host.HiveApiReachable switch
+              {
+                  true  => "\nHIVE port: reachable",
+                  false => "\nHIVE port: NOT reachable — pairing will fail",
+                  null  => "\nHIVE port: not yet probed",
+              };
         return $"{host.Name}\n{host.Url}\n" +
                (host.Reachable == false ? "Status: offline" : "Status: online") +
+               hiveStatus +
                models +
                (isCenter ? "" : "\n\nClick to view / remove this node.");
     }
@@ -440,7 +467,12 @@ public partial class HivePanel : UserControl
             cm.Items.Add(CmItem("📋  Copy URL",            () => _ = CopyTextAsync(host.Url)));
             cm.Items.Add(CmItem("🌐  Open in browser",     () => OpenUrl(host.Url + "/api/tags")));
             cm.Items.Add(new Separator());
-            cm.Items.Add(CmItem("🤝  Pair with this node", () => _ = PairWithHostAsync(host), alive));
+            // Pairing needs the HIVE port (7078), not Ollama (11434) -- gating this on the
+            // general "alive" (Ollama-based) flag let the menu item look clickable for a node
+            // whose HIVE node server wasn't actually running, producing a confusing 10s
+            // timeout instead of a clear "this node's HIVE port isn't reachable" signal
+            // (found 2026-06-21 from a live pairing-failure report).
+            cm.Items.Add(CmItem("🤝  Pair with this node", () => _ = PairWithHostAsync(host), host.HiveApiReachable == true));
             cm.Items.Add(CmItem("⚡  Use as RPC worker",   () => ApplyRpcWorker(host), host.RpcPort > 0 && alive));
             cm.Items.Add(CmItem("🎯  Set as Warchief",     () => SetAsWarchiefTarget(host)));
             cm.Items.Add(new Separator());

@@ -124,7 +124,17 @@ public static class HivePairingClient
         }
         catch (Exception ex)
         {
-            return new Result(Outcome.Error, $"Could not reach {targetHost}: {ex.Message}");
+            // The raw exception message ("The request was canceled due to the configured
+            // HttpClient.Timeout of 10 seconds elapsing") is technically accurate but doesn't
+            // tell the operator what to actually check. The most common cause by far: the
+            // target's Ollama port is reachable (so it shows "online" in the constellation
+            // view) but its HIVE node server on this port simply isn't running -- the two
+            // ports are independent. Lead with that likely explanation, keep the raw detail
+            // for anyone who needs it (found 2026-06-21 from a live pairing-failure report).
+            return new Result(Outcome.Error,
+                $"Could not reach {targetHost} on the HIVE port. The target machine may be " +
+                "reachable for other purposes (e.g. Ollama) while its HIVE node server isn't " +
+                $"running -- check \"Enable HIVE MIND\" in its Settings. ({ex.Message})");
         }
         using (initResp) // disposed once we leave this scope -- not needed past the checks below
         {
