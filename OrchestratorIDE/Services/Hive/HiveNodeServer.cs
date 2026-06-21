@@ -75,6 +75,20 @@ public sealed class HiveNodeServer : IDisposable
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
+    // Set once from TryBind's own return value during Start() -- never re-read
+    // _listener.IsListening afterward, since a failed fallback bind can leave the listener
+    // disposed/unusable and IsListening's getter throws ObjectDisposedException in that state
+    // rather than returning false (Codex CLI BLOCKER, 2026-06-20; mirrors the existing
+    // HiveTaskQueue.BaseUrl-after-bind pattern just above Start()'s wildcard/fallback logic).
+    private bool _bound;
+    private bool _wideBound;
+
+    public bool IsListening => _bound;
+
+    /// True only if the wildcard "+" bind succeeded (reachable from other machines).
+    /// False if it fell back to localhost-only, or never bound at all.
+    public bool IsRemoteReachable => _wideBound;
+
     public void Start(HiveNodeInfo info)
     {
         _info = info;
@@ -109,7 +123,8 @@ public sealed class HiveNodeServer : IDisposable
         MeshHeartbeat.Start();
 
         _listener = new HttpListener();
-        var bound = TryBind($"http://+:{ApiPort}/hive/");
+        var wideSucceeded = TryBind($"http://+:{ApiPort}/hive/");
+        var bound = wideSucceeded;
         if (!bound)
         {
             // A failed Start() (e.g. the wildcard "+" bind needs admin rights or a URL ACL
@@ -126,6 +141,8 @@ public sealed class HiveNodeServer : IDisposable
         // _listener.IsListening afterward -- if this second bind also failed, the listener
         // may be in the same disposed-but-not-null state that caused the first failure,
         // and IsListening's getter can throw ObjectDisposedException just like Prefixes did.
+        _bound     = bound;
+        _wideBound = wideSucceeded;
         if (bound)
             _ = ServeAsync(_cts.Token);
     }
@@ -695,6 +712,10 @@ public sealed class HiveNodeServer : IDisposable
         MeshHeartbeat?.Stop();
         try { _listener?.Stop(); } catch { }
         _listener?.Close();
+        // Without this, IsListening/IsRemoteReachable keep reporting true after shutdown --
+        // a caller checking health post-Dispose would be lied to (Codex CLI MINOR, 2026-06-21).
+        _bound     = false;
+        _wideBound = false;
         // Drain in-flight handlers (best-effort, 2s cap) so most nonces land in a single
         // snapshot, then seal+flush. The seal (flush-on-every-record) guarantees the
         // security property: every ACCEPTED request's nonce reaches disk — a handler that

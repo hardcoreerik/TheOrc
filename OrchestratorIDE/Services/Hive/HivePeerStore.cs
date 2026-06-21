@@ -129,6 +129,40 @@ public sealed class HivePeerStore
         return p is { Revoked: false };
     }
 
+    /// <summary>
+    /// Resolve a trusted peer's NodeId from a "http://host:port" URL by matching the host
+    /// against stored <see cref="HivePeer.LastKnownAddress"/> values, falling back to DNS
+    /// resolution if no exact host-string match is found (so a peer paired under an IP still
+    /// resolves when later addressed by hostname, or vice versa). Returns "" if unresolved.
+    /// Single source of truth for this lookup -- used by both the GUI (MainWindow) and
+    /// swarmcli; do not duplicate this logic a third time.
+    /// </summary>
+    public string ResolveNodeIdForUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return "";
+        var host = uri.Host;
+        if (string.IsNullOrEmpty(host)) return "";
+
+        var peers = All().Where(p => !p.Revoked && !string.IsNullOrEmpty(p.LastKnownAddress)).ToList();
+
+        var match = peers.FirstOrDefault(p =>
+            p.LastKnownAddress.Split(':')[0].Equals(host, StringComparison.OrdinalIgnoreCase));
+        if (match is not null) return match.NodeId;
+
+        try
+        {
+            foreach (var addr in System.Net.Dns.GetHostAddresses(host))
+            {
+                var addrStr = addr.ToString();
+                match = peers.FirstOrDefault(p => p.LastKnownAddress.StartsWith(addrStr + ":"));
+                if (match is not null) return match.NodeId;
+            }
+        }
+        catch { /* DNS failure is non-fatal */ }
+
+        return "";
+    }
+
     /// <summary>Returns DPAPI-decrypted shared secret, or null if peer not found/revoked.</summary>
     public byte[]? GetSharedSecret(string nodeId)
     {

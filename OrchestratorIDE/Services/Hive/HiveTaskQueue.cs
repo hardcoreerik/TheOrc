@@ -105,7 +105,17 @@ public sealed class HiveTaskQueue : IDisposable
     /// </summary>
     public string BaseUrl { get; private set; } = "";
 
-    public bool IsListening => _listener?.IsListening == true;
+    // Set once from TryBind's own return value during Start() -- never re-read
+    // _listener.IsListening afterward, since a failed fallback bind can leave the listener
+    // disposed/unusable and IsListening's getter throws ObjectDisposedException in that state
+    // rather than returning false (Codex CLI BLOCKER, 2026-06-20).
+    private bool _bound;
+
+    public bool IsListening => _bound;
+
+    /// True only if the wildcard "+" bind succeeded (BaseUrl is LAN/Tailscale-reachable,
+    /// not just localhost).
+    public bool IsRemoteReachable { get; private set; }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -157,6 +167,8 @@ public sealed class HiveTaskQueue : IDisposable
         // _listener.IsListening afterward -- if the fallback bind also failed, the
         // listener may be in the same disposed-but-not-null state, and IsListening's
         // getter can throw ObjectDisposedException the same way Prefixes' did.
+        _bound            = bound;
+        IsRemoteReachable = wideSucceeded;
         if (bound)
         {
             _ = ServeAsync(_cts.Token);
@@ -724,6 +736,10 @@ public sealed class HiveTaskQueue : IDisposable
         CancelAll();
         try { _listener?.Stop(); } catch { }
         _listener?.Close();
+        // Without this, IsListening/IsRemoteReachable keep reporting true after shutdown --
+        // a caller checking health post-Dispose would be lied to (Codex CLI MINOR, 2026-06-21).
+        _bound            = false;
+        IsRemoteReachable = false;
         // Drain in-flight handlers (best-effort, 2s cap) so most nonces land in a single
         // snapshot, then seal+flush. The seal (flush-on-every-record) guarantees the
         // security property: every ACCEPTED request's nonce reaches disk — a handler that

@@ -516,6 +516,13 @@ public partial class MainWindow : Window
         _hiveNodeServer.OnPairingRequestReceived += (sessionId, pairingReq) =>
             Dispatcher.UIThread.InvokeAsync(() => _hivePanel.OnPairingRequest(sessionId, pairingReq));
         _hivePanel.NodeServer = _hiveNodeServer;
+        // Without this, every ConfirmAsync?.Invoke(...) ?? Task.FromResult(false) call in
+        // HivePanel (pairing approval, "Set as Warchief", "Remove from hive", etc.) silently
+        // resolves to false with no dialog ever shown -- a null delegate fails closed, not
+        // loud, so this gap went undetected until a live multi-machine pairing test (2026-06-20).
+        // HivePanel invokes ConfirmAsync as Invoke(message, title) -- the opposite parameter
+        // order from _swarmPanel's convention below -- so this lambda must NOT mirror that one.
+        _hivePanel.ConfirmAsync = (msg, title) => DialogHelper.ShowYesNoAsync(this, title, msg);
         _hiveNodeServer.Start(info);
 
         _hivePanel.LocalNodeId = Services.Hive.HiveIdentity.Load().NodeId;
@@ -1912,34 +1919,8 @@ public partial class MainWindow : Window
             "Worker mode has been enabled. Restart TheOrc for the worker agent to connect.");
     }
 
-    private static string ResolveWarchiefNodeId(string warchiefUrl)
-    {
-        if (!Uri.TryCreate(warchiefUrl, UriKind.Absolute, out var uri)) return "";
-        var host = uri.Host;
-        if (string.IsNullOrEmpty(host)) return "";
-
-        var peers = Services.Hive.HivePeerStore.Default.All()
-            .Where(p => !p.Revoked && !string.IsNullOrEmpty(p.LastKnownAddress))
-            .ToList();
-
-        var match = peers.FirstOrDefault(p =>
-            p.LastKnownAddress.Split(':')[0].Equals(host, StringComparison.OrdinalIgnoreCase));
-        if (match is not null) return match.NodeId;
-
-        try
-        {
-            var addresses = System.Net.Dns.GetHostAddresses(host);
-            foreach (var addr in addresses)
-            {
-                var addrStr = addr.ToString();
-                match = peers.FirstOrDefault(p => p.LastKnownAddress.StartsWith(addrStr + ":"));
-                if (match is not null) return match.NodeId;
-            }
-        }
-        catch { /* DNS failure is non-fatal */ }
-
-        return "";
-    }
+    private static string ResolveWarchiefNodeId(string warchiefUrl) =>
+        Services.Hive.HivePeerStore.Default.ResolveNodeIdForUrl(warchiefUrl);
 
     // ── Model picker ──────────────────────────────────────────────────────
 

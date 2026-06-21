@@ -37,6 +37,9 @@
   <ItemGroup>
     <InternalsVisibleTo Include="OrchestratorIDE.UITests" />
     <InternalsVisibleTo Include="OrchestratorIDE.UnitTests" />
+    <!-- swarmcli is a headless host that needs to init SecretProtection (DpapiSecretProtector
+         is internal) before touching HIVE identity/secrets, exactly as App.axaml.cs does. -->
+    <InternalsVisibleTo Include="swarmcli" />
   </ItemGroup>
 
   <!-- Stamp git SHA into AssemblyInformationalVersion (same as WPF project) -->
