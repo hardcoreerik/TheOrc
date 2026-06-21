@@ -1,0 +1,167 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!--
+  INSTALLER_REVAMP_SPEC.md §5.4 — replaces OllamaCheckPage. Native llama.cpp runtime is now
+  the sole, non-optional default path (not just the pre-selected radio among three equal
+  options, as the old page had it); Ollama moves into a collapsed "Advanced" section for
+  users who explicitly want it instead.
+-->
+<UserControl x:Class="OrchestratorSetup.Pages.RuntimeSetupPage"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgPanel}"
+             AutomationProperties.AutomationId="Page.RuntimeSetup">
+
+    <Grid Margin="40,32">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <TextBlock Text="Runtime Setup" Classes="PageTitle"/>
+            <TextBlock Classes="Subtitle" TextWrapping="Wrap">
+                TheOrc runs entirely on the native llama.cpp runtime — no external services,
+                works the same on Windows, Linux, and macOS.
+            </TextBlock>
+        </StackPanel>
+
+        <!-- Native runtime — the only default path -->
+        <Border Grid.Row="1" Classes="Card" BorderBrush="{StaticResource BorderAccent}" Margin="0,0,0,16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="⚡" FontSize="22" VerticalAlignment="Top" Margin="0,2,12,0"/>
+                <StackPanel Grid.Column="1">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="Native runtime (llama.cpp)"
+                                   FontFamily="Segoe UI" FontSize="13" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimary}"/>
+                        <Border Background="#1A4A1A" CornerRadius="3"
+                                Padding="5,1" Margin="8,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="DEFAULT" FontSize="9" FontWeight="Bold"
+                                       Foreground="{StaticResource Success}"/>
+                        </Border>
+                    </StackPanel>
+                    <TextBlock x:Name="TxtVariantSummary"
+                               Classes="Subtitle" FontSize="12" TextWrapping="Wrap">
+                        Downloads the llama.cpp runtime matched to your hardware (selected on
+                        the previous page) and GGUF model files directly from Hugging Face.
+                        TheOrc starts and stops the runtime automatically — nothing to manage.
+                    </TextBlock>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Advanced: Ollama (collapsed by default) -->
+        <Expander Grid.Row="2"
+                  Header="Advanced: use Ollama instead"
+                  Margin="0,0,0,16"
+                  Foreground="{StaticResource TextSecondary}"
+                  FontFamily="Segoe UI"
+                  FontSize="12"
+                  AutomationProperties.AutomationId="Runtime.OllamaAdvanced">
+            <StackPanel Margin="0,12,0,0">
+
+                <!-- Detection result banner -->
+                <Border Classes="Card" Margin="0,0,0,12">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock x:Name="TxtOllamaIcon" Text="⬜" FontSize="18"
+                                   Margin="0,0,10,0" VerticalAlignment="Center"/>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="TxtOllamaStatus"
+                                       Classes="Body"
+                                       FontSize="13" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="TxtOllamaDetail"
+                                       Classes="Subtitle"
+                                       FontSize="11"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Option: Install Ollama automatically -->
+                <Border x:Name="CardInstallOllama"
+                        Margin="0,0,0,10"
+                        Classes="SelectableCard"
+                        PointerPressed="CardInstallOllama_PointerPressed"
+                        AutomationProperties.AutomationId="Ollama.InstallOllama">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Ellipse x:Name="RadioInstallOllama"
+                                 Width="16" Height="16"
+                                 Stroke="{StaticResource TextMuted}"
+                                 StrokeThickness="2"
+                                 Fill="Transparent"
+                                 Margin="0,2,12,0" VerticalAlignment="Top"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock Text="Install Ollama for me"
+                                       FontFamily="Segoe UI" FontSize="13" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimary}"
+                                       Margin="0,0,0,4"/>
+                            <TextBlock Classes="Subtitle" FontSize="12" TextWrapping="Wrap">
+                                TheOrc downloads and silently installs Ollama, then pulls your
+                                selected model automatically. Requires an internet connection.
+                            </TextBlock>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Option: Use existing Ollama (enabled only if detected) -->
+                <Border x:Name="CardOllama"
+                        Classes="SelectableCard"
+                        PointerPressed="CardOllama_PointerPressed"
+                        AutomationProperties.AutomationId="Ollama.UseExisting">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Ellipse x:Name="RadioOllama"
+                                 Width="16" Height="16"
+                                 Stroke="{StaticResource TextMuted}"
+                                 StrokeThickness="2"
+                                 Fill="Transparent"
+                                 Margin="0,2,12,0" VerticalAlignment="Top"/>
+                        <StackPanel Grid.Column="1">
+                            <TextBlock x:Name="TxtOllamaOptionName"
+                                       Text="Use existing Ollama service"
+                                       FontFamily="Segoe UI" FontSize="13" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimary}"
+                                       Margin="0,0,0,4"/>
+                            <TextBlock x:Name="TxtOllamaOptionDetail"
+                                       Classes="Subtitle" FontSize="12" TextWrapping="Wrap">
+                                Skip all downloads. TheOrc connects to your running Ollama
+                                at http://localhost:11434. You manage Ollama and models separately.
+                            </TextBlock>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+            </StackPanel>
+        </Expander>
+
+        <!-- HIVE MIND enrollment -->
+        <Border Grid.Row="3" VerticalAlignment="Top"
+                Background="#0E120E" BorderBrush="#2A5A00" BorderThickness="1"
+                CornerRadius="6" Padding="14,10">
+            <StackPanel>
+                <CheckBox x:Name="ChkJoinHive" IsChecked="True"
+                          IsCheckedChanged="ChkJoinHive_Changed">
+                    <TextBlock Text="🐝 Join HIVE MIND — let other PCs running TheOrc on your home network use this computer's AI"
+                               FontFamily="Segoe UI" FontSize="13" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimary}" TextWrapping="Wrap"/>
+                </CheckBox>
+                <TextBlock Classes="Subtitle" FontSize="11" Margin="24,4,0,0" TextWrapping="Wrap"
+                           Text="Opens HIVE ports automatically (you may see a Windows/macOS firewall or Linux sudo prompt — this is expected and safe to approve) for PRIVATE networks only. Never exposed to public Wi-Fi or the internet. You can change this later in TheOrc settings."/>
+            </StackPanel>
+        </Border>
+
+    </Grid>
+</UserControl>

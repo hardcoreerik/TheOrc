@@ -1,6 +1,6 @@
 <!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
 <UserControl x:Class="OrchestratorSetup.Pages.HardwareDetectPage"
-             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="{StaticResource BgPanel}"
              AutomationProperties.AutomationId="Page.Hardware">
@@ -18,9 +18,9 @@
         <!-- ── Row 0: Header ────────────────────────────────────────────── -->
         <StackPanel Grid.Row="0" Margin="0,0,0,20">
             <TextBlock Text="Hardware Detection"
-                       Style="{StaticResource TextPageTitle}"/>
-            <TextBlock Style="{StaticResource TextSubtitle}">
-                The Orc scans your GPU and selects the best llama.cpp runtime.
+                       Classes="PageTitle"/>
+            <TextBlock Classes="Subtitle" TextWrapping="Wrap">
+                TheOrc scans your GPU and selects the best llama.cpp runtime.
                 You can override the auto-selected variant if needed.
             </TextBlock>
         </StackPanel>
@@ -31,13 +31,13 @@
                 CornerRadius="6"
                 Padding="14,10,14,10"
                 Margin="0,0,0,12"
-                Visibility="Visible">
+                IsVisible="True">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <ProgressBar x:Name="PbScanning"
                              IsIndeterminate="True"
                              Width="110" Height="3"
                              VerticalAlignment="Center"
-                             Style="{StaticResource ThemedProgressBar}"/>
+                             Classes="Themed"/>
                 <TextBlock x:Name="TxtScanStatus"
                            Text="Scanning hardware…"
                            Margin="12,0,0,0"
@@ -49,7 +49,7 @@
         </Border>
 
         <!-- ── Row 2: Detection results card ────────────────────────────── -->
-        <Border Grid.Row="2" Style="{StaticResource CardBorder}" Margin="0,0,0,16">
+        <Border Grid.Row="2" Classes="Card" Margin="0,0,0,16">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="140"/>
@@ -65,59 +65,59 @@
 
                 <!-- GPU Name -->
                 <TextBlock Grid.Row="0" Grid.Column="0"
-                           Text="GPU" Style="{StaticResource TextLabel}"
+                           Text="GPU" Classes="Label"
                            Margin="0,0,0,10"/>
                 <TextBlock Grid.Row="0" Grid.Column="1"
                            x:Name="TxtGpuName"
                            Text="Detecting…"
-                           Style="{StaticResource TextBody}"
+                           Classes="Body"
                            Margin="0,0,0,10"
                            TextTrimming="CharacterEllipsis"/>
 
                 <!-- VRAM -->
                 <TextBlock Grid.Row="1" Grid.Column="0"
-                           Text="VRAM" Style="{StaticResource TextLabel}"
+                           Text="VRAM" Classes="Label"
                            Margin="0,0,0,10"/>
                 <TextBlock Grid.Row="1" Grid.Column="1"
                            x:Name="TxtVram"
                            Text="Detecting…"
-                           Style="{StaticResource TextBody}"
+                           Classes="Body"
                            Margin="0,0,0,10"/>
 
                 <!-- CUDA -->
                 <TextBlock Grid.Row="2" Grid.Column="0"
-                           Text="CUDA" Style="{StaticResource TextLabel}"
+                           Text="CUDA" Classes="Label"
                            Margin="0,0,0,10"/>
                 <TextBlock Grid.Row="2" Grid.Column="1"
                            x:Name="TxtCuda"
                            Text="Detecting…"
-                           Style="{StaticResource TextBody}"
+                           Classes="Body"
                            Margin="0,0,0,10"/>
 
                 <!-- System RAM -->
                 <TextBlock Grid.Row="3" Grid.Column="0"
-                           Text="System RAM" Style="{StaticResource TextLabel}"
+                           Text="System RAM" Classes="Label"
                            Margin="0,0,0,10"/>
                 <TextBlock Grid.Row="3" Grid.Column="1"
                            x:Name="TxtRam"
                            Text="Detecting…"
-                           Style="{StaticResource TextBody}"
+                           Classes="Body"
                            Margin="0,0,0,10"/>
 
                 <!-- Runtime variant (auto-selected) -->
                 <TextBlock Grid.Row="4" Grid.Column="0"
-                           Text="Runtime" Style="{StaticResource TextLabel}"/>
+                           Text="Runtime" Classes="Label"/>
                 <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal">
                     <TextBlock x:Name="TxtVariant"
                                Text="—"
-                               Style="{StaticResource TextBody}"
+                               Classes="Body"
                                VerticalAlignment="Center"/>
                     <Border x:Name="BdrVariantBadge"
                             Background="#002233"
                             CornerRadius="3"
                             Padding="6,2,6,2"
                             Margin="8,0,0,0"
-                            Visibility="Collapsed">
+                            IsVisible="False">
                         <TextBlock x:Name="TxtVariantBadge"
                                    Foreground="#00BFFF"
                                    FontFamily="Consolas"
@@ -128,14 +128,15 @@
         </Border>
 
         <!-- ── Row 3: Runtime override ───────────────────────────────────── -->
-        <Border Grid.Row="3" Style="{StaticResource CardBorder}">
+        <Border Grid.Row="3" Classes="Card">
             <StackPanel>
                 <TextBlock Text="OVERRIDE RUNTIME VARIANT"
-                           Style="{StaticResource TextLabel}"
+                           Classes="Label"
                            Margin="0,0,0,10"/>
                 <ComboBox x:Name="CmbVariant"
                           SelectionChanged="CmbVariant_SelectionChanged"
-                          Style="{StaticResource ThemedComboBox}"
+                          Classes="Themed"
+                          HorizontalAlignment="Stretch"
                           AutomationProperties.AutomationId="Hardware.VariantOverride">
                     <ComboBoxItem Tag="cuda12" Content="CUDA 12.x  —  NVIDIA RTX 20-series and newer"/>
                     <ComboBoxItem Tag="cuda11" Content="CUDA 11.x  —  older NVIDIA GPUs"/>
@@ -144,8 +145,9 @@
                     <ComboBoxItem Tag="cpu"    Content="CPU baseline  —  maximum compatibility"/>
                 </ComboBox>
                 <TextBlock Margin="0,8,0,0"
-                           Style="{StaticResource TextSubtitle}"
-                           FontSize="11">
+                           Classes="Subtitle"
+                           FontSize="11"
+                           TextWrapping="Wrap">
                     If TheOrc crashes on first launch, try selecting a lower variant
                     (Vulkan → AVX2 → CPU baseline).
                 </TextBlock>
@@ -161,9 +163,9 @@
                   FontSize="11">
             <TextBox x:Name="TxtLog"
                      IsReadOnly="True"
+                     AcceptsReturn="True"
                      TextWrapping="Wrap"
                      MaxHeight="140"
-                     VerticalScrollBarVisibility="Auto"
                      Background="#0D0D0D"
                      Foreground="#888888"
                      BorderThickness="0"

@@ -1,0 +1,116 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<UserControl x:Class="OrchestratorSetup.Pages.WelcomePage"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgPanel}"
+             AutomationProperties.AutomationId="Page.Welcome">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- ── Hero banner ────────────────────────────────────────────────── -->
+        <Border Grid.Row="0"
+                Background="#0A0A0A"
+                BorderBrush="{StaticResource BorderSubtle}"
+                BorderThickness="0,0,0,1">
+            <Image Source="avares://OrchestratorSetup/Assets/banner.png"
+                   Height="140"
+                   Stretch="UniformToFill"
+                   StretchDirection="DownOnly"
+                   HorizontalAlignment="Stretch"
+                   VerticalAlignment="Center"
+                   RenderOptions.BitmapInterpolationMode="HighQuality"/>
+        </Border>
+
+        <!-- ── Content ───────────────────────────────────────────────────── -->
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="48,28,48,24">
+
+                <TextBlock Text="Welcome to TheOrc"
+                           Classes="Hero"
+                           Margin="0,0,0,10"/>
+
+                <TextBlock Classes="Subtitle" FontSize="14"
+                           Margin="0,0,0,24"
+                           TextWrapping="Wrap">
+                    TheOrc is an AI coding assistant that runs
+                    <Run FontWeight="SemiBold"
+                         Foreground="{StaticResource Accent}">entirely on your machine</Run> —
+                    no cloud, no subscriptions, no telemetry, on Windows, Linux, or macOS.
+                    <LineBreak/><LineBreak/>
+                    This wizard detects your GPU, provisions the native llama.cpp runtime,
+                    downloads a coding model matched to your hardware, and has you up and
+                    running in a few minutes.
+                </TextBlock>
+
+                <Separator Classes="HRule"/>
+
+                <!-- What gets installed -->
+                <TextBlock Text="WHAT GETS INSTALLED"
+                           Classes="Label"
+                           Margin="0,14,0,10"/>
+
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,5">
+                        <TextBlock Text="✅" Margin="0,0,10,0"/>
+                        <TextBlock Text="OrchestratorIDE — the cross-platform AI coding workspace"
+                                   Classes="Body"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,5">
+                        <TextBlock Text="✅" Margin="0,0,10,0"/>
+                        <TextBlock Text="The native llama.cpp runtime — no external dependencies"
+                                   Classes="Body"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,5">
+                        <TextBlock Text="✅" Margin="0,0,10,0"/>
+                        <TextBlock Text="A coding model matched to your GPU, pulled from Hugging Face"
+                                   Classes="Body"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,5">
+                        <TextBlock Text="◽" Margin="0,0,10,0"/>
+                        <TextBlock Text="(optional) Ollama, if you prefer it over the native runtime"
+                                   Classes="Body"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <Separator Classes="HRule"/>
+
+                <!-- License acceptance (folded in from the old, separate License page) -->
+                <TextBlock Text="LICENSE"
+                           Classes="Label"
+                           Margin="0,14,0,10"/>
+                <TextBlock Classes="Subtitle" FontSize="11" Margin="0,0,0,8" TextWrapping="Wrap">
+                    AGPL-3.0 — free and open source. A commercial license is available for
+                    closed-source use; see
+                    <Run FontWeight="SemiBold">LICENSING.md</Run> in the repository, or the
+                    full text in the <Run FontWeight="SemiBold">LICENSE</Run> file.
+                </TextBlock>
+                <CheckBox x:Name="ChkAgree"
+                          Classes="Themed"
+                          Content="I have read and accept the license agreement"
+                          AutomationProperties.AutomationId="License.Agree"
+                          IsCheckedChanged="ChkAgree_Changed"/>
+                <TextBlock x:Name="TxtValidation"
+                           Text="You must accept the license agreement to continue."
+                           Foreground="{StaticResource Error}"
+                           FontFamily="Segoe UI" FontSize="11"
+                           Margin="0,4,0,0"
+                           IsVisible="False"/>
+
+                <TextBlock Margin="0,20,0,0"
+                           Classes="Subtitle"
+                           FontSize="11">
+                    Click <Run FontWeight="SemiBold">Next →</Run> to begin.
+                    Installation typically takes 5–15 minutes depending on your
+                    internet speed and model size.
+                </TextBlock>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

@@ -1,8 +1,7 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Text;
-using System.Windows;
-using System.Windows.Controls;
+using Avalonia.Controls;
 using OrchestratorSetup.Services;
 using OrchestratorSetup.ViewModels;
 
@@ -39,9 +38,11 @@ public partial class HardwareDetectPage : UserControl, IInstallerPage
         var progress = new Progress<string>(msg =>
         {
             logBuilder.AppendLine(msg);
-            // Append to log box on the UI thread (Progress<T> marshals automatically)
+            // Append to log box on the UI thread (Progress<T> marshals automatically).
+            // Avalonia's TextBox has no ScrollToEnd (WPF-only) -- setting CaretIndex to the
+            // end is the standard Avalonia idiom that drives the same auto-scroll behavior.
             TxtLog.Text = logBuilder.ToString();
-            TxtLog.ScrollToEnd();
+            TxtLog.CaretIndex = TxtLog.Text.Length;
         });
 
         HardwareDetector.HardwareInfo info;
@@ -86,13 +87,13 @@ public partial class HardwareDetectPage : UserControl, IInstallerPage
         TxtVariant.Text = VariantFriendlyName(variant);
 
         // Show the badge with the raw key so developers see what's happening
-        TxtVariantBadge.Text        = variant;
-        BdrVariantBadge.Visibility  = Visibility.Visible;
+        TxtVariantBadge.Text     = variant;
+        BdrVariantBadge.IsVisible = true;
     }
 
     private void SetScanningState(bool scanning)
     {
-        BdrScanning.Visibility    = scanning ? Visibility.Visible : Visibility.Collapsed;
+        BdrScanning.IsVisible      = scanning;
         PbScanning.IsIndeterminate = scanning;
 
         if (!scanning)
@@ -114,7 +115,7 @@ public partial class HardwareDetectPage : UserControl, IInstallerPage
         CmbVariant.SelectedIndex = 4; // fallback: cpu baseline
     }
 
-    private void CmbVariant_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void CmbVariant_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (CmbVariant.SelectedItem is ComboBoxItem item)
         {

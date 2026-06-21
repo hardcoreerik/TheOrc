@@ -21,7 +21,18 @@ public class SelectableModelEntry : INotifyPropertyChanged
     public bool IsSelected
     {
         get => _isSelected;
-        set { _isSelected = value; OnPropertyChanged(); }
+        // Guard against re-notifying on a no-op set -- ModelPage subscribes to this
+        // PropertyChanged and calls InstallerViewModel.ToggleModel, which re-assigns
+        // IsSelected to the SAME value it was already just set to. Without this guard
+        // that re-assignment re-fires PropertyChanged, which re-invokes the handler,
+        // which calls ToggleModel again -- infinite recursion / stack overflow on every
+        // checkbox click (grok review BLOCKER, 2026-06-21).
+        set
+        {
+            if (_isSelected == value) return;
+            _isSelected = value;
+            OnPropertyChanged();
+        }
     }
 
     // ── Role label (set by the bundle recommendation logic) ───────────────────

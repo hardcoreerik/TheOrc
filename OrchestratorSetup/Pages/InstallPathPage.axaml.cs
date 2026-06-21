@@ -1,8 +1,8 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
-using System.IO;
-using System.Windows;
-using System.Windows.Controls;
+using Avalonia.Controls;
+using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using OrchestratorSetup.ViewModels;
 
 namespace OrchestratorSetup.Pages;
@@ -25,42 +25,46 @@ public partial class InstallPathPage : UserControl, IInstallerPage
     }
 
     // ── Browse handlers ───────────────────────────────────────────────────────
+    // Avalonia's StorageProvider.OpenFolderPickerAsync replaces WPF's
+    // Microsoft.Win32.OpenFolderDialog (Windows-only) -- this is the actual
+    // cross-platform folder picker, native on every OS Avalonia supports.
 
-    private void BtnBrowseApp_Click(object sender, RoutedEventArgs e)
+    private async void BtnBrowseApp_Click(object? sender, RoutedEventArgs e)
     {
-        var path = BrowseFolder("Select Application Installation Folder", TxtAppPath.Text);
+        var path = await BrowseFolderAsync("Select Application Installation Folder", TxtAppPath.Text);
         if (path is not null) TxtAppPath.Text = path;
     }
 
-    private void BtnBrowseModel_Click(object sender, RoutedEventArgs e)
+    private async void BtnBrowseModel_Click(object? sender, RoutedEventArgs e)
     {
-        var path = BrowseFolder("Select Model Storage Folder", TxtModelPath.Text);
+        var path = await BrowseFolderAsync("Select Model Storage Folder", TxtModelPath.Text);
         if (path is not null) TxtModelPath.Text = path;
     }
 
-    private static string? BrowseFolder(string description, string initialPath)
+    private async Task<string?> BrowseFolderAsync(string title, string? initialPath)
     {
-        // Use WPF OpenFolderDialog (available .NET 8+)
-        var dlg = new Microsoft.Win32.OpenFolderDialog
-        {
-            Title            = description,
-            InitialDirectory = Directory.Exists(initialPath) ? initialPath : null,
-        };
-        return dlg.ShowDialog() == true ? dlg.FolderName : null;
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel is null) return null;
+
+        // Matches the existing pattern in SettingsPanel.axaml.cs / FileExplorerPanel.axaml.cs --
+        // no SuggestedStartLocation seeding there either; not worth a different convention here.
+        var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(
+            new FolderPickerOpenOptions { Title = title, AllowMultiple = false });
+        return folders.Count > 0 ? folders[0].Path.LocalPath : null;
     }
 
     // ── TextChanged handlers ──────────────────────────────────────────────────
 
-    private void TxtAppPath_TextChanged(object sender, TextChangedEventArgs e)
+    private void TxtAppPath_TextChanged(object? sender, TextChangedEventArgs e)
     {
-        _vm.State.AppInstallPath = TxtAppPath.Text;
-        RefreshDriveSpace(TxtAppPath.Text, TxtAppDriveSpace);
+        _vm.State.AppInstallPath = TxtAppPath.Text ?? "";
+        RefreshDriveSpace(TxtAppPath.Text ?? "", TxtAppDriveSpace);
     }
 
-    private void TxtModelPath_TextChanged(object sender, TextChangedEventArgs e)
+    private void TxtModelPath_TextChanged(object? sender, TextChangedEventArgs e)
     {
-        _vm.State.ModelStoragePath = TxtModelPath.Text;
-        RefreshDriveSpace(TxtModelPath.Text, TxtModelDriveSpace);
+        _vm.State.ModelStoragePath = TxtModelPath.Text ?? "";
+        RefreshDriveSpace(TxtModelPath.Text ?? "", TxtModelDriveSpace);
     }
 
     // ── Drive space display ───────────────────────────────────────────────────
@@ -80,7 +84,7 @@ public partial class InstallPathPage : UserControl, IInstallerPage
                 return;
             }
 
-            var info  = new DriveInfo(Path.GetPathRoot(probe)!);
+            var info   = new DriveInfo(Path.GetPathRoot(probe)!);
             var freeGb = info.AvailableFreeSpace / 1_073_741_824.0;
             label.Text = $"Free space on {info.Name}: {freeGb:F1} GB";
         }
@@ -94,18 +98,18 @@ public partial class InstallPathPage : UserControl, IInstallerPage
 
     public bool CanLeave()
     {
-        TxtValidation.Visibility = System.Windows.Visibility.Collapsed;
+        TxtValidation.IsVisible = false;
 
         if (string.IsNullOrWhiteSpace(TxtAppPath.Text))
         {
-            TxtValidation.Text       = "Application installation folder cannot be empty.";
-            TxtValidation.Visibility = System.Windows.Visibility.Visible;
+            TxtValidation.Text      = "Application installation folder cannot be empty.";
+            TxtValidation.IsVisible = true;
             return false;
         }
         if (string.IsNullOrWhiteSpace(TxtModelPath.Text))
         {
-            TxtValidation.Text       = "Model storage folder cannot be empty.";
-            TxtValidation.Visibility = System.Windows.Visibility.Visible;
+            TxtValidation.Text      = "Model storage folder cannot be empty.";
+            TxtValidation.IsVisible = true;
             return false;
         }
         return true;

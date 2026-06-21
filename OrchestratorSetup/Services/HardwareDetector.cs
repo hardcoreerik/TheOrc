@@ -53,6 +53,24 @@ public static class HardwareDetector
         string cuda     = "";
         long   ramGb    = 0;
 
+        // INSTALLER_REVAMP_SPEC.md §2.3/§4.1 — per-OS hardware detection backends are Phase 2+
+        // (IPlatformInstaller.DetectHardwareAsync); WMI/registry calls below crash with
+        // PlatformNotSupportedException if ever reached on a non-Windows runtime now that this
+        // project targets plain net10.0 instead of net10.0-windows. Runtime-gating with
+        // OperatingSystem.IsWindows() (rather than a compile-time #if WINDOWS) is sufficient
+        // here -- nothing on the non-Windows side needs a different TYPE, just to skip the
+        // call, so there is no preprocessor branch to maintain (grok review BLOCKER, 2026-06-21).
+        if (!OperatingSystem.IsWindows())
+        {
+            log?.Report("Hardware auto-detection isn't implemented for this OS yet " +
+                        "(INSTALLER_REVAMP_SPEC.md Phase 2+) -- defaulting to CPU baseline. " +
+                        "Override the runtime variant manually if you have a supported GPU.");
+            return new HardwareInfo
+            {
+                RuntimeVariant = System.Runtime.Intrinsics.X86.Avx2.IsSupported ? "avx2" : "cpu",
+            };
+        }
+
         // ── 1. WMI Win32_VideoController ─────────────────────────────────────
         try
         {

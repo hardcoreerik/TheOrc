@@ -1,13 +1,14 @@
 <!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
 <UserControl x:Class="OrchestratorSetup.Pages.ModelPage"
-             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:conv="clr-namespace:OrchestratorSetup.Converters"
+             xmlns:conv="clr-namespace:OrchestratorIDE.UI.Converters;assembly=OrchestratorSetup"
+             xmlns:models="clr-namespace:OrchestratorSetup.Models;assembly=OrchestratorSetup"
              Background="{StaticResource BgPanel}"
              AutomationProperties.AutomationId="Page.Model">
 
     <UserControl.Resources>
-        <conv:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <conv:HexToBrushConverter x:Key="HexToBrush"/>
     </UserControl.Resources>
 
     <Grid Margin="40,28">
@@ -20,8 +21,8 @@
 
         <!-- ── Header ──────────────────────────────────────────────────────── -->
         <StackPanel Grid.Row="0" Margin="0,0,0,18">
-            <TextBlock Text="Model Selection" Style="{StaticResource TextPageTitle}"/>
-            <TextBlock Style="{StaticResource TextSubtitle}">
+            <TextBlock Text="Model Selection" Classes="PageTitle"/>
+            <TextBlock Classes="Subtitle" TextWrapping="Wrap">
                 Select the AI models to install.  The Swarm Bundle below gives TheOrc a
                 dedicated <Run Foreground="{StaticResource Success}">Worker</Run> for coding
                 and a fast <Run Foreground="{StaticResource Warning}">Boss</Run> for planning.
@@ -30,7 +31,7 @@
         </StackPanel>
 
         <!-- ── Swarm Bundle card ────────────────────────────────────────────── -->
-        <Border Grid.Row="1" Style="{StaticResource CardBorder}"
+        <Border Grid.Row="1" Classes="Card"
                 BorderBrush="{StaticResource BorderAccent}"
                 Margin="0,0,0,12"
                 AutomationProperties.AutomationId="Model.BundleCard">
@@ -62,8 +63,7 @@
 
                         <CheckBox Grid.Column="0" x:Name="ChkWorker"
                                   VerticalAlignment="Center" Margin="0,0,10,0"
-                                  Checked="BundleCheckBox_Changed"
-                                  Unchecked="BundleCheckBox_Changed"
+                                  IsCheckedChanged="BundleCheckBox_Changed"
                                   AutomationProperties.AutomationId="Model.ChkWorker"/>
 
                         <Border Grid.Column="1" CornerRadius="3" Padding="6,2"
@@ -79,7 +79,7 @@
                                 <Border x:Name="BdrWorkerPartner"
                                         CornerRadius="3" Padding="5,1" Margin="0,0,7,0"
                                         VerticalAlignment="Center"
-                                        Visibility="Collapsed">
+                                        IsVisible="False">
                                     <TextBlock x:Name="TxtWorkerPartner"
                                                FontSize="9" FontWeight="Bold"
                                                FontFamily="Segoe UI"/>
@@ -116,8 +116,7 @@
 
                         <CheckBox Grid.Column="0" x:Name="ChkBoss"
                                   VerticalAlignment="Center" Margin="0,0,10,0"
-                                  Checked="BundleCheckBox_Changed"
-                                  Unchecked="BundleCheckBox_Changed"
+                                  IsCheckedChanged="BundleCheckBox_Changed"
                                   AutomationProperties.AutomationId="Model.ChkBoss"/>
 
                         <Border Grid.Column="1" CornerRadius="3" Padding="6,2"
@@ -150,7 +149,7 @@
                 <Border x:Name="RowResearcher"
                         Background="#0A1420" CornerRadius="4"
                         Padding="10,8" Margin="0,0,0,0"
-                        Visibility="Collapsed">
+                        IsVisible="False">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -161,8 +160,7 @@
 
                         <CheckBox Grid.Column="0" x:Name="ChkResearcher"
                                   VerticalAlignment="Center" Margin="0,0,10,0"
-                                  Checked="BundleCheckBox_Changed"
-                                  Unchecked="BundleCheckBox_Changed"
+                                  IsCheckedChanged="BundleCheckBox_Changed"
                                   AutomationProperties.AutomationId="Model.ChkResearcher"/>
 
                         <Border Grid.Column="1" CornerRadius="3" Padding="6,2"
@@ -209,12 +207,10 @@
             <ScrollViewer MaxHeight="240"
                           VerticalScrollBarVisibility="Auto"
                           Margin="0,8,0,0">
-                <!-- Attach a class-level CheckBox.Click handler via the ItemsControl -->
-                <ItemsControl x:Name="ModelList"
-                              CheckBox.Click="ModelListCheckBox_Click">
+                <ItemsControl x:Name="ModelList">
                     <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Border Style="{StaticResource CardBorder}"
+                        <DataTemplate DataType="models:SelectableModelEntry">
+                            <Border Classes="Card"
                                     Margin="0,0,0,5"
                                     Padding="10,8">
                                 <Grid>
@@ -224,16 +220,18 @@
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
 
-                                    <!-- Checkbox — IsChecked bound two-way; Click bubbles to ItemsControl -->
+                                    <!-- Checkbox: IsChecked bound two-way; the page subscribes to
+                                         each entry's PropertyChanged instead of a bubbled Click
+                                         event (simpler and unambiguous across Avalonia's routed
+                                         event bubbling rules; see ModelPage.axaml.cs). -->
                                     <CheckBox Grid.Column="0"
                                               IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                              Tag="{Binding Id}"
                                               VerticalAlignment="Center"
                                               Margin="0,0,10,0"/>
 
                                     <!-- Role badge (optional) -->
                                     <Border Grid.Column="1"
-                                            Visibility="{Binding HasRoleLabel, Converter={StaticResource BoolToVis}}"
+                                            IsVisible="{Binding HasRoleLabel}"
                                             CornerRadius="3" Padding="5,1" Margin="0,0,8,0"
                                             Background="#1A2A1A" VerticalAlignment="Center">
                                         <TextBlock Text="{Binding RoleLabel}"
@@ -245,12 +243,12 @@
                                     <StackPanel Grid.Column="2">
                                         <!-- Name row with optional partner badge -->
                                         <StackPanel Orientation="Horizontal" Margin="0,0,0,3">
-                                            <Border Visibility="{Binding HasPartnerBadge, Converter={StaticResource BoolToVis}}"
-                                                    Background="{Binding PartnerBadgeBg}"
+                                            <Border IsVisible="{Binding HasPartnerBadge}"
+                                                    Background="{Binding PartnerBadgeBg, Converter={StaticResource HexToBrush}}"
                                                     CornerRadius="3" Padding="5,1" Margin="0,0,7,0"
                                                     VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding PartnerBadge}"
-                                                           Foreground="{Binding PartnerBadgeFg}"
+                                                           Foreground="{Binding PartnerBadgeFg, Converter={StaticResource HexToBrush}}"
                                                            FontSize="9" FontWeight="Bold"
                                                            FontFamily="Segoe UI"/>
                                             </Border>
@@ -262,7 +260,7 @@
                                         </StackPanel>
 
                                         <TextBlock Text="{Binding Description}"
-                                                   Style="{StaticResource TextSubtitle}"
+                                                   Classes="Subtitle"
                                                    FontSize="11"/>
 
                                         <WrapPanel Margin="0,4,0,0">
@@ -274,7 +272,7 @@
                                                        FontSize="11" FontFamily="Segoe UI"
                                                        Foreground="{StaticResource Success}"
                                                        Margin="0,0,10,0"/>
-                                            <TextBlock Visibility="{Binding OllamaOnly, Converter={StaticResource BoolToVis}}"
+                                            <TextBlock IsVisible="{Binding OllamaOnly}"
                                                        Text="Ollama pull"
                                                        FontSize="11" FontFamily="Segoe UI"
                                                        Foreground="#4A9FD9"

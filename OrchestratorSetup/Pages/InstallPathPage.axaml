@@ -1,6 +1,6 @@
 <!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
 <UserControl x:Class="OrchestratorSetup.Pages.InstallPathPage"
-             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="{StaticResource BgPanel}"
              AutomationProperties.AutomationId="Page.InstallPath">
@@ -15,21 +15,21 @@
 
         <!-- Header -->
         <StackPanel Grid.Row="0" Margin="0,0,0,24">
-            <TextBlock Text="Installation Paths" Style="{StaticResource TextPageTitle}"/>
-            <TextBlock Style="{StaticResource TextSubtitle}">
+            <TextBlock Text="Installation Paths" Classes="PageTitle"/>
+            <TextBlock Classes="Subtitle" TextWrapping="Wrap">
                 Choose where to install the app and where to store model files.
                 Models can be large (4–20 GB) — pick a drive with plenty of space.
             </TextBlock>
         </StackPanel>
 
         <!-- App path -->
-        <Border Grid.Row="1" Style="{StaticResource CardBorder}" Margin="0,0,0,16">
+        <Border Grid.Row="1" Classes="Card" Margin="0,0,0,16">
             <StackPanel>
                 <TextBlock Text="APP INSTALLATION FOLDER"
-                           Style="{StaticResource TextLabel}"
+                           Classes="Label"
                            Margin="0,0,0,8"/>
-                <TextBlock Style="{StaticResource TextSubtitle}" FontSize="11" Margin="0,0,0,10">
-                    OrchestratorIDE.exe, the llama.cpp runtime, and all support files.
+                <TextBlock Classes="Subtitle" FontSize="11" Margin="0,0,0,10" TextWrapping="Wrap">
+                    OrchestratorIDE, the llama.cpp runtime, and all support files.
                     Typically a few hundred MB.
                 </TextBlock>
                 <Grid>
@@ -40,29 +40,29 @@
                     </Grid.ColumnDefinitions>
                     <TextBox Grid.Column="0"
                              x:Name="TxtAppPath"
-                             Style="{StaticResource FlatTextBox}"
+                             Classes="Flat"
                              AutomationProperties.AutomationId="Path.AppInstall"
                              TextChanged="TxtAppPath_TextChanged"/>
                     <Button Grid.Column="2"
                             Content="Browse…"
-                            Style="{StaticResource BrowseButton}"
+                            Classes="Browse"
                             Click="BtnBrowseApp_Click"
                             AutomationProperties.AutomationId="Path.BrowseApp"/>
                 </Grid>
                 <TextBlock x:Name="TxtAppDriveSpace"
-                           Style="{StaticResource TextSubtitle}"
+                           Classes="Subtitle"
                            FontSize="11"
                            Margin="0,6,0,0"/>
             </StackPanel>
         </Border>
 
         <!-- Model path -->
-        <Border Grid.Row="2" Style="{StaticResource CardBorder}" Margin="0,0,0,16">
+        <Border Grid.Row="2" Classes="Card" Margin="0,0,0,16">
             <StackPanel>
                 <TextBlock Text="MODEL STORAGE FOLDER"
-                           Style="{StaticResource TextLabel}"
+                           Classes="Label"
                            Margin="0,0,0,8"/>
-                <TextBlock Style="{StaticResource TextSubtitle}" FontSize="11" Margin="0,0,0,10">
+                <TextBlock Classes="Subtitle" FontSize="11" Margin="0,0,0,10" TextWrapping="Wrap">
                     GGUF model files (.gguf). Models range from 2 GB to 20 GB.
                     Store on the drive with the most free space — can be different from the app.
                 </TextBlock>
@@ -74,17 +74,17 @@
                     </Grid.ColumnDefinitions>
                     <TextBox Grid.Column="0"
                              x:Name="TxtModelPath"
-                             Style="{StaticResource FlatTextBox}"
+                             Classes="Flat"
                              AutomationProperties.AutomationId="Path.ModelStorage"
                              TextChanged="TxtModelPath_TextChanged"/>
                     <Button Grid.Column="2"
                             Content="Browse…"
-                            Style="{StaticResource BrowseButton}"
+                            Classes="Browse"
                             Click="BtnBrowseModel_Click"
                             AutomationProperties.AutomationId="Path.BrowseModel"/>
                 </Grid>
                 <TextBlock x:Name="TxtModelDriveSpace"
-                           Style="{StaticResource TextSubtitle}"
+                           Classes="Subtitle"
                            FontSize="11"
                            Margin="0,6,0,0"/>
             </StackPanel>
@@ -96,6 +96,6 @@
                    Foreground="{StaticResource Error}"
                    FontFamily="Segoe UI"
                    FontSize="12"
-                   Visibility="Collapsed"/>
+                   IsVisible="False"/>
     </Grid>
 </UserControl>

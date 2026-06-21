@@ -9,6 +9,13 @@ namespace OrchestratorSetup.Services;
 /// <summary>
 /// Writes the Add/Remove Programs uninstall key during installation and
 /// performs file/shortcut/registry cleanup when the user chooses to uninstall.
+///
+/// Windows-only by design (Apps &amp; Features registration is a Windows concept, not just an
+/// unimplemented cross-platform feature) -- every Registry call below is already wrapped in
+/// try/catch, so on a non-Windows runtime this safely no-ops (silently skips registration/
+/// cleanup) rather than throwing PlatformNotSupportedException. Real cross-platform uninstall
+/// (.desktop cleanup, deleting a macOS .app bundle, etc.) is its own Phase 2+ IPlatformInstaller
+/// implementation (INSTALLER_REVAMP_SPEC.md §7 Phase 4/5), not a guard added here.
 /// </summary>
 public static class UninstallService
 {

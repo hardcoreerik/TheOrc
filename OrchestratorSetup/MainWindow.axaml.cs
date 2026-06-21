@@ -1,8 +1,9 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
+using Avalonia.Controls;
+using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
 using OrchestratorSetup.Pages;
 using OrchestratorSetup.ViewModels;
 
@@ -18,14 +19,12 @@ public partial class MainWindow : Window
     private static readonly string[] StepNames =
     {
         "Welcome",
-        "License",
         "Hardware",
         ".NET SDK",
         "Install Paths",
-        "Coding Profile",
+        "Runtime",
         "Model",
-        "Ollama Check",
-        "Download",
+        "Install",
         "Complete",
     };
 
@@ -38,14 +37,12 @@ public partial class MainWindow : Window
         _pages = new UserControl[]
         {
             new WelcomePage(_vm),
-            new LicensePage(_vm),
             new HardwareDetectPage(_vm),
             new DotNetCheckPage(_vm),
             new InstallPathPage(_vm),
-            new ProfilePage(_vm),
+            new RuntimeSetupPage(_vm),
             new ModelPage(_vm),
-            new OllamaCheckPage(_vm),
-            new DownloadPage(_vm),
+            new InstallPage(_vm),
             new CompletePage(_vm),
         };
 
@@ -62,12 +59,9 @@ public partial class MainWindow : Window
 
     // ── Navigation ────────────────────────────────────────────────────────────
 
-    private void BtnBack_Click(object sender, RoutedEventArgs e)
-    {
-        _vm.GoBack();
-    }
+    private void BtnBack_Click(object? sender, RoutedEventArgs e) => _vm.GoBack();
 
-    private void BtnNext_Click(object sender, RoutedEventArgs e)
+    private void BtnNext_Click(object? sender, RoutedEventArgs e)
     {
         // Let the current page validate before we advance
         if (_pages[_vm.PageIndex] is IInstallerPage page && !page.CanLeave())
@@ -93,23 +87,20 @@ public partial class MainWindow : Window
         BtnBack.IsEnabled = _vm.CanGoBack;
 
         var isLastStep = idx == StepNames.Length - 1;
-        var isDownload = idx == (int)InstallerViewModel.Page.Download;
+        var isInstall  = idx == (int)InstallerViewModel.Page.Install;
 
-        BtnNext.Content    = isDownload ? "Install" : isLastStep ? "Finish" : "Next →";
-        BtnNext.IsEnabled  = !isLastStep || _vm.State.InstallationComplete;
-        BtnNext.Visibility = isLastStep && _vm.State.InstallationComplete
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        BtnNext.Content   = isInstall ? "Install" : isLastStep ? "Finish" : "Next →";
+        BtnNext.IsEnabled = !isLastStep || _vm.State.InstallationComplete;
 
-        if (isLastStep && _vm.State.InstallationComplete)
-            BtnNext.Visibility = Visibility.Collapsed;
+        var finishedAndHidden = isLastStep && _vm.State.InstallationComplete;
 
         // Highlight active step in sidebar
         RefreshStepHighlights(idx);
 
-        // On download page, hide nav (the page drives itself)
-        BtnBack.Visibility = isDownload ? Visibility.Collapsed : Visibility.Visible;
-        BtnNext.Visibility = isDownload ? Visibility.Collapsed : Visibility.Visible;
+        // On the Install page, hide nav entirely (the page drives itself);
+        // on the final Complete page once installed, hide just Next (nothing further to do).
+        BtnBack.IsVisible = !isInstall;
+        BtnNext.IsVisible = !isInstall && !finishedAndHidden;
     }
 
     // ── Sidebar step list ─────────────────────────────────────────────────────
@@ -119,22 +110,22 @@ public partial class MainWindow : Window
         StepList.Items.Clear();
         for (int i = 0; i < StepNames.Length; i++)
         {
-            var row = new Border { Tag = i, Padding = new Thickness(24, 8, 24, 8) };
+            var row = new Border { Tag = i, Padding = new Avalonia.Thickness(24, 8, 24, 8) };
             var sp  = new StackPanel { Orientation = Orientation.Horizontal };
 
             var dot = new Border
             {
                 Width        = 18,
                 Height       = 18,
-                CornerRadius = new CornerRadius(9),
+                CornerRadius = new Avalonia.CornerRadius(9),
                 Background   = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44)),
-                Margin       = new Thickness(0, 0, 10, 0),
+                Margin       = new Avalonia.Thickness(0, 0, 10, 0),
                 Tag          = $"dot_{i}",
                 Child        = new TextBlock
                 {
                     Text                = (i + 1).ToString(),
                     FontSize            = 10,
-                    FontWeight          = FontWeights.Bold,
+                    FontWeight          = FontWeight.Bold,
                     Foreground          = Brushes.White,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment   = VerticalAlignment.Center,
@@ -143,12 +134,12 @@ public partial class MainWindow : Window
 
             var lbl = new TextBlock
             {
-                Text             = StepNames[i],
-                FontFamily       = new FontFamily("Segoe UI"),
-                FontSize         = 12,
-                Foreground       = new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55)),
+                Text              = StepNames[i],
+                FontFamily        = new FontFamily("Segoe UI"),
+                FontSize          = 12,
+                Foreground        = new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55)),
                 VerticalAlignment = VerticalAlignment.Center,
-                Tag              = $"lbl_{i}",
+                Tag               = $"lbl_{i}",
             };
 
             sp.Children.Add(dot);
@@ -182,7 +173,7 @@ public partial class MainWindow : Window
                 dot.Background = new SolidColorBrush(Color.FromRgb(0x00, 0x7A, 0xCC));
                 if (dot.Child is TextBlock t) t.Text = (i + 1).ToString();
                 lbl.Foreground = new SolidColorBrush(Color.FromRgb(0xD4, 0xD4, 0xD4));
-                lbl.FontWeight = FontWeights.SemiBold;
+                lbl.FontWeight = FontWeight.SemiBold;
             }
             else
             {
@@ -190,7 +181,7 @@ public partial class MainWindow : Window
                 dot.Background = new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33));
                 if (dot.Child is TextBlock t) t.Text = (i + 1).ToString();
                 lbl.Foreground = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44));
-                lbl.FontWeight = FontWeights.Normal;
+                lbl.FontWeight = FontWeight.Normal;
             }
         }
     }

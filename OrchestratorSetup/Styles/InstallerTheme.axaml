@@ -1,0 +1,277 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!--
+  INSTALLER_REVAMP_SPEC.md Phase 1 — ported from WPF's Styles/InstallerTheme.xaml.
+  WPF used named <Style x:Key> + Style="{StaticResource ...}" on each control; Avalonia
+  uses class-based Selectors (Classes="PageTitle" + <Style Selector="TextBlock.PageTitle">),
+  so every page's Style="{StaticResource X}" became Classes="X" at the call site.
+  Custom ControlTemplate.Triggers (WPF) became Avalonia pseudo-class selectors
+  (:pointerover, :pressed, :disabled), needing no ControlTemplate for that alone.
+  The ComboBox in particular drops WPF's full custom Popup/ControlTemplate (RelativeSource
+  TemplatedParent bindings, PART_Popup, etc. don't port directly) in favor of styling
+  Avalonia's own themed ComboBox via simple property Setters, same dark palette, far less
+  surface to get wrong porting a hand-rolled popup control template.
+-->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Styles.Resources>
+        <!-- ══ Colour palette ══════════════════════════════════════════════════ -->
+
+        <Color x:Key="BgDeepColor">#FF141414</Color>
+        <Color x:Key="BgPanelColor">#FF1E1E1E</Color>
+        <Color x:Key="BgCardColor">#FF252526</Color>
+        <Color x:Key="BgCardHoverColor">#FF2D2D30</Color>
+        <Color x:Key="BgCardSelectedColor">#FF0E3A5E</Color>
+        <Color x:Key="AccentColor">#FF007ACC</Color>
+        <Color x:Key="AccentHoverColor">#FF1B8ED8</Color>
+        <Color x:Key="AccentPressedColor">#FF005F9E</Color>
+        <Color x:Key="TextPrimaryColor">#FFD4D4D4</Color>
+        <Color x:Key="TextSecondaryColor">#FF888888</Color>
+        <Color x:Key="TextMutedColor">#FF555555</Color>
+        <Color x:Key="BorderSubtleColor">#FF333333</Color>
+        <Color x:Key="BorderAccentColor">#FF007ACC</Color>
+        <Color x:Key="SuccessColor">#FF4EC9B0</Color>
+        <Color x:Key="WarningColor">#FFD7BA7D</Color>
+        <Color x:Key="ErrorColor">#FFF48771</Color>
+
+        <SolidColorBrush x:Key="BgDeep"         Color="{StaticResource BgDeepColor}"/>
+        <SolidColorBrush x:Key="BgPanel"        Color="{StaticResource BgPanelColor}"/>
+        <SolidColorBrush x:Key="BgCard"         Color="{StaticResource BgCardColor}"/>
+        <SolidColorBrush x:Key="BgCardHover"    Color="{StaticResource BgCardHoverColor}"/>
+        <SolidColorBrush x:Key="BgCardSelected" Color="{StaticResource BgCardSelectedColor}"/>
+        <SolidColorBrush x:Key="Accent"         Color="{StaticResource AccentColor}"/>
+        <SolidColorBrush x:Key="AccentHover"    Color="{StaticResource AccentHoverColor}"/>
+        <SolidColorBrush x:Key="TextPrimary"    Color="{StaticResource TextPrimaryColor}"/>
+        <SolidColorBrush x:Key="TextSecondary"  Color="{StaticResource TextSecondaryColor}"/>
+        <SolidColorBrush x:Key="TextMuted"      Color="{StaticResource TextMutedColor}"/>
+        <SolidColorBrush x:Key="BorderSubtle"   Color="{StaticResource BorderSubtleColor}"/>
+        <SolidColorBrush x:Key="BorderAccent"   Color="{StaticResource BorderAccentColor}"/>
+        <SolidColorBrush x:Key="Success"        Color="{StaticResource SuccessColor}"/>
+        <SolidColorBrush x:Key="Warning"        Color="{StaticResource WarningColor}"/>
+        <SolidColorBrush x:Key="Error"          Color="{StaticResource ErrorColor}"/>
+    </Styles.Resources>
+
+    <!-- ══ Typography ═══════════════════════════════════════════════════════════ -->
+
+    <Style Selector="TextBlock.Hero">
+        <Setter Property="FontFamily" Value="Segoe UI"/>
+        <Setter Property="FontSize"   Value="36"/>
+        <Setter Property="FontWeight" Value="Light"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+    </Style>
+
+    <Style Selector="TextBlock.PageTitle">
+        <Setter Property="FontFamily" Value="Segoe UI"/>
+        <Setter Property="FontSize"   Value="22"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+        <Setter Property="Margin"     Value="0,0,0,6"/>
+    </Style>
+
+    <Style Selector="TextBlock.Subtitle">
+        <Setter Property="FontFamily"   Value="Segoe UI"/>
+        <Setter Property="FontSize"     Value="13"/>
+        <Setter Property="Foreground"   Value="{StaticResource TextSecondary}"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+
+    <Style Selector="TextBlock.Body">
+        <Setter Property="FontFamily"   Value="Segoe UI"/>
+        <Setter Property="FontSize"     Value="13"/>
+        <Setter Property="Foreground"   Value="{StaticResource TextPrimary}"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+
+    <Style Selector="TextBlock.Label">
+        <Setter Property="FontFamily" Value="Segoe UI"/>
+        <Setter Property="FontSize"   Value="11"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+        <Setter Property="Margin"     Value="0,0,0,4"/>
+    </Style>
+
+    <!-- ══ Primary button ════════════════════════════════════════════════════════ -->
+
+    <Style Selector="Button.Primary">
+        <Setter Property="Background"      Value="{StaticResource Accent}"/>
+        <Setter Property="Foreground"      Value="White"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding"         Value="20,8"/>
+        <Setter Property="FontFamily"      Value="Segoe UI"/>
+        <Setter Property="FontSize"        Value="13"/>
+        <Setter Property="FontWeight"      Value="SemiBold"/>
+        <Setter Property="Cursor"          Value="Hand"/>
+        <Setter Property="CornerRadius"    Value="4"/>
+    </Style>
+    <Style Selector="Button.Primary:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource AccentHover}"/>
+    </Style>
+    <Style Selector="Button.Primary:pressed /template/ ContentPresenter">
+        <Setter Property="Background" Value="#005F9E"/>
+    </Style>
+    <Style Selector="Button.Primary:disabled /template/ ContentPresenter">
+        <Setter Property="Background" Value="#333333"/>
+    </Style>
+    <Style Selector="Button.Primary:disabled">
+        <Setter Property="Foreground" Value="#555555"/>
+    </Style>
+
+    <!-- ══ Secondary / ghost button ═════════════════════════════════════════════ -->
+
+    <Style Selector="Button.Secondary">
+        <Setter Property="Background"      Value="Transparent"/>
+        <Setter Property="Foreground"      Value="{StaticResource TextSecondary}"/>
+        <Setter Property="BorderBrush"     Value="{StaticResource BorderSubtle}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding"         Value="20,8"/>
+        <Setter Property="FontFamily"      Value="Segoe UI"/>
+        <Setter Property="FontSize"        Value="13"/>
+        <Setter Property="Cursor"          Value="Hand"/>
+        <Setter Property="CornerRadius"    Value="4"/>
+    </Style>
+    <Style Selector="Button.Secondary:pointerover /template/ ContentPresenter">
+        <Setter Property="Background"  Value="#2A2A2A"/>
+        <Setter Property="BorderBrush" Value="#555555"/>
+    </Style>
+    <Style Selector="Button.Secondary:disabled">
+        <Setter Property="Foreground" Value="#444444"/>
+    </Style>
+
+    <!-- ══ Danger button (UninstallWindow's "Remove TheOrc") ══════════════════════ -->
+
+    <Style Selector="Button.Danger">
+        <Setter Property="Background"      Value="#5C1A1A"/>
+        <Setter Property="Foreground"      Value="#F48771"/>
+        <Setter Property="BorderBrush"     Value="#8A2A2A"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius"    Value="4"/>
+        <Setter Property="Cursor"          Value="Hand"/>
+        <Setter Property="Padding"         Value="12,4"/>
+    </Style>
+    <Style Selector="Button.Danger:pointerover /template/ ContentPresenter">
+        <Setter Property="Background"  Value="#7A2020"/>
+        <Setter Property="BorderBrush" Value="#B03A3A"/>
+    </Style>
+    <Style Selector="Button.Danger:disabled /template/ ContentPresenter">
+        <Setter Property="Background"  Value="#2A1414"/>
+        <Setter Property="BorderBrush" Value="#3A2020"/>
+    </Style>
+
+    <!-- ══ Browse button (compact, inline with TextBox) ═════════════════════════ -->
+
+    <Style Selector="Button.Browse">
+        <Setter Property="Background"      Value="Transparent"/>
+        <Setter Property="Foreground"      Value="{StaticResource TextSecondary}"/>
+        <Setter Property="BorderBrush"     Value="{StaticResource BorderSubtle}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius"    Value="4"/>
+        <Setter Property="Cursor"          Value="Hand"/>
+        <Setter Property="Padding"         Value="10,6"/>
+        <Setter Property="FontFamily"      Value="Segoe UI"/>
+        <Setter Property="FontSize"        Value="12"/>
+        <Setter Property="MinWidth"        Value="72"/>
+    </Style>
+    <Style Selector="Button.Browse:pointerover /template/ ContentPresenter">
+        <Setter Property="Background"  Value="#2A2A2A"/>
+        <Setter Property="BorderBrush" Value="#555555"/>
+    </Style>
+
+    <!-- ══ Flat TextBox ══════════════════════════════════════════════════════════ -->
+
+    <Style Selector="TextBox.Flat">
+        <Setter Property="Background"     Value="#1A1A1A"/>
+        <Setter Property="Foreground"     Value="{StaticResource TextPrimary}"/>
+        <Setter Property="BorderBrush"    Value="{StaticResource BorderSubtle}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding"        Value="8,6"/>
+        <Setter Property="FontFamily"     Value="Consolas, Segoe UI"/>
+        <Setter Property="FontSize"       Value="12"/>
+        <Setter Property="CaretBrush"     Value="{StaticResource Accent}"/>
+        <Setter Property="SelectionBrush" Value="{StaticResource Accent}"/>
+    </Style>
+
+    <!-- ══ Card border ═══════════════════════════════════════════════════════════ -->
+
+    <Style Selector="Border.Card">
+        <Setter Property="Background"      Value="{StaticResource BgCard}"/>
+        <Setter Property="BorderBrush"     Value="{StaticResource BorderSubtle}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius"    Value="6"/>
+        <Setter Property="Padding"         Value="16"/>
+    </Style>
+
+    <!-- ══ Profile / selectable card ════════════════════════════════════════════ -->
+
+    <Style Selector="Border.SelectableCard">
+        <Setter Property="Background"      Value="{StaticResource BgCard}"/>
+        <Setter Property="BorderBrush"     Value="{StaticResource BorderSubtle}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius"    Value="6"/>
+        <Setter Property="Padding"         Value="14,12"/>
+        <Setter Property="Cursor"          Value="Hand"/>
+    </Style>
+    <Style Selector="Border.SelectableCard.Selected">
+        <Setter Property="Background"  Value="{StaticResource BgCardSelected}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource Accent}"/>
+    </Style>
+
+    <!-- ══ Separator / HRule ════════════════════════════════════════════════════ -->
+
+    <Style Selector="Separator.HRule">
+        <Setter Property="Background" Value="{StaticResource BorderSubtle}"/>
+        <Setter Property="Height"     Value="1"/>
+        <Setter Property="Margin"     Value="0,12"/>
+    </Style>
+
+    <!-- ══ CheckBox ══════════════════════════════════════════════════════════════ -->
+
+    <Style Selector="CheckBox.Themed">
+        <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+        <Setter Property="FontFamily" Value="Segoe UI"/>
+        <Setter Property="FontSize"   Value="13"/>
+        <Setter Property="Margin"     Value="0,4"/>
+    </Style>
+
+    <!-- ══ ComboBox — palette only, no custom popup template (see file header) ════ -->
+
+    <Style Selector="ComboBox.Themed">
+        <Setter Property="Background"  Value="#1E1E1E"/>
+        <Setter Property="Foreground"  Value="{StaticResource TextPrimary}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderSubtle}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="FontFamily"  Value="Segoe UI"/>
+        <Setter Property="FontSize"    Value="12"/>
+        <Setter Property="Padding"     Value="10,7"/>
+        <Setter Property="Height"      Value="34"/>
+        <Setter Property="CornerRadius" Value="4"/>
+    </Style>
+    <Style Selector="ComboBox.Themed:pointerover /template/ Border#Background">
+        <Setter Property="BorderBrush" Value="#555555"/>
+    </Style>
+    <Style Selector="ComboBoxItem">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+        <Setter Property="FontFamily" Value="Segoe UI"/>
+        <Setter Property="FontSize"   Value="12"/>
+        <Setter Property="Padding"    Value="10,7"/>
+    </Style>
+    <Style Selector="ComboBoxItem:selected">
+        <Setter Property="Background" Value="#007ACC33"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="ComboBoxItem:pointerover">
+        <Setter Property="Background" Value="#007ACC22"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+
+    <!-- ══ ProgressBar ═══════════════════════════════════════════════════════════ -->
+
+    <Style Selector="ProgressBar.Themed">
+        <Setter Property="Height"          Value="6"/>
+        <Setter Property="Background"      Value="#333333"/>
+        <Setter Property="Foreground"      Value="{StaticResource Accent}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="CornerRadius"    Value="3"/>
+    </Style>
+
+</Styles>

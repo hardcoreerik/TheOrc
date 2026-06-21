@@ -1,15 +1,35 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    INSTALLER_REVAMP_SPEC.md Phase 1 — ported from WPF (net10.0-windows) to Avalonia (net10.0)
+    so the installer can eventually build for Linux/macOS, matching the app + daemon
+    (OrchestratorIDE.Avalonia, OrchestratorIDE.Daemon), which made this move already.
+    Windows-only service calls (HardwareDetector/WMI, HiveEnroller/netsh, UninstallService/
+    registry) are UNCHANGED in this phase: they are plain C#, not WPF, so they compile and
+    run fine under net10.0; cross-platform implementations are Phase 2+ (IPlatformInstaller).
+  -->
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <UseWPF>true</UseWPF>
     <RootNamespace>OrchestratorSetup</RootNamespace>
     <AssemblyName>OrchestratorSetup</AssemblyName>
     <ApplicationIcon>..\Assets\icon.ico</ApplicationIcon>
-    <NoWarn>$(NoWarn);NU1510</NoWarn>
+    <NoWarn>$(NoWarn);NU1510;AVLN3001</NoWarn>
+  </PropertyGroup>
+
+  <!-- Same convention as OrchestratorIDE.Avalonia.csproj: net10.0 doesn't define WINDOWS
+       automatically. Two distinct gating mechanisms exist in this project for two distinct
+       needs, both correct, neither a substitute for the other:
+         - #if WINDOWS (this constant): for code that needs a DIFFERENT TYPE on non-Windows
+           (App.axaml.cs's SecretProtection.Initialize pattern, if/when this project needs it).
+         - Runtime OperatingSystem.IsWindows() checks: for code that just needs to SKIP a
+           Windows-only call and return a safe default (HardwareDetector.Detect; see its own
+           comment). No different type is needed on the other branch, so no #if is needed
+           either; the call simply never executes on a non-Windows runtime. -->
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,20 +44,32 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.0.4" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.0.4" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.4" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.4" />
     <!-- System.Text.Json is inbox in .NET 10 but kept explicit for IDE Intellisense -->
     <PackageReference Include="System.Text.Json"  Version="10.0.8" NoWarn="NU1510" />
-    <!-- WMI managed API — required for Win32_VideoController and ComputerSystem queries -->
+    <!-- WMI managed API (Windows-only at runtime) — required for Win32_VideoController and
+         ComputerSystem queries. References fine under plain net10.0; HardwareDetector.Detect
+         gates the actual calls behind a runtime OperatingSystem.IsWindows() check (see that
+         method's own comment for why a runtime check, not #if WINDOWS, is the right tool here). -->
     <PackageReference Include="System.Management"  Version="9.0.0" />
+    <!-- Registry access for UninstallService's Apps & Features entry (Windows-only at
+         runtime; every call site is already wrapped in try/catch, so a non-Windows runtime
+         safely no-ops rather than throwing; see UninstallService's class doc comment).
+         Needed explicitly under net10.0 since it isn't implied by a -windows TFM anymore. -->
+    <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
   </ItemGroup>
 
-  <!-- Branding images — embedded as WPF Resource so they are accessible
-       via pack://application:,,,/ URIs even in single-file publish mode.
-       Linked from the shared Assets folder at the repo root. -->
+  <!-- Branding images — Avalonia resources, accessible via avares:// URIs (replaces WPF's
+       pack://application:,,,/ scheme) even in single-file publish mode. Linked from the
+       shared Assets folder at the repo root. -->
   <ItemGroup>
-    <Resource Include="..\Assets\icon.png"    Link="Assets\icon.png"/>
-    <Resource Include="..\Assets\banner.png"  Link="Assets\banner.png"/>
-    <Resource Include="..\Assets\release.png" Link="Assets\release.png"/>
-    <Resource Include="..\Assets\badge1.png"  Link="Assets\badge1.png"/>
+    <AvaloniaResource Include="..\Assets\icon.png"    Link="Assets\icon.png"/>
+    <AvaloniaResource Include="..\Assets\banner.png"  Link="Assets\banner.png"/>
+    <AvaloniaResource Include="..\Assets\release.png" Link="Assets\release.png"/>
+    <AvaloniaResource Include="..\Assets\badge1.png"  Link="Assets\badge1.png"/>
   </ItemGroup>
 
   <!-- Embed the model manifest and profile templates INSIDE the exe assembly
@@ -48,6 +80,16 @@
                       Link="Resources\model-manifest.json"/>
     <EmbeddedResource Include="..\Setup\Profiles\*.agent.md"
                       Link="Resources\Profiles\%(Filename)%(Extension)"/>
+  </ItemGroup>
+
+  <!-- Shared with OrchestratorIDE.Avalonia via Compile Include (same convention that project
+       uses for ../OrchestratorIDE/Services/Hive/*.cs etc.) rather than a duplicate local copy
+       (grok review MINOR, 2026-06-21): ModelPage.axaml binds HexToBrushConverter for
+       ModelEntry.PartnerBadgeBg/Fg, the same hex-string-to-brush need the app's own activity
+       log already has. No project reference needed for one shared file. -->
+  <ItemGroup>
+    <Compile Include="..\OrchestratorIDE.Avalonia\UI\Converters\HexToBrushConverter.cs"
+             Link="Converters\HexToBrushConverter.cs"/>
   </ItemGroup>
 
 </Project>

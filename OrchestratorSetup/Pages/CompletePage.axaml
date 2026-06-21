@@ -1,6 +1,6 @@
 <!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
 <UserControl x:Class="OrchestratorSetup.Pages.CompletePage"
-             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="{StaticResource BgPanel}"
              AutomationProperties.AutomationId="Page.Complete">
@@ -16,12 +16,12 @@
                 Background="#080808"
                 BorderBrush="{StaticResource BorderSubtle}"
                 BorderThickness="0,0,0,1">
-            <Image Source="pack://application:,,,/Assets/release.png"
+            <Image Source="avares://OrchestratorSetup/Assets/release.png"
                    Height="200"
                    Stretch="Uniform"
                    HorizontalAlignment="Center"
                    VerticalAlignment="Center"
-                   RenderOptions.BitmapScalingMode="HighQuality"
+                   RenderOptions.BitmapInterpolationMode="HighQuality"
                    Margin="0,8,0,0"/>
         </Border>
 
@@ -34,21 +34,21 @@
                         Margin="48,24,48,24">
 
                 <TextBlock Text="TheOrc is Ready!"
-                           Style="{StaticResource TextHero}"
+                           Classes="Hero"
                            FontSize="28"
                            HorizontalAlignment="Center"
                            Margin="0,0,0,8"/>
 
                 <TextBlock HorizontalAlignment="Center"
                            TextAlignment="Center"
-                           Style="{StaticResource TextSubtitle}"
+                           Classes="Subtitle"
                            FontSize="13"
                            Margin="0,0,0,20">
                     Everything is installed and configured.
                     Your AI coding assistant is ready — offline, private, yours.
                 </TextBlock>
 
-                <Separator Style="{StaticResource HRule}"/>
+                <Separator Classes="HRule"/>
 
                 <!-- Summary -->
                 <Grid Margin="0,14,0,20">
@@ -59,71 +59,98 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Profile"
-                               Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
+                    <!-- Profile row removed (INSTALLER_REVAMP_SPEC.md §3): profile selection
+                         now happens in the app's own FirstRunWindow on first launch, not here. -->
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Model"
+                               Classes="Label" VerticalAlignment="Center"/>
                     <TextBlock Grid.Row="0" Grid.Column="1"
-                               x:Name="TxtSummaryProfile"
-                               Style="{StaticResource TextBody}"
-                               VerticalAlignment="Center" Margin="0,0,0,8"/>
-
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Model"
-                               Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Row="1" Grid.Column="1"
                                x:Name="TxtSummaryModel"
-                               Style="{StaticResource TextBody}"
+                               Classes="Body"
                                VerticalAlignment="Center" Margin="0,0,0,8"/>
 
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Installed to"
-                               Style="{StaticResource TextLabel}" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Row="2" Grid.Column="1"
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Installed to"
+                               Classes="Label" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1"
                                x:Name="TxtSummaryPath"
-                               Style="{StaticResource TextBody}"
+                               Classes="Body"
                                FontFamily="Consolas" FontSize="11"
                                TextWrapping="Wrap"/>
                 </Grid>
 
                 <!-- Options -->
-                <StackPanel Margin="0,0,0,24">
+                <StackPanel Margin="0,0,0,16">
                     <CheckBox x:Name="ChkLaunch"
                               IsChecked="True"
-                              Style="{StaticResource ThemedCheckBox}"
+                              Classes="Themed"
                               Content="Launch TheOrc now"
                               AutomationProperties.AutomationId="Complete.Launch"
-                              Checked="ChkLaunch_Changed"
-                              Unchecked="ChkLaunch_Changed"/>
+                              IsCheckedChanged="ChkLaunch_Changed"/>
                     <CheckBox x:Name="ChkDesktopShortcut"
                               IsChecked="True"
-                              Style="{StaticResource ThemedCheckBox}"
+                              Classes="Themed"
                               Content="Create desktop shortcut"
                               AutomationProperties.AutomationId="Complete.Desktop"
-                              Checked="ChkDesktop_Changed"
-                              Unchecked="ChkDesktop_Changed"/>
+                              IsCheckedChanged="ChkDesktop_Changed"/>
                     <CheckBox x:Name="ChkStartMenu"
                               IsChecked="True"
-                              Style="{StaticResource ThemedCheckBox}"
+                              Classes="Themed"
                               Content="Create Start Menu shortcut"
                               AutomationProperties.AutomationId="Complete.StartMenu"
-                              Checked="ChkStartMenu_Changed"
-                              Unchecked="ChkStartMenu_Changed"/>
+                              IsCheckedChanged="ChkStartMenu_Changed"/>
                 </StackPanel>
+
+                <!-- HIVE MIND networking — added per INSTALLER_REVAMP_SPEC.md §3/§5.7. The
+                     ports were already opened automatically during install if "Join HIVE
+                     MIND" was checked on the Runtime Setup page; this button is the retry
+                     path for "I declined the UAC/sudo prompt then" or "it failed" without
+                     requiring a reinstall. -->
+                <Border Background="#0E120E" BorderBrush="#2A5A00" BorderThickness="1"
+                        CornerRadius="6" Padding="14,10" Margin="0,0,0,20">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,6">
+                            <TextBlock Text="🐝" FontSize="16" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="HIVE MIND Networking" Classes="Body" FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <TextBlock x:Name="TxtHiveStatus"
+                                   Classes="Subtitle" FontSize="11"
+                                   HorizontalAlignment="Center" TextAlignment="Center"
+                                   TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <Button x:Name="BtnConfigureHive"
+                                Content="Configure HIVE Ports"
+                                Classes="Secondary"
+                                HorizontalAlignment="Center"
+                                Click="BtnConfigureHive_Click"
+                                AutomationProperties.AutomationId="Complete.ConfigureHive"/>
+                    </StackPanel>
+                </Border>
 
                 <!-- Finish button -->
                 <Button x:Name="BtnFinish"
                         Content="Launch TheOrc →"
-                        Style="{StaticResource PrimaryButton}"
+                        Classes="Primary"
                         HorizontalAlignment="Center"
                         Padding="32,10"
                         FontSize="14"
                         Click="BtnFinish_Click"
                         AutomationProperties.AutomationId="Complete.Finish"/>
 
+                <TextBlock x:Name="TxtLaunchStatus"
+                           Margin="0,10,0,0"
+                           HorizontalAlignment="Center"
+                           TextAlignment="Center"
+                           Foreground="{StaticResource Warning}"
+                           FontFamily="Segoe UI" FontSize="11"
+                           TextWrapping="Wrap"
+                           IsVisible="False"/>
+
                 <TextBlock Margin="0,14,0,0"
                            HorizontalAlignment="Center"
                            TextAlignment="Center"
-                           Style="{StaticResource TextSubtitle}"
+                           Classes="Subtitle"
                            FontSize="11">
                     Tip: edit <Run FontFamily="Consolas">.agent.md</Run> in your
                     workspace to customise how the agent thinks about your code.

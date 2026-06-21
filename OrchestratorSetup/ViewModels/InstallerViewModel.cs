@@ -15,18 +15,19 @@ public class InstallerViewModel : INotifyPropertyChanged
 {
     // ── Pages enum ────────────────────────────────────────────────────────────
 
+    // INSTALLER_REVAMP_SPEC.md §5 — 10 pages -> 8: License folded into Welcome,
+    // Profile dropped (the app's own FirstRunWindow owns .agent.md), OllamaCheck
+    // became RuntimeSetup (native-first), Download renamed Install.
     public enum Page
     {
         Welcome        = 0,
-        License        = 1,
-        HardwareDetect = 2,
-        DotNetCheck    = 3,
-        InstallPath    = 4,
-        Profile        = 5,
-        ModelSelect    = 6,
-        OllamaCheck    = 7,
-        Download       = 8,
-        Complete       = 9,
+        HardwareDetect = 1,
+        DotNetCheck    = 2,
+        InstallPath    = 3,
+        RuntimeSetup   = 4,
+        ModelSelect    = 5,
+        Install        = 6,
+        Complete       = 7,
     }
 
     private static readonly int PageCount = Enum.GetValues<Page>().Length;
@@ -45,8 +46,8 @@ public class InstallerViewModel : INotifyPropertyChanged
     public int PageIndex     => (int)CurrentPage;
     public double ProgressPercent => (double)PageIndex / (PageCount - 1) * 100.0;
 
-    public bool CanGoBack => CurrentPage > Page.Welcome && CurrentPage < Page.Download;
-    public bool CanGoNext => CurrentPage < Page.Download;
+    public bool CanGoBack => CurrentPage > Page.Welcome && CurrentPage < Page.Install;
+    public bool CanGoNext => CurrentPage < Page.Install;
 
     // ── Model catalogue (loaded from bundled manifest) ────────────────────────
 
