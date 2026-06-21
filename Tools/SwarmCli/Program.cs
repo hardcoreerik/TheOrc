@@ -422,7 +422,7 @@ if (warchiefMode)
     queue.Start(new HiveSessionContext
     {
         SessionId      = Environment.MachineName,
-        ProjectGoal    = goal,
+        ProjectGoal    = goal ?? "", // null only under --no-run, where no goal ever runs
         CoderModel     = coder,
         ResearcherModel = researcher,
     }, warchiefPort);
