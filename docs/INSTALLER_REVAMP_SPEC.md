@@ -1,9 +1,10 @@
 # TheOrc — Cross-Platform Installer Revamp Specification
 
-> Status: Design only — no code has landed. Spec precedes implementation, per the same
->         discipline used for HIVE_MEMBERSHIP_SPEC.md ("write a fuller spec before any code
->         lands"). Page-by-page direction confirmed with the user 2026-06-21 via a structured
->         walk-through of all 10 current pages.
+> Status: Phase 1 (§7, WPF→Avalonia UI port) implemented 2026-06-21, ported directly to the
+>         final 8-page flow below rather than the old 10 pages. Phases 2-5 (IPlatformInstaller
+>         extraction, Linux impl, macOS impl + packaging) design only. Page-by-page direction
+>         confirmed with the user 2026-06-21 via a structured walk-through of all 10 then-
+>         current pages.
 > Scope: Rewrite `OrchestratorSetup` (today a Windows-only WPF wizard) as a cross-platform
 >        Avalonia GUI installer; abstract every Windows-coupled action (hardware detection,
 >        firewall, shortcuts, registry/uninstall) behind a per-OS layer; pivot runtime
@@ -271,11 +272,16 @@ shape the app and the sync-fleet skill already use.
 Each phase independently builds and is reviewable; the installer stays shippable on Windows
 throughout (no big-bang cutover).
 
-### Phase 1 — Project + UI port (no behavior change)
-- New `OrchestratorSetup` as Avalonia (`net10.0`, no `UseWPF`); port the 10 `.xaml` pages to
-  `.axaml`, swap `pack://` image URIs for `avares://`. Keep all current Windows-only service
-  calls behind a temporary Windows-only `IPlatformInstaller` so the ported wizard is
-  behavior-identical on Windows. Builds and runs on Windows exactly as before.
+### Phase 1 — Project + UI port — **Shipped 2026-06-21.**
+- `OrchestratorSetup` is now Avalonia (`net10.0`, no `UseWPF`); all pages ported `.xaml` →
+  `.axaml`, `pack://` image URIs → `avares://`. Ported directly to the §5 8-page flow (not the
+  old 10) since rebuilding pages slated for deletion would be wasted work. Windows-only service
+  calls (`HardwareDetector`/WMI, `HiveEnroller`/netsh, `UninstallService`/registry) are plain
+  C# and carry over completely unchanged — no `IPlatformInstaller` shim needed for Phase 1 to
+  be behavior-identical on Windows. `HardwareDetector.Detect` gained a runtime
+  `OperatingSystem.IsWindows()` guard (not `#if WINDOWS` — no different type needed on the
+  other branch, just skip the call) so a future non-Windows build degrades to a safe CPU
+  default instead of crashing.
 
 ### Phase 2 — Extract `IPlatformInstaller` + Windows impl
 - Define the interface (§4.1); move `HardwareDetector`/`HiveEnroller`/`ProfileMerger`-shortcuts/
