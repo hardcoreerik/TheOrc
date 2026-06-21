@@ -111,6 +111,7 @@ public static class HivePairingClient
             IsMobileClient       = isMobile,
             VramMb               = vramMb,
             SuggestedRole        = suggestedRole,
+            HiveId               = identity.HiveId,
         };
 
         var apiHost = $"http://{targetHost}:{HiveNodeServer.ApiPort}";
@@ -153,8 +154,16 @@ public static class HivePairingClient
                 catch { /* fall through with status == null -> Outcome.Error below */ }
 
                 return new Result(
-                    status == "already_paired" ? Outcome.AlreadyPaired : Outcome.Error,
-                    body);
+                    status switch
+                    {
+                        "already_paired"  => Outcome.AlreadyPaired,
+                        "hiveid_mismatch" => Outcome.Error,
+                        _                  => Outcome.Error,
+                    },
+                    status == "hiveid_mismatch"
+                        ? $"{targetHost} already belongs to a different hive than this machine. " +
+                          "Pairing across two separate hives isn't supported — see HIVE_MEMBERSHIP_SPEC.md §4.3."
+                        : body);
             }
             if (!initResp.IsSuccessStatusCode)
             {
@@ -216,6 +225,21 @@ public static class HivePairingClient
             string.IsNullOrEmpty(resp.WarchiefExchangePublicKeyDer))
         {
             return new Result(Outcome.Error, "Approved response was missing required peer fields.");
+        }
+
+        // HIVE_MEMBERSHIP_SPEC.md §4.3 reconciliation, initiator side. The responder already
+        // decided the resulting HiveId (adopted ours, kept its own, or founded a fresh one if
+        // neither side had one) -- we just need to adopt whatever it settled on. The request-time
+        // hiveid_mismatch check in HiveNodeServer already prevents reaching this point when both
+        // sides had one and they genuinely differed, but double-check here too rather than
+        // trusting that invariant blindly across two different code paths.
+        if (!string.IsNullOrEmpty(resp.HiveId))
+        {
+            if (string.IsNullOrEmpty(identity.HiveId))
+                identity.SetHive(resp.HiveId, HiveRole.Member);
+            else if (identity.HiveId != resp.HiveId)
+                return new Result(Outcome.Error,
+                    "This machine and the target belong to different hives -- refusing to complete pairing.");
         }
 
         byte[] secret;

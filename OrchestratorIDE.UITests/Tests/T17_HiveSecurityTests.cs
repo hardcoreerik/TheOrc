@@ -257,6 +257,49 @@ public class T17_HiveSecurityTests
         Assert.That(id.NodeId, Is.EqualTo(expected));
     }
 
+    // ── HiveIdentity: HiveId / SetHive (HIVE_MEMBERSHIP_SPEC.md §4) ────────────
+
+    [Test]
+    public void SetHive_FromUnset_SetsHiveIdAndRole()
+    {
+        using var id = HiveIdentity.CreateEphemeral();
+        Assert.That(id.HiveId, Is.Empty);
+        Assert.That(id.HiveRole, Is.EqualTo(HiveRole.Unset));
+
+        id.SetHive("hive-123", HiveRole.Founder);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(id.HiveId, Is.EqualTo("hive-123"));
+            Assert.That(id.HiveRole, Is.EqualTo(HiveRole.Founder));
+        });
+    }
+
+    [Test]
+    public void SetHive_SameValueAgain_DoesNotThrow()
+    {
+        using var id = HiveIdentity.CreateEphemeral();
+        id.SetHive("hive-123", HiveRole.Founder);
+        Assert.DoesNotThrow(() => id.SetHive("hive-123", HiveRole.Member));
+    }
+
+    [Test]
+    public void SetHive_DifferingValue_ThrowsRatherThanBridgeTwoHives()
+    {
+        using var id = HiveIdentity.CreateEphemeral();
+        id.SetHive("hive-123", HiveRole.Founder);
+        Assert.Throws<InvalidOperationException>(() => id.SetHive("hive-456", HiveRole.Member));
+        // The refused call must not have mutated state.
+        Assert.That(id.HiveId, Is.EqualTo("hive-123"));
+    }
+
+    [Test]
+    public void SetHive_EmptyString_Throws()
+    {
+        using var id = HiveIdentity.CreateEphemeral();
+        Assert.Throws<ArgumentException>(() => id.SetHive("", HiveRole.Founder));
+    }
+
     // ── HiveIdentity: fingerprint ─────────────────────────────────────────────
 
     [Test]

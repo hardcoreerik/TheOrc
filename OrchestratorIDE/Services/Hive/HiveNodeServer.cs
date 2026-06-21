@@ -183,11 +183,30 @@ public sealed class HiveNodeServer : IDisposable
             var remoteIp = pending.RemoteIp;
             var identity = HiveIdentity.Load();
 
-            // Derive shared secret — wrap in try/catch so a malformed ExchangePublicKeyDer
-            // in an inbound pairing request doesn't surface as an unhandled 500.
+            // Derive shared secret, and apply HIVE_MEMBERSHIP_SPEC.md §4.3 reconciliation —
+            // both wrapped in the same try/catch: a malformed ExchangePublicKeyDer, a
+            // Persist() disk/DPAPI failure, or a concurrent SetHive race (HiveIdentity's own
+            // lock makes that last one safe but still throwing) must all reject this pairing
+            // cleanly (return false) rather than letting an exception escape into the UI
+            // event handler that invoked ApprovePairing (grok review BLOCKER, 2026-06-21).
             byte[] secret;
             try
             {
+                // The hiveid_mismatch case (both sides set, differ) was already refused at
+                // request time in HandlePairInitiateAsync — by the time a human reaches this
+                // approval step, only the remaining three cases are possible:
+                //   - identity has one, req doesn't  -> nothing to do, identity's HiveId stands
+                //   - req has one, identity doesn't  -> this node adopts it
+                //   - neither has one                -> this node (the approver) founds the hive
+                // SetHive() is a no-op-safe call to make even when identity.HiveId already
+                // equals the target value (it only throws on an actual differing overwrite).
+                if (string.IsNullOrEmpty(identity.HiveId))
+                {
+                    var newHiveId = string.IsNullOrEmpty(req.HiveId) ? Guid.NewGuid().ToString() : req.HiveId;
+                    identity.SetHive(newHiveId, req.HiveId == newHiveId && !string.IsNullOrEmpty(req.HiveId)
+                        ? HiveRole.Member : HiveRole.Founder);
+                }
+
                 var salt = XorNodeIds(identity.NodeId, req.InitiatorNodeId);
                 secret   = identity.DeriveSharedSecret(
                     Convert.FromBase64String(req.ExchangePublicKeyDer), salt);
@@ -223,6 +242,7 @@ public sealed class HiveNodeServer : IDisposable
                 WarchiefExchangePublicKeyDer = Convert.ToBase64String(identity.ExchangePublicKeyDer),
                 AssignedRole                = grantedRole.ToString(),
                 AllowedLanes                = allowedLanes,
+                HiveId                      = identity.HiveId,
             }, DateTime.UtcNow);
             _pendingPairings.Remove(sessionId);
             return true;
@@ -472,6 +492,18 @@ public sealed class HiveNodeServer : IDisposable
         {
             resp.StatusCode = 409;
             Ok(resp, Json(new { status = "already_paired" }));
+            return;
+        }
+
+        // HIVE_MEMBERSHIP_SPEC.md §4.3 — refuse rather than silently bridge two separate
+        // hives. Checked here (request time) rather than only at approval time so the
+        // responder isn't shown an approval card for a pairing that can never succeed.
+        var localHiveId = HiveIdentity.Load().HiveId;
+        if (!string.IsNullOrEmpty(localHiveId) && !string.IsNullOrEmpty(req.HiveId)
+            && !string.Equals(localHiveId, req.HiveId, StringComparison.OrdinalIgnoreCase))
+        {
+            resp.StatusCode = 409;
+            Ok(resp, Json(new { status = "hiveid_mismatch" }));
             return;
         }
 

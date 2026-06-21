@@ -64,9 +64,12 @@ public sealed class HiveBeacon : IDisposable
     public void UpdatePayload(string nodeName, string ollamaUrl,
                               IReadOnlyList<string> models, int vramFreeMb)
     {
+        // HiveId read fresh each call rather than cached -- a node can transition
+        // Unset -> Founder/Member mid-session (first pairing), and the next beacon tick
+        // should reflect that without requiring callers to know to re-call this.
         var msg = new HiveBeaconMessage(
             nodeName, ollamaUrl, HiveNodeServer.ApiPort,
-            [.. models], vramFreeMb);
+            [.. models], vramFreeMb, HiveIdentity.Load().HiveId);
         _payload = JsonSerializer.Serialize(msg);
     }
 
@@ -195,10 +198,20 @@ public sealed class HiveBeacon : IDisposable
     }
 }
 
-/// <summary>Payload carried in every UDP beacon packet.</summary>
+/// <summary>
+/// Payload carried in every UDP beacon packet.
+/// </summary>
+/// <param name="HiveId">
+/// "" if the sender hasn't founded/joined a hive yet (HiveRole.Unset). Lets the
+/// first-run/repair wizard (HIVE_MEMBERSHIP_SPEC.md §7) group ScanAsync results by hive
+/// instead of just listing bare nodes. Beacon remains unauthenticated by design (same
+/// trust level as Name/OllamaUrl/Models above) -- HIVE_PAIRING_SPEC.md §11 already
+/// documents the beacon as display-only.
+/// </param>
 public sealed record HiveBeaconMessage(
     string   Name,
     string   OllamaUrl,
     int      HivePort,
     string[] Models,
-    int      VramFreeMb);
+    int      VramFreeMb,
+    string   HiveId = "");

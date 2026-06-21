@@ -195,6 +195,11 @@ public sealed class HivePairingRequest
     public bool   IsMobileClient     { get; set; }
     public int    VramMb             { get; set; }
     public string SuggestedRole      { get; set; } = "Worker";
+    /// <summary>
+    /// Initiator's hive identifier, "" if unset (HiveIdentity.HiveRole == Unset).
+    /// See HIVE_MEMBERSHIP_SPEC.md §4.3 for the reconciliation rule applied by the responder.
+    /// </summary>
+    public string HiveId             { get; set; } = "";
 }
 
 /// <summary>Response to GET /hive/pair/{sessionId} — approval polling result.</summary>
@@ -209,6 +214,15 @@ public sealed class HivePairingResponse
     public string? WarchiefExchangePublicKeyDer { get; set; }
     public string? AssignedRole      { get; set; }  // actual role granted
     public string[]? AllowedLanes    { get; set; }
+    /// <summary>
+    /// Responder's hive identifier after reconciliation (HIVE_MEMBERSHIP_SPEC.md §4.3) —
+    /// "" only if neither side had one and the responder did not become a founder (should
+    /// not happen in practice once Phase 1 ships, since approving always founds-or-adopts).
+    /// The mismatch case (both sides set, differ) never reaches this type at all — it's
+    /// refused at request time in HandlePairInitiateAsync with a separate, ad-hoc
+    /// { "status": "hiveid_mismatch" } body before a HivePairingResponse is ever built.
+    /// </summary>
+    public string? HiveId            { get; set; }
 }
 
 // ── HIVE Election ─────────────────────────────────────────────────────────────

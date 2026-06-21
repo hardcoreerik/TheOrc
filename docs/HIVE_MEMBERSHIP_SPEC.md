@@ -1,7 +1,8 @@
 # HIVE MIND — Hive Identity, Membership Certificates, and Auto-Promotion Specification
 
-> Status: Design only — no code has landed. Spec precedes implementation per explicit
->         instruction (2026-06-21): "write a fuller spec for this before any code lands."
+> Status: Phase 1 (HiveId foundation, §9) implemented 2026-06-21. Phases 2-4 design only.
+>         Spec preceded implementation per explicit instruction: "write a fuller spec for
+>         this before any code lands" — Phase 1 is the first phase actually built.
 > Scope: Hive-wide identity (`HiveId`), membership certificates for non-transitive-pairing
 >        trust propagation, an authenticated role-assignment RPC + "declare Warchief and
 >        promote all peers" UI action, and a first-run/repair discovery wizard.
@@ -559,9 +560,9 @@ pairing rollout.
 
 | Component | File | Status |
 |---|---|---|
-| `HiveId` + `HiveRole` on identity | `HiveIdentity.cs` | 🔲 Not started |
-| `HiveId` on pairing request/response | `HiveNodeServer.cs`, `HivePairingClient.cs` | 🔲 Not started |
-| `HiveId` on beacon payload | `HiveBeacon.cs` | 🔲 Not started |
+| `HiveId` + `HiveRole` on identity | `HiveIdentity.cs` | ✅ Implemented (`SetHive`, instance-locked + persist-before-mutate) |
+| `HiveId` on pairing request/response | `HiveNodeServer.cs`, `HivePairingClient.cs` | ✅ Implemented (§4.3 three-case reconciliation both sides; early `hiveid_mismatch` refusal at request time) |
+| `HiveId` on beacon payload | `HiveBeacon.cs` | ✅ Implemented |
 | `MembershipCert` model + signing | new file `HiveMembershipCert.cs` | 🔲 Not started |
 | Cert issuance at pairing | `HiveNodeServer.ApprovePairing` | 🔲 Not started |
 | Cert verification / provisional peer admission | `HivePeerStore.cs` | 🔲 Not started |
