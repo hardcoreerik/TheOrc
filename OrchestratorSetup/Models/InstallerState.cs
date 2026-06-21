@@ -126,6 +126,16 @@ public class InstallerState
     /// <summary>Full path where OrchestratorIDE.exe is placed after download.</summary>
     public string AppExePath      => Path.Combine(AppInstallPath, "OrchestratorIDE.exe");
 
+    /// <summary>
+    /// Where OrchestratorIDE.exe would sit if the user extracted it next to
+    /// OrchestratorSetup.exe itself (portable-zip layout). Distinct from
+    /// <see cref="AppExePath"/>, which is the final installed location — a stale
+    /// exe already present there (from a prior install) must NOT be treated as
+    /// "already downloaded" during an upgrade.
+    /// </summary>
+    public string PortableAppExePath =>
+        Path.Combine(AppContext.BaseDirectory, "OrchestratorIDE.exe");
+
     // ── Download state (Phase E) ──────────────────────────────────────────────
 
     /// <summary>Overall bytes downloaded so far across all artefacts.</summary>

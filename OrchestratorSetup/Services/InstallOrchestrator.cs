@@ -62,12 +62,18 @@ public sealed class InstallOrchestrator : IDisposable
 
     public async Task RunAsync(CancellationToken ct = default)
     {
+        // Resolve app download URL from manifest before computing step count --
+        // ComputeTotalSteps reads _state.AppDownloadUrl, which is empty until
+        // ResolveAppUrl populates it. The original order ran ComputeTotalSteps
+        // first, so its AppDownloadUrl check was always evaluated against ""
+        // and never actually counted the download branch's step (Grok CLI MINOR,
+        // 2026-06-21 -- a pre-existing ordering bug, not introduced by this diff,
+        // but directly affecting the same step-count accuracy this diff touches).
+        ResolveAppUrl();
+
         // Compute step count so overall progress is accurate
         _totalSteps = ComputeTotalSteps();
         _stepsDone  = 0;
-
-        // Resolve app download URL from manifest before starting
-        ResolveAppUrl();
 
         try
         {
@@ -87,11 +93,56 @@ public sealed class InstallOrchestrator : IDisposable
             }, ct), ct);
 
             // ── Step 1: Download OrchestratorIDE.exe ───────────────────────
-            // Skip if the exe was already placed next to OrchestratorSetup.exe
-            // (portable-zip layout: the user extracted both files together).
-            if (File.Exists(_state.AppExePath))
+            // Skip ONLY if the exe was placed next to OrchestratorSetup.exe itself
+            // (portable-zip layout: the user extracted both files together). A
+            // stale exe already sitting at the final AppInstallPath from a PRIOR
+            // install is not a reason to skip — upgrades must always fetch the
+            // current release, or the desktop shortcut keeps launching the old build.
+            if (File.Exists(_state.PortableAppExePath))
             {
-                Log($"✓ OrchestratorIDE.exe already present at {_state.AppExePath} — skipping download.");
+                await Step("Copying app from portable layout", async () =>
+                {
+                    Log($"✓ Found OrchestratorIDE.exe next to the installer (portable layout) — using it instead of downloading.");
+                    // The target is locked if a previous install's OrchestratorIDE.exe is
+                    // still running from this exact path (e.g. upgrading without closing it
+                    // first) -- an unguarded File.Copy would throw a raw IOException and
+                    // abort the whole install ungracefully (Grok CLI BLOCKER, 2026-06-21).
+                    try
+                    {
+                        File.Copy(_state.PortableAppExePath, _state.AppExePath, overwrite: true);
+                    }
+                    // UnauthorizedAccessException does NOT derive from IOException in .NET --
+                    // a permissions-denied case (e.g. install dir needs elevation) hit the same
+                    // "still running" message before, but would have bypassed this catch
+                    // entirely and surfaced as a raw, unfriendly exception (Grok CLI MINOR,
+                    // 2026-06-21). FileNotFoundException DOES derive from IOException, so a
+                    // source-file-vanished race (after the outer Exists check, before Copy)
+                    // also lands here -- the message below covers that too rather than
+                    // claiming one specific cause (Grok CLI MINOR, 2026-06-21).
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        throw new InvalidOperationException(
+                            $"Could not copy OrchestratorIDE.exe to {_state.AppExePath}. It may " +
+                            "still be running, the installer may need to run as administrator, " +
+                            "or the source file became unavailable. Please close OrchestratorIDE " +
+                            "and run the installer again.", ex);
+                    }
+                    // The download branch below gets a free "✓ {ItemName} — {TotalDisplay}" log
+                    // line and DownloadPage row update via DownloadFileAsync's own OnProgress
+                    // events; this branch calls neither, so without this the UI/log never marks
+                    // "OrchestratorIDE" complete even though the copy succeeded (Grok CLI MINOR,
+                    // 2026-06-21).
+                    var copiedBytes = new FileInfo(_state.AppExePath).Length;
+                    OnItemProgress?.Invoke(new DownloadProgress
+                    {
+                        ItemName      = "OrchestratorIDE",
+                        BytesReceived = copiedBytes,
+                        TotalBytes    = copiedBytes,
+                        IsComplete    = true,
+                    });
+                    Log($"  ✓ OrchestratorIDE — copied from portable layout");
+                    await Task.CompletedTask;
+                }, ct);
             }
             else if (!string.IsNullOrEmpty(_state.AppDownloadUrl))
             {
@@ -100,13 +151,78 @@ public sealed class InstallOrchestrator : IDisposable
                     Log($"  URL : {_state.AppDownloadUrl}");
                     Log($"  Dest: {_state.AppExePath}");
 
-                    await _dl.DownloadFileAsync(
-                        _state.AppDownloadUrl,
-                        _state.AppExePath,
-                        "OrchestratorIDE",
-                        _state.AppSizeBytes > 0 ? _state.AppSizeBytes : null,
-                        null,
-                        ct);
+                    // Download to a side-by-side temp path and only swap it into AppExePath
+                    // after a full, successful download -- DownloadFileAsync treats any
+                    // existing file at destPath as "already done" when no hash is given, so
+                    // forcing a fresh download means removing the stale exe first, but doing
+                    // that directly against AppExePath left the install with NO executable at
+                    // all if the download then failed (network error, 404, cancellation) --
+                    // strictly worse than the stale-exe bug this was fixing (Grok CLI BLOCKER,
+                    // 2026-06-21).
+                    var tempPath = _state.AppExePath + ".download";
+
+                    // If tempPath already exists, a PRIOR run already completed this download
+                    // and only the subsequent Move failed (e.g. target locked by a still-running
+                    // OrchestratorIDE.exe) -- skip re-downloading the whole multi-hundred-MB exe
+                    // and go straight to retrying the move. Unconditionally deleting tempPath
+                    // here, as an earlier version of this fix did, directly contradicted this
+                    // same comment's intent and was flagged twice by review (Grok CLI MINOR,
+                    // 2026-06-21) -- this is the actual fix, not another guard around the
+                    // contradiction.
+                    if (File.Exists(tempPath))
+                    {
+                        // DownloadFileAsync's own OnProgress firing (including the final
+                        // IsComplete event and "✓ {ItemName}" log line) only happens when it's
+                        // actually called -- skipping it here means the UI/log would never mark
+                        // "OrchestratorIDE" complete on this retry path without firing the same
+                        // completion manually, matching the portable-copy branch above
+                        // (Grok CLI MINOR, 2026-06-21).
+                        Log("  Found a previously downloaded OrchestratorIDE.exe — retrying instead of re-downloading.");
+                        var existingBytes = new FileInfo(tempPath).Length;
+                        OnItemProgress?.Invoke(new DownloadProgress
+                        {
+                            ItemName      = "OrchestratorIDE",
+                            BytesReceived = existingBytes,
+                            TotalBytes    = existingBytes,
+                            IsComplete    = true,
+                        });
+                        Log($"  ✓ OrchestratorIDE — already downloaded");
+                    }
+                    else
+                    {
+                        await _dl.DownloadFileAsync(
+                            _state.AppDownloadUrl,
+                            tempPath,
+                            "OrchestratorIDE",
+                            _state.AppSizeBytes > 0 ? _state.AppSizeBytes : null,
+                            null,
+                            ct);
+                    }
+
+                    try
+                    {
+                        File.Move(tempPath, _state.AppExePath, overwrite: true);
+                    }
+                    // UnauthorizedAccessException does NOT derive from IOException in .NET --
+                    // broadened to match the portable-copy branch above. FileNotFoundException
+                    // DOES derive from IOException -- if tempPath vanished between the Exists
+                    // check and here, the message below covers that too rather than naming one
+                    // specific cause (Grok CLI MINOR, 2026-06-21).
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        throw new InvalidOperationException(
+                            $"Downloaded OrchestratorIDE.exe but could not move it into place at " +
+                            $"{_state.AppExePath}. It may still be running, the installer may need " +
+                            "to run as administrator, or the downloaded file became unavailable. " +
+                            "Please close OrchestratorIDE and run the installer again.", ex);
+                    }
+
+                    // Only reached on success -- the temp file has already been moved into
+                    // place, so there's nothing left at tempPath to clean up here. A failed
+                    // download (network error, 404) never reaches this point either, since
+                    // DownloadFileAsync itself doesn't leave a partial file at tempPath on
+                    // failure (it writes to an even more nested ".partial" path internally and
+                    // only produces tempPath on full success).
                 }, ct);
             }
             else
@@ -136,6 +252,28 @@ public sealed class InstallOrchestrator : IDisposable
                 var runtimeZip  = Path.Combine(_state.AppInstallPath, "llama-runtime.zip");
                 var runtimeSize = GetRuntimeSizeBytes();
                 _state.RuntimeDownloadUrl = runtimeUrl;
+
+                // No SHA-256 is known for the runtime zip, so DownloadFileAsync's
+                // "already done" check can't verify it — a stale zip left behind by
+                // an interrupted prior install would otherwise be treated as current.
+                // Unlike the app exe above, this isn't a running executable, so a delete
+                // failure here is unlikely (no realistic "still running" lock) but not
+                // impossible (permissions, AV scan holding a handle). This must actually
+                // throw rather than log-and-continue: DownloadFileAsync's own "already done"
+                // check (no SHA known for this file) would otherwise silently reuse the stale
+                // zip for extraction instead of fetching the current release -- the exact
+                // freshness guarantee this delete exists to enforce. Logging a warning and
+                // proceeding anyway (an earlier version of this fix did exactly that) left the
+                // behavior fail-open with just a warning attached, not actually fixed
+                // (Grok CLI MINOR, 2026-06-21).
+                try { if (File.Exists(runtimeZip)) File.Delete(runtimeZip); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    throw new InvalidOperationException(
+                        $"Could not remove the previous llama.cpp runtime archive at {runtimeZip} " +
+                        "to fetch the current release fresh. Please close any program that might " +
+                        "have it open and run the installer again.", ex);
+                }
 
                 await Step("Downloading llama.cpp runtime", async () =>
                 {
@@ -326,8 +464,12 @@ public sealed class InstallOrchestrator : IDisposable
         // Base: create dirs + write config + shortcuts + uninstall registration
         int n = 4;
 
-        // App exe download (only when it will actually run)
-        if (!File.Exists(_state.AppExePath) && !string.IsNullOrEmpty(_state.AppDownloadUrl))
+        // App exe step — exactly one Step runs in either the portable-copy or the
+        // download branch above (mutually exclusive); only the third, no-op "neither
+        // available" case skips a step entirely. Previously this only counted the
+        // download branch, so _stepsDone overran _totalSteps under portable layout
+        // once that branch was wrapped in its own Step too (Grok CLI MINOR, 2026-06-21).
+        if (File.Exists(_state.PortableAppExePath) || !string.IsNullOrEmpty(_state.AppDownloadUrl))
             n += 1;
 
         if (_state.InstallOllama)
