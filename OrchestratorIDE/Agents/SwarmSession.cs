@@ -486,9 +486,22 @@ public class SwarmSession
                         await RunWorkerAsync(t, findings, ct, retryMsg);
 
                         if (t.Result is null) break;   // error / cancel — stop retrying
-                        var retryFiles = ExtractAndWriteFiles(t.Result, OutputProjectDir) + t.ToolFilesWritten;
+                        var retryMarkerFiles = ExtractAndWriteFiles(t.Result, OutputProjectDir);
+                        var retryFiles = retryMarkerFiles + t.ToolFilesWritten;
                         if (retryFiles > 0)
                         {
+                            // Mirror the first-attempt success branch above (line ~465): without
+                            // this, workerFiles (which gates whether the Auto Tester runs) sums
+                            // ToolFilesWritten + MarkerFilesWritten per task, and a task that only
+                            // succeeded via this retry's marker-extraction path was silently
+                            // counted as zero files -- the Auto Tester quality gate was being
+                            // skipped for exactly the runs that needed a retry to produce files,
+                            // even though real files were written (found 2026-06-21 while
+                            // investigating why "Auto Tester skipped" kept appearing right after
+                            // "Workers wrote N file(s)" for the same run).
+                            if (retryMarkerFiles > 0)
+                                t.MarkerFilesWritten = retryMarkerFiles;
+
                             var names = ExtractFileNames(t.Result);
                             if (names.Count > 0)
                                 Activity($"→ retry wrote {string.Join(", ", names)}", AgentKey(t.Role));
