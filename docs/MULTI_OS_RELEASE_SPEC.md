@@ -1,6 +1,16 @@
 # TheOrc — Multi-OS Release Pipeline Specification
 
-> Status: Scoping only, 2026-06-21. No code written yet. Target: **v1.9.5**.
+> Status: Phases A-D implemented 2026-06-21 (macOS only; Linux still has no release.yml
+>         publish job — Phase A's matrix has one macOS leg added, no Linux leg yet). Phase E
+>         (Linux/macOS Ollama install) and Phase F (real-hardware verification) not started —
+>         this has only been cross-compiled and grok-reviewed, never run on an actual Mac.
+>         Took five review rounds; see commit 659784a for the full list of what each one
+>         caught (a release-creation race between matrix legs, a nested-vs-flat archive
+>         mismatch, no tar.gz extraction support at all, no Unix executable bit anywhere in
+>         the download/copy/extract paths, and three separate spots in the RUNNING app —
+>         UpdateChecker, SelfUpdater, LlamaServerManager — that only ever recognized Windows
+>         binary names, which would have produced a Mac install that completes and then can't
+>         update itself or find its own runtime). Target: **v1.9.5**.
 > Depends on: `INSTALLER_REVAMP_SPEC.md` Phases 1/2/4/5 (all shipped 2026-06-21) — this spec
 >             closes the gap those phases explicitly left open: the platform-installer classes
 >             are correct, but nothing upstream of them can hand a Linux or macOS install an
@@ -44,64 +54,67 @@ working raw binary for that OS at all," which is what this spec is about.
 Each phase is independently shippable and reviewable, same convention as the installer spec.
 Phases are ordered so each one is testable before the next depends on it.
 
-### Phase A — `release.yml`: publish Linux + macOS artifacts
-- Add a build matrix (`win-x64`, `linux-x64`, `osx-arm64`; `osx-x64` optional/deferred —
-  Apple Silicon is the realistic majority of new Mac hardware) publishing both
-  `OrchestratorIDE.Avalonia` and `OrchestratorSetup` per RID, same
-  `--self-contained -p:PublishSingleFile=true` shape already used for Windows.
-- Non-Windows artifacts need `chmod +x` before archiving — `Compress-Archive`/`zip` does not
-  reliably preserve the Unix executable bit; use `tar -czf` for the Linux/macOS portable
-  bundles instead of `.zip` (matches the ecosystem convention for those OSes anyway).
-- Upload all per-OS artifacts to the same GitHub Release alongside the existing Windows ones.
-  No existing Windows asset name or behavior changes — purely additive.
-- **Testable in isolation**: a manual `workflow_dispatch` run produces a release with 3x the
-  current artifact count; verify each binary actually runs on its target OS (a real Linux box
-  or VM, a real Mac) before moving to Phase B.
+### Phase A — `release.yml`: publish Linux + macOS artifacts — **macOS shipped 2026-06-21, Linux not started.**
+- `release.yml` is now a build matrix with a `windows-latest`/`win-x64` leg (unchanged) and a
+  `macos-latest`/`osx-arm64` leg (new). No `linux-x64` leg yet — `osx-x64` (Intel Mac) also
+  deferred, same "get ONE real artifact shipping and tested first" reasoning.
+- Both legs publish `OrchestratorIDE.Avalonia` and `OrchestratorSetup`, same
+  `--self-contained -p:PublishSingleFile=true` shape. macOS binaries get `chmod +x` right
+  after publish (the runner does this natively, not cross-compiled); portable bundle is
+  `tar.gz` with a flat staged layout (copy both binaries into one staging dir first) matching
+  the Windows zip's flat root — tar's default `-C dir file1 file2` preserves each path's
+  parent directory as an archive member, which would have silently contradicted the release
+  notes' "extract and run" instructions.
+- The real, found-in-review risk this shape creates: two matrix legs both calling
+  `action-gh-release` against the same tag in parallel can both reach "create release" at the
+  same instant — one wins, the other 422s and silently drops that OS's assets. Fixed with a
+  job-level `concurrency: group: release-${{ github.ref }}` (no `matrix.*` in the group key,
+  so it serializes every leg of this job, not just deduplicates retries of the same leg).
+- **Not yet tested**: this has only been validated via `python -c "import yaml..."` syntax
+  checking and local cross-compiles -- the actual GitHub Actions run (real `macos-latest`
+  runner, real matrix-concurrency behavior, real `action-gh-release` against a real tag) has
+  never executed. First real test happens whenever the next tag gets pushed.
 
-### Phase B — OS-keyed manifest schema
-- `Setup/model-manifest.json`'s `app` key becomes OS-keyed:
-  ```json
-  "app": {
-    "windows": { "download_url": "...-latest.../OrchestratorIDE.exe", "size_mb": 647 },
-    "linux":   { "download_url": "...-latest.../OrchestratorIDE-linux-x64.tar.gz", "size_mb": ... },
-    "macos":   { "download_url": "...-latest.../OrchestratorIDE-osx-arm64.tar.gz", "size_mb": ... }
-  }
-  ```
-  (Exact asset-naming convention finalized alongside Phase A, once real release artifacts
-  exist to name.)
-- `InstallOrchestrator.ResolveAppUrl` picks the right top-level key via
-  `OperatingSystem.IsWindows()`/`IsLinux()`/`IsMacOS()`, same pattern `PlatformInstaller.Resolve()`
-  already uses.
-- **Testable in isolation**: `ResolveAppUrl` unit-testable independent of Phase A actually
-  having real assets yet (point it at a manifest with placeholder URLs first).
+### Phase B — OS-keyed manifest schema — **Shipped 2026-06-21 (windows/macos; no linux key yet).**
+- `Setup/model-manifest.json`'s `app` key is OS-keyed (`windows`/`macos`); `InstallOrchestrator.
+  ResolveAppUrl` picks the right one via `OperatingSystem.IsWindows()`/`IsMacOS()`, same pattern
+  `PlatformInstaller.Resolve()` uses. No `linux` key — `ResolveAppUrl` returns early (empty
+  `AppDownloadUrl`) there until Phase A gets a Linux leg, rather than guessing at a URL with no
+  real asset behind it.
 
-### Phase C — Wire up `AppExePath`/`PortableAppExePath`/`LaunchCommand`
-- `InstallerState.AppExePath`/`PortableAppExePath` stop hardcoding `"OrchestratorIDE.exe"` and
-  instead delegate to `PlatformInstaller.Current.LaunchCommand(AppInstallPath)` — this finally
-  closes the "`DefaultAppDir`/`LaunchCommand` implemented but never wired" gap flagged as a
-  MINOR finding back in Phase 2's grok review and left deferred ever since.
-- Downstream archive-extraction logic (wherever the downloaded `.tar.gz`/`.zip` gets unpacked)
-  needs the right unpack call per OS — `ZipFile.ExtractToDirectory` for the Windows `.zip`,
-  `tar -xzf` (via `Process`, same pattern `LinuxPlatformInstaller`/`MacPlatformInstaller`
-  already establish for shelling out to OS tools) for the `.tar.gz` on Linux/macOS.
-- **Testable in isolation**: with Phase A+B real, a full install attempt on Linux/macOS should
-  get exactly as far as a working `OrchestratorIDE` binary in `AppInstallPath`, runnable
-  manually, even before Phase D's runtime resolver is fixed.
+### Phase C — Wire up `AppExePath`/`PortableAppExePath`/`LaunchCommand` — **Shipped 2026-06-21.**
+- `InstallerState.AppInstallPath`/`ModelStoragePath`/`AppExePath`/`PortableAppExePath` all now
+  delegate to `PlatformInstaller.Current` instead of hardcoding Windows-shaped paths — this
+  closes the "`DefaultAppDir`/`LaunchCommand` implemented but never wired" gap flagged back in
+  Phase 2's grok review, AND a second, previously-unnoticed instance of the exact same
+  folder-name-drift bug already found once in `LinuxPlatformInstaller`'s `removeUserData` step
+  (`AppInstallPath`'s old default resolved to a DIFFERENT folder name than
+  `MacPlatformInstaller.DefaultAppDir` on macOS). No behavior change for Windows — every
+  default resolves to the identical value as before.
+- The app binary itself needs no archive extraction (GitHub release uploads the raw single-file
+  binary directly per OS, not zipped) — only the llama.cpp runtime download does. See Phase D.
+- Added `ZipExtractService.ExtractTarGzAsync` (`System.Formats.Tar`, preserves Unix file mode
+  including the executable bit) for the runtime archive on Linux/macOS, and
+  `InstallOrchestrator.EnsureExecutable` (`File.SetUnixFileMode`) after every place a binary
+  gets written via raw HTTP download or `File.Copy`/`File.Move` — those carry zero file-mode
+  metadata, so without this, the downloaded app binary would be non-executable on macOS even
+  though the install "succeeded."
 
-### Phase D — `LlamaCppResolver` + manifest llama.cpp variants
-- Add an OS axis to `MustContain`/`MustNotContain` (e.g. key by `$"{os}-{variant}"` instead of
-  just `variant`), with real term-matching against llama.cpp's actual current release asset
-  names — must be verified against the live GitHub Releases API at implementation time, not
-  guessed here (the existing class's own comment already warns this naming drifts; that's
-  doubly true extending into two more OSes for the first time).
-- macOS has no CUDA variants at all; needs a `metal` variant key (`MacPlatformInstaller.
-  DetectHardwareAsync` already emits `"metal"` as `RuntimeVariant` for exactly this — Phase D
-  is what finally gives that value somewhere to resolve to).
-- `Setup/model-manifest.json`'s `runtimes.llama_cpp.variants`/`size_mb`/`hardware_selection`
-  static-fallback tables get the equivalent per-OS entries, mirroring Phase B's `app` key shape.
-- **Testable in isolation**: with Phases A-C done, a Linux/macOS install can now also fetch a
-  real, runnable llama.cpp build — the full chain works end-to-end for the native-runtime path
-  (the default/recommended path per `INSTALLER_REVAMP_SPEC.md`).
+### Phase D — `LlamaCppResolver` + manifest llama.cpp variants — **Shipped 2026-06-21.**
+- `MustContain`/`MustNotContain` are now OS+arch-aware (`ResolveOsTagAndExtension`/
+  `ResolveArchTag`), verified against the actual current llama.cpp release via
+  `gh api repos/ggml-org/llama.cpp/releases/latest`, not guessed. Found and fixed a latent
+  Windows-only bug along the way: llama.cpp renamed its CPU build's filename label from
+  "avx2" to "cpu" at some point — our `avx2` variant's match terms had quietly stopped
+  matching anything on Windows too, not just macOS, before this fix.
+- macOS has one unified "metal" variant (no CUDA/Vulkan-equivalent split — Metal is always
+  available), matching `MacPlatformInstaller.DetectHardwareAsync`'s own `RuntimeVariant`.
+  `Setup/model-manifest.json`'s static fallback tables got the matching entry.
+- **Three more reachable paths found and fixed in the RUNNING app, not just the installer**
+  (`UpdateChecker.GetReleaseAssetUrlAsync`, `SelfUpdater.DownloadReleaseAsync`,
+  `LlamaServerManager.LocateServerExe`) — all three only ever recognized Windows binary names.
+  Fixing only the installer would have produced a Mac install that completes successfully and
+  then can't update itself or find its own extracted runtime to launch.
 
 ### Phase E — Ollama installer (Linux/macOS) — lower priority, may defer past v1.9.5
 - Ollama is the secondary/optional runtime path (native llama.cpp is the default per the
