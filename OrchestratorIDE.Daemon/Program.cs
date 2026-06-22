@@ -112,6 +112,22 @@ if (args.Contains("--pair"))
     }
 }
 
+// ── Reject unrecognized flags ────────────────────────────────────────────────
+// Found 2026-06-21 overnight: an unrecognized flag (a typo'd CLI-mode name) fell straight
+// through to the long-running host below instead of erroring -- on a box already running
+// this exact binary under systemd, that means a SECOND full daemon instance silently starts
+// and both processes log success binding the same NodeServer/TaskQueue ports. No actual
+// argument here is ever valid for normal mode (the systemd unit always invokes this binary
+// bare, see theorc-warband.service's ExecStart), so any arg array at all means a typo or a
+// CLI mode that doesn't exist yet -- refuse to start rather than silently double-running.
+if (args.Length > 0)
+{
+    Console.Error.WriteLine($"Unknown argument(s): {string.Join(' ', args)}");
+    Console.Error.WriteLine("Recognized modes: --show-identity, --pair --target <host> --expect-fingerprint \"<phrase>\"");
+    Console.Error.WriteLine("Normal (long-running daemon) mode takes no arguments.");
+    return 1;
+}
+
 // ── Normal mode — long-running HIVE node host ───────────────────────────────
 
 var host = Host.CreateDefaultBuilder(args)
