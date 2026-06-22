@@ -58,9 +58,9 @@ public interface IPlatformInstaller
 }
 
 /// <summary>
-/// Resolves the <see cref="IPlatformInstaller"/> for the current OS. Only Windows exists
-/// today (Phase 2); Linux/macOS throw <see cref="PlatformNotSupportedException"/> until
-/// Phases 4-5 land rather than silently falling through to Windows-only behavior on another OS.
+/// Resolves the <see cref="IPlatformInstaller"/> for the current OS. Windows and Linux exist
+/// (Phases 2 and 4); macOS throws <see cref="PlatformNotSupportedException"/> until Phase 5
+/// lands rather than silently falling through to another OS's behavior.
 /// </summary>
 public static class PlatformInstaller
 {
@@ -75,8 +75,9 @@ public static class PlatformInstaller
     private static IPlatformInstaller Resolve()
     {
         if (OperatingSystem.IsWindows()) return new WindowsPlatformInstaller();
+        if (OperatingSystem.IsLinux())   return new LinuxPlatformInstaller();
         throw new PlatformNotSupportedException(
-            "OrchestratorSetup does not yet have a Linux/macOS installer implementation " +
-            "(INSTALLER_REVAMP_SPEC.md Phases 4-5).");
+            "OrchestratorSetup does not yet have a macOS installer implementation " +
+            "(INSTALLER_REVAMP_SPEC.md Phase 5).");
     }
 }

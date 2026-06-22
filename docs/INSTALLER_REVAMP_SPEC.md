@@ -305,9 +305,23 @@ throughout (no big-bang cutover).
   slated for deletion (License as separate, Profile, OllamaCheck) would have been wasted work.
   See Phase 1's entry above; nothing left to do here.
 
-### Phase 4 — Linux implementation
-- `LinuxPlatformInstaller`: `/proc`+`nvidia-smi` detection, XDG paths, `ufw`/`firewalld` via
-  `pkexec`, `.desktop` launchers, removal-script uninstall. First non-Windows install.
+### Phase 4 — Linux implementation — **Shipped 2026-06-21.**
+- `LinuxPlatformInstaller`: `/proc`+`nvidia-smi`/`lspci` detection, XDG paths, `ufw`/`firewalld`
+  via `pkexec`/`sudo`, `.desktop` launchers, manifest-file uninstall registration. First
+  non-Windows `IPlatformInstaller`. Took three review rounds: a stdout/stderr pipe deadlock
+  (redirected stderr was never read, so any tool output past the pipe buffer hung the await)
+  plus no timeout on calls invoked with `CancellationToken.None`; then an uncaught
+  `Process.Start` throw when a probed command (`which`/`ufw`/`pkexec`) doesn't exist; then a
+  `.desktop` quoting bug and an `XDG_CONFIG_HOME` miss.
+- **Does NOT yet make an end-to-end Linux install possible** — confirmed by reading the
+  surrounding pipeline, not just this diff. `InstallerState.AppExePath`/`PortableAppExePath`,
+  `InstallOrchestrator`'s download/copy logic, the single OS-unaware `app.download_url` key in
+  `Setup/model-manifest.json`, and `.github/workflows/release.yml` (win-x64-only, no Linux
+  publish job or release asset) are all untouched and Windows-only. A real Linux install today
+  fails at the download step before reaching `LinuxPlatformInstaller` at all. This is exactly
+  the gap Phase 5 below already names ("Per-OS publish RIDs + delivery wrappers") — closing it
+  is release-engineering work on the main app, not something Phase 4 alone can finish, and is
+  deliberately left as its own task rather than scope-crept into this one.
 
 ### Phase 5 — macOS implementation + packaging
 - `MacPlatformInstaller`: `system_profiler` detection, `~/Library` paths, `socketfilterfw`
