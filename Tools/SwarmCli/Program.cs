@@ -69,6 +69,8 @@ bool    pairMode     = false;
 bool    noRun        = false;
 string? nativeTestGgufPath = null;
 string? nativeGgufPath     = null;
+int     nativeRepeatCount  = 1;
+string? expectFile         = null;
 int     warchiefPort = HiveTaskQueue.QueuePort;
 string? warchiefUrl  = null;
 string? warchiefNodeId = null;
@@ -107,6 +109,8 @@ for (int i = 0; i < args.Length; i++)
         case "--no-run":        noRun        = true;            break;
         case "--native-test":   nativeTestGgufPath = Next();    break;
         case "--native":        nativeGgufPath     = Next();    break;
+        case "--native-repeat": nativeRepeatCount  = int.TryParse(Next(), out var nr) ? nr : nativeRepeatCount; break;
+        case "--expect-file":   expectFile         = Next();    break;
         case "--target":        pairTarget   = Next();          break;
         case "--expect-fingerprint": expectFp = Next();         break;
         case "--allow-fingerprint":
@@ -139,6 +143,16 @@ for (int i = 0; i < args.Length; i++)
                 Headless native-runtime smoke test (same prompt/checks as the GUI Settings
                 "Run Native Test" button, no Ollama fallback -- just the native attempt):
                   swarmcli --native-test <path-to-gguf-or-ollama-blob>
+
+                Repeat the same goal N times against ONE loaded native model (loaded once, not
+                reloaded per iteration) and report a per-iteration file outcome plus a summary --
+                built for gathering real data on tool-calling reliability under retry (e.g. a
+                goal asking for one specific file sometimes produces a wrong-extension file on
+                the retry path instead of the requested one; one run isn't enough to call that a
+                pattern). --expect-file checks each iteration's staged output against an exact
+                name for automated pass/fail; omit it to just see what each iteration staged:
+                  swarmcli --goal "<text>" --native <path> --native-repeat <N> [--expect-file <name>]
+                           [--workspace <dir>] [--timeout <s>]
 
                 Pair with a Warchief (initiator side; refuses unless the response fingerprint
                 matches --expect-fingerprint, which you obtain from the target out-of-band):
@@ -181,6 +195,25 @@ for (int i = 0; i < args.Length; i++)
         default:
             Console.Error.WriteLine($"Unknown argument: {args[i]} (try --help)");
             return 1;
+    }
+}
+
+if (nativeRepeatCount > 1)
+{
+    if (nativeGgufPath is null)
+    {
+        Console.Error.WriteLine("--native-repeat requires --native <path>.");
+        return 1;
+    }
+    if (string.IsNullOrWhiteSpace(goal))
+    {
+        Console.Error.WriteLine("--native-repeat requires --goal \"<text>\".");
+        return 1;
+    }
+    if (warchiefMode || workerMode)
+    {
+        Console.Error.WriteLine("--native-repeat is local-only (not compatible with --warchief/--worker).");
+        return 1;
     }
 }
 
@@ -532,6 +565,107 @@ if (nativeGgufPath is not null && !noRun)
     Console.WriteLine($"--native: loaded {nativeGgufPath} via LLamaSharp -- " +
         "serving boss/coder/researcher (model strings below are ignored by this runtime).");
     swarmRuntime = nativeRuntime;
+
+    // ── --native-repeat: same goal, N times, one loaded model ───────────────
+    // A separate, early-exit path rather than weaving into the single-run flow below --
+    // --warchief/--worker/--plan-only/the dataset-staging snapshot are all irrelevant here,
+    // and looping the single-run flow in place would mean re-validating all of that machinery
+    // N times for no reason.
+    if (nativeRepeatCount > 1)
+    {
+        var runsRoot = Path.Combine(workspace, ".orc", "swarm", "runs");
+        var results  = new List<(int Iteration, string[] StagedFiles, bool? Matched)>();
+
+        for (int iter = 1; iter <= nativeRepeatCount; iter++)
+        {
+            var runsBefore = Directory.Exists(runsRoot)
+                ? Directory.GetDirectories(runsRoot).ToHashSet()
+                : [];
+
+            Console.WriteLine($"\n── Iteration {iter}/{nativeRepeatCount} ──");
+            var iterSession = new SwarmSession(nativeRuntime, boss, workspace, coder, researcher);
+            var iterTask = iterSession.RunAsync(goal!);
+            try
+            {
+                var iterDone = await Task.WhenAny(iterTask, Task.Delay(TimeSpan.FromSeconds(timeoutSec)));
+                if (iterDone != iterTask)
+                {
+                    Console.Error.WriteLine($"  [iteration {iter}] timeout after {timeoutSec}s — stopping.");
+                    iterSession.Stop();
+                }
+                else
+                {
+                    await iterTask;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"  [iteration {iter}] [ERROR] {ex.Message}");
+            }
+            finally
+            {
+                // The shared nativeRuntime/weights are not safe for concurrent inference --
+                // the NEXT iteration's RunAsync (or the final DisposeAsync after the loop)
+                // must never start while THIS iteration's task might still be mid-InferAsync.
+                // Stop() above only requests cancellation; it doesn't wait. A bounded grace
+                // delay before this still wasn't enough -- if the task is genuinely still
+                // running after Stop(), wait for the real completion, exactly like the
+                // single-run --native path already does (Grok CLI BLOCKER, 2026-06-22: the
+                // first version of this loop could start iteration N+1 -- or dispose the
+                // model entirely -- while iteration N's task was still executing).
+                if (!iterTask.IsCompleted)
+                {
+                    try { await iterTask; } catch { /* already reported above */ }
+                }
+            }
+
+            // Diff the runs/ dir to find THIS iteration's run folder rather than asking
+            // SwarmSession for its own _runId (private, no public accessor -- this stays
+            // purely additive from the CLI side instead of changing a core shared class for
+            // a diagnostic tool). _runId has second-granularity, so without this delay a
+            // fast iteration (cheap goal, small model) could collide with the next one on
+            // the same runs/<id>/ folder and corrupt both iterations' file-outcome detection.
+            await Task.Delay(1100);
+            var newRunDir = Directory.Exists(runsRoot)
+                ? Directory.GetDirectories(runsRoot).FirstOrDefault(d => !runsBefore.Contains(d))
+                : null;
+            var iterStagingDir = newRunDir is not null ? Path.Combine(newRunDir, "staging") : null;
+            // Recursive (AllDirectories) -- worker output can land in subdirectories
+            // (ExtractAndWriteFiles creates the dirname from each task's relative path), and
+            // the main single-run path's own staging scan already does the same to match.
+            var stagedFiles = iterStagingDir is not null && Directory.Exists(iterStagingDir)
+                ? Directory.GetFiles(iterStagingDir, "*", SearchOption.AllDirectories)
+                    .Select(f => Path.GetRelativePath(iterStagingDir, f))
+                    .OrderBy(f => f).ToArray()
+                : [];
+
+            bool? matched = expectFile is null
+                ? null
+                : stagedFiles.Length == 1 && string.Equals(stagedFiles[0], expectFile, StringComparison.OrdinalIgnoreCase);
+
+            results.Add((iter, stagedFiles, matched));
+
+            var fileSummary = stagedFiles.Length == 0 ? "(no files staged)" : string.Join(", ", stagedFiles);
+            var matchSuffix = matched switch { true => "  ✓ matches --expect-file", false => "  ✗ does NOT match --expect-file", null => "" };
+            Console.WriteLine($"  [iteration {iter}] staged: {fileSummary}{matchSuffix}");
+        }
+
+        Console.WriteLine($"\n── Summary: {nativeRepeatCount} iteration(s) ──");
+        foreach (var (iteration, stagedFiles, matched) in results)
+        {
+            var fileSummary = stagedFiles.Length == 0 ? "(none)" : string.Join(", ", stagedFiles);
+            var tag = matched switch { true => "PASS", false => "FAIL", null => "—" };
+            Console.WriteLine($"  {iteration,3}: [{tag}] {fileSummary}");
+        }
+        if (expectFile is not null)
+        {
+            var passCount = results.Count(r => r.Matched == true);
+            Console.WriteLine($"\n  {passCount}/{nativeRepeatCount} matched --expect-file \"{expectFile}\".");
+        }
+
+        await nativeRuntime.DisposeAsync();
+        return expectFile is not null && results.Any(r => r.Matched != true) ? 1 : 0;
+    }
 }
 else
 {
