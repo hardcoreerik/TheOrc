@@ -77,7 +77,10 @@ public partial class CompletePage : UserControl, IInstallerPage
             TxtHiveStatus.Text = "Configuring HIVE ports…";
 
             // INSTALLER_REVAMP_SPEC.md §7 Phase 2 -- goes through IPlatformInstaller now.
-            var ok = await PlatformInstaller.Current.ConfigureFirewallAsync(
+            // _vm.State.AppExePath added in Phase 5 -- macOS's per-app firewall needs the
+            // real installed binary path, not just a port list (grok review BLOCKER,
+            // 2026-06-21: an earlier MacPlatformInstaller guessed at this path instead).
+            var ok = await PlatformInstaller.Current.ConfigureFirewallAsync(_vm.State.AppExePath,
                 msg => Dispatcher.UIThread.Post(() => TxtHiveStatus.Text = msg), CancellationToken.None);
 
             TxtHiveStatus.Text = ok

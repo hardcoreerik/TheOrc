@@ -398,7 +398,8 @@ public sealed class InstallOrchestrator : IDisposable
             // step to do its own Task.Run on top of it).
             if (_state.JoinHiveMind)
             {
-                await Step("Joining HIVE MIND", () => PlatformInstaller.Current.ConfigureFirewallAsync(Log, ct), ct);
+                await Step("Joining HIVE MIND",
+                    () => PlatformInstaller.Current.ConfigureFirewallAsync(_state.AppExePath, Log, ct), ct);
             }
             else
             {

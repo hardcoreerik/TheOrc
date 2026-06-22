@@ -221,7 +221,10 @@ public sealed class LinuxPlatformInstaller : IPlatformInstaller
         ("RPC",     HiveEnroller.RpcPort,       "tcp"),
     ];
 
-    public async Task<bool> ConfigureFirewallAsync(Action<string>? log, CancellationToken ct)
+    // appExePath is unused here -- ufw/firewalld open ports system-wide, not per-app, so
+    // Linux's firewall step never needed a binary path (only macOS's per-app Application
+    // Firewall does; see IPlatformInstaller.ConfigureFirewallAsync's doc comment).
+    public async Task<bool> ConfigureFirewallAsync(string appExePath, Action<string>? log, CancellationToken ct)
     {
         if (await CommandExistsAsync("ufw", ct))
             return await ConfigureUfwAsync(log, ct);
@@ -374,7 +377,16 @@ public sealed class LinuxPlatformInstaller : IPlatformInstaller
         if (removeUserData)
         {
             Log("Removing user data…");
-            TryDeleteDir(Path.Combine(XdgConfigHome, "theorc"));
+            // "OrchestratorIDE", not "theorc" -- this must match the folder name the MAIN APP
+            // actually writes to (MainWindow.axaml.cs / SettingsPanel.axaml.cs both resolve
+            // Environment.SpecialFolder.ApplicationData + "OrchestratorIDE", which .NET maps
+            // to $XDG_CONFIG_HOME (~/.config) on Linux). "theorc" is this installer's OWN
+            // branding choice for the install/model directories it owns (DefaultAppDir/
+            // DefaultModelDir, per INSTALLER_REVAMP_SPEC.md §4.2) -- a deliberately different,
+            // unrelated name. Using "theorc" here too (an earlier version of this line did)
+            // silently no-ops on every real install, since that directory never exists --
+            // found while researching the macOS equivalent, not by a review pass.
+            TryDeleteDir(Path.Combine(XdgConfigHome, "OrchestratorIDE"));
         }
 
         Log("Removing install manifest…");

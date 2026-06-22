@@ -37,7 +37,7 @@ public sealed class WindowsPlatformInstaller : IPlatformInstaller
     // interface existed (no try/catch there either). CompletePage's retry-button call site
     // is the one that originally had its own try/catch, and still does -- at that call site,
     // not duplicated in here.
-    public Task<bool> ConfigureFirewallAsync(Action<string>? log, CancellationToken ct)
+    public Task<bool> ConfigureFirewallAsync(string appExePath, Action<string>? log, CancellationToken ct)
         => Task.Run(() => HiveEnroller.Enroll(msg => log?.Invoke(msg)), ct);
 
     public void CreateLaunchers(InstallerState state) => ProfileMerger.CreateShortcuts(state);
