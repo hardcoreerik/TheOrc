@@ -100,9 +100,60 @@ TheOrc is not trying to replace your editor. It's the AI **project runner** that
 
 ---
 
-## What's new in v1.9
+## What's new in v1.9.5
 
-### v1.9.0 — WPF deleted, CodeGraph v1, Native Runtime + HIVE MIND ready for multi-machine testing
+**The installer now genuinely targets three OSes, not one.** `OrchestratorSetup` was rewritten from a Windows-only WPF wizard to a cross-platform Avalonia app (Phase 1), with every OS-coupled action — hardware detection, firewall, launchers, uninstall — moved behind one `IPlatformInstaller` interface with real Windows, Linux, and macOS implementations (Phases 2, 4, 5). This release closes the gap those phases left open: nothing upstream of the installer's own logic could actually hand a non-Windows machine a real binary to install. `release.yml` now publishes a macOS (`osx-arm64`) build alongside Windows; the model manifest, the llama.cpp runtime resolver, and three separate spots in the *running app* (the update checker, self-updater, and llama-server launcher) all needed their own fixes — each only ever recognized Windows binary names, which would have shipped a Mac install that completes successfully and then can't update itself or find its own runtime.
+
+**Headless HIVE nodes are real now too.** `OrchestratorIDE.Daemon` (`theorc-warband`) is the cross-platform, no-GUI HIVE node — first deployed to actual ARM64 hardware this release (a Raspberry Pi 4), running as a systemd service. It gained `--pair`/`--show-identity` CLI modes (same fingerprint-gated safety contract as `swarmcli`'s) so a headless box can join an existing HIVE without ever needing a display.
+
+**Found and fixed a HIVE reachability gap no existing diagnostic caught:** a node can have its URL ACL reservation and firewall rules all correctly in place and *still* be completely unreachable to peers, because the network interface a peer actually connects through was classified "Public" by Windows — the firewall rules are deliberately Private-profile-only, so they silently never apply there. Added `HiveNetworkEnroller`, shared between the installer and the app itself, with the missing diagnostic (`FindPublicInterfacesAsync`) and a one-click fix.
+
+## Looking ahead to v2.0
+
+v2.0's defining change: **Native Runtime becomes the default, Ollama becomes fully optional.** That flip is explicitly gated on multi-machine HIVE MIND validation of this release's native opt-in path across a real LAN/Tailscale network — not a fixed date. Also planned, not yet started:
+- Promoting the experimental `RuntimeOrchestrator`/`AdapterManager`/`OrcScheduler` layer out of opt-in status once the v1.9 HIVE testing round validates it under real concurrent multi-role load.
+- HIVE MIND Phase 3B — full multi-step `AgentLoop`-style tool execution on remote workers (file writes, shell commands, web search running on the worker machine itself), not just single-pass LLM calls.
+- A cross-platform CI publish matrix for `linux-x64`/`osx-arm64` Warband (daemon) binaries — the daemon itself is already cross-platform; nothing currently builds/ships those binaries automatically.
+- A from-scratch, data-bound Avalonia rebuild of the Model Wiki/catalogue browsing experience retired in v1.9.0.
+
+## What's new in v1.9.4
+
+**HIVE_MEMBERSHIP_SPEC.md, all four phases.** A hive-wide `HiveId` that survives Warchief elections (unlike per-node identity); membership certificates so a node can prove hive membership to a peer it never directly paired with (avoids O(n²) manual-approval pairing at "100s of nodes" scale); an authenticated role-assign RPC + "👑 Declare this machine Warchief" UI action; and a first-run/repair discovery wizard (scan the LAN, group results by `HiveId`, join an existing hive or found a new one) that now runs automatically on a fresh HIVE-enabled install instead of leaving the node stuck at `HiveRole.Unset` until pairing assigned one as a side effect. One intentional remainder: presenting a membership cert at the request-time auth gate needs its own signature scheme, not a bolt-on — issuance and verification shipped, wire-gate consumption didn't.
+
+**The HIVE constellation view animates now** — a small spark travels along each active peer connection (amber outbound, green inbound), the center node breathes with a slow pulse. A new "Lite Mode" setting turns it off for weaker hardware, live-toggleable without leaving the Hive tab.
+
+**"Enable HIVE MIND" is a real Settings toggle now**, not JSON-only. `AppSettings.HiveMindEnabled` had gated startup the whole engagement, but no control ever read or wrote it — the only way to turn it on was hand-editing `settings.json` with the app closed, which didn't survive the next relaunch's fresh write.
+
+**A cluster of real bugs found during live multi-machine testing, each fixed as found:**
+- Firewall rules were accumulating duplicates on every install/repair run (an unconditional unelevated "delete" that needs elevation too, silently failing every time).
+- A stale downloaded app exe could get permanently skipped on upgrade, or — worse — deleted on a failed download with nothing left in its place.
+- Pairing dialogs and Activity-feed entries for pairing actions were silently not showing at all in the GUI (a missing `ConfirmAsync` wire-up, and an event the panel never subscribed to).
+- `HivePairingClient`'s approval poll used case-sensitive JSON deserialization against a server that sends camelCase — every poll silently missed and reported "pending" forever, even after the peer had genuinely approved within seconds.
+- The constellation view conflated "Ollama reachable" with "HIVE port reachable" — a node could show fully green/online while having no running HIVE node server at all, the only symptom being a confusing 10-second timeout when actually trying to pair.
+- Auto Tester was silently skipped after a retry-recovered write in the swarm pipeline.
+- The native LLamaSharp runtime's chat template had `AddAssistant` set to the wrong value, breaking output for that opt-in path.
+
+**`swarmcli` additions**: `--native` (run a full `SwarmSession` against the native runtime instead of Ollama), `--native-test` (headless equivalent of the GUI's "Run Native Test"), `--warchief --no-run` (start pairing/queue-server only, no goal execution).
+
+## What's new in v1.9.2
+
+**Pairing actually works now.** Validating v1.9.1's reachability fix across three real machines surfaced the next real gap: pairing — the step where two machines agree to trust each other — never had a way to actually *start*. The "approve" side was fully built, but nothing in either UI ever called the endpoint that initiates a request. Added a "Pair with this node" action, building the missing initiator side end to end.
+
+This went through real adversarial review (two independent AI reviewers, multiple rounds) before shipping, and it caught genuine problems with the first draft:
+- The approval-polling endpoint is unauthenticated by design, and the first version trusted a new peer as soon as it got an "approved" response — before the one real check (a human comparing a fingerprint between the two machines) ever happened. Fixed: trust isn't written until the operator explicitly confirms the fingerprint matches.
+- A newly-paired peer was being granted enough standing to become eligible for real Warchief authority later, regardless of whether it should be. Capped to a safer default.
+
+Also: the code-review tooling used throughout this project kept falsely flagging legitimate security-related code as a risk and refusing to review it. Switched the underlying model.
+
+## What's new in v1.9.1
+
+**HIVE MIND actually reachable across machines now.** v1.9.0's fix made the node server start without crashing; it didn't make it *reachable*. Real multi-machine testing found the fix's own fallback path — binding `localhost` only when the wildcard bind fails — was itself the unfixed problem: a localhost-only listener is invisible to every other machine, with no error shown.
+
+**Root cause:** binding the wildcard prefix as a normal, non-admin process requires an **http.sys URL ACL reservation** (`netsh http add urlacl`). Nothing ever created one. Fixed: the installer's HIVE enrollment step now reserves URL ACLs for both HIVE ports alongside its firewall rules, batched into a single UAC prompt. `HiveTaskQueue` had the identical bug as `HiveNodeServer`, fixed the same way. The gated Phi-4 Mini boss-model download now points at a working mirror.
+
+If you installed v1.9.0 and HIVE MIND only ever discovered other nodes one-directionally (or not at all), this is why.
+
+## What's new in v1.9.0
 
 The biggest cutover since the Avalonia migration started: **WPF is gone.** `OrchestratorIDE/OrchestratorIDE.csproj` and every WPF-only window, dialog, panel, and control were deleted outright — not archived, not stubbed, deleted. Avalonia is no longer "primary," it's the *only* desktop shell. `ModelWikiWindow`/`ModelCompareWindow` were retired rather than ported (their data layer stays; a from-scratch, data-bound rebuild is a real future feature, not a blocker). Everything operators actually use day to day — `ask_user`, the first-run wizard, sandbox bypass, self-update, model library/downloader, workspace/global agent rules — already had a real Avalonia home going into this release. Shared service code (`Core/`, `Services/`, `Models/`, `Trust/`) is untouched; only the WPF-exclusive UI layer is gone, which is what made deleting an entire desktop framework in one night tractable at all.
 
@@ -121,48 +172,6 @@ The biggest cutover since the Avalonia migration started: **WPF is gone.** `Orch
 - `.github/workflows/release.yml` was still publishing and packaging the WPF build as the actual downloaded artifact. Fixed to publish Avalonia with the same output filename, so every downstream consumer (installer, self-updater) keeps working unchanged.
 - `OrchestratorIDE.Daemon` (the headless cross-platform HIVE node, `theorc-warband`) had been failing to build since before this release cycle started — a dependency on the heavy native LLamaSharp stack that a lightweight daemon shouldn't need. Decoupled via a new `IHiveNativeRoleExecutor` interface; the daemon now builds clean without pulling in native-runtime dependencies at all.
 - Internal dev-only docs and scratch files (`.grok/` specs, prompts, spike code; loose planning notes) stopped being published to GitHub — they're still on disk for development, just not part of the public repo going forward. `README.md`, `SECURITY.md`, `LICENSING.md`, `CLA.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, and `.grok/PROJECT_TRUTH.md` stay public.
-
-### v1.9.1 — HIVE MIND actually reachable across machines now
-
-v1.9.0's HIVE fix made the node server start without crashing; it didn't make it *reachable*. Real multi-machine testing (NewcorePC ↔ HARDCOREPC, both on v1.9.0, one over Tailscale) found that the fix's own fallback path — binding `localhost` only when the wildcard bind fails — was *itself* the unfixed problem: a localhost-only listener is invisible to every other machine, even though the app shows no error and looks like it started fine.
-
-**Root cause:** binding the wildcard prefix (`http://+:port/`, all interfaces) as a normal, non-admin process requires an **http.sys URL ACL reservation** (`netsh http add urlacl`). Nothing — not the installer, not the app — ever created one. So on every non-elevated install, the wildcard bind was silently denied and the app fell back to loopback-only, with no indication to the user that the node had effectively not started for HIVE's actual purpose.
-
-**Fixed:**
-- The installer's HIVE enrollment step now reserves the URL ACLs for both HIVE ports (`7078`, `7079`) alongside its existing firewall rules. Everything is tried unelevated first (no-op if already granted); anything still missing is batched into a **single** UAC prompt instead of one popup per item.
-- `HiveTaskQueue` (the Warchief's distributed-task-queue listener, used by Phase 3 Distributed Swarm) had the identical listener-reuse bug as `HiveNodeServer` did in v1.9.0 — fixed the same way, found by code review of the parallel class rather than waiting to hit it live.
-- The gated Phi-4 Mini boss-model download (HTTP 401 on every fresh install since that HuggingFace repo got gated after the manifest was written) now points at a working, non-gated mirror.
-
-If you installed v1.9.0 and HIVE MIND only ever seemed to discover other nodes one-directionally (or not at all), this is why — update to v1.9.1.
-
-### v1.9.2 — pairing actually works now
-
-Validating v1.9.1's reachability fix across three real machines (not just a single dev box) surfaced the next real gap: **pairing — the step where two machines agree to trust each other — never had a way to actually start.** The "approve" side was fully built (the responder endpoints, the approval prompt), but nothing in either UI, current or the now-deleted WPF one, ever called the endpoint that *initiates* a pairing request. It wasn't a bug so much as an unfinished feature nobody had hit yet, because nothing could reach it.
-
-**Added:** a "Pair with this node" action on any reachable HIVE node card, building the missing initiator side end to end — request, approval polling, shared-secret derivation.
-
-This one went through real adversarial review (two independent AI reviewers, multiple rounds) before shipping, and it caught genuine problems with the first draft, not nitpicks:
-- The approval-polling endpoint is unauthenticated by design, and the first version trusted a new peer as soon as it got an "approved" response — before the one real check (comparing a human-readable fingerprint between the two machines) ever happened. Fixed: trust is no longer written until the operator explicitly confirms the fingerprint matches what the other machine displays.
-- A newly-paired peer was being granted enough standing to become eligible for real Warchief authority later, regardless of whether it should be. Capped to a safer default — becoming Controller-eligible is now a separate, deliberate decision, not a side effect of pairing.
-- A few smaller correctness/cleanup fixes alongside those.
-
-Also: the code-review tooling used throughout this project's development kept falsely flagging legitimate security-related code as a risk and refusing to review it. Switched the underlying model, confirmed by direct comparison that the new one doesn't have this problem.
-
-### v1.9.5 — macOS install, and a HIVE reachability gap Windows network settings can hide
-
-**The installer now genuinely targets three OSes, not one.** `OrchestratorSetup` was rewritten from a Windows-only WPF wizard to a cross-platform Avalonia app (Phase 1), with every OS-coupled action — hardware detection, firewall, launchers, uninstall — moved behind one `IPlatformInstaller` interface with real Windows, Linux, and macOS implementations (Phases 2, 4, 5). This release closes the gap those phases left open: nothing upstream of the installer's own logic could actually hand a non-Windows machine a real binary to install. `release.yml` now publishes a macOS (`osx-arm64`) build alongside Windows; the model manifest, the llama.cpp runtime resolver, and three separate spots in the *running app* (the update checker, self-updater, and llama-server launcher) all needed their own fixes — each only ever recognized Windows binary names, which would have shipped a Mac install that completes successfully and then can't update itself or find its own runtime.
-
-**Headless HIVE nodes are real now too.** `OrchestratorIDE.Daemon` (`theorc-warband`) is the cross-platform, no-GUI HIVE node — first deployed to actual ARM64 hardware this release (a Raspberry Pi 4), running as a systemd service. It gained `--pair`/`--show-identity` CLI modes (same fingerprint-gated safety contract as `swarmcli`'s) so a headless box can join an existing HIVE without ever needing a display.
-
-**Found and fixed a HIVE reachability gap no existing diagnostic caught:** a node can have its URL ACL reservation and firewall rules all correctly in place and *still* be completely unreachable to peers, because the network interface a peer actually connects through was classified "Public" by Windows — the firewall rules are deliberately Private-profile-only, so they silently never apply there. Added `HiveNetworkEnroller`, shared between the installer and the app itself, with the missing diagnostic (`FindPublicInterfacesAsync`) and a one-click fix.
-
-### Looking ahead to v2.0
-
-v2.0's defining change: **Native Runtime becomes the default, Ollama becomes fully optional.** That flip is explicitly gated on multi-machine HIVE MIND validation of this release's native opt-in path across a real LAN/Tailscale network — not a fixed date. Also planned, not yet started:
-- Promoting the experimental `RuntimeOrchestrator`/`AdapterManager`/`OrcScheduler` layer out of opt-in status once the v1.9 HIVE testing round validates it under real concurrent multi-role load.
-- HIVE MIND Phase 3B — full multi-step `AgentLoop`-style tool execution on remote workers (file writes, shell commands, web search running on the worker machine itself), not just single-pass LLM calls.
-- A cross-platform CI publish matrix for `linux-x64`/`osx-arm64` Warband (daemon) binaries — the daemon itself is already cross-platform; nothing currently builds/ships those binaries automatically.
-- A from-scratch, data-bound Avalonia rebuild of the Model Wiki/catalogue browsing experience retired in this release.
 
 ---
 

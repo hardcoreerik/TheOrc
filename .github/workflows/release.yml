@@ -275,9 +275,11 @@ jobs:
           done
           echo "All required assets present."
 
-      # ── Extract "What's new in vX.X" from README into release body ─────────────
-      # Reads README.md, finds the section "## What's new in vVERSION" and captures
-      # everything up to the next "## " heading. Falls back gracefully if not found.
+      # ── Extract "What's new in vX.Y.Z" from README into release body ───────────
+      # Reads README.md, finds the section "## What's new in vFULL_VERSION" (exact match,
+      # patch included -- each shipped patch gets its OWN top-level "##" heading in README.md,
+      # not nested under a shared minor-version umbrella) and captures everything up to the
+      # next "## " heading. Falls back gracefully if not found.
       # Runs identically on both legs -- same full multi-OS body either way, so whichever
       # leg's action-gh-release call lands first or second doesn't matter.
       - name: Build release notes
@@ -288,8 +290,15 @@ jobs:
           $tag  = '${{ steps.ver.outputs.TAG }}'
           $readme = Get-Content README.md -Raw
 
-          # Extract the "What's new in vX.X" block
-          $header  = "## What's new in v$($ver -replace '\.\d+$','')"   # e.g. "v1.6"
+          # Extract the "What's new in vX.Y.Z" block -- exact full version, no stripping.
+          # Older releases (pre-v1.9.4) grouped multiple patches under one "## What's new in
+          # vX.Y" umbrella with "###" subsections; that convention is retired going forward
+          # since it meant every patch's release page showed the ENTIRE minor version's
+          # history instead of just what changed in that patch (found when v1.9.5's actual
+          # release page showed v1.9.0 through v1.9.5's full text). Each patch from v1.9.0
+          # onward that's been retroactively re-split, plus every patch going forward, gets
+          # its own top-level "##" heading instead.
+          $header  = "## What's new in v$ver"
           $pattern = "(?ms)$([regex]::Escape($header))\s*\n(.*?)(?=\n## |\z)"
           $match   = [regex]::Match($readme, $pattern)
           $whatsNew = if ($match.Success) { $match.Groups[1].Value.Trim() } else { "" }
