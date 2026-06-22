@@ -69,6 +69,7 @@ public sealed class NativeWithFallbackRuntime : IModelRuntime, IAsyncDisposable
         IEnumerable<AgentMessage> history,
         IReadOnlyList<object>? tools = null,
         double temperature = 0.1,
+        double? topP = null,
         int maxTokens = 4096,
         Action<ToolCall>? onToolCall = null,
         Action<int, int>? onUsage = null,
@@ -98,6 +99,12 @@ public sealed class NativeWithFallbackRuntime : IModelRuntime, IAsyncDisposable
         var yieldedAny = false;
         Exception? nativeFailure = null;
 
+        // topP is not threaded into the native path here -- StreamRoleCompletionAsync belongs
+        // to IRoleRuntime (the swarm/role-based dispatch interface), a separate surface from
+        // IModelRuntime that this class wraps for ITS OWN signature compliance. No current
+        // caller of this class passes a non-default topP, so extending IRoleRuntime too is
+        // left for whenever that's actually needed rather than threading a parameter no path
+        // exercises yet.
         await using (var enumerator = _native
             .StreamRoleCompletionAsync(_role, historyList, tools, temperature, maxTokens, guardedOnToolCall, guardedOnUsage, ct)
             .GetAsyncEnumerator(ct))
@@ -144,7 +151,7 @@ public sealed class NativeWithFallbackRuntime : IModelRuntime, IAsyncDisposable
         _onFallback?.Invoke(nativeFailure!.Message);
 
         await foreach (var token in _fallback
-            .StreamCompletionAsync(model, historyList, tools, temperature, maxTokens, onToolCall, onUsage, ct)
+            .StreamCompletionAsync(model, historyList, tools, temperature, topP, maxTokens, onToolCall, onUsage, ct)
             .ConfigureAwait(false))
         {
             yield return token;

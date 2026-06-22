@@ -297,6 +297,7 @@ public sealed class SessionManagerTests
             IEnumerable<AgentMessage> history,
             IReadOnlyList<object>? tools = null,
             double temperature = 0.1,
+            double? topP = null,
             int maxTokens = 4096,
             Action<ToolCall>? onToolCall = null,
             Action<int, int>? onUsage = null,

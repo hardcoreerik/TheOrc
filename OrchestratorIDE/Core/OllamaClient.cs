@@ -195,6 +195,7 @@ public class OllamaClient
         IEnumerable<AgentMessage> history,
         IReadOnlyList<object>? tools = null,
         double temperature = 0.1,
+        double? topP = null,
         int maxTokens = 4096,
         Action<ToolCall>? onToolCall = null,
         Action<int, int>? onUsage = null,   // promptTokens, completionTokens
@@ -215,6 +216,12 @@ public class OllamaClient
             ["temperature"] = temperature,
             ["max_tokens"] = maxTokens,
         };
+        // Only sent when explicitly set -- omitting it lets Ollama use its own default
+        // rather than this call silently overriding it with some arbitrary fixed value.
+        // top_k has no equivalent in Ollama's /v1/chat/completions OpenAI-compat schema
+        // (confirmed against Ollama's docs/ollama/ollama#11325) -- not sent at all, ever.
+        if (topP is { } p)
+            payload["top_p"] = p;
 
         // tools items are already Ollama-schema objects (built by AgentLoop via
         // ToolDefinition.ToOllamaSchema(), then optionally simplified by SchemaSimplifier)

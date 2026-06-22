@@ -61,6 +61,7 @@ public sealed class LlamaCppServerRuntime : IModelRuntime, IDisposable
         IEnumerable<AgentMessage> history,
         IReadOnlyList<object>? tools = null,
         double temperature = 0.1,
+        double? topP = null,
         int maxTokens = 4096,
         Action<ToolCall>? onToolCall = null,
         Action<int, int>? onUsage = null,
@@ -70,7 +71,7 @@ public sealed class LlamaCppServerRuntime : IModelRuntime, IDisposable
             throw new InvalidOperationException(
                 "LlamaCpp server is not running. Call StartAsync() before streaming.");
         return _client.StreamCompletionAsync(
-            model, history, tools, temperature, maxTokens, onToolCall, onUsage, ct);
+            model, history, tools, temperature, topP, maxTokens, onToolCall, onUsage, ct);
     }
 
     /// <summary>

@@ -101,6 +101,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         IEnumerable<AgentMessage> history,
         IReadOnlyList<object>? tools = null,
         double temperature = 0.1,
+        double? topP = null,
         int maxTokens = 4096,
         Action<ToolCall>? onToolCall = null,
         Action<int, int>? onUsage = null,
@@ -122,10 +123,18 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             // Falls back to ChatML format if the model has no template.
             var prompt = BuildPrompt(history, tools);
 
+            // TopP is init-only on DefaultSamplingPipeline -- must be set in the initializer,
+            // not assigned after construction. Only overridden when explicitly set, otherwise
+            // omitted from the initializer entirely so the pipeline's own default applies,
+            // same as before this parameter existed.
+            var samplingPipeline = topP is { } p
+                ? new LLama.Sampling.DefaultSamplingPipeline { Temperature = (float)temperature, TopP = (float)p }
+                : new LLama.Sampling.DefaultSamplingPipeline { Temperature = (float)temperature };
+
             var inferParams = new InferenceParams
             {
                 MaxTokens = maxTokens,
-                SamplingPipeline = new LLama.Sampling.DefaultSamplingPipeline { Temperature = (float)temperature },
+                SamplingPipeline = samplingPipeline,
                 // Common end-of-turn markers across model families
                 AntiPrompts = ["<|user|>", "<|end|>", "<|im_end|>", "[/INST]", "\nUser:", "\nHuman:"],
             };
