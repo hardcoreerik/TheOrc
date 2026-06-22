@@ -7,7 +7,8 @@ using System.Text;
 namespace OrchestratorIDE.Core;
 
 /// <summary>
-/// Manages the llama-server.exe process lifecycle for the LlamaCpp backend.
+/// Manages the llama-server process lifecycle for the LlamaCpp backend ("llama-server.exe"
+/// on Windows, "llama-server" on Linux/macOS -- see LocateServerExe).
 ///
 /// Usage flow:
 ///   1. Set RuntimePath, ModelPath, Port, GpuLayers, ContextSize from AppSettings.
@@ -89,7 +90,7 @@ public sealed class LlamaServerManager : IDisposable
         var exePath = LocateServerExe();
         if (exePath is null)
         {
-            Log($"llama-server.exe not found in: {RuntimePath}");
+            Log($"llama-server binary not found in: {RuntimePath}");
             return false;
         }
         if (!File.Exists(ModelPath))
@@ -195,7 +196,15 @@ public sealed class LlamaServerManager : IDisposable
     private string? LocateServerExe()
     {
         if (string.IsNullOrWhiteSpace(RuntimePath)) return null;
-        foreach (var name in new[] { "llama-server.exe", "server.exe" })
+        // "llama-server"/"server" (no extension) on Linux/macOS -- matches
+        // ZipExtractService.FindServerExe's naming exactly, since that's what actually gets
+        // extracted onto disk on those OSes (MULTI_OS_RELEASE_SPEC.md Phase D; grok review
+        // BLOCKER, 2026-06-21: this hardcoded list would never find the binary the installer
+        // just placed on macOS, silently defeating the entire runtime install).
+        var names = OperatingSystem.IsWindows()
+            ? new[] { "llama-server.exe", "server.exe" }
+            : new[] { "llama-server", "server" };
+        foreach (var name in names)
         {
             var path = Path.Combine(RuntimePath, name);
             if (File.Exists(path)) return path;

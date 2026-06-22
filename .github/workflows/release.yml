@@ -25,8 +25,39 @@ permissions:
 
 jobs:
   release:
-    name: Build & Release
-    runs-on: windows-latest
+    name: Build & Release (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+
+    # Each matrix leg builds its own OS's assets, then calls action-gh-release against the
+    # SAME tag -- it creates the release on first call and appends assets on subsequent calls,
+    # so there's no need for a separate job-dependency graph just to merge two OSes' files into
+    # one release. Both legs write the IDENTICAL release-notes.md body (covering every OS),
+    # not leg-specific bodies, so whichever leg's action-gh-release call lands doesn't matter --
+    # neither one clobbers the other's instructions.
+    #
+    # concurrency below is the actual fix for the real race this shape creates (grok review
+    # BLOCKER, 2026-06-21): without it, both matrix legs run in parallel and can both reach
+    # "create release for this tag" at the same instant -- one create succeeds, the other 422s
+    # against an action that wasn't designed to retry-as-update against its OWN concurrent
+    # collision, silently dropping that OS's assets from the release. Serializing the whole
+    # job per-tag means one leg's build+publish+release-append fully completes before the next
+    # leg even starts building -- slower (a few extra minutes total), but the assets are this
+    # workflow's actual deliverable, so correctness beats parallelism here.
+    concurrency:
+      group: release-${{ github.ref }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: macos-latest
+            rid: osx-arm64
+            # macos-latest GitHub runners are Apple Silicon (osx-arm64) as of 2023+; an
+            # osx-x64 leg for Intel Macs is a deliberately separate, not-yet-added phase
+            # (docs/MULTI_OS_RELEASE_SPEC.md Phase A) -- first get ONE real Mac artifact
+            # shipping and tested before doubling the matrix.
 
     steps:
       # ── Checkout (full history for release notes) ─────────────────────────────
@@ -64,24 +95,19 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # ── Restore (solution-level — restores all three projects) ────────────────
-      # --runtime win-x64 is required so the assets file includes the win-x64
-      # target; without it, the subsequent publish steps with --no-restore fail
-      # with NETSDK1047 ("Assets file doesn't have a target for win-x64").
+      # ── Restore (RID-specific so the assets file includes this leg's target;
+      #    without it, --no-restore publish below fails with NETSDK1047) ─────────
       - name: Restore
-        run: dotnet restore OrchestratorIDE.slnx --runtime win-x64
+        run: dotnet restore OrchestratorIDE.slnx --runtime ${{ matrix.rid }}
 
       # ── Publish OrchestratorIDE (Avalonia shell, self-contained single-file) ──
-      # Publishes OrchestratorIDE.Avalonia.csproj, not the WPF project — WPF
-      # retirement Phase 4.5 (docs/WPF_RETIREMENT_CHECKLIST.md). The
-      # output filename is pinned to OrchestratorIDE.exe via -p:AssemblyName
-      # so every downstream step (zip, asset verification, release notes,
-      # OrchestratorSetup's installer/shortcut logic, SelfUpdater) keeps
-      # working unchanged — only the source project being published changed.
-      # -p:OutputType=WinExe overrides the Avalonia csproj's dev-time `Exe`
-      # (console-attached, useful for `dotnet run` diagnostics) so the
-      # shipped binary doesn't flash a console window like a dev build would.
-      - name: Publish OrchestratorIDE
+      # win-x64: AssemblyName pinned to OrchestratorIDE so every downstream Windows step
+      # (zip, OrchestratorSetup's shortcut/launch logic, SelfUpdater) keeps working unchanged.
+      # -p:OutputType=WinExe avoids a flashing console window on Windows; on macOS there's no
+      # such concern (and no .app bundle yet -- docs/MULTI_OS_RELEASE_SPEC.md Phase A explicitly
+      # defers that -- so the binary stays console-attached, fine for a Terminal-launched app).
+      - name: Publish OrchestratorIDE (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ver = '${{ steps.ver.outputs.VERSION }}'
@@ -101,8 +127,30 @@ jobs:
             -p:OutputType=WinExe `
             --output publish/app
 
+      - name: Publish OrchestratorIDE (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ver='${{ steps.ver.outputs.VERSION }}'
+          dotnet publish OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj \
+            --configuration Release \
+            --runtime osx-arm64 \
+            --self-contained \
+            --no-restore \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:DebugType=none \
+            -p:DebugSymbols=false \
+            -p:Version=$ver \
+            -p:AssemblyVersion=$ver \
+            -p:FileVersion=$ver \
+            -p:AssemblyName=OrchestratorIDE \
+            --output publish/app
+          chmod +x publish/app/OrchestratorIDE
+
       # ── Publish OrchestratorSetup (installer, self-contained single-file) ─────
-      - name: Publish OrchestratorSetup
+      - name: Publish OrchestratorSetup (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ver = '${{ steps.ver.outputs.VERSION }}'
@@ -120,15 +168,36 @@ jobs:
             -p:FileVersion=$ver `
             --output publish/setup
 
-      # ── Bundle portable zip (both exes — setup wizard works on fresh machines) ─
-      - name: Create portable zip
+      - name: Publish OrchestratorSetup (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ver='${{ steps.ver.outputs.VERSION }}'
+          dotnet publish OrchestratorSetup/OrchestratorSetup.csproj \
+            --configuration Release \
+            --runtime osx-arm64 \
+            --self-contained \
+            --no-restore \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:DebugType=none \
+            -p:DebugSymbols=false \
+            -p:Version=$ver \
+            -p:AssemblyVersion=$ver \
+            -p:FileVersion=$ver \
+            --output publish/setup
+          chmod +x publish/setup/OrchestratorSetup
+
+      # ── Bundle portable archive (both exes — setup wizard works on fresh machines) ─
+      # tar.gz on macOS, not zip -- Compress-Archive/most zip tooling doesn't reliably
+      # preserve the Unix executable bit, which matters for a self-contained binary that
+      # needs +x the moment it's extracted (docs/MULTI_OS_RELEASE_SPEC.md Phase A).
+      - name: Create portable archive (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ver = '${{ steps.ver.outputs.VERSION }}'
           $zip = "publish/TheOrc-$ver-win-x64-portable.zip"
-
-          # Bundle the main app + installer so the portable zip is self-sufficient
-          # on a fresh machine with no llama.cpp / Ollama pre-installed.
           Compress-Archive -Path @(
             "publish/app/OrchestratorIDE.exe",
             "publish/setup/OrchestratorSetup.exe"
@@ -136,8 +205,28 @@ jobs:
           $mb = [math]::Round((Get-Item $zip).Length / 1MB, 1)
           Write-Host "Created $zip ($mb MB)"
 
+      - name: Create portable archive (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ver='${{ steps.ver.outputs.VERSION }}'
+          # Stage flat -- `tar -C publish app/OrchestratorIDE setup/OrchestratorSetup` would
+          # preserve the app/ and setup/ subdirectories as archive members, but the release
+          # notes say "tar -xzf it, both binaries are already executable" matching the Windows
+          # zip's flat-root layout (Compress-Archive there is given individual file paths, not
+          # folders, so it's flat too) -- a nested mac archive would silently contradict that
+          # instruction (grok review BLOCKER, 2026-06-21).
+          mkdir -p publish/portable
+          cp publish/app/OrchestratorIDE publish/portable/OrchestratorIDE
+          cp publish/setup/OrchestratorSetup publish/portable/OrchestratorSetup
+          tarball="publish/TheOrc-$ver-osx-arm64-portable.tar.gz"
+          tar -czf "$tarball" -C publish/portable OrchestratorIDE OrchestratorSetup
+          mb=$(echo "scale=1; $(stat -f%z "$tarball") / 1048576" | bc)
+          echo "Created $tarball (${mb} MB)"
+
       # ── Diagnostics: list all publish artifacts ───────────────────────────────
-      - name: List artifacts
+      - name: List artifacts (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Get-ChildItem publish -Recurse -File |
@@ -145,13 +234,21 @@ jobs:
               @{N='MB'; E={ [math]::Round($_.Length/1MB, 1) }} |
             Format-Table -AutoSize
 
-      # ── Verify the two required release assets exist ──────────────────────────
-      - name: Verify assets
+      - name: List artifacts (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: find publish -type f -exec ls -lh {} \;
+
+      # ── Verify this leg's required release assets exist ───────────────────────
+      - name: Verify assets (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $ver = '${{ steps.ver.outputs.VERSION }}'
           $required = @(
             "publish/app/OrchestratorIDE.exe",
-            "publish/setup/OrchestratorSetup.exe"
+            "publish/setup/OrchestratorSetup.exe",
+            "publish/TheOrc-$ver-win-x64-portable.zip"
           )
           $missing = $required | Where-Object { -not (Test-Path $_) }
           if ($missing) {
@@ -160,9 +257,29 @@ jobs:
           }
           Write-Host "All required assets present."
 
+      - name: Verify assets (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ver='${{ steps.ver.outputs.VERSION }}'
+          required=(
+            "publish/app/OrchestratorIDE"
+            "publish/setup/OrchestratorSetup"
+            "publish/TheOrc-$ver-osx-arm64-portable.tar.gz"
+          )
+          for f in "${required[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "Missing required asset: $f" >&2
+              exit 1
+            fi
+          done
+          echo "All required assets present."
+
       # ── Extract "What's new in vX.X" from README into release body ─────────────
       # Reads README.md, finds the section "## What's new in vVERSION" and captures
-      # everything up to the next "## " heading.  Falls back gracefully if not found.
+      # everything up to the next "## " heading. Falls back gracefully if not found.
+      # Runs identically on both legs -- same full multi-OS body either way, so whichever
+      # leg's action-gh-release call lands first or second doesn't matter.
       - name: Build release notes
         id: notes
         shell: pwsh
@@ -200,23 +317,29 @@ jobs:
 
           ---
 
-          ### ⚡ Quick start — one-click install (recommended)
+          ### 🪟 Windows — one-click install (recommended)
           1. Download **OrchestratorSetup.exe** below
           2. Run it — the wizard detects your GPU, downloads the right runtime and model, configures everything
           3. Launch from the Desktop shortcut or Start Menu
 
-          ### 📦 Portable install — works on fresh machines
-          Download **TheOrc-$ver-win-x64-portable.zip** — contains both ``OrchestratorIDE.exe`` and ``OrchestratorSetup.exe``.
-          1. Extract both files to the same folder
-          2. Run ``OrchestratorIDE.exe``
-          3. If no AI runtime is detected, the app offers to launch the setup wizard automatically — no prior AI tools required
+          **Portable**: download ``TheOrc-$ver-win-x64-portable.zip`` instead — contains both ``OrchestratorIDE.exe`` and ``OrchestratorSetup.exe``, extract both to the same folder, run ``OrchestratorIDE.exe``.
+
+          ### 🍎 macOS (Apple Silicon)
+          1. Download **OrchestratorSetup** below (no extension)
+          2. In Terminal: ``chmod +x OrchestratorSetup && ./OrchestratorSetup``
+          3. **First launch will show a Gatekeeper warning** ("cannot be opened because the developer cannot be verified") — this build isn't code-signed yet. Right-click the file → Open, or run ``xattr -d com.apple.quarantine OrchestratorSetup`` first.
+          4. The wizard detects your hardware, downloads the right runtime and model, configures everything
+
+          **Portable**: download ``TheOrc-$ver-osx-arm64-portable.tar.gz`` instead — ``tar -xzf`` it, both binaries are already executable.
+
+          Intel Macs (``osx-x64``) aren't built yet — only Apple Silicon.
 
           ### 🖥️ System requirements
           | | |
           |---|---|
-          | **OS** | Windows 10 / 11 (x64) |
+          | **OS** | Windows 10/11 (x64) · macOS (Apple Silicon) |
           | **.NET** | Not required — fully self-contained |
-          | **GPU** | NVIDIA RTX (CUDA 12) · AMD (Vulkan) · CPU-only (AVX2 / baseline) |
+          | **GPU** | NVIDIA RTX (CUDA 12) · AMD (Vulkan) · Apple Silicon (Metal) · CPU-only (AVX2 / baseline) |
           | **RAM** | 8 GB minimum · 16 GB recommended |
 
           ---
@@ -230,8 +353,9 @@ jobs:
           $body | Set-Content release-notes.md -Encoding UTF8
           Write-Host "Release notes written ($($body.Length) chars)"
 
-      # ── Create GitHub Release + upload assets ─────────────────────────────────
-      - name: Create GitHub Release
+      # ── Create/append to GitHub Release ────────────────────────────────────────
+      - name: Create GitHub Release (Windows assets)
+        if: runner.os == 'Windows'
         uses: softprops/action-gh-release@v2
         with:
           tag_name:   ${{ steps.ver.outputs.TAG }}
@@ -242,3 +366,16 @@ jobs:
             publish/setup/OrchestratorSetup.exe
             publish/app/OrchestratorIDE.exe
             publish/TheOrc-${{ steps.ver.outputs.VERSION }}-win-x64-portable.zip
+
+      - name: Create GitHub Release (macOS assets)
+        if: runner.os == 'macOS'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name:   ${{ steps.ver.outputs.TAG }}
+          name:       "TheOrc ${{ steps.ver.outputs.TAG }}"
+          prerelease: ${{ steps.ver.outputs.PRERELEASE == 'true' }}
+          body_path:  release-notes.md
+          files: |
+            publish/setup/OrchestratorSetup
+            publish/app/OrchestratorIDE
+            publish/TheOrc-${{ steps.ver.outputs.VERSION }}-osx-arm64-portable.tar.gz

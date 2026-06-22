@@ -105,8 +105,14 @@ public static class UpdateChecker
     }
 
     /// <summary>
-    /// Fetches the latest release and returns the browser_download_url of the first
-    /// .exe asset found, or null if none exists (build-from-source fallback).
+    /// Fetches the latest release and returns the browser_download_url of this OS's app
+    /// binary asset, or null if none exists (build-from-source fallback). Windows assets are
+    /// "OrchestratorIDE.exe"; macOS assets are the bare "OrchestratorIDE" (no extension) --
+    /// matching the exact name release.yml publishes for each OS (MULTI_OS_RELEASE_SPEC.md
+    /// Phase A), not just "ends with .exe", which previously matched and returned the Windows
+    /// asset unconditionally regardless of which OS was asking -- a Mac client clicking
+    /// "Update" would have downloaded a Windows .exe it could never run (grok review BLOCKER,
+    /// 2026-06-21). No Linux entry yet -- release.yml has no Linux publish job (Phase A).
     /// </summary>
     public static async Task<string?> GetReleaseAssetUrlAsync()
     {
@@ -120,7 +126,12 @@ public static class UpdateChecker
             foreach (var asset in assets)
             {
                 var name = asset?["name"]?.GetValue<string>() ?? "";
-                if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                var isMatch = OperatingSystem.IsWindows()
+                    ? name.Equals("OrchestratorIDE.exe", StringComparison.OrdinalIgnoreCase)
+                    : OperatingSystem.IsMacOS()
+                        ? name.Equals("OrchestratorIDE", StringComparison.OrdinalIgnoreCase)
+                        : false;
+                if (isMatch)
                     return asset?["browser_download_url"]?.GetValue<string>();
             }
             return null;

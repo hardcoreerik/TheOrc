@@ -5,37 +5,46 @@
   "updated": "2026-06-20",
 
   "app": {
-    "_comment": "The main OrchestratorIDE.exe published as a self-contained single-file win-x64 binary (Avalonia since v1.9.0 -- WPF deleted). The installer downloads this before anything else. download_url points at GitHub's evergreen 'latest' release-asset alias, so it always resolves to whatever release is currently marked Latest -- this part needs no installer rebuild when a new app version ships. size_mb is only a progress-bar estimate (the real download uses the HTTP response's actual Content-Length) -- kept roughly accurate for UX, not load-bearing.",
-    "download_url": "https://github.com/hardcoreerik/TheOrc/releases/latest/download/OrchestratorIDE.exe",
-    "size_mb": 647
+    "_comment": "The main app, published as a self-contained single-file binary per OS (Avalonia since v1.9.0 -- WPF deleted). The installer downloads this before anything else. OS-keyed as of docs/MULTI_OS_RELEASE_SPEC.md Phase B -- InstallOrchestrator.ResolveAppUrl picks the right key via OperatingSystem.IsWindows()/IsMacOS()/IsLinux(), same pattern PlatformInstaller.Resolve() already uses. Each download_url points at GitHub's evergreen 'latest' release-asset alias, so it always resolves to whatever release is currently marked Latest -- no installer rebuild needed when a new app version ships. size_mb is only a progress-bar estimate (the real download uses the HTTP response's actual Content-Length) -- kept roughly accurate for UX, not load-bearing. linux key intentionally absent -- release.yml has no Linux publish job yet (Phase A), so there is no real asset to point at; ResolveAppUrl falls back to empty/manifest-fallback-URL behavior there until that lands.",
+    "windows": {
+      "download_url": "https://github.com/hardcoreerik/TheOrc/releases/latest/download/OrchestratorIDE.exe",
+      "size_mb": 647
+    },
+    "macos": {
+      "download_url": "https://github.com/hardcoreerik/TheOrc/releases/latest/download/OrchestratorIDE",
+      "size_mb": 647
+    }
   },
 
   "runtimes": {
     "llama_cpp": {
-      "_comment": "Static fallback URLs only. The installer calls the GitHub releases API first to get the actual latest asset URLs dynamically — these values are only used if the API call fails. The 'cudart-' prefix means CUDA runtime DLLs are bundled so no separate CUDA install is needed.",
+      "_comment": "Static fallback URLs only. The installer calls the GitHub releases API first to get the actual latest asset URLs dynamically (LlamaCppResolver.cs, OS+arch-aware as of MULTI_OS_RELEASE_SPEC.md Phase D) — these values are only used if that API call fails. The 'cudart-' prefix on Windows CUDA variants means the CUDA runtime DLLs are bundled so no separate CUDA install is needed. macOS ships one unified 'metal' build per architecture (no CUDA/Vulkan-equivalent split needed -- Metal is always available); filenames/sizes here verified against the real current release (`gh api repos/ggml-org/llama.cpp/releases/latest`, 2026-06-21), not guessed. Linux real coverage today is vulkan/cpu only -- no plain CUDA build exists in the current release (ROCm/SYCL exist but this manifest's variant taxonomy has no slot for them yet); cuda11/cuda12 fallback URLs below are Windows-only and intentionally not given Linux equivalents that don't exist.",
       "version": "latest",
       "release_base": "https://github.com/ggml-org/llama.cpp/releases/latest/download",
       "variants": {
         "cuda12":  "cudart-llama-bin-win-cuda-12.4-x64.zip",
         "cuda11":  "cudart-llama-bin-win-cuda-11.7-x64.zip",
         "vulkan":  "llama-bin-win-vulkan-x64.zip",
-        "avx2":    "llama-bin-win-avx2-x64.zip",
-        "cpu":     "llama-bin-win-x64.zip"
+        "avx2":    "llama-bin-win-cpu-x64.zip",
+        "cpu":     "llama-bin-win-cpu-x64.zip",
+        "metal":   "llama-bin-macos-arm64.tar.gz"
       },
       "size_mb": {
         "cuda12": 220,
         "cuda11": 180,
         "vulkan":  55,
         "avx2":    25,
-        "cpu":     18
+        "cpu":     25,
+        "metal":   10
       },
       "hardware_selection": {
-        "_comment": "Hardware detection logic maps detected GPU to a variant key above.",
+        "_comment": "Documentation only -- not parsed/consumed by any C# code today (HardwareDetector/MacPlatformInstaller/LinuxPlatformInstaller each pick RuntimeVariant directly, not via this map). Kept as a reference for the actual decision logic, not a load-bearing config surface.",
         "nvidia_cuda12": "cuda12",
         "nvidia_cuda11": "cuda11",
         "nvidia_cuda10": "avx2",
         "amd":           "vulkan",
         "intel_arc":     "vulkan",
+        "apple_silicon": "metal",
         "cpu_avx2":      "avx2",
         "cpu_baseline":  "cpu"
       }

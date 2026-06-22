@@ -131,7 +131,12 @@ public sealed class SelfUpdater
         if (string.IsNullOrEmpty(assetUrl)) return null;
 
         Directory.CreateDirectory(stagingDir);
-        var destPath = Path.Combine(stagingDir, "OrchestratorIDE.exe");
+        // UpdateChecker.GetReleaseAssetUrlAsync now only ever returns an asset URL matching
+        // THIS OS (grok review BLOCKER, 2026-06-21, on that file -- a Mac client used to get
+        // handed the Windows .exe's URL unconditionally), so the staged file's own name
+        // should match too rather than relabeling a Mac binary as ".exe" once downloaded.
+        var destFileName = OperatingSystem.IsWindows() ? "OrchestratorIDE.exe" : "OrchestratorIDE";
+        var destPath = Path.Combine(stagingDir, destFileName);
 
         progress.Report("Downloading pre-built release from GitHub…");
 
@@ -160,6 +165,28 @@ public sealed class SelfUpdater
                 lastReport = sw.ElapsedMilliseconds;
                 progress.Report($"  {downloaded / 1024:N0} KB / {total / 1024:N0} KB");
             }
+        }
+
+        // Close the handle before touching the file's permissions below -- dest is a
+        // method-scoped `using var`, so without this explicit Dispose() it would stay open
+        // through the SetUnixFileMode call.
+        dest.Dispose();
+
+        // Raw HTTP downloads carry no file-mode metadata -- without this, the downloaded
+        // binary would be non-executable on Linux/macOS even though the update "succeeded"
+        // (same class of bug as InstallOrchestrator.EnsureExecutable, grok review BLOCKER,
+        // 2026-06-21, on the install-time path; this is the self-update path's equivalent).
+        if (!OperatingSystem.IsWindows())
+        {
+            try
+            {
+                File.SetUnixFileMode(destPath,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                    UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                    UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+            }
+            catch { /* best-effort -- surfaces later as "permission denied" on launch, which
+                       is at least diagnosable */ }
         }
 
         progress.Report($"✓ Downloaded to {destPath}");

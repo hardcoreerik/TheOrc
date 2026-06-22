@@ -102,14 +102,16 @@ public sealed class InstallOrchestrator : IDisposable
             {
                 await Step("Copying app from portable layout", async () =>
                 {
-                    Log($"✓ Found OrchestratorIDE.exe next to the installer (portable layout) — using it instead of downloading.");
-                    // The target is locked if a previous install's OrchestratorIDE.exe is
-                    // still running from this exact path (e.g. upgrading without closing it
-                    // first) -- an unguarded File.Copy would throw a raw IOException and
-                    // abort the whole install ungracefully (Grok CLI BLOCKER, 2026-06-21).
+                    var appBinaryName = Path.GetFileName(_state.AppExePath);
+                    Log($"✓ Found {appBinaryName} next to the installer (portable layout) — using it instead of downloading.");
+                    // The target is locked if a previous install's app binary is still running
+                    // from this exact path (e.g. upgrading without closing it first) -- an
+                    // unguarded File.Copy would throw a raw IOException and abort the whole
+                    // install ungracefully (Grok CLI BLOCKER, 2026-06-21).
                     try
                     {
                         File.Copy(_state.PortableAppExePath, _state.AppExePath, overwrite: true);
+                        EnsureExecutable(_state.AppExePath);
                     }
                     // UnauthorizedAccessException does NOT derive from IOException in .NET --
                     // a permissions-denied case (e.g. install dir needs elevation) hit the same
@@ -122,7 +124,7 @@ public sealed class InstallOrchestrator : IDisposable
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
                         throw new InvalidOperationException(
-                            $"Could not copy OrchestratorIDE.exe to {_state.AppExePath}. It may " +
+                            $"Could not copy {appBinaryName} to {_state.AppExePath}. It may " +
                             "still be running, the installer may need to run as administrator, " +
                             "or the source file became unavailable. Please close OrchestratorIDE " +
                             "and run the installer again.", ex);
@@ -148,6 +150,7 @@ public sealed class InstallOrchestrator : IDisposable
             {
                 await Step("Downloading OrchestratorIDE", async () =>
                 {
+                    var appBinaryName = Path.GetFileName(_state.AppExePath);
                     Log($"  URL : {_state.AppDownloadUrl}");
                     Log($"  Dest: {_state.AppExePath}");
 
@@ -177,7 +180,7 @@ public sealed class InstallOrchestrator : IDisposable
                         // "OrchestratorIDE" complete on this retry path without firing the same
                         // completion manually, matching the portable-copy branch above
                         // (Grok CLI MINOR, 2026-06-21).
-                        Log("  Found a previously downloaded OrchestratorIDE.exe — retrying instead of re-downloading.");
+                        Log($"  Found a previously downloaded {appBinaryName} — retrying instead of re-downloading.");
                         var existingBytes = new FileInfo(tempPath).Length;
                         OnItemProgress?.Invoke(new DownloadProgress
                         {
@@ -202,6 +205,7 @@ public sealed class InstallOrchestrator : IDisposable
                     try
                     {
                         File.Move(tempPath, _state.AppExePath, overwrite: true);
+                        EnsureExecutable(_state.AppExePath);
                     }
                     // UnauthorizedAccessException does NOT derive from IOException in .NET --
                     // broadened to match the portable-copy branch above. FileNotFoundException
@@ -211,7 +215,7 @@ public sealed class InstallOrchestrator : IDisposable
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
                         throw new InvalidOperationException(
-                            $"Downloaded OrchestratorIDE.exe but could not move it into place at " +
+                            $"Downloaded {appBinaryName} but could not move it into place at " +
                             $"{_state.AppExePath}. It may still be running, the installer may need " +
                             "to run as administrator, or the downloaded file became unavailable. " +
                             "Please close OrchestratorIDE and run the installer again.", ex);
@@ -249,7 +253,13 @@ public sealed class InstallOrchestrator : IDisposable
 
                 // Step 2: Resolve runtime URL (prefer live GitHub API, fall back to manifest)
                 var runtimeUrl  = await ResolveRuntimeUrlAsync(ct);
-                var runtimeZip  = Path.Combine(_state.AppInstallPath, "llama-runtime.zip");
+                // Windows assets are .zip; Linux/macOS are .tar.gz (LlamaCppResolver/
+                // model-manifest.json, MULTI_OS_RELEASE_SPEC.md Phase D) -- this filename
+                // must match what's about to be downloaded, or extraction picks the wrong
+                // codec for what's actually on disk (grok review BLOCKER, 2026-06-21: this
+                // was hardcoded ".zip" regardless of OS).
+                var runtimeArchiveExt = OperatingSystem.IsWindows() ? ".zip" : ".tar.gz";
+                var runtimeZip  = Path.Combine(_state.AppInstallPath, $"llama-runtime{runtimeArchiveExt}");
                 var runtimeSize = GetRuntimeSizeBytes();
                 _state.RuntimeDownloadUrl = runtimeUrl;
 
@@ -302,13 +312,25 @@ public sealed class InstallOrchestrator : IDisposable
                             OverallPercent(pct / 100.0));
                     };
 
-                    await _zip.ExtractAsync(runtimeZip, _state.LlamaRuntimeExtractPath, ct);
+                    if (OperatingSystem.IsWindows())
+                        await _zip.ExtractAsync(runtimeZip, _state.LlamaRuntimeExtractPath, ct);
+                    else
+                        await _zip.ExtractTarGzAsync(runtimeZip, _state.LlamaRuntimeExtractPath, ct);
 
                     var serverExe = ZipExtractService.FindServerExe(_state.LlamaRuntimeExtractPath);
                     if (serverExe is null)
-                        Log("  ⚠ llama-server.exe not found in extracted archive.");
+                        Log("  ⚠ llama-server binary not found in extracted archive.");
                     else
+                    {
+                        // Belt-and-suspenders: System.Formats.Tar already preserves each
+                        // entry's Unix file mode (including +x) when extracting on a Unix-like
+                        // OS, but this is the first real install path Mac hardware has ever
+                        // exercised end-to-end -- explicitly re-asserting the executable bit
+                        // here costs nothing and removes "did the upstream tar's mode bits
+                        // survive" as a variable if llama-server still won't run.
+                        EnsureExecutable(serverExe);
                         Log($"  ✓ Found: {serverExe}");
+                    }
 
                     try { File.Delete(runtimeZip); } catch { }
                 }, ct);
@@ -493,8 +515,12 @@ public sealed class InstallOrchestrator : IDisposable
     }
 
     /// <summary>
-    /// Reads the "app" section from the bundled manifest and populates
+    /// Reads the OS-keyed "app" section from the bundled manifest and populates
     /// <see cref="InstallerState.AppDownloadUrl"/> and <see cref="InstallerState.AppSizeBytes"/>.
+    /// Same OperatingSystem.IsWindows()/IsMacOS()/IsLinux() pattern PlatformInstaller.Resolve()
+    /// already uses (docs/MULTI_OS_RELEASE_SPEC.md Phase B). No "linux" key exists in the
+    /// manifest yet -- release.yml has no Linux publish job (Phase A) -- so this intentionally
+    /// leaves AppDownloadUrl empty there rather than guessing at a URL with nothing behind it.
     /// </summary>
     private void ResolveAppUrl()
     {
@@ -506,10 +532,15 @@ public sealed class InstallOrchestrator : IDisposable
             var root = System.Text.Json.JsonDocument.Parse(json).RootElement;
             if (!root.TryGetProperty("app", out var app)) return;
 
-            if (app.TryGetProperty("download_url", out var urlProp))
+            var osKey = OperatingSystem.IsWindows() ? "windows"
+                      : OperatingSystem.IsMacOS()   ? "macos"
+                      : null; // Linux: no manifest entry yet, see doc comment above.
+            if (osKey is null || !app.TryGetProperty(osKey, out var osApp)) return;
+
+            if (osApp.TryGetProperty("download_url", out var urlProp))
                 _state.AppDownloadUrl = urlProp.GetString() ?? "";
 
-            if (app.TryGetProperty("size_mb", out var sizeProp))
+            if (osApp.TryGetProperty("size_mb", out var sizeProp))
                 _state.AppSizeBytes = (long)sizeProp.GetInt32() * 1_048_576;
         }
         catch { /* non-fatal */ }
@@ -578,6 +609,30 @@ public sealed class InstallOrchestrator : IDisposable
     private static string DefaultFallbackRuntimeUrl()
         => "https://github.com/ggml-org/llama.cpp/releases/latest/download/" +
            "cudart-llama-bin-win-cuda-12.4-x64.zip";
+
+    /// <summary>
+    /// Sets the Unix executable bit on a freshly placed binary. A no-op on Windows -- raw
+    /// HTTP downloads and File.Copy/File.Move carry no file-mode metadata at all (unlike
+    /// System.Formats.Tar extraction, which preserves it from the archive's own entries), so
+    /// without this, the downloaded app binary and the portable-layout copy would both be
+    /// non-executable on Linux/macOS, even though the install otherwise "succeeded" (grok
+    /// review BLOCKER, 2026-06-21 -- found by reading the actual download/copy code path, not
+    /// assumed from the OS-aware path changes alone).
+    /// </summary>
+    private static void EnsureExecutable(string path)
+    {
+        if (OperatingSystem.IsWindows()) return;
+        try
+        {
+            File.SetUnixFileMode(path,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        }
+        catch { /* best-effort -- a failure here surfaces later as "permission denied" when
+                   the user tries to launch, which is at least diagnosable, rather than this
+                   non-critical step aborting the whole install */ }
+    }
 
     // ── Progress helpers ──────────────────────────────────────────────────────
 

@@ -1,5 +1,7 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
+using OrchestratorSetup.Services;
+
 namespace OrchestratorSetup.Models;
 
 /// <summary>
@@ -11,15 +13,22 @@ public class InstallerState
 {
     // ── Paths ─────────────────────────────────────────────────────────────────
 
-    /// <summary>Where OrchestratorIDE.exe and its support files are installed.</summary>
-    public string AppInstallPath { get; set; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                     "OrchestratorIDE");
+    /// <summary>
+    /// Where the app and its support files are installed. Defaults now come from
+    /// PlatformInstaller.Current.DefaultAppDir -- this used to hardcode
+    /// SpecialFolder.LocalApplicationData + "OrchestratorIDE" regardless of OS, which on
+    /// macOS/Linux resolved to a DIFFERENT folder than MacPlatformInstaller/
+    /// LinuxPlatformInstaller's own DefaultAppDir ("TheOrc"/"theorc") -- the same
+    /// folder-name-drift bug already found and fixed once in LinuxPlatformInstaller's
+    /// removeUserData step (2026-06-21); fixing it here too so a fresh macOS install
+    /// doesn't reintroduce it via a different code path. Nothing differed between paths
+    /// while only WindowsPlatformInstaller existed (Phase 2); now that Linux/macOS have
+    /// real, different defaults, wiring this through is the actual fix, not deferred work.
+    /// </summary>
+    public string AppInstallPath { get; set; } = PlatformInstaller.Current.DefaultAppDir;
 
     /// <summary>Where GGUF model files are stored. Can be a different drive from the app.</summary>
-    public string ModelStoragePath { get; set; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                     "OrchestratorIDE", "Models");
+    public string ModelStoragePath { get; set; } = PlatformInstaller.Current.DefaultModelDir;
 
     // ── Hardware (populated by HardwareDetector — Phase F) ───────────────────
 
@@ -27,7 +36,7 @@ public class InstallerState
     public int     DetectedVramGb     { get; set; } = 0;
     public string  DetectedGpuVendor  { get; set; } = "unknown"; // "nvidia", "amd", "intel", "none"
     public string  CudaVersion        { get; set; } = "";        // e.g. "12.2" or ""
-    public string  SelectedRuntimeVariant { get; set; } = "cpu"; // cuda12 | cuda11 | vulkan | avx2 | cpu
+    public string  SelectedRuntimeVariant { get; set; } = "cpu"; // cuda12 | cuda11 | vulkan | avx2 | cpu | metal (macOS)
 
     // ── Profile ───────────────────────────────────────────────────────────────
 
@@ -123,18 +132,23 @@ public class InstallerState
     /// <summary>Expected app exe size in bytes (for progress display).</summary>
     public long   AppSizeBytes    { get; set; } = 0;
 
-    /// <summary>Full path where OrchestratorIDE.exe is placed after download.</summary>
-    public string AppExePath      => Path.Combine(AppInstallPath, "OrchestratorIDE.exe");
+    /// <summary>
+    /// Full path where the app binary is placed after download -- "OrchestratorIDE.exe" on
+    /// Windows, "OrchestratorIDE" (no extension) on Linux/macOS, via
+    /// PlatformInstaller.Current.LaunchCommand (the same OS-aware naming Phase 2/4/5 already
+    /// established for launchers/uninstall; this was the one remaining hardcoded ".exe" call
+    /// site, deferred until there was a real non-Windows download pipeline to wire it to).
+    /// </summary>
+    public string AppExePath => PlatformInstaller.Current.LaunchCommand(AppInstallPath);
 
     /// <summary>
-    /// Where OrchestratorIDE.exe would sit if the user extracted it next to
-    /// OrchestratorSetup.exe itself (portable-zip layout). Distinct from
-    /// <see cref="AppExePath"/>, which is the final installed location — a stale
-    /// exe already present there (from a prior install) must NOT be treated as
-    /// "already downloaded" during an upgrade.
+    /// Where the app binary would sit if the user extracted it next to the installer itself
+    /// (portable layout). Distinct from <see cref="AppExePath"/>, which is the final installed
+    /// location — a stale binary already present there (from a prior install) must NOT be
+    /// treated as "already downloaded" during an upgrade.
     /// </summary>
     public string PortableAppExePath =>
-        Path.Combine(AppContext.BaseDirectory, "OrchestratorIDE.exe");
+        PlatformInstaller.Current.LaunchCommand(AppContext.BaseDirectory);
 
     // ── Download state (Phase E) ──────────────────────────────────────────────
 

@@ -1,6 +1,7 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 
 namespace OrchestratorSetup.Services;
@@ -12,19 +13,41 @@ namespace OrchestratorSetup.Services;
 /// The llama.cpp project frequently changes its release naming convention
 /// (e.g. "llama-b5200-bin-win-cuda-cu12.2.0-x64.zip" → "cudart-llama-bin-win-cuda-12.4-x64.zip").
 /// Dynamic resolution avoids 404 errors caused by hardcoded build numbers.
+///
+/// OS-aware as of INSTALLER_REVAMP_SPEC.md/MULTI_OS_RELEASE_SPEC.md Phase D -- terms used to
+/// hardcode "win" into every variant, so this could never resolve a real asset for Linux or
+/// macOS regardless of which RuntimeVariant the hardware detector picked. Verified against
+/// the actual current release (`gh api repos/ggml-org/llama.cpp/releases/latest`, 2026-06-21)
+/// rather than guessed: llama.cpp also quietly renamed Windows' CPU build from
+/// "...-win-avx2-x64.zip" to "...-win-cpu-x64.zip" since this resolver was last touched --
+/// our own "avx2" variant's match terms were already silently broken on Windows before any
+/// of this Mac work, fixed here too while in this code.
+///
+/// macOS ships ONE unified build per architecture (no separate CUDA/Vulkan-equivalent split
+/// -- Metal is always available), matching MacPlatformInstaller.DetectHardwareAsync's own
+/// "metal" RuntimeVariant. Linux real coverage is currently vulkan/cpu only -- no plain CUDA
+/// build exists in the current release (ROCm/SYCL exist but this codebase's variant taxonomy
+/// has no slot for them yet); cuda11/cuda12 on Linux will fail closed (no match -> caller
+/// falls back to the manifest's static URL, which also has no real Linux CUDA entry) until
+/// that's deliberately scoped, not silently pretended to work.
 /// </summary>
 public static class LlamaCppResolver
 {
     private const string ApiUrl = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest";
 
-    // Terms that MUST appear in the asset filename (case-insensitive) for each variant.
+    // Terms that MUST appear in the asset filename (case-insensitive) for each variant,
+    // BEFORE the OS-specific tag/extension (added in TryResolveLatestAsync below) -- kept
+    // OS-agnostic here so one table serves every platform instead of three near-duplicates.
     private static readonly Dictionary<string, string[]> MustContain = new()
     {
-        ["cuda12"] = ["win", "cuda-12", "x64", ".zip"],
-        ["cuda11"] = ["win", "cuda-11", "x64", ".zip"],
-        ["vulkan"] = ["win", "vulkan",  "x64", ".zip"],
-        ["avx2"]   = ["win", "avx2",    "x64", ".zip"],
-        ["cpu"]    = ["win", "x64", ".zip"],
+        ["cuda12"] = ["cuda-12"],
+        ["cuda11"] = ["cuda-11"],
+        ["vulkan"] = ["vulkan"],
+        ["avx2"]   = ["cpu"], // llama.cpp dropped the "avx2" filename label; "cpu" is the
+                              // unified CPU build now -- see class doc comment.
+        ["cpu"]    = ["cpu"],
+        ["metal"]  = [],      // macOS's OS tag alone ("macos") is sufficient to identify the
+                              // one build that exists per architecture -- no extra term needed.
     };
 
     // Terms that must NOT appear in the asset filename for each variant
@@ -33,7 +56,35 @@ public static class LlamaCppResolver
     {
         ["vulkan"] = ["cuda"],
         ["avx2"]   = ["cuda", "vulkan"],
-        ["cpu"]    = ["cuda", "vulkan", "avx2"],
+        ["cpu"]    = ["cuda", "vulkan"],
+    };
+
+    /// <summary>
+    /// (osTag, fileExtension) for the running OS -- e.g. ("win", ".zip") -- appended to
+    /// <see cref="MustContain"/>'s per-variant terms so the same table works for every OS.
+    /// "ubuntu" is llama.cpp's own naming for its generic Linux builds (not actually
+    /// distro-specific despite the name).
+    /// </summary>
+    private static (string OsTag, string Extension) ResolveOsTagAndExtension() =>
+        OperatingSystem.IsWindows() ? ("win", ".zip") :
+        OperatingSystem.IsMacOS()   ? ("macos", ".tar.gz") :
+        OperatingSystem.IsLinux()   ? ("ubuntu", ".tar.gz") :
+        throw new PlatformNotSupportedException("LlamaCppResolver has no asset-naming mapping for this OS.");
+
+    /// <summary>
+    /// llama.cpp publishes both "x64" and "arm64" builds per OS (e.g. macos-arm64.tar.gz AND
+    /// macos-x64.tar.gz both exist) -- without this, the resolver could grab a non-native
+    /// binary for the machine it's actually installing onto (verified against the real release
+    /// asset list, 2026-06-21, not assumed -- the previous Windows-only table got away without
+    /// this because every single Windows asset happens to already contain the literal "x64"
+    /// substring, hiding the gap until macOS/arm64 needed a real choice made).
+    /// </summary>
+    private static string ResolveArchTag() => RuntimeInformation.ProcessArchitecture switch
+    {
+        Architecture.X64   => "x64",
+        Architecture.Arm64 => "arm64",
+        var other => throw new PlatformNotSupportedException(
+            $"LlamaCppResolver has no asset-naming mapping for architecture '{other}'."),
     };
 
     /// <summary>
@@ -57,7 +108,10 @@ public static class LlamaCppResolver
             if (!root.TryGetProperty("assets", out var assets))
                 return null;
 
-            var must    = MustContain.GetValueOrDefault(variant, []);
+            var (osTag, extension) = ResolveOsTagAndExtension();
+            var archTag = ResolveArchTag();
+            var must = MustContain.GetValueOrDefault(variant, [])
+                .Append(osTag).Append(archTag).Append(extension).ToArray();
             var mustNot = MustNotContain.GetValueOrDefault(variant, []);
 
             // Prefer assets with "cudart-" prefix (self-contained — bundled CUDA runtime)
