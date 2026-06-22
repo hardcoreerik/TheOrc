@@ -64,6 +64,9 @@ public class SelectableModelEntry : INotifyPropertyChanged
     public string? PartnerBadge   => Model.PartnerBadge;
     public string  PartnerBadgeBg => Model.PartnerBadgeBg;
     public string  PartnerBadgeFg => Model.PartnerBadgeFg;
+    public bool    IsUncensored      => Model.IsUncensored;
+    public string  UncensoredBadgeBg => Model.UncensoredBadgeBg;
+    public string  UncensoredBadgeFg => Model.UncensoredBadgeFg;
     public bool    OllamaOnly  => Model.OllamaOnly;
     public bool    SwarmCapable => Model.SwarmCapable;
 
