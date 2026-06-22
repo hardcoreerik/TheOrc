@@ -216,7 +216,8 @@ public partial class UpdatePanel : UserControl
             }
 
             ActivateStep(3);
-            exePath ??= Path.Combine(StagingDir, "OrchestratorIDE.exe");
+            exePath ??= Path.Combine(
+                StagingDir, OperatingSystem.IsWindows() ? "OrchestratorIDE.exe" : "OrchestratorIDE");
 
             if (!File.Exists(exePath))
                 throw new FileNotFoundException($"Staged exe not found: {exePath}");

@@ -892,7 +892,8 @@ public sealed class HiveNodeServer : IDisposable
 
                 await updater.PullSourceAsync(sourceDir, progress);
                 await updater.BuildAndPublishAsync(sourceDir, stagingDir, progress);
-                exePath = System.IO.Path.Combine(stagingDir, "OrchestratorIDE.exe");
+                var builtExeName = OperatingSystem.IsWindows() ? "OrchestratorIDE.exe" : "OrchestratorIDE";
+                exePath = System.IO.Path.Combine(stagingDir, builtExeName);
             }
 
             if (!System.IO.File.Exists(exePath)) return;
