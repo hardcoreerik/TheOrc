@@ -1,11 +1,18 @@
 # TheOrc — Cross-Platform Installer Revamp Specification
 
-> Status: Phases 1-2 (§7) implemented 2026-06-21 — WPF→Avalonia UI port (Phase 3's page
->         restructure folded in, since rebuilding-then-deleting the 3 pages it would have
->         changed was wasted work) and the `IPlatformInstaller` extraction with a Windows
->         implementation. Phases 4-5 (Linux impl, macOS impl + packaging) design only.
->         Page-by-page direction confirmed with the user 2026-06-21 via a structured
->         walk-through of all 10 then-current pages.
+> Status: Phases 1, 2, 4, 5 (§7) implemented 2026-06-21 — WPF→Avalonia UI port (Phase 3's
+>         page restructure folded in), the `IPlatformInstaller` extraction, and Windows/
+>         Linux/macOS implementations all exist now. What's NOT done: the actual
+>         cross-platform release pipeline -- `InstallOrchestrator`'s download/copy logic,
+>         the model manifest's single OS-unaware `app.download_url` key, `release.yml`
+>         (win-x64-only), and `LlamaCppResolver`'s filename-matching tables (hardcode "win"
+>         in every variant) are all still Windows-only, so neither the main app binary nor
+>         the llama.cpp runtime can actually be acquired on Linux or macOS yet regardless of
+>         how correct the three platform-installer classes are. That's release-engineering
+>         work on the main app and its dependencies, not something any `IPlatformInstaller`
+>         implementation can close alone -- explicitly scoped as separate, not-yet-started
+>         follow-up work. Page-by-page direction confirmed with the user 2026-06-21 via a
+>         structured walk-through of all 10 then-current pages.
 > Scope: Rewrite `OrchestratorSetup` (today a Windows-only WPF wizard) as a cross-platform
 >        Avalonia GUI installer; abstract every Windows-coupled action (hardware detection,
 >        firewall, shortcuts, registry/uninstall) behind a per-OS layer; pivot runtime
@@ -323,10 +330,35 @@ throughout (no big-bang cutover).
   is release-engineering work on the main app, not something Phase 4 alone can finish, and is
   deliberately left as its own task rather than scope-crept into this one.
 
-### Phase 5 — macOS implementation + packaging
-- `MacPlatformInstaller`: `system_profiler` detection, `~/Library` paths, `socketfilterfw`
-  firewall, `.app`/symlink launchers, delete-bundle uninstall. Per-OS publish RIDs + delivery
-  wrappers (Open Questions resolved).
+### Phase 5 — macOS implementation — **Shipped 2026-06-21** (the `IPlatformInstaller` half).
+- `MacPlatformInstaller`: `system_profiler`+`uname`+`sysctl` detection (Apple Silicon vs Intel
+  Mac, Metal variant selection), `~/Library/Application Support` paths, the per-app
+  Application Firewall via `osascript`-elevated `socketfilterfw` (raw `sudo` has no TTY to
+  prompt in from a GUI app -- `osascript ... with administrator privileges` is the actual
+  macOS-native equivalent of UAC/`pkexec`), a `~/Applications` symlink launcher standing in
+  for a real `.app` bundle (deferred, see below), manifest-file uninstall registration.
+  `IPlatformInstaller.ConfigureFirewallAsync` gained an `appExePath` parameter for this --
+  macOS's firewall is per-app, not per-port, so it's the one implementation that actually
+  needs the binary's real path; Windows/Linux ignore it. Took one review round on two bugs
+  specific to this platform (resolving the app path via `DefaultAppDir` instead of the real
+  install path; an `osascript -e <script-with-embedded-quotes>` call corrupted by .NET's
+  flat-Arguments re-tokenization, fixed with an `ArgumentList`-based `RunAsync` variant).
+  Also fixed in the same commit, found while researching macOS's settings-folder convention:
+  `LinuxPlatformInstaller`'s `removeUserData` step was deleting `~/.config/theorc`, which the
+  main app never writes to (its real folder is `~/.config/OrchestratorIDE`) -- that uninstall
+  checkbox silently did nothing on every real Linux install since Phase 4 shipped.
+- **NOT shipped**: "Per-OS publish RIDs + delivery wrappers" -- the actual cross-platform
+  release pipeline. `InstallOrchestrator`'s download/copy logic, the model manifest's single
+  OS-unaware `app.download_url` key, `release.yml` (win-x64-only, no Linux/macOS publish job
+  or release asset), and `LlamaCppResolver`'s filename-matching tables (hardcode `"win"` in
+  every variant: cuda12/cuda11/vulkan/avx2/cpu) are all untouched. Neither the main app binary
+  nor the llama.cpp runtime can actually be downloaded on Linux or macOS today -- a real
+  install on either OS fails at the download step before reaching any of the
+  `IPlatformInstaller` code Phases 4-5 shipped. AppImage/`.dmg` packaging and macOS
+  notarization (Section 8's Open Questions) are downstream of solving this first. This is
+  release-engineering work on the main app and its dependencies, not something either
+  platform-installer class could close alone -- intentionally a separate, not-yet-scoped task
+  rather than folded into "the installer."
 
 ---
 
