@@ -182,6 +182,7 @@
     <Compile Include="..\OrchestratorIDE\Services\Hive\IHiveNativeRoleExecutor.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveWorkerAgent.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveScheduler.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveNetworkEnroller.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\DpapiSecretProtector.cs" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
 
     <!-- AES-256-GCM protector + MachineKey from Daemon (Linux/macOS and also Windows) -->

@@ -92,4 +92,16 @@
              Link="Converters\HexToBrushConverter.cs"/>
   </ItemGroup>
 
+  <!-- HiveNetworkEnroller has zero dependency on the rest of the Hive stack (ports are passed
+       in by the caller, not hardcoded) specifically so it's safe to share here without pulling
+       OrchestratorSetup's build through HiveNodeServer/HiveIdentity/etc.; see that file's own
+       doc comment. HiveEnroller.cs delegates its URL-ACL/firewall logic to it instead of
+       duplicating it (found drifting in a live pairing-failure investigation, 2026-06-21: a
+       Public-classified network interface silently defeated the Private-only firewall rules,
+       a failure mode the installer's enrollment never checked for at all). -->
+  <ItemGroup>
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveNetworkEnroller.cs"
+             Link="Services\HiveNetworkEnroller.cs"/>
+  </ItemGroup>
+
 </Project>
