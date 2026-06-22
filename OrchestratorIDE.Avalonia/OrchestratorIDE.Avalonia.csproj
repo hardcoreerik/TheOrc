@@ -37,6 +37,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="OrchestratorIDE.UITests" />
     <InternalsVisibleTo Include="OrchestratorIDE.UnitTests" />
+    <InternalsVisibleTo Include="OrchestratorIDE.Avalonia.HeadlessTests" />
     <!-- swarmcli is a headless host that needs to init SecretProtection (DpapiSecretProtector
          is internal) before touching HIVE identity/secrets, exactly as App.axaml.cs does. -->
     <InternalsVisibleTo Include="swarmcli" />

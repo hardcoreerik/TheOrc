@@ -12,6 +12,7 @@ using Avalonia.Threading;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Research;
+using OrchestratorIDE.Services.Hive;
 using OrchestratorIDE.UI.Controls;
 
 namespace OrchestratorIDE.UI.Panels;
@@ -29,6 +30,13 @@ public partial class ChatPanel : UserControl
     // ── Dependencies ──────────────────────────────────────────────────────────
     public OllamaClient? OllamaClient { get; set; }
 
+    /// <summary>Local Ollama URL, used as the "Local" node's target and to resolve it
+    /// when probing/loading the persisted HIVE host list. Same convention as
+    /// HivePanel.LocalUrl -- set by MainWindow from AppSettings.OllamaHost.</summary>
+    public string LocalUrl { get; set; } = "http://localhost:11434";
+
+    private const string LocalNodeName = "Local";
+
     // ── State ─────────────────────────────────────────────────────────────────
     private ChatEngine?              _engine;
     private CancellationTokenSource? _cts;
@@ -36,12 +44,21 @@ public partial class ChatPanel : UserControl
     private bool                     _isSending;
     private Border?                  _lastToolChip;
     private ChatMode                 _mode = ChatMode.Research;
+    private List<HiveHost>           _hiveHosts = [];
+    // Tracks the node CbNode was actually resolving to when _engine was last (re)built --
+    // NOT just "the last SelectionChanged event," since RefreshHiveHosts() clearing and
+    // re-populating Items fires spurious SelectionChanged events even when the user hasn't
+    // touched anything, which must NOT wipe an in-progress conversation (see
+    // CbNode_SelectionChanged).
+    private string                   _lastEngineNodeTarget = LocalNodeName;
 
     // ── Construction ──────────────────────────────────────────────────────────
 
     public ChatPanel()
     {
         InitializeComponent();
+        CbNode.Items.Add(LocalNodeName);
+        CbNode.SelectedIndex = 0;
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -59,6 +76,38 @@ public partial class ChatPanel : UserControl
     {
         var idx = CbModel.Items.IndexOf(model);
         if (idx >= 0) CbModel.SelectedIndex = idx;
+    }
+
+    /// <summary>
+    /// Reloads the persisted HIVE host list (the same store HivePanel reads/writes) into
+    /// the node picker. Does not probe reachability -- an offline node simply fails the
+    /// next send with a normal connection error via OnEngineError, the same failure mode
+    /// every other backend call in this panel already has. Call when the panel becomes
+    /// visible so hosts added/removed via HivePanel are reflected.
+    /// </summary>
+    public void RefreshHiveHosts() => RefreshHiveHosts(storePath: null);
+
+    /// <summary>storePath override exists for tests -- HiveHosts.Load's own storePath
+    /// parameter is the established seam (see T14_HiveHostsTests) for testing this kind of
+    /// logic against a temp file instead of the real persisted host list.</summary>
+    internal void RefreshHiveHosts(string? storePath)
+    {
+        var previouslySelected = CbNode.SelectedItem as string;
+        // HiveHosts.Load always includes its own "This PC" entry representing the local
+        // machine (see Load's own doc comment) -- filtered out here because this panel's
+        // own LocalNodeName entry already represents local, and routes to the INJECTED
+        // OllamaClient property rather than a freshly constructed one pointed at the same
+        // URL. Keeping both would show two confusingly-identical "local machine" entries.
+        _hiveHosts = HiveHosts.Load(LocalUrl, storePath)
+            .Where(h => h.Name != "This PC")
+            .ToList();
+
+        CbNode.Items.Clear();
+        CbNode.Items.Add(LocalNodeName);
+        foreach (var h in _hiveHosts) CbNode.Items.Add(h.Name);
+
+        var idx = CbNode.Items.IndexOf(previouslySelected);
+        CbNode.SelectedIndex = idx >= 0 ? idx : 0;
     }
 
     // ── Mode toggle ───────────────────────────────────────────────────────────
@@ -111,20 +160,68 @@ public partial class ChatPanel : UserControl
     }
 
     /// <summary>
-    /// Builds a ChatEngine for the current mode. Research mode uses ChatEngine's own
-    /// defaults (passing no overrides at all) to guarantee byte-identical behavior with
-    /// the original "Just Chat" panel -- see ChatEngineTests for what those defaults are.
+    /// Constructs a fresh engine for the current mode, targeting whichever node CbNode has
+    /// selected. Research mode uses ChatEngine's own defaults (passing no systemPrompt/tools
+    /// overrides at all) to guarantee byte-identical behavior with the original "Just Chat"
+    /// panel when targeting Local -- see ChatEngineTests for what those defaults are.
+    /// Open-mode SystemPrompt/Temperature/TopP are intentionally NOT read from the controls
+    /// here -- SendAsync refreshes them on every send (engine is mutable for exactly this),
+    /// so reading them again at construction would just be immediately overwritten and is
+    /// one fewer place to keep in sync.
     /// </summary>
+    private ChatEngine CreateEngine(string model)
+    {
+        _lastEngineNodeTarget = CbNode.SelectedItem as string ?? LocalNodeName;
+        var runtime = new OllamaRuntime(ResolveOllamaClient());
+        return _mode == ChatMode.Research
+            ? new ChatEngine(runtime, model)
+            : new ChatEngine(runtime, model, systemPrompt: "", tools: []);
+    }
+
+    // ── HIVE node routing (Phase B3) ─────────────────────────────────────────────
+    // "Local" keeps using the injected OllamaClient property directly (not a freshly
+    // constructed one pointed at LocalUrl) so the existing test-injection pattern
+    // (`new ChatPanel { OllamaClient = fake }`) keeps working unchanged -- only an
+    // explicitly selected remote node constructs a new client.
+
+    private OllamaClient ResolveOllamaClient()
+    {
+        var target = ResolveTargetNode();
+        return target is null ? OllamaClient! : new OllamaClient(target.Url);
+    }
+
     /// <summary>
-    /// Constructs a fresh engine for the current mode. Open-mode SystemPrompt/Temperature/
-    /// TopP are intentionally NOT read from the controls here -- SendAsync refreshes them on
-    /// every send (engine is mutable for exactly this), so reading them again at construction
-    /// would just be immediately overwritten and is one fewer place to keep in sync.
+    /// Pure node-selection logic, kept separate from OllamaClient construction so it's
+    /// testable without a live network call -- constructing a real OllamaClient against an
+    /// arbitrary URL is harmless (it doesn't connect until first used), but actually
+    /// exercising one in a test would either need a live remote node or just be testing
+    /// .NET's own HttpClient construction, neither of which is the point. Returns null for
+    /// "Local" (the caller falls back to the injected OllamaClient property in that case).
     /// </summary>
-    private ChatEngine CreateEngine(string model) =>
-        _mode == ChatMode.Research
-            ? new ChatEngine(new OllamaRuntime(OllamaClient!), model)
-            : new ChatEngine(new OllamaRuntime(OllamaClient!), model, systemPrompt: "", tools: []);
+    internal HiveHost? ResolveTargetNode()
+    {
+        var selected = CbNode.SelectedItem as string;
+        if (string.IsNullOrEmpty(selected) || selected == LocalNodeName) return null;
+        return _hiveHosts.FirstOrDefault(h => h.Name == selected);
+    }
+
+    private void CbNode_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        var newTarget = CbNode.SelectedItem as string ?? LocalNodeName;
+        // RefreshHiveHosts() clears and re-populates Items, which fires this handler even
+        // when the user hasn't touched anything -- only treat it as a real switch if the
+        // resolved target actually differs from what _engine was last built for, otherwise
+        // every hosts-list refresh would silently wipe an in-progress conversation.
+        if (newTarget == _lastEngineNodeTarget) return;
+
+        // A real node switch is a backend change, same as a mode switch -- clear the engine
+        // so the next send builds a fresh one targeting the newly selected node, and start
+        // a new conversation rather than silently continuing history against a different
+        // machine's model.
+        _cts?.Cancel();
+        _engine = null;
+        ResetConversationUi();
+    }
 
     // ── Model selector ────────────────────────────────────────────────────────
 

@@ -81,6 +81,19 @@
                               BorderBrush="#2E3A2E" FontSize="11"
                               Padding="6,3" MinWidth="200"
                               SelectionChanged="CbModel_SelectionChanged"/>
+
+                    <!-- HIVE node target: "Local" or a specific paired node. Lets a weaker
+                         local machine run a chat on a beefier paired machine's Ollama
+                         instance, same routing concept SwarmSession already uses per-task,
+                         applied to chat (Phase B3 of the uncensored-chat-models plan). -->
+                    <TextBlock Text="Node:"
+                               Foreground="{StaticResource Br.Text.Muted}"
+                               FontSize="11" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                    <ComboBox x:Name="CbNode"
+                              Background="#1A1A1A" Foreground="#D4D4D4"
+                              BorderBrush="#2E3A2E" FontSize="11"
+                              Padding="6,3" MinWidth="110"
+                              SelectionChanged="CbNode_SelectionChanged"/>
                     <!-- Search indicator (Research mode only) -->
                     <Border x:Name="BdrSearching"
                             Background="#1A2800" BorderBrush="#2A4A00"

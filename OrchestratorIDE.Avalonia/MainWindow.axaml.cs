@@ -1490,7 +1490,9 @@ public partial class MainWindow : Window
         else if (mode == "chat")
         {
             _chatPanel.OllamaClient = _ollama;
+            _chatPanel.LocalUrl     = _settings.OllamaHost;
             _chatPanel.SetModels(_installedModels, _session.ActiveModel);
+            _chatPanel.RefreshHiveHosts();
             MainContent.Content    = _chatPanel;
             SidebarContent.Content = _explorerPanel;
         }
