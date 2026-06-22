@@ -7,9 +7,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>OrchestratorIDE</RootNamespace>
     <AssemblyName>OrchestratorIDE.Avalonia</AssemblyName>
-    <Version>1.9.4</Version>
-    <AssemblyVersion>1.9.4.0</AssemblyVersion>
-    <FileVersion>1.9.4.0</FileVersion>
+    <Version>1.9.5</Version>
+    <AssemblyVersion>1.9.5.0</AssemblyVersion>
+    <FileVersion>1.9.5.0</FileVersion>
     <NoWarn>$(NoWarn);NU1510;AVLN3001</NoWarn>
   </PropertyGroup>
 

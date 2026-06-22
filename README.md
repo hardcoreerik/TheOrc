@@ -148,6 +148,14 @@ This one went through real adversarial review (two independent AI reviewers, mul
 
 Also: the code-review tooling used throughout this project's development kept falsely flagging legitimate security-related code as a risk and refusing to review it. Switched the underlying model, confirmed by direct comparison that the new one doesn't have this problem.
 
+### v1.9.5 — macOS install, and a HIVE reachability gap Windows network settings can hide
+
+**The installer now genuinely targets three OSes, not one.** `OrchestratorSetup` was rewritten from a Windows-only WPF wizard to a cross-platform Avalonia app (Phase 1), with every OS-coupled action — hardware detection, firewall, launchers, uninstall — moved behind one `IPlatformInstaller` interface with real Windows, Linux, and macOS implementations (Phases 2, 4, 5). This release closes the gap those phases left open: nothing upstream of the installer's own logic could actually hand a non-Windows machine a real binary to install. `release.yml` now publishes a macOS (`osx-arm64`) build alongside Windows; the model manifest, the llama.cpp runtime resolver, and three separate spots in the *running app* (the update checker, self-updater, and llama-server launcher) all needed their own fixes — each only ever recognized Windows binary names, which would have shipped a Mac install that completes successfully and then can't update itself or find its own runtime.
+
+**Headless HIVE nodes are real now too.** `OrchestratorIDE.Daemon` (`theorc-warband`) is the cross-platform, no-GUI HIVE node — first deployed to actual ARM64 hardware this release (a Raspberry Pi 4), running as a systemd service. It gained `--pair`/`--show-identity` CLI modes (same fingerprint-gated safety contract as `swarmcli`'s) so a headless box can join an existing HIVE without ever needing a display.
+
+**Found and fixed a HIVE reachability gap no existing diagnostic caught:** a node can have its URL ACL reservation and firewall rules all correctly in place and *still* be completely unreachable to peers, because the network interface a peer actually connects through was classified "Public" by Windows — the firewall rules are deliberately Private-profile-only, so they silently never apply there. Added `HiveNetworkEnroller`, shared between the installer and the app itself, with the missing diagnostic (`FindPublicInterfacesAsync`) and a one-click fix.
+
 ### Looking ahead to v2.0
 
 v2.0's defining change: **Native Runtime becomes the default, Ollama becomes fully optional.** That flip is explicitly gated on multi-machine HIVE MIND validation of this release's native opt-in path across a real LAN/Tailscale network — not a fixed date. Also planned, not yet started:
