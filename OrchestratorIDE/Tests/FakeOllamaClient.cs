@@ -53,6 +53,15 @@ public class FakeOllamaClient : OllamaClient
     /// <summary>True when all queued responses have been consumed.</summary>
     public bool IsEmpty => _script.Count == 0;
 
+    // ── Request capture ───────────────────────────────────────────────────────
+    // Lets a test assert on what a caller (e.g. ChatPanel.CreateEngine) actually sent,
+    // not just what response it got back -- the scripted-response mechanism above only
+    // covers half of what a request/response test needs to verify.
+
+    public IReadOnlyList<AgentMessage>? LastHistory     { get; private set; }
+    public double?                      LastTemperature { get; private set; }
+    public double?                      LastTopP        { get; private set; }
+
     // ── Override completion ───────────────────────────────────────────────────
 
     public override async IAsyncEnumerable<string> StreamCompletionAsync(
@@ -66,6 +75,10 @@ public class FakeOllamaClient : OllamaClient
         Action<int, int>? onUsage = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
+        LastHistory     = history.ToList();
+        LastTemperature = temperature;
+        LastTopP        = topP;
+
         if (_script.Count == 0)
         {
             yield return "[FakeOllamaClient] Script queue is empty — no more responses.";

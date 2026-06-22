@@ -30,15 +30,24 @@ public class ChatEngine
     // ── Dependencies ──────────────────────────────────────────────────────────
     private readonly IModelRuntime _runtime;
     private readonly List<ToolDefinition> _tools;
-    private readonly string? _systemPrompt;
-    private readonly double _temperature;
-    private readonly double? _topP;
 
     // ── Conversation history ──────────────────────────────────────────────────
     private readonly List<AgentMessage> _history = [];
 
     // ── Active model (can be changed between turns) ───────────────────────────
     public string Model { get; set; }
+
+    // ── Sampling/prompt settings — mutable, not constructor-only ──────────────
+    // A caller exposing live UI controls for these (Open chat mode's system-prompt
+    // textbox, temperature/top-p numeric fields) needs edits between sends to actually
+    // take effect on the SAME engine instance -- recreating the engine per-send to pick
+    // up new values would also wipe conversation history, which is a worse regression
+    // than these being mutable. Tools intentionally stay constructor-only: no UI control
+    // changes them mid-conversation, and a tool set swap mid-history is a much bigger
+    // semantic change than a sampling-parameter tweak.
+    public string? SystemPrompt { get; set; }
+    public double  Temperature  { get; set; }
+    public double? TopP         { get; set; }
 
     // ── Events for UI ─────────────────────────────────────────────────────────
 
@@ -78,12 +87,12 @@ public class ChatEngine
         string? systemPrompt = null, List<ToolDefinition>? tools = null,
         double temperature = 0.2, double? topP = null)
     {
-        _runtime      = runtime;
-        Model         = model;
-        _systemPrompt = systemPrompt;
-        _tools        = tools ?? ResearchToolset.GetTools(new WebSearchTool(), new FetchPageTool());
-        _temperature  = temperature;
-        _topP         = topP;
+        _runtime     = runtime;
+        Model        = model;
+        SystemPrompt = systemPrompt;
+        _tools       = tools ?? ResearchToolset.GetTools(new WebSearchTool(), new FetchPageTool());
+        Temperature  = temperature;
+        TopP         = topP;
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -130,8 +139,8 @@ public class ChatEngine
             Model,
             fullHistory,
             tools,
-            temperature: _temperature,
-            topP:        _topP,
+            temperature: Temperature,
+            topP:        TopP,
             maxTokens:   4096,
             onToolCall: tc => toolCallsNative.Add(tc),
             ct: ct))
@@ -223,8 +232,8 @@ public class ChatEngine
                 Model,
                 PrependSystem(systemMsg),
                 tools,
-                temperature: _temperature,
-                topP:        _topP,
+                temperature: Temperature,
+                topP:        TopP,
                 maxTokens:   4096,
                 onToolCall: tc => toolCalls.Add(tc),
                 ct: ct))
@@ -305,8 +314,8 @@ public class ChatEngine
                 Model,
                 PrependSystem(systemMsg),
                 null,           // no tools in ReAct continuation — we parse text
-                temperature: _temperature,
-                topP:        _topP,
+                temperature: Temperature,
+                topP:        TopP,
                 maxTokens:   4096,
                 ct: ct))
             {
@@ -358,13 +367,13 @@ public class ChatEngine
 
     /// <summary>
     /// Resolves the actual system prompt for this turn: the caller's explicit value
-    /// (constructor's _systemPrompt) if one was given, including an explicit "" meaning
+    /// (SystemPrompt) if one was given, including an explicit "" meaning
     /// "no system prompt at all" (see PrependSystem); otherwise the original research-chat
     /// default. Null/"" is NOT the same state as the research default -- this is what lets
     /// a general/uncensored chat mode opt out of any injected prompt entirely rather than
     /// getting an empty-but-still-present system message.
     /// </summary>
-    private string? ResolveSystemPrompt() => _systemPrompt ?? BuildSystemPrompt();
+    private string? ResolveSystemPrompt() => SystemPrompt ?? BuildSystemPrompt();
 
     private string BuildSystemPrompt()
     {

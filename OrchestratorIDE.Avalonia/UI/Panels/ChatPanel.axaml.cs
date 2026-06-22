@@ -16,9 +16,16 @@ using OrchestratorIDE.UI.Controls;
 
 namespace OrchestratorIDE.UI.Panels;
 
-/// <summary>Research-focused "Just Chat" panel. Final responses are rendered as markdown.</summary>
+/// <summary>
+/// General chat panel — Research mode (the original "Just Chat" behavior: web search/fetch
+/// tools, research system prompt) or Open mode (no injected system prompt, no tools,
+/// user-controlled temperature/top-p; see ChatEngine's Phase B2 generalization). Final
+/// responses are rendered as markdown.
+/// </summary>
 public partial class ChatPanel : UserControl
 {
+    private enum ChatMode { Research, Open }
+
     // ── Dependencies ──────────────────────────────────────────────────────────
     public OllamaClient? OllamaClient { get; set; }
 
@@ -28,6 +35,7 @@ public partial class ChatPanel : UserControl
     private TextBox?                 _streamBox;
     private bool                     _isSending;
     private Border?                  _lastToolChip;
+    private ChatMode                 _mode = ChatMode.Research;
 
     // ── Construction ──────────────────────────────────────────────────────────
 
@@ -53,13 +61,78 @@ public partial class ChatPanel : UserControl
         if (idx >= 0) CbModel.SelectedIndex = idx;
     }
 
+    // ── Mode toggle ───────────────────────────────────────────────────────────
+    // Switching modes recreates the engine on the next send rather than mutating it in
+    // place -- systemPrompt/tools/temperature/topP are constructor-only on ChatEngine
+    // (set once, not swappable mid-conversation), and mixing a research-toned exchange
+    // with an open one in the same history would send a half-research, half-open
+    // conversation to whichever system prompt the NEW mode resolves to. Clearing on
+    // switch treats it as starting a fresh conversation, which is what a mode change
+    // actually means here.
+
+    private void BtnModeResearch_Click(object? sender, RoutedEventArgs e) => SetMode(ChatMode.Research);
+    private void BtnModeOpen_Click(object? sender, RoutedEventArgs e)    => SetMode(ChatMode.Open);
+
+    private void SetMode(ChatMode mode)
+    {
+        if (_mode == mode) { SyncModeToggleVisuals(); return; }
+
+        _cts?.Cancel();
+        _engine = null;
+        _mode   = mode;
+
+        BdrOpenControls.IsVisible = mode == ChatMode.Open;
+        SyncModeToggleVisuals();
+        ResetConversationUi();
+    }
+
+    private void SyncModeToggleVisuals()
+    {
+        BtnModeResearch.IsChecked   = _mode == ChatMode.Research;
+        BtnModeOpen.IsChecked       = _mode == ChatMode.Open;
+        BtnModeResearch.Foreground  = _mode == ChatMode.Research
+            ? new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00))
+            : new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66));
+        BtnModeOpen.Foreground      = _mode == ChatMode.Open
+            ? new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00))
+            : new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66));
+    }
+
+    private void ResetConversationUi()
+    {
+        ChatStack.Children.Clear();
+        BdrWelcome.IsVisible    = true;
+        TxtWelcomeTip.IsVisible = _mode == ChatMode.Research;   // research-flavored example prompts only
+        TxtWelcomeTitle.Text    = _mode == ChatMode.Research ? "👋  Ready to research" : "👋  Open chat";
+        TxtWelcomeBody.Text     = _mode == ChatMode.Research
+            ? "Ask me anything — I can search the web, read articles, and compile research into structured reports with clickable sources."
+            : "No system prompt, no tools — just the model. Set a system prompt above if you want one; leave it empty for a plain, unfiltered conversation.";
+        ChatStack.Children.Add(BdrWelcome);
+    }
+
+    /// <summary>
+    /// Builds a ChatEngine for the current mode. Research mode uses ChatEngine's own
+    /// defaults (passing no overrides at all) to guarantee byte-identical behavior with
+    /// the original "Just Chat" panel -- see ChatEngineTests for what those defaults are.
+    /// </summary>
+    /// <summary>
+    /// Constructs a fresh engine for the current mode. Open-mode SystemPrompt/Temperature/
+    /// TopP are intentionally NOT read from the controls here -- SendAsync refreshes them on
+    /// every send (engine is mutable for exactly this), so reading them again at construction
+    /// would just be immediately overwritten and is one fewer place to keep in sync.
+    /// </summary>
+    private ChatEngine CreateEngine(string model) =>
+        _mode == ChatMode.Research
+            ? new ChatEngine(new OllamaRuntime(OllamaClient!), model)
+            : new ChatEngine(new OllamaRuntime(OllamaClient!), model, systemPrompt: "", tools: []);
+
     // ── Model selector ────────────────────────────────────────────────────────
 
     private void CbModel_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         var model = CbModel.SelectedItem as string;
         if (string.IsNullOrEmpty(model) || OllamaClient is null) return;
-        if (_engine is null) _engine = new ChatEngine(new OllamaRuntime(OllamaClient), model);
+        if (_engine is null) _engine = CreateEngine(model);
         else                  _engine.Model = model;
     }
 
@@ -88,8 +161,28 @@ public partial class ChatPanel : UserControl
         var model = CbModel.SelectedItem as string ?? "";
         if (string.IsNullOrEmpty(model)) return;
 
-        _engine       ??= new ChatEngine(new OllamaRuntime(OllamaClient), model);
-        _engine.Model   = model;
+        _engine ??= CreateEngine(model);
+        // Captured locally and used for the rest of this method instead of the _engine
+        // field -- SetMode() can null out _engine and cancel _cts from a mode-toggle click
+        // that lands WHILE this method is still awaiting a turn (BtnSend.IsEnabled = false
+        // below blocks Send, but not the toggle buttons). Without a local reference, the
+        // `finally` block's unsubscribe calls would NRE on a now-null _engine (grok review
+        // BLOCKER x2, 2026-06-22) instead of cleanly unsubscribing from the engine THIS
+        // call actually started.
+        var engine   = _engine;
+        engine.Model = model;
+
+        // Open mode's textbox/NumericUpDown values are read fresh on every send (not just
+        // at creation) so editing them between messages actually takes effect -- ChatEngine
+        // exposes these as mutable properties for exactly this (grok review MINOR,
+        // 2026-06-22: values were previously sampled once at engine-creation time and
+        // silently ignored on every later edit+send).
+        if (_mode == ChatMode.Open)
+        {
+            engine.SystemPrompt = TbOpenSystemPrompt.Text ?? "";
+            engine.Temperature  = (double)(NudOpenTemperature.Value ?? 0.8m);
+            engine.TopP         = (double?)(NudOpenTopP.Value);
+        }
 
         // Hide welcome card on first send
         if (BdrWelcome.IsVisible)
@@ -99,8 +192,10 @@ public partial class ChatPanel : UserControl
         }
 
         TbInput.Clear();
-        _isSending        = true;
-        BtnSend.IsEnabled = false;
+        _isSending             = true;
+        BtnSend.IsEnabled      = false;
+        BtnModeResearch.IsEnabled = false;
+        BtnModeOpen.IsEnabled     = false;
 
         AppendUserBubble(text);
 
@@ -109,27 +204,29 @@ public partial class ChatPanel : UserControl
 
         _cts = new CancellationTokenSource();
 
-        _engine.OnToken        += OnToken;
-        _engine.OnToolStart    += OnToolStart;
-        _engine.OnToolComplete += OnToolComplete;
-        _engine.OnTurnComplete += OnTurnComplete;
-        _engine.OnError        += OnEngineError;
+        engine.OnToken        += OnToken;
+        engine.OnToolStart    += OnToolStart;
+        engine.OnToolComplete += OnToolComplete;
+        engine.OnTurnComplete += OnTurnComplete;
+        engine.OnError        += OnEngineError;
 
         try
         {
-            await _engine.SendAsync(text, _cts.Token);
+            await engine.SendAsync(text, _cts.Token);
         }
         finally
         {
-            _engine.OnToken        -= OnToken;
-            _engine.OnToolStart    -= OnToolStart;
-            _engine.OnToolComplete -= OnToolComplete;
-            _engine.OnTurnComplete -= OnTurnComplete;
-            _engine.OnError        -= OnEngineError;
+            engine.OnToken        -= OnToken;
+            engine.OnToolStart    -= OnToolStart;
+            engine.OnToolComplete -= OnToolComplete;
+            engine.OnTurnComplete -= OnTurnComplete;
+            engine.OnError        -= OnEngineError;
 
-            _isSending              = false;
-            BtnSend.IsEnabled       = true;
-            BdrSearching.IsVisible  = false;
+            _isSending                = false;
+            BtnSend.IsEnabled         = true;
+            BtnModeResearch.IsEnabled = true;
+            BtnModeOpen.IsEnabled     = true;
+            BdrSearching.IsVisible    = false;
         }
     }
 
@@ -339,9 +436,7 @@ public partial class ChatPanel : UserControl
         _streamBox    = null;
         _lastToolChip = null;
 
-        ChatStack.Children.Clear();
-        BdrWelcome.IsVisible = true;
-        ChatStack.Children.Add(BdrWelcome);
+        ResetConversationUi();
     }
 
     // ── Export / Save ─────────────────────────────────────────────────────────
@@ -367,7 +462,8 @@ public partial class ChatPanel : UserControl
         if (file is null) return;
 
         var sb = new StringBuilder();
-        sb.AppendLine($"# Research Chat — {DateTime.Now:yyyy-MM-dd HH:mm}");
+        var title = _mode == ChatMode.Research ? "Research Chat" : "Open Chat";
+        sb.AppendLine($"# {title} — {DateTime.Now:yyyy-MM-dd HH:mm}");
         sb.AppendLine($"Model: {_engine.Model}");
         sb.AppendLine();
         sb.AppendLine("---");

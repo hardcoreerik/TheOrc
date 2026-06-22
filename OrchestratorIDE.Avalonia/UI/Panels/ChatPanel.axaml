@@ -6,9 +6,15 @@
 
     <!--
     ═══════════════════════════════════════════════════════════════════
-    CHAT PANEL — Phase 3B/6 (Avalonia port)
-    "Just Chat" research panel. Dynamic bubble-building in code-behind.
-    Final responses rendered as markdown via MarkdownView (Phase 6).
+    CHAT PANEL — Phase 3B/6 (Avalonia port), generalized in Phase B2 of the
+    uncensored-chat-models plan to carry two modes instead of forking a
+    separate panel:
+      - Research mode: the original behavior exactly (web search/fetch tools,
+        research system prompt, fixed temperature 0.2).
+      - Open mode: no injected system prompt, no tools, user-controlled
+        temperature/top-p, optional user-supplied system prompt override.
+    Dynamic bubble-building in code-behind. Final responses rendered as
+    markdown via MarkdownView (Phase 6).
     ═══════════════════════════════════════════════════════════════════
     -->
 
@@ -40,13 +46,33 @@
                             Click="BtnExport_Click"/>
                 </StackPanel>
 
-                <!-- Left: branding + model picker -->
+                <!-- Left: branding + mode toggle + model picker -->
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="💬" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBlock Text="Just Chat"
+                    <TextBlock Text="Chat"
                                Foreground="{StaticResource Br.Text.White}"
                                FontSize="13" FontWeight="Bold"
-                               VerticalAlignment="Center" Margin="0,0,16,0"/>
+                               VerticalAlignment="Center" Margin="0,0,12,0"/>
+
+                    <!-- Mode toggle: Research (web tools + research prompt) vs Open
+                         (no injected prompt, no tools, user-controlled sampling). -->
+                    <Border Background="#141814" BorderBrush="#2A3A2A"
+                            BorderThickness="1" CornerRadius="4" Margin="0,0,16,0">
+                        <StackPanel Orientation="Horizontal">
+                            <ToggleButton x:Name="BtnModeResearch" Content="🔎 Research"
+                                          IsChecked="True" FontSize="10" Padding="8,3"
+                                          BorderThickness="0" Background="Transparent"
+                                          Foreground="#76B900"
+                                          Click="BtnModeResearch_Click"/>
+                            <ToggleButton x:Name="BtnModeOpen" Content="Open"
+                                          IsChecked="False" FontSize="10" Padding="8,3"
+                                          BorderThickness="0" Background="Transparent"
+                                          Foreground="#666666"
+                                          ToolTip.Tip="No system prompt, no tools — plain model output, your sampling settings"
+                                          Click="BtnModeOpen_Click"/>
+                        </StackPanel>
+                    </Border>
+
                     <TextBlock Text="Model:"
                                Foreground="{StaticResource Br.Text.Muted}"
                                FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
@@ -55,7 +81,7 @@
                               BorderBrush="#2E3A2E" FontSize="11"
                               Padding="6,3" MinWidth="200"
                               SelectionChanged="CbModel_SelectionChanged"/>
-                    <!-- Search indicator -->
+                    <!-- Search indicator (Research mode only) -->
                     <Border x:Name="BdrSearching"
                             Background="#1A2800" BorderBrush="#2A4A00"
                             BorderThickness="1" CornerRadius="3"
@@ -70,6 +96,39 @@
                 </StackPanel>
 
             </DockPanel>
+        </Border>
+
+        <!-- ── Open-mode controls (hidden in Research mode) ───────────── -->
+        <Border x:Name="BdrOpenControls"
+                DockPanel.Dock="Top"
+                Background="#0C0F0C"
+                BorderBrush="{StaticResource Br.Border}"
+                BorderThickness="0,0,0,1"
+                Padding="12,8"
+                IsVisible="False">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="System prompt:" Foreground="#666666" FontSize="11"
+                           VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <TextBox x:Name="TbOpenSystemPrompt"
+                         Background="#141814" Foreground="#D4D4D4"
+                         BorderBrush="#2A3A2A" FontSize="11"
+                         Padding="6,3" Width="280" Margin="0,0,16,0"
+                         PlaceholderText="(none — leave empty for no system prompt at all)"/>
+                <TextBlock Text="Temp:" Foreground="#666666" FontSize="11"
+                           VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <NumericUpDown x:Name="NudOpenTemperature"
+                               Value="0.8" Minimum="0.0" Maximum="2.0" Increment="0.1"
+                               FormatString="F1" Width="80" FontSize="11"
+                               Background="#141814" Foreground="#D4D4D4"
+                               BorderBrush="#2A3A2A" Margin="0,0,16,0"/>
+                <TextBlock Text="Top-P:" Foreground="#666666" FontSize="11"
+                           VerticalAlignment="Center" Margin="0,0,6,0"/>
+                <NumericUpDown x:Name="NudOpenTopP"
+                               Value="0.9" Minimum="0.0" Maximum="1.0" Increment="0.05"
+                               FormatString="F2" Width="80" FontSize="11"
+                               Background="#141814" Foreground="#D4D4D4"
+                               BorderBrush="#2A3A2A"/>
+            </StackPanel>
         </Border>
 
         <!-- ── Input bar ───────────────────────────────────────────── -->
@@ -127,16 +186,18 @@
                         Padding="14,10" Margin="0,4,60,4"
                         HorizontalAlignment="Left" MaxWidth="780">
                     <StackPanel>
-                        <TextBlock Text="👋  Ready to research"
+                        <TextBlock x:Name="TxtWelcomeTitle"
+                                   Text="👋  Ready to research"
                                    Foreground="#76B900"
                                    FontSize="14" FontWeight="SemiBold"
                                    Margin="0,0,0,8"/>
-                        <TextBlock TextWrapping="Wrap"
+                        <TextBlock x:Name="TxtWelcomeBody"
+                                   TextWrapping="Wrap"
                                    Foreground="#A8CC80"
-                                   FontSize="12" LineHeight="20">
-                            Ask me anything — I can search the web, read articles, and compile research into structured reports with clickable sources.
-                        </TextBlock>
-                        <TextBlock TextWrapping="Wrap"
+                                   FontSize="12" LineHeight="20"
+                                   Text="Ask me anything — I can search the web, read articles, and compile research into structured reports with clickable sources."/>
+                        <TextBlock x:Name="TxtWelcomeTip"
+                                   TextWrapping="Wrap"
                                    Foreground="#5A7A40"
                                    FontSize="11" Margin="0,8,0,0" LineHeight="18">
                             💡  Try: "Summarise the latest news on [topic]" · "Compare X vs Y with sources" · "Find and summarise the docs for [library]"
