@@ -68,7 +68,7 @@ Phase 4 of GOBLIN MIND. The middleware step that simplifies tool schemas for mod
 
 ### Evolution tab
 
-The GUI surface in `ToolCallTestWindow` that shows saved schema-fitness records from evolutionary search and can promote winning variants into the schema library.
+The GUI surface in `ToolCallTestWindow` that showed saved schema-fitness records from evolutionary search and could promote winning variants into the schema library. The window was **retired with WPF (2026-06-20)**; the underlying `FitnessMap`/schema-library data is retained.
 
 ### capability badges
 
@@ -128,7 +128,7 @@ The LoRA or QLoRA output produced by training. In the current pipeline it lands 
 
 ### Model Wiki / Lab
 
-The non-modal model intelligence window that merges catalog scores, installed state, GOBLIN MIND probe data, swarm history, built-in observations, and local capability test results.
+The model intelligence surface that merges catalog scores, installed state, GOBLIN MIND probe data, swarm history, built-in observations, and local capability test results. The WPF window was **retired 2026-06-20**; the merged data layer (`ModelWikiService`) is retained and an Avalonia rebuild is planned. See [MODEL_WIKI_AND_LAB.md](MODEL_WIKI_AND_LAB.md).
 
 ### trends strip
 
@@ -136,7 +136,7 @@ The chronological visual strip in Model Wiki detail that summarizes local capabi
 
 ### model comparison view
 
-The side-by-side `ModelCompareWindow` for comparing two wiki entries across identity, role scores, probe data, and routing recommendations.
+The side-by-side `ModelCompareWindow` for comparing two wiki entries across identity, role scores, probe data, and routing recommendations. **Retired with WPF (2026-06-20)**, not ported.
 
 ### token cost estimator
 

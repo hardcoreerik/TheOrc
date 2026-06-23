@@ -6,9 +6,12 @@
 
 ## What Is Under Test
 
-The current repository has two main testing layers:
+The current repository has three main testing layers:
 
-- Windows UI tests under `OrchestratorIDE.UITests`
+- Headless unit + Avalonia tests under `OrchestratorIDE.UnitTests` and
+  `OrchestratorIDE.Avalonia.HeadlessTests` — run without a display, the primary
+  CI-runnable suites (logic, HIVE security, ChatPanel/MarkdownView behavior)
+- Windows UI tests under `OrchestratorIDE.UITests` — drive the real app via FlaUI
 - Python tests for Training Pit scripts under `training_pit/tests`
 
 There are also focused logic tests, including steering-related coverage, that protect capability-aware swarm behavior.
@@ -25,7 +28,7 @@ That means:
 - the app must be buildable
 - model-dependent flows need a reachable inference backend
 
-This is why AutomationIds matter so much in the WPF shell.
+This is why AutomationIds matter so much in the Avalonia shell.
 
 ---
 
@@ -49,13 +52,15 @@ If you document or test a made-up AutomationId, you are testing fiction.
 
 ## Model And Probe Testing
 
-The model tooling layer has dedicated UI and runtime surfaces:
+The GUI diagnostic surfaces that used to front this layer — the capability test
+dialog, the tool-call probe window, and its Evolution tab — were **retired with
+WPF (2026-06-20)** and not ported to Avalonia. What remains and still matters:
 
-- capability test dialog
-- tool-call probe window
-- Evolution tab for stored schema fitness
+- live capability testing during normal runs (`ModelCapabilityTestService`)
+- the GOBLIN MIND probe stack and stored schema-fitness data
+- the `model-wiki/results.jsonl` evidence the swarm and AgentLoop consume
 
-These surfaces matter because TheOrc actively changes runtime behavior based on probe results and local model evidence.
+These still drive runtime behavior; only the standalone WPF diagnostic windows are gone.
 
 ---
 
