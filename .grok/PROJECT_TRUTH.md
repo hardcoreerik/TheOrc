@@ -236,7 +236,7 @@ any code or plan that violates them.
 
 ### WARBANDS — Cloud & Headless Deployment (naming formalized 2026-06-17)
 
-Full spec: `.grok/WARBANDS.md`. The `OrchestratorIDE.Daemon` project IS the Warband. Binary rename: `theorc-daemon` → `theorc-warband` (pending commit). One Warband per deployed headless node. The Warchief (GUI) stays home; Warbands run in Docker, on cloud VMs, or on LAN machines.
+Full spec: `.grok/WARBANDS.md`. The `OrchestratorIDE.Daemon` project IS the Warband. Binary rename: `theorc-daemon` → `theorc-warband` (done). One Warband per deployed headless node. The Warchief (GUI) stays home; Warbands run in Docker, on cloud VMs, or on LAN machines.
 
 - Daemon is already `net10.0` + AES-256-GCM — cross-platform today
 - Current Docker: Warband container + Ollama sidecar (2 containers)

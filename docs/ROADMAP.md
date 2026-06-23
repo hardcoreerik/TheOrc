@@ -398,7 +398,7 @@ Full spec: [`MULTI_OS_RELEASE_SPEC.md`](MULTI_OS_RELEASE_SPEC.md). Closes the ga
 
 ## WARBANDS — Cloud & Headless Deployment
 
-> Full spec: [`.grok/WARBANDS.md`](../.grok/WARBANDS.md). The daemon is the Warband. Binary rename pending: `theorc-daemon` → `theorc-warband`.
+> Full spec: [`.grok/WARBANDS.md`](../.grok/WARBANDS.md). The daemon is the Warband. Binary rename complete: `theorc-daemon` → `theorc-warband`.
 
 A **Warband** is a deployed headless HIVE node — the `OrchestratorIDE.Daemon` binary running on any machine that isn't your main desktop. Your GUI app (the Warchief) stays home. Warbands run in the cloud, on a home-lab machine, or in Docker — headless, no GUI, pulling tasks from your Warchief's queue.
 
@@ -418,7 +418,7 @@ Warchief (GUI)  ──→  Warband 1 (linux-x64, Vast.ai GPU)
 
 | Pending | Status |
 |---|---|
-| Binary rename: `theorc-daemon` → `theorc-warband` | ⬜ Next commit |
+| Binary rename: `theorc-daemon` → `theorc-warband` | ✅ Done |
 | CI publish matrix for `linux-x64` + `osx-arm64` Warband binaries | ⬜ v1.9 / v2.0 |
 | `warband.compose.yml` Docker template | ⬜ v1.9 / v2.0 |
 | GHCR/Docker Hub publish on release | ⬜ v2.0 |
