@@ -175,7 +175,7 @@ file static class MarkdownBuilder
             2 => (Palette.H2, 14.0, FontWeight.SemiBold),
             _ => (Palette.H3, 13.0, FontWeight.SemiBold),
         };
-        var tb = new TextBlock
+        var tb = new SelectableTextBlock
         {
             Foreground   = fg,
             FontSize     = size,
@@ -210,7 +210,7 @@ file static class MarkdownBuilder
             CornerRadius = new CornerRadius(4),
             Padding      = new Thickness(12, 8),
             Margin       = new Thickness(0, 2, 0, 2),
-            Child        = new TextBlock
+            Child        = new SelectableTextBlock
             {
                 Text         = code,
                 FontFamily   = Mono,
@@ -279,12 +279,12 @@ file static class MarkdownBuilder
         return grid;
     }
 
-    private static TextBlock Paragraph(string text, Action<string>? onLinkClicked)
+    private static SelectableTextBlock Paragraph(string text, Action<string>? onLinkClicked)
         => InlineTextBlock(text, onLinkClicked);
 
-    private static TextBlock InlineTextBlock(string text, Action<string>? onLinkClicked)
+    private static SelectableTextBlock InlineTextBlock(string text, Action<string>? onLinkClicked)
     {
-        var tb = new TextBlock
+        var tb = new SelectableTextBlock
         {
             TextWrapping = TextWrapping.Wrap,
             FontSize     = 13,

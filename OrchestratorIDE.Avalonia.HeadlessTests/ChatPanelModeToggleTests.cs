@@ -14,10 +14,13 @@ namespace OrchestratorIDE.Avalonia.HeadlessTests;
 /// <summary>
 /// Headless coverage for ChatPanel's Phase B2 Research/Open mode toggle -- both the visual
 /// state transitions (button checked state, control visibility, welcome text) and the actual
-/// engine wiring (does Open mode really send the textbox/NumericUpDown values through to the
-/// runtime, not just look right). Replaces an attempted manual computer-use click-through that
-/// got tangled in window/build mismatches; this is the durable, repeatable version of that
-/// verification.
+/// engine wiring (does Open mode really send the textbox values through to the runtime, not
+/// just look right). Replaces an attempted manual computer-use click-through that got tangled
+/// in window/build mismatches; this is the durable, repeatable version of that verification.
+/// Temp/Top-P are plain TextBoxes, not NumericUpDown -- a real user testing session found
+/// NumericUpDown's value invisible under this app's dark theme (its templated inner TextBox
+/// part doesn't inherit the outer Foreground/Background), which headless tests had no way to
+/// catch since they verify wiring, not visual rendering.
 /// </summary>
 [TestFixture]
 public class ChatPanelModeToggleTests
@@ -111,9 +114,9 @@ public class ChatPanelModeToggleTests
         Click(Required<ToggleButton>(panel, "BtnModeOpen"));
         Dispatcher.UIThread.RunJobs();
 
-        Required<TextBox>(panel, "TbOpenSystemPrompt").Text = "You are a pirate.";
-        Required<NumericUpDown>(panel, "NudOpenTemperature").Value = 1.2m;
-        Required<NumericUpDown>(panel, "NudOpenTopP").Value        = 0.7m;
+        Required<TextBox>(panel, "TbOpenSystemPrompt").Text  = "You are a pirate.";
+        Required<TextBox>(panel, "TbOpenTemperature").Text   = "1.2";
+        Required<TextBox>(panel, "TbOpenTopP").Text          = "0.7";
 
         fake.Enqueue("arr");
 
