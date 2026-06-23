@@ -1,7 +1,6 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
 using Avalonia.Headless.NUnit;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -75,7 +74,6 @@ public class ChatPanelMemoryPersistenceTests
         var panel = new ChatPanel();
         panel.LoadPersistedMemory(_store);
 
-        Click(Required<ToggleButton>(panel, "BtnModeOpen"));
         Click(Required<Button>(panel, "BtnPresetDirect"));
         Dispatcher.UIThread.RunJobs();
 

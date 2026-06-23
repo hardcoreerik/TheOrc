@@ -6,15 +6,12 @@
 
     <!--
     ═══════════════════════════════════════════════════════════════════
-    CHAT PANEL — Phase 3B/6 (Avalonia port), generalized in Phase B2 of the
-    uncensored-chat-models plan to carry two modes instead of forking a
-    separate panel:
-      - Research mode: the original behavior exactly (web search/fetch tools,
-        research system prompt, fixed temperature 0.2).
-      - Open mode: no injected system prompt, no tools, user-controlled
-        temperature/top-p, optional user-supplied system prompt override.
-    Dynamic bubble-building in code-behind. Final responses rendered as
-    markdown via MarkdownView (Phase 6).
+    ORCCHAT PANEL — Phase 3B/6 (Avalonia port). Single merged chat surface
+    (formerly separate Research/Open modes): web search/fetch tools are
+    always available, no system prompt is injected by default, and the
+    user controls system prompt/temperature/top-p directly. Dynamic
+    bubble-building in code-behind. Final responses rendered as markdown
+    via MarkdownView (Phase 6).
     ═══════════════════════════════════════════════════════════════════
     -->
 
@@ -49,30 +46,11 @@
                 <!-- Left: branding + mode toggle + model picker -->
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="💬" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBlock Text="Chat"
+                    <TextBlock Text="OrcChat"
                                Foreground="{StaticResource Br.Text.White}"
                                FontSize="13" FontWeight="Bold"
-                               VerticalAlignment="Center" Margin="0,0,12,0"/>
-
-                    <!-- Mode toggle: Research (web tools + research prompt) vs Open
-                         (no injected prompt, no tools, user-controlled sampling). -->
-                    <Border Background="#141814" BorderBrush="#2A3A2A"
-                            BorderThickness="1" CornerRadius="4" Margin="0,0,16,0">
-                        <StackPanel Orientation="Horizontal">
-                            <ToggleButton x:Name="BtnModeResearch" Content="🔎 Research"
-                                          IsChecked="True" FontSize="10" Padding="8,3"
-                                          BorderThickness="0" Background="Transparent"
-                                          Foreground="#76B900"
-                                          ToolTip.Tip="Web search/fetch tools enabled, plus a system prompt that tells the model how to use them. Good for research and lookups; the model will cite/search rather than answer from memory alone."
-                                          Click="BtnModeResearch_Click"/>
-                            <ToggleButton x:Name="BtnModeOpen" Content="Open"
-                                          IsChecked="False" FontSize="10" Padding="8,3"
-                                          BorderThickness="0" Background="Transparent"
-                                          Foreground="#666666"
-                                          ToolTip.Tip="No system prompt, no tools — plain model output, your sampling settings"
-                                          Click="BtnModeOpen_Click"/>
-                        </StackPanel>
-                    </Border>
+                               VerticalAlignment="Center" Margin="0,0,12,0"
+                               ToolTip.Tip="Web search/fetch tools are always available, no system prompt is injected by default — set one below if you want one."/>
 
                     <TextBlock Text="Model:"
                                Foreground="{StaticResource Br.Text.Muted}"
@@ -97,7 +75,7 @@
                               Padding="6,3" MinWidth="110"
                               ToolTip.Tip="Where this chat actually runs. 'Local' uses this machine's own Ollama. Selecting a paired HIVE node routes the conversation to that machine's Ollama instead — useful if it has more VRAM or a model this machine doesn't have loaded. Switching nodes mid-conversation starts a fresh chat."
                               SelectionChanged="CbNode_SelectionChanged"/>
-                    <!-- Search indicator (Research mode only) -->
+                    <!-- Search indicator -->
                     <Border x:Name="BdrSearching"
                             Background="#1A2800" BorderBrush="#2A4A00"
                             BorderThickness="1" CornerRadius="3"
@@ -128,14 +106,13 @@
             </DockPanel>
         </Border>
 
-        <!-- ── Open-mode controls (hidden in Research mode) ───────────── -->
+        <!-- ── System prompt / sampling controls ───────────── -->
         <Border x:Name="BdrOpenControls"
                 DockPanel.Dock="Top"
                 Background="#0C0F0C"
                 BorderBrush="{StaticResource Br.Border}"
                 BorderThickness="0,0,0,1"
-                Padding="12,8"
-                IsVisible="False">
+                Padding="12,8">
             <StackPanel Orientation="Vertical" Spacing="6">
 
                 <!-- Row 1: system prompt, multi-line with real room to write -->
@@ -265,7 +242,7 @@
                         HorizontalAlignment="Left" MaxWidth="780">
                     <StackPanel>
                         <TextBlock x:Name="TxtWelcomeTitle"
-                                   Text="👋  Ready to research"
+                                   Text="👋  OrcChat"
                                    Foreground="#76B900"
                                    FontSize="14" FontWeight="SemiBold"
                                    Margin="0,0,0,8"/>
@@ -273,7 +250,7 @@
                                    TextWrapping="Wrap"
                                    Foreground="#A8CC80"
                                    FontSize="12" LineHeight="20"
-                                   Text="Ask me anything — I can search the web, read articles, and compile research into structured reports with clickable sources."/>
+                                   Text="I can search the web and fetch pages when it helps. No system prompt by default — set one above if you want a persona or standing instruction; leave it empty for plain, unfiltered conversation."/>
                         <TextBlock x:Name="TxtWelcomeTip"
                                    TextWrapping="Wrap"
                                    Foreground="#5A7A40"

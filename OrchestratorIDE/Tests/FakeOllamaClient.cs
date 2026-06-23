@@ -61,6 +61,7 @@ public class FakeOllamaClient : OllamaClient
     public IReadOnlyList<AgentMessage>? LastHistory     { get; private set; }
     public double?                      LastTemperature { get; private set; }
     public double?                      LastTopP        { get; private set; }
+    public IReadOnlyList<object>?       LastTools       { get; private set; }
 
     // ── Override completion ───────────────────────────────────────────────────
 
@@ -78,6 +79,7 @@ public class FakeOllamaClient : OllamaClient
         LastHistory     = history.ToList();
         LastTemperature = temperature;
         LastTopP        = topP;
+        LastTools       = tools;
 
         if (_script.Count == 0)
         {

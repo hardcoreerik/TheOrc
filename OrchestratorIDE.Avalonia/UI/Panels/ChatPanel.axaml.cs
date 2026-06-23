@@ -20,15 +20,13 @@ using OrchestratorIDE.UI.Controls;
 namespace OrchestratorIDE.UI.Panels;
 
 /// <summary>
-/// General chat panel — Research mode (the original "Just Chat" behavior: web search/fetch
-/// tools, research system prompt) or Open mode (no injected system prompt, no tools,
-/// user-controlled temperature/top-p; see ChatEngine's Phase B2 generalization). Final
-/// responses are rendered as markdown.
+/// OrcChat — the single merged chat surface (formerly separate Research/Open modes). Web
+/// search/fetch tools are always available to the model, but no system prompt is injected by
+/// default -- the user controls system prompt/temperature/top-p directly, same as the old
+/// Open mode's controls. Final responses are rendered as markdown.
 /// </summary>
 public partial class ChatPanel : UserControl
 {
-    private enum ChatMode { Research, Open }
-
     // ── Dependencies ──────────────────────────────────────────────────────────
     public OllamaClient? OllamaClient { get; set; }
 
@@ -45,7 +43,6 @@ public partial class ChatPanel : UserControl
     private TextBox?                 _streamBox;
     private bool                     _isSending;
     private Border?                  _lastToolChip;
-    private ChatMode                 _mode = ChatMode.Research;
     private List<HiveHost>           _hiveHosts = [];
     // Tracks the node CbNode was actually resolving to when _engine was last (re)built --
     // NOT just "the last SelectionChanged event," since RefreshHiveHosts() clearing and
@@ -142,31 +139,6 @@ public partial class ChatPanel : UserControl
         CbNode.SelectedIndex = idx >= 0 ? idx : 0;
     }
 
-    // ── Mode toggle ───────────────────────────────────────────────────────────
-    // Switching modes recreates the engine on the next send rather than mutating it in
-    // place -- systemPrompt/tools/temperature/topP are constructor-only on ChatEngine
-    // (set once, not swappable mid-conversation), and mixing a research-toned exchange
-    // with an open one in the same history would send a half-research, half-open
-    // conversation to whichever system prompt the NEW mode resolves to. Clearing on
-    // switch treats it as starting a fresh conversation, which is what a mode change
-    // actually means here.
-
-    private void BtnModeResearch_Click(object? sender, RoutedEventArgs e) => SetMode(ChatMode.Research);
-    private void BtnModeOpen_Click(object? sender, RoutedEventArgs e)    => SetMode(ChatMode.Open);
-
-    private void SetMode(ChatMode mode)
-    {
-        if (_mode == mode) { SyncModeToggleVisuals(); return; }
-
-        _cts?.Cancel();
-        _engine = null;
-        _mode   = mode;
-
-        BdrOpenControls.IsVisible = mode == ChatMode.Open;
-        SyncModeToggleVisuals();
-        ResetConversationUi();
-    }
-
     // ── System-prompt presets ────────────────────────────────────────────────────
     // Concrete, behaviorally-specific instructions, not vague dispositions -- "answer
     // without judgment" tested out to have near-zero effect in real use, while a concrete
@@ -194,51 +166,27 @@ public partial class ChatPanel : UserControl
     private void BtnPresetDirect_Click(object? sender, RoutedEventArgs e)     => TbOpenSystemPrompt.Text = DirectUnfilteredPreset;
     private void BtnPresetPlainProse_Click(object? sender, RoutedEventArgs e) => TbOpenSystemPrompt.Text = PlainProsePreset;
 
-    private void SyncModeToggleVisuals()
-    {
-        BtnModeResearch.IsChecked   = _mode == ChatMode.Research;
-        BtnModeOpen.IsChecked       = _mode == ChatMode.Open;
-        BtnModeResearch.Foreground  = _mode == ChatMode.Research
-            ? new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00))
-            : new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66));
-        BtnModeOpen.Foreground      = _mode == ChatMode.Open
-            ? new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00))
-            : new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66));
-    }
-
     private void ResetConversationUi()
     {
         ChatStack.Children.Clear();
-        BdrWelcome.IsVisible    = true;
-        TxtWelcomeTip.IsVisible = _mode == ChatMode.Research;   // research-flavored example prompts only
-        TxtWelcomeTitle.Text    = _mode == ChatMode.Research ? "👋  Ready to research" : "👋  Open chat";
-        TxtWelcomeBody.Text     = _mode == ChatMode.Research
-            ? "Ask me anything — I can search the web, read articles, and compile research into structured reports with clickable sources."
-            : "No system prompt, no tools — just the model. Set a system prompt above if you want one; leave it empty for a plain, unfiltered conversation.";
+        BdrWelcome.IsVisible = true;
         ChatStack.Children.Add(BdrWelcome);
     }
 
     /// <summary>
-    /// Constructs a fresh engine for the current mode, targeting whichever node CbNode has
-    /// selected. Research mode uses ChatEngine's own defaults (passing no systemPrompt/tools
-    /// overrides at all) to guarantee byte-identical behavior with the original "Just Chat"
-    /// panel when targeting Local -- see ChatEngineTests for what those defaults are.
-    /// Open-mode SystemPrompt/Temperature/TopP are intentionally NOT read from the controls
-    /// here -- SendAsync refreshes them on every send (engine is mutable for exactly this),
-    /// so reading them again at construction would just be immediately overwritten and is
-    /// one fewer place to keep in sync.
+    /// Constructs a fresh engine targeting whichever node CbNode has selected. Web
+    /// search/fetch tools are always available (the ChatEngine default toolset, passing
+    /// tools: null) but no system prompt is injected (systemPrompt: "") -- OrcChat never
+    /// puts words in the model's mouth, it just gives it tools. SystemPrompt/Temperature/TopP
+    /// are intentionally NOT read from the controls here -- SendAsync refreshes them on every
+    /// send (engine is mutable for exactly this), so reading them again at construction would
+    /// just be immediately overwritten and is one fewer place to keep in sync.
     /// </summary>
     private ChatEngine CreateEngine(string model)
     {
         _lastEngineNodeTarget = CbNode.SelectedItem as string ?? LocalNodeName;
         var runtime = new OllamaRuntime(ResolveOllamaClient());
-        if (_mode == ChatMode.Research)
-            return new ChatEngine(runtime, model);
-
-        // IncludeDateTimeContext only for Open mode -- Research mode's behavior must stay
-        // byte-identical to the original "Just Chat" panel (see ChatEngineTests), and this
-        // flag defaults to false specifically so turning it on here doesn't touch that.
-        return new ChatEngine(runtime, model, systemPrompt: "", tools: [])
+        return new ChatEngine(runtime, model, systemPrompt: "")
         {
             IncludeDateTimeContext = true,
         };
@@ -395,27 +343,24 @@ public partial class ChatPanel : UserControl
 
         _engine ??= CreateEngine(model);
         // Captured locally and used for the rest of this method instead of the _engine
-        // field -- SetMode() can null out _engine and cancel _cts from a mode-toggle click
-        // that lands WHILE this method is still awaiting a turn (BtnSend.IsEnabled = false
-        // below blocks Send, but not the toggle buttons). Without a local reference, the
-        // `finally` block's unsubscribe calls would NRE on a now-null _engine (grok review
-        // BLOCKER x2, 2026-06-22) instead of cleanly unsubscribing from the engine THIS
-        // call actually started.
+        // field -- CbNode_SelectionChanged() can null out _engine and cancel _cts from a
+        // node-switch click that lands WHILE this method is still awaiting a turn
+        // (BtnSend.IsEnabled = false below blocks Send, but not the node picker). Without a
+        // local reference, the `finally` block's unsubscribe calls would NRE on a now-null
+        // _engine (grok review BLOCKER x2, 2026-06-22) instead of cleanly unsubscribing from
+        // the engine THIS call actually started.
         var engine   = _engine;
         engine.Model = model;
 
-        // Open mode's textbox values are read fresh on every send (not just at creation) so
-        // editing them between messages actually takes effect -- ChatEngine exposes these as
-        // mutable properties for exactly this (grok review MINOR, 2026-06-22: values were
-        // previously sampled once at engine-creation time and silently ignored on every
-        // later edit+send). Plain TextBox, not NumericUpDown -- see ChatPanel.axaml's comment
-        // on that control for why.
-        if (_mode == ChatMode.Open)
-        {
-            engine.SystemPrompt = TbOpenSystemPrompt.Text ?? "";
-            engine.Temperature  = ParseDoubleOrDefault(TbOpenTemperature.Text, 0.8);
-            engine.TopP         = ParseDoubleOrDefault(TbOpenTopP.Text, 0.9);
-        }
+        // Textbox values are read fresh on every send (not just at creation) so editing them
+        // between messages actually takes effect -- ChatEngine exposes these as mutable
+        // properties for exactly this (grok review MINOR, 2026-06-22: values were previously
+        // sampled once at engine-creation time and silently ignored on every later edit+send).
+        // Plain TextBox, not NumericUpDown -- see ChatPanel.axaml's comment on that control
+        // for why.
+        engine.SystemPrompt = TbOpenSystemPrompt.Text ?? "";
+        engine.Temperature  = ParseDoubleOrDefault(TbOpenTemperature.Text, 0.8);
+        engine.TopP         = ParseDoubleOrDefault(TbOpenTopP.Text, 0.9);
 
         // Hide welcome card on first send
         if (BdrWelcome.IsVisible)
@@ -425,17 +370,16 @@ public partial class ChatPanel : UserControl
         }
 
         TbInput.Clear();
-        _isSending             = true;
-        BtnSend.IsEnabled      = false;
-        BtnModeResearch.IsEnabled = false;
-        BtnModeOpen.IsEnabled     = false;
+        _isSending        = true;
+        BtnSend.IsEnabled = false;
 
         AppendUserBubble(text);
 
         _streamBox = CreateStreamTextBox();
         AppendAssistantBubble(_streamBox);
 
-        _cts = new CancellationTokenSource();
+        var cts = new CancellationTokenSource();
+        _cts    = cts;
 
         engine.OnToken        += OnToken;
         engine.OnToolStart    += OnToolStart;
@@ -446,7 +390,7 @@ public partial class ChatPanel : UserControl
 
         try
         {
-            await engine.SendAsync(text, _cts.Token);
+            await engine.SendAsync(text, cts.Token);
         }
         finally
         {
@@ -457,11 +401,18 @@ public partial class ChatPanel : UserControl
             engine.OnError        -= OnEngineError;
             engine.OnUsage        -= OnUsage;
 
-            _isSending                = false;
-            BtnSend.IsEnabled         = true;
-            BtnModeResearch.IsEnabled = true;
-            BtnModeOpen.IsEnabled     = true;
-            BdrSearching.IsVisible    = false;
+            _isSending             = false;
+            BtnSend.IsEnabled      = true;
+            BdrSearching.IsVisible = false;
+
+            // Only the field's own owner disposes it -- if a node switch or Clear already
+            // replaced/cancelled it via _cts (see CbNode_SelectionChanged/BtnClear_Click),
+            // those call sites never null the field, so this send's `cts` local is always
+            // the right (and only) one to dispose here; nulling the field first prevents a
+            // racing Cancel() call elsewhere from throwing ObjectDisposedException on an
+            // already-disposed source (grok review MINOR, 2026-06-23).
+            if (ReferenceEquals(_cts, cts)) _cts = null;
+            cts.Dispose();
         }
     }
 
@@ -784,52 +735,62 @@ public partial class ChatPanel : UserControl
 
     // ── Export / Save ─────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// async void Click handler -- any unhandled exception here (including from
+    /// SaveFilePickerAsync, which can throw on some platforms/cancellations) would propagate
+    /// as an unhandled exception on the UI thread rather than being observable to any caller,
+    /// so the whole body is wrapped in try/catch (grok review BLOCKER, 2026-06-23). The
+    /// engine reference is also captured locally before the file-picker await -- a node
+    /// switch (CbNode_SelectionChanged) landing during that await nulls the _engine field,
+    /// which would otherwise NRE on _engine.Model/_engine.History below (grok review BLOCKER,
+    /// 2026-06-23, same class of race already fixed for SendAsync).
+    /// </summary>
     private async void BtnExport_Click(object? sender, RoutedEventArgs e)
     {
-        if (_engine is null || _engine.History.Count == 0) return;
-
-        var topLevel = TopLevel.GetTopLevel(this);
-        if (topLevel == null) return;
-
-        var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            Title             = "Save Chat",
-            SuggestedFileName = $"chat-{DateTime.Now:yyyy-MM-dd-HHmm}.md",
-            FileTypeChoices   =
-            [
-                new FilePickerFileType("Markdown") { Patterns = ["*.md"] },
-                new FilePickerFileType("Text")     { Patterns = ["*.txt"] },
-            ],
-        });
-
-        if (file is null) return;
-
-        var sb = new StringBuilder();
-        var title = _mode == ChatMode.Research ? "Research Chat" : "Open Chat";
-        sb.AppendLine($"# {title} — {DateTime.Now:yyyy-MM-dd HH:mm}");
-        sb.AppendLine($"Model: {_engine.Model}");
-        sb.AppendLine();
-        sb.AppendLine("---");
-        sb.AppendLine();
-
-        foreach (var msg in _engine.History)
-        {
-            sb.AppendLine(msg.Role switch
-            {
-                OrchestratorIDE.Models.MessageRole.User      => $"**You:** {msg.Content}",
-                OrchestratorIDE.Models.MessageRole.Assistant => $"**Assistant:**\n\n{msg.Content}",
-                OrchestratorIDE.Models.MessageRole.Tool      => "> 🔧 *Tool result (hidden)*",
-                _                                             => ""
-            });
-            sb.AppendLine();
-        }
-
         try
         {
+            var engine = _engine;
+            if (engine is null || engine.History.Count == 0) return;
+
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel == null) return;
+
+            var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title             = "Save Chat",
+                SuggestedFileName = $"chat-{DateTime.Now:yyyy-MM-dd-HHmm}.md",
+                FileTypeChoices   =
+                [
+                    new FilePickerFileType("Markdown") { Patterns = ["*.md"] },
+                    new FilePickerFileType("Text")     { Patterns = ["*.txt"] },
+                ],
+            });
+
+            if (file is null) return;
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"# OrcChat — {DateTime.Now:yyyy-MM-dd HH:mm}");
+            sb.AppendLine($"Model: {engine.Model}");
+            sb.AppendLine();
+            sb.AppendLine("---");
+            sb.AppendLine();
+
+            foreach (var msg in engine.History)
+            {
+                sb.AppendLine(msg.Role switch
+                {
+                    OrchestratorIDE.Models.MessageRole.User      => $"**You:** {msg.Content}",
+                    OrchestratorIDE.Models.MessageRole.Assistant => $"**Assistant:**\n\n{msg.Content}",
+                    OrchestratorIDE.Models.MessageRole.Tool      => "> 🔧 *Tool result (hidden)*",
+                    _                                             => ""
+                });
+                sb.AppendLine();
+            }
+
             await using var stream = await file.OpenWriteAsync();
             await stream.WriteAsync(Encoding.UTF8.GetBytes(sb.ToString()));
         }
-        catch { /* non-fatal — storage write failure */ }
+        catch { /* non-fatal — storage write failure, or the file picker itself failed */ }
     }
 
     // ── Scroll helpers ────────────────────────────────────────────────────────
