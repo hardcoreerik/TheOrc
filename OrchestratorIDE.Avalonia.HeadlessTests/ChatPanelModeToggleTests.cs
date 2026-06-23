@@ -158,6 +158,62 @@ public class ChatPanelModeToggleTests
     }
 
     /// <summary>
+    /// Reproduces the InsertToolChip race grok-review caught (2026-06-23): a tool call's
+    /// OnToolStart event can land after Clear has already reset the conversation mid-flight
+    /// (the cancellation token is only checked at certain points in the engine's tool loop,
+    /// not synchronously, so an in-flight tool call can still fire after _streamBox is
+    /// nulled). Before the fix, InsertToolChip's "no anchor bubble" fallback would Add the
+    /// orphan chip straight into whatever's in ChatStack now -- the freshly-reset welcome
+    /// card. Starts a real send (so _streamBox is genuinely set, matching the real event-
+    /// handler shape), clicks Clear mid-flight (nulling it, same as BtnClear_Click really
+    /// does), then invokes the private OnToolStart handler directly to simulate the late-
+    /// arriving tool-call event, asserting no chip lands in ChatStack.
+    /// </summary>
+    [AvaloniaTest]
+    public async Task OnToolStart_afterClearMidSend_doesNotInsertOrphanChip()
+    {
+        var fake  = new FakeOllamaClient();
+        var panel = new ChatPanel { OllamaClient = fake };
+        panel.SetModels(["fake-model:7b"], "fake-model:7b");
+
+        fake.Enqueue("this is a longer reply with several words so the await has room to land a clear in the middle of it");
+
+        Required<TextBox>(panel, "TbInput").Text = "hello";
+
+        var sendMethod = typeof(ChatPanel).GetMethod("SendAsync",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+            ?? throw new InvalidOperationException("SendAsync method not found via reflection.");
+        var sendTask = (Task)sendMethod.Invoke(panel, null)!;
+
+        Dispatcher.UIThread.RunJobs();
+        await Task.Delay(5);
+        Dispatcher.UIThread.RunJobs();
+
+        Click(Required<Button>(panel, "BtnClear"));
+        Dispatcher.UIThread.RunJobs();
+
+        var childCountAfterClear = Required<StackPanel>(panel, "ChatStack").Children.Count;
+
+        var onToolStart = typeof(ChatPanel).GetMethod("OnToolStart",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+            ?? throw new InvalidOperationException("OnToolStart method not found via reflection.");
+        onToolStart.Invoke(panel, ["web_search", "{}"]);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(Required<StackPanel>(panel, "ChatStack").Children.Count, Is.EqualTo(childCountAfterClear));
+            Assert.That(Required<Border>(panel, "BdrSearching").IsVisible, Is.False);
+        });
+
+        for (var i = 0; i < 200 && !sendTask.IsCompleted; i++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(5);
+        }
+    }
+
+    /// <summary>
     /// ChatPanel.SendAsync awaits the engine's full turn before returning, but the headless
     /// dispatcher needs a pump to actually run the queued continuations. A short bounded wait
     /// loop is simpler and less brittle than threading a TaskCompletionSource through

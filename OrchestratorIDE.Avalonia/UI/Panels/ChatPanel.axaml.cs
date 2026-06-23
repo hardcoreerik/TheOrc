@@ -232,9 +232,13 @@ public partial class ChatPanel : UserControl
         // A real node switch is a backend change, same as a mode switch -- clear the engine
         // so the next send builds a fresh one targeting the newly selected node, and start
         // a new conversation rather than silently continuing history against a different
-        // machine's model.
+        // machine's model. _streamBox is nulled here too, matching BtnClear_Click -- without
+        // it, a tool call still in flight against the OLD node could land its OnToolStart
+        // after this reset and find a detached parent, falling through InsertToolChip's Add
+        // fallback into the freshly-reset welcome card (grok review MINOR, 2026-06-23).
         _cts?.Cancel();
-        _engine = null;
+        _engine    = null;
+        _streamBox = null;
         ResetConversationUi();
         _ = RefreshContextLimitAsync();
     }
@@ -450,6 +454,17 @@ public partial class ChatPanel : UserControl
     {
         Dispatcher.UIThread.InvokeAsync(() =>
         {
+            // Clear (BtnClear_Click) and a node switch (CbNode_SelectionChanged) both null
+            // _streamBox when they reset the conversation. A tool call still in flight at
+            // that moment (the cancellation token is only checked at certain points in the
+            // engine's loop, not synchronously) can still fire OnToolStart afterward --
+            // without this guard, InsertToolChip's "no active bubble" fallback would Add the
+            // chip straight into whatever's in ChatStack now (the freshly-reset welcome
+            // card), a stale artifact from a conversation that's already gone (grok review
+            // MINOR, 2026-06-23). No anchor bubble means this tool call's chip has nowhere
+            // meaningful to go -- drop it.
+            if (_streamBox is null) return;
+
             TbSearching.Text       = toolName == "web_search" ? "🔍  Searching…" : "📄  Fetching page…";
             BdrSearching.IsVisible = true;
             InsertToolChip(toolName, argsJson);
