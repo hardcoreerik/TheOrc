@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Headless.NUnit;
 using Avalonia.Media;
+using Avalonia.Threading;
 using NUnit.Framework;
 using OrchestratorIDE.UI.Controls;
 
@@ -39,6 +40,34 @@ public class MarkdownViewTests
         if (c is Border b) { yield return b; foreach (var x in AllBorders(b.Child)) yield return x; yield break; }
         if (c is Panel p) foreach (var child in p.Children) foreach (var x in AllBorders(child)) yield return x;
     }
+
+    private static IEnumerable<Image> AllImages(Control? c)
+    {
+        if (c is Image im) { yield return im; yield break; }
+        if (c is Panel p)        foreach (var child in p.Children) foreach (var x in AllImages(child)) yield return x;
+        else if (c is Border b)  foreach (var x in AllImages(b.Child)) yield return x;
+        else if (c is ContentControl cc && cc.Content is Control inner)
+                                 foreach (var x in AllImages(inner)) yield return x;
+    }
+
+    /// <summary>
+    /// Image loads are fire-and-forget async (decode + a Dispatcher hop to set Source), so
+    /// the headless dispatcher needs pumping for them to land. Bounded so a genuinely-failing
+    /// load can't hang the test.
+    /// </summary>
+    private static async Task PumpUntil(Func<bool> condition, int maxMs = 2000)
+    {
+        for (var i = 0; i < maxMs / 10 && !condition(); i++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            await Task.Delay(10);
+        }
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    // A 1×1 transparent PNG — lets the data: decode path be exercised with zero network.
+    private const string OnePixelPngDataUri =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAen63NgAAAAASUVORK5CYII=";
 
     // ── Block-level rendering ─────────────────────────────────────────────────
 
@@ -151,6 +180,58 @@ public class MarkdownViewTests
         v.Text = "second";
         Assert.That(AllTextBlocks(Root(v)).Any(t => (t.Inlines?.Text ?? t.Text ?? "").Contains("second")), Is.True);
         Assert.That(AllTextBlocks(Root(v)).Any(t => (t.Inlines?.Text ?? t.Text ?? "").Contains("first")),  Is.False);
+    }
+
+    // ── Image rendering ───────────────────────────────────────────────────────
+
+    [AvaloniaTest]
+    public void Block_image_line_renders_an_Image_control()
+    {
+        var v    = new MarkdownView { Text = $"![a chart]({OnePixelPngDataUri})" };
+        var imgs = AllImages(Root(v)).ToList();
+        Assert.That(imgs, Is.Not.Empty, "a standalone image line should render an Image control");
+    }
+
+    [AvaloniaTest]
+    public void Image_markdown_does_not_render_as_a_link_with_stray_bang()
+    {
+        // Regression: before image support, '![alt](url)' matched the link rule, leaving the
+        // leading '!' orphaned as text and the rest as a clickable link. A block image line
+        // must now produce an Image and no stray '!' text.
+        var v    = new MarkdownView { Text = "![diagram](http://example.test/x.png)" };
+        var imgs = AllImages(Root(v)).ToList();
+        var text = AllTextBlocks(Root(v)).Select(t => t.Inlines?.Text ?? t.Text ?? "").ToList();
+        Assert.Multiple(() =>
+        {
+            Assert.That(imgs, Is.Not.Empty, "image markdown should render an Image, not a link");
+            Assert.That(text.Any(s => s.Contains('!')), Is.False, "no orphaned '!' text should remain");
+        });
+    }
+
+    [AvaloniaTest]
+    public async Task Data_uri_image_decodes_into_a_bitmap_source()
+    {
+        var v   = new MarkdownView { Text = $"![px]({OnePixelPngDataUri})" };
+        var img = AllImages(Root(v)).FirstOrDefault();
+        Assert.That(img, Is.Not.Null, "expected an Image control");
+
+        await PumpUntil(() => img!.Source is not null);
+        Assert.That(img!.Source, Is.Not.Null, "the data: URI should decode into a Bitmap source");
+    }
+
+    [AvaloniaTest]
+    public async Task Broken_image_falls_back_to_placeholder_without_throwing()
+    {
+        // A path that cannot be opened must degrade to the muted placeholder text rather than
+        // throwing out of the fire-and-forget load or leaving a blank gap.
+        var v = new MarkdownView { Text = @"![missing](Z:\definitely\not\here\nope12345.png)" };
+
+        await PumpUntil(() =>
+            AllTextBlocks(Root(v)).Any(t => (t.Text ?? "").Contains("image unavailable")));
+
+        var text = AllTextBlocks(Root(v)).Select(t => t.Text ?? "").ToList();
+        Assert.That(text.Any(s => s.Contains("image unavailable")), Is.True,
+            "a failed image load should show the broken-image placeholder");
     }
 
     [AvaloniaTest]
