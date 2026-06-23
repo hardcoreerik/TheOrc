@@ -124,6 +124,13 @@ public class FakeOllamaClient : OllamaClient
     public override Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default)
         => Task.FromResult(new List<string> { "fake-model:7b" });
 
+    /// <summary>Settable by tests -- defaults to null (matches a real unreachable-server
+    /// failure), same as the real method's failure mode.</summary>
+    public int? ContextLengthToReturn { get; set; }
+
+    public override Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default)
+        => Task.FromResult(ContextLengthToReturn);
+
     // ── Private types ─────────────────────────────────────────────────────────
 
     private record ScriptedTurn(string? Text, ScriptedToolCall? ToolCall);

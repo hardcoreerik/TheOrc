@@ -109,6 +109,20 @@
                                    FontSize="10"
                                    VerticalAlignment="Center"/>
                     </Border>
+
+                    <!-- Context window usage, updates after each reply (OnUsage) and when
+                         the model/node selection changes (context limit re-fetched then). -->
+                    <Border x:Name="BdrContextUsage"
+                            Background="#141814" BorderBrush="#2A3A2A"
+                            BorderThickness="1" CornerRadius="3"
+                            Padding="6,2" Margin="12,0,0,0"
+                            IsVisible="False">
+                        <TextBlock x:Name="TxtContextUsage"
+                                   Foreground="#888888"
+                                   FontSize="10"
+                                   VerticalAlignment="Center"
+                                   ToolTip.Tip="Tokens used by the last reply (prompt + completion) out of this model's native max context, via Ollama's /api/show. This is the model's reported maximum, not necessarily what's actually allocated for this running session -- Ollama can cap it lower."/>
+                    </Border>
                 </StackPanel>
 
             </DockPanel>

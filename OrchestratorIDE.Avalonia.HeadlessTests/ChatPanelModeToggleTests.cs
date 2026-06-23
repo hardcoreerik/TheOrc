@@ -131,15 +131,18 @@ public class ChatPanelModeToggleTests
 
             // The system prompt textbox's value must reach the model as an actual system
             // message -- this is the literal mechanism behind "Open mode lets you set your
-            // own prompt instead of getting the research one."
+            // own prompt instead of getting the research one." ChatPanel turns on
+            // IncludeDateTimeContext for Open mode, so the message also carries a date/time
+            // line ahead of the user's own text -- not an exact match anymore.
             var systemMsg = fake.LastHistory!.First();
             Assert.That(systemMsg.Role, Is.EqualTo(OrchestratorIDE.Models.MessageRole.System));
-            Assert.That(systemMsg.Content, Is.EqualTo("You are a pirate."));
+            Assert.That(systemMsg.Content, Does.Contain("Current date and time:"));
+            Assert.That(systemMsg.Content, Does.Contain("You are a pirate."));
         });
     }
 
     [AvaloniaTest]
-    public async Task OpenMode_send_withEmptySystemPrompt_injectsNoSystemMessage()
+    public async Task OpenMode_send_withEmptySystemPrompt_injectsOnlyDateTime()
     {
         var fake  = new FakeOllamaClient();
         var panel = new ChatPanel { OllamaClient = fake };
@@ -155,11 +158,16 @@ public class ChatPanelModeToggleTests
         Click(Required<Button>(panel, "BtnSend"));
         await WaitForCapture(fake);
 
-        // No system message at all -- the first message must be the user's own, per
-        // ChatEngine's "explicit empty system prompt means inject nothing" contract
-        // (see ChatEngineTests.ExplicitEmptyPromptAndTools_InjectsNothing).
+        // ChatPanel turns on IncludeDateTimeContext for Open mode (Phase 2026-06-22 follow-up:
+        // the model otherwise has no way to know the date), so an empty system-prompt textbox
+        // no longer means "no system message at all" -- it means "just the date/time line,"
+        // per ChatEngineTests.IncludeDateTimeContext_true_withEmptySystemPrompt_injectsJustDateTime.
         var first = fake.LastHistory!.First();
-        Assert.That(first.Role, Is.EqualTo(OrchestratorIDE.Models.MessageRole.User));
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.Role, Is.EqualTo(OrchestratorIDE.Models.MessageRole.System));
+            Assert.That(first.Content, Does.Contain("Current date and time:"));
+        });
     }
 
     [AvaloniaTest]

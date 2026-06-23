@@ -1493,6 +1493,7 @@ public partial class MainWindow : Window
             _chatPanel.LocalUrl     = _settings.OllamaHost;
             _chatPanel.SetModels(_installedModels, _session.ActiveModel);
             _chatPanel.RefreshHiveHosts();
+            _chatPanel.LoadPersistedMemory();
             MainContent.Content    = _chatPanel;
             SidebarContent.Content = _explorerPanel;
         }

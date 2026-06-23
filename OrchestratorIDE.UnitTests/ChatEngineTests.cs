@@ -45,6 +45,7 @@ public class ChatEngineTests
             LastTemperature = temperature;
             LastTopP        = topP;
             await Task.Yield();
+            onUsage?.Invoke(42, 7);
             yield return "ok";
         }
 
@@ -113,5 +114,73 @@ public class ChatEngineTests
             Assert.That(runtime.LastTemperature, Is.EqualTo(0.8));
             Assert.That(runtime.LastTopP, Is.EqualTo(0.95));
         });
+    }
+
+    [Test]
+    public async Task IncludeDateTimeContext_defaultsFalse_doesNotChangeExistingBehavior()
+    {
+        // Must stay false by default -- DefaultConstruction_MatchesOriginalResearchChatBehavior
+        // above already asserts the research system prompt is present with nothing extra
+        // prepended; this test makes the "off by default" guarantee explicit on its own.
+        var runtime = new CapturingRuntime();
+        var engine  = new ChatEngine(runtime, "some-model", systemPrompt: "", tools: []);
+
+        await engine.SendAsync("hello");
+
+        var first = runtime.LastHistory!.First();
+        Assert.That(first.Role, Is.EqualTo(MessageRole.User),
+            "IncludeDateTimeContext defaults to false -- an empty system prompt must still inject nothing.");
+    }
+
+    [Test]
+    public async Task IncludeDateTimeContext_true_withEmptySystemPrompt_injectsJustDateTime()
+    {
+        var runtime = new CapturingRuntime();
+        var engine  = new ChatEngine(runtime, "some-model", systemPrompt: "", tools: [])
+        {
+            IncludeDateTimeContext = true,
+        };
+
+        await engine.SendAsync("hello");
+
+        var first = runtime.LastHistory!.First();
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.Role, Is.EqualTo(MessageRole.System));
+            Assert.That(first.Content, Does.Contain("Current date and time:"));
+        });
+    }
+
+    [Test]
+    public async Task IncludeDateTimeContext_true_withCustomSystemPrompt_prependsDateTime()
+    {
+        var runtime = new CapturingRuntime();
+        var engine  = new ChatEngine(runtime, "some-model", systemPrompt: "You are a pirate.", tools: [])
+        {
+            IncludeDateTimeContext = true,
+        };
+
+        await engine.SendAsync("hello");
+
+        var first = runtime.LastHistory!.First();
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.Content, Does.Contain("Current date and time:"));
+            Assert.That(first.Content, Does.Contain("You are a pirate."));
+        });
+    }
+
+    [Test]
+    public async Task OnUsage_fires_withPromptAndCompletionTokenCounts()
+    {
+        var runtime = new CapturingRuntime();
+        var engine  = new ChatEngine(runtime, "some-model", systemPrompt: "", tools: []);
+
+        (int Prompt, int Completion)? captured = null;
+        engine.OnUsage += (p, c) => captured = (p, c);
+
+        await engine.SendAsync("hello");
+
+        Assert.That(captured, Is.EqualTo(((int Prompt, int Completion)?)(42, 7)));
     }
 }

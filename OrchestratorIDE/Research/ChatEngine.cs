@@ -49,6 +49,18 @@ public class ChatEngine
     public double  Temperature  { get; set; }
     public double? TopP         { get; set; }
 
+    /// <summary>
+    /// When true, prepends the current local date/time to the system prompt every turn, so
+    /// the model has accurate grounding instead of (correctly) saying it has no way to know
+    /// the date. Defaults to false -- this must NOT change Research mode's existing
+    /// byte-identical-with-the-original-panel guarantee (see ChatEngineTests), so it's an
+    /// explicit opt-in a caller turns on, not a default. Pure factual grounding, not content
+    /// shaping, so it's fine to apply even in Open mode (which otherwise injects nothing) --
+    /// this isn't "censoring" anything, it's the same kind of baseline fact most chat
+    /// products give a model for free.
+    /// </summary>
+    public bool IncludeDateTimeContext { get; set; }
+
     // ── Events for UI ─────────────────────────────────────────────────────────
 
     /// <summary>Fired for each streamed text token from the model.</summary>
@@ -65,6 +77,12 @@ public class ChatEngine
 
     /// <summary>Fired when an error occurs.</summary>
     public event Action<string>? OnError;
+
+    /// <summary>Fired once per model call with (promptTokens, completionTokens) from the
+    /// runtime's usage callback -- lets a caller track/display context-window consumption.
+    /// Not cumulative across turns; the caller sums across calls if it wants a running
+    /// total.</summary>
+    public event Action<int, int>? OnUsage;
 
     // ── Construction ──────────────────────────────────────────────────────────
 
@@ -143,6 +161,7 @@ public class ChatEngine
             topP:        TopP,
             maxTokens:   4096,
             onToolCall: tc => toolCallsNative.Add(tc),
+            onUsage: (p, c) => OnUsage?.Invoke(p, c),
             ct: ct))
         {
             fullText += token;
@@ -236,6 +255,7 @@ public class ChatEngine
                 topP:        TopP,
                 maxTokens:   4096,
                 onToolCall: tc => toolCalls.Add(tc),
+                onUsage: (p, c) => OnUsage?.Invoke(p, c),
                 ct: ct))
             {
                 lastText += token;
@@ -317,6 +337,7 @@ public class ChatEngine
                 temperature: Temperature,
                 topP:        TopP,
                 maxTokens:   4096,
+                onUsage: (p, c) => OnUsage?.Invoke(p, c),
                 ct: ct))
             {
                 pendingText += token;
@@ -371,9 +392,20 @@ public class ChatEngine
     /// "no system prompt at all" (see PrependSystem); otherwise the original research-chat
     /// default. Null/"" is NOT the same state as the research default -- this is what lets
     /// a general/uncensored chat mode opt out of any injected prompt entirely rather than
-    /// getting an empty-but-still-present system message.
+    /// getting an empty-but-still-present system message. IncludeDateTimeContext, when set,
+    /// prepends current date/time on top of whichever of those this resolves to -- including
+    /// turning an otherwise-empty "" SystemPrompt into a non-empty system message containing
+    /// just the date/time, since that's specifically the case (Open mode, no other
+    /// instructions) where a model has zero way to know the date otherwise.
     /// </summary>
-    private string? ResolveSystemPrompt() => SystemPrompt ?? BuildSystemPrompt();
+    private string? ResolveSystemPrompt()
+    {
+        var basePrompt = SystemPrompt ?? BuildSystemPrompt();
+        if (!IncludeDateTimeContext) return basePrompt;
+
+        var dateTimeLine = $"Current date and time: {DateTime.Now:dddd, yyyy-MM-dd HH:mm} ({TimeZoneInfo.Local.StandardName}).";
+        return string.IsNullOrEmpty(basePrompt) ? dateTimeLine : $"{dateTimeLine}\n\n{basePrompt}";
+    }
 
     private string BuildSystemPrompt()
     {

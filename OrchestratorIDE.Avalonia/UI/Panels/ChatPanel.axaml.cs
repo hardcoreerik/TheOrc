@@ -13,6 +13,7 @@ using Avalonia.Threading;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Research;
+using OrchestratorIDE.Services;
 using OrchestratorIDE.Services.Hive;
 using OrchestratorIDE.UI.Controls;
 
@@ -52,6 +53,10 @@ public partial class ChatPanel : UserControl
     // touched anything, which must NOT wipe an in-progress conversation (see
     // CbNode_SelectionChanged).
     private string                   _lastEngineNodeTarget = LocalNodeName;
+    // null = the real persisted-memory file (OpenChatMemory.StorePath). Settable internally
+    // so tests can redirect both LoadPersistedMemory and the auto-save-on-edit wiring below
+    // to a temp file instead of polluting the user's actual saved system prompt.
+    internal string?                 MemoryStorePathOverride { get; set; }
 
     // ── Construction ──────────────────────────────────────────────────────────
 
@@ -60,9 +65,35 @@ public partial class ChatPanel : UserControl
         InitializeComponent();
         CbNode.Items.Add(LocalNodeName);
         CbNode.SelectedIndex = 0;
+
+        // Auto-saves the system prompt on every edit -- including a preset button's
+        // programmatic Text assignment, which also fires TextChanged. This is the actual
+        // persistence mechanism: whatever the user puts here (a chosen name, a standing
+        // instruction) survives an app restart because IT is what's saved, not some
+        // separate "memory" concept the model would need a tool to write to itself (Open
+        // mode deliberately has none).
+        TbOpenSystemPrompt.TextChanged += (_, _) =>
+            OpenChatMemory.SaveSystemPrompt(TbOpenSystemPrompt.Text ?? "", MemoryStorePathOverride);
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Loads the persisted Open Chat system prompt into TbOpenSystemPrompt -- call when the
+    /// panel becomes visible (same lifecycle as RefreshHiveHosts; MainWindow calls both
+    /// together). Safe to call repeatedly: every edit is auto-saved immediately (see the
+    /// TextChanged wiring in the constructor), so there's never an "unsaved edit" a reload
+    /// could clobber -- reloading just re-reads whatever was already written.
+    /// </summary>
+    public void LoadPersistedMemory() => LoadPersistedMemory(storePath: null);
+
+    /// <summary>storePath override exists for tests -- same seam shape as
+    /// RefreshHiveHosts(string?), avoiding the real persisted file during test runs.</summary>
+    internal void LoadPersistedMemory(string? storePath)
+    {
+        MemoryStorePathOverride = storePath;
+        TbOpenSystemPrompt.Text = OpenChatMemory.LoadSystemPrompt(storePath);
+    }
 
     public void SetModels(IReadOnlyList<string> models, string activeModel)
     {
@@ -201,9 +232,16 @@ public partial class ChatPanel : UserControl
     {
         _lastEngineNodeTarget = CbNode.SelectedItem as string ?? LocalNodeName;
         var runtime = new OllamaRuntime(ResolveOllamaClient());
-        return _mode == ChatMode.Research
-            ? new ChatEngine(runtime, model)
-            : new ChatEngine(runtime, model, systemPrompt: "", tools: []);
+        if (_mode == ChatMode.Research)
+            return new ChatEngine(runtime, model);
+
+        // IncludeDateTimeContext only for Open mode -- Research mode's behavior must stay
+        // byte-identical to the original "Just Chat" panel (see ChatEngineTests), and this
+        // flag defaults to false specifically so turning it on here doesn't touch that.
+        return new ChatEngine(runtime, model, systemPrompt: "", tools: [])
+        {
+            IncludeDateTimeContext = true,
+        };
     }
 
     // ── HIVE node routing (Phase B3) ─────────────────────────────────────────────
@@ -235,6 +273,7 @@ public partial class ChatPanel : UserControl
 
     private void CbNode_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
+        if (OllamaClient is null) return;
         var newTarget = CbNode.SelectedItem as string ?? LocalNodeName;
         // RefreshHiveHosts() clears and re-populates Items, which fires this handler even
         // when the user hasn't touched anything -- only treat it as a real switch if the
@@ -249,6 +288,7 @@ public partial class ChatPanel : UserControl
         _cts?.Cancel();
         _engine = null;
         ResetConversationUi();
+        _ = RefreshContextLimitAsync();
     }
 
     // ── Model selector ────────────────────────────────────────────────────────
@@ -259,6 +299,73 @@ public partial class ChatPanel : UserControl
         if (string.IsNullOrEmpty(model) || OllamaClient is null) return;
         if (_engine is null) _engine = CreateEngine(model);
         else                  _engine.Model = model;
+        _ = RefreshContextLimitAsync();
+    }
+
+    // ── Context window usage ─────────────────────────────────────────────────────
+    // Cached per (node, model) -- GetContextLengthAsync is a real network call (Ollama's
+    // /api/show), and the value never changes for a given model, so repeatedly fetching it
+    // on every keystroke-adjacent event would be wasteful.
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int?> _contextLengthCache = new();
+    private int? _lastContextLimit;
+
+    /// <summary>
+    /// Fire-and-forget from SelectionChanged handlers (`_ = RefreshContextLimitAsync()`),
+    /// so this method owns its own exception handling rather than letting a network failure
+    /// become an unobserved exception on the UI thread -- same class of issue as the
+    /// MenuItem.Click async-void fix elsewhere in this file (grok review BLOCKER,
+    /// 2026-06-22), applied proactively here instead of waiting to rediscover it.
+    ///
+    /// The await for a cache miss resumes on whatever thread the continuation lands on, not
+    /// necessarily the UI thread -- _lastContextLimit and the Border/TextBlock mutation in
+    /// UpdateContextUsageDisplay must only happen via Dispatcher.UIThread.InvokeAsync, same
+    /// as OnUsage below (grok review BLOCKER, 2026-06-22). The cache dictionary itself is a
+    /// ConcurrentDictionary so overlapping rapid node/model switches can't corrupt it either.
+    /// </summary>
+    private async Task RefreshContextLimitAsync()
+    {
+        try
+        {
+            var model = CbModel.SelectedItem as string;
+            if (string.IsNullOrEmpty(model))
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    _lastContextLimit = null;
+                    UpdateContextUsageDisplay(null, null);
+                });
+                return;
+            }
+
+            var cacheKey = $"{(CbNode.SelectedItem as string) ?? LocalNodeName}|{model}";
+            if (!_contextLengthCache.TryGetValue(cacheKey, out var limit))
+            {
+                limit = await ResolveOllamaClient().GetContextLengthAsync(model);
+                _contextLengthCache[cacheKey] = limit;
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                _lastContextLimit = limit;
+                UpdateContextUsageDisplay(null, limit);   // no usage yet for the new selection
+            });
+        }
+        catch { /* non-fatal -- the usage indicator just stays hidden */ }
+    }
+
+    private void UpdateContextUsageDisplay(int? tokensUsed, int? limit)
+    {
+        if (limit is null)
+        {
+            BdrContextUsage.IsVisible = false;
+            return;
+        }
+
+        BdrContextUsage.IsVisible = true;
+        TxtContextUsage.Text = tokensUsed is { } used
+            ? $"Context: {used:N0} / {limit:N0} ({used * 100.0 / limit.Value:F0}%)"
+            : $"Context: 0 / {limit:N0}";
     }
 
     // ── Input handling ────────────────────────────────────────────────────────
@@ -335,6 +442,7 @@ public partial class ChatPanel : UserControl
         engine.OnToolComplete += OnToolComplete;
         engine.OnTurnComplete += OnTurnComplete;
         engine.OnError        += OnEngineError;
+        engine.OnUsage        += OnUsage;
 
         try
         {
@@ -347,6 +455,7 @@ public partial class ChatPanel : UserControl
             engine.OnToolComplete -= OnToolComplete;
             engine.OnTurnComplete -= OnTurnComplete;
             engine.OnError        -= OnEngineError;
+            engine.OnUsage        -= OnUsage;
 
             _isSending                = false;
             BtnSend.IsEnabled         = true;
@@ -357,6 +466,25 @@ public partial class ChatPanel : UserControl
     }
 
     // ── Engine event handlers ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// promptTokens already covers the entire conversation sent in this call (system prompt
+    /// + full history + the new message) -- not just the new message's own size -- so
+    /// prompt+completion from the MOST RECENT call alone is the current total context
+    /// size, not something to sum across turns.
+    /// </summary>
+    private void OnUsage(int promptTokens, int completionTokens)
+    {
+        // Fire-and-forget InvokeAsync -- the returned Task is never observed, so any
+        // exception from UpdateContextUsageDisplay must be caught here rather than left to
+        // become an unobserved exception (same class as the async-void MenuItem.Click
+        // BLOCKER fixed elsewhere in this file, 2026-06-22).
+        Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            try { UpdateContextUsageDisplay(promptTokens + completionTokens, _lastContextLimit); }
+            catch { /* non-fatal -- the usage indicator just stays stale */ }
+        });
+    }
 
     private void OnToken(string token)
     {

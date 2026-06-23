@@ -203,6 +203,7 @@
     <Compile Include="..\OrchestratorIDE\Services\Models\ModelWikiService.cs" />
 
     <!-- Services / other -->
+    <Compile Include="..\OrchestratorIDE\Services\OpenChatMemory.cs" />
     <Compile Include="..\OrchestratorIDE\Services\PitBossService.cs" />
     <Compile Include="..\OrchestratorIDE\Services\PlanExecutorService.cs" />
     <Compile Include="..\OrchestratorIDE\Services\SelfUpdater.cs" />
