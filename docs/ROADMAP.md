@@ -292,6 +292,34 @@ The evolutionary fitness map (`FitnessMap.cs`, `SchemaEvolution.cs`) is implemen
 
 ## Active Work
 
+### OrcChat — uncensored multi-backend chat (branch `feat/uncensored-chat-models`, unpushed)
+
+A SillyTavern-pattern chat experience built from scratch in C#, not a clone. Branch is
+local-only (not pushed). Shipped on the branch so far:
+- **Phase A** (separately released): 3 uncensored Dolphin-line models added to the model
+  catalogs with an UNCENSORED badge — opt-in only, never auto-recommended.
+- **`ChatEngine` dual-mode generalization**: one engine carries Research and (former) Open
+  behavior instead of forking a second engine; `OllamaClient.GetContextLengthAsync` +
+  `ChatEngine.OnUsage` feed a context-window usage indicator; opt-in `IncludeDateTimeContext`
+  date/time grounding; `OpenChatMemory` persists a chosen system prompt across restarts.
+- **OrcChat merge** (2026-06-23): the former Research/Open mode toggle was collapsed into a
+  single surface — web search/fetch tools are **always** available, no system prompt is
+  injected by default, user controls system prompt/temperature/top-p, with HIVE node routing
+  to run a chat on a paired machine's Ollama.
+- **Images in chat output** (2026-06-23): `MarkdownView` renders `![alt](src)` (http(s)/
+  data:/local-file), background-thread decode, broken-image placeholder, tooltip + right-click
+  "Copy image link".
+
+Pending on the branch (the remaining handoff items):
+- **Image/file ingestion with vision** — `AgentMessage` has no image/attachment field and
+  `OllamaClient`'s payload has no `images` array yet; needs the field, the Ollama vision
+  payload, a chat-UI attach affordance, and a "model can't see images" cue for non-vision models.
+- **Full FlaUI UI-test pass** for the chat surface (viable on the interactive dev machine).
+
+Review note: while grok/codex are unavailable, branch commits are gated through
+`theorc-review.ps1` against NEWCOREPC's `qwen2.5-coder:14b` plus a human/Opus judgment pass,
+not the usual `grok-review.ps1`.
+
 ### ORC ACADEMY v3 — complete, not promoted (2026-06-17)
 
 Training finished: Gemma 4 12B, 906 clean examples, 3 epochs, 156 min, rubric 99.17%. A/B eval complete.
