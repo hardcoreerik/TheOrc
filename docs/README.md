@@ -126,4 +126,4 @@ These stay out of the in-app help list on purpose:
 
 Completed-task records, kept for history (scheduled to move to `_archive/` in a later batch):
 
-- [WPF_RETIREMENT_CHECKLIST.md](WPF_RETIREMENT_CHECKLIST.md) — the WPF→Avalonia deletion checklist (✅ complete 2026-06-20)
+- [WPF_RETIREMENT_CHECKLIST.md](_archive/WPF_RETIREMENT_CHECKLIST.md) — the WPF→Avalonia deletion checklist (✅ complete 2026-06-20)

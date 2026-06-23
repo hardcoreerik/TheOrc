@@ -100,7 +100,7 @@ For every piece of hardware added to the test matrix, the following protocol is 
 
 > **This section is paused, not removed.** `ToolCallTestWindow` (the `tool-probe`
 > CLI/GUI mode) and `ModelCapabilityTestDialog` were WPF-only and were retired as
-> part of the v1.9 Avalonia-only cutover (`docs/WPF_RETIREMENT_CHECKLIST.md`)
+> part of the v1.9 Avalonia-only cutover (`docs/_archive/WPF_RETIREMENT_CHECKLIST.md`)
 > rather than ported. The underlying probing logic (`FormatProbeEngine`,
 > `ModelCapabilityTestService`) is untouched and still runs live during normal
 > swarm/chat execution — only the standalone manual-testing UI is gone for now.
