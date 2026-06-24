@@ -593,6 +593,23 @@ public partial class ModelDownloaderWindow : Window
 
             if (_isClosed)
                 return;
+
+            if (!string.IsNullOrWhiteSpace(selectedVariant.Sha256))
+            {
+                await InvokeUiAsync(() => TxtDlStatus.Text = "Verifying SHA-256...");
+                var verified = await _downloader.VerifySha256Async(destPath, selectedVariant.Sha256, ct);
+                if (!verified)
+                {
+                    try { File.Delete(destPath); } catch { /* best-effort cleanup */ }
+                    await InvokeUiAsync(() =>
+                        TxtDlStatus.Text = "SHA-256 mismatch -- downloaded file was corrupt, deleted. Try again.");
+                    SetStatus($"Download of {selected.Name} failed SHA-256 verification.");
+                    return;
+                }
+            }
+
+            if (_isClosed)
+                return;
             await InvokeUiAsync(() =>
             {
                 TxtDlStatus.Text = "Download complete. Registering with Ollama...";
