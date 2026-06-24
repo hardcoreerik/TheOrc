@@ -121,6 +121,74 @@
                              Text="http://localhost:11434"/>
                 </StackPanel>
 
+                <!-- ── INFERENCE BACKEND ──────────────────────────────── -->
+                <TextBlock Text="INFERENCE BACKEND" Classes="SectionHeader" Margin="0,12,0,0"/>
+
+                <StackPanel Classes="SettingRow">
+                    <TextBlock Text="Chat backend" Classes="SettingLabel"/>
+                    <TextBlock Classes="SettingHint" TextWrapping="Wrap"
+                               Text="Which server OrcChat and the main agent talk to. llama.cpp runs a local llama-server.exe -- no Ollama dependency at all."/>
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <RadioButton x:Name="RbBackendOllama" Content="Ollama" GroupName="InferenceBackend"
+                                     Foreground="{StaticResource Br.Text.Primary}" Margin="0,0,16,0"
+                                     IsChecked="True" IsCheckedChanged="RbBackend_Checked"/>
+                        <RadioButton x:Name="RbBackendLlamaCpp" Content="llama.cpp (native)" GroupName="InferenceBackend"
+                                     Foreground="{StaticResource Br.Text.Primary}"
+                                     IsCheckedChanged="RbBackend_Checked"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel x:Name="PnlLlamaCppSettings" IsVisible="False">
+                    <StackPanel Classes="SettingRow">
+                        <TextBlock Text="llama-server folder" Classes="SettingLabel"/>
+                        <TextBlock Text="Folder containing llama-server.exe and its runtime DLLs" Classes="SettingHint"/>
+                        <Grid ColumnDefinitions="*,32">
+                            <TextBox x:Name="TbLlamaCppRuntimePath" Grid.Column="0" Classes="SettingInput"/>
+                            <Button Grid.Column="1" Content="…" Margin="4,0,0,0"
+                                    Background="{StaticResource Br.Bg.Input}"
+                                    Foreground="{StaticResource Br.Text.Primary}"
+                                    FontSize="12" Click="BtnBrowseLlamaCppRuntimePath_Click"/>
+                        </Grid>
+                    </StackPanel>
+
+                    <StackPanel Classes="SettingRow">
+                        <TextBlock Text="GGUF model file" Classes="SettingLabel"/>
+                        <TextBlock Text="The .gguf file llama-server loads on startup" Classes="SettingHint"/>
+                        <Grid ColumnDefinitions="*,32">
+                            <TextBox x:Name="TbLlamaCppModelPath" Grid.Column="0" Classes="SettingInput"/>
+                            <Button Grid.Column="1" Content="…" Margin="4,0,0,0"
+                                    Background="{StaticResource Br.Bg.Input}"
+                                    Foreground="{StaticResource Br.Text.Primary}"
+                                    FontSize="12" Click="BtnBrowseLlamaCppModelPath_Click"/>
+                        </Grid>
+                    </StackPanel>
+
+                    <Grid Classes="SettingRow" ColumnDefinitions="*,8,*,8,*">
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Port" Classes="SettingLabel"/>
+                            <TextBox x:Name="TbLlamaCppPort" Classes="SettingInput" Text="8080"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Context" Classes="SettingLabel"/>
+                            <TextBox x:Name="TbLlamaCppContextSize" Classes="SettingInput" Text="8192"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="4">
+                            <TextBlock Text="GPU Layers" Classes="SettingLabel"/>
+                            <TextBox x:Name="TbLlamaCppGpuLayers" Classes="SettingInput" Text="-1"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <StackPanel Classes="SettingRow" Orientation="Horizontal">
+                        <Button x:Name="BtnTestLlamaCppConn" Content="⚡ Check Files / Server"
+                                Click="BtnTestLlamaCppConn_Click"
+                                Background="{StaticResource Br.Bg.Input}"
+                                Foreground="{StaticResource Br.Text.Primary}"
+                                FontSize="11" Padding="8,6" Margin="0,0,8,0"
+                                ToolTip.Tip="Validates the exe/model paths exist, and probes /health if a server is already running on the configured port."/>
+                        <TextBlock x:Name="TbLlamaCppTestResult" Text="" Classes="SettingHint" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </StackPanel>
+
                 <!-- ── AGENT ───────────────────────────────────────────── -->
                 <TextBlock Text="AGENT" Classes="SectionHeader" Margin="0,12,0,0"/>
 

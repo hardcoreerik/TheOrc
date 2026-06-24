@@ -82,6 +82,15 @@ public partial class SettingsPanel : UserControl
         _current = s;
 
         TbOllamaHost.Text             = s.OllamaHost;
+        RbBackendOllama.IsChecked     = s.Backend == InferenceBackend.Ollama;
+        RbBackendLlamaCpp.IsChecked   = s.Backend == InferenceBackend.LlamaCpp;
+        PnlLlamaCppSettings.IsVisible = s.Backend == InferenceBackend.LlamaCpp;
+        TbLlamaCppRuntimePath.Text    = s.LlamaCppRuntimePath;
+        TbLlamaCppModelPath.Text      = s.LlamaCppModelPath;
+        TbLlamaCppPort.Text           = s.LlamaCppPort.ToString();
+        TbLlamaCppContextSize.Text    = s.LlamaCppContextSize.ToString();
+        TbLlamaCppGpuLayers.Text      = s.LlamaCppGpuLayers.ToString();
+        TbLlamaCppTestResult.Text     = "";
         TbDefaultModel.Text           = s.DefaultModel;
         TbMaxSteps.Text               = s.MaxStepsOverride.ToString();
         TglAutoVerify.IsChecked       = s.AutoVerify;
@@ -211,6 +220,16 @@ public partial class SettingsPanel : UserControl
     {
         var s = _current;
         s.OllamaHost          = TbOllamaHost.Text?.Trim().TrimEnd('/') ?? "";
+        s.Backend             = RbBackendLlamaCpp.IsChecked == true
+            ? InferenceBackend.LlamaCpp
+            : InferenceBackend.Ollama;
+        s.LlamaCppRuntimePath = TbLlamaCppRuntimePath.Text?.Trim() ?? "";
+        s.LlamaCppModelPath   = TbLlamaCppModelPath.Text?.Trim() ?? "";
+        s.LlamaCppPort        = int.TryParse(TbLlamaCppPort.Text, out var llamaPort) ? llamaPort : 8080;
+        s.LlamaCppContextSize = int.TryParse(TbLlamaCppContextSize.Text, out var llamaCtx)
+            ? Math.Max(512, llamaCtx)
+            : 8192;
+        s.LlamaCppGpuLayers   = int.TryParse(TbLlamaCppGpuLayers.Text, out var llamaGpu) ? llamaGpu : -1;
         s.DefaultModel        = TbDefaultModel.Text?.Trim() ?? "";
         s.MaxStepsOverride    = int.TryParse(TbMaxSteps.Text, out var n) ? Math.Max(0, n) : 0;
         s.AutoVerify          = TglAutoVerify.IsChecked       == true;
@@ -271,6 +290,13 @@ public partial class SettingsPanel : UserControl
         if (string.IsNullOrWhiteSpace(settings.OllamaHost))
         {
             SetStatus("✗  Ollama host cannot be empty", "#F44747");
+            return;
+        }
+        if (settings.Backend == InferenceBackend.LlamaCpp &&
+            (string.IsNullOrWhiteSpace(settings.LlamaCppRuntimePath) ||
+             string.IsNullOrWhiteSpace(settings.LlamaCppModelPath)))
+        {
+            SetStatus("✗  llama.cpp backend needs both a runtime folder and a model file", "#F44747");
             return;
         }
         settings.Save();
@@ -345,6 +371,77 @@ public partial class SettingsPanel : UserControl
     }
 
     // ── Model Depot scan (Phase 3 — local discovery only, no model loading) ──────
+
+    private void RbBackend_Checked(object? sender, RoutedEventArgs e)
+    {
+        if (PnlLlamaCppSettings is null) return; // fires during InitializeComponent, before the field is set
+        PnlLlamaCppSettings.IsVisible = RbBackendLlamaCpp.IsChecked == true;
+    }
+
+    private async void BtnBrowseLlamaCppRuntimePath_Click(object? sender, RoutedEventArgs e)
+    {
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
+        var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(
+            new FolderPickerOpenOptions { Title = "Choose folder containing llama-server.exe", AllowMultiple = false });
+        if (folders.Count > 0)
+            TbLlamaCppRuntimePath.Text = folders[0].Path.LocalPath;
+    }
+
+    private async void BtnBrowseLlamaCppModelPath_Click(object? sender, RoutedEventArgs e)
+    {
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel == null) return;
+        var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Choose a GGUF model file",
+            AllowMultiple = false,
+            FileTypeFilter = new[] { new FilePickerFileType("GGUF model") { Patterns = new[] { "*.gguf" } } },
+        });
+        if (files.Count > 0)
+            TbLlamaCppModelPath.Text = files[0].Path.LocalPath;
+    }
+
+    private async void BtnTestLlamaCppConn_Click(object? sender, RoutedEventArgs e)
+    {
+        BtnTestLlamaCppConn.IsEnabled = false;
+        TbLlamaCppTestResult.Text = "Checking…";
+
+        var runtimePath = TbLlamaCppRuntimePath.Text?.Trim() ?? "";
+        var modelPath   = TbLlamaCppModelPath.Text?.Trim() ?? "";
+        var port        = int.TryParse(TbLlamaCppPort.Text, out var p) ? p : 8080;
+
+        var exeFound =
+            File.Exists(Path.Combine(runtimePath, "llama-server.exe")) ||
+            File.Exists(Path.Combine(runtimePath, "server.exe")) ||
+            File.Exists(Path.Combine(runtimePath, "llama-server")) ||
+            File.Exists(Path.Combine(runtimePath, "server"));
+        var modelFound = File.Exists(modelPath);
+
+        if (!exeFound || !modelFound)
+        {
+            var missing = !exeFound && !modelFound ? "exe and model file"
+                : !exeFound ? "llama-server exe"
+                : "model file";
+            TbLlamaCppTestResult.Text = $"✗  {missing} not found";
+            BtnTestLlamaCppConn.IsEnabled = true;
+            return;
+        }
+
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+            var resp = await http.GetAsync($"http://127.0.0.1:{port}/health");
+            TbLlamaCppTestResult.Text = resp.IsSuccessStatusCode
+                ? "✓  Files OK — server already running and healthy"
+                : "✓  Files OK — server not running yet (Save to start it)";
+        }
+        catch
+        {
+            TbLlamaCppTestResult.Text = "✓  Files OK — server not running yet (Save to start it)";
+        }
+        finally { BtnTestLlamaCppConn.IsEnabled = true; }
+    }
 
     private async void BtnBrowseNativeRuntimeModelRoot_Click(object? sender, RoutedEventArgs e)
     {
