@@ -464,6 +464,20 @@
                     </DockPanel>
                 </Border>
 
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <ToggleButton x:Name="TglNativeMainChat"
+                                      DockPanel.Dock="Right"
+                                      Theme="{StaticResource ToggleStyle}"
+                                      IsChecked="False"/>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Experimental Native main chat (Agent panel)" Classes="SettingLabel"/>
+                            <TextBlock Text="Opt-in only. The Agent panel's chat loop tries local ModelDepot/LLamaSharp role runtime first (in-process, no Ollama/llama-server needed), then falls back to the configured model runtime on failure. Separate from the HIVE worker toggle above -- enabling both loads two independent copies of the base model into VRAM. Restart the app for this to take effect (the Agent loop's runtime is built once at startup)."
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
                 <StackPanel Classes="SettingRow">
                     <TextBlock Text="Native Model Root" Classes="SettingLabel"/>
                     <TextBlock Text="Folder scanned for GGUF/LoRA role bindings. Empty uses the normal model storage folder."

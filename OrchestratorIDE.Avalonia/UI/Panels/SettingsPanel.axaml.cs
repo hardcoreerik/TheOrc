@@ -109,6 +109,7 @@ public partial class SettingsPanel : UserControl
                 .FirstOrDefault(i => (string?)i.Tag == s.HiveDefaultAcceptControlFrom)
             ?? CmbHiveAcceptControlFrom.Items.OfType<ComboBoxItem>().ElementAt(1);
         TglNativeHiveWorker.IsChecked = s.ExperimentalNativeHiveWorkerEnabled;
+        TglNativeMainChat.IsChecked   = s.ExperimentalNativeMainChatEnabled;
         TbNativeRuntimeModelRoot.Text = s.NativeRuntimeModelRoot;
         TbNativeRuntimeContextSize.Text = s.NativeRuntimeContextSize.ToString();
         TbNativeRuntimeGpuLayers.Text = s.NativeRuntimeGpuLayers.ToString();
@@ -245,6 +246,7 @@ public partial class SettingsPanel : UserControl
         s.HiveDefaultAcceptControlFrom =
             (CmbHiveAcceptControlFrom.SelectedItem as ComboBoxItem)?.Tag as string ?? "Ask";
         s.ExperimentalNativeHiveWorkerEnabled = TglNativeHiveWorker.IsChecked == true;
+        s.ExperimentalNativeMainChatEnabled   = TglNativeMainChat.IsChecked == true;
         s.NativeRuntimeModelRoot = TbNativeRuntimeModelRoot.Text?.Trim() ?? "";
         s.NativeRuntimeContextSize = int.TryParse(TbNativeRuntimeContextSize.Text, out var nativeCtx)
             ? Math.Max(512, nativeCtx)
