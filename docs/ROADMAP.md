@@ -491,8 +491,8 @@ Warchief (GUI)  ──→  Warband 1 (linux-x64, Vast.ai GPU)
 | Pending | Status |
 |---|---|
 | Binary rename: `theorc-daemon` → `theorc-warband` | ✅ Done |
-| CI publish matrix for `linux-x64` + `osx-arm64` Warband binaries | ⬜ v1.9 / v2.0 |
-| `warband.compose.yml` Docker template | ⬜ v1.9 / v2.0 |
+| CI publish matrix for `linux-x64` + `osx-arm64` Warband binaries | ✅ Shipped 2026-06-24 (`.github/workflows/release.yml` `warband` job) — local cross-compile + YAML syntax validated only, no real GitHub Actions run yet |
+| `warband.compose.yml` Docker template | ✅ Shipped 2026-06-24 (`docker/Dockerfile.warband` + `docker/warband.compose.yml`) — YAML/binary-placement validated only; a real `docker build`/`docker run` was attempted on HARDCOREPI but blocked by the safety classifier as too risky to that live production node, and local Docker Desktop's daemon never came up either. Still genuinely untested end-to-end. |
 | GHCR/Docker Hub publish on release | ⬜ v2.0 |
 
 ### Daemon-centric HIVE — the v2.5 architectural changeover (vision, not started)

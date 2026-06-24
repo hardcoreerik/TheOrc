@@ -241,14 +241,22 @@ Full spec: `.grok/WARBANDS.md`. The `OrchestratorIDE.Daemon` project IS the Warb
 - Daemon is already `net10.0` + AES-256-GCM — cross-platform today
 - Current Docker: Warband container + Ollama sidecar (2 containers)
 - Post-Native-Runtime (Phase 2): Warband loads GGUF in-process, no sidecar (1 container)
-- Mac/Linux Warband binaries: one CI publish-matrix job away
 - ORCISH TONGUE GBNF tool-call constraints work in-process on any model (post-Phase 2)
+- **2026-06-24**: CI publish matrix and Docker template both shipped (see below) -- neither
+  has had a real GitHub Actions run or a live `docker build`/`docker run` yet; both were
+  validated locally only (cross-compile + YAML syntax checking for the CI job; YAML parsing +
+  binary-placement check for the Docker template -- a real container boot on HARDCOREPI was
+  attempted but blocked by the safety classifier as too risky to that live production node,
+  and local Docker Desktop's daemon never came up to test there either). First real
+  verification of either happens whenever someone with working Docker access, or the next
+  real tag push, gets to it.
 
 | Pending | Target |
 |---|---|
-| Binary rename (`theorc-warband`) | Next commit |
-| CI linux-x64 / osx-arm64 Warband artifacts | v1.9 or v2.0 |
-| `warband.compose.yml` template | v1.9 or v2.0 |
+| Binary rename (`theorc-warband`) | ✅ Done |
+| CI linux-x64 / osx-arm64 Warband artifacts | ✅ Shipped 2026-06-24 (release.yml `warband` job) -- not yet run for real |
+| `warband.compose.yml` template | ✅ Shipped 2026-06-24 (`docker/warband.compose.yml`) -- not yet run for real |
+| GHCR/Docker Hub publish on release | v2.0 |
 
 ### TheOrc Native Runtime — v2.0 Direction (Phase 0-3 groundwork landed; first live path is opt-in)
 
