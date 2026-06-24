@@ -26,7 +26,8 @@
         <DockPanel Grid.Row="0" Margin="0,0,0,10">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <TextBlock Text="⬡ HIVE MIND" FontSize="16" FontWeight="SemiBold"
-                           Foreground="#76B900" VerticalAlignment="Center"/>
+                           Foreground="#76B900" VerticalAlignment="Center"
+                           AutomationProperties.AutomationId="Hive.Panel"/>
                 <TextBlock x:Name="HiveSummary" Text="" FontSize="11" Foreground="#999999"
                            Margin="12,0,0,0" VerticalAlignment="Bottom"/>
             </StackPanel>
@@ -35,22 +36,26 @@
                         Click="BtnScanLan_Click"
                         Padding="10,4" Margin="0,0,8,0"
                         Background="#1A1A00" BorderBrush="#888800" Foreground="#C8C840"
-                        BorderThickness="1" FontSize="11"/>
+                        BorderThickness="1" FontSize="11"
+                        AutomationProperties.AutomationId="Hive.ScanLan"/>
                 <Button x:Name="BtnFindTailscale" Content="🔗 Find Tailscale nodes"
                         Click="BtnFindTailscale_Click"
                         Padding="10,4" Margin="0,0,8,0"
                         Background="#0A1A2A" BorderBrush="#4A9FD9" Foreground="#8FC9F0"
-                        BorderThickness="1" FontSize="11"/>
+                        BorderThickness="1" FontSize="11"
+                        AutomationProperties.AutomationId="Hive.FindTailscale"/>
                 <Button x:Name="BtnAddNode" Content="➕ Add node"
                         Click="BtnAddNode_Click"
                         Padding="10,4" Margin="0,0,8,0"
                         Background="#1F3D00" BorderBrush="#76B900" Foreground="#A8CC80"
-                        BorderThickness="1" FontSize="11"/>
+                        BorderThickness="1" FontSize="11"
+                        AutomationProperties.AutomationId="Hive.AddNode"/>
                 <Button x:Name="BtnRescan" Content="⟳ Rescan"
                         Click="BtnRescan_Click"
                         Padding="10,4"
                         Background="#111111" BorderBrush="#2A2A2A" Foreground="#999999"
-                        BorderThickness="1" FontSize="11"/>
+                        BorderThickness="1" FontSize="11"
+                        AutomationProperties.AutomationId="Hive.Rescan"/>
             </StackPanel>
         </DockPanel>
 
@@ -67,7 +72,8 @@
             <DockPanel>
                 <DockPanel DockPanel.Dock="Top" Margin="8,5,8,3">
                     <TextBlock Text="⚡ EVENTS" FontSize="9" FontWeight="Bold"
-                               Foreground="#4A6A4A" VerticalAlignment="Center"/>
+                               Foreground="#4A6A4A" VerticalAlignment="Center"
+                               AutomationProperties.AutomationId="Hive.EventsLabel"/>
                     <TextBlock x:Name="TbEventCount" Text="" FontSize="9"
                                Foreground="#3A4A3A" Margin="8,0,0,0" VerticalAlignment="Center"/>
                 </DockPanel>
@@ -108,6 +114,7 @@
         <!-- ── Hint ───────────────────────────────────────────────── -->
         <TextBlock Grid.Row="4" Margin="2,8,0,0" FontSize="10" Foreground="#666666"
                    TextWrapping="Wrap"
+                   AutomationProperties.AutomationId="Hive.HintText"
                    Text="This PC sits at the center. Reachable nodes glow green; lines carry work. Click a node for detail. Use 📡 Scan LAN to find nodes running HIVE MIND."/>
     </Grid>
 </UserControl>
