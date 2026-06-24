@@ -137,6 +137,38 @@ public class OllamaClient
     }
 
     /// <summary>
+    /// Returns the model's native max context length (e.g. 32768 for qwen2.5-coder:7b) via
+    /// Ollama's /api/show, or null on non-Ollama backends, an unreachable server, or a
+    /// model_info shape this doesn't recognize. Verified against a live /api/show response
+    /// (not assumed): the GGUF metadata key is "{architecture}.context_length", where
+    /// {architecture} comes from model_info["general.architecture"] (e.g. "qwen2" for
+    /// qwen2.5-coder) -- not a fixed key name, since it varies per model family. This is the
+    /// model's NATIVE max, not necessarily what's actually allocated for a running session
+    /// (Ollama's num_ctx load parameter can cap it lower) -- still the most honest number to
+    /// show a user asking "how much context does this model have."
+    /// </summary>
+    public virtual async Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default)
+    {
+        if (Backend != InferenceBackend.Ollama) return null;
+        try
+        {
+            var payload = JsonSerializer.Serialize(new { model });
+            var content = new StringContent(payload, Encoding.UTF8, "application/json");
+            var resp = await _http.PostAsync($"{_baseUrl}/api/show", content, ct);
+            if (!resp.IsSuccessStatusCode) return null;
+
+            var json = JsonNode.Parse(await resp.Content.ReadAsStringAsync(ct));
+            var modelInfo = json?["model_info"];
+            var architecture = modelInfo?["general.architecture"]?.GetValue<string>();
+            if (modelInfo is null || string.IsNullOrEmpty(architecture)) return null;
+
+            var contextLength = modelInfo[$"{architecture}.context_length"];
+            return contextLength is not null ? contextLength.GetValue<int>() : null;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
     /// Tells Ollama to immediately evict <paramref name="model"/> from VRAM.
     /// No-ops silently on non-Ollama backends or if the request fails.
     /// Call this after a researcher phase completes when the researcher model
@@ -195,6 +227,7 @@ public class OllamaClient
         IEnumerable<AgentMessage> history,
         IReadOnlyList<object>? tools = null,
         double temperature = 0.1,
+        double? topP = null,
         int maxTokens = 4096,
         Action<ToolCall>? onToolCall = null,
         Action<int, int>? onUsage = null,   // promptTokens, completionTokens
@@ -215,6 +248,12 @@ public class OllamaClient
             ["temperature"] = temperature,
             ["max_tokens"] = maxTokens,
         };
+        // Only sent when explicitly set -- omitting it lets Ollama use its own default
+        // rather than this call silently overriding it with some arbitrary fixed value.
+        // top_k has no equivalent in Ollama's /v1/chat/completions OpenAI-compat schema
+        // (confirmed against Ollama's docs/ollama/ollama#11325) -- not sent at all, ever.
+        if (topP is { } p)
+            payload["top_p"] = p;
 
         // tools items are already Ollama-schema objects (built by AgentLoop via
         // ToolDefinition.ToOllamaSchema(), then optionally simplified by SchemaSimplifier)

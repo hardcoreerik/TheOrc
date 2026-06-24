@@ -14,7 +14,11 @@ namespace OrchestratorIDE.Core.Runtime;
 ///
 /// Pure decision logic, no live GPU dispatch — no actual VRAM measurement (the implementation
 /// estimates from RuntimeModelAsset.SizeBytes, see <see cref="OrcScheduler"/>), no real
-/// queueing/pipeline execution, and not yet wired into AdapterManager/RuntimeOrchestrator.
+/// queueing/pipeline execution. IS wired into <see cref="RuntimeOrchestrator.EnsureAdmitted"/>
+/// (verified 2026-06-24, not assumed -- this comment previously said "not yet wired" after that
+/// integration had already landed): every role admission goes through TryAdmit with generation-
+/// tagged per-role reservation accounting, denying with <see cref="RuntimeAdmissionDeniedException"/>
+/// on a real budget miss.
 /// </summary>
 public interface IOrcScheduler
 {

@@ -49,6 +49,26 @@ public class HfFileSibling
     public long? Size { get; set; }
 }
 
+/// <summary>
+/// One entry from HF's <c>api/models/{id}/tree/{revision}</c> endpoint -- a separate, richer
+/// API than the model-detail siblings list, the only one that carries LFS hash metadata.
+/// </summary>
+public class HfTreeEntry
+{
+    [JsonPropertyName("path")]
+    public string Path { get; set; } = "";
+
+    [JsonPropertyName("lfs")]
+    public HfLfsInfo? Lfs { get; set; }
+}
+
+public class HfLfsInfo
+{
+    /// <summary>SHA-256 of the file content -- Git LFS's default oid algorithm.</summary>
+    [JsonPropertyName("oid")]
+    public string Oid { get; set; } = "";
+}
+
 public class HfModelDetail : HfModelSearchResult
 {
     [JsonPropertyName("cardData")]
@@ -157,6 +177,14 @@ public class GgufVariant
     public int    VramEstimateGb { get; set; }        // computed from size + overhead
     public bool   IsRecommended { get; set; }
     public string DownloadUrl   { get; set; } = "";
+
+    /// <summary>
+    /// SHA-256 of the file from HF's LFS metadata (tree API's lfs.oid -- LFS uses SHA-256 for
+    /// oid by default). Empty if the tree lookup failed or this file isn't LFS-tracked (every
+    /// GGUF on HF is, in practice). Empty means ModelDownloadService.VerifySha256Async treats
+    /// it as "no hash to check" rather than failing closed.
+    /// </summary>
+    public string Sha256        { get; set; } = "";
 
     // ── Display helpers ───────────────────────────────────────────────────────
 

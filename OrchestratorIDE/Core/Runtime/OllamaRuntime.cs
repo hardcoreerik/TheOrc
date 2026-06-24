@@ -46,12 +46,13 @@ public sealed class OllamaRuntime : IModelRuntime
         IEnumerable<AgentMessage> history,
         IReadOnlyList<object>? tools = null,
         double temperature = 0.1,
+        double? topP = null,
         int maxTokens = 4096,
         Action<ToolCall>? onToolCall = null,
         Action<int, int>? onUsage = null,
         CancellationToken ct = default) =>
         _inner.StreamCompletionAsync(
-            model, history, tools, temperature, maxTokens, onToolCall, onUsage, ct);
+            model, history, tools, temperature, topP, maxTokens, onToolCall, onUsage, ct);
 
     /// <summary>
     /// Returns current reachability as health. Does not make a network call —

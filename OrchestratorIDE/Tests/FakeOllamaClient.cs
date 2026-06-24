@@ -53,6 +53,16 @@ public class FakeOllamaClient : OllamaClient
     /// <summary>True when all queued responses have been consumed.</summary>
     public bool IsEmpty => _script.Count == 0;
 
+    // ── Request capture ───────────────────────────────────────────────────────
+    // Lets a test assert on what a caller (e.g. ChatPanel.CreateEngine) actually sent,
+    // not just what response it got back -- the scripted-response mechanism above only
+    // covers half of what a request/response test needs to verify.
+
+    public IReadOnlyList<AgentMessage>? LastHistory     { get; private set; }
+    public double?                      LastTemperature { get; private set; }
+    public double?                      LastTopP        { get; private set; }
+    public IReadOnlyList<object>?       LastTools       { get; private set; }
+
     // ── Override completion ───────────────────────────────────────────────────
 
     public override async IAsyncEnumerable<string> StreamCompletionAsync(
@@ -60,11 +70,17 @@ public class FakeOllamaClient : OllamaClient
         IEnumerable<AgentMessage> history,
         IReadOnlyList<object>? tools = null,
         double temperature = 0.1,
+        double? topP = null,
         int maxTokens = 4096,
         Action<ToolCall>? onToolCall = null,
         Action<int, int>? onUsage = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
+        LastHistory     = history.ToList();
+        LastTemperature = temperature;
+        LastTopP        = topP;
+        LastTools       = tools;
+
         if (_script.Count == 0)
         {
             yield return "[FakeOllamaClient] Script queue is empty — no more responses.";
@@ -109,6 +125,13 @@ public class FakeOllamaClient : OllamaClient
 
     public override Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default)
         => Task.FromResult(new List<string> { "fake-model:7b" });
+
+    /// <summary>Settable by tests -- defaults to null (matches a real unreachable-server
+    /// failure), same as the real method's failure mode.</summary>
+    public int? ContextLengthToReturn { get; set; }
+
+    public override Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default)
+        => Task.FromResult(ContextLengthToReturn);
 
     // ── Private types ─────────────────────────────────────────────────────────
 

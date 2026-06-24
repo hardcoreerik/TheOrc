@@ -1,5 +1,16 @@
 # TheOrc — Model Wiki / Lab
 
+> ## ⚠️ STATUS: Retired window — data layer retained, Avalonia rebuild planned
+>
+> The Model Wiki / Lab WPF windows (`ModelWikiWindow`, `ModelCompareWindow`) and the
+> capability-test / tool-call-probe dialogs were **retired 2026-06-20** when WPF was deleted,
+> and were not ported to Avalonia. The underlying data layer — `ModelWikiService`,
+> `ModelProfiles`, GOBLIN MIND probe results, and local capability-test evidence — is fully
+> retained and still drives runtime behavior. A from-scratch Avalonia rebuild of this surface
+> is a planned feature (see [ROADMAP.md](ROADMAP.md)). **This guide describes the retired
+> window's behavior as the design reference for that rebuild** — read it as "what this should
+> do," not "what's on screen today."
+
 > This guide covers the in-app model intelligence surface. For the scoring logic underneath it, see [MODEL_GUIDE.md](MODEL_GUIDE.md). For the architecture behind the merged data model, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---

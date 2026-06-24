@@ -25,8 +25,14 @@ public sealed class ModelDownloadService : IDisposable
     // ── Download ──────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Downloads the model file from <paramref name="url"/> to
-    /// <paramref name="destPath"/>, reporting progress via <paramref name="onProgress"/>.
+    /// Downloads the model file from <paramref name="url"/> to <paramref name="destPath"/>,
+    /// reporting progress via <paramref name="onProgress"/>. Automatically retries on
+    /// transient network failures (connection drops, read timeouts), resuming from the
+    /// partial file each time via the existing Range-request support below -- a multi-GB
+    /// GGUF download is exactly the case where flaky wifi shouldn't mean starting over, or
+    /// silently failing without the user noticing until they come back to a stalled bar.
+    /// Does not retry on user-initiated cancellation (<paramref name="ct"/>) or a SHA-256
+    /// mismatch (caller's responsibility, not transient).
     ///
     /// Progress tuple: (bytesDownloaded, totalBytes, speedBytesPerSec, etaSeconds)
     /// </summary>
@@ -34,7 +40,36 @@ public sealed class ModelDownloadService : IDisposable
         string url,
         string destPath,
         IProgress<(long done, long total, double speed, int eta)>? onProgress = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        int maxRetries = 3,
+        IProgress<string>? onRetry = null)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await DownloadOnceAsync(url, destPath, onProgress, ct);
+                return;
+            }
+            catch (Exception ex) when (
+                attempt < maxRetries &&
+                !ct.IsCancellationRequested &&
+                ex is HttpRequestException or IOException or TaskCanceledException)
+            {
+                var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt + 1)); // 2s, 4s, 8s
+                onRetry?.Report(
+                    $"Connection issue ({ex.Message}) -- retrying in {delay.TotalSeconds:F0}s " +
+                    $"({attempt + 1}/{maxRetries})…");
+                await Task.Delay(delay, ct);
+            }
+        }
+    }
+
+    private async Task DownloadOnceAsync(
+        string url,
+        string destPath,
+        IProgress<(long done, long total, double speed, int eta)>? onProgress,
+        CancellationToken ct)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
 

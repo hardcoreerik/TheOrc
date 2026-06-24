@@ -38,6 +38,15 @@ public interface IModelRuntime
         IEnumerable<AgentMessage> history,
         IReadOnlyList<object>? tools = null,
         double temperature = 0.1,
+        // Nullable, unlike temperature -- null means "use the backend's own default" rather
+        // than a specific value to send. Only OllamaRuntime's underlying endpoint
+        // (Ollama's OpenAI-compatible /v1/chat/completions) and LLamaSharpRuntime's
+        // DefaultSamplingPipeline both support top_p; top_k is NOT exposed here because
+        // Ollama's OpenAI-compat layer has no equivalent field for it (confirmed against
+        // Ollama's own docs/GitHub issue #11325) -- exposing a parameter one backend can't
+        // act on would silently do nothing on that backend, which is worse than not
+        // exposing it at all.
+        double? topP = null,
         int maxTokens = 4096,
         Action<ToolCall>? onToolCall = null,
         Action<int, int>? onUsage = null,

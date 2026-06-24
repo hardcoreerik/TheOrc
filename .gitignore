@@ -130,6 +130,7 @@ Tools/*.log
 # Spike harness re-run output (regenerable; canonical finding lives in RUNTIME_PHASE0_SPEC.md)
 .grok/spike-assets/**/*.log
 
-# Marketplace release packages (binary artifacts, not source)
-marketplace/*.zip
-marketplace/**/*.zip
+# Marketplace — local publishing staging (Gumroad listings, model cards, release
+# packages). Business/product copy + pricing, kept local-only by default; not part
+# of the source tree (decision 2026-06-23). Was previously only ignoring *.zip.
+marketplace/

@@ -396,9 +396,14 @@ public sealed class PitBossService
             using var httpStream = await resp.Content.ReadAsStreamAsync(ct);
             using var reader     = new System.IO.StreamReader(httpStream);
 
-            while (!reader.EndOfStream && !ct.IsCancellationRequested)
+            // ReadLineAsync's null return signals end-of-stream -- reader.EndOfStream is a
+            // synchronous, blocking property (it fills the internal buffer on the calling
+            // thread), which inside an async loop defeats the point of awaiting ReadLineAsync
+            // in the first place (CA2024).
+            while (!ct.IsCancellationRequested)
             {
                 var line = await reader.ReadLineAsync(ct);
+                if (line is null) break;
                 if (string.IsNullOrWhiteSpace(line)) continue;
                 string? chunk = ParseChunk(line);
                 if (chunk is not null) chunks.Add(chunk);

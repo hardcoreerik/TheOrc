@@ -1,6 +1,9 @@
 <!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
 # WPF Retirement Checklist
 
+> _Archived 2026-06-23 — completed task record, kept for history. The WPF→Avalonia
+> deletion is done; see [ROADMAP.md](../ROADMAP.md) for current state._
+
 > ## ✅ STATUS: WPF DELETED (2026-06-20)
 >
 > `OrchestratorIDE/OrchestratorIDE.csproj` and every WPF-only file (70 files:

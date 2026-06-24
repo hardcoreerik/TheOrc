@@ -1,8 +1,10 @@
 # TheOrc — Worktree-Per-Task Isolation (Design)
 
-> **Status:** Design (Phase 0). No code shipped. This document is the contract
-> the implementation follows. Pattern adapted from SigmaLink's worktree-per-task
-> model and its "strict file ownership" rule, fitted to TheOrc's existing
+> **Status:** ✅ Shipped v1.5 (opt-in via `AppSettings.HiveWorktreeIsolation`).
+> `FileOwnershipLedger`, `WorktreeManager`, per-task git worktrees, strict file
+> ownership, and the T16 test suite all landed. This document is the original
+> design contract the implementation followed. Pattern adapted from SigmaLink's
+> worktree-per-task model and its "strict file ownership" rule, fitted to TheOrc's
 > staged-run architecture and HIVE MIND distributed swarm.
 
 > Related: [HIVE_MIND_SPEC.md](HIVE_MIND_SPEC.md) (distributed swarm),

@@ -47,7 +47,8 @@
         <ScrollViewer x:Name="MsgScroll" Grid.Row="1"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
-            <ItemsControl x:Name="MsgList" Padding="0,4">
+            <ItemsControl x:Name="MsgList" Padding="0,4"
+                          AutomationProperties.AutomationId="AgentPanel.MessageList">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="local:MessageVm">
                         <Border Margin="0,1" Padding="12,8"
@@ -174,7 +175,8 @@
                                 <TextBlock x:Name="WsLabel" Text="no folder open"
                                            Foreground="#CCA700" FontSize="10"
                                            VerticalAlignment="Center" MaxWidth="140"
-                                           TextTrimming="CharacterEllipsis"/>
+                                           TextTrimming="CharacterEllipsis"
+                                           AutomationProperties.AutomationId="AgentPanel.WorkspaceBadge"/>
                             </StackPanel>
                         </Border>
 
@@ -232,12 +234,14 @@
                                              GroupName="Mode" IsChecked="True"
                                              Foreground="{StaticResource Br.Text.Primary}"
                                              FontSize="11" VerticalAlignment="Center"
-                                             IsCheckedChanged="ModeChanged"/>
+                                             IsCheckedChanged="ModeChanged"
+                                             AutomationProperties.AutomationId="AgentPanel.ModePlan"/>
                                 <RadioButton x:Name="RbExec" Content=" Execute "
                                              GroupName="Mode" Margin="4,0,0,0"
                                              Foreground="{StaticResource Br.Text.Primary}"
                                              FontSize="11" VerticalAlignment="Center"
-                                             IsCheckedChanged="ModeChanged"/>
+                                             IsCheckedChanged="ModeChanged"
+                                             AutomationProperties.AutomationId="AgentPanel.ModeExecute"/>
                             </StackPanel>
                         </Border>
 
@@ -257,13 +261,15 @@
                             <Button x:Name="BtnStop" Content="■ Stop" Width="70"
                                     Background="#3A1A1A" Foreground="{StaticResource Br.Error}"
                                     BorderBrush="#5A2A2A" FontSize="11"
-                                    Click="BtnStop_Click" IsEnabled="False"/>
+                                    Click="BtnStop_Click" IsEnabled="False"
+                                    AutomationProperties.AutomationId="AgentPanel.Stop"/>
                             <Button x:Name="BtnSend" Content="Send  ↵" Width="84"
                                     Background="#2A5200"
                                     Foreground="{StaticResource Br.Accent.Green}"
                                     BorderBrush="#3A7000"
                                     FontSize="11" FontWeight="SemiBold" Margin="6,0,0,0"
-                                    Click="BtnSend_Click"/>
+                                    Click="BtnSend_Click"
+                                    AutomationProperties.AutomationId="AgentPanel.Send"/>
                         </StackPanel>
 
                         <Border/><!-- flex spacer -->
@@ -272,6 +278,7 @@
 
                 <!-- Text input (Watermark replaces the separate placeholder TextBlock) -->
                 <TextBox x:Name="TbInput"
+                         AutomationProperties.AutomationId="AgentPanel.Input"
                          AcceptsReturn="True" TextWrapping="Wrap"
                          ScrollViewer.VerticalScrollBarVisibility="Auto"
                          Background="{StaticResource Br.Bg.Input}"

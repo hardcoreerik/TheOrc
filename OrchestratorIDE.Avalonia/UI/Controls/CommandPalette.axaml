@@ -23,7 +23,8 @@
                              CaretBrush="#76B900" BorderThickness="0"
                              FontSize="14" Padding="0"
                              TextChanged="SearchBox_TextChanged"
-                             KeyDown="SearchBox_KeyDown"/>
+                             KeyDown="SearchBox_KeyDown"
+                             AutomationProperties.AutomationId="CommandPalette.Search"/>
                 </Grid>
             </Border>
 
@@ -33,7 +34,8 @@
                      Background="Transparent"
                      ScrollViewer.VerticalScrollBarVisibility="Auto"
                      KeyDown="ResultsList_KeyDown"
-                     DoubleTapped="ResultsList_DoubleTapped">
+                     DoubleTapped="ResultsList_DoubleTapped"
+                     AutomationProperties.AutomationId="CommandPalette.Results">
                 <ListBox.Styles>
                     <Style Selector="ListBoxItem">
                         <Setter Property="Background" Value="Transparent"/>

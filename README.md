@@ -56,7 +56,7 @@ TheOrc is the boss. He reads your goal, writes the plan, and keeps everyone poin
 | **TheOrc** | Reads your goal, writes the plan, routes each task to the right goblin |
 | **Researcher** | Digs through docs, APIs, and libraries — never touches production code |
 | **Coder** | Writes the actual implementation using whatever the Researcher found |
-| **UIDeveloper** | Handles all the UI work — XAML, WPF, HTML/CSS, styles |
+| **UIDeveloper** | Handles all the UI work — Avalonia XAML, HTML/CSS, styles |
 | **Tester** | Runs tests and reads logs — read-only, no write access, very trustworthy |
 
 The boss model is a **fine-tuned local Gemma 4 12B** (`theorc-boss:gemma4-ft`) — trained by TheOrc's own pipeline on 900 reviewed swarm plans. It scores **99.3%** on structured planning evals. We made the AI smarter by feeding it examples of itself doing a good job. Yes, really.

@@ -82,6 +82,21 @@ public class ModelEntry
     /// <summary>Whether this model has a partner badge to display.</summary>
     public bool HasPartnerBadge => PartnerBadge is not null;
 
+    // ── Uncensored badge ──────────────────────────────────────────────────────
+    // Separate from PartnerBadge (which is Publisher-keyed for hardware partners like
+    // NVIDIA/GOOGLE) -- these models' publisher is "Cognitive Computations", not a
+    // hardware partner, so a tag-driven badge is the right mechanism rather than
+    // overloading the Publisher switch above.
+
+    /// <summary>True when this model is tagged "uncensored" -- RLHF refusal training removed.</summary>
+    public bool IsUncensored => Tags.Contains("uncensored", StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Uncensored badge background hex colour (dark red, distinct from partner badges).</summary>
+    public string UncensoredBadgeBg => "#280000";
+
+    /// <summary>Uncensored badge foreground hex colour.</summary>
+    public string UncensoredBadgeFg => "#D94040";
+
     /// <summary>
     /// True when this model can only be installed via <c>ollama pull</c>
     /// (no direct GGUF download URL is available).

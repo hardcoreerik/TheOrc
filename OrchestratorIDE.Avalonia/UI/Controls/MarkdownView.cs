@@ -1,20 +1,29 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
+using System.IO;
+using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
+using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 
 namespace OrchestratorIDE.UI.Controls;
 
 /// <summary>
 /// Renders a markdown string as native Avalonia controls, dark-theme optimised.
 /// Supports: headings, code blocks, blockquotes, bullet/numbered lists, bold,
-/// italic, inline code, and links (rendered as coloured underlined text).
+/// italic, inline code, links (rendered as coloured underlined text), and images
+/// (![alt](src) — block-level when alone on a line, inline when embedded in text;
+/// loads http(s) URLs, data: URIs, and local file paths, with a graceful
+/// broken-image fallback).
 /// </summary>
 public sealed class MarkdownView : ContentControl
 {
@@ -112,6 +121,17 @@ file static class MarkdownBuilder
             var trimmed = line.Trim();
             if (trimmed is "---" or "***" or "___" or "===") { yield return HRule(); i++; continue; }
 
+            // Standalone image line — ![alt](src) alone on its own line gets a real
+            // block-level Image control (proper sizing/alignment), rather than being
+            // crammed inline inside a paragraph's text run.
+            var blockImg = BlockImageRx.Match(line);
+            if (blockImg.Success)
+            {
+                yield return BuildImageControl(blockImg.Groups["alt"].Value, blockImg.Groups["src"].Value, maxDim: 480);
+                i++;
+                continue;
+            }
+
             // Blockquote — consecutive "> " lines
             if (line.StartsWith("> "))
             {
@@ -155,6 +175,7 @@ file static class MarkdownBuilder
                 && !lines[i].StartsWith("> ")
                 && !(lines[i].Length > 2 && (lines[i].StartsWith("- ") || lines[i].StartsWith("* ")))
                 && !NumberedRx.IsMatch(lines[i])
+                && !BlockImageRx.IsMatch(lines[i])
                 && lines[i].Trim() is not ("---" or "***" or "___" or "==="))
             {
                 if (para.Length > 0) para.Append(' ');
@@ -175,7 +196,7 @@ file static class MarkdownBuilder
             2 => (Palette.H2, 14.0, FontWeight.SemiBold),
             _ => (Palette.H3, 13.0, FontWeight.SemiBold),
         };
-        var tb = new TextBlock
+        var tb = new SelectableTextBlock
         {
             Foreground   = fg,
             FontSize     = size,
@@ -210,7 +231,7 @@ file static class MarkdownBuilder
             CornerRadius = new CornerRadius(4),
             Padding      = new Thickness(12, 8),
             Margin       = new Thickness(0, 2, 0, 2),
-            Child        = new TextBlock
+            Child        = new SelectableTextBlock
             {
                 Text         = code,
                 FontFamily   = Mono,
@@ -279,12 +300,12 @@ file static class MarkdownBuilder
         return grid;
     }
 
-    private static TextBlock Paragraph(string text, Action<string>? onLinkClicked)
+    private static SelectableTextBlock Paragraph(string text, Action<string>? onLinkClicked)
         => InlineTextBlock(text, onLinkClicked);
 
-    private static TextBlock InlineTextBlock(string text, Action<string>? onLinkClicked)
+    private static SelectableTextBlock InlineTextBlock(string text, Action<string>? onLinkClicked)
     {
-        var tb = new TextBlock
+        var tb = new SelectableTextBlock
         {
             TextWrapping = TextWrapping.Wrap,
             FontSize     = 13,
@@ -300,8 +321,15 @@ file static class MarkdownBuilder
     private static readonly Regex NumberedRx =
         new(@"^\d+\.\s", RegexOptions.Compiled);
 
+    // Image-only line:  optional leading/trailing whitespace around a single ![alt](src).
+    private static readonly Regex BlockImageRx =
+        new(@"^\s*!\[(?<alt>[^\]\n]*)\]\((?<src>[^)\n]+)\)\s*$", RegexOptions.Compiled);
+
     private static readonly Regex InlineRx = new(
-        @"\*\*(?<b>[^*\n]+)\*\*"         // **bold**
+        @"!\[(?<it>[^\]\n]*)\]\((?<iu>[^)\n]+)\)"  // ![alt](src) image — MUST precede the link
+                                                    // alternative below, else the leading '!' is
+                                                    // orphaned and the rest renders as a link.
+        + @"|\*\*(?<b>[^*\n]+)\*\*"       // **bold**
         + @"|__(?<b2>[^_\n]+)__"          // __bold__
         + @"|\*(?<i>[^*\n]+)\*"           // *italic*
         + @"|_(?<i2>[^_\n]+)_"            // _italic_
@@ -318,7 +346,14 @@ file static class MarkdownBuilder
             if (m.Index > pos)
                 yield return new Run { Text = text[pos..m.Index] };
 
-            if (m.Groups["b"].Success || m.Groups["b2"].Success)
+            if (m.Groups["it"].Success || m.Groups["iu"].Success)
+            {
+                // Inline image embedded in a text run — smaller cap than a block image so it
+                // sits naturally on the line. InlineUIContainer hosts the same Image control.
+                yield return new InlineUIContainer(
+                    BuildImageControl(m.Groups["it"].Value, m.Groups["iu"].Value, maxDim: 220));
+            }
+            else if (m.Groups["b"].Success || m.Groups["b2"].Success)
             {
                 var inner = m.Groups["b"].Success ? m.Groups["b"].Value : m.Groups["b2"].Value;
                 yield return new Run { Text = inner, FontWeight = FontWeight.Bold };
@@ -378,4 +413,129 @@ file static class MarkdownBuilder
 
         return new InlineUIContainer(link);
     }
+
+    // ── Image rendering ─────────────────────────────────────────────────────────
+
+    // One shared client for all markdown image fetches -- creating a new HttpClient per
+    // image is the classic socket-exhaustion antipattern. 20s timeout so a slow/hung host
+    // can't keep a placeholder spinning forever (it'll just fall back to the broken-image
+    // text instead).
+    private static readonly HttpClient ImageHttp = new() { Timeout = TimeSpan.FromSeconds(20) };
+
+    /// <summary>
+    /// Builds a host Border containing an Image, and kicks off an async load of <paramref
+    /// name="src"/> into it. The Border (not the Image) is returned so a load failure can
+    /// swap in a text placeholder without the caller holding two references. Per the
+    /// project-wide UX rule, the host carries a tooltip (alt text / source) and a right-click
+    /// "Copy image link" action. Never throws -- a bad URL/decode just shows the placeholder.
+    /// </summary>
+    private static Control BuildImageControl(string alt, string src, double maxDim)
+    {
+        var img = new Image
+        {
+            MaxWidth            = maxDim,
+            MaxHeight           = maxDim,
+            Stretch             = Stretch.Uniform,
+            // DownOnly so a small icon isn't blown up to maxDim; large images still shrink.
+            StretchDirection    = StretchDirection.DownOnly,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        var host = new Border
+        {
+            Margin              = new Thickness(0, 4, 0, 4),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Child               = img,
+            ContextMenu         = BuildImageContextMenu(src),
+        };
+        ToolTip.SetTip(host, string.IsNullOrWhiteSpace(alt) ? src : $"{alt}\n{src}");
+
+        _ = LoadImageIntoAsync(host, img, alt, src);
+        return host;
+    }
+
+    private static ContextMenu BuildImageContextMenu(string src)
+    {
+        var copy = new MenuItem { Header = "Copy image link" };
+        copy.Click += async (s, _) =>
+        {
+            // async-void-shaped Click handler -- clipboard access can fail (no backend, another
+            // process holding it); swallow so it can't surface as an unhandled UI-thread
+            // exception. TopLevel is resolved from the menu item so it works wherever the
+            // markdown is hosted.
+            try
+            {
+                var top = s is Visual v ? TopLevel.GetTopLevel(v) : null;
+                if (top?.Clipboard is { } clip) await clip.SetTextAsync(src);
+            }
+            catch { /* non-fatal convenience action */ }
+        };
+        return new ContextMenu { ItemsSource = new[] { copy } };
+    }
+
+    private static async Task LoadImageIntoAsync(Border host, Image img, string alt, string src)
+    {
+        try
+        {
+            var bmp = await DecodeImageAsync(src);
+            await Dispatcher.UIThread.InvokeAsync(() => img.Source = bmp);
+        }
+        catch
+        {
+            // Any failure (network, missing file, bad base64, undecodable bytes) degrades to a
+            // visible, muted placeholder rather than a blank gap or a thrown exception.
+            await Dispatcher.UIThread.InvokeAsync(() => host.Child = BrokenImagePlaceholder(alt, src));
+        }
+    }
+
+    private static async Task<Bitmap> DecodeImageAsync(string src)
+    {
+        // Bitmap decode (and base64/file reads) are CPU/IO-bound and run on a background
+        // thread via Task.Run -- the load is kicked off from the UI thread during Build(), so
+        // decoding inline here would block rendering on large images (exactly what the vision
+        // ingestion path will feed in). Only Source assignment goes back to the UI thread
+        // (see LoadImageIntoAsync).
+        if (src.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            // data:[<mediatype>][;base64],<data> -- only the base64 form is supported.
+            var comma = src.IndexOf(',');
+            if (comma < 0) throw new FormatException("malformed data: URI");
+            var payload = Regex.Replace(src[(comma + 1)..], @"\s", "");
+            return await Task.Run(() => DecodeBytes(Convert.FromBase64String(payload)));
+        }
+
+        if (src.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+         || src.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            var bytes = await ImageHttp.GetByteArrayAsync(src);
+            return await Task.Run(() => DecodeBytes(bytes));
+        }
+
+        // Otherwise treat it as a local path (handles both a bare path and a file:// URI).
+        var path = src;
+        if (src.StartsWith("file://", StringComparison.OrdinalIgnoreCase)
+            && Uri.TryCreate(src, UriKind.Absolute, out var fileUri))
+            path = fileUri.LocalPath;
+
+        return await Task.Run(() =>
+        {
+            using var fs = File.OpenRead(path);
+            return new Bitmap(fs);
+        });
+    }
+
+    private static Bitmap DecodeBytes(byte[] bytes)
+    {
+        using var ms = new MemoryStream(bytes);
+        return new Bitmap(ms);
+    }
+
+    private static Control BrokenImagePlaceholder(string alt, string src)
+        => new SelectableTextBlock
+        {
+            Text         = $"🖼  {(string.IsNullOrWhiteSpace(alt) ? src : alt)}  (image unavailable)",
+            Foreground   = Palette.Muted,
+            FontSize     = 12,
+            FontStyle    = FontStyle.Italic,
+            TextWrapping = TextWrapping.Wrap,
+        };
 }

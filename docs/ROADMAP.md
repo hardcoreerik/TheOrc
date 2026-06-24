@@ -292,6 +292,78 @@ The evolutionary fitness map (`FitnessMap.cs`, `SchemaEvolution.cs`) is implemen
 
 ## Active Work
 
+### OrcChat — uncensored multi-backend chat (branch `feat/uncensored-chat-models`, unpushed)
+
+A SillyTavern-pattern chat experience built from scratch in C#, not a clone. Branch is
+local-only (not pushed). Shipped on the branch so far:
+- **Phase A** (separately released): 3 uncensored Dolphin-line models added to the model
+  catalogs with an UNCENSORED badge — opt-in only, never auto-recommended.
+- **`ChatEngine` dual-mode generalization**: one engine carries Research and (former) Open
+  behavior instead of forking a second engine; `OllamaClient.GetContextLengthAsync` +
+  `ChatEngine.OnUsage` feed a context-window usage indicator; opt-in `IncludeDateTimeContext`
+  date/time grounding; `OpenChatMemory` persists a chosen system prompt across restarts.
+- **OrcChat merge** (2026-06-23): the former Research/Open mode toggle was collapsed into a
+  single surface — web search/fetch tools are **always** available, no system prompt is
+  injected by default, user controls system prompt/temperature/top-p, with HIVE node routing
+  to run a chat on a paired machine's Ollama.
+- **Images in chat output** (2026-06-23): `MarkdownView` renders `![alt](src)` (http(s)/
+  data:/local-file), background-thread decode, broken-image placeholder, tooltip + right-click
+  "Copy image link".
+
+Pending on the branch (the remaining handoff items):
+- **Image/file ingestion with vision** — `AgentMessage` has no image/attachment field and
+  `OllamaClient`'s payload has no `images` array yet; needs the field, the Ollama vision
+  payload, a chat-UI attach affordance, and a "model can't see images" cue for non-vision models.
+- **Full FlaUI UI-test pass** for the chat surface (viable on the interactive dev machine).
+
+Review note: while grok/codex are unavailable, branch commits are gated through
+`theorc-review.ps1` against NEWCOREPC's `qwen2.5-coder:14b` plus a human/Opus judgment pass,
+not the usual `grok-review.ps1`.
+
+### Native runtime / OrcChat-off-Ollama (branch `feat/native-runtime-orcchat`, off the above, unpushed)
+
+Picked up `.grok/RUNTIME_SWITCH_PLAN.md`'s long-open "Stage 3" question by verifying actual code
+state rather than trusting the doc's "Not started" framing (it was stale — see that file for the
+correction). Shipped on this branch, all real-machine-verified, not just built:
+- **Settings UI for the llama.cpp backend** — `OllamaClient`/`MainWindow`'s `LlamaServerManager`
+  lifecycle/`ChatPanel`'s shared-client inheritance already fully supported running OrcChat off a
+  local `llama-server` with zero Ollama involvement; there was simply no UI control to reach it.
+  Added the missing toggle + path/port fields.
+- **Settings UI for the experimental native main-chat (Agent panel) toggle** — same pattern: a
+  fully-wired in-process `NativeRoleRuntime` path for the Agent panel's chat loop
+  (`AppSettings.ExperimentalNativeMainChatEnabled`) existed with zero UI exposure. Note: this one
+  needs an app restart to take effect (`BuildAgentLoopRuntime()` is only called once, at
+  construction) — disclosed in the hint text rather than silently shipped.
+- **Real bug found and fixed**: `ChatEngine` passed raw `ToolDefinition` objects into
+  `StreamCompletionAsync` without mapping them through `.ToOllamaSchema()` — Ollama's
+  `/v1/chat/completions` tolerates the malformed shape silently, llama.cpp's stricter OpenAI-compat
+  parser rejects it with a `500`. Found on the very first real attempt to drive OrcChat through
+  llama.cpp via the actual Settings UI (not just direct HTTP probing) — fixed, then verified both
+  single-turn and multi-turn conversations work correctly end-to-end against a live server.
+- **Model downloader hardening**: auto-retry-with-resume on transient download failures; real
+  SHA-256 verification wired in via HF's `tree/main` API (`lfs.oid`) — the in-app downloader had
+  never verified integrity before, despite the verification method existing as dead code.
+- **UI-test AutomationId drift fixed**: `HivePanel`/`AgentPanel`/`CommandPalette`/
+  `SwarmBoardPanel`/`ChatPanel`/`SettingsPanel` all had zero `AutomationProperties.AutomationId`
+  anywhere (WPF→Avalonia port drift, not a runtime bug) — added what each panel's tests or this
+  branch's own end-to-end verification needed. Full UI suite went from 169/201 to 198/201; the
+  remaining 3 are pre-existing, unrelated `ToolEditor` failures present before this branch existed.
+- **Real cross-machine GPU verification**: fetched a genuine CUDA-enabled `llama-server` build
+  onto hardcorelaptopmsi (RTX 4060) and confirmed real in-process/server-side native generation —
+  67.7 tok/s with 3147 MiB VRAM in use, vs. ~6 tok/s CPU-only earlier in the same session.
+
+Not done, flagged honestly rather than guessed at:
+- **HARDCOREPI untested** — SSH key not authorized from this branch's working session; the
+  "native runtime works on any OS" goal still has zero non-Windows data points.
+- **Remote HIVE-node chat always uses Backend=Ollama regardless of local Backend setting** —
+  checked and ruled out as a bug: `HiveHost.Url` is explicitly modeled as an Ollama endpoint only,
+  with no per-node llama.cpp concept at all today. A real "remote llama.cpp node" would be new
+  scope, not a fix.
+- **Branch not pushed** — getting it onto HARDCOREPC (which has its own separate clone, currently
+  on `master`) for a real cross-machine *build* test would need either pushing to GitHub or
+  ad-hoc file copying outside git; flagged as a decision for whoever picks this up next rather
+  than acted on unilaterally.
+
 ### ORC ACADEMY v3 — complete, not promoted (2026-06-17)
 
 Training finished: Gemma 4 12B, 906 clean examples, 3 epochs, 156 min, rubric 99.17%. A/B eval complete.
@@ -398,7 +470,7 @@ Full spec: [`MULTI_OS_RELEASE_SPEC.md`](MULTI_OS_RELEASE_SPEC.md). Closes the ga
 
 ## WARBANDS — Cloud & Headless Deployment
 
-> Full spec: [`.grok/WARBANDS.md`](../.grok/WARBANDS.md). The daemon is the Warband. Binary rename pending: `theorc-daemon` → `theorc-warband`.
+> Full spec: [`.grok/WARBANDS.md`](../.grok/WARBANDS.md). The daemon is the Warband. Binary rename complete: `theorc-daemon` → `theorc-warband`.
 
 A **Warband** is a deployed headless HIVE node — the `OrchestratorIDE.Daemon` binary running on any machine that isn't your main desktop. Your GUI app (the Warchief) stays home. Warbands run in the cloud, on a home-lab machine, or in Docker — headless, no GUI, pulling tasks from your Warchief's queue.
 
@@ -418,7 +490,7 @@ Warchief (GUI)  ──→  Warband 1 (linux-x64, Vast.ai GPU)
 
 | Pending | Status |
 |---|---|
-| Binary rename: `theorc-daemon` → `theorc-warband` | ⬜ Next commit |
+| Binary rename: `theorc-daemon` → `theorc-warband` | ✅ Done |
 | CI publish matrix for `linux-x64` + `osx-arm64` Warband binaries | ⬜ v1.9 / v2.0 |
 | `warband.compose.yml` Docker template | ⬜ v1.9 / v2.0 |
 | GHCR/Docker Hub publish on release | ⬜ v2.0 |

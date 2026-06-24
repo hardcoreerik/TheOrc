@@ -242,6 +242,10 @@ public sealed class LlamaServerManager : IDisposable
         // Suppress verbose token logs (health endpoint still works)
         sb.Append(" --log-disable");
 
+        // Exposes /metrics (llamacpp:predicted_tokens_seconds etc.) so ModelStatusService
+        // can report real throughput instead of a guess.
+        sb.Append(" --metrics");
+
         return sb.ToString();
     }
 

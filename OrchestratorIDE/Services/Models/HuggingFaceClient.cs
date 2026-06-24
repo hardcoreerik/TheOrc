@@ -101,7 +101,35 @@ public sealed class HuggingFaceClient : IDisposable
         if (!variants.Any(v => v.IsRecommended) && variants.Any())
             AutoRecommend(variants, userVramGb);
 
+        // Best-effort SHA-256 lookup -- a separate API call, so failure here must not lose the
+        // variant list itself (download still works, just without integrity verification).
+        var hashes = await GetFileHashesAsync(hfId, ct);
+        foreach (var v in variants)
+            if (hashes.TryGetValue(v.Filename, out var sha))
+                v.Sha256 = sha;
+
         return variants;
+    }
+
+    /// <summary>
+    /// Maps filename -> SHA-256 via HF's tree API (lfs.oid; LFS uses SHA-256 for oid by
+    /// default -- verified live against a real repo, not assumed). Returns an empty dictionary
+    /// on any failure; callers should treat a missing hash as "nothing to verify", not an error.
+    /// </summary>
+    private async Task<Dictionary<string, string>> GetFileHashesAsync(
+        string hfId, CancellationToken ct)
+    {
+        try
+        {
+            var entries = await _http.GetFromJsonAsync<List<HfTreeEntry>>(
+                $"api/models/{hfId}/tree/main", _json, ct);
+            if (entries is null) return [];
+
+            return entries
+                .Where(e => !string.IsNullOrEmpty(e.Lfs?.Oid))
+                .ToDictionary(e => e.Path, e => e.Lfs!.Oid, StringComparer.OrdinalIgnoreCase);
+        }
+        catch { return []; }
     }
 
     // ── README / description ──────────────────────────────────────────────────

@@ -99,7 +99,7 @@
                                     AutomationProperties.AutomationId="Mode.Swarm"/>
                             <Rectangle Width="1" Fill="#2A3A2A"/>
                             <Button x:Name="BtnModeChat" Content="💬 Chat"
-                                    ToolTip.Tip="Just Chat — research with web search"
+                                    ToolTip.Tip="Chat — Research mode (web search) or Open mode (no system prompt, no tools)"
                                     Padding="10,4" FontSize="11" BorderThickness="0"
                                     Background="Transparent" Foreground="#666666"
                                     Cursor="Hand" Click="BtnModeChat_Click"
