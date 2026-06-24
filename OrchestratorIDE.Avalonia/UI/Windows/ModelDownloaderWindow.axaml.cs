@@ -594,11 +594,11 @@ public partial class ModelDownloaderWindow : Window
             if (_isClosed)
                 return;
 
+            var sha256Verified = false;
             if (!string.IsNullOrWhiteSpace(selectedVariant.Sha256))
             {
                 await InvokeUiAsync(() => TxtDlStatus.Text = "Verifying SHA-256...");
-                var verified = await _downloader.VerifySha256Async(destPath, selectedVariant.Sha256, ct);
-                if (!verified)
+                if (!await _downloader.VerifySha256Async(destPath, selectedVariant.Sha256, ct))
                 {
                     try { File.Delete(destPath); } catch { /* best-effort cleanup */ }
                     await InvokeUiAsync(() =>
@@ -606,13 +606,16 @@ public partial class ModelDownloaderWindow : Window
                     SetStatus($"Download of {selected.Name} failed SHA-256 verification.");
                     return;
                 }
+                sha256Verified = true;
             }
 
             if (_isClosed)
                 return;
             await InvokeUiAsync(() =>
             {
-                TxtDlStatus.Text = "Download complete. Registering with Ollama...";
+                TxtDlStatus.Text = sha256Verified
+                    ? "Download complete (SHA-256 verified). Registering with Ollama..."
+                    : "Download complete. Registering with Ollama...";
                 PbDownload.Value = 100;
             });
 
@@ -631,7 +634,9 @@ public partial class ModelDownloaderWindow : Window
             }
 
             await InvokeUiAsync(() => TxtDlStatus.Text = $"Model ready. Role: {role}");
-            SetStatus($"Downloaded {selected.Name} and assigned it to {role}.");
+            SetStatus(sha256Verified
+                ? $"Downloaded {selected.Name} (SHA-256 verified) and assigned it to {role}."
+                : $"Downloaded {selected.Name} and assigned it to {role}.");
         }
         catch (OperationCanceledException)
         {
