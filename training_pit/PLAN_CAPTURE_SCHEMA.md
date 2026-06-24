@@ -1,5 +1,10 @@
 # The Training Pit — Plan Capture Schema
 
+> **WPF/`.xaml` note:** The `csharp_wpf` stack value and any `.xaml` references reflect the
+> **v1 training corpus**, which targeted TheOrc's WPF codebase (deleted 2026-06-20; the app is
+> now Avalonia). They illustrate the *pattern*, not the current UI stack — retargeting the
+> corpus to Avalonia is a separate, deliberate decision.
+
 > **Schema version:** 1.0
 > **Status:** Defined. Not yet auto-populated (DatasetCapture.cs not built).
 >

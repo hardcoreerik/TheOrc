@@ -3,6 +3,11 @@
 > **Status:** Transitional. Three advertised boss roles, four execution lanes, alias routing active.
 > Future expansion planned but not yet scheduled.
 
+> **WPF/`.xaml` note:** The "XAML, WPF" UIDEVELOPER scope below reflects the **v1 training
+> corpus**, which targeted TheOrc's WPF codebase (deleted 2026-06-20; the app is now Avalonia).
+> It illustrates the role's *pattern*, not the current UI stack — retargeting the corpus to
+> Avalonia is a separate, deliberate decision.
+
 ---
 
 ## The Two Layers

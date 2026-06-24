@@ -4,6 +4,11 @@
 > high-quality boss-plan training examples. Share this file with any AI or human
 > who is authoring a new prompt tranche. No other project context is required.
 
+> **WPF/`.xaml` note:** The WPF/`MainWindow.xaml` references in the examples below reflect the
+> **v1 training corpus**, which targeted TheOrc's WPF codebase (deleted 2026-06-20; the app is
+> now Avalonia). Treat them as illustrations of the goal-anchoring *pattern*, not the current
+> UI stack — retargeting the corpus to Avalonia is a separate, deliberate decision.
+
 ## What these prompts are for
 
 TheOrc is a Windows-native multi-agent coding IDE. A "boss" model (Gemma 4 12B)
