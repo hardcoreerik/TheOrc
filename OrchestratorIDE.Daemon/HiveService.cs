@@ -107,6 +107,18 @@ public sealed class HiveService : BackgroundService
         {
             var settings = Core.AppSettings.Load();
             var ollama   = new Core.OllamaClient(_cfg.OllamaUrl, settings.Backend);
+
+            // _cfg.CoderModel/ResearcherModel (Hive:CoderModel in appsettings.json/env vars)
+            // take priority -- the only configuration path that works on a headless box with
+            // no settings.json. Falls back to the GUI's own settings for a machine that
+            // happens to have both (e.g. a desktop also running this daemon).
+            var coderModel = !string.IsNullOrWhiteSpace(_cfg.CoderModel)
+                ? _cfg.CoderModel
+                : settings.LastWorkerModel;
+            var researcherModel = !string.IsNullOrWhiteSpace(_cfg.ResearcherModel)
+                ? _cfg.ResearcherModel
+                : settings.LastResearcherModel;
+
             _worker = new HiveWorkerAgent
             {
                 Runtime         = new OllamaRuntime(ollama),
@@ -114,12 +126,13 @@ public sealed class HiveService : BackgroundService
                 WorkerUrl       = _cfg.OllamaUrl,
                 Lanes           = [.. _cfg.WorkerLanes],
                 WarchiefUrl     = _taskQueue.BaseUrl,
-                CoderModel      = settings.LastWorkerModel,
-                ResearcherModel = settings.LastResearcherModel,
+                CoderModel      = coderModel,
+                ResearcherModel = researcherModel,
             };
             _worker.Start();
-            _log.LogInformation("Worker agent started (lanes: {Lanes})",
-                _cfg.WorkerLanes.Count > 0 ? string.Join(",", _cfg.WorkerLanes) : "all");
+            _log.LogInformation("Worker agent started (lanes: {Lanes}, coder model: {CoderModel})",
+                _cfg.WorkerLanes.Count > 0 ? string.Join(",", _cfg.WorkerLanes) : "all",
+                string.IsNullOrWhiteSpace(coderModel) ? "(none configured)" : coderModel);
         }
 
         _log.LogInformation("HIVE daemon ready. Press Ctrl+C to stop.");

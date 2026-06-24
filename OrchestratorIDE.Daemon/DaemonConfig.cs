@@ -36,4 +36,20 @@ public sealed class DaemonConfig
     /// <summary>Enable the worker polling agent (claims and executes remote tasks via Ollama).
     /// Set false to run as a Warchief-only coordinator with no local execution.</summary>
     public bool WorkerMode { get; set; } = true;
+
+    /// <summary>
+    /// Ollama model tag this worker uses for coder-lane tasks. Empty means "use whatever
+    /// Core.AppSettings.Load() (the GUI's own settings.json) has for LastWorkerModel" -- which
+    /// is never populated on a headless box that has no realistic path to ever run the GUI
+    /// (found 2026-06-24 testing on a Raspberry Pi: HiveWorkerAgent throws "no model configured"
+    /// the first time a real task is dispatched, since AppSettings.Load() returns all-defaults
+    /// with no settings.json on disk). Set via "Hive:CoderModel" in appsettings.json or the
+    /// HIVE__CODERMODEL env var -- the same binding mechanism every other DaemonConfig field
+    /// already uses, so a pure-headless deployment never needs the GUI-coupled settings file.
+    /// </summary>
+    public string CoderModel { get; set; } = "";
+
+    /// <summary>Same as <see cref="CoderModel"/> but for researcher-lane tasks. Empty falls
+    /// back the same way.</summary>
+    public string ResearcherModel { get; set; } = "";
 }
