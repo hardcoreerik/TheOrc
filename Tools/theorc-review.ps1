@@ -1,13 +1,29 @@
 # theorc-review.ps1 — TheOrc's own scripted code review, modeled on
-# tools/codex-review.ps1. Sends a structured review prompt to an Ollama
-# model and saves the verdict to .orc\reviews\theorc_<timestamp>.md.
+# tools/codex-review.ps1. Sends a structured review prompt to a local model
+# and saves the verdict to .orc\reviews\theorc_<timestamp>.md.
+#
+# Two backends, selected via -Backend (default: Ollama — unchanged behavior):
+#   Ollama   -> POSTs to $OllamaHost/api/generate (default http://localhost:11434)
+#   LlamaCpp -> POSTs to $LlamaCppHost/v1/chat/completions — the same
+#               OpenAI-compat endpoint OllamaClient.cs already uses for both
+#               backends (default http://127.0.0.1:8080, matching
+#               LlamaServerManager's default port). This script does not
+#               launch llama-server.exe itself — start it first (e.g. via
+#               the app's Settings > native runtime toggle, or manually).
+#               -Model is informational only on this backend: which GGUF is
+#               loaded is decided by whatever LlamaServerManager started.
+# -UseRagAnchor's embeddings call always targets $OllamaHost regardless of
+# -Backend — it's an independent lookup against a separate embedding model
+# (nomic-embed-text), not the completion call this switch controls.
 #
 # Default reviewer model is qwen2.5-coder:14b — strong code understanding,
 # fits in 16 GB VRAM, and is the planned base for the future
 # theorc-reviewer:v1 adapter. Override with -Model.
 #
 # Usage:
-#   tools\theorc-review.ps1                          # review staged changes
+#   tools\theorc-review.ps1                          # review staged changes (Ollama)
+#   tools\theorc-review.ps1 -Backend LlamaCpp        # same, against a running llama-server
+#   tools\theorc-review.ps1 -Backend LlamaCpp -LlamaCppHost "http://newcorepc:8080"
 #   tools\theorc-review.ps1 -Range "HEAD~1..HEAD"    # review a commit range
 #   tools\theorc-review.ps1 -Range "a1b2c3..HEAD" -Focus "WPF bindings"
 #   tools\theorc-review.ps1 -Model qwen2.5-coder:14b -TimeoutSec 600
@@ -15,12 +31,15 @@
 # Output: findings ("BLOCKER file:line — issue" / "MINOR ..." / "CLEAN") on
 # stdout and in .orc\reviews\theorc_<timestamp>.md. Exit codes:
 #   0 = review completed
-#   3 = ollama call failed for any reason (unreachable, HTTP error, timeout)
+#   3 = backend call failed for any reason (unreachable, HTTP error, timeout)
 param(
     [string]$Range      = "",      # git range; empty = staged changes
     [string]$Focus      = "",      # optional extra reviewer attention
     [string]$Model      = "qwen2.5-coder:14b",
-    [string]$OllamaHost = "http://localhost:11434",
+    [ValidateSet("Ollama", "LlamaCpp")]
+    [string]$Backend      = "Ollama",
+    [string]$OllamaHost   = "http://localhost:11434",
+    [string]$LlamaCppHost = "http://127.0.0.1:8080",
     [int]   $TimeoutSec = 600,
     # ── Experimental knobs (B-3b/c/d) ────────────────────────────────────
     # RagAnchor: prepend a single most-similar past Codex review as an
@@ -74,7 +93,7 @@ if (-not $stat) {
     Write-Host "Nothing to review ($(if ($Range) {"empty range $Range"} else {'no staged changes'}))." -ForegroundColor Yellow
     exit 0
 }
-Write-Host "reviewing: $($stat.Trim())  (model: $Model)" -ForegroundColor Cyan
+Write-Host "reviewing: $($stat.Trim())  (backend: $Backend, model: $Model)" -ForegroundColor Cyan
 
 # ── Gather the actual diff text (capped so we don't blow the model's context) ──
 if ($DiffFile) {
@@ -290,6 +309,27 @@ New-Item -ItemType Directory -Force $reviewDir | Out-Null
 $outFile = Join-Path $reviewDir "theorc_$(Get-Date -Format yyyyMMdd_HHmmss).md"
 
 function Invoke-Reviewer($prompt, $temperature) {
+    if ($Backend -eq "LlamaCpp") {
+        # Same /v1/chat/completions shape OllamaClient.cs sends for either
+        # backend (OllamaClient.cs:243-250) -- no num_ctx (that's an Ollama-
+        # only field; llama-server's context size is fixed at server launch
+        # via --ctx-size, not settable per-request).
+        $body = @{
+            model       = $Model
+            messages    = @(@{ role = "user"; content = $prompt })
+            stream      = $false
+            temperature = $temperature
+        } | ConvertTo-Json -Depth 5 -Compress
+        try {
+            $r = Invoke-RestMethod -Uri "$LlamaCppHost/v1/chat/completions" -Method Post `
+                -Body $body -ContentType "application/json" -TimeoutSec $TimeoutSec
+            return ($r.choices[0].message.content ?? "").Trim()
+        } catch {
+            Write-Host "llama.cpp server call failed: $($_.Exception.Message)" -ForegroundColor Red
+            return $null
+        }
+    }
+
     $body = @{
         model   = $Model
         prompt  = $prompt
@@ -391,6 +431,7 @@ if ($rolls -gt 1) {
 }
 
 @("# TheOrc review — $(Get-Date -Format 'yyyy-MM-dd HH:mm')",
+  "Backend: $Backend",
   "Model: $Model",
   "Scope: $(if ($Range) { $Range } else { 'staged changes' })",
   "RAG anchor: $(if ($UseRagAnchor) { 'on' } else { 'off' })",
