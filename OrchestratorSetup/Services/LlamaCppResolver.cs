@@ -30,6 +30,18 @@ namespace OrchestratorSetup.Services;
 /// has no slot for them yet); cuda11/cuda12 on Linux will fail closed (no match -> caller
 /// falls back to the manifest's static URL, which also has no real Linux CUDA entry) until
 /// that's deliberately scoped, not silently pretended to work.
+///
+/// Found 2026-06-24 testing on a real ARM64 Linux box (Raspberry Pi): the "cpu"/"avx2" must-
+/// contain term ("cpu") never matched anything on Linux at all, x64 or arm64 -- Linux's
+/// baseline build carries no backend label in its filename, unlike Windows' explicit
+/// "win-cpu-*.zip". Fixed in TryResolveLatestAsync (OS-conditional must-contain terms).
+/// **Not fixed**: Setup/model-manifest.json's static fallback table (used only if the GitHub
+/// API call above fails) has ZERO Linux entries at all -- every variant value is a "win-"
+/// filename, same gap the "app" manifest key already has for Linux deliberately (see
+/// MULTI_OS_RELEASE_SPEC.md Phase B: "linux key intentionally absent... until [a Linux release
+/// leg] lands"). Extending the static fallback to be OS-keyed (mirroring how the "app" key
+/// already does windows/macos) is a real, separate, larger schema change -- flagged, not done
+/// here alongside a same-day matching-logic bug fix.
 /// </summary>
 public static class LlamaCppResolver
 {
@@ -110,8 +122,23 @@ public static class LlamaCppResolver
 
             var (osTag, extension) = ResolveOsTagAndExtension();
             var archTag = ResolveArchTag();
-            var must = MustContain.GetValueOrDefault(variant, [])
-                .Append(osTag).Append(archTag).Append(extension).ToArray();
+
+            // llama.cpp's Linux ("ubuntu") CPU build carries no backend label at all -- unlike
+            // Windows' explicit "win-cpu-x64.zip"/"win-cpu-arm64.zip", the Linux asset is just
+            // "ubuntu-x64.tar.gz"/"ubuntu-arm64.tar.gz" with zero backend substring (verified
+            // live against the real release, 2026-06-24: gh api .../releases/latest lists both
+            // "llama-bNNNN-bin-ubuntu-x64.tar.gz" and "...-ubuntu-arm64.tar.gz", neither
+            // containing "cpu" anywhere). Requiring the literal "cpu" term there meant this
+            // variant has never matched anything on Linux, on any architecture -- same class of
+            // bug as the avx2->cpu rename noted in this class's doc comment, just OS-specific
+            // instead of time-specific. MustNotContain's cuda/vulkan exclusion already does the
+            // real discriminating work once "cpu" stops being a hard requirement, exactly like
+            // "metal" already needs no extra must-contain term on macOS.
+            var cpuLikeVariant = variant is "cpu" or "avx2";
+            var variantTerms = (osTag == "ubuntu" && cpuLikeVariant)
+                ? []
+                : MustContain.GetValueOrDefault(variant, []);
+            var must = variantTerms.Append(osTag).Append(archTag).Append(extension).ToArray();
             var mustNot = MustNotContain.GetValueOrDefault(variant, []);
 
             // Prefer assets with "cudart-" prefix (self-contained — bundled CUDA runtime)
