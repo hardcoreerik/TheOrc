@@ -25,7 +25,8 @@
                     <TextBlock Text="⬡" FontSize="18" Foreground="#76B900"
                                VerticalAlignment="Center" Margin="0,0,6,0"/>
                     <TextBlock Text="SWARM" FontSize="14" FontWeight="Bold"
-                               Foreground="#76B900" VerticalAlignment="Center"/>
+                               Foreground="#76B900" VerticalAlignment="Center"
+                               AutomationProperties.AutomationId="Panel.SwarmBoard"/>
                     <Border x:Name="BdrStatusChip" Background="#1A1A1A" CornerRadius="4"
                             Padding="8,3" Margin="10,0,0,0">
                         <StackPanel Orientation="Horizontal">
@@ -152,19 +153,23 @@
                                 <Button x:Name="BtnSlot1" Content="1 slot"  Tag="1"
                                         Click="BtnSlot_Click" Padding="16,6" Margin="0,0,6,0"
                                         Background="#1A2A1A" BorderBrush="#2A4A2A" Foreground="#6A9A6A"
-                                        BorderThickness="1" FontSize="12"/>
+                                        BorderThickness="1" FontSize="12"
+                                        AutomationProperties.AutomationId="Swarm.Slot1"/>
                                 <Button x:Name="BtnSlot2" Content="2 slots" Tag="2"
                                         Click="BtnSlot_Click" Padding="16,6" Margin="0,0,6,0"
                                         Background="#1A3A1A" BorderBrush="#3A6A2A" Foreground="#76B900"
-                                        BorderThickness="1" FontSize="12"/>
+                                        BorderThickness="1" FontSize="12"
+                                        AutomationProperties.AutomationId="Swarm.Slot2"/>
                                 <Button x:Name="BtnSlot3" Content="3 slots" Tag="3"
                                         Click="BtnSlot_Click" Padding="16,6" Margin="0,0,6,0"
                                         Background="#1A2A1A" BorderBrush="#2A4A2A" Foreground="#6A9A6A"
-                                        BorderThickness="1" FontSize="12"/>
+                                        BorderThickness="1" FontSize="12"
+                                        AutomationProperties.AutomationId="Swarm.Slot3"/>
                                 <Button x:Name="BtnSlot4" Content="4 slots" Tag="4"
                                         Click="BtnSlot_Click" Padding="16,6"
                                         Background="#1A2A1A" BorderBrush="#2A4A2A" Foreground="#6A9A6A"
-                                        BorderThickness="1" FontSize="12"/>
+                                        BorderThickness="1" FontSize="12"
+                                        AutomationProperties.AutomationId="Swarm.Slot4"/>
                             </StackPanel>
                             <StackPanel x:Name="PnlSlotRestart" Orientation="Horizontal"
                                         Margin="0,8,0,0" IsVisible="False">
@@ -212,7 +217,8 @@
                                            Foreground="#888888" DockPanel.Dock="Right"
                                            VerticalAlignment="Center" Margin="0,0,6,0"/>
                                 <ComboBox x:Name="CbBossModel" FontSize="12"
-                                          SelectionChanged="CbBossModel_SelectionChanged"/>
+                                          SelectionChanged="CbBossModel_SelectionChanged"
+                                          AutomationProperties.AutomationId="Swarm.BossModel"/>
                             </DockPanel>
 
                             <!-- Worker -->
@@ -228,7 +234,8 @@
                                            Foreground="#888888" DockPanel.Dock="Right"
                                            VerticalAlignment="Center" Margin="0,0,6,0"/>
                                 <ComboBox x:Name="CbWorkerModel" FontSize="12"
-                                          SelectionChanged="CbWorkerModel_SelectionChanged"/>
+                                          SelectionChanged="CbWorkerModel_SelectionChanged"
+                                          AutomationProperties.AutomationId="Swarm.WorkerModel"/>
                             </DockPanel>
 
                             <!-- Researcher -->
@@ -244,7 +251,8 @@
                                            Foreground="#888888" DockPanel.Dock="Right"
                                            VerticalAlignment="Center" Margin="0,0,6,0"/>
                                 <ComboBox x:Name="CbResearcherModel" FontSize="12"
-                                          SelectionChanged="CbResearcherModel_SelectionChanged"/>
+                                          SelectionChanged="CbResearcherModel_SelectionChanged"
+                                          AutomationProperties.AutomationId="Swarm.ResearcherModel"/>
                             </DockPanel>
                         </StackPanel>
                     </Border>
@@ -266,7 +274,8 @@
                                         Click="BtnAutoConfig_Click" DockPanel.Dock="Right"
                                         Padding="10,4"
                                         Background="#1A1A2A" BorderBrush="#3A3A5A" Foreground="#8888CC"
-                                        BorderThickness="1" FontSize="11"/>
+                                        BorderThickness="1" FontSize="11"
+                                        AutomationProperties.AutomationId="Swarm.AutoConfig"/>
                             </DockPanel>
                             <TextBlock x:Name="TbHardwareSummary" Text="" FontSize="11"
                                        Foreground="#666666" FontFamily="Consolas"/>
@@ -312,7 +321,8 @@
                                  FontSize="13" Padding="12,10"
                                  MinHeight="80" TextWrapping="Wrap" AcceptsReturn="True"
                                  ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                 PlaceholderText="Describe what you want the swarm to build or fix…"/>
+                                 PlaceholderText="Describe what you want the swarm to build or fix…"
+                                 AutomationProperties.AutomationId="Swarm.GoalInput"/>
                     </Border>
 
                     <!-- Local review + launch -->
@@ -321,7 +331,8 @@
                                 Click="BtnLaunch_Click" DockPanel.Dock="Right"
                                 Padding="20,10"
                                 Background="#1F3D00" BorderBrush="#76B900" Foreground="#76B900"
-                                BorderThickness="1" FontSize="14" FontWeight="Bold"/>
+                                BorderThickness="1" FontSize="14" FontWeight="Bold"
+                                AutomationProperties.AutomationId="Swarm.Launch"/>
                         <StackPanel VerticalAlignment="Center">
                             <DockPanel>
                                 <TextBlock Text="Local review:" FontSize="11"
