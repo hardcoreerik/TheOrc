@@ -51,7 +51,12 @@ public class AppFixture
         TestContext.Progress.WriteLine($"Launching OrchestratorIDE.Avalonia: {exePath}");
 
         _automation = new UIA3Automation();
-        _app        = Application.Launch(exePath);
+        // --autoapprove skips the first-run wizard modal (MainWindow.axaml.cs) -- without it,
+        // any test run on a profile where AppSettings.FirstRunComplete is false (e.g. a fresh
+        // AppData folder, as in CI or right after deleting settings.json) shows a blocking
+        // dialog over MainWindow, and every test that clicks a main-window control silently
+        // fails because the click lands on/behind the modal instead.
+        _app        = Application.Launch(exePath, "--autoapprove");
 
         MainWindow = _app.GetMainWindow(_automation, TimeSpan.FromSeconds(15));
         Assert.That(MainWindow, Is.Not.Null, "Main window did not appear within timeout.");

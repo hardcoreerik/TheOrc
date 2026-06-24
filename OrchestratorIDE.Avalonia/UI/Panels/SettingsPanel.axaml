@@ -127,7 +127,7 @@
                 <StackPanel Classes="SettingRow">
                     <TextBlock Text="Chat backend" Classes="SettingLabel"/>
                     <TextBlock Classes="SettingHint" TextWrapping="Wrap"
-                               Text="Which server OrcChat and the main agent talk to. llama.cpp runs a local llama-server.exe -- no Ollama dependency at all."/>
+                               Text="Which server OrcChat and the main agent talk to. llama.cpp runs a local llama-server process -- no Ollama dependency at all."/>
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                         <RadioButton x:Name="RbBackendOllama" Content="Ollama" GroupName="InferenceBackend"
                                      Foreground="{StaticResource Br.Text.Primary}" Margin="0,0,16,0"
@@ -141,7 +141,7 @@
                 <StackPanel x:Name="PnlLlamaCppSettings" IsVisible="False">
                     <StackPanel Classes="SettingRow">
                         <TextBlock Text="llama-server folder" Classes="SettingLabel"/>
-                        <TextBlock Text="Folder containing llama-server.exe and its runtime DLLs" Classes="SettingHint"/>
+                        <TextBlock Text="Folder containing llama-server (llama-server.exe on Windows) and its runtime libraries" Classes="SettingHint"/>
                         <Grid ColumnDefinitions="*,32">
                             <TextBox x:Name="TbLlamaCppRuntimePath" Grid.Column="0" Classes="SettingInput"/>
                             <Button Grid.Column="1" Content="…" Margin="4,0,0,0"
