@@ -167,6 +167,51 @@ the machine.
   - Root cause: 51% tester_poison in training data (write tasks assigned to TESTER lane)
   - 955 train + 112 eval examples routed to ORC ACADEMY v4 (Tester Worker) seed
 
+### Current Work (2026-06-24, Linux/HARDCOREPI real-hardware verification)
+- **Warband (`theorc-warband`) verified running for real on HARDCOREPI** (Raspberry Pi 4,
+  ARM64 Linux, 1.8 GiB RAM, ssh alias `hardcorepi`) -- refreshed to current master/v1.10.0,
+  paired, serving `/hive/info` correctly, ~82.5 MB RSS (the daemon itself is not what strains
+  this box's RAM).
+- **Real bug found+fixed**: `HiveWorkerAgent` had no way to configure its coder/researcher
+  Ollama model on a headless box -- it only ever read the GUI's `settings.json`, which a
+  Warband never has, so any dispatched task would throw `"Worker: no model configured"`.
+  Added `DaemonConfig.CoderModel`/`ResearcherModel` (`Hive:CoderModel` /
+  `HIVE__CODERMODEL` env var). Verified live via systemd `Environment=` + log line.
+- **Real bug found+fixed**: `LlamaCppResolver`'s "cpu"/"avx2" variant never matched any real
+  Linux asset -- Linux's baseline llama.cpp build carries no "cpu" label in its filename
+  (unlike Windows), so the CPU-fallback runtime download was silently broken for Linux on any
+  architecture since this resolver shipped. Fixed with OS-conditional matching; verified live
+  against the real GitHub API on real ARM64 hardware.
+- **Real bug found+fixed**: `Setup/model-manifest.json`'s static llama.cpp fallback table was
+  a flat, non-OS-keyed map -- a Linux box whose live GitHub API call failed would have
+  silently received a Windows `.zip` filename as its "fallback." Restructured to be OS-keyed
+  (windows/macos/linux, mirroring the `app` key's already-shipped pattern); verified live on
+  real ARM64 hardware via a throwaway probe replicating the exact lookup logic.
+- **Real, previously-unconfirmed positive finding**: the full `OrchestratorIDE.Avalonia` app
+  (not just the daemon) cross-compiles clean for `linux-arm64`, INCLUDING a genuine
+  LLamaSharp CPU-based native backend (`libggml*/libllama.so` resolve correctly after a
+  proper RID-specific restore). Native Runtime's packaging/build side works on Linux ARM64 --
+  only HARDCOREPI's own 1.8 GiB RAM ceiling blocks actually running it there; that's a
+  hardware limit on this specific box, not a code gap. The app/installer have still never
+  actually been launched on real Linux hardware, only build-verified.
+- **Verified clean (no bugs found)**: `LinuxPlatformInstaller.DetectHardwareAsync` and its
+  firewall-detection fallback both behave correctly on real ARM64 hardware (AVX2 correctly
+  reports false, `RuntimeVariant` correctly resolves to `cpu`, XDG paths resolve correctly,
+  firewall absence correctly detected and handled with no elevation prompt attempted).
+- **Real architectural gap found, deliberately NOT worked around (a real open design
+  question, not decided today)**: there is no way, at all, to dispatch a real task to a
+  Warband's worker queue from anywhere -- `HiveTaskQueue` has no remote task-submission
+  endpoint, `HiveWorkerAgent.WarchiefUrl` hardcodes to itself, and `swarmcli` (the tool that
+  normally decomposes a goal and enqueues tasks) is Windows-only by design. A Warband can
+  pair, report health, and (per the model-config fix above) is now correctly configured to
+  execute a task if one ever reached it -- but nothing can make that happen yet.
+- CI publish matrix + Docker template for the Warband binary also shipped today, both
+  validated locally only (no real GitHub Actions run, no live container boot yet) -- see
+  WARBANDS section below for full detail and the specific reason the live-Docker test is
+  still blocked.
+- Full iteration-by-iteration detail: `.grok/LINUX_TEST_PLAN_2026-06-24.md` (local-only, not
+  git-tracked, same default-deny `.grok/` rule as everything except this file).
+
 ### Current Work (2026-06-17, post-v1.8)
 - Suitability gate (suitability_gate.py) — pre-training contamination check; SHIPPED
 - split_v2gold.py — routes v2gold into v3 boss and v4 tester buckets; SHIPPED
@@ -352,7 +397,7 @@ They were shipped but have documented limitations.
 | Tool Editor hot-reload (Roslyn pipeline) | Complex; payoff unclear until tool defs more dynamic |
 | HIVE MIND C2 (RPC model chain) | Groundwork laid; blocked on Phase 3B |
 | "Zero idle chatter" message discipline | No user-visible impact currently |
-| Cross-platform desktop (Mac/Linux) | Avalonia shipped v1.7; WPF deleted 2026-06-20 (Avalonia-only now); not yet verified on real macOS/Linux hardware; Warband (daemon) already cross-platform |
+| Cross-platform desktop (Mac/Linux) | Avalonia shipped v1.7; WPF deleted 2026-06-20 (Avalonia-only now). **Linux update 2026-06-24**: Warband (daemon) verified actually running on real Linux ARM64 hardware (HARDCOREPI); full GUI app + installer are cross-compile-verified clean for linux-arm64 (including a real LLamaSharp native backend) but have never been launched on real Linux hardware -- HARDCOREPI's 1.8 GB RAM can't run the full Avalonia/Skia stack, a hardware limit on that box, not a code gap. macOS: still nothing verified on real hardware, no Mac available to test. |
 | On-platform self-improvement | Gap is auto-generating and auto-judging training goals without human input |
 | Per-role model differentiation within execution lane | Planned for Phase 4 — not yet scheduled |
 
