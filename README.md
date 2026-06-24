@@ -100,6 +100,16 @@ TheOrc is not trying to replace your editor. It's the AI **project runner** that
 
 ---
 
+## What's new in v1.10.0
+
+**OrcChat: uncensored multi-backend chat, built from scratch in C#.** A new chat surface — model-agnostic backend routing, streaming, user-controlled generation params, no frontend content filtering, no injected system prompt by default. Three uncensored Dolphin-line models added to the model catalogs with an UNCENSORED badge (opt-in only, never auto-recommended). Date/time grounding, a persisted system prompt across restarts, a live context-window usage indicator, HIVE node routing to run a chat on a paired machine, and inline image rendering in markdown output (`![alt](src)`, http(s)/data:/local-file, background-thread decode).
+
+**Native runtime: real, working, and now actually reachable.** The in-process LLamaSharp runtime, `ModelDepot`/`SessionManager`/`AdapterManager`/`RuntimeOrchestrator`/`OrcScheduler` VRAM-aware admission control — all of it was already implemented in prior releases, but two real opt-in paths (the llama.cpp server backend, and an experimental native main-chat mode) had zero Settings UI to actually turn them on. Both are now exposed, with automatic fallback to Ollama on any native failure. Verified on real hardware: a genuine CUDA build hit 67.7 tok/s on an RTX 4060, vs. ~6 tok/s CPU-only.
+
+**Found and fixed a real OrcChat bug on the first real end-to-end test against the new backend:** tool definitions were serialized in the wrong wire shape — Ollama silently tolerated it, llama.cpp's stricter OpenAI-compatible server rejected it outright with a 500. Fixed; verified both single-turn and multi-turn conversations now work correctly against a local llama.cpp server with zero Ollama involvement.
+
+**Model downloader hardening.** Downloads now auto-retry with resume on a dropped connection instead of silently stalling. SHA-256 verification — previously implemented but never actually wired up, since nothing fetched a hash to check against — now runs for real using HuggingFace's own LFS metadata, deleting a corrupted download before it gets registered as a usable model.
+
 ## What's new in v1.9.5
 
 **The installer now genuinely targets three OSes, not one.** `OrchestratorSetup` was rewritten from a Windows-only WPF wizard to a cross-platform Avalonia app (Phase 1), with every OS-coupled action — hardware detection, firewall, launchers, uninstall — moved behind one `IPlatformInstaller` interface with real Windows, Linux, and macOS implementations (Phases 2, 4, 5). This release closes the gap those phases left open: nothing upstream of the installer's own logic could actually hand a non-Windows machine a real binary to install. `release.yml` now publishes a macOS (`osx-arm64`) build alongside Windows; the model manifest, the llama.cpp runtime resolver, and three separate spots in the *running app* (the update checker, self-updater, and llama-server launcher) all needed their own fixes — each only ever recognized Windows binary names, which would have shipped a Mac install that completes successfully and then can't update itself or find its own runtime.
