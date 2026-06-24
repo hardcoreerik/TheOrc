@@ -587,7 +587,9 @@ public partial class ModelDownloaderWindow : Window
                 TxtDlStatus.Text = $"Downloading {fileName}...";
             }));
 
-            await _downloader.DownloadAsync(selectedVariant.DownloadUrl, destPath, progress, ct);
+            var retryStatus = new Progress<string>(msg => PostUi(() => TxtDlStatus.Text = msg));
+            await _downloader.DownloadAsync(
+                selectedVariant.DownloadUrl, destPath, progress, ct, onRetry: retryStatus);
 
             if (_isClosed)
                 return;
