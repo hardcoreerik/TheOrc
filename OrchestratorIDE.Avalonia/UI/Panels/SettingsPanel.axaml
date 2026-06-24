@@ -93,6 +93,7 @@
                         FontSize="11" Padding="0,6"/>
                 <Button x:Name="BtnSave" Grid.Column="1" Content="✓  Save"
                         Margin="4,0,0,0" Click="BtnSave_Click"
+                        AutomationProperties.AutomationId="Settings.Save"
                         Background="{StaticResource Br.Bg.Active}"
                         Foreground="{StaticResource Br.Text.White}"
                         FontSize="11" Padding="0,6"/>
@@ -134,7 +135,8 @@
                                      IsChecked="True" IsCheckedChanged="RbBackend_Checked"/>
                         <RadioButton x:Name="RbBackendLlamaCpp" Content="llama.cpp (native)" GroupName="InferenceBackend"
                                      Foreground="{StaticResource Br.Text.Primary}"
-                                     IsCheckedChanged="RbBackend_Checked"/>
+                                     IsCheckedChanged="RbBackend_Checked"
+                                     AutomationProperties.AutomationId="Settings.BackendLlamaCpp"/>
                     </StackPanel>
                 </StackPanel>
 
@@ -143,7 +145,8 @@
                         <TextBlock Text="llama-server folder" Classes="SettingLabel"/>
                         <TextBlock Text="Folder containing llama-server (llama-server.exe on Windows) and its runtime libraries" Classes="SettingHint"/>
                         <Grid ColumnDefinitions="*,32">
-                            <TextBox x:Name="TbLlamaCppRuntimePath" Grid.Column="0" Classes="SettingInput"/>
+                            <TextBox x:Name="TbLlamaCppRuntimePath" Grid.Column="0" Classes="SettingInput"
+                                     AutomationProperties.AutomationId="Settings.LlamaCppRuntimePath"/>
                             <Button Grid.Column="1" Content="…" Margin="4,0,0,0"
                                     Background="{StaticResource Br.Bg.Input}"
                                     Foreground="{StaticResource Br.Text.Primary}"
@@ -155,7 +158,8 @@
                         <TextBlock Text="GGUF model file" Classes="SettingLabel"/>
                         <TextBlock Text="The .gguf file llama-server loads on startup" Classes="SettingHint"/>
                         <Grid ColumnDefinitions="*,32">
-                            <TextBox x:Name="TbLlamaCppModelPath" Grid.Column="0" Classes="SettingInput"/>
+                            <TextBox x:Name="TbLlamaCppModelPath" Grid.Column="0" Classes="SettingInput"
+                                     AutomationProperties.AutomationId="Settings.LlamaCppModelPath"/>
                             <Button Grid.Column="1" Content="…" Margin="4,0,0,0"
                                     Background="{StaticResource Br.Bg.Input}"
                                     Foreground="{StaticResource Br.Text.Primary}"

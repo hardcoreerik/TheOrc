@@ -156,7 +156,7 @@ public class ChatEngine
         await foreach (var token in _runtime.StreamCompletionAsync(
             Model,
             fullHistory,
-            tools,
+            ToWireSchema(tools),
             temperature: Temperature,
             topP:        TopP,
             maxTokens:   4096,
@@ -250,7 +250,7 @@ public class ChatEngine
             await foreach (var token in _runtime.StreamCompletionAsync(
                 Model,
                 PrependSystem(systemMsg),
-                tools,
+                ToWireSchema(tools),
                 temperature: Temperature,
                 topP:        TopP,
                 maxTokens:   4096,
@@ -398,6 +398,19 @@ public class ChatEngine
     /// just the date/time, since that's specifically the case (Open mode, no other
     /// instructions) where a model has zero way to know the date otherwise.
     /// </summary>
+    /// <summary>
+    /// Maps raw ToolDefinitions to the OpenAI/Ollama wire schema (type:"function", nested
+    /// function.{name,description,parameters}) via ToOllamaSchema(). Without this, the runtime
+    /// serializes ToolDefinition's own public properties directly -- a flat shape with no "type"
+    /// field that Ollama's /v1/chat/completions tolerates silently (so this went unnoticed) but
+    /// llama.cpp's stricter OpenAI-compat server rejects outright with a 500 "Missing tool type"
+    /// error. AgentLoop avoids this because it runs tools through SchemaGenerator.GenerateForRole
+    /// first, which calls a per-model-calibrated equivalent; ChatEngine doesn't need that heavier
+    /// per-model format-learning machinery, just the plain correct shape.
+    /// </summary>
+    private static List<object> ToWireSchema(List<ToolDefinition> tools) =>
+        tools.Select(t => t.ToOllamaSchema()).ToList();
+
     private string? ResolveSystemPrompt()
     {
         var basePrompt = SystemPrompt ?? BuildSystemPrompt();

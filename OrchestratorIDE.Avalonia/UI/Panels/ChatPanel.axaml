@@ -200,7 +200,8 @@
                         Padding="14,8" FontSize="12" FontWeight="SemiBold"
                         Margin="10,0,0,0"
                         ToolTip.Tip="Sends this message and adds it to the conversation. The model sees everything said so far, including its own earlier replies — a new message doesn't reset tone or context, only Clear does that."
-                        Click="BtnSend_Click"/>
+                        Click="BtnSend_Click"
+                        AutomationProperties.AutomationId="OrcChat.Send"/>
                 <Border Background="#141814"
                         BorderBrush="#2A3A2A"
                         BorderThickness="1"
@@ -219,7 +220,8 @@
                              AcceptsReturn="True"
                              ScrollViewer.VerticalScrollBarVisibility="Auto"
                              PlaceholderText="Ask me anything… (Enter to send, Shift+Enter for new line)"
-                             KeyDown="TbInput_KeyDown"/>
+                             KeyDown="TbInput_KeyDown"
+                             AutomationProperties.AutomationId="OrcChat.Input"/>
                 </Border>
             </DockPanel>
         </Border>
