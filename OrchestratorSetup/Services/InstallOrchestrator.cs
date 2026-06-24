@@ -569,6 +569,18 @@ public sealed class InstallOrchestrator : IDisposable
         return BuildRuntimeFallbackUrl();
     }
 
+    // Manifest's runtimes.llama_cpp.variants/size_mb are OS-keyed (windows/macos/linux) as of
+    // 2026-06-24, same osKey pattern ResolveAppUrl already uses for the "app" key -- a flat,
+    // non-OS-keyed table couldn't represent that the same variant name (e.g. "cpu") has a
+    // different real filename per OS, so a Linux box whose GitHub API call failed would have
+    // silently received a Windows .zip as its "fallback" (found by reading the actual lookup
+    // code against the manifest's real Linux coverage, not assumed).
+    private static string? RuntimeOsKey()
+        => OperatingSystem.IsWindows() ? "windows"
+         : OperatingSystem.IsMacOS()   ? "macos"
+         : OperatingSystem.IsLinux()   ? "linux"
+         : null;
+
     private string BuildRuntimeFallbackUrl()
     {
         try
@@ -576,13 +588,20 @@ public sealed class InstallOrchestrator : IDisposable
             var json = ReadManifest();
             if (json is null) return DefaultFallbackRuntimeUrl();
 
+            var osKey = RuntimeOsKey();
+            if (osKey is null) return DefaultFallbackRuntimeUrl();
+
             var root        = System.Text.Json.JsonDocument.Parse(json).RootElement;
             var releaseBase = root.GetProperty("runtimes").GetProperty("llama_cpp")
                                   .GetProperty("release_base").GetString() ?? "";
             var variant     = _state.SelectedRuntimeVariant;
-            var filename    = root.GetProperty("runtimes").GetProperty("llama_cpp")
-                                  .GetProperty("variants").GetProperty(variant).GetString() ?? "";
-            return $"{releaseBase}/{filename}";
+            var variants    = root.GetProperty("runtimes").GetProperty("llama_cpp")
+                                  .GetProperty("variants");
+            if (!variants.TryGetProperty(osKey, out var osVariants) ||
+                !osVariants.TryGetProperty(variant, out var filenameProp))
+                return DefaultFallbackRuntimeUrl();
+
+            return $"{releaseBase}/{filenameProp.GetString()}";
         }
         catch { return DefaultFallbackRuntimeUrl(); }
     }
@@ -594,11 +613,18 @@ public sealed class InstallOrchestrator : IDisposable
             var json = ReadManifest();
             if (json is null) return 0;
 
+            var osKey = RuntimeOsKey();
+            if (osKey is null) return 0;
+
             var root    = System.Text.Json.JsonDocument.Parse(json).RootElement;
             var variant = _state.SelectedRuntimeVariant;
             var sizeMb  = root.GetProperty("runtimes").GetProperty("llama_cpp")
-                               .GetProperty("size_mb").GetProperty(variant).GetInt32();
-            return (long)sizeMb * 1_048_576;
+                               .GetProperty("size_mb");
+            if (!sizeMb.TryGetProperty(osKey, out var osSizes) ||
+                !osSizes.TryGetProperty(variant, out var sizeProp))
+                return 0;
+
+            return (long)sizeProp.GetInt32() * 1_048_576;
         }
         catch { return 0; }
     }
@@ -606,6 +632,12 @@ public sealed class InstallOrchestrator : IDisposable
     private static string? ReadManifest()
         => EmbeddedResources.ReadManifestJson();
 
+    // Windows-only by necessity, not by oversight: this is the very last resort, reached only
+    // when BOTH the live GitHub API call AND the OS-keyed manifest lookup above have failed --
+    // at that point there's no real per-OS data left to consult at all. Returning a Windows
+    // asset here on Linux/macOS is no worse than returning nothing; the install step that
+    // calls this already treats the result as "best effort," and every caller already handles
+    // a non-matching/garbage download failing the subsequent extract step rather than crashing.
     private static string DefaultFallbackRuntimeUrl()
         => "https://github.com/ggml-org/llama.cpp/releases/latest/download/" +
            "cudart-llama-bin-win-cuda-12.4-x64.zip";

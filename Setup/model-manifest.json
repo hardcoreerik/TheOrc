@@ -18,24 +18,42 @@
 
   "runtimes": {
     "llama_cpp": {
-      "_comment": "Static fallback URLs only. The installer calls the GitHub releases API first to get the actual latest asset URLs dynamically (LlamaCppResolver.cs, OS+arch-aware as of MULTI_OS_RELEASE_SPEC.md Phase D) — these values are only used if that API call fails. The 'cudart-' prefix on Windows CUDA variants means the CUDA runtime DLLs are bundled so no separate CUDA install is needed. macOS ships one unified 'metal' build per architecture (no CUDA/Vulkan-equivalent split needed -- Metal is always available); filenames/sizes here verified against the real current release (`gh api repos/ggml-org/llama.cpp/releases/latest`, 2026-06-21), not guessed. Linux real coverage today is vulkan/cpu only -- no plain CUDA build exists in the current release (ROCm/SYCL exist but this manifest's variant taxonomy has no slot for them yet); cuda11/cuda12 fallback URLs below are Windows-only and intentionally not given Linux equivalents that don't exist.",
+      "_comment": "Static fallback URLs only. The installer calls the GitHub releases API first to get the actual latest asset URLs dynamically (LlamaCppResolver.cs, OS+arch-aware as of MULTI_OS_RELEASE_SPEC.md Phase D) — these values are only used if that API call fails. OS-keyed as of 2026-06-24 (mirroring the 'app' key's windows/macos/no-linux-yet pattern from Phase B) -- the previous flat, non-OS-keyed table couldn't represent that the SAME variant name (e.g. 'cpu') has a DIFFERENT real filename per OS; InstallOrchestrator.BuildRuntimeFallbackUrl/GetRuntimeSizeBytes picked whatever was under that flat key regardless of the running OS, so a Linux box whose GitHub API call failed would have silently received a Windows .zip as its 'fallback'. Filenames/sizes verified live (`gh api repos/ggml-org/llama.cpp/releases/latest`, 2026-06-24) for every OS below, not guessed -- this also caught the existing Windows vulkan/avx2/cpu entries already being stale (missing the 'bNNNN-' build-number segment every non-cudart asset actually carries; this snapshot is only ever as fresh as its last manual edit, same staleness risk this comment's first sentence already accepts). The 'cudart-' prefix on Windows CUDA variants means the CUDA runtime DLLs are bundled so no separate CUDA install is needed -- llama.cpp keeps 'cudart-' filenames free of the build-number segment, unlike every other asset. macOS ships one unified 'metal' build per architecture (no CUDA/Vulkan-equivalent split needed -- Metal is always available). Linux real coverage today is vulkan/cpu only -- no plain CUDA build exists in the current release (ROCm/SYCL/OpenVINO exist but this manifest's variant taxonomy has no slot for them yet); cuda11/cuda12 intentionally have no linux key at all, not a null placeholder, so a lookup miss is the correct fail-closed signal rather than a fabricated empty value.",
       "version": "latest",
       "release_base": "https://github.com/ggml-org/llama.cpp/releases/latest/download",
       "variants": {
-        "cuda12":  "cudart-llama-bin-win-cuda-12.4-x64.zip",
-        "cuda11":  "cudart-llama-bin-win-cuda-11.7-x64.zip",
-        "vulkan":  "llama-bin-win-vulkan-x64.zip",
-        "avx2":    "llama-bin-win-cpu-x64.zip",
-        "cpu":     "llama-bin-win-cpu-x64.zip",
-        "metal":   "llama-bin-macos-arm64.tar.gz"
+        "windows": {
+          "cuda12":  "cudart-llama-bin-win-cuda-12.4-x64.zip",
+          "cuda11":  "cudart-llama-bin-win-cuda-11.7-x64.zip",
+          "vulkan":  "llama-b9781-bin-win-vulkan-x64.zip",
+          "avx2":    "llama-b9781-bin-win-cpu-x64.zip",
+          "cpu":     "llama-b9781-bin-win-cpu-x64.zip"
+        },
+        "macos": {
+          "metal":   "llama-b9781-bin-macos-arm64.tar.gz"
+        },
+        "linux": {
+          "vulkan":  "llama-b9781-bin-ubuntu-vulkan-x64.tar.gz",
+          "avx2":    "llama-b9781-bin-ubuntu-x64.tar.gz",
+          "cpu":     "llama-b9781-bin-ubuntu-x64.tar.gz"
+        }
       },
       "size_mb": {
-        "cuda12": 220,
-        "cuda11": 180,
-        "vulkan":  55,
-        "avx2":    25,
-        "cpu":     25,
-        "metal":   10
+        "windows": {
+          "cuda12": 220,
+          "cuda11": 180,
+          "vulkan":  31,
+          "avx2":    17,
+          "cpu":     17
+        },
+        "macos": {
+          "metal":   11
+        },
+        "linux": {
+          "vulkan":  30,
+          "avx2":    15,
+          "cpu":     15
+        }
       },
       "hardware_selection": {
         "_comment": "Documentation only -- not parsed/consumed by any C# code today (HardwareDetector/MacPlatformInstaller/LinuxPlatformInstaller each pick RuntimeVariant directly, not via this map). Kept as a reference for the actual decision logic, not a load-bearing config surface.",
