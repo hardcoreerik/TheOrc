@@ -388,3 +388,221 @@ jobs:
             publish/setup/OrchestratorSetup
             publish/app/OrchestratorIDE
             publish/TheOrc-${{ steps.ver.outputs.VERSION }}-osx-arm64-portable.tar.gz
+
+  # ── Warband (theorc-warband, OrchestratorIDE.Daemon) — separate, additive job ──────
+  # docs/ROADMAP.md WARBANDS table: "CI publish matrix for linux-x64 + osx-arm64 Warband
+  # binaries | v1.9 / v2.0" -- listed pending, not yet built. Kept as its own job rather than
+  # folding into the `release` matrix above: the Warband is small, lightweight, and has no
+  # Avalonia/native-runtime dependency at all (deliberately decoupled, see
+  # OrchestratorIDE.Daemon's own csproj history) -- a Linux runner only ever needs to build
+  # this one binary, not the full app+installer+portable-archive pipeline above, and keeping
+  # it separate means zero risk of touching the `release` job's already-shipped, already-
+  # working conditional logic for a release that just went out successfully (v1.10.0).
+  #
+  # Real ARM64 Linux hardware was the actual test target all day (a Raspberry Pi 4,
+  # cross-compiled and deployed manually) -- this job intentionally matches the ROADMAP table's
+  # literal scope (linux-x64 + osx-arm64) rather than adding linux-arm64 unprompted; widening
+  # the matrix to cover real Pi-class hardware via CI is a separate decision, not bundled here.
+  #
+  # Same `concurrency.group` value as the `release` job above (not a typo/copy-paste) --
+  # GitHub Actions serializes ALL jobs sharing a concurrency group across an entire workflow
+  # run, not just within one job's own matrix. Reusing it here means this job's
+  # action-gh-release calls can never race the release job's calls for the same tag, the exact
+  # class of bug already found and fixed once for the two existing legs (grok review BLOCKER,
+  # 2026-06-21, see the comment on the `release` job above).
+  #
+  # **Not yet tested against a real GitHub Actions run** -- validated via local YAML syntax
+  # checking only, same as Phase A's own macOS leg was before its first real tag push (see
+  # docs/MULTI_OS_RELEASE_SPEC.md Phase A's own "not yet tested" note). First real test happens
+  # whenever the next tag gets pushed; ask before pushing a tag specifically to test this.
+  warband:
+    name: Build & Release Warband (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+
+    concurrency:
+      group: release-${{ github.ref }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: macos-latest
+            rid: osx-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="${{ github.event.inputs.tag }}"
+          else
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
+          ver="${tag#v}"
+
+          if ! [[ "$ver" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?(\.[0-9]+)?$ ]]; then
+            echo "Tag '$tag' does not look like a version number." >&2
+            exit 1
+          fi
+
+          echo "TAG=$tag" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$ver" >> "$GITHUB_OUTPUT"
+          echo "PRERELEASE=${{ github.event.inputs.prerelease || 'false' }}" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag  version=$ver"
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore OrchestratorIDE.Daemon/OrchestratorIDE.Daemon.csproj --runtime ${{ matrix.rid }}
+
+      - name: Publish theorc-warband
+        shell: bash
+        run: |
+          ver='${{ steps.ver.outputs.VERSION }}'
+          dotnet publish OrchestratorIDE.Daemon/OrchestratorIDE.Daemon.csproj \
+            --configuration Release \
+            --runtime ${{ matrix.rid }} \
+            --self-contained \
+            --no-restore \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:DebugType=none \
+            -p:DebugSymbols=false \
+            -p:Version=$ver \
+            -p:AssemblyVersion=$ver \
+            -p:FileVersion=$ver \
+            --output publish/warband
+          chmod +x publish/warband/theorc-warband
+
+      # tar.gz, not zip -- same reasoning as the app/installer portable archive above: needs
+      # to preserve the Unix executable bit through extraction, and this binary has none of
+      # the app/installer's Windows-only audience to also serve.
+      - name: Create portable archive
+        shell: bash
+        run: |
+          ver='${{ steps.ver.outputs.VERSION }}'
+          tarball="publish/theorc-warband-$ver-${{ matrix.rid }}.tar.gz"
+          tar -czf "$tarball" -C publish/warband theorc-warband
+          echo "Created $tarball"
+
+      - name: Verify assets
+        shell: bash
+        run: |
+          ver='${{ steps.ver.outputs.VERSION }}'
+          required=(
+            "publish/warband/theorc-warband"
+            "publish/theorc-warband-$ver-${{ matrix.rid }}.tar.gz"
+          )
+          for f in "${required[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "Missing required asset: $f" >&2
+              exit 1
+            fi
+          done
+          echo "All required assets present."
+
+      # Same body_path-every-time approach as the release job's two legs, deliberately not
+      # omitted -- softprops/action-gh-release's documented append-on-existing-release
+      # behavior when body/body_path IS provided is already proven by the release job above;
+      # relying on its undocumented-here behavior for an OMITTED body on a brand new job
+      # instead of reusing the exact same proven pattern is an avoidable risk for a job that's
+      # never had a real run yet.
+      - name: Build release notes
+        id: notes
+        shell: bash
+        run: |
+          ver='${{ steps.ver.outputs.VERSION }}'
+          tag='${{ steps.ver.outputs.TAG }}'
+
+          header="## What's new in v$ver"
+          whatsNew=$(awk -v hdr="$header" '
+            $0 == hdr { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' README.md | sed -e 's/[[:space:]]*$//' )
+
+          prevTag=$(git describe --tags --abbrev=0 "$tag^" 2>/dev/null || true)
+          compareLink=""
+          if [ -n "$prevTag" ]; then
+            compareLink="**Full changelog:** [$prevTag...$tag](https://github.com/hardcoreerik/TheOrc/compare/$prevTag...$tag)"
+          fi
+
+          cat > release-notes.md <<EOF
+          <div align="center">
+          <img src="https://raw.githubusercontent.com/hardcoreerik/TheOrc/master/Assets/release.png" width="480" alt="TheOrc — Build Complete"/>
+          </div>
+
+          ## TheOrc $tag
+
+          > 100% local AI coding assistant — no cloud, no subscriptions, no data leaving your machine.
+
+          ---
+
+          ### What's new in $tag
+
+          $whatsNew
+
+          ---
+
+          ### 🪟 Windows — one-click install (recommended)
+          1. Download **OrchestratorSetup.exe** below
+          2. Run it — the wizard detects your GPU, downloads the right runtime and model, configures everything
+          3. Launch from the Desktop shortcut or Start Menu
+
+          **Portable**: download \`TheOrc-$ver-win-x64-portable.zip\` instead — contains both \`OrchestratorIDE.exe\` and \`OrchestratorSetup.exe\`, extract both to the same folder, run \`OrchestratorIDE.exe\`.
+
+          ### 🍎 macOS (Apple Silicon)
+          1. Download **OrchestratorSetup** below (no extension)
+          2. In Terminal: \`chmod +x OrchestratorSetup && ./OrchestratorSetup\`
+          3. **First launch will show a Gatekeeper warning** ("cannot be opened because the developer cannot be verified") — this build isn't code-signed yet. Right-click the file → Open, or run \`xattr -d com.apple.quarantine OrchestratorSetup\` first.
+          4. The wizard detects your hardware, downloads the right runtime and model, configures everything
+
+          **Portable**: download \`TheOrc-$ver-osx-arm64-portable.tar.gz\` instead — \`tar -xzf\` it, both binaries are already executable.
+
+          Intel Macs (\`osx-x64\`) aren't built yet — only Apple Silicon.
+
+          ### 🐝 Warband (headless HIVE node, no GUI)
+          Deploy \`theorc-warband\` on any machine you want to join your HIVE without opening the
+          full app — a cloud box, a home-lab server, a Raspberry Pi. Download the binary for your
+          OS below, \`chmod +x theorc-warband\`, then either run it directly or set it up as a
+          systemd service (Linux) / launchd agent (macOS) so it survives reboots. See
+          \`--show-identity\` and \`--pair --target <host> --expect-fingerprint "<phrase>"\` for
+          joining an existing HIVE headlessly.
+
+          ### 🖥️ System requirements
+          | | |
+          |---|---|
+          | **OS** | Windows 10/11 (x64) · macOS (Apple Silicon) |
+          | **.NET** | Not required — fully self-contained |
+          | **GPU** | NVIDIA RTX (CUDA 12) · AMD (Vulkan) · Apple Silicon (Metal) · CPU-only (AVX2 / baseline) |
+          | **RAM** | 8 GB minimum · 16 GB recommended |
+
+          ---
+
+          $compareLink
+
+          *Built from \`$tag\` · .NET 10 · [Source](https://github.com/hardcoreerik/TheOrc) · [Support the Orc ☕](https://ko-fi.com/hardcoreerik)*
+          EOF
+          echo "Release notes written"
+
+      - name: Create GitHub Release (Warband asset)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name:   ${{ steps.ver.outputs.TAG }}
+          name:       "TheOrc ${{ steps.ver.outputs.TAG }}"
+          prerelease: ${{ steps.ver.outputs.PRERELEASE == 'true' }}
+          body_path:  release-notes.md
+          files: |
+            publish/warband/theorc-warband
+            publish/theorc-warband-${{ steps.ver.outputs.VERSION }}-${{ matrix.rid }}.tar.gz
