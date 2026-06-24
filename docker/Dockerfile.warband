@@ -1,0 +1,26 @@
+# theorc-warband container image. Expects a self-contained, single-file published binary
+# named "theorc-warband" already sitting next to this Dockerfile -- produced exactly the same
+# way .github/workflows/release.yml's "warband" CI job already builds it:
+#
+#   dotnet publish OrchestratorIDE.Daemon/OrchestratorIDE.Daemon.csproj \
+#     --configuration Release --runtime linux-x64 --self-contained \
+#     -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
+#     --output docker/
+#
+# (swap --runtime linux-arm64 for an arm64 host, e.g. a Raspberry Pi.)
+#
+# runtime-deps (not the full sdk/aspnet/runtime image) provides only the native OS libraries
+# (libicu, libssl, zlib) a self-contained .NET app still needs from the host OS -- the managed
+# runtime itself is already bundled into the binary via --self-contained, so installing the
+# full dotnet/runtime image here would duplicate it for no benefit and a much larger image.
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0
+
+WORKDIR /app
+COPY theorc-warband ./theorc-warband
+RUN chmod +x ./theorc-warband
+
+# HiveNodeServer (peer API/pairing) and HiveTaskQueue (Warchief task queue) -- see
+# .grok/WARBANDS.md "What a Warband runs" for the full six-service list booted at startup.
+EXPOSE 7078 7079
+
+ENTRYPOINT ["./theorc-warband"]

@@ -1,0 +1,48 @@
+# theorc-warband Docker Compose template -- "current shape" per .grok/WARBANDS.md: a Warband
+# needs an Ollama sidecar until LLamaSharpRuntime (Native Runtime Phase 2) ships as the
+# deployment default (see RUNTIME_PHASE0_SPEC.md Section 11 -- that shape eliminates this
+# sidecar entirely, mounting a GGUF directly, but isn't shipped yet). This template matches
+# what actually works today, not the future shape.
+#
+# Quick start:
+#   1. Publish the binary into this folder (see Dockerfile.warband's header comment for the
+#      exact dotnet publish command -- same one .github/workflows/release.yml's "warband" CI
+#      job already runs).
+#   2. docker compose -f warband.compose.yml up -d
+#
+# First run builds the warband image locally (no GHCR/Docker Hub image is published yet --
+# docs/ROADMAP.md WARBANDS table, separate pending item) and pulls the Ollama image. Both
+# containers start; the warband serves /hive/info on port 7078 once up, and polls its own
+# (self-pointing) task queue on 7079.
+services:
+  warband:
+    build:
+      context: .
+      dockerfile: Dockerfile.warband
+    image: theorc-warband:latest
+    restart: unless-stopped
+    environment:
+      - Hive__NodeName=warband-1
+      - Hive__OllamaUrl=http://ollama:11434
+    ports:
+      - "7078:7078"
+      - "7079:7079"
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+    # Uncomment for GPU access on a host with the NVIDIA Container Toolkit installed -- left
+    # commented so this template also works as-is on a CPU-only host (e.g. a Raspberry Pi,
+    # today's real verification target).
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - capabilities: [gpu]
+
+volumes:
+  ollama_models:
