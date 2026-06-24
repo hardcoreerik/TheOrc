@@ -125,10 +125,66 @@ public sealed class ModelStatusService : IDisposable
                 BossModel    = "",
                 WorkerLoaded = true,
                 BossLoaded   = false,
-                TokensPerSec = props.TotalSlots > 0 ? props.TotalSlots * 2 : 0,  // rough estimate
+                TokensPerSec = await ReadPredictedTokensPerSecondAsync(baseUrl),
+                TotalVramMb  = ReadGpuVramUsedMb(),
             };
         }
         catch { return null; }
+    }
+
+    /// <summary>
+    /// Reads the real generation speed of the last completion from llama-server's
+    /// Prometheus /metrics endpoint (requires --metrics, see LlamaServerManager.BuildArgs).
+    /// Returns 0 if the endpoint is unavailable or no generation has happened yet.
+    /// </summary>
+    private async Task<double> ReadPredictedTokensPerSecondAsync(string baseUrl)
+    {
+        try
+        {
+            var text = await _http.GetStringAsync($"{baseUrl}/metrics");
+            foreach (var line in text.Split('\n'))
+            {
+                if (!line.StartsWith("llamacpp:predicted_tokens_seconds", StringComparison.Ordinal))
+                    continue;
+                var spaceIdx = line.LastIndexOf(' ');
+                if (spaceIdx < 0) continue;
+                if (double.TryParse(line[(spaceIdx + 1)..].Trim(),
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var tps))
+                    return tps;
+            }
+        }
+        catch { /* /metrics not enabled or server not up yet — report 0, not a guess */ }
+        return 0;
+    }
+
+    /// <summary>
+    /// Real VRAM-in-use via nvidia-smi, same source TrainingPitPanel's VRAM meter uses.
+    /// Reports total GPU memory in use system-wide (not just this process) since llama-server
+    /// doesn't expose its own VRAM footprint — closest equivalent to Ollama's per-model figure.
+    /// </summary>
+    private static int ReadGpuVramUsedMb()
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName               = "nvidia-smi",
+                Arguments              = "--query-gpu=memory.used --format=csv,noheader,nounits",
+                UseShellExecute        = false,
+                RedirectStandardOutput = true,
+                CreateNoWindow         = true,
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            var line = p?.StandardOutput.ReadLine();
+            p?.WaitForExit(3000);
+            if (line is not null &&
+                int.TryParse(line.Trim(), System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out var usedMb))
+                return usedMb;
+        }
+        catch { /* no nvidia-smi (no NVIDIA GPU, or not on PATH) — report 0 */ }
+        return 0;
     }
 
     // ── JSON DTOs ─────────────────────────────────────────────────────────────
