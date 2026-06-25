@@ -119,20 +119,39 @@ public sealed class HiveService : BackgroundService
                 ? _cfg.ResearcherModel
                 : settings.LastResearcherModel;
 
+            // _cfg.WarchiefUrl (Hive:WarchiefUrl) lets this node's worker poll a REMOTE
+            // Warchief's queue instead of only ever its own -- previously hardcoded to
+            // _taskQueue.BaseUrl with no way to configure otherwise. Same optional-empty-
+            // string fallback shape as coderModel/researcherModel above.
+            //
+            // The self case points at loopback, NOT _taskQueue.BaseUrl (which is the LAN IP):
+            // the worker polling its own queue is a same-machine call, and hitting 127.0.0.1
+            // makes HttpListenerRequest.IsLocal reliably true regardless of how the OS routes a
+            // host's connection to its own LAN IP -- which is what lets the queue's local-trust
+            // exemption (HiveTaskQueue.HandleAsync) accept the self-poll that otherwise can't be
+            // HMAC-signed (a node has no shared secret with itself). The wildcard "+" bind
+            // already listens on loopback too, so this always reaches the same queue.
+            var warchiefUrl = !string.IsNullOrWhiteSpace(_cfg.WarchiefUrl)
+                ? _cfg.WarchiefUrl
+                : $"http://127.0.0.1:{_cfg.TaskQueuePort}";
+
             _worker = new HiveWorkerAgent
             {
                 Runtime         = new OllamaRuntime(ollama),
                 WorkerId        = _cfg.NodeName,
                 WorkerUrl       = _cfg.OllamaUrl,
                 Lanes           = [.. _cfg.WorkerLanes],
-                WarchiefUrl     = _taskQueue.BaseUrl,
+                WarchiefUrl     = warchiefUrl,
+                WarchiefNodeId  = _cfg.WarchiefNodeId,
                 CoderModel      = coderModel,
                 ResearcherModel = researcherModel,
             };
             _worker.Start();
-            _log.LogInformation("Worker agent started (lanes: {Lanes}, coder model: {CoderModel})",
+            _log.LogInformation(
+                "Worker agent started (lanes: {Lanes}, coder model: {CoderModel}, warchief: {WarchiefUrl})",
                 _cfg.WorkerLanes.Count > 0 ? string.Join(",", _cfg.WorkerLanes) : "all",
-                string.IsNullOrWhiteSpace(coderModel) ? "(none configured)" : coderModel);
+                string.IsNullOrWhiteSpace(coderModel) ? "(none configured)" : coderModel,
+                string.IsNullOrWhiteSpace(_cfg.WarchiefUrl) ? "self (loopback)" : warchiefUrl);
         }
 
         _log.LogInformation("HIVE daemon ready. Press Ctrl+C to stop.");

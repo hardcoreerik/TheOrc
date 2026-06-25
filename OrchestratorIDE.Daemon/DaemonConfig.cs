@@ -52,4 +52,30 @@ public sealed class DaemonConfig
     /// <summary>Same as <see cref="CoderModel"/> but for researcher-lane tasks. Empty falls
     /// back the same way.</summary>
     public string ResearcherModel { get; set; } = "";
+
+    // ── Remote dispatch ───────────────────────────────────────────────────────
+    /// <summary>
+    /// Base URL of a remote Warchief's HiveTaskQueue (e.g. "http://192.168.1.10:7079") this
+    /// node's worker should poll instead of its own local queue. Empty (default) means "poll
+    /// myself" -- HiveService wires this node's own _taskQueue.BaseUrl, exactly as it always
+    /// has. Set via "Hive:WarchiefUrl" / HIVE__WARCHIEFURL, same binding mechanism as
+    /// <see cref="CoderModel"/>.
+    ///
+    /// Before this, HiveService always hardcoded WarchiefUrl to the node's own queue -- there
+    /// was no way to configure a Warband to join an existing Warchief's swarm and pull tasks
+    /// from it, only to run as a fully self-contained, self-pointing node. This is the half of
+    /// "no way exists to remotely dispatch a task to a Warband" that lived on the pull side
+    /// (the other half, the missing submit endpoint, is HiveTaskQueue's new POST
+    /// /hive/tasks/submit).
+    /// </summary>
+    public string WarchiefUrl { get; set; } = "";
+
+    /// <summary>
+    /// Optional NodeId of the Warchief at <see cref="WarchiefUrl"/>, used by
+    /// HiveWorkerAgent.SignIfPaired for a direct HivePeerStore lookup. Safe to leave empty --
+    /// SignIfPaired already falls back to matching the peer by hostname when this is unset, so
+    /// this only needs setting if hostname-based lookup is ambiguous (e.g. multiple peers
+    /// resolve to similar hostnames).
+    /// </summary>
+    public string WarchiefNodeId { get; set; } = "";
 }

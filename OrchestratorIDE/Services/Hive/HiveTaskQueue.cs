@@ -25,6 +25,8 @@ namespace OrchestratorIDE.Services.Hive;
 ///
 /// Endpoint map (all under /hive/):
 ///   GET  /hive/tasks/next?lanes=researcher,coder   → next claimable bundle (204 if empty)
+///   POST /hive/tasks/submit                        → remotely submit a new task (202 + taskId)
+///   GET  /hive/tasks/{id}                          → single-task status/result lookup
 ///   POST /hive/tasks/{id}/claim                    → atomic claim (409 if already claimed)
 ///   POST /hive/tasks/{id}/heartbeat                → keep-alive signal
 ///   POST /hive/tasks/{id}/complete                 → submit result (409 if stale worker)
@@ -33,6 +35,11 @@ namespace OrchestratorIDE.Services.Hive;
 ///   GET  /hive/session/context                     → session context for workers
 ///   POST /hive/events                              → worker pushes a lifecycle event
 ///   GET  /hive/events?since=&lt;seq&gt;               → poll events after seq (-1 = tail)
+///
+/// POST /hive/tasks/submit (added 2026-06-24) closes a real gap: previously the ONLY way a
+/// task ever entered this queue was SwarmSession calling EnqueueAndWaitAsync() in-process —
+/// there was no way to remotely dispatch a task to a Warband from anywhere. Same auth gate as
+/// every other endpoint here (enrolled peers only, fail-closed); no new trust mechanism.
 /// </summary>
 public sealed class HiveTaskQueue : IDisposable
 {
@@ -60,6 +67,13 @@ public sealed class HiveTaskQueue : IDisposable
         /// result is from a stale/re-queued worker and is rejected with 409.
         /// </summary>
         public string                               ClaimToken    { get; set; } = "";
+
+        /// <summary>Set on completion so GET /hive/tasks/{id} can return the result to a
+        /// remote submitter — the TCS alone only reaches the in-process EnqueueAndWaitAsync
+        /// awaiter, not an external HTTP poller.</summary>
+        public string?                              ResultText    { get; set; }
+        /// <summary>Set on failure, same reasoning as <see cref="ResultText"/>.</summary>
+        public string?                              ErrorMsg      { get; set; }
 
         public TaskCompletionSource<HiveTaskResult?> CompletionTcs { get; init; } = new();
     }
@@ -194,17 +208,9 @@ public sealed class HiveTaskQueue : IDisposable
     public async Task<HiveTaskResult?> EnqueueAndWaitAsync(
         string taskId, HiveTaskBundle bundle, CancellationToken ct)
     {
-        var entry = new QueuedTask { Bundle = bundle, SessionId = _sessionCtx.SessionId };
-        if (!_tasks.TryAdd(taskId, entry))
-            throw new InvalidOperationException($"Task {taskId} already in queue");
-
-        Events.Append("task_queued", $"[{bundle.Role}] {bundle.Title}",
-            taskId, sessionId: _sessionCtx.SessionId);
-
-        // Durable history: the Warchief's own enqueue is local (not authenticated, no node).
-        PersistTask(taskId, entry.SessionId, bundle.Role, bundle.Title, "pending",
-            authNode: null, worker: null, authenticated: false, claimToken: null,
-            resultBlob: null, durationMs: null, errorMsg: null, entry.EnqueuedAt);
+        // The Warchief's own enqueue is local (not authenticated, no node) — same as before
+        // this was extracted into EnqueueCore.
+        var entry = EnqueueCore(taskId, bundle, authenticated: false, authNode: null);
 
         // Session stop cancels all waits immediately
         using var reg = ct.Register(() => entry.CompletionTcs.TrySetResult(null));
@@ -213,6 +219,40 @@ public sealed class HiveTaskQueue : IDisposable
         // needed here; the watchdog fires every 10s and resolves TCS with null when
         // the task has been pending > PendingTimeoutSec with no claim.
         return await entry.CompletionTcs.Task;
+    }
+
+    /// <summary>
+    /// Submits a new task WITHOUT waiting for completion — backs POST /hive/tasks/submit.
+    /// The remote caller polls GET /hive/tasks/{id} (or /tasks/status) for the result; this
+    /// queue's existing claim/heartbeat/complete/watchdog lifecycle handles everything else
+    /// identically to a task enqueued via EnqueueAndWaitAsync. Generates its own TaskId since
+    /// an external submitter has no reason to know the queue's ID scheme.
+    /// </summary>
+    private string EnqueueRemote(HiveTaskBundle bundle, string? authNode)
+    {
+        var taskId = Guid.NewGuid().ToString("N");
+        bundle.TaskId = taskId;
+        EnqueueCore(taskId, bundle, authenticated: true, authNode);
+        return taskId;
+    }
+
+    /// <summary>Shared by EnqueueAndWaitAsync and EnqueueRemote — adds to the queue, logs the
+    /// lifecycle event, and persists durable-history provenance. Does not touch CompletionTcs;
+    /// callers that need to block on it do so themselves (EnqueueAndWaitAsync only).</summary>
+    private QueuedTask EnqueueCore(string taskId, HiveTaskBundle bundle, bool authenticated, string? authNode)
+    {
+        var entry = new QueuedTask { Bundle = bundle, SessionId = _sessionCtx.SessionId };
+        if (!_tasks.TryAdd(taskId, entry))
+            throw new InvalidOperationException($"Task {taskId} already in queue");
+
+        Events.Append("task_queued", $"[{bundle.Role}] {bundle.Title}",
+            taskId, sessionId: _sessionCtx.SessionId);
+
+        PersistTask(taskId, entry.SessionId, bundle.Role, bundle.Title, "pending",
+            authNode, worker: null, authenticated, claimToken: null,
+            resultBlob: null, durationMs: null, errorMsg: null, entry.EnqueuedAt);
+
+        return entry;
     }
 
     /// <summary>Cancels all pending tasks (called on SwarmSession.Stop()).</summary>
@@ -282,9 +322,20 @@ public sealed class HiveTaskQueue : IDisposable
                 body = ms.ToArray();
             }
 
-            // All task-queue endpoints require an enrolled peer — no grace period.
-            // Workers sign outbound requests via HiveWorkerAgent.SignIfPaired().
-            var authResult = _auth.Validate(req, body);
+            // Same-machine callers are implicitly trusted and exempt from HMAC: the in-process
+            // worker polling its OWN queue (warchief: self) has no peer record for itself and
+            // therefore no shared secret to sign with, so without this it could never claim a
+            // task from the very node it runs on (found 2026-06-24 testing remote dispatch to a
+            // Raspberry Pi: a remotely-submitted task authenticated and enqueued fine, then sat
+            // unclaimed forever because the local worker's self-poll was rejected 401). A process
+            // on this box already has full local access, so trusting loopback adds no privilege.
+            // req.IsLocal is the exact same trusted-local check HiveNodeServer already uses to
+            // gate POST /hive/pair/{id}/respond. Remote callers (a different LAN/Tailscale
+            // machine) still require an enrolled-peer signature, unchanged — verified: a real
+            // cross-machine /hive/tasks/submit still goes through full HMAC validation below.
+            var authResult = req.IsLocal
+                ? HiveAuthResult.Authenticated("local")
+                : _auth.Validate(req, body);
             if (!authResult.Ok)
             {
                 ctx.Response.StatusCode = 401;
@@ -297,6 +348,9 @@ public sealed class HiveTaskQueue : IDisposable
 
             if (method == "GET"  && path == "/hive/tasks/status")
             { await HandleGetStatusAsync(ctx); return; }
+
+            if (method == "POST" && path == "/hive/tasks/submit")
+            { await HandleSubmitAsync(ctx, body, authResult.NodeId); return; }
 
             if (method == "GET"  && path == "/hive/session/context")
             { await HandleGetContextAsync(ctx); return; }
@@ -322,6 +376,12 @@ public sealed class HiveTaskQueue : IDisposable
                     case "fail":      await HandleFailAsync(ctx, taskId, body, authResult.NodeId);      return;
                 }
             }
+
+            // Single-task lookup for a remote submitter polling its result — checked after
+            // every literal-path GET above so it never shadows /tasks/next or /tasks/status.
+            if (method == "GET" && parts.Length == 3
+                && parts[0] == "hive" && parts[1] == "tasks")
+            { HandleGetTaskAsync(ctx, parts[2]); return; }
 
             ctx.Response.StatusCode = 404;
         }
@@ -456,7 +516,8 @@ public sealed class HiveTaskQueue : IDisposable
             }
 
             // Mark completed under lock so CheckTimeouts cannot re-queue concurrently.
-            entry.Status = "completed";
+            entry.Status     = "completed";
+            entry.ResultText = result.Result;
         }
         finally { _claimLock.Release(); }
 
@@ -505,6 +566,7 @@ public sealed class HiveTaskQueue : IDisposable
                 Status   = "failed",
                 ErrorMsg = "Worker reported failure with no details",
             };
+            entry.ErrorMsg = failResult.ErrorMsg;
         }
         finally { _claimLock.Release(); }
 
@@ -546,6 +608,73 @@ public sealed class HiveTaskQueue : IDisposable
 
         WriteJson(ctx, status);
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// POST /hive/tasks/submit — lets an authenticated, enrolled peer remotely add a task to
+    /// THIS queue. No SwarmSession/Boss-decomposition pipeline needs to be running anywhere;
+    /// the caller supplies a single self-contained prompt. Returns 202 immediately with the
+    /// generated TaskId — the caller polls GET /hive/tasks/{id} for the outcome, since this
+    /// queue's normal claim/heartbeat/complete lifecycle (unchanged) can take up to
+    /// TimeoutMs to resolve and an HTTP request shouldn't block that long.
+    /// </summary>
+    private Task HandleSubmitAsync(HttpListenerContext ctx, byte[] body, string authNode)
+    {
+        var req = ReadJson<HiveSubmitTaskRequest>(body);
+        if (req is null || string.IsNullOrWhiteSpace(req.Role) || string.IsNullOrWhiteSpace(req.Spec))
+        {
+            ctx.Response.StatusCode = 400;
+            WriteJson(ctx, new { error = "role and spec are required" });
+            return Task.CompletedTask;
+        }
+
+        var bundle = new HiveTaskBundle
+        {
+            Role           = req.Role,
+            Title          = string.IsNullOrWhiteSpace(req.Title) ? req.Role : req.Title,
+            Spec           = req.Spec,
+            ProjectGoal    = req.ProjectGoal,
+            TargetLanguage = req.TargetLanguage,
+            ModelHint      = req.ModelHint,
+            WarchiefUrl    = BaseUrl,   // results post back to THIS queue, since it holds the task
+            TimeoutMs      = req.TimeoutMs > 0 ? req.TimeoutMs : 300_000,
+        };
+
+        var taskId = EnqueueRemote(bundle, authNode);
+
+        Log($"🐝 [{bundle.Role}] '{bundle.Title}' submitted remotely by {authNode} (taskId={taskId})");
+
+        ctx.Response.StatusCode = 202;
+        WriteJson(ctx, new HiveSubmitTaskResponse { TaskId = taskId, Status = "pending" });
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// GET /hive/tasks/{id} — single-task lookup, primarily for a remote submitter polling
+    /// for its result without parsing the full /tasks/status snapshot. Returns the actual
+    /// result/error text once available (entry.ResultText/ErrorMsg, set at completion/failure
+    /// time) — the in-memory CompletionTcs that EnqueueAndWaitAsync awaits only ever reaches
+    /// the original in-process caller, never an external HTTP poller.
+    /// </summary>
+    private void HandleGetTaskAsync(HttpListenerContext ctx, string taskId)
+    {
+        if (!_tasks.TryGetValue(taskId, out var entry))
+        {
+            ctx.Response.StatusCode = 404;
+            return;
+        }
+
+        WriteJson(ctx, new HiveTaskStatusResponse
+        {
+            TaskId    = taskId,
+            Title     = entry.Bundle.Title,
+            Role      = entry.Bundle.Role,
+            Status    = entry.Status,
+            ClaimedBy = entry.ClaimedBy,
+            ClaimedAt = entry.ClaimedAt,
+            Result    = entry.ResultText,
+            ErrorMsg  = entry.ErrorMsg,
+        });
     }
 
     private Task HandleGetContextAsync(HttpListenerContext ctx)

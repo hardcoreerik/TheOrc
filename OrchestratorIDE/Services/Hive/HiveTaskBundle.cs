@@ -92,6 +92,54 @@ public sealed class HiveClaimRequest
     public string[] Lanes     { get; set; } = [];
 }
 
+/// <summary>
+/// Body of POST /hive/tasks/submit — lets an authenticated, enrolled peer remotely add a
+/// brand-new task to THIS queue, without needing SwarmSession/the GUI running anywhere.
+/// Deliberately smaller than HiveTaskBundle: a remote caller shouldn't need to know about
+/// SessionId/WarchiefUrl/TaskId, which the queue fills in itself (SessionId from its own
+/// active session, WarchiefUrl = its own BaseUrl since results post back here, TaskId
+/// freshly generated).
+/// </summary>
+public sealed class HiveSubmitTaskRequest
+{
+    /// <summary>"Researcher" | "Coder" | "UIDeveloper" | "Tester"</summary>
+    public string Role           { get; set; } = "";
+    public string Title          { get; set; } = "";
+    /// <summary>Full worker user-message/prompt — required.</summary>
+    public string Spec           { get; set; } = "";
+    public string ProjectGoal    { get; set; } = "";
+    public string TargetLanguage { get; set; } = "";
+    public string ModelHint      { get; set; } = "";
+    public int    TimeoutMs      { get; set; } = 300_000;
+}
+
+/// <summary>Response to POST /hive/tasks/submit.</summary>
+public sealed class HiveSubmitTaskResponse
+{
+    public string TaskId { get; set; } = "";
+    public string Status { get; set; } = "pending";
+}
+
+/// <summary>Response to GET /hive/tasks/{id} — single-task lookup for a remote submitter
+/// polling for its result, without parsing the full /tasks/status snapshot.</summary>
+public sealed class HiveTaskStatusResponse
+{
+    public string    TaskId    { get; set; } = "";
+    public string    Title     { get; set; } = "";
+    public string    Role      { get; set; } = "";
+    public string    Status    { get; set; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string?   ClaimedBy { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? ClaimedAt { get; set; }
+    /// <summary>Populated once Status is "completed".</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string?   Result    { get; set; }
+    /// <summary>Populated once Status is "failed".</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string?   ErrorMsg  { get; set; }
+}
+
 /// <summary>Response to GET /hive/tasks/status — full snapshot of queue state.</summary>
 public sealed class HiveQueueStatus
 {
