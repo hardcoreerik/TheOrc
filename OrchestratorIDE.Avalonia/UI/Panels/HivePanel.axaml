@@ -3,6 +3,7 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:OrchestratorIDE.UI.Panels"
+             xmlns:ctrl="clr-namespace:OrchestratorIDE.UI.Controls"
              Background="#0A0E0A">
 
     <!--
@@ -59,10 +60,18 @@
             </StackPanel>
         </DockPanel>
 
-        <!-- ── War-camp constellation canvas ──────────────────────── -->
+        <!-- ── War-camp constellation (immediate-mode HiveConstellationView) ── -->
         <Border Grid.Row="1" Background="#0C120C" BorderBrush="#1E2E1E" BorderThickness="1"
                 CornerRadius="8" ClipToBounds="True">
-            <Canvas x:Name="HiveCanvas" SizeChanged="HiveCanvas_SizeChanged"/>
+            <Grid>
+                <ctrl:HiveConstellationView x:Name="HiveView"
+                                            AutomationProperties.AutomationId="Hive.Constellation"/>
+                <TextBlock x:Name="TbNoPeers" IsVisible="False"
+                           Text="No peer nodes yet. Use 📡 Scan LAN to discover nodes&#x0a;or ➕ Add node to add one by address."
+                           Foreground="#777777" FontSize="12" TextAlignment="Center"
+                           TextWrapping="Wrap" MaxWidth="320"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Grid>
         </Border>
 
         <!-- ── Event log strip ────────────────────────────────────── -->

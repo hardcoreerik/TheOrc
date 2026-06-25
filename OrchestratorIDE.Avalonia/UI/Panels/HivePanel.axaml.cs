@@ -16,6 +16,7 @@ using Avalonia.Threading;
 using Avalonia.Input.Platform;
 using OrchestratorIDE.Services.Hive;
 using OrchestratorIDE.UI.Windows;
+using OrchestratorIDE.UI.Controls;
 
 namespace OrchestratorIDE.UI.Panels;
 
@@ -77,12 +78,8 @@ public partial class HivePanel : UserControl
     // developer tool's background panel, not core functionality, so it trades visual
     // smoothness for a meaningfully lower CPU floor. LiteMode (Settings) skips this
     // entirely for machines where even that isn't worth it.
-    private readonly DispatcherTimer _animTimer = new() { Interval = TimeSpan.FromMilliseconds(50) };
-    private double _animT;   // 0..1, drives spark position along each line (loops)
-    private double _breathT; // unbounded, drives the slow center-node breathing pulse
-    private sealed record AnimatedLine(Point Start, Point End, Ellipse Spark, SolidColorBrush SparkFill);
-    private readonly List<AnimatedLine> _animatedLines = [];
-    private Border? _centerCardRef;
+    // Node rendering + animation now live in HiveConstellationView (immediate-mode custom
+    // control) — this panel maps hosts to role-shaped node visuals and handles click/right-click.
 
     // ── Discovered nodes (beacon / scan) ──────────────────────────────────────
     private readonly Dictionary<string, HiveBeaconMessage> _discovered = [];
@@ -98,10 +95,12 @@ public partial class HivePanel : UserControl
 
         _poll.Tick      += async (_, _) => await ProbeAndDrawAsync();
         _eventPoll.Tick += (_, _) => PollEvents();
-        _animTimer.Tick += (_, _) => AnimTick();
+
+        HiveView.NodeClicked      += (_, e) => _ = ShowDetailAsync(e.Node.Host);
+        HiveView.NodeRightClicked += (_, e) => ShowNodeMenu(e.Node);
 
         Loaded   += async (_, _) => { Refresh(); await ProbeAndDrawAsync(); _poll.Start(); };
-        Unloaded += (_, _) => { _poll.Stop(); _eventPoll.Stop(); _animTimer.Stop(); };
+        Unloaded += (_, _) => { _poll.Stop(); _eventPoll.Stop(); };
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -178,27 +177,17 @@ public partial class HivePanel : UserControl
 
     // ── Constellation drawing ─────────────────────────────────────────────────
 
-    private void HiveCanvas_SizeChanged(object? s, SizeChangedEventArgs e) => DrawConstellation();
-
     private void DrawConstellation()
     {
-        var c = HiveCanvas;
-        c.Children.Clear();
-        _animatedLines.Clear();
-        _centerCardRef = null;
-        double w = c.Bounds.Width, h = c.Bounds.Height;
-        if (w < 50 || h < 50 || _hosts.Count == 0) { _animTimer.Stop(); return; }
-
-        double cx = w / 2, cy = h / 2;
         var peers = _hosts.Where(x => x.Name != "This PC").ToList();
         var local = _hosts.FirstOrDefault(x => x.Name == "This PC")
                     ?? new HiveHost { Name = "This PC", Url = LocalUrl };
 
-        double radius = Math.Max(120, Math.Min(w, h) / 2 - 130);
-
-        bool isLocalWarchief = !string.IsNullOrEmpty(_warchiefNodeId) &&
-                               !string.IsNullOrEmpty(LocalNodeId) &&
-                               _warchiefNodeId == LocalNodeId;
+        // TheOrc's model: the local GUI machine IS the Warchief unless a DIFFERENT node was
+        // explicitly elected/declared. So crown This PC when no Warchief is known yet, or when
+        // the elected Warchief is this node.
+        bool isLocalWarchief = string.IsNullOrEmpty(_warchiefNodeId) ||
+                               (!string.IsNullOrEmpty(LocalNodeId) && _warchiefNodeId == LocalNodeId);
 
         string? warchiefIp = null;
         if (!isLocalWarchief && !string.IsNullOrEmpty(_warchiefNodeId))
@@ -208,259 +197,74 @@ public partial class HivePanel : UserControl
                 warchiefIp = wcPeer.LastKnownAddress.Split(':')[0];
         }
 
-        for (int i = 0; i < peers.Count; i++)
+        var nodes = new List<HiveNodeVisual>
         {
-            double angle = -Math.PI / 2 + i * 2 * Math.PI / Math.Max(1, peers.Count);
-            double px = cx + radius * Math.Cos(angle);
-            double py = cy + radius * Math.Sin(angle);
-            bool alive = peers[i].Reachable == true;
-
-            var line = new Line
-            {
-                StartPoint      = new Point(cx, cy),
-                EndPoint        = new Point(px, py),
-                StrokeThickness = alive ? 2 : 1,
-                Stroke = new SolidColorBrush(alive
-                    ? Color.FromRgb(0x4E, 0xC9, 0x4E)
-                    : Color.FromRgb(0x3A, 0x3A, 0x3A)),
-                Opacity = alive ? 0.85 : 1.0,
-            };
-            if (!alive)
-                line.StrokeDashArray = new AvaloniaList<double> { 4.0, 4.0 };
-            c.Children.Add(line);
-
-            if (alive && !LiteMode)
-            {
-                // One spark per active connection -- the "data flowing to/from the
-                // HIVEMIND" effect. Deliberately not one per direction (in+out): with
-                // many peers connected simultaneously, doubling the moving elements adds
-                // visual noise for marginal benefit; a single spark alternating direction
-                // each half-cycle (see AnimTick) reads as "back and forth" just as well.
-                var sparkFill = new SolidColorBrush(Color.FromRgb(0xFF, 0xC8, 0x40));
-                var spark = new Ellipse { Width = 7, Height = 7, Fill = sparkFill };
-                Canvas.SetLeft(spark, cx - 3.5);
-                Canvas.SetTop(spark, cy - 3.5);
-                c.Children.Add(spark);
-                // Hold the brush directly rather than casting it back out of spark.Fill in
-                // AnimTick -- an unchecked cast there would throw on every timer tick if Fill
-                // were ever reassigned to something else (Grok CLI MINOR, 2026-06-21).
-                _animatedLines.Add(new AnimatedLine(new Point(cx, cy), new Point(px, py), spark, sparkFill));
-            }
-
-            bool isPeerWarchief = warchiefIp is not null
-                && SafeUriHost(peers[i].Url) == warchiefIp;
-            var card = BuildNodeCard(peers[i], isCenter: false, isWarchief: isPeerWarchief);
-            Canvas.SetLeft(card, px - 95);
-            Canvas.SetTop(card, py - 45);
-            c.Children.Add(card);
-        }
-
-        var center = BuildNodeCard(local, isCenter: true, isWarchief: isLocalWarchief);
-        Canvas.SetLeft(center, cx - 105);
-        Canvas.SetTop(center, cy - 50);
-        c.Children.Add(center);
-        _centerCardRef = center;
-
-        // Runs even with zero peers connected -- the center node's breathing pulse alone
-        // still conveys "alive and coordinating," not just spark movement along lines.
-        if (!LiteMode) _animTimer.Start();
-        else _animTimer.Stop();
-
-        if (peers.Count == 0)
-        {
-            var hint = new TextBlock
-            {
-                Text = "No peer nodes yet. Use 📡 Scan LAN to discover nodes\nor ➕ Add node to add one by address.",
-                Foreground = new SolidColorBrush(Color.FromRgb(0x77, 0x77, 0x77)),
-                FontSize = 12, TextAlignment = TextAlignment.Center,
-                TextWrapping = TextWrapping.Wrap, Width = 300,
-            };
-            Canvas.SetLeft(hint, cx - 150);
-            Canvas.SetTop(hint, cy + 70);
-            c.Children.Add(hint);
-        }
-    }
-
-    /// <summary>
-    /// One tick (~20fps) of the constellation's ambient animation: moves each active
-    /// connection's spark back and forth along its line, and breathes the center node's
-    /// opacity slowly. Cheap by design -- no path recalculation, just linear interpolation
-    /// between two cached points per spark and a single opacity write on the center card.
-    /// </summary>
-    private void AnimTick()
-    {
-        // Full back-and-forth cycle: ~2.5s out, ~2.5s back (50 ticks each way at 50ms/tick).
-        _animT = (_animT + 1.0 / 50.0) % 2.0;
-        bool outbound = _animT <= 1.0;
-        double progress = outbound ? _animT : 2.0 - _animT;
-        var sparkColor = outbound
-            ? Color.FromRgb(0xFF, 0xC8, 0x40)   // amber: task dispatching outward
-            : Color.FromRgb(0x4E, 0xC9, 0x4E);  // green: result flowing back to center
-
-        foreach (var line in _animatedLines)
-        {
-            double x = line.Start.X + (line.End.X - line.Start.X) * progress;
-            double y = line.Start.Y + (line.End.Y - line.Start.Y) * progress;
-            Canvas.SetLeft(line.Spark, x - line.Spark.Width / 2);
-            Canvas.SetTop(line.Spark, y - line.Spark.Height / 2);
-            line.SparkFill.Color = sparkColor;
-        }
-
-        // Slow ~3.5s breathing cycle on the center node -- "alive and coordinating"
-        // without being distracting. Unbounded growth of _breathT is fine: Math.Sin
-        // handles arbitrarily large doubles without meaningful precision loss over any
-        // realistic app session length.
-        _breathT += 2.0 * Math.PI / 70.0;
-        if (_centerCardRef is not null)
-            _centerCardRef.Opacity = 0.86 + 0.14 * (0.5 + 0.5 * Math.Sin(_breathT));
-    }
-
-    private Border BuildNodeCard(HiveHost host, bool isCenter, bool isWarchief = false)
-    {
-        bool alive = host.Reachable == true || (isCenter && host.Reachable != false);
-        var accent = isWarchief ? Color.FromRgb(0xFF, 0xD7, 0x00)
-                   : isCenter   ? Color.FromRgb(0x76, 0xB9, 0x00)
-                   : alive      ? Color.FromRgb(0x4E, 0xC9, 0x4E)
-                                : Color.FromRgb(0x55, 0x55, 0x55);
-
-        var sp = new StackPanel { Margin = new Thickness(10, 7, 10, 7) };
-
-        var prefix = isWarchief ? "👑 " : isCenter ? "★ " : alive ? "🟢 " : "⚪ ";
-        sp.Children.Add(new TextBlock
-        {
-            Text       = prefix + host.Name,
-            FontFamily = new FontFamily("Consolas"),
-            FontSize   = isCenter ? 13 : 12,
-            FontWeight = FontWeight.Bold,
-            Foreground = new SolidColorBrush(accent),
-        });
-
-        if (isWarchief)
-            sp.Children.Add(new TextBlock
-            {
-                Text       = "W A R C H I E F",
-                FontFamily = new FontFamily("Consolas"), FontSize = 8,
-                FontWeight = FontWeight.Bold,
-                Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xD7, 0x00)),
-                Opacity = 0.75, Margin = new Thickness(0, 0, 0, 3),
-            });
-
-        var hostDisplay = host.Hostname?.Length > 0
-            ? host.Hostname
-            : host.Url.Replace("http://", "").Replace(":11434", "");
-        sp.Children.Add(new TextBlock
-        {
-            Text       = (host.Source == "tailscale" ? "🔗 " : "") + hostDisplay,
-            FontFamily = new FontFamily("Consolas"), FontSize = 9,
-            Foreground = new SolidColorBrush(host.Source == "tailscale"
-                ? Color.FromRgb(0x6A, 0x9A, 0xC8) : Color.FromRgb(0x77, 0x77, 0x77)),
-            Margin = new Thickness(0, 1, 0, 3),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        });
-
-        var statusParts = new List<string>();
-        if (host.Reachable == false)       statusParts.Add("offline");
-        else if (host.Models?.Count > 0)   statusParts.Add($"{host.Models.Count} models");
-        else if (isCenter)                 statusParts.Add("this machine");
-        else                               statusParts.Add("online");
-        if (host.VramFreeMb > 0)           statusParts.Add($"{host.VramFreeMb / 1024.0:F0}GB VRAM");
-
-        sp.Children.Add(new TextBlock
-        {
-            Text       = string.Join(" · ", statusParts),
-            FontFamily = new FontFamily("Segoe UI"), FontSize = 10,
-            Foreground = new SolidColorBrush(alive
-                ? Color.FromRgb(0xA8, 0xCC, 0x80) : Color.FromRgb(0x88, 0x88, 0x88)),
-        });
-
-        // "online" above means Ollama (port 11434) is reachable -- that does NOT mean this
-        // node's HIVE port (7078) is up, and pairing/distributed-dispatch specifically need
-        // the latter. Without this, a node could show fully green/online while having no
-        // running HIVE node server at all, and the only symptom was a confusing 10s timeout
-        // when actually trying to pair (found 2026-06-21 from a live pairing-failure report).
-        if (!isCenter && host.Reachable != false && host.HiveApiReachable == false)
-            sp.Children.Add(new TextBlock
-            {
-                Text       = "⚠ HIVE port not reachable — can't pair",
-                FontFamily = new FontFamily("Segoe UI"), FontSize = 9,
-                Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xA0, 0x40)),
-                Margin     = new Thickness(0, 1, 0, 0),
-                TextWrapping = TextWrapping.Wrap,
-            });
-
-        if (!isCenter && host.RpcPort > 0 && alive)
-        {
-            var rpcRow = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(0, 4, 0, 0),
-            };
-            rpcRow.Children.Add(new TextBlock
-            {
-                Text = $"⚡ RPC :{host.RpcPort}",
-                FontFamily = new FontFamily("Consolas"), FontSize = 9,
-                Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xC0, 0x40)),
-                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0),
-            });
-            var rpcBtn = new Button
-            {
-                Content = "Use RPC", FontSize = 9, Padding = new Thickness(6, 2, 6, 2),
-                Background    = new SolidColorBrush(Color.FromRgb(0x2A, 0x1A, 0x00)),
-                BorderBrush   = new SolidColorBrush(Color.FromRgb(0xFF, 0xC0, 0x40)),
-                Foreground    = new SolidColorBrush(Color.FromRgb(0xFF, 0xC0, 0x40)),
-                BorderThickness = new Thickness(1),
-                Cursor = new Cursor(StandardCursorType.Hand),
-            };
-            rpcBtn.Click += (_, _) => ApplyRpcWorker(host);
-            rpcRow.Children.Add(rpcBtn);
-            sp.Children.Add(rpcRow);
-        }
-
-        var card = new Border
-        {
-            Background = new SolidColorBrush(
-                isWarchief ? Color.FromRgb(0x1A, 0x14, 0x00)
-                : isCenter ? Color.FromRgb(0x12, 0x1A, 0x0A)
-                           : Color.FromRgb(0x10, 0x14, 0x10)),
-            BorderBrush     = new SolidColorBrush(accent),
-            BorderThickness = new Thickness(isCenter || isWarchief ? 2 : 1),
-            CornerRadius    = new CornerRadius(6),
-            Width           = isCenter ? 210 : 190,
-            Child           = sp,
-            Cursor          = new Cursor(StandardCursorType.Hand),
+            MakeVisual(local, isCenter: true, isWarchief: isLocalWarchief),
         };
-        ToolTip.SetTip(card, BuildTooltip(host, isCenter));
-        card.PointerReleased += (_, e) =>
+        foreach (var p in peers)
         {
-            if (e.InitialPressMouseButton == MouseButton.Left)
-                _ = ShowDetailAsync(host);
-        };
-        card.ContextMenu = BuildContextMenu(host, isCenter);
-        return card;
+            bool wc = warchiefIp is not null && SafeUriHost(p.Url) == warchiefIp;
+            nodes.Add(MakeVisual(p, isCenter: false, isWarchief: wc));
+        }
+
+        TbNoPeers.IsVisible = peers.Count == 0;
+        HiveView.LiteMode = LiteMode;
+        HiveView.SetNodes(nodes);
     }
 
-    private static string BuildTooltip(HiveHost host, bool isCenter)
+    /// <summary>Maps a host's probed lanes + Warchief flag to a role-shaped node visual.</summary>
+    private static HiveNodeVisual MakeVisual(HiveHost host, bool isCenter, bool isWarchief)
     {
-        var models = (host.Models?.Count ?? 0) > 0
-            ? "\nModels: " + string.Join(", ", host.Models!.Take(6)) +
-              (host.Models!.Count > 6 ? $" (+{host.Models.Count - 6})" : "")
-            : "";
-        // "Status: online" is Ollama-port reachability -- a separate line is needed for the
-        // HIVE port specifically, since the two are independent (see HiveApiReachable's doc
-        // comment). Not shown for the center node, which doesn't probe itself this way.
-        var hiveStatus = isCenter
-            ? ""
-            : host.HiveApiReachable switch
-              {
-                  true  => "\nHIVE port: reachable",
-                  false => "\nHIVE port: NOT reachable — pairing will fail",
-                  null  => "\nHIVE port: not yet probed",
-              };
-        return $"{host.Name}\n{host.Url}\n" +
-               (host.Reachable == false ? "Status: offline" : "Status: online") +
-               hiveStatus +
-               models +
-               (isCenter ? "" : "\n\nClick to view / remove this node.");
+        string role = isWarchief ? "warchief"
+                    : isCenter   ? "worker"            // local node that isn't the elected Warchief
+                    : RoleFromLanes(host.Lanes);
+        string state = host.Reachable == false ? "offline" : "online";
+
+        string sub;
+        if (state == "offline") sub = "offline";
+        else
+        {
+            sub = role switch
+            {
+                "warchief" => "warchief",
+                "worker"   => isCenter ? "this machine" : "node",
+                _          => role,
+            };
+            if (host.VramFreeMb > 0) sub += $" · {host.VramFreeMb / 1024.0:F0}GB";
+        }
+
+        return new HiveNodeVisual
+        {
+            Host = host, Name = host.Name, Role = role, IsCenter = isCenter, State = state, SubLabel = sub,
+        };
+    }
+
+    /// <summary>First lane → role shape. Empty lanes (accepts all) → generic worker. Lane-string
+    /// matching mirrors the alias spirit of training_pit/ROLE_ARCHITECTURE.md.</summary>
+    private static string RoleFromLanes(string[]? lanes)
+    {
+        if (lanes is null) return "worker";
+        // Scan ALL lanes for a recognized role, skipping generic ones ("inference", "all", …) so
+        // a node advertising e.g. ["inference","coder","researcher"] reads as Coder, not generic.
+        foreach (var lane in lanes)
+        {
+            var l = lane.ToLowerInvariant();
+            if (l.Contains("coder") || l.Contains("backend"))  return "coder";
+            if (l.Contains("research"))                         return "research";
+            if (l.Contains("ui") || l.Contains("frontend"))     return "ui";
+            if (l.Contains("test") || l.Contains("qa"))         return "tester";
+            if (l.Contains("review") || l.Contains("audit"))    return "reviewer";
+        }
+        return "worker";   // empty / only generic lanes → plain hexagon
+    }
+
+    /// <summary>Right-click handler — opens the existing per-node role/context menu at the
+    /// pointer. (The menu content, including Declare Warchief, lives in BuildContextMenu.)</summary>
+    private void ShowNodeMenu(HiveNodeVisual node)
+    {
+        var menu = BuildContextMenu(node.Host, node.IsCenter);
+        menu.Placement = PlacementMode.Pointer;
+        menu.Open(HiveView);
     }
 
     // ── Context menu ──────────────────────────────────────────────────────────
