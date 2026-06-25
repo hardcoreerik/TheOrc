@@ -205,6 +205,13 @@ public class AppSettings
     /// </summary>
     public bool HiveLiteMode { get; set; } = false;
 
+    /// <summary>HIVE screen layout: rail on the left side instead of the right. User-customizable
+    /// (flip button on the rail); persisted so the choice sticks across sessions.</summary>
+    public bool   HiveRailOnLeft { get; set; } = false;
+    /// <summary>HIVE screen layout: width (px) of the metrics rail, set by dragging the splitter.
+    /// Clamped to a sane range on load.</summary>
+    public double HiveRailWidth  { get; set; } = 246;
+
     /// <summary>
     /// HIVE_MEMBERSHIP_SPEC.md §6.4 — default HiveAcceptControlPolicy applied to a newly
     /// paired peer at pairing-approval time, instead of the previously hardcoded "Ask".

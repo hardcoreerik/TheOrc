@@ -60,19 +60,125 @@
             </StackPanel>
         </DockPanel>
 
-        <!-- ── War-camp constellation (immediate-mode HiveConstellationView) ── -->
-        <Border Grid.Row="1" Background="#0C120C" BorderBrush="#1E2E1E" BorderThickness="1"
-                CornerRadius="8" ClipToBounds="True">
-            <Grid>
-                <ctrl:HiveConstellationView x:Name="HiveView"
-                                            AutomationProperties.AutomationId="Hive.Constellation"/>
-                <TextBlock x:Name="TbNoPeers" IsVisible="False"
-                           Text="No peer nodes yet. Use 📡 Scan LAN to discover nodes&#x0a;or ➕ Add node to add one by address."
-                           Foreground="#777777" FontSize="12" TextAlignment="Center"
-                           TextWrapping="Wrap" MaxWidth="320"
-                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Grid>
-        </Border>
+        <!-- ── Row 1: constellation + resizable, side-swappable metrics rail ── -->
+        <Grid x:Name="Row1Grid" Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="6"/>
+                <ColumnDefinition Width="246"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- War-camp constellation (immediate-mode HiveConstellationView) -->
+            <Border x:Name="ConstellationHost" Grid.Column="0" Background="#0C120C"
+                    BorderBrush="#1E2E1E" BorderThickness="1" CornerRadius="8" ClipToBounds="True">
+                <Grid>
+                    <ctrl:HiveConstellationView x:Name="HiveView"
+                                                AutomationProperties.AutomationId="Hive.Constellation"/>
+                    <TextBlock x:Name="TbNoPeers" IsVisible="False"
+                               Text="No peer nodes yet. Use 📡 Scan LAN to discover nodes&#x0a;or ➕ Add node to add one by address."
+                               Foreground="#777777" FontSize="12" TextAlignment="Center"
+                               TextWrapping="Wrap" MaxWidth="320"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Grid>
+            </Border>
+
+            <!-- Drag to resize the rail -->
+            <GridSplitter Grid.Column="1" Background="#14201A" ResizeDirection="Columns"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          AutomationProperties.AutomationId="Hive.RailSplitter"/>
+
+            <!-- Metrics / node-detail rail (Grid.Column reassigned in code for left/right) -->
+            <Border x:Name="RailHost" Grid.Column="2">
+                <DockPanel>
+                    <Button x:Name="BtnFlipRail" DockPanel.Dock="Top" Content="⇄ move side"
+                            FontSize="10" Padding="6,2" Margin="0,0,0,6" HorizontalAlignment="Right"
+                            Background="Transparent" BorderBrush="#2A4636" BorderThickness="1"
+                            Foreground="#7AF7C0" Cursor="Hand"
+                            AutomationProperties.AutomationId="Hive.FlipRail"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel>
+
+                    <!-- HIVE OVERVIEW (default) -->
+                    <Border x:Name="PanelOverview" Background="#0B120D" BorderBrush="#1C2A20"
+                            BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,0,8">
+                        <StackPanel>
+                            <TextBlock Text="HIVE OVERVIEW" FontFamily="Consolas" FontSize="10"
+                                       Foreground="#3F7A5A" Margin="0,0,0,6"/>
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                <TextBlock Text="nodes online" FontFamily="Consolas" FontSize="11" Foreground="#3F7A5A"/>
+                                <TextBlock x:Name="TbOvNodes" Grid.Column="1" Text="—" FontFamily="Consolas" FontSize="11" Foreground="#8FE9B8"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                <TextBlock Text="tasks in flight" FontFamily="Consolas" FontSize="11" Foreground="#3F7A5A"/>
+                                <TextBlock x:Name="TbOvTasks" Grid.Column="1" Text="0" FontFamily="Consolas" FontSize="11" Foreground="#8FE9B8"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                <TextBlock Text="VRAM free" FontFamily="Consolas" FontSize="11" Foreground="#3F7A5A"/>
+                                <TextBlock x:Name="TbOvVram" Grid.Column="1" Text="—" FontFamily="Consolas" FontSize="11" Foreground="#4EE39B"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                <TextBlock Text="compute ○" FontFamily="Consolas" FontSize="11" Foreground="#3F7A5A"/>
+                                <TextBlock x:Name="TbOvTokens" Grid.Column="1" Text="—" FontFamily="Consolas" FontSize="11" Foreground="#7AF7C0"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- NODE DETAIL (shown on node click) -->
+                    <Border x:Name="PanelDetail" IsVisible="False" Background="#0B120D" BorderBrush="#244"
+                            BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,0,8">
+                        <StackPanel>
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6">
+                                <TextBlock Text="NODE DETAIL" FontFamily="Consolas" FontSize="10" Foreground="#3F7A5A"/>
+                                <Button x:Name="BtnDetailClose" Grid.Column="1" Content="✕" FontSize="11"
+                                        Padding="6,0" Background="Transparent" BorderThickness="0"
+                                        Foreground="#7AF7C0" Cursor="Hand"
+                                        AutomationProperties.AutomationId="Hive.DetailClose"/>
+                            </Grid>
+                            <TextBlock x:Name="TbDetailBody" FontFamily="Consolas" FontSize="11"
+                                       Foreground="#8FE9B8" TextWrapping="Wrap" LineHeight="17"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- SWARM METRICS (demo until telemetry) -->
+                    <Border Background="#0B120D" BorderBrush="#1C2A20" BorderThickness="1"
+                            CornerRadius="8" Padding="10,8" Margin="0,0,0,8">
+                        <StackPanel>
+                            <TextBlock Text="SWARM METRICS  ○ demo" FontFamily="Consolas" FontSize="10"
+                                       Foreground="#3F7A5A" Margin="0,0,0,6"/>
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                <TextBlock Text="cpu" FontFamily="Consolas" FontSize="11" Foreground="#3F7A5A"/>
+                                <TextBlock x:Name="TbMCpu" Grid.Column="1" Text="—" FontFamily="Consolas" FontSize="11" Foreground="#8FE9B8"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                <TextBlock Text="p95 latency" FontFamily="Consolas" FontSize="11" Foreground="#3F7A5A"/>
+                                <TextBlock x:Name="TbMLat" Grid.Column="1" Text="—" FontFamily="Consolas" FontSize="11" Foreground="#8FE9B8"/>
+                            </Grid>
+                            <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                                <TextBlock Text="success" FontFamily="Consolas" FontSize="11" Foreground="#3F7A5A"/>
+                                <TextBlock x:Name="TbMSuc" Grid.Column="1" Text="—" FontFamily="Consolas" FontSize="11" Foreground="#4EE39B"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- KEY -->
+                    <Border Background="#0B120D" BorderBrush="#1C2A20" BorderThickness="1"
+                            CornerRadius="8" Padding="10,8">
+                        <StackPanel>
+                            <TextBlock Text="KEY · ROLES" FontFamily="Consolas" FontSize="10" Foreground="#3F7A5A" Margin="0,0,0,6"/>
+                            <TextBlock Text="⬡ warchief ♛" FontFamily="Consolas" FontSize="10" Foreground="#5AF2C0" Margin="0,1"/>
+                            <TextBlock Text="◆ coder    ● researcher" FontFamily="Consolas" FontSize="10" Foreground="#8FE9B8" Margin="0,1"/>
+                            <TextBlock Text="■ uidev    ▲ tester" FontFamily="Consolas" FontSize="10" Foreground="#8FE9B8" Margin="0,1"/>
+                            <TextBlock Text="⬟ reviewer ⬡ worker" FontFamily="Consolas" FontSize="10" Foreground="#8FE9B8" Margin="0,1"/>
+                            <TextBlock Text="green=online  dim=offline" FontFamily="Consolas" FontSize="10" Foreground="#3F7A5A" Margin="0,5,0,0"/>
+                            <TextBlock Text="○ = demo until telemetry" FontFamily="Consolas" FontSize="9" Foreground="#2F5A45" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
 
         <!-- ── Event log strip ────────────────────────────────────── -->
         <Border Grid.Row="2" Margin="0,8,0,0"

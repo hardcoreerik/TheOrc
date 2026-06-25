@@ -96,11 +96,16 @@ public partial class HivePanel : UserControl
         _poll.Tick      += async (_, _) => await ProbeAndDrawAsync();
         _eventPoll.Tick += (_, _) => PollEvents();
 
-        HiveView.NodeClicked      += (_, e) => _ = ShowDetailAsync(e.Node.Host);
+        HiveView.NodeClicked      += (_, e) => ShowNodeDetail(e.Node);
         HiveView.NodeRightClicked += (_, e) => ShowNodeMenu(e.Node);
+        BtnDetailClose.Click      += (_, _) => CloseNodeDetail();
+        BtnFlipRail.Click         += (_, _) => FlipRail();
+
+        var layout = OrchestratorIDE.Core.AppSettings.Load();
+        ApplyRailLayout(layout.HiveRailOnLeft, layout.HiveRailWidth);
 
         Loaded   += async (_, _) => { Refresh(); await ProbeAndDrawAsync(); _poll.Start(); };
-        Unloaded += (_, _) => { _poll.Stop(); _eventPoll.Stop(); };
+        Unloaded += (_, _) => { _poll.Stop(); _eventPoll.Stop(); SaveRailLayout(); };
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -210,6 +215,133 @@ public partial class HivePanel : UserControl
         TbNoPeers.IsVisible = peers.Count == 0;
         HiveView.LiteMode = LiteMode;
         HiveView.SetNodes(nodes);
+        UpdateRail();
+    }
+
+    // ── Right rail (overview + node detail + metrics) ─────────────────────────
+
+    // Demo metric state for the "live + demo fallback" rail (HIVE_VISUALS.md): tokens/sec, CPU,
+    // latency, success aren't collected yet (telemetry is the following release), so they show
+    // gently-walking simulated values marked "○ demo" until /hive/metrics lands. Real values
+    // (nodes online, VRAM free) are computed from the probed hosts.
+    private static readonly Random _demoRng = new();
+    private double _demoTokens = 640, _demoCpu = 34, _demoLat = 2.3, _demoSuc = 98.7;
+
+    private void UpdateRail()
+    {
+        int online = _hosts.Count(h => h.Reachable == true);
+        int total  = _hosts.Count;
+        TbOvNodes.Text = $"{online} / {total}";
+
+        // Real VRAM-free aggregate from probed hosts (excludes offline / unreported).
+        int vramFreeMb = _hosts.Where(h => h.Reachable == true && h.VramFreeMb > 0).Sum(h => h.VramFreeMb);
+        TbOvVram.Text = vramFreeMb > 0 ? $"{vramFreeMb / 1024.0:F1} GB" : "telemetry pending";
+
+        // Demo random-walk for the not-yet-collected metrics.
+        _demoTokens = Math.Max(0, _demoTokens * 0.85 + (200 + _demoRng.NextDouble() * 900) * 0.15);
+        _demoCpu    = Math.Clamp(_demoCpu + (_demoRng.NextDouble() - 0.5) * 6, 8, 92);
+        _demoLat    = Math.Clamp(_demoLat + (_demoRng.NextDouble() - 0.5) * 0.3, 0.6, 4.5);
+        _demoSuc    = Math.Clamp(_demoSuc + (_demoRng.NextDouble() - 0.48) * 0.2, 95, 99.9);
+        TbOvTokens.Text = $"{_demoTokens:F0} tok/s";
+        TbMCpu.Text     = $"{_demoCpu:F0}%";
+        TbMLat.Text     = $"{_demoLat:F1}s";
+        TbMSuc.Text     = $"{_demoSuc:F1}%";
+    }
+
+    private void ShowNodeDetail(HiveNodeVisual node)
+    {
+        var h = node.Host;
+        var lanes  = (h.Lanes is { Length: > 0 }) ? string.Join(", ", h.Lanes) : "all lanes";
+        var models = (h.Models?.Count ?? 0) > 0 ? string.Join(", ", h.Models!.Take(4)) +
+                     (h.Models!.Count > 4 ? $" (+{h.Models.Count - 4})" : "") : "none reported";
+        var vram   = h.VramFreeMb > 0 ? $"{h.VramFreeMb / 1024.0:F1} GB free" : "n/a";
+        var addr   = h.Url.Replace("http://", "").Replace(":11434", "");
+        var hiveRole = node.Role == "warchief" ? "Controller (Warchief)" : "Worker";
+
+        TbDetailBody.Text =
+            $"name    {node.Name}\n" +
+            $"role    {(node.Role == "warchief" ? "♛ Warchief" : CapRole(node.Role))}\n" +
+            $"hive    {hiveRole}\n" +
+            $"lanes   {lanes}\n" +
+            $"status  {node.State}\n" +
+            $"vram    {vram}\n" +
+            $"models  {models}\n" +
+            $"addr    {addr}\n\n" +
+            "right-click for role options";
+
+        PanelOverview.IsVisible = false;
+        PanelDetail.IsVisible   = true;
+    }
+
+    private void CloseNodeDetail()
+    {
+        PanelDetail.IsVisible   = false;
+        PanelOverview.IsVisible = true;
+    }
+
+    private static string CapRole(string role) => role switch
+    {
+        "coder" => "Coder", "research" => "Researcher", "ui" => "UIDeveloper",
+        "tester" => "Tester", "reviewer" => "Reviewer", _ => "Worker",
+    };
+
+    // ── Rail layout (resizable + side-swappable, persisted) ───────────────────
+
+    private bool _railOnLeft;
+
+    /// <summary>Positions the rail on the left or right and sets its width. The 3-column grid
+    /// keeps a fixed (resizable) column for the rail and a star column for the constellation;
+    /// flipping swaps which side holds which, and the GridSplitter in the middle resizes the
+    /// fixed column either way.</summary>
+    private void ApplyRailLayout(bool onLeft, double width)
+    {
+        width = Math.Clamp(width, 180, 460);
+        _railOnLeft = onLeft;
+        var colA = Row1Grid.ColumnDefinitions[0];
+        var colB = Row1Grid.ColumnDefinitions[2];
+
+        if (onLeft)
+        {
+            Grid.SetColumn(RailHost, 0);
+            Grid.SetColumn(ConstellationHost, 2);
+            colA.Width = new GridLength(width);
+            colB.Width = new GridLength(1, GridUnitType.Star);
+            RailHost.Margin = new Thickness(0, 0, 6, 0);
+        }
+        else
+        {
+            Grid.SetColumn(ConstellationHost, 0);
+            Grid.SetColumn(RailHost, 2);
+            colA.Width = new GridLength(1, GridUnitType.Star);
+            colB.Width = new GridLength(width);
+            RailHost.Margin = new Thickness(6, 0, 0, 0);
+        }
+    }
+
+    private double CurrentRailWidth()
+    {
+        var col = Row1Grid.ColumnDefinitions[_railOnLeft ? 0 : 2];
+        return col.Width.IsAbsolute ? col.Width.Value : 246;
+    }
+
+    private void FlipRail()
+    {
+        ApplyRailLayout(!_railOnLeft, CurrentRailWidth());
+        SaveRailLayout();
+    }
+
+    /// <summary>Persists the rail side + current (splitter-dragged) width. Called on flip and on
+    /// unload, so a manual resize survives even though GridSplitter raises no settle event.</summary>
+    private void SaveRailLayout()
+    {
+        try
+        {
+            var s = OrchestratorIDE.Core.AppSettings.Load();
+            s.HiveRailOnLeft = _railOnLeft;
+            s.HiveRailWidth  = CurrentRailWidth();
+            s.Save();
+        }
+        catch { /* layout persistence is best-effort */ }
     }
 
     /// <summary>Maps a host's probed lanes + Warchief flag to a role-shaped node visual.</summary>
