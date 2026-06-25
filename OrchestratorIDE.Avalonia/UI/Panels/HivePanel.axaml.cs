@@ -109,11 +109,19 @@ public partial class HivePanel : UserControl
     public void Refresh()
     {
         _hosts = HiveHosts.Load(LocalUrl);
+        HiveHosts.MergePairedPeers(_hosts);   // show paired nodes, not just named Ollama hosts
+        HiveHosts.Dedupe(_hosts);             // collapse LAN + Tailscale entries of one machine
         DrawConstellation();
     }
 
     private async Task ProbeAndDrawAsync()
     {
+        // Re-merge each poll (idempotent) so a node paired AFTER this panel loaded -- e.g. a
+        // headless Warband that just completed pairing -- appears within one poll interval
+        // without needing an app restart. Dedupe collapses any same-machine LAN/Tailscale
+        // duplicates a scan may have added since the last draw.
+        HiveHosts.MergePairedPeers(_hosts);
+        HiveHosts.Dedupe(_hosts);
         await Task.WhenAll(_hosts.Select(h => HiveHosts.ProbeAsync(h)));
         await Task.WhenAll(_hosts
             .Where(h => h.Reachable == true && h.Name != "This PC")
@@ -969,22 +977,46 @@ public partial class HivePanel : UserControl
         }
 
         var peers = await Task.Run(TailscalePeers.Discover);
-        int added = 0;
-        foreach (var p in peers)
+
+        // Only add tailnet peers that actually run TheOrc — probe each one's HIVE node port
+        // (7078) and skip anything that doesn't answer. This keeps non-TheOrc tailnet devices
+        // (phones, routers, a NAS) OUT of the constellation. Found 2026-06-24: a phone on the
+        // tailnet kept appearing as a phantom HIVE node because the scan auto-added every peer
+        // unconditionally. (When the TheOrc mobile companion app exposes a node endpoint it will
+        // answer this probe and join legitimately — see HIVE_VISUALS.md mobile-companion note.)
+        var probes = peers.Select(async p =>
         {
-            var name = TailscalePeers.ShortName(p.DnsName);
             var addr = p.DnsName.Length > 0 ? p.DnsName : p.Ip;
+            var info = await HiveNodeServer.ProbeAsync(addr, 2000);
+            return (peer: p, addr, isOrc: info is not null);
+        });
+        var results = await Task.WhenAll(probes);
+
+        int added = 0, skipped = 0;
+        foreach (var (p, addr, isOrc) in results)
+        {
+            if (!isOrc) { skipped++; continue; }
+            var name = TailscalePeers.ShortName(p.DnsName);
+            var disp = name.Length > 0 ? name : p.Ip;
             var url  = $"http://{addr}:11434";
-            if (_hosts.Any(h => h.Url == url || (h.Hostname == p.DnsName && p.DnsName.Length > 0))) continue;
-            _hosts.Add(new HiveHost { Name = name.Length > 0 ? name : p.Ip, Url = url, Hostname = p.DnsName, Source = "tailscale" });
+            // Skip if this machine is already present under ANY address (LAN, manual, paired).
+            if (_hosts.Any(h => HiveHosts.SameMachine(h.Name, disp)
+                                || h.Url == url
+                                || (p.DnsName.Length > 0 && h.Hostname == p.DnsName)))
+                continue;
+            _hosts.Add(new HiveHost { Name = disp, Url = url, Hostname = p.DnsName, Source = "tailscale" });
             added++;
         }
+
+        HiveHosts.MergePairedPeers(_hosts);
+        HiveHosts.Dedupe(_hosts);   // collapse any same-machine LAN + Tailscale pair into one node
         HiveHosts.Save(_hosts.Where(h => h.Name != "This PC"));
         DrawConstellation();
         await (AlertAsync?.Invoke(
             peers.Count == 0
                 ? "No Tailscale peers found (is Tailscale up and are other nodes online?)."
-                : $"Found {peers.Count} Tailscale peer(s); added {added} new node(s).",
+                : $"Found {peers.Count} Tailscale peer(s); added {added} TheOrc node(s)"
+                  + (skipped > 0 ? $", skipped {skipped} non-TheOrc device(s)." : "."),
             "HIVE MIND — Tailscale") ?? Task.CompletedTask);
         await ProbeAndDrawAsync();
     }
