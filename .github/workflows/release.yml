@@ -404,20 +404,19 @@ jobs:
   # literal scope (linux-x64 + osx-arm64) rather than adding linux-arm64 unprompted; widening
   # the matrix to cover real Pi-class hardware via CI is a separate decision, not bundled here.
   #
-  # Same `concurrency.group` value as the `release` job above (not a typo/copy-paste) --
-  # GitHub Actions serializes ALL jobs sharing a concurrency group across an entire workflow
-  # run, not just within one job's own matrix. Reusing it here means this job's
-  # action-gh-release calls can never race the release job's calls for the same tag, the exact
-  # class of bug already found and fixed once for the two existing legs (grok review BLOCKER,
-  # 2026-06-21, see the comment on the `release` job above).
-  #
-  # **Not yet tested against a real GitHub Actions run** -- validated via local YAML syntax
-  # checking only, same as Phase A's own macOS leg was before its first real tag push (see
-  # docs/MULTI_OS_RELEASE_SPEC.md Phase A's own "not yet tested" note). First real test happens
-  # whenever the next tag gets pushed; ask before pushing a tag specifically to test this.
+  # `needs: release` is load-bearing, NOT just ordering. This job shares the SAME
+  # `concurrency.group` as `release` so their action-gh-release calls serialize (preventing the
+  # create-race that drops assets). But a concurrency group keeps only ONE running + ONE pending
+  # entry — a third pending entry cancels the older pending one. With `release` (2 legs) and
+  # `warband` (2 legs) ALL eligible at once, four legs hit one group and two get CANCELLED as
+  # superseded (observed for real on the v1.11.0 tag: win-x64 + linux-x64 warband cancelled,
+  # shipping a Windows-less release). Gating warband behind `release` means at most two legs ever
+  # contend the group at a time (release's two, then warband's two), so the 1-running+1-pending
+  # limit is never exceeded — no cancellation — while the serialization (no create-race) is kept.
   warband:
     name: Build & Release Warband (${{ matrix.rid }})
     runs-on: ${{ matrix.os }}
+    needs: release
 
     concurrency:
       group: release-${{ github.ref }}
