@@ -423,6 +423,8 @@ public partial class HivePanel : UserControl
             // the operator skipped it then or wants to reassociate after a "Reset node
             // identity" (Settings → HIVE).
             cm.Items.Add(CmItem("🔧  Repair HIVE association", () => _ = OpenHiveDiscoveryWizardAsync()));
+            cm.Items.Add(CmItem("🚪  Leave current hive", () => _ = LeaveHiveAsync(),
+                HiveIdentity.Load().HiveRole != HiveRole.Unset));
             cm.Items.Add(new Separator());
             cm.Items.Add(BuildRoleSubmenu(host, isCenter: true));
         }
@@ -567,6 +569,35 @@ public partial class HivePanel : UserControl
         AddEvent($"[{DateTime.Now:HH:mm:ss}] This machine worker lanes → " +
                  $"{(lanes.Count > 0 ? string.Join(", ", lanes) : "all")} (applies on next HIVE start).",
             new SolidColorBrush(Colors.Gray));
+    }
+
+    /// <summary>Explicitly leaves this machine's current hive (HiveIdentity.LeaveHive) so it can
+    /// re-join a different one — the escape from the §4.3 "two separate hives can't merge"
+    /// deadlock. Keeps keys + paired peers; clears only hive membership. Re-broadcasts the beacon
+    /// with the now-empty HiveId so peers see the change.</summary>
+    private async Task LeaveHiveAsync()
+    {
+        var id = HiveIdentity.Load();
+        if (id.HiveRole == HiveRole.Unset)
+        {
+            AddEvent($"[{DateTime.Now:HH:mm:ss}] This machine isn't in a hive — nothing to leave.",
+                new SolidColorBrush(Colors.Gray));
+            return;
+        }
+        var shortId = id.HiveId.Length > 8 ? id.HiveId[..8] : id.HiveId;
+        var ok = await (ConfirmAsync?.Invoke(
+            $"Leave this machine's current hive (id {shortId})?\n\n" +
+            "Your machine keys and paired peers are kept — only the hive membership is reset. " +
+            "You can then join another hive via \"Repair HIVE association\". This is how you move " +
+            "a machine from its own hive into your main one.",
+            "HIVE MIND — Leave hive") ?? Task.FromResult(false));
+        if (!ok) return;
+
+        id.LeaveHive();
+        AddEvent($"[{DateTime.Now:HH:mm:ss}] Left the hive — this machine is now unaffiliated. " +
+                 "Join another via Repair HIVE association.", new SolidColorBrush(Colors.OrangeRed));
+        OnHiveAssociationChanged?.Invoke();   // re-broadcast beacon with the new (empty) HiveId
+        DrawConstellation();
     }
 
     /// <summary>Assigns a HIVE mesh role (Worker/Observer) to a paired peer via the existing

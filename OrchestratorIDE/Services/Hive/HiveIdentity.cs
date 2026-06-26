@@ -148,6 +148,28 @@ public sealed class HiveIdentity : IDisposable
     }
 
     /// <summary>
+    /// Explicitly abandons this node's current hive, resetting HiveId to unset
+    /// (<see cref="HiveRole.Unset"/>) so the node can JOIN a DIFFERENT hive on its next pairing —
+    /// where <see cref="SetHive"/> would otherwise throw rather than bridge two hives
+    /// (HIVE_MEMBERSHIP_SPEC.md §4.3). This is a hive-MEMBERSHIP reset, not an identity reset:
+    /// the node keeps its signing/exchange keys, NodeId, and paired-peer shared secrets. The
+    /// own-membership cert is cleared, since it was issued by the hive being left and no longer
+    /// applies. Deliberately an explicit operator action (surfaced in the repair wizard), never
+    /// something pairing does on its own — so the §4.3 "no silent bridge" guarantee is preserved:
+    /// leaving is a choice the human makes, not a side effect.
+    /// </summary>
+    public void LeaveHive()
+    {
+        lock (_hiveLock)
+        {
+            if (!_isEphemeral) Persist(hiveId: "", hiveRole: HiveRole.Unset, ownCertJson: "");
+            HiveId   = "";
+            HiveRole = HiveRole.Unset;
+            OwnMembershipCertJson = "";
+        }
+    }
+
+    /// <summary>
     /// Records the role this node's pairing approver granted it (HivePairingResponse.
     /// AssignedRole) — see <see cref="SelfRole"/>. Unlike <see cref="SetHive"/>, overwriting
     /// is always allowed: a node's granted role can legitimately change (re-pairing,

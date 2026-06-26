@@ -39,11 +39,20 @@ public partial class HiveDiscoveryWizard : Window
     public HiveDiscoveryWizard(string? reason = null)
     {
         InitializeComponent();
-        if (!string.IsNullOrEmpty(reason))
-            TbReason.Text = reason;
+
+        // Diagnostic: show THIS machine's current hive so a mismatch is visible up front (the
+        // wizard used to hide it, so an operator couldn't see why a Join was being refused).
+        var id   = Services.Hive.HiveIdentity.Load();
+        var self = id.HiveRole == Services.Hive.HiveRole.Unset
+            ? "This machine hasn't joined a hive yet — Join any hive below, or Create one."
+            : $"This machine is in hive {Short(id.HiveId)} ({id.HiveRole}). Joining a different hive " +
+              "will prompt you to leave this one first.";
+        TbReason.Text = string.IsNullOrEmpty(reason) ? self : reason + "\n" + self;
 
         Opened += async (_, _) => await SafeRescanAsync();
     }
+
+    private static string Short(string id) => string.IsNullOrEmpty(id) ? "—" : (id.Length > 8 ? id[..8] : id);
 
     private async void BtnRescan_Click(object? sender, RoutedEventArgs e) => await SafeRescanAsync();
 
@@ -148,6 +157,29 @@ public partial class HiveDiscoveryWizard : Window
         var joined = false;
         try
         {
+            // If THIS machine already belongs to a DIFFERENT hive, the join would hit the §4.3
+            // mismatch refusal and there'd be no way forward. Offer to leave the current hive
+            // first (keeps keys + paired peers) so the join can adopt the target hive. This is
+            // the deadlock the repair wizard exists to break — a node that founded its own hive
+            // could otherwise never join another.
+            var localHiveId = Services.Hive.HiveIdentity.Load().HiveId;
+            if (!string.IsNullOrEmpty(localHiveId) && !string.IsNullOrEmpty(_selected.HiveId)
+                && !string.Equals(localHiveId, _selected.HiveId, StringComparison.OrdinalIgnoreCase))
+            {
+                var leave = await DialogHelper.ShowYesNoAsync(this, "HIVE MIND — Leave current hive?",
+                    $"This machine already belongs to a different hive (id {Short(localHiveId)}).\n\n" +
+                    $"To join {target.Name}'s hive, this machine must first LEAVE its current hive. " +
+                    "Your machine's keys and paired peers are kept — only the hive membership is " +
+                    "reset, and you re-join by pairing below.\n\nLeave the current hive and join?");
+                if (!leave)
+                {
+                    TbStatus.Text = "Join cancelled — still in the current hive.";
+                    return;
+                }
+                Services.Hive.HiveIdentity.Load().LeaveHive();
+                TbStatus.Text = "Left the current hive. Joining…";
+            }
+
             TbStatus.Text = $"Sending pairing request to {target.Name} ({targetHost})…";
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(125));
