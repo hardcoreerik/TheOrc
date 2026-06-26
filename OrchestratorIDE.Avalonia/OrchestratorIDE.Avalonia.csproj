@@ -14,11 +14,30 @@
   </PropertyGroup>
 
   <!--
-    Define WINDOWS when building on Windows so that #if WINDOWS guards in shared
+    Target-OS detection for every Windows-only Condition below (DefineConstants,
+    package refs, Compile Include). RuntimeIdentifier reflects the TARGET OS and is
+    set whenever `dotnet build/publish/restore -r <rid>` is used (release.yml always
+    passes one); IsOSPlatform('Windows') reflects the BUILD HOST OS instead, which is
+    only a correct stand-in when no RID is given (e.g. a plain local `dotnet build`).
+    Using host-OS unconditionally was a real bug: cross-compiling `-r osx-arm64` FROM
+    a Windows dev machine (e.g. for a local macOS verification build) would still
+    define WINDOWS and pull DpapiSecretProtector.cs — a Windows-only DPAPI call — into
+    the macOS binary, which would throw PlatformNotSupportedException the first time
+    a HIVE secret is touched on the real Mac. CI itself was never affected (each
+    release.yml leg builds natively on its own OS runner, so host OS == target OS
+    there already) — this only matters for cross-compiled local builds.
+  -->
+  <PropertyGroup>
+    <_TargetsWindows Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier.StartsWith('win'))</_TargetsWindows>
+    <_TargetsWindows Condition="'$(RuntimeIdentifier)' == ''">$([MSBuild]::IsOSPlatform('Windows'))</_TargetsWindows>
+  </PropertyGroup>
+
+  <!--
+    Define WINDOWS when targeting Windows so that #if WINDOWS guards in shared
     source files (ScreenRecorder.cs, etc.) select the right platform branch.
     On net10.0 the TFM does NOT define WINDOWS automatically — we add it here.
   -->
-  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+  <PropertyGroup Condition="'$(_TargetsWindows)' == 'true'">
     <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
   </PropertyGroup>
 
@@ -66,14 +85,14 @@
     <PackageReference Include="DiffPlex" Version="1.9.0" />
     <PackageReference Include="LibGit2Sharp" Version="0.31.0" />
     <PackageReference Include="LLamaSharp" Version="0.27.0" />
-    <PackageReference Include="LLamaSharp.Backend.Cuda12.Windows" Version="0.27.0" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+    <PackageReference Include="LLamaSharp.Backend.Cuda12.Windows" Version="0.27.0" Condition="'$(_TargetsWindows)' == 'true'" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.13.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
     <PackageReference Include="System.Text.Json" Version="10.0.8" />
 
-    <!-- Windows-only packages (build-host conditioned) -->
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
-    <PackageReference Include="SharpAvi" Version="2.2.1" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+    <!-- Windows-only packages (target-OS conditioned, see _TargetsWindows above) -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" Condition="'$(_TargetsWindows)' == 'true'" />
+    <PackageReference Include="SharpAvi" Version="2.2.1" Condition="'$(_TargetsWindows)' == 'true'" />
   </ItemGroup>
 
   <!-- ── Embedded resources (same as WPF project) ────────────────────────── -->
@@ -184,7 +203,7 @@
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveWorkerAgent.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveScheduler.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveNetworkEnroller.cs" />
-    <Compile Include="..\OrchestratorIDE\Services\Hive\DpapiSecretProtector.cs" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\DpapiSecretProtector.cs" Condition="'$(_TargetsWindows)' == 'true'" />
 
     <!-- AES-256-GCM protector + MachineKey from Daemon (Linux/macOS and also Windows) -->
     <Compile Include="..\OrchestratorIDE.Daemon\AesGcmSecretProtector.cs" />

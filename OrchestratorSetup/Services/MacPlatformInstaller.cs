@@ -13,24 +13,19 @@ namespace OrchestratorSetup.Services;
 /// cancellation/timeout conflation); this one applies every one of those fixes from the
 /// start instead of re-discovering them.
 ///
-/// IMPORTANT — same caveat as Phase 4, now for TWO pipelines, not one (confirmed by reading
-/// the surrounding code, not assumed): this does NOT make an end-to-end macOS install
-/// possible.
-///   1. The main app binary: `InstallerState.AppExePath`/`PortableAppExePath` (hardcoded
-///      "OrchestratorIDE.exe"), `InstallOrchestrator`'s download/copy logic, the single
-///      OS-unaware `app.download_url` key in Setup/model-manifest.json, and
-///      `.github/workflows/release.yml` (win-x64-only) are all untouched and Windows-only --
-///      same gap Phase 4 already documented for Linux.
-///   2. The llama.cpp runtime itself: <see cref="LlamaCppResolver"/>'s MustContain/
-///      MustNotContain filename-matching tables hardcode `"win"` in EVERY variant entry
-///      (cuda12/cuda11/vulkan/avx2/cpu) -- even though llama.cpp's own GitHub releases do
-///      publish macos-arm64 and ubuntu builds, this resolver can never match them. So
-///      <see cref="DetectHardwareAsync"/> below reports the honest hardware variant
-///      ("metal" on Apple Silicon and Metal-capable Intel Macs) for display purposes, but
-///      nothing downstream can currently turn that into a real download URL -- same root
-///      cause as #1, just a second pipeline with the identical Windows-only assumption baked
-///      in. Both are release-engineering work on the main app/its dependencies, not
-///      something either platform-installer class can fix alone.
+/// HISTORICAL NOTE, now closed -- left for context, not as a current caveat: when this class
+/// was first written (Phase 5), the gap below was real: the app-binary download and the
+/// llama.cpp runtime resolver were both Windows-only, so nothing downstream of
+/// <see cref="DetectHardwareAsync"/> could turn its result into a real install. That gap was
+/// closed by `MULTI_OS_RELEASE_SPEC.md` Phases A-D (2026-06-21): `release.yml` publishes a
+/// macOS leg, `Setup/model-manifest.json`'s `app` key is OS-keyed and
+/// `InstallOrchestrator.ResolveAppUrl`/`InstallerState.AppExePath` resolve through
+/// `PlatformInstaller.Current` instead of a hardcoded `.exe`, and <see cref="LlamaCppResolver"/>
+/// is OS+arch-aware with a real `metal` variant verified against llama.cpp's actual release
+/// assets. An end-to-end macOS install is code-complete as of that work -- it has been
+/// cross-compiled and reviewed but, per `MULTI_OS_RELEASE_SPEC.md` Phase F, never actually run
+/// on real Mac hardware. Don't reintroduce a hardcoded Windows assumption in either pipeline
+/// without re-reading those phases first.
 /// </summary>
 public sealed class MacPlatformInstaller : IPlatformInstaller
 {
