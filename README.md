@@ -100,6 +100,18 @@ TheOrc is not trying to replace your editor. It's the AI **project runner** that
 
 ---
 
+## What's new in v1.11.0
+
+**The HIVE MIND screen, redesigned.** The constellation is now a living neural-swarm view drawn by a new immediate-mode renderer: each node is a **role-shaped silhouette** — a crowned hexagon for the Warchief, diamond for Coder, circle for Researcher, rounded square for UIDeveloper, triangle for Tester — with glow, a breathing core, and signal particles (all frozen by Lite Mode for thin machines). A new **metrics rail** shows nodes online, aggregate VRAM, and a role legend (live where the data exists, clearly-marked demo where the telemetry backend is still to come). **Left-click a node** for a detail panel; **right-click → ⬡ Set role** to assign HIVE roles and worker lanes. The rail is **resizable** (drag the splitter) and can be **moved to either side** (⇄), and your layout choice persists.
+
+**Remote task dispatch to a Warband.** You can now dispatch a task to a headless HIVE node from anywhere via a new authenticated `POST /hive/tasks/submit` endpoint, with a configurable `WarchiefUrl` so a Warband can pull from a remote Warchief. Found and fixed the blocker that made this impossible: a worker polling its own queue had no way to authenticate to itself — same-machine callers are now trusted (the established `req.IsLocal` pattern), so a submitted task actually gets claimed and run. Verified end-to-end on a real Raspberry Pi.
+
+**Cleaner, self-healing constellation.** A machine reached over both LAN and Tailscale now shows as **one node, not two** (dedup by identity, with automatic address fallback so it stays reachable whether you're home or roaming). The Tailscale scan only adds devices actually running TheOrc, so phones and other tailnet devices stop appearing as phantom nodes. Paired headless nodes now show up automatically.
+
+**HIVE repair that actually un-sticks a split fleet.** When machines ended up in separate hives, there was no way to merge them — and no escape. Now the repair wizard shows your current hive up front and offers **"Leave the current hive and join"** in one click (keeping your keys and paired peers), plus a standalone **🚪 Leave current hive**. This is how you pull a machine out of its own hive and into your main one.
+
+**Warband CI + Docker.** The release pipeline now publishes the headless `theorc-warband` binary for `linux-x64`/`osx-arm64`, and ships a `warband.compose.yml` Docker template.
+
 ## What's new in v1.10.0
 
 **OrcChat: uncensored multi-backend chat, built from scratch in C#.** A new chat surface — model-agnostic backend routing, streaming, user-controlled generation params, no frontend content filtering, no injected system prompt by default. Three uncensored Dolphin-line models added to the model catalogs with an UNCENSORED badge (opt-in only, never auto-recommended). Date/time grounding, a persisted system prompt across restarts, a live context-window usage indicator, HIVE node routing to run a chat on a paired machine, and inline image rendering in markdown output (`![alt](src)`, http(s)/data:/local-file, background-thread decode).
