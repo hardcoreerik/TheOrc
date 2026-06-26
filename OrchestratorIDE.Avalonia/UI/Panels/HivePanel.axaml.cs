@@ -423,6 +423,8 @@ public partial class HivePanel : UserControl
             // the operator skipped it then or wants to reassociate after a "Reset node
             // identity" (Settings → HIVE).
             cm.Items.Add(CmItem("🔧  Repair HIVE association", () => _ = OpenHiveDiscoveryWizardAsync()));
+            cm.Items.Add(new Separator());
+            cm.Items.Add(BuildRoleSubmenu(host, isCenter: true));
         }
         else
         {
@@ -443,6 +445,8 @@ public partial class HivePanel : UserControl
             cm.Items.Add(CmItem("📤  Route my swarm tasks here", () => SetAsWarchiefTarget(host)));
             var acceptMenu = BuildAcceptControlSubmenu(host);
             if (acceptMenu is not null) cm.Items.Add(acceptMenu);
+            cm.Items.Add(new Separator());
+            cm.Items.Add(BuildRoleSubmenu(host, isCenter: false));
             cm.Items.Add(new Separator());
             cm.Items.Add(CmItem("⟳  Probe now",           () => _ = ProbeOneAndDrawAsync(host)));
             cm.Items.Add(new Separator());
@@ -494,6 +498,100 @@ public partial class HivePanel : UserControl
         var item = new MenuItem { Header = header, IsEnabled = enabled };
         item.Click += (_, _) => action();
         return item;
+    }
+
+    // ── Role assignment submenu (HIVE_VISUALS.md Concept 2.1) ─────────────────
+
+    // The currently-implemented worker lanes (training_pit/ROLE_ARCHITECTURE.md). Reviewer/Docs/
+    // DevOps are documented-but-future lanes — shown disabled ("planned") per that doc's rule of
+    // never offering a lane whose execution path isn't built.
+    private static readonly (string Label, string Lane)[] ActiveLanes =
+        [("Researcher", "researcher"), ("Coder", "coder"), ("UIDeveloper", "uideveloper"), ("Tester", "tester")];
+    private static readonly string[] PlannedLanes = ["Reviewer", "Docs", "DevOps"];
+
+    /// <summary>
+    /// Per-node "Set role" submenu. HIVE role is real both ways (Declare Warchief stays a
+    /// top-level item for the local node; Worker/Observer for a peer go through the existing
+    /// SendRoleAssignAsync RPC). Worker lanes are editable for the LOCAL node (writes
+    /// AppSettings.HiveWorkerLanes, applied on next HIVE start) but display-only/disabled for a
+    /// REMOTE node — a remote lane-assignment RPC is the documented next-release item
+    /// (HIVE_VISUALS.md §11). Planned lanes are always disabled.
+    /// </summary>
+    private MenuItem BuildRoleSubmenu(HiveHost host, bool isCenter)
+    {
+        var menu = new MenuItem { Header = "⬡  Set role" };
+
+        if (isCenter)
+        {
+            menu.Items.Add(new MenuItem { Header = "Worker lanes (this machine)", IsEnabled = false });
+            var set = OrchestratorIDE.Core.AppSettings.Load().HiveWorkerLanes
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(x => x.ToLowerInvariant()).ToHashSet();
+            foreach (var (label, lane) in ActiveLanes)
+            {
+                var on = set.Contains(lane);
+                menu.Items.Add(CmItem((on ? "● " : "○ ") + label, () => ToggleLocalLane(lane)));
+            }
+        }
+        else
+        {
+            menu.Items.Add(CmItem("Set as Worker",   () => _ = SetPeerHiveRole(host, HiveNodeRole.Worker)));
+            menu.Items.Add(CmItem("Set as Observer", () => _ = SetPeerHiveRole(host, HiveNodeRole.Observer)));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(new MenuItem { Header = "Worker lanes (remote — next release)", IsEnabled = false });
+            foreach (var (label, _) in ActiveLanes)
+                menu.Items.Add(new MenuItem { Header = "○ " + label, IsEnabled = false });
+        }
+
+        menu.Items.Add(new Separator());
+        foreach (var p in PlannedLanes)
+            menu.Items.Add(new MenuItem { Header = "○ " + p + "  (planned)", IsEnabled = false });
+
+        return menu;
+    }
+
+    /// <summary>Toggles a worker lane on the LOCAL node (AppSettings.HiveWorkerLanes). Applies to
+    /// the worker agent on the next HIVE start — the running node server doesn't re-read live.</summary>
+    private void ToggleLocalLane(string lane)
+    {
+        var s = OrchestratorIDE.Core.AppSettings.Load();
+        var lanes = s.HiveWorkerLanes
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+        if (lanes.Any(l => l.Equals(lane, StringComparison.OrdinalIgnoreCase)))
+            lanes.RemoveAll(l => l.Equals(lane, StringComparison.OrdinalIgnoreCase));
+        else
+            lanes.Add(lane);
+        s.HiveWorkerLanes = string.Join(",", lanes);
+        s.Save();
+        AddEvent($"[{DateTime.Now:HH:mm:ss}] This machine worker lanes → " +
+                 $"{(lanes.Count > 0 ? string.Join(", ", lanes) : "all")} (applies on next HIVE start).",
+            new SolidColorBrush(Colors.Gray));
+    }
+
+    /// <summary>Assigns a HIVE mesh role (Worker/Observer) to a paired peer via the existing
+    /// membership RPC. Controller (Warchief) is intentionally not offered here — that's the
+    /// local "Declare this machine Warchief" flow, and the RPC caps remote assignment at Worker
+    /// (HIVE_MEMBERSHIP_SPEC.md §8 T14).</summary>
+    private async Task SetPeerHiveRole(HiveHost host, HiveNodeRole role)
+    {
+        var nodeId = HivePeerStore.Default.ResolveNodeIdForUrl(host.Url);
+        var peer   = string.IsNullOrEmpty(nodeId) ? null : HivePeerStore.Default.Find(nodeId);
+        if (peer is null)
+        {
+            AddEvent($"[{DateTime.Now:HH:mm:ss}] {host.Name} isn't a paired peer — pair it first to assign a role.",
+                new SolidColorBrush(Colors.OrangeRed));
+            return;
+        }
+        var outcome = await HiveNodeServer.SendRoleAssignAsync(peer, role, HiveIdentity.Load(), HivePeerStore.Default);
+        IBrush color = outcome switch
+        {
+            "accepted"         => Brushes.LimeGreen,
+            "pending_approval" => new SolidColorBrush(Colors.DeepSkyBlue),
+            _                  => Brushes.OrangeRed,
+        };
+        await Dispatcher.UIThread.InvokeAsync(() =>
+            AddEvent($"[{DateTime.Now:HH:mm:ss}] Role-assign {role} → {peer.Name}: {outcome}", color));
     }
 
     // ── Context menu actions ───────────────────────────────────────────────────
