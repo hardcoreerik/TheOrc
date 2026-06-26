@@ -21,7 +21,9 @@ public sealed class HiveNodeVisual
 {
     public required HiveHost Host { get; init; }
     public string Name      { get; init; } = "";
-    /// <summary>"warchief" | "coder" | "research" | "ui" | "tester" | "reviewer" | "worker".</summary>
+    /// <summary>"warchief" | "boss" | "coder" | "research" | "ui" | "tester" | "reviewer" |
+    /// "observer" | "worker". "boss" = sovereign, not yet in any hive. "observer" = paired
+    /// but holds no write/exec authority — both render as a hollow ring, see DrawNode.</summary>
     public string Role      { get; init; } = "worker";
     public bool   IsCenter  { get; init; }   // the local "This PC" node
     /// <summary>"online" | "offline" | "working" | "returning".</summary>
@@ -171,9 +173,15 @@ public sealed class HiveConstellationView : Control
         double breath = (isCenter && !LiteMode) ? 1.0 + 0.06 * Math.Sin(_breath) : 1.0;
         double r = n.R * breath;
 
+        // Boss (sovereign, not yet in a hive) and Observer (paired, no write/exec authority)
+        // both render as a hollow ring rather than the usual filled silhouette -- "Observer /
+        // unassigned → thin ring" per .grok/HIVE_VISUALS.md; Boss reuses the same deliberately
+        // lighter treatment since it's also not commanding or being commanded by anything yet.
+        bool isHollow = n.Role is "observer" or "boss";
+
         // Glow (concentric translucent rings — version-safe, no radial-gradient brush).
         if (n.State != "offline")
-            DrawGlowDot(ctx, n.X, n.Y, r * 2.6, color, 0.42);
+            DrawGlowDot(ctx, n.X, n.Y, r * 2.6, color, isHollow ? 0.18 : 0.42);
 
         // Warchief breathing pulse rings.
         if (n.Role == "warchief" && !LiteMode)
@@ -189,12 +197,20 @@ public sealed class HiveConstellationView : Control
 
         // The role shape.
         var geo = ShapeFor(n.Role, n.X, n.Y, r);
-        var fill = new SolidColorBrush(color);
-        var stroke = new Pen(new SolidColorBrush(n.State == "offline" ? Offline : Colors.White, 0.25), 1);
-        ctx.DrawGeometry(fill, stroke, geo);
+        if (isHollow)
+        {
+            var ringStroke = new Pen(new SolidColorBrush(n.State == "offline" ? Offline : color), 1.6);
+            ctx.DrawGeometry(null, ringStroke, geo);
+        }
+        else
+        {
+            var fill = new SolidColorBrush(color);
+            var stroke = new Pen(new SolidColorBrush(n.State == "offline" ? Offline : Colors.White, 0.25), 1);
+            ctx.DrawGeometry(fill, stroke, geo);
+        }
 
         // Small specular highlight.
-        if (n.State != "offline")
+        if (n.State != "offline" && !isHollow)
             ctx.DrawEllipse(new SolidColorBrush(Colors.White, 0.55), null,
                 new Point(n.X - r * 0.28, n.Y - r * 0.28), r * 0.26, r * 0.26);
 
@@ -216,11 +232,13 @@ public sealed class HiveConstellationView : Control
         return role switch
         {
             "warchief" => Polygon(x, y, r, 6, -Math.PI / 2 + Math.PI / 6),  // hexagon (+ crown)
+            "boss"     => Polygon(x, y, r, 6, -Math.PI / 2 + Math.PI / 6),  // hollow hexagon (sovereign, no hive yet)
             "coder"    => Polygon(x, y, r, 4, -Math.PI / 2),                // diamond
             "tester"   => Triangle(x, y, r),
             "reviewer" => Polygon(x, y, r, 5, -Math.PI / 2),               // pentagon
             "ui"       => RoundedSquare(x, y, r),
             "research" => Circle(x, y, r),
+            "observer" => Circle(x, y, r),                                  // hollow ring (paired, no authority)
             _          => Polygon(x, y, r, 6, -Math.PI / 2 + Math.PI / 6),  // worker/all-lanes → plain hexagon
         };
     }

@@ -238,7 +238,20 @@ public sealed class HiveNodeServer : IDisposable
                 Fingerprint         = req.InitiatorFingerprint,
                 SigningPublicKeyDer  = req.SigningPublicKeyDer,
                 Role                = grantedRole,
-                MaxRole             = isMobile ? HiveNodeRole.Worker : grantedRole,
+                // MaxRole is the CEILING this peer can ever be promoted to later, not the
+                // role it was granted at pairing time -- those are different things (grok/
+                // Codex CLI BLOCKER, 2026-06-25). Mobile nodes are deliberately capped at
+                // Worker (excluded from leader election); every other node's ceiling is
+                // Controller, matching HivePeer.MaxRole's own documented default. Tying this
+                // to grantedRole was a latent bug even before HivePanel offered a real
+                // Observer/Worker choice at pairing time -- when every approval hardcoded
+                // grantedRole=Worker, EVERY non-mobile peer's MaxRole was silently capped at
+                // Worker too (never Controller), masked only because nothing exercised a
+                // later promotion past Worker often enough to surface it. Now that Observer is
+                // a real choice, the bug would have been worse: an Observer-granted peer's
+                // MaxRole would freeze at Observer, permanently blocking even a later
+                // promotion to Worker.
+                MaxRole             = isMobile ? HiveNodeRole.Worker : HiveNodeRole.Controller,
                 AllowedLanes        = allowedLanes,
                 AcceptControlFrom   = isMobile ? HiveAcceptControlPolicy.Never : DefaultAcceptControlFrom,
                 IsMobile            = isMobile,

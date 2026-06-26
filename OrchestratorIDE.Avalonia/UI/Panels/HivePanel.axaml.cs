@@ -188,34 +188,80 @@ public partial class HivePanel : UserControl
         var local = _hosts.FirstOrDefault(x => x.Name == "This PC")
                     ?? new HiveHost { Name = "This PC", Url = LocalUrl };
 
-        // TheOrc's model: the local GUI machine IS the Warchief unless a DIFFERENT node was
-        // explicitly elected/declared. So crown This PC when no Warchief is known yet, or when
-        // the elected Warchief is this node.
-        bool isLocalWarchief = string.IsNullOrEmpty(_warchiefNodeId) ||
-                               (!string.IsNullOrEmpty(LocalNodeId) && _warchiefNodeId == LocalNodeId);
+        var identity = HiveIdentity.Load();
+
+        // Warchief resolution: an election/declaration can name a DIFFERENT node as Warchief
+        // (_warchiefNodeId); absent that, this hive's FOUNDER is its Warchief by default —
+        // NOT every node unconditionally, which was the previous bug ("every machine shows
+        // itself in the center with the crown"). A node that has never founded or joined a
+        // hive at all (HiveRole.Unset) has no Warchief concept yet — see ResolveLocalRole.
+        bool electedWarchiefKnown = !string.IsNullOrEmpty(_warchiefNodeId);
+        bool isLocalWarchief = electedWarchiefKnown
+            ? (!string.IsNullOrEmpty(LocalNodeId) && _warchiefNodeId == LocalNodeId)
+            : identity.HiveRole == HiveRole.Founder;
 
         string? warchiefIp = null;
-        if (!isLocalWarchief && !string.IsNullOrEmpty(_warchiefNodeId))
+        if (!isLocalWarchief && electedWarchiefKnown)
         {
-            var wcPeer = HivePeerStore.Default.Find(_warchiefNodeId);
+            var wcPeer = HivePeerStore.Default.Find(_warchiefNodeId!);
             if (wcPeer?.LastKnownAddress?.Length > 0)
                 warchiefIp = wcPeer.LastKnownAddress.Split(':')[0];
         }
 
         var nodes = new List<HiveNodeVisual>
         {
-            MakeVisual(local, isCenter: true, isWarchief: isLocalWarchief),
+            MakeVisual(local, isCenter: true, role: ResolveLocalRole(identity, isLocalWarchief)),
         };
         foreach (var p in peers)
         {
             bool wc = warchiefIp is not null && SafeUriHost(p.Url) == warchiefIp;
-            nodes.Add(MakeVisual(p, isCenter: false, isWarchief: wc));
+            nodes.Add(MakeVisual(p, isCenter: false, role: ResolvePeerRole(p, wc)));
         }
 
         TbNoPeers.IsVisible = peers.Count == 0;
         HiveView.LiteMode = LiteMode;
         HiveView.SetNodes(nodes);
         UpdateRail();
+    }
+
+    /// <summary>
+    /// Resolves the LOCAL node's display role. Per the model: every machine starts as its own
+    /// sovereign "Boss" (HiveRole.Unset — not yet in any hive, so there's no hive for it to
+    /// lead); the founder of a hive becomes its Warchief by default; a joiner is granted
+    /// Observer or Worker by whoever approved its pairing (HiveIdentity.SelfRole).
+    /// </summary>
+    private static string ResolveLocalRole(HiveIdentity identity, bool isWarchief)
+    {
+        if (identity.HiveRole == HiveRole.Unset) return "boss";
+        if (isWarchief) return "warchief";
+        if (identity.SelfRole == HiveNodeRole.Observer) return "observer";
+        var lanes = OrchestratorIDE.Core.AppSettings.Load().HiveWorkerLanes
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return RoleFromLanes(lanes);
+    }
+
+    /// <summary>
+    /// Resolves a PEER's display role from the real HIVE authority model (HivePeerStore's
+    /// Role/ActiveRole — Observer/Worker/Controller) when this peer is paired, falling back to
+    /// the lane-name heuristic for a host added by name/LAN-scan/Tailscale that was never
+    /// paired (no authority record exists for it at all). ActiveRole (heartbeat-reported,
+    /// live) is preferred over the persisted Role once at least one heartbeat has been seen —
+    /// this is what makes a role-assignment that the peer already accepted show up here once
+    /// its next heartbeat lands, not just whatever this node assigned at pairing time.
+    /// </summary>
+    private static string ResolvePeerRole(HiveHost host, bool isWarchief)
+    {
+        if (isWarchief) return "warchief";
+
+        var nodeId = HivePeerStore.Default.ResolveNodeIdForUrl(host.Url);
+        var peer = string.IsNullOrEmpty(nodeId) ? null : HivePeerStore.Default.Find(nodeId);
+        if (peer is not null)
+        {
+            var role = peer.LastHeartbeat.HasValue ? peer.ActiveRole : peer.Role;
+            if (role == HiveNodeRole.Controller) return "warchief";
+            if (role == HiveNodeRole.Observer)   return "observer";
+        }
+        return RoleFromLanes(host.Lanes);
     }
 
     // ── Right rail (overview + node detail + metrics) ─────────────────────────
@@ -256,7 +302,13 @@ public partial class HivePanel : UserControl
                      (h.Models!.Count > 4 ? $" (+{h.Models.Count - 4})" : "") : "none reported";
         var vram   = h.VramFreeMb > 0 ? $"{h.VramFreeMb / 1024.0:F1} GB free" : "n/a";
         var addr   = h.Url.Replace("http://", "").Replace(":11434", "");
-        var hiveRole = node.Role == "warchief" ? "Controller (Warchief)" : "Worker";
+        var hiveRole = node.Role switch
+        {
+            "warchief" => "Controller (Warchief)",
+            "observer" => "Observer (no write/exec authority)",
+            "boss"     => "Boss (not in a hive)",
+            _          => "Worker",
+        };
 
         TbDetailBody.Text =
             $"name    {node.Name}\n" +
@@ -282,7 +334,8 @@ public partial class HivePanel : UserControl
     private static string CapRole(string role) => role switch
     {
         "coder" => "Coder", "research" => "Researcher", "ui" => "UIDeveloper",
-        "tester" => "Tester", "reviewer" => "Reviewer", _ => "Worker",
+        "tester" => "Tester", "reviewer" => "Reviewer",
+        "observer" => "Observer", "boss" => "Boss", _ => "Worker",
     };
 
     // ── Rail layout (resizable + side-swappable, persisted) ───────────────────
@@ -344,12 +397,10 @@ public partial class HivePanel : UserControl
         catch { /* layout persistence is best-effort */ }
     }
 
-    /// <summary>Maps a host's probed lanes + Warchief flag to a role-shaped node visual.</summary>
-    private static HiveNodeVisual MakeVisual(HiveHost host, bool isCenter, bool isWarchief)
+    /// <summary>Builds the role-shaped node visual for an already-resolved role string (see
+    /// ResolveLocalRole/ResolvePeerRole — role resolution itself lives there, not here).</summary>
+    private static HiveNodeVisual MakeVisual(HiveHost host, bool isCenter, string role)
     {
-        string role = isWarchief ? "warchief"
-                    : isCenter   ? "worker"            // local node that isn't the elected Warchief
-                    : RoleFromLanes(host.Lanes);
         string state = host.Reachable == false ? "offline" : "online";
 
         string sub;
@@ -358,7 +409,9 @@ public partial class HivePanel : UserControl
         {
             sub = role switch
             {
+                "boss"     => "boss · not in a hive",
                 "warchief" => "warchief",
+                "observer" => "observer",
                 "worker"   => isCenter ? "this machine" : "node",
                 _          => role,
             };
@@ -621,8 +674,23 @@ public partial class HivePanel : UserControl
             "pending_approval" => new SolidColorBrush(Colors.DeepSkyBlue),
             _                  => Brushes.OrangeRed,
         };
+        // "accepted" means the peer already applied it on its end -- update OUR cached copy of
+        // its role optimistically (the peer's own heartbeat would eventually report the same
+        // value via ActiveRole anyway, up to its ~30s interval later) so the assigner's own
+        // constellation reflects the change immediately instead of looking unchanged until
+        // then. Role AND ActiveRole both, since ResolvePeerRole prefers ActiveRole once any
+        // heartbeat has ever been seen.
+        if (outcome == "accepted")
+        {
+            peer.Role = role;
+            peer.ActiveRole = role;
+            HivePeerStore.Default.AddOrUpdate(peer);
+        }
         await Dispatcher.UIThread.InvokeAsync(() =>
-            AddEvent($"[{DateTime.Now:HH:mm:ss}] Role-assign {role} → {peer.Name}: {outcome}", color));
+        {
+            AddEvent($"[{DateTime.Now:HH:mm:ss}] Role-assign {role} → {peer.Name}: {outcome}", color);
+            if (outcome == "accepted") DrawConstellation();
+        });
     }
 
     // ── Context menu actions ───────────────────────────────────────────────────
@@ -738,6 +806,7 @@ public partial class HivePanel : UserControl
 
         var identity = HiveIdentity.Load();
         var peerStore = HivePeerStore.Default;
+        bool anyAccepted = false;
         foreach (var peer in peers)
         {
             var outcome = await HiveNodeServer.SendRoleAssignAsync(peer, HiveNodeRole.Worker, identity, peerStore);
@@ -749,6 +818,16 @@ public partial class HivePanel : UserControl
                 _ when outcome.StartsWith("error:") => Brushes.OrangeRed,
                 _                  => Brushes.Gray, // "rejected"
             };
+            // Same optimistic local-cache update as SetPeerHiveRole, for the same reason: an
+            // "accepted" outcome means the peer already applied it on its end, so reflect that
+            // here immediately rather than waiting on its next heartbeat.
+            if (outcome == "accepted")
+            {
+                peer.Role = HiveNodeRole.Worker;
+                peer.ActiveRole = HiveNodeRole.Worker;
+                peerStore.AddOrUpdate(peer);
+                anyAccepted = true;
+            }
             // AddEvent touches an ObservableCollection + TextBlock + ScrollViewer -- after an
             // await, the continuation isn't guaranteed to still be on the UI thread (contrast
             // PairWithHostAsync, which dispatches explicitly for the same reason). Matching
@@ -756,6 +835,7 @@ public partial class HivePanel : UserControl
             await Dispatcher.UIThread.InvokeAsync(() =>
                 AddEvent($"[{DateTime.Now:HH:mm:ss}] Role-assign to {peer.Name}: {outcome}", color));
         }
+        if (anyAccepted) await Dispatcher.UIThread.InvokeAsync(DrawConstellation);
     }
 
     /// <summary>
@@ -1114,11 +1194,22 @@ public partial class HivePanel : UserControl
 
         if (approved)
         {
+            // Per the model: a joining node is granted Observer or Worker by whoever approves
+            // its pairing — it was previously hardcoded to Worker with no choice offered at
+            // all. Default to "true" (Worker) when ConfirmAsync isn't wired (e.g. headless),
+            // matching the prior unconditional behavior rather than silently downgrading.
+            var grantWorker = await (ConfirmAsync?.Invoke(
+                "Grant this node the Worker role (it can run swarm tasks)?\n\n" +
+                "Choose \"No\" to make it an Observer instead — it can monitor the hive but won't run tasks.",
+                "HIVE — Choose Role") ?? Task.FromResult(true));
+
             var isMobile = await (ConfirmAsync?.Invoke(
                 "Is this a mobile or Android device?\n\nMobile nodes are restricted to the 'researcher' lane and excluded from leader election.",
                 "HIVE — Device Type") ?? Task.FromResult(false));
+
+            var grantedRole = grantWorker ? HiveNodeRole.Worker : HiveNodeRole.Observer;
             var lanes = isMobile ? new[] { "researcher" } : Array.Empty<string>();
-            NodeServer?.ApprovePairing(sessionId, HiveNodeRole.Worker, lanes, isMobile);
+            NodeServer?.ApprovePairing(sessionId, grantedRole, lanes, isMobile);
         }
         else
         {

@@ -64,6 +64,16 @@ public sealed class HiveIdentity : IDisposable
     public HiveNodeRole       SelfRole            { get; private set; } = HiveNodeRole.Observer;
 
     /// <summary>
+    /// Raised whenever <see cref="SetSelfRole"/> changes this node's granted role — covers
+    /// every caller (the Ask-approval UI flow in HivePanel, the AnyPaired/Allowlist
+    /// auto-accept paths in HiveNodeServer.HandleRoleAssign, and HivePairingClient's initial
+    /// grant on join) from one place, so the HIVE panel can redraw immediately instead of
+    /// waiting for its next poll tick. Invoked outside any lock to avoid reentrancy deadlocks
+    /// if a handler calls back into this identity.
+    /// </summary>
+    public event Action<HiveNodeRole>? SelfRoleChanged;
+
+    /// <summary>
     /// Base64 JSON of the membership certificate this node received when it joined the hive
     /// (HIVE_MEMBERSHIP_SPEC.md §5.4) — "" if none was issued (approver wasn't a Controller)
     /// or this node is the founder (founders don't need a cert; they ARE the root of trust).
@@ -182,6 +192,7 @@ public sealed class HiveIdentity : IDisposable
             if (!_isEphemeral) Persist(selfRole: role);
             SelfRole = role;
         }
+        SelfRoleChanged?.Invoke(role);
     }
 
     /// <summary>Stores the membership certificate this node received at pairing time (§5.4).</summary>

@@ -542,6 +542,13 @@ public partial class MainWindow : Window
         _hiveNodeServer.Start(info);
 
         _hivePanel.LocalNodeId = Services.Hive.HiveIdentity.Load().NodeId;
+        // Redraw the constellation the instant this node's OWN granted role changes, from
+        // any path that calls HiveIdentity.SetSelfRole (Ask-approval, AnyPaired/Allowlist
+        // auto-accept, or the initial grant a join receives) -- without this the panel only
+        // noticed a role change on its next 8s poll tick, and even then kept rendering the
+        // same (now-fixed) role logic against a snapshot it never re-derived live.
+        Services.Hive.HiveIdentity.Load().SelfRoleChanged += _ =>
+            Dispatcher.UIThread.InvokeAsync(_hivePanel.Refresh);
 
         if (_hiveNodeServer.ElectionService is { } election)
             election.OnStateChanged += (state, warchiefNodeId) =>
