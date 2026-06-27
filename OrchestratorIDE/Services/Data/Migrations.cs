@@ -21,6 +21,7 @@ internal static class Migrations
         new Migration(4, "hive tasks + events", Sql004_Hive),
         new Migration(5, "code graph nodes/edges/fts/adr", Sql005_Graph),
         new Migration(6, "graph_adr step4 (title,decision,status,created_at,body)", Sql006_AdrV2),
+        new Migration(7, "native campaign engine", Sql007_Campaigns),
     ];
 
     // ── v1 — Phase 1: captures + triage ─────────────────────────────────────────
@@ -183,6 +184,54 @@ internal static class Migrations
         );
         CREATE INDEX ix_hive_events_session ON hive_events(session_id);
         CREATE INDEX ix_hive_events_retain  ON hive_events(retain_until);
+        """;
+
+    // ── v7 — Phase 3B native campaigns ────────────────────────────────────────
+    private const string Sql007_Campaigns = """
+        CREATE TABLE campaigns (
+            campaign_id     TEXT PRIMARY KEY,
+            name            TEXT NOT NULL,
+            pack_id         TEXT NOT NULL,
+            pack_version    TEXT NOT NULL,
+            status          TEXT NOT NULL,
+            definition_json TEXT NOT NULL,
+            created_at      TEXT NOT NULL,
+            updated_at      TEXT NOT NULL,
+            retain_until    TEXT NOT NULL
+        );
+        CREATE INDEX ix_campaigns_status ON campaigns(status);
+        CREATE INDEX ix_campaigns_retain ON campaigns(retain_until);
+
+        CREATE TABLE campaign_work_units (
+            campaign_id      TEXT NOT NULL REFERENCES campaigns(campaign_id) ON DELETE CASCADE,
+            work_unit_id     TEXT NOT NULL,
+            task_id          TEXT,
+            title            TEXT,
+            execution_kind   TEXT NOT NULL,
+            status           TEXT NOT NULL,
+            attempt          INTEGER NOT NULL DEFAULT 1,
+            claimed_by_node  TEXT,
+            result_json      TEXT,
+            error_msg        TEXT,
+            updated_at       TEXT NOT NULL,
+            PRIMARY KEY (campaign_id, work_unit_id)
+        );
+        CREATE INDEX ix_campaign_units_status ON campaign_work_units(campaign_id, status);
+
+        CREATE TABLE campaign_artifacts (
+            campaign_id      TEXT NOT NULL REFERENCES campaigns(campaign_id) ON DELETE CASCADE,
+            work_unit_id     TEXT,
+            digest_sha256    TEXT NOT NULL,
+            name             TEXT NOT NULL,
+            size_bytes       INTEGER NOT NULL,
+            media_type       TEXT,
+            kind             TEXT,
+            storage_path     TEXT,
+            verified         INTEGER NOT NULL DEFAULT 0,
+            created_at       TEXT NOT NULL,
+            PRIMARY KEY (campaign_id, digest_sha256)
+        );
+        CREATE INDEX ix_campaign_artifacts_digest ON campaign_artifacts(digest_sha256);
         """;
 
     // ── v5 — CodeGraph v1 (C# structure + search index) ─────────────────────────

@@ -14,6 +14,7 @@ using OrchestratorIDE.Agents;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Models;
+using OrchestratorIDE.Services.Hive;
 using OrchestratorIDE.Services.Models;
 using OrchestratorIDE.Tools;
 using OrchestratorIDE.Trust;
@@ -566,6 +567,10 @@ public partial class MainWindow : Window
         if (_settings.HiveDistributedSwarm)
         {
             _hiveTaskQueue = new Services.Hive.HiveTaskQueue();
+            _hiveTaskQueue.ArtifactStore = new ContentAddressedStore(
+                Path.Combine(_session.WorkspaceRoot, ".orc", "campaign-artifacts"));
+            _hiveTaskQueue.ModelStore = new ContentAddressedStore(
+                _settings.ResolvedNativeRuntimeModelRoot, fileExtension: ".gguf");
             _hiveTaskQueue.OnLog += msg =>
                 AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE Queue", msg, DateTime.Now));
             _hiveTaskQueue.Start(new Services.Hive.HiveSessionContext
@@ -578,6 +583,7 @@ public partial class MainWindow : Window
             {
                 _hivePanel.EventBus       = _hiveTaskQueue?.Events;
                 _hivePanel.WarchiefBaseUrl = _hiveTaskQueue?.BaseUrl;
+                _hivePanel.CampaignQueue = _hiveTaskQueue;
             });
         }
 
@@ -587,27 +593,37 @@ public partial class MainWindow : Window
 
         if (_settings.HiveWorkerMode && !string.IsNullOrEmpty(_settings.HiveWarchiefUrl))
         {
+            var nativeHiveRuntime = BuildRequiredNativeHiveWorkerRuntime();
             _hiveWorkerAgent = new Services.Hive.HiveWorkerAgent
             {
-                WorkerId        = name,
-                WorkerUrl       = _settings.InferenceBaseUrl,
-                WarchiefUrl     = _settings.HiveWarchiefUrl,
-                WarchiefNodeId  = ResolveWarchiefNodeId(_settings.HiveWarchiefUrl),
-                Lanes           = string.IsNullOrWhiteSpace(_settings.HiveWorkerLanes)
-                                    ? []
-                                    : _settings.HiveWorkerLanes
-                                        .Split(',', StringSplitOptions.RemoveEmptyEntries)
-                                        .Select(l => l.Trim()).ToArray(),
-                Runtime         = BuildModelRuntime(),
-                NativeRoleExecutor = BuildExperimentalNativeHiveWorkerRuntime() is { } nativeHiveRuntime
-                    ? new NativeHiveRoleExecutorAdapter(nativeHiveRuntime)
-                    : null,
-                CoderModel      = _settings.LastWorkerModel,
-                ResearcherModel = _settings.LastResearcherModel,
+                    WorkerId        = name,
+                    WorkerUrl       = $"native://{name}",
+                    WarchiefUrl     = _settings.HiveWarchiefUrl,
+                    WarchiefNodeId  = string.IsNullOrWhiteSpace(_settings.HiveWarchiefNodeId)
+                        ? ResolveWarchiefNodeId(_settings.HiveWarchiefUrl)
+                        : _settings.HiveWarchiefNodeId,
+                    Lanes           = string.IsNullOrWhiteSpace(_settings.HiveWorkerLanes)
+                                        ? []
+                                        : _settings.HiveWorkerLanes
+                                            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                            .Select(l => l.Trim()).ToArray(),
+                    Runtime         = null,
+                    NativeRoleExecutor = nativeHiveRuntime is null ? null
+                        : new HiveNativeRoleExecutorAdapter(nativeHiveRuntime, _session.WorkspaceRoot),
+                    ModelStore = _hiveTaskQueue?.ModelStore ?? new ContentAddressedStore(
+                        _settings.ResolvedNativeRuntimeModelRoot, fileExtension: ".gguf"),
             };
+            _hiveWorkerAgent.Capabilities = await WorkerCapabilityDetector.DetectAsync(
+                name,
+                ModelDepot.Scan(_settings.ResolvedNativeRuntimeModelRoot),
+                (long)Math.Max(0, _settings.DetectedVramGb * 1024),
+                _hiveTaskQueue?.ArtifactStore);
             _hiveWorkerAgent.OnLog += msg =>
                 AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE Worker", msg, DateTime.Now));
             _hiveWorkerAgent.Start();
+            if (nativeHiveRuntime is null)
+                AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
+                    "No native model is admitted yet. Approved model sync is active; native-agent leases remain ineligible.", DateTime.Now));
         }
 
         var rpcNote    = rpcPort > 0                    ? $" · RPC :{rpcPort}"                           : "";
@@ -659,6 +675,7 @@ public partial class MainWindow : Window
         Services.PitBossService.PlanRepo         = null;
         Services.TrainingPitRegistry.DatasetRepo  = null;
         Services.Hive.HiveTaskQueue.Repository    = null;
+        Services.Hive.HiveTaskQueue.CampaignRepository = null;
         _planRepo = null; _runRepo = null; _datasetRepo = null;
 
         try
@@ -676,6 +693,7 @@ public partial class MainWindow : Window
             Services.PitBossService.PlanRepo           = _planRepo;
             Services.TrainingPitRegistry.DatasetRepo   = _datasetRepo;
             Services.Hive.HiveTaskQueue.Repository     = new Services.Data.HiveRepository(_sqlStore);
+            Services.Hive.HiveTaskQueue.CampaignRepository = new Services.Data.CampaignRepository(_sqlStore);
 
             foreach (var stale in _runRepo.ActiveRuns())
                 _runRepo.UpdateStatus(stale.RunId, "stale");
@@ -1845,6 +1863,9 @@ public partial class MainWindow : Window
 
     private IRoleRuntime? BuildExperimentalNativeHiveWorkerRuntime() =>
         BuildExperimentalNativeRoleRuntime("native HIVE worker", _settings.ExperimentalNativeHiveWorkerEnabled);
+
+    private IRoleRuntime? BuildRequiredNativeHiveWorkerRuntime() =>
+        BuildExperimentalNativeRoleRuntime("native HIVE worker", enabled: true);
 
     /// <summary>
     /// Mirrors <see cref="BuildExperimentalNativeHiveWorkerRuntime"/> exactly, but gated by

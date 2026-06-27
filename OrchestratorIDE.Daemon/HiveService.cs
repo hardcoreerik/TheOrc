@@ -44,6 +44,10 @@ public sealed class HiveService : BackgroundService
             _cfg.NodeName = Environment.MachineName;
         if (string.IsNullOrEmpty(_cfg.WorkspaceRoot))
             _cfg.WorkspaceRoot = DefaultWorkspaceRoot;
+        if (string.IsNullOrEmpty(_cfg.NativeModelRoot))
+            _cfg.NativeModelRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "TheOrc", "models");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -61,10 +65,15 @@ public sealed class HiveService : BackgroundService
         _db = new SqliteStore(_cfg.WorkspaceRoot);
         _db.Initialize();
         HiveTaskQueue.Repository = new HiveRepository(_db);
+        HiveTaskQueue.CampaignRepository = new CampaignRepository(_db);
         _log.LogInformation("SQLite: {Path}", _db.DbPath);
 
         // ── Task queue (Warchief side) ────────────────────────────────────────
         _taskQueue = new HiveTaskQueue();
+        _taskQueue.ArtifactStore = new ContentAddressedStore(
+            Path.Combine(_cfg.WorkspaceRoot, ".orc", "campaign-artifacts"));
+        _taskQueue.ModelStore = new ContentAddressedStore(
+            _cfg.NativeModelRoot, fileExtension: ".gguf");
         _taskQueue.OnLog += msg => _log.LogInformation("[TaskQueue] {Msg}", msg);
         var sessionCtx = new HiveSessionContext { SessionId = Guid.NewGuid().ToString("N")[..12] };
         _taskQueue.Start(sessionCtx, _cfg.TaskQueuePort);
@@ -79,14 +88,19 @@ public sealed class HiveService : BackgroundService
             Environment.Exit(0);
         };
 
-        var ollamaModels = await TryGetOllamaModelsAsync(_cfg.OllamaUrl);
+        var depot = ModelDepot.Scan(_cfg.NativeModelRoot);
+        var nativeModels = depot.Assets
+            .Where(a => a.Kind == RuntimeAssetKind.BaseModelGguf)
+            .Select(a => a.DisplayName)
+            .ToArray();
+        var nativeReady = nativeModels.Length > 0;
         var info = new HiveNodeInfo(
             Name:        _cfg.NodeName,
-            OllamaUrl:   _cfg.OllamaUrl,
-            Models:      ollamaModels,
-            VramFreeMb:  0,
-            VramTotalMb: 0,
-            Lanes:       [.. _cfg.WorkerLanes]);
+            OllamaUrl:   "",
+            Models:      nativeModels,
+            VramFreeMb:  checked((int)Math.Min(int.MaxValue, _cfg.NativeVramMb)),
+            VramTotalMb: checked((int)Math.Min(int.MaxValue, _cfg.NativeVramMb)),
+            Lanes:       nativeReady ? [.. _cfg.WorkerLanes] : []);
         _nodeServer.Start(info);   // starts listener on HiveNodeServer.ApiPort (7078)
 
         // Wire election/heartbeat logs after Start (services auto-created inside Start).
@@ -99,26 +113,13 @@ public sealed class HiveService : BackgroundService
 
         // ── UDP beacon (multicast peer discovery) ─────────────────────────────
         _beacon = new HiveBeacon();
-        _beacon.Start(_cfg.NodeName, _cfg.OllamaUrl, ollamaModels, vramFreeMb: 0);
+        _beacon.Start(_cfg.NodeName, "", nativeModels,
+            vramFreeMb: checked((int)Math.Min(int.MaxValue, _cfg.NativeVramMb)));
         _log.LogInformation("Beacon started (UDP discovery)");
 
         // ── Worker agent (optional) ───────────────────────────────────────────
         if (_cfg.WorkerMode)
         {
-            var settings = Core.AppSettings.Load();
-            var ollama   = new Core.OllamaClient(_cfg.OllamaUrl, settings.Backend);
-
-            // _cfg.CoderModel/ResearcherModel (Hive:CoderModel in appsettings.json/env vars)
-            // take priority -- the only configuration path that works on a headless box with
-            // no settings.json. Falls back to the GUI's own settings for a machine that
-            // happens to have both (e.g. a desktop also running this daemon).
-            var coderModel = !string.IsNullOrWhiteSpace(_cfg.CoderModel)
-                ? _cfg.CoderModel
-                : settings.LastWorkerModel;
-            var researcherModel = !string.IsNullOrWhiteSpace(_cfg.ResearcherModel)
-                ? _cfg.ResearcherModel
-                : settings.LastResearcherModel;
-
             // _cfg.WarchiefUrl (Hive:WarchiefUrl) lets this node's worker poll a REMOTE
             // Warchief's queue instead of only ever its own -- previously hardcoded to
             // _taskQueue.BaseUrl with no way to configure otherwise. Same optional-empty-
@@ -135,23 +136,54 @@ public sealed class HiveService : BackgroundService
                 ? _cfg.WarchiefUrl
                 : $"http://127.0.0.1:{_cfg.TaskQueuePort}";
 
+            IHiveNativeRoleExecutor? nativeExecutor = null;
+            if (nativeReady)
+            {
+                var budget = _cfg.NativeVramMb > 0
+                    ? new VramBudget(_cfg.NativeVramMb * 1024L * 1024L, ReservedBytes: 0)
+                    : null;
+                var nativeRuntime = new NativeRoleRuntime(
+                    depot,
+                    new RuntimeOptions(
+                        ContextLength: Math.Max(512, _cfg.NativeContextSize),
+                        GpuLayers: _cfg.NativeGpuLayers,
+                        PreferGpu: _cfg.NativeGpuLayers != 0),
+                    scheduler: budget is null ? null : new OrcScheduler(),
+                    budgetProvider: budget is null ? null : () => budget);
+
+                nativeExecutor = new HiveNativeRoleExecutorAdapter(nativeRuntime, _cfg.WorkspaceRoot);
+            }
+
             _worker = new HiveWorkerAgent
             {
-                Runtime         = new OllamaRuntime(ollama),
+                NativeRoleExecutor = nativeExecutor,
+                Runtime           = null,
                 WorkerId        = _cfg.NodeName,
-                WorkerUrl       = _cfg.OllamaUrl,
+                WorkerUrl       = $"native://{_cfg.NodeName}",
                 Lanes           = [.. _cfg.WorkerLanes],
                 WarchiefUrl     = warchiefUrl,
                 WarchiefNodeId  = _cfg.WarchiefNodeId,
-                CoderModel      = coderModel,
-                ResearcherModel = researcherModel,
+                ModelStore      = _taskQueue.ModelStore,
             };
+            var installedPacks = CampaignPackCatalog.ResolveInstalled(_cfg.AlienSearchImage);
+            _worker.Capabilities = await WorkerCapabilityDetector.DetectAsync(
+                _cfg.NodeName, depot, _cfg.NativeVramMb, _taskQueue.ArtifactStore,
+                installedPacks, stoppingToken);
+            if (_worker.Capabilities.ContainerEngine.Length > 0 &&
+                installedPacks.Any(p => p.ExecutionKind == HiveExecutionKinds.ContainerPack))
+            {
+                _worker.ContainerRunner = new ContainerPackRunner(
+                    _worker.Capabilities.ContainerEngine, _cfg.WorkspaceRoot, installedPacks);
+            }
             _worker.Start();
             _log.LogInformation(
-                "Worker agent started (lanes: {Lanes}, coder model: {CoderModel}, warchief: {WarchiefUrl})",
+                "Worker started (lanes: {Lanes}, GGUF assets: {ModelCount}, model root: {ModelRoot}, warchief: {WarchiefUrl})",
                 _cfg.WorkerLanes.Count > 0 ? string.Join(",", _cfg.WorkerLanes) : "all",
-                string.IsNullOrWhiteSpace(coderModel) ? "(none configured)" : coderModel,
+                nativeModels.Length,
+                _cfg.NativeModelRoot,
                 string.IsNullOrWhiteSpace(_cfg.WarchiefUrl) ? "self (loopback)" : warchiefUrl);
+            if (!nativeReady)
+                _log.LogWarning("No native model is admitted yet; native-agent leases remain ineligible while approved model sync stays active.");
         }
 
         _log.LogInformation("HIVE daemon ready. Press Ctrl+C to stop.");
@@ -183,19 +215,4 @@ public sealed class HiveService : BackgroundService
         }
     }
 
-    private static async Task<string[]> TryGetOllamaModelsAsync(string baseUrl)
-    {
-        try
-        {
-            using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(3) };
-            var json = await http.GetStringAsync($"{baseUrl.TrimEnd('/')}/api/tags");
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("models", out var arr))
-                return [.. arr.EnumerateArray()
-                    .Select(m => m.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "")
-                    .Where(n => n.Length > 0)];
-        }
-        catch { /* Ollama absent or offline — no models to advertise */ }
-        return [];
-    }
 }

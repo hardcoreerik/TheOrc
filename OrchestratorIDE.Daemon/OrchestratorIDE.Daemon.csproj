@@ -20,6 +20,10 @@
 
   <!-- Match global usings in main project so shared source compiles cleanly. -->
   <ItemGroup>
+    <ProjectReference Include="..\OrchestratorIDE.NativeRuntime\OrchestratorIDE.NativeRuntime.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="System.IO" />
     <Using Include="System.Collections.Generic" />
     <Using Include="System.Linq" />
@@ -43,6 +47,13 @@
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveHosts.cs" />
     <!-- HIVE: swarm infrastructure -->
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveTaskBundle.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\CampaignContracts.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\ContentAddressedStore.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\WorkerCapabilityDetector.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\CampaignPackCatalog.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\NativeWorkerToolProfile.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\ContainerPackRunner.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\CampaignTemplates.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveEventBus.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveTaskQueue.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveNodeServer.cs" />
@@ -52,11 +63,13 @@
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveRpcWorker.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveBeacon.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\TailscalePeers.cs" />
-    <!-- HIVE: worker execution (polls Warchief queue + calls local Ollama) -->
+    <!-- HIVE: worker execution (native GGUF/LoRA and trusted container packs) -->
     <Compile Include="..\OrchestratorIDE\Services\Hive\IHiveNativeRoleExecutor.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveNativeRoleExecutorAdapter.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveWorkerAgent.cs" />
     <!-- Data: durable task + event history (SQLite) -->
     <Compile Include="..\OrchestratorIDE\Services\Data\DataRecords.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Data\CampaignRepository.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Data\RepositoryBase.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Data\Migrations.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Data\HiveRepository.cs" />
@@ -66,21 +79,16 @@
     <!-- Core utilities -->
     <Compile Include="..\OrchestratorIDE\Core\AppSettings.cs" />
     <Compile Include="..\OrchestratorIDE\Core\UpdateChecker.cs" />
-    <Compile Include="..\OrchestratorIDE\Core\OllamaClient.cs" />
-    <Compile Include="..\OrchestratorIDE\Core\Runtime\IModelRuntime.cs" />
-    <Compile Include="..\OrchestratorIDE\Core\Runtime\OllamaRuntime.cs" />
     <!-- Self-updater (best-effort; Linux/macOS: .exe check will just fail gracefully) -->
     <Compile Include="..\OrchestratorIDE\Services\SelfUpdater.cs" />
     <!-- Models -->
-    <Compile Include="..\OrchestratorIDE\Models\AgentMessage.cs" />
-    <Compile Include="..\OrchestratorIDE\Models\ToolCall.cs" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite"             Version="10.0.0"  />
     <PackageReference Include="System.Text.Json"                  Version="10.0.8"  />
-    <PackageReference Include="Microsoft.Extensions.Hosting"      Version="9.0.0"   />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting"      Version="10.0.0"   />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.0" />
   </ItemGroup>
 
 </Project>

@@ -244,6 +244,9 @@ public class AppSettings
     /// </summary>
     public string HiveWarchiefUrl { get; set; } = "";
 
+    /// <summary>Optional trusted NodeId pin for the Warchief. Avoids stale DNS/address aliases selecting an old identity.</summary>
+    public string HiveWarchiefNodeId { get; set; } = "";
+
     /// <summary>
     /// Comma-separated task roles this worker accepts (e.g. "researcher,coder").
     /// Empty = accept all roles. Used by HiveWorkerAgent lane filter.

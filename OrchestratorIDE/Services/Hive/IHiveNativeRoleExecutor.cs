@@ -6,10 +6,8 @@ namespace OrchestratorIDE.Services.Hive;
 
 /// <summary>
 /// Optional native role-runtime hook for <see cref="HiveWorkerAgent"/>. Lets a host
-/// with a local LLamaSharp-backed NativeRoleRuntime (the WPF/Avalonia app) execute
-/// HIVE tasks without HiveWorkerAgent itself depending on the heavy native-runtime
-/// dependency chain (LLamaSharp, ModelDepot, RuntimeOrchestrator). Lightweight hosts
-/// such as OrchestratorIDE.Daemon simply never set <see cref="HiveWorkerAgent.NativeRoleExecutor"/>.
+/// with a local LLamaSharp-backed NativeRoleRuntime execute HIVE tasks. Both Avalonia
+/// and the headless Warband use this contract; Phase 3B does not provide an Ollama fallback.
 /// </summary>
 public interface IHiveNativeRoleExecutor : IAsyncDisposable
 {
@@ -20,7 +18,20 @@ public interface IHiveNativeRoleExecutor : IAsyncDisposable
 
     /// <summary>Human-readable telemetry suffix (e.g. " (model=..., tok/s=...)"), or "" if unavailable.</summary>
     string DescribeTelemetry(string hiveRole);
+
+    Task<HiveNativeAgentExecution> ExecuteAgentAsync(
+        HiveTaskBundle bundle,
+        IReadOnlyList<AgentMessage> messages,
+        CancellationToken ct);
 }
+
+public sealed record HiveNativeAgentExecution(
+    string Output,
+    string OutputDirectory,
+    int Steps,
+    int PromptTokens,
+    int CompletionTokens,
+    string TraceDigest);
 
 /// <summary>
 /// Thrown by an <see cref="IHiveNativeRoleExecutor"/> to signal the native runtime

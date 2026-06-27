@@ -43,6 +43,10 @@
 
   <!-- Match global usings in WPF project so shared source compiles cleanly. -->
   <ItemGroup>
+    <ProjectReference Include="..\OrchestratorIDE.NativeRuntime\OrchestratorIDE.NativeRuntime.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="System.IO" />
     <Using Include="System.Collections.Generic" />
     <Using Include="System.Linq" />
@@ -84,8 +88,6 @@
     <!-- Portable libraries shared with WPF project -->
     <PackageReference Include="DiffPlex" Version="1.9.0" />
     <PackageReference Include="LibGit2Sharp" Version="0.31.0" />
-    <PackageReference Include="LLamaSharp" Version="0.27.0" />
-    <PackageReference Include="LLamaSharp.Backend.Cuda12.Windows" Version="0.27.0" Condition="'$(_TargetsWindows)' == 'true'" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.13.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
     <PackageReference Include="System.Text.Json" Version="10.0.8" />
@@ -118,23 +120,13 @@
     <Compile Include="..\OrchestratorIDE\Agents\SwarmTraceLogger.cs" />
 
     <!-- Core -->
-    <Compile Include="..\OrchestratorIDE\Core\Runtime\IModelRuntime.cs" />
-    <Compile Include="..\OrchestratorIDE\Core\Runtime\IRoleRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\OllamaRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\LlamaCppServerRuntime.cs" />
-    <Compile Include="..\OrchestratorIDE\Core\Runtime\LLamaSharpRuntime.cs" />
-    <Compile Include="..\OrchestratorIDE\Core\Runtime\ModelDepot.cs" />
-    <Compile Include="..\OrchestratorIDE\Core\Runtime\NativeRuntimeTestSupport.cs" />
-    <Compile Include="..\OrchestratorIDE\Core\Runtime\SessionManager.cs" />
-    <Compile Include="..\OrchestratorIDE\Core\Runtime\AdapterManager.cs" />
-    <Compile Include="..\OrchestratorIDE\Core\Runtime\RuntimeOrchestrator.cs" />
-    <Compile Include="..\OrchestratorIDE\Core\Runtime\OrcScheduler.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\NativeWithFallbackRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentFileGenerator.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentLoop.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentPresets.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AppSettings.cs" />
-    <Compile Include="..\OrchestratorIDE\Core\ContextManager.cs" />
     <Compile Include="..\OrchestratorIDE\Core\ICustomTool.cs" />
     <Compile Include="..\OrchestratorIDE\Core\LlamaServerManager.cs" />
     <Compile Include="..\OrchestratorIDE\Core\ModelProfiles.cs" />
@@ -143,17 +135,14 @@
     <Compile Include="..\OrchestratorIDE\Core\PentestRules.cs" />
     <Compile Include="..\OrchestratorIDE\Core\ScreenRecorder.cs" />
     <Compile Include="..\OrchestratorIDE\Core\TokenCostEstimator.cs" />
-    <Compile Include="..\OrchestratorIDE\Core\ToolCallTextParser.cs" />
     <Compile Include="..\OrchestratorIDE\Core\ToolCompiler.cs" />
     <Compile Include="..\OrchestratorIDE\Core\ToolRegistry.cs" />
     <Compile Include="..\OrchestratorIDE\Core\UpdateChecker.cs" />
 
     <!-- Models -->
-    <Compile Include="..\OrchestratorIDE\Models\AgentMessage.cs" />
     <Compile Include="..\OrchestratorIDE\Models\CuratedModelEntry.cs" />
     <Compile Include="..\OrchestratorIDE\Models\HuggingFaceModels.cs" />
     <Compile Include="..\OrchestratorIDE\Models\ProjectSession.cs" />
-    <Compile Include="..\OrchestratorIDE\Models\ToolCall.cs" />
     <Compile Include="..\OrchestratorIDE\Models\TrainingPlan.cs" />
 
     <!-- Research (MarkdownFlowDocument.cs deferred to Phase 6) -->
@@ -164,6 +153,7 @@
 
     <!-- Services / Data -->
     <Compile Include="..\OrchestratorIDE\Services\Data\CaptureRepository.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Data\CampaignRepository.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Data\DataRecords.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Data\DatasetRepository.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Data\HiveRepository.cs" />
@@ -190,6 +180,13 @@
     <Compile Include="..\OrchestratorIDE\Services\Hive\HivePeerStore.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveHosts.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveTaskBundle.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\CampaignContracts.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\ContentAddressedStore.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\WorkerCapabilityDetector.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\CampaignPackCatalog.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\NativeWorkerToolProfile.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\ContainerPackRunner.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\CampaignTemplates.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveEventBus.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveTaskQueue.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveNodeServer.cs" />
@@ -200,6 +197,7 @@
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveBeacon.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\TailscalePeers.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\IHiveNativeRoleExecutor.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveNativeRoleExecutorAdapter.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveWorkerAgent.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveScheduler.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveNetworkEnroller.cs" />

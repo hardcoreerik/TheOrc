@@ -32,6 +32,8 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
     private Task? _runLoopTask;
     private Task? _shutdownTask;
     private int _disposeState;
+    private HiveNativeAgentExecution? _lastAgentExecution;
+    private ContainerPackExecution? _lastContainerExecution;
     private static readonly JsonSerializerOptions _json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -58,6 +60,9 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
     /// <summary>Task roles this worker accepts. Empty = all roles.</summary>
     public string[] Lanes     { get; set; } = [];
+    public WorkerCapabilities Capabilities { get; set; } = new();
+    public IContainerPackRunner? ContainerRunner { get; set; }
+    public ContentAddressedStore? ModelStore { get; set; }
 
     // ── Inference configuration ───────────────────────────────────────────────
 
@@ -112,20 +117,27 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
     {
         Log($"🐝 Worker agent started (id={WorkerId}) — polling {WarchiefUrl}");
         OnStatusChanged?.Invoke(true);
+        var nextModelSync = DateTimeOffset.MinValue;
 
         while (!ct.IsCancellationRequested)
         {
             try
             {
-                var bundle = await PollNextTaskAsync(ct).ConfigureAwait(false);
-                if (bundle is null)
+                if (ModelStore is not null && DateTimeOffset.UtcNow >= nextModelSync)
+                {
+                    await SyncApprovedModelsAsync(ct).ConfigureAwait(false);
+                    nextModelSync = DateTimeOffset.UtcNow.AddMinutes(1);
+                }
+                var lease = await PollLeaseAsync(ct).ConfigureAwait(false);
+                if (lease is null)
                 {
                     await Task.Delay(3_000, ct).ConfigureAwait(false);
                     continue;
                 }
 
-                Log($"🐝 Received [{bundle.Role}] '{bundle.Title}' from Warchief");
-                await ClaimAndExecuteAsync(bundle, ct).ConfigureAwait(false);
+                var bundle = lease.Bundle;
+                Log($"🐝 Leased [{bundle.Role}] '{bundle.Title}' from Warchief");
+                await ClaimAndExecuteAsync(bundle, ct, lease.ClaimToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
@@ -137,6 +149,49 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
         Log("🐝 Worker agent stopped.");
         OnStatusChanged?.Invoke(false);
+    }
+
+    private async Task SyncApprovedModelsAsync(CancellationToken ct)
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+        using var catalogRequest = new HttpRequestMessage(HttpMethod.Get,
+            $"{WarchiefUrl.TrimEnd('/')}/hive/models");
+        SignIfPaired(catalogRequest, []);
+        using var catalogResponse = await http.SendAsync(catalogRequest, ct).ConfigureAwait(false);
+        if (!catalogResponse.IsSuccessStatusCode)
+        {
+            Log($"⚠ Approved-model catalog rejected by Warchief: HTTP {(int)catalogResponse.StatusCode}");
+            return;
+        }
+        var json = await catalogResponse.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        var approved = JsonSerializer.Deserialize<ApprovedModelAsset[]>(json, _json) ?? [];
+
+        foreach (var model in approved.Where(m => !ModelStore!.Has(m.DigestSha256)))
+        {
+            var offset = ModelStore!.GetResumeOffset(model.DigestSha256);
+            using var request = new HttpRequestMessage(HttpMethod.Get,
+                $"{WarchiefUrl.TrimEnd('/')}/hive/models/{model.DigestSha256}");
+            if (offset > 0) request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(offset, null);
+            SignIfPaired(request, []);
+            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct)
+                .ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            if (offset > 0 && response.StatusCode != System.Net.HttpStatusCode.PartialContent)
+                throw new InvalidDataException("Warchief did not honor the model resume range.");
+
+            await using var source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            var buffer = new byte[ContentAddressedStore.MaxChunkBytes];
+            while (offset < model.SizeBytes)
+            {
+                var read = await source.ReadAsync(buffer.AsMemory(0,
+                    (int)Math.Min(buffer.Length, model.SizeBytes - offset)), ct).ConfigureAwait(false);
+                if (read == 0) throw new EndOfStreamException("Model transfer ended before its declared size.");
+                await ModelStore.WriteChunkAsync(model.DigestSha256, offset, model.SizeBytes,
+                    buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                offset += read;
+            }
+            Log($"🐝 Native model synced and verified: {model.DigestSha256[..12]}… Restart for native preflight.");
+        }
     }
 
     // ── Poll ─────────────────────────────────────────────────────────────────
@@ -161,11 +216,42 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         return JsonSerializer.Deserialize<HiveTaskBundle>(json, _json);
     }
 
+    private async Task<HiveLeaseResponse?> PollLeaseAsync(CancellationToken ct)
+    {
+        var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new HiveLeaseRequest
+        {
+            WorkerId = WorkerId,
+            WorkerUrl = WorkerUrl,
+            Lanes = Lanes,
+            Capabilities = Capabilities with { WorkerId = WorkerId },
+        }, _json));
+        var url = $"{WarchiefUrl.TrimEnd('/')}/hive/tasks/lease";
+        using var req = new HttpRequestMessage(HttpMethod.Post, url)
+            { Content = new ByteArrayContent(body) };
+        req.Content.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+        SignIfPaired(req, body);
+
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NoContent) return null;
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            var legacy = await PollNextTaskAsync(ct).ConfigureAwait(false);
+            if (legacy is null) return null;
+            var token = await ClaimTaskAsync(legacy, ct).ConfigureAwait(false);
+            return token is null ? null : new HiveLeaseResponse { Bundle = legacy, ClaimToken = token };
+        }
+        if (!resp.IsSuccessStatusCode) return null;
+        var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        return JsonSerializer.Deserialize<HiveLeaseResponse>(json, _json);
+    }
+
     // ── Claim → Execute → Complete ────────────────────────────────────────────
 
-    private async Task ClaimAndExecuteAsync(HiveTaskBundle bundle, CancellationToken ct)
+    private async Task ClaimAndExecuteAsync(HiveTaskBundle bundle, CancellationToken ct, string? leasedToken = null)
     {
-        var claimToken = await ClaimTaskAsync(bundle, ct).ConfigureAwait(false);
+        var claimToken = leasedToken ?? await ClaimTaskAsync(bundle, ct).ConfigureAwait(false);
         if (claimToken is null)
         {
             Log($"🐝 [{bundle.Role}] '{bundle.Title}' — already claimed by another worker");
@@ -173,6 +259,8 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         }
 
         var startedAt = DateTime.UtcNow;
+        _lastAgentExecution = null;
+        _lastContainerExecution = null;
         string? result   = null;
         string  status   = "completed";
         string? errorMsg = null;
@@ -207,7 +295,37 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             ErrorMsg   = errorMsg,
             DurationMs = (int)(DateTime.UtcNow - startedAt).TotalMilliseconds,
             ClaimToken = claimToken,
+            Attempt    = bundle.Attempt,
         };
+        if (_lastAgentExecution is { } execution)
+        {
+            taskResult.Metrics["steps"] = execution.Steps;
+            taskResult.Metrics["prompt_tokens"] = execution.PromptTokens;
+            taskResult.Metrics["completion_tokens"] = execution.CompletionTokens;
+            taskResult.Attestation = new ExecutionAttestation
+            {
+                RuntimeName = "NativeRoleRuntime",
+                Backend = Capabilities.NativeBackend,
+                ModelHash = bundle.Requirements.NativeModelHash,
+                AdapterHash = bundle.Requirements.NativeAdapterHash,
+                ToolTraceDigest = execution.TraceDigest,
+                InputDigests = bundle.InputArtifacts.ToDictionary(a => a.Name, a => a.DigestSha256),
+            };
+            taskResult.OutputArtifacts.AddRange(
+                await UploadOutputArtifactsAsync(bundle, execution.OutputDirectory, ct).ConfigureAwait(false));
+        }
+        if (_lastContainerExecution is { } container)
+        {
+            taskResult.Attestation = new ExecutionAttestation
+            {
+                RuntimeName = "ContainerPackRunner",
+                Backend = Capabilities.ContainerEngine,
+                ContainerDigest = container.ContainerDigest,
+                InputDigests = new Dictionary<string, string>(container.InputDigests),
+            };
+            taskResult.OutputArtifacts.AddRange(
+                await UploadOutputArtifactsAsync(bundle, container.OutputDirectory, ct).ConfigureAwait(false));
+        }
 
         var action = status == "completed" ? "complete" : "fail";
         await PostResultAsync(bundle.TaskId, action, taskResult, ct).ConfigureAwait(false);
@@ -292,6 +410,80 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         await http.SendAsync(req, ct).ConfigureAwait(false);
     }
 
+    private async Task<IReadOnlyList<ArtifactRef>> UploadOutputArtifactsAsync(
+        HiveTaskBundle bundle, string outputDirectory, CancellationToken ct)
+    {
+        var artifacts = new List<ArtifactRef>();
+        if (!Directory.Exists(outputDirectory)) return artifacts;
+
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+        foreach (var path in Directory.EnumerateFiles(outputDirectory, "*", SearchOption.AllDirectories))
+        {
+            ct.ThrowIfCancellationRequested();
+            var info = new FileInfo(path);
+            if (info.Length == 0) continue;
+            var digest = await ContentAddressedStore.ComputeSha256Async(path, ct).ConfigureAwait(false);
+            var relative = Path.GetRelativePath(outputDirectory, path).Replace('\\', '/');
+            var url = $"{WarchiefUrl.TrimEnd('/')}/hive/artifacts/{digest}";
+
+            long offset = 0;
+            using (var head = new HttpRequestMessage(HttpMethod.Head, url))
+            {
+                SignIfPaired(head, []);
+                using var response = await http.SendAsync(head, ct).ConfigureAwait(false);
+                if (response.Headers.TryGetValues("X-Hive-Complete", out var complete) &&
+                    complete.Any(v => v.Equals("true", StringComparison.OrdinalIgnoreCase)))
+                    offset = info.Length;
+                else if (response.Headers.TryGetValues("X-Hive-Stored-Bytes", out var stored) &&
+                         long.TryParse(stored.FirstOrDefault(), out var parsed))
+                    offset = parsed;
+            }
+
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                ContentAddressedStore.MaxChunkBytes, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            stream.Position = offset;
+            var buffer = new byte[ContentAddressedStore.MaxChunkBytes];
+            while (offset < info.Length)
+            {
+                var read = await stream.ReadAsync(buffer.AsMemory(0,
+                    (int)Math.Min(buffer.Length, info.Length - offset)), ct).ConfigureAwait(false);
+                if (read == 0) throw new EndOfStreamException($"Unexpected EOF reading {relative}.");
+                var bytes = buffer.AsSpan(0, read).ToArray();
+                using var put = new HttpRequestMessage(HttpMethod.Put, url)
+                    { Content = new ByteArrayContent(bytes) };
+                put.Headers.TryAddWithoutValidation("X-Hive-Offset", offset.ToString());
+                put.Headers.TryAddWithoutValidation("X-Hive-Total-Bytes", info.Length.ToString());
+                put.Content.Headers.ContentType =
+                    new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+                SignIfPaired(put, bytes);
+                using var response = await http.SendAsync(put, ct).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                offset += read;
+            }
+
+            artifacts.Add(new ArtifactRef
+            {
+                DigestSha256 = digest,
+                Name = relative,
+                SizeBytes = info.Length,
+                MediaType = GuessMediaType(path),
+                Kind = "output",
+            });
+        }
+        return artifacts;
+    }
+
+    private static string GuessMediaType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".json" => "application/json",
+        ".jsonl" => "application/x-ndjson",
+        ".csv" => "text/csv",
+        ".md" => "text/markdown",
+        ".txt" or ".log" => "text/plain",
+        ".png" => "image/png",
+        _ => "application/octet-stream",
+    };
+
     // ── Auth signing helper ───────────────────────────────────────────────────
 
     private void SignIfPaired(System.Net.Http.HttpRequestMessage req, byte[] body)
@@ -309,12 +501,10 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             }
             else
             {
-                if (!Uri.TryCreate(WarchiefUrl, UriKind.Absolute, out var uri)) return;
-                var warchiefHost = uri.Host;
-                if (string.IsNullOrEmpty(warchiefHost)) return;
-                warchief = HivePeerStore.Default.All()
-                    .FirstOrDefault(p => !p.Revoked &&
-                        p.LastKnownAddress.StartsWith(warchiefHost + ":"));
+                var resolvedNodeId = HivePeerStore.Default.ResolveNodeIdForUrl(WarchiefUrl);
+                warchief = string.IsNullOrEmpty(resolvedNodeId)
+                    ? null
+                    : HivePeerStore.Default.Find(resolvedNodeId);
             }
             if (warchief is null) return;
 
@@ -330,6 +520,14 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
     private async Task<string> ExecuteTaskAsync(HiveTaskBundle bundle, CancellationToken ct)
     {
+        if (bundle.ExecutionKind == HiveExecutionKinds.ContainerPack)
+        {
+            if (ContainerRunner is null)
+                throw new InvalidOperationException("Worker: trusted container-pack runner not configured");
+            _lastContainerExecution = await ContainerRunner.RunAsync(bundle, ct).ConfigureAwait(false);
+            return _lastContainerExecution.Output;
+        }
+
         if (Runtime is null && NativeRoleExecutor is null)
             throw new InvalidOperationException("Worker: model runtime not configured");
 
@@ -352,31 +550,33 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             catch (HiveNativeRoleAdmissionDeniedException ex)
             {
                 var telemetry = DescribeNativeRuntimeTelemetry(bundle.Role);
-                Log($"⚠ [{bundle.Role}] '{bundle.Title}' — native role runtime admission denied: {ex.Message}; falling back to configured model runtime{telemetry}");
-                TaskActivity(bundle.TaskId, $"⚠ Native runtime admission denied; falling back to configured model runtime: {ex.Message}");
+                var failClosed = bundle.ExecutionKind != HiveExecutionKinds.LegacyAgent || Runtime is null;
+                Log($"⚠ [{bundle.Role}] '{bundle.Title}' — native role runtime admission denied: {ex.Message}{telemetry}");
+                TaskActivity(bundle.TaskId, $"⚠ Native runtime admission denied: {ex.Message}");
                 await PostEventAsync("task_warning",
-                    $"⚠ {WorkerId} · [{bundle.Role}] native runtime admission denied; falling back: {ex.Message}",
+                    $"⚠ {WorkerId} · [{bundle.Role}] native runtime admission denied: {ex.Message}",
                     bundle.TaskId,
                     ct).ConfigureAwait(false);
 
-                if (Runtime is null)
+                if (failClosed)
                     throw new InvalidOperationException(
-                        "Worker: native role runtime admission was denied and no fallback model runtime is configured.",
+                        "Worker: native role runtime admission was denied. Phase 3B does not fall back.",
                         ex);
             }
             catch (Exception ex)
             {
                 var telemetry = DescribeNativeRuntimeTelemetry(bundle.Role);
-                Log($"⚠ [{bundle.Role}] '{bundle.Title}' — native role runtime failed: {ex.Message}; falling back to configured model runtime{telemetry}");
-                TaskActivity(bundle.TaskId, $"⚠ Native runtime failed; falling back to configured model runtime: {ex.Message}");
+                var failClosed = bundle.ExecutionKind != HiveExecutionKinds.LegacyAgent || Runtime is null;
+                Log($"⚠ [{bundle.Role}] '{bundle.Title}' — native role runtime failed: {ex.Message}{telemetry}");
+                TaskActivity(bundle.TaskId, $"⚠ Native runtime failed: {ex.Message}");
                 await PostEventAsync("task_warning",
-                    $"⚠ {WorkerId} · [{bundle.Role}] native runtime failed; falling back: {ex.Message}",
+                    $"⚠ {WorkerId} · [{bundle.Role}] native runtime failed: {ex.Message}",
                     bundle.TaskId,
                     ct).ConfigureAwait(false);
 
-                if (Runtime is null)
+                if (failClosed)
                     throw new InvalidOperationException(
-                        "Worker: native role runtime failed and no fallback model runtime is configured.",
+                        "Worker: native role runtime failed. Phase 3B does not fall back.",
                         ex);
             }
         }
@@ -422,6 +622,16 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             $"⚡ {WorkerId} · [{bundle.Role}] {bundle.Title} · NativeRoleRuntime",
             bundle.TaskId,
             ct).ConfigureAwait(false);
+
+        if (bundle.ExecutionKind == HiveExecutionKinds.NativeAgent)
+        {
+            _lastAgentExecution = await NativeRoleExecutor.ExecuteAgentAsync(bundle, messages, ct)
+                .ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(_lastAgentExecution.Output))
+                throw new InvalidOperationException("Native agent loop emitted no final output.");
+            Log($"🐝 [{bundle.Role}] '{bundle.Title}' — native agent completed in {_lastAgentExecution.Steps} steps{DescribeNativeRuntimeTelemetry(bundle.Role)}");
+            return _lastAgentExecution.Output;
+        }
 
         var result = new StringBuilder();
         await foreach (var token in NativeRoleExecutor.StreamRoleCompletionAsync(bundle.Role, messages, ct).ConfigureAwait(false))

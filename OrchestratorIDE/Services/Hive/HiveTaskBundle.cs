@@ -1,5 +1,6 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace OrchestratorIDE.Services.Hive;
@@ -46,6 +47,20 @@ public sealed class HiveTaskBundle
 
     public int    TimeoutMs      { get; set; } = 300_000;   // 5 min default
 
+    /// <summary>legacy_agent | native_agent | container_pack. Omitted legacy payloads remain compatible.</summary>
+    public string ExecutionKind  { get; set; } = HiveExecutionKinds.LegacyAgent;
+    public string CampaignId     { get; set; } = "";
+    public string WorkUnitId     { get; set; } = "";
+    public string PackId         { get; set; } = "";
+    public string PackVersion    { get; set; } = "";
+    public string NativeRole     { get; set; } = "";
+    public ResourceRequirements Requirements { get; set; } = new();
+    public VerificationPolicy Verification { get; set; } = new();
+    public Dictionary<string, JsonElement> Parameters { get; set; } = [];
+    public List<ArtifactRef> InputArtifacts { get; set; } = [];
+    public int Attempt { get; set; } = 1;
+    public int MaxAttempts { get; set; } = 3;
+
     /// <summary>Upstream research/task output included so workers have full context.</summary>
     public List<HiveArtifact> UpstreamArtifacts { get; set; } = [];
 }
@@ -69,6 +84,10 @@ public sealed class HiveTaskResult
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ErrorMsg   { get; set; }
     public int     DurationMs { get; set; }
+    public Dictionary<string, double> Metrics { get; set; } = [];
+    public List<ArtifactRef> OutputArtifacts { get; set; } = [];
+    public ExecutionAttestation? Attestation { get; set; }
+    public int Attempt { get; set; } = 1;
     /// <summary>
     /// Claim token received from /claim response. Must match Warchief's current
     /// token or the /complete|/fail call is rejected (stale-worker guard).

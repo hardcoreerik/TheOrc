@@ -23,10 +23,8 @@ namespace OrchestratorIDE.Core.Runtime;
 ///   await runtime.LoadModelAsync("path/to/model.gguf");
 ///   _loop = new AgentLoop(runtime, ...);
 ///
-/// Backend note: LLamaSharp requires a native backend package at runtime:
-///   - GPU:  LLamaSharp.Backend.Cuda12.Windows (or .Linux)
-///   - CPU:  LLamaSharp.Backend.Cpu
-/// The native backend is not bundled here — install via NuGet or system PATH.
+/// Backend packages are supplied by OrchestratorIDE.NativeRuntime. The CPU package also
+/// carries current macOS ARM64 Metal libraries; CUDA 12 is packaged only for x64 Windows/Linux.
 ///
 /// LoRA note: LLamaSharp 0.27 removed ModelParams.LoraAdapters. Adapter support
 /// is deferred to Phase 3 (RUNTIME_PHASE0_SPEC.md §7).

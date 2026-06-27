@@ -72,13 +72,19 @@ public sealed class HiveTaskQueue : IDisposable
         /// remote submitter — the TCS alone only reaches the in-process EnqueueAndWaitAsync
         /// awaiter, not an external HTTP poller.</summary>
         public string?                              ResultText    { get; set; }
+        public HiveTaskResult?                      StructuredResult { get; set; }
         /// <summary>Set on failure, same reasoning as <see cref="ResultText"/>.</summary>
         public string?                              ErrorMsg      { get; set; }
+
+        /// <summary>Verification leases are internal siblings and do not increase logical campaign totals.</summary>
+        public bool                                 IsVerification { get; init; }
+        public string?                              VerificationParentTaskId { get; init; }
 
         public TaskCompletionSource<HiveTaskResult?> CompletionTcs { get; init; } = new();
     }
 
     private readonly ConcurrentDictionary<string, QueuedTask> _tasks = new();
+    private readonly ConcurrentDictionary<string, (string Name, string Status)> _campaigns = new();
     private readonly SemaphoreSlim  _claimLock = new(1, 1);
     private readonly System.Threading.Timer _watchdog;
     private HiveSessionContext _sessionCtx = new();
@@ -97,6 +103,9 @@ public sealed class HiveTaskQueue : IDisposable
     /// never break a swarm run, exactly like <see cref="Swarm.DatasetCapture.Repository"/>.
     /// </summary>
     public static Data.HiveRepository? Repository { get; set; }
+    public static Data.CampaignRepository? CampaignRepository { get; set; }
+    public ContentAddressedStore? ArtifactStore { get; set; }
+    public ContentAddressedStore? ModelStore { get; set; }
 
     // Retention sweep is throttled — the watchdog ticks every 10s but rows live for days.
     private DateTime _lastSweep = DateTime.MinValue;
@@ -302,7 +311,7 @@ public sealed class HiveTaskQueue : IDisposable
             var path   = req.Url?.AbsolutePath.TrimEnd('/') ?? "";
 
             // Read body once with a 1 MB hard cap (prevents oversized-body DoS).
-            const int MaxBodyBytes = 1 * 1024 * 1024;
+            const int MaxBodyBytes = ContentAddressedStore.MaxChunkBytes;
             byte[] body;
             using (var ms = new MemoryStream())
             {
@@ -352,6 +361,18 @@ public sealed class HiveTaskQueue : IDisposable
             if (method == "POST" && path == "/hive/tasks/submit")
             { await HandleSubmitAsync(ctx, body, authResult.NodeId); return; }
 
+            if (method == "POST" && path == "/hive/tasks/lease")
+            { await HandleLeaseAsync(ctx, body, authResult.NodeId); return; }
+
+            if (method == "POST" && path == "/hive/campaigns")
+            { await HandleCreateCampaignAsync(ctx, body); return; }
+
+            if (method == "GET" && path == "/hive/campaigns")
+            { HandleListCampaigns(ctx); return; }
+
+            if (method == "GET" && path == "/hive/models")
+            { HandleListModels(ctx); return; }
+
             if (method == "GET"  && path == "/hive/session/context")
             { await HandleGetContextAsync(ctx); return; }
 
@@ -362,6 +383,25 @@ public sealed class HiveTaskQueue : IDisposable
             { HandleGetEventsAsync(ctx); return; }
 
             var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 3 && parts[0] == "hive" &&
+                (parts[1] == "artifacts" || parts[1] == "models"))
+            {
+                var store = parts[1] == "artifacts" ? ArtifactStore : ModelStore;
+                if (store is null) { ctx.Response.StatusCode = 503; return; }
+                if (method == "PUT")
+                { await HandlePutContentAsync(ctx, store, parts[2], body); return; }
+                if (method == "HEAD")
+                { HandleHeadContent(ctx, store, parts[2]); return; }
+                if (method == "GET")
+                { await HandleGetContentAsync(ctx, store, parts[2]); return; }
+            }
+            if (parts.Length >= 3 && parts[0] == "hive" && parts[1] == "campaigns")
+            {
+                if (method == "GET" && parts.Length == 3)
+                { HandleGetCampaign(ctx, parts[2]); return; }
+                if (method == "POST" && parts.Length == 4)
+                { HandleCampaignAction(ctx, parts[2], parts[3]); return; }
+            }
             if (method == "POST" && parts.Length == 4
                 && parts[0] == "hive" && parts[1] == "tasks")
             {
@@ -461,6 +501,332 @@ public sealed class HiveTaskQueue : IDisposable
         }
     }
 
+    /// <summary>
+    /// Atomically selects and claims the best pending task that the worker can execute. This
+    /// removes the Phase 3A GET-next/POST-claim race while leaving those endpoints compatible.
+    /// </summary>
+    private async Task HandleLeaseAsync(HttpListenerContext ctx, byte[] body, string authNode)
+    {
+        var request = ReadJson<HiveLeaseRequest>(body);
+        if (request is null || !HiveAuthMiddleware.IsValidWorkerId(request.WorkerId))
+        {
+            ctx.Response.StatusCode = 400;
+            WriteJson(ctx, new { error = "valid workerId and capabilities are required" });
+            return;
+        }
+
+        var lanes = request.Lanes.Select(l => l.Trim().ToLowerInvariant()).ToHashSet();
+        await _claimLock.WaitAsync();
+        try
+        {
+            var selected = _tasks
+                .Where(kv => kv.Value.Status == "pending")
+                .Where(kv => string.IsNullOrEmpty(kv.Value.Bundle.CampaignId) ||
+                    !_campaigns.TryGetValue(kv.Value.Bundle.CampaignId, out var campaign) ||
+                    campaign.Status == CampaignStates.Running)
+                .Where(kv => lanes.Count == 0 || lanes.Contains(kv.Value.Bundle.Role.ToLowerInvariant()))
+                .Where(kv => CampaignCapabilityMatcher.IsEligible(kv.Value.Bundle, request.Capabilities))
+                .OrderByDescending(kv => CampaignCapabilityMatcher.Score(kv.Value.Bundle, request.Capabilities))
+                .ThenBy(kv => kv.Value.EnqueuedAt)
+                .FirstOrDefault();
+
+            if (selected.Value is null)
+            {
+                ctx.Response.StatusCode = 204;
+                return;
+            }
+
+            var entry = selected.Value;
+            entry.ClaimToken    = Guid.NewGuid().ToString("N")[..12];
+            entry.Status        = "claimed";
+            entry.ClaimedBy     = request.WorkerId;
+            entry.ClaimedByUrl  = request.WorkerUrl;
+            entry.ClaimedAt     = DateTime.UtcNow;
+            entry.LastHeartbeat = DateTime.UtcNow;
+
+            if (entry.IsVerification && entry.Bundle.Verification.RequireDifferentNode)
+            {
+                foreach (var sibling in _tasks.Values.Where(e => e.Status == "pending" &&
+                    e.VerificationParentTaskId == entry.VerificationParentTaskId))
+                {
+                    sibling.Bundle.Requirements = sibling.Bundle.Requirements with
+                    {
+                        ExcludedWorkerIds = sibling.Bundle.Requirements.ExcludedWorkerIds
+                            .Append(request.WorkerId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+                    };
+                }
+            }
+
+            Events.Append("task_claimed",
+                $"[{entry.Bundle.Role}] {entry.Bundle.Title} → {entry.ClaimedBy}",
+                selected.Key, entry.ClaimedBy);
+            PersistTask(selected.Key, entry.SessionId, entry.Bundle.Role, entry.Bundle.Title, "claimed",
+                authNode, entry.ClaimedBy, authenticated: true, entry.ClaimToken,
+                resultBlob: null, durationMs: null, errorMsg: null, entry.EnqueuedAt);
+            if (entry.Bundle.CampaignId.Length > 0)
+                CampaignRepository?.UpdateWorkUnit(entry.Bundle.CampaignId, entry.Bundle.WorkUnitId,
+                    "running", entry.Bundle.Attempt, authNode);
+
+            WriteJson(ctx, new HiveLeaseResponse { Bundle = entry.Bundle, ClaimToken = entry.ClaimToken });
+        }
+        finally
+        {
+            _claimLock.Release();
+        }
+    }
+
+    public IReadOnlyList<string> SubmitCampaign(CampaignDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (string.IsNullOrWhiteSpace(definition.CampaignId) || definition.WorkUnits.Count == 0)
+            throw new ArgumentException("Campaign id and at least one work unit are required.", nameof(definition));
+        if (!_campaigns.TryAdd(definition.CampaignId, (definition.Name, CampaignStates.Running)))
+            throw new InvalidOperationException($"Campaign {definition.CampaignId} already exists.");
+
+        CampaignRepository?.Create(definition with { Status = CampaignStates.Running });
+        var taskIds = new List<string>(definition.WorkUnits.Count);
+        foreach (var unit in definition.WorkUnits)
+        {
+            var taskId = $"{definition.CampaignId}-{unit.WorkUnitId}";
+            var bundle = new HiveTaskBundle
+            {
+                TaskId = taskId,
+                SessionId = _sessionCtx.SessionId,
+                Role = string.IsNullOrWhiteSpace(unit.Role) ? "Worker" : unit.Role,
+                Title = unit.Title,
+                Spec = unit.Spec,
+                TimeoutMs = unit.TimeoutMs,
+                ExecutionKind = unit.ExecutionKind,
+                CampaignId = definition.CampaignId,
+                WorkUnitId = unit.WorkUnitId,
+                PackId = unit.PackId.Length > 0 ? unit.PackId : definition.PackId,
+                PackVersion = unit.PackVersion.Length > 0 ? unit.PackVersion : definition.PackVersion,
+                NativeRole = unit.Role,
+                Requirements = unit.Requirements,
+                Verification = unit.Verification,
+                Parameters = unit.Parameters,
+                InputArtifacts = unit.Inputs,
+                Attempt = 1,
+                MaxAttempts = Math.Max(1, unit.MaxAttempts),
+                WarchiefUrl = BaseUrl,
+            };
+            EnqueueCore(taskId, bundle, authenticated: false, authNode: null);
+            CampaignRepository?.BindTask(definition.CampaignId, unit.WorkUnitId, taskId);
+            taskIds.Add(taskId);
+        }
+
+        Events.Append("campaign_started", $"{definition.Name} · {taskIds.Count} work units",
+            sessionId: _sessionCtx.SessionId);
+        return taskIds;
+    }
+
+    public bool SetCampaignState(string campaignId, string state)
+    {
+        if (!_campaigns.TryGetValue(campaignId, out var campaign)) return false;
+        _campaigns[campaignId] = (campaign.Name, state);
+        CampaignRepository?.SetStatus(campaignId, state);
+
+        if (state == CampaignStates.Cancelled)
+        {
+            foreach (var entry in _tasks.Values.Where(e => e.Bundle.CampaignId == campaignId))
+            {
+                _claimLock.Wait();
+                try
+                {
+                    if (entry.Status is "completed" or "failed" or "cancelled") continue;
+                    entry.Status = "cancelled";
+                    entry.ClaimToken = Guid.NewGuid().ToString("N");
+                    entry.CompletionTcs.TrySetResult(new HiveTaskResult
+                    {
+                        TaskId = entry.Bundle.TaskId,
+                        Status = "cancelled",
+                        ErrorMsg = "Campaign cancelled",
+                    });
+                    CampaignRepository?.UpdateWorkUnit(campaignId, entry.Bundle.WorkUnitId,
+                        "cancelled", entry.Bundle.Attempt, error: "Campaign cancelled");
+                }
+                finally { _claimLock.Release(); }
+            }
+        }
+
+        Events.Append($"campaign_{state}", $"{campaign.Name} → {state}", sessionId: _sessionCtx.SessionId);
+        return true;
+    }
+
+    public CampaignStatusSnapshot? GetCampaignStatus(string campaignId)
+    {
+        if (!_campaigns.TryGetValue(campaignId, out var campaign)) return null;
+        var units = _tasks.Values.Where(e => e.Bundle.CampaignId == campaignId && !e.IsVerification).ToList();
+        return new CampaignStatusSnapshot
+        {
+            CampaignId = campaignId,
+            Name = campaign.Name,
+            Status = campaign.Status,
+            Total = units.Count,
+            Pending = units.Count(e => e.Status == "pending"),
+            Running = units.Count(e => e.Status == "claimed"),
+            Verifying = units.Count(e => e.Status == "verifying"),
+            Completed = units.Count(e => e.Status == "completed"),
+            Failed = units.Count(e => e.Status == "failed"),
+            Cancelled = units.Count(e => e.Status == "cancelled"),
+        };
+    }
+
+    public IReadOnlyList<CampaignStatusSnapshot> GetCampaignStatuses() => _campaigns.Keys
+        .Select(GetCampaignStatus)
+        .Where(s => s is not null)
+        .Cast<CampaignStatusSnapshot>()
+        .OrderByDescending(s => s.Status == CampaignStates.Running)
+        .ThenBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    private Task HandleCreateCampaignAsync(HttpListenerContext ctx, byte[] body)
+    {
+        var campaign = ReadJson<CampaignDefinition>(body);
+        if (campaign is null)
+        {
+            ctx.Response.StatusCode = 400;
+            WriteJson(ctx, new { error = "invalid campaign definition" });
+            return Task.CompletedTask;
+        }
+
+        try
+        {
+            var taskIds = SubmitCampaign(campaign);
+            ctx.Response.StatusCode = 202;
+            WriteJson(ctx, new { campaignId = campaign.CampaignId, status = CampaignStates.Running, taskIds });
+        }
+        catch (Exception ex)
+        {
+            ctx.Response.StatusCode = 400;
+            WriteJson(ctx, new { error = ex.Message });
+        }
+        return Task.CompletedTask;
+    }
+
+    private void HandleListCampaigns(HttpListenerContext ctx) =>
+        WriteJson(ctx, _campaigns.Keys.Select(GetCampaignStatus).Where(s => s is not null).ToList());
+
+    private void HandleListModels(HttpListenerContext ctx)
+    {
+        if (ModelStore is null) { ctx.Response.StatusCode = 503; return; }
+        WriteJson(ctx, ModelStore.GetDigests().Select(d =>
+            new ApprovedModelAsset(d, new FileInfo(ModelStore.GetPath(d)).Length)).ToArray());
+    }
+
+    private void HandleGetCampaign(HttpListenerContext ctx, string campaignId)
+    {
+        var status = GetCampaignStatus(campaignId);
+        if (status is null) { ctx.Response.StatusCode = 404; return; }
+        WriteJson(ctx, status);
+    }
+
+    private void HandleCampaignAction(HttpListenerContext ctx, string campaignId, string action)
+    {
+        var state = action.ToLowerInvariant() switch
+        {
+            "pause" => CampaignStates.Paused,
+            "resume" => CampaignStates.Running,
+            "cancel" => CampaignStates.Cancelled,
+            _ => "",
+        };
+        if (state.Length == 0) { ctx.Response.StatusCode = 404; return; }
+        if (!SetCampaignState(campaignId, state)) { ctx.Response.StatusCode = 404; return; }
+        WriteJson(ctx, GetCampaignStatus(campaignId)!);
+    }
+
+    private static async Task HandlePutContentAsync(HttpListenerContext ctx,
+        ContentAddressedStore store, string digest, byte[] body)
+    {
+        if (!long.TryParse(ctx.Request.Headers["X-Hive-Offset"], out var offset) ||
+            !long.TryParse(ctx.Request.Headers["X-Hive-Total-Bytes"], out var total))
+        {
+            ctx.Response.StatusCode = 400;
+            WriteJson(ctx, new { error = "X-Hive-Offset and X-Hive-Total-Bytes are required" });
+            return;
+        }
+        try
+        {
+            var result = await store.WriteChunkAsync(digest, offset, total, body).ConfigureAwait(false);
+            ctx.Response.StatusCode = result.Complete ? 201 : 202;
+            WriteJson(ctx, new { digest, complete = result.Complete, bytesStored = result.BytesStored });
+        }
+        catch (ArgumentException ex)
+        {
+            ctx.Response.StatusCode = 400;
+            WriteJson(ctx, new { error = ex.Message });
+        }
+        catch (InvalidDataException ex)
+        {
+            ctx.Response.StatusCode = 409;
+            WriteJson(ctx, new { error = ex.Message, resumeOffset = SafeOffset(store, digest) });
+        }
+        catch (IOException ex)
+        {
+            ctx.Response.StatusCode = 507;
+            WriteJson(ctx, new { error = ex.Message });
+        }
+    }
+
+    private static void HandleHeadContent(HttpListenerContext ctx, ContentAddressedStore store, string digest)
+    {
+        try
+        {
+            var offset = store.GetResumeOffset(digest);
+            ctx.Response.Headers["X-Hive-Stored-Bytes"] = offset.ToString();
+            ctx.Response.Headers["X-Hive-Complete"] = store.Has(digest) ? "true" : "false";
+            ctx.Response.StatusCode = offset > 0 ? 200 : 404;
+        }
+        catch (ArgumentException) { ctx.Response.StatusCode = 400; }
+    }
+
+    private static async Task HandleGetContentAsync(HttpListenerContext ctx,
+        ContentAddressedStore store, string digest)
+    {
+        try
+        {
+            var path = store.GetPath(digest);
+            var length = new FileInfo(path).Length;
+            var start = 0L;
+            var end = length - 1;
+            var range = ctx.Request.Headers["Range"];
+            if (!string.IsNullOrWhiteSpace(range) && range.StartsWith("bytes=", StringComparison.OrdinalIgnoreCase))
+            {
+                var values = range[6..].Split('-', 2);
+                if (!long.TryParse(values[0], out start) || start < 0 || start >= length)
+                { ctx.Response.StatusCode = 416; return; }
+                if (values.Length == 2 && values[1].Length > 0 && long.TryParse(values[1], out var requestedEnd))
+                    end = Math.Min(end, requestedEnd);
+                ctx.Response.StatusCode = 206;
+                ctx.Response.Headers["Content-Range"] = $"bytes {start}-{end}/{length}";
+            }
+
+            var count = end - start + 1;
+            ctx.Response.ContentType = "application/octet-stream";
+            ctx.Response.ContentLength64 = count;
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                1024 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            stream.Position = start;
+            var remaining = count;
+            var buffer = new byte[1024 * 1024];
+            while (remaining > 0)
+            {
+                var read = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining))).ConfigureAwait(false);
+                if (read == 0) break;
+                await ctx.Response.OutputStream.WriteAsync(buffer.AsMemory(0, read)).ConfigureAwait(false);
+                remaining -= read;
+            }
+        }
+        catch (FileNotFoundException) { ctx.Response.StatusCode = 404; }
+        catch (ArgumentException) { ctx.Response.StatusCode = 400; }
+    }
+
+    private static long SafeOffset(ContentAddressedStore store, string digest)
+    {
+        try { return store.GetResumeOffset(digest); }
+        catch { return 0; }
+    }
+
     private async Task HandleHeartbeatAsync(HttpListenerContext ctx, string taskId, byte[] body)
     {
         var hb = ReadJson<HiveHeartbeatRequest>(body);
@@ -507,6 +873,15 @@ public sealed class HiveTaskQueue : IDisposable
             if (result is null)
             { ctx.Response.StatusCode = 400; return; }
 
+            if (result.OutputArtifacts.Count > 0 && (ArtifactStore is null ||
+                result.OutputArtifacts.Any(a => !ArtifactStore.Has(a.DigestSha256) ||
+                    new FileInfo(ArtifactStore.GetPath(a.DigestSha256)).Length != a.SizeBytes)))
+            {
+                ctx.Response.StatusCode = 409;
+                WriteJson(ctx, new { error = "one or more output artifacts are missing or unverified" });
+                return;
+            }
+
             if (!string.IsNullOrEmpty(entry.ClaimToken) && result.ClaimToken != entry.ClaimToken)
             {
                 Log($"⚠ Stale /complete for '{entry.Bundle.Title}' from {result.WorkerId} " +
@@ -516,8 +891,9 @@ public sealed class HiveTaskQueue : IDisposable
             }
 
             // Mark completed under lock so CheckTimeouts cannot re-queue concurrently.
-            entry.Status     = "completed";
-            entry.ResultText = result.Result;
+            entry.Status           = "completed";
+            entry.ResultText       = result.Result;
+            entry.StructuredResult = result;
         }
         finally { _claimLock.Release(); }
 
@@ -535,6 +911,26 @@ public sealed class HiveTaskQueue : IDisposable
         PersistTask(taskId, entry.SessionId, entry.Bundle.Role, entry.Bundle.Title, "completed",
             authNode, result.WorkerId, authenticated: true, entry.ClaimToken,
             result.Result, result.DurationMs, errorMsg: null, entry.EnqueuedAt);
+        if (entry.Bundle.CampaignId.Length > 0)
+        {
+            if (entry.IsVerification)
+            {
+                FinalizeVerificationGroup(entry.VerificationParentTaskId!);
+            }
+            else if (entry.Bundle.Verification.RequiredIndependentRuns > 1)
+            {
+                ScheduleVerificationRuns(taskId, entry, result);
+            }
+            else
+            {
+                AcceptWorkUnit(entry, result, authNode);
+            }
+            if (ArtifactStore is not null)
+                foreach (var artifact in result.OutputArtifacts)
+                    CampaignRepository?.AddArtifact(entry.Bundle.CampaignId, entry.Bundle.WorkUnitId,
+                        artifact, ArtifactStore.GetPath(artifact.DigestSha256), verified: true);
+            UpdateCampaignAfterTerminal(entry.Bundle.CampaignId);
+        }
 
         WriteJson(ctx, new { taskId, status = "completed" });
     }
@@ -545,6 +941,7 @@ public sealed class HiveTaskQueue : IDisposable
 
         QueuedTask? entry    = null;
         HiveTaskResult? failResult = null;
+        var requeued = false;
         await _claimLock.WaitAsync();
         try
         {
@@ -558,7 +955,6 @@ public sealed class HiveTaskQueue : IDisposable
                 && result.ClaimToken != entry.ClaimToken)
             { ctx.Response.StatusCode = 409; return; }
 
-            entry.Status = "failed";
             failResult   = result ?? new HiveTaskResult
             {
                 TaskId   = taskId,
@@ -567,8 +963,37 @@ public sealed class HiveTaskQueue : IDisposable
                 ErrorMsg = "Worker reported failure with no details",
             };
             entry.ErrorMsg = failResult.ErrorMsg;
+            if (entry.Bundle.CampaignId.Length > 0 && entry.Bundle.Attempt < entry.Bundle.MaxAttempts)
+            {
+                entry.Bundle.Attempt++;
+                entry.Status = "pending";
+                entry.ClaimedBy = null;
+                entry.ClaimedByUrl = null;
+                entry.ClaimedAt = null;
+                entry.LastHeartbeat = null;
+                entry.ClaimToken = Guid.NewGuid().ToString("N");
+                requeued = true;
+            }
+            else
+            {
+                entry.Status = "failed";
+            }
         }
         finally { _claimLock.Release(); }
+
+        if (requeued)
+        {
+            Events.Append("task_requeued",
+                $"[{failResult!.WorkerId}] {entry!.Bundle.Title} · retry {entry.Bundle.Attempt}/{entry.Bundle.MaxAttempts}",
+                taskId, failResult.WorkerId);
+            CampaignRepository?.UpdateWorkUnit(entry.Bundle.CampaignId, entry.Bundle.WorkUnitId,
+                "pending", entry.Bundle.Attempt, error: failResult.ErrorMsg);
+            PersistTask(taskId, entry.SessionId, entry.Bundle.Role, entry.Bundle.Title, "pending",
+                authNode, failResult.WorkerId, authenticated: true, entry.ClaimToken,
+                resultBlob: null, failResult.DurationMs, failResult.ErrorMsg, entry.EnqueuedAt);
+            WriteJson(ctx, new { taskId, status = "pending", attempt = entry.Bundle.Attempt });
+            return;
+        }
 
         entry!.CompletionTcs.TrySetResult(failResult);
 
@@ -581,6 +1006,15 @@ public sealed class HiveTaskQueue : IDisposable
         PersistTask(taskId, entry.SessionId, entry.Bundle.Role, entry.Bundle.Title, "failed",
             authNode, failResult.WorkerId, authenticated: true, entry.ClaimToken,
             resultBlob: null, failResult.DurationMs, failResult.ErrorMsg, entry.EnqueuedAt);
+        if (entry.Bundle.CampaignId.Length > 0)
+        {
+            if (entry.IsVerification)
+                FinalizeVerificationGroup(entry.VerificationParentTaskId!);
+            else
+                CampaignRepository?.UpdateWorkUnit(entry.Bundle.CampaignId, entry.Bundle.WorkUnitId,
+                    "failed", entry.Bundle.Attempt, authNode, error: failResult.ErrorMsg);
+            UpdateCampaignAfterTerminal(entry.Bundle.CampaignId);
+        }
 
         WriteJson(ctx, new { taskId, status = "failed" });
     }
@@ -707,7 +1141,8 @@ public sealed class HiveTaskQueue : IDisposable
                 switch (entry.Status)
                 {
                     case "pending":
-                        if (now - entry.EnqueuedAt > TimeSpan.FromSeconds(PendingTimeoutSec))
+                        if (string.IsNullOrEmpty(entry.Bundle.CampaignId) &&
+                            now - entry.EnqueuedAt > TimeSpan.FromSeconds(PendingTimeoutSec))
                         {
                             entry.Status = "timeout";
                             resolveNull  = true;
@@ -724,18 +1159,29 @@ public sealed class HiveTaskQueue : IDisposable
                             now - entry.LastHeartbeat.Value > TimeSpan.FromSeconds(HeartbeatTimeoutSec))
                         {
                             var who         = entry.ClaimedBy ?? "unknown";
-                            entry.Status        = "pending";
+                            var campaignTask = !string.IsNullOrEmpty(entry.Bundle.CampaignId);
+                            var exhausted = campaignTask && entry.Bundle.Attempt >= entry.Bundle.MaxAttempts;
+                            entry.Status        = exhausted ? "failed" : "pending";
                             entry.ClaimedBy     = null;
                             entry.ClaimedByUrl  = null;
                             entry.ClaimedAt     = null;
                             entry.LastHeartbeat = null;
                             entry.ClaimToken    = Guid.NewGuid().ToString();
-                            sqlStatus    = "pending";
+                            if (!exhausted) entry.Bundle.Attempt++;
+                            sqlStatus    = entry.Status;
                             sqlSessionId = entry.SessionId;
-                            logMsg = $"⚠ Task '{entry.Bundle.Title}' heartbeat timeout from {who} — re-queued";
-                            evType = "task_requeued";
-                            evMsg  = $"{entry.Bundle.Title} lost heartbeat from {who} → re-queued";
+                            logMsg = exhausted
+                                ? $"⚠ Task '{entry.Bundle.Title}' exhausted {entry.Bundle.MaxAttempts} attempts after heartbeat loss"
+                                : $"⚠ Task '{entry.Bundle.Title}' heartbeat timeout from {who} — re-queued (attempt {entry.Bundle.Attempt})";
+                            evType = exhausted ? "task_failed" : "task_requeued";
+                            evMsg  = exhausted
+                                ? $"{entry.Bundle.Title} exhausted retry budget"
+                                : $"{entry.Bundle.Title} lost heartbeat from {who} → re-queued";
                             evWho  = who;
+                            if (campaignTask)
+                                CampaignRepository?.UpdateWorkUnit(entry.Bundle.CampaignId,
+                                    entry.Bundle.WorkUnitId, entry.Status, entry.Bundle.Attempt,
+                                    error: exhausted ? "Worker heartbeat lost; retry budget exhausted" : null);
                         }
                         break;
 
@@ -769,6 +1215,150 @@ public sealed class HiveTaskQueue : IDisposable
             try { repo.SweepExpired(); } catch { }
         }
     }
+
+    private void UpdateCampaignAfterTerminal(string campaignId)
+    {
+        var snapshot = GetCampaignStatus(campaignId);
+        if (snapshot is null || snapshot.Pending > 0 || snapshot.Running > 0) return;
+        var next = snapshot.Failed > 0 ? CampaignStates.Failed
+            : snapshot.Verifying > 0 ? CampaignStates.Verifying
+            : CampaignStates.Completed;
+        if (_campaigns.TryGetValue(campaignId, out var current) && current.Status == next) return;
+        if (_campaigns.TryGetValue(campaignId, out var campaign))
+            _campaigns[campaignId] = (campaign.Name, next);
+        CampaignRepository?.SetStatus(campaignId, next);
+        Events.Append($"campaign_{next}", $"{snapshot.Name} → {next}", sessionId: _sessionCtx.SessionId);
+    }
+
+    private void ScheduleVerificationRuns(string parentTaskId, QueuedTask parent, HiveTaskResult firstResult)
+    {
+        parent.Status = "verifying";
+        CampaignRepository?.UpdateWorkUnit(parent.Bundle.CampaignId, parent.Bundle.WorkUnitId,
+            "verifying", parent.Bundle.Attempt, firstResult.WorkerId,
+            JsonSerializer.Serialize(firstResult, _json));
+
+        var required = Math.Clamp(parent.Bundle.Verification.RequiredIndependentRuns, 2, 5);
+        for (var run = 2; run <= required; run++)
+        {
+            var taskId = $"{parentTaskId}#verify-{run}";
+            var bundle = CloneForVerification(parent.Bundle, taskId, firstResult.WorkerId, run);
+            var verification = new QueuedTask
+            {
+                Bundle = bundle,
+                SessionId = parent.SessionId,
+                IsVerification = true,
+                VerificationParentTaskId = parentTaskId,
+            };
+            if (!_tasks.TryAdd(taskId, verification)) continue;
+            Events.Append("verification_queued", $"{parent.Bundle.Title} · independent run {run}/{required}",
+                taskId, sessionId: parent.SessionId);
+        }
+    }
+
+    private void FinalizeVerificationGroup(string parentTaskId)
+    {
+        if (!_tasks.TryGetValue(parentTaskId, out var parent) || parent.StructuredResult is null) return;
+        var replicas = _tasks.Values.Where(e => e.VerificationParentTaskId == parentTaskId).ToList();
+        if (replicas.Any(e => e.Status is "pending" or "claimed")) return;
+
+        var evidence = new[] { parent.StructuredResult }
+            .Concat(replicas.Where(e => e.StructuredResult is not null).Select(e => e.StructuredResult!))
+            .ToList();
+        var required = Math.Clamp(parent.Bundle.Verification.RequiredIndependentRuns, 1, 5);
+        var error = replicas.Any(e => e.Status == "failed")
+            ? "An independent verification run failed."
+            : VerifyEvidence(parent.Bundle.Verification, evidence, required);
+
+        if (error is null)
+        {
+            parent.Status = "completed";
+            AcceptWorkUnit(parent, parent.StructuredResult, parent.StructuredResult.WorkerId);
+            Events.Append("work_unit_accepted", $"{parent.Bundle.Title} · {evidence.Count} verified runs",
+                parentTaskId, sessionId: parent.SessionId);
+        }
+        else
+        {
+            parent.Status = "failed";
+            parent.ErrorMsg = error;
+            CampaignRepository?.UpdateWorkUnit(parent.Bundle.CampaignId, parent.Bundle.WorkUnitId,
+                "failed", parent.Bundle.Attempt, error: error);
+            Events.Append("verification_failed", $"{parent.Bundle.Title} · {error}",
+                parentTaskId, sessionId: parent.SessionId);
+        }
+    }
+
+    private void AcceptWorkUnit(QueuedTask entry, HiveTaskResult result, string acceptedBy)
+    {
+        CampaignRepository?.UpdateWorkUnit(entry.Bundle.CampaignId, entry.Bundle.WorkUnitId,
+            "completed", entry.Bundle.Attempt, acceptedBy, JsonSerializer.Serialize(result, _json));
+    }
+
+    internal static string? VerifyEvidence(VerificationPolicy policy, IReadOnlyList<HiveTaskResult> evidence, int required)
+    {
+        if (evidence.Count < required) return $"Expected {required} successful runs, received {evidence.Count}.";
+        if (policy.RequireDifferentNode && evidence.Select(e => e.WorkerId).Distinct(StringComparer.OrdinalIgnoreCase).Count() < required)
+            return "Verification policy requires different worker nodes.";
+
+        var attestations = evidence.Select(e => e.Attestation).ToList();
+        if (attestations.Any(a => a is null)) return "A verification result is missing its execution attestation.";
+        var baseline = AttestationFingerprint(attestations[0]!);
+        if (attestations.Skip(1).Any(a => AttestationFingerprint(a!) != baseline))
+            return "Verification runs used different inputs, models, adapters, or container images.";
+
+        if (policy.Mode is "deterministic_rerun" or "hash_only")
+        {
+            var expected = ResultFingerprint(evidence[0]);
+            if (evidence.Skip(1).Any(r => ResultFingerprint(r) != expected))
+                return "Deterministic verification outputs did not match.";
+        }
+        return null;
+    }
+
+    private static string AttestationFingerprint(ExecutionAttestation a) => JsonSerializer.Serialize(new
+    {
+        a.ModelHash,
+        a.AdapterHash,
+        a.ContainerDigest,
+        Inputs = a.InputDigests.OrderBy(kv => kv.Key, StringComparer.Ordinal).ToArray(),
+    });
+
+    private static string ResultFingerprint(HiveTaskResult result) => JsonSerializer.Serialize(new
+    {
+        result.Result,
+        Artifacts = result.OutputArtifacts.Select(a => a.DigestSha256).OrderBy(x => x, StringComparer.Ordinal).ToArray(),
+    });
+
+    private static HiveTaskBundle CloneForVerification(HiveTaskBundle source, string taskId, string originalWorker, int run) => new()
+    {
+        TaskId = taskId,
+        SessionId = source.SessionId,
+        Role = source.Role,
+        Title = $"{source.Title} [verification {run}]",
+        Spec = source.Spec,
+        ProjectGoal = source.ProjectGoal,
+        TargetLanguage = source.TargetLanguage,
+        ModelHint = source.ModelHint,
+        WarchiefUrl = source.WarchiefUrl,
+        TimeoutMs = source.TimeoutMs,
+        ExecutionKind = source.ExecutionKind,
+        CampaignId = source.CampaignId,
+        WorkUnitId = source.WorkUnitId,
+        PackId = source.PackId,
+        PackVersion = source.PackVersion,
+        NativeRole = source.NativeRole,
+        Requirements = source.Requirements with
+        {
+            ExcludedWorkerIds = source.Verification.RequireDifferentNode
+                ? source.Requirements.ExcludedWorkerIds.Append(originalWorker).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+                : source.Requirements.ExcludedWorkerIds,
+        },
+        Verification = source.Verification,
+        Parameters = source.Parameters,
+        InputArtifacts = source.InputArtifacts,
+        Attempt = 1,
+        MaxAttempts = source.MaxAttempts,
+        UpstreamArtifacts = source.UpstreamArtifacts,
+    };
 
     // ── Durable-history helper (best-effort; a DB failure never breaks a swarm run) ──
 

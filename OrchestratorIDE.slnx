@@ -2,6 +2,8 @@
   <Project Path="OrchestratorIDE.Avalonia.HeadlessTests/OrchestratorIDE.Avalonia.HeadlessTests.csproj" />
   <Project Path="OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj" />
   <Project Path="OrchestratorIDE.Daemon/OrchestratorIDE.Daemon.csproj" />
+  <Project Path="OrchestratorIDE.NativeRuntime/OrchestratorIDE.NativeRuntime.csproj" />
+  <Project Path="OrchestratorIDE.UnitTests/OrchestratorIDE.UnitTests.csproj" />
   <Project Path="OrchestratorIDE.UITests/OrchestratorIDE.UITests.csproj" />
   <Project Path="OrchestratorSetup/OrchestratorSetup.csproj" />
 </Solution>

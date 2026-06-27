@@ -28,6 +28,7 @@ public partial class HivePanel : UserControl
     public string LocalUrl    { get; set; } = "http://localhost:11434";
     public string LocalNodeId { get; set; } = "";
     public HiveNodeServer? NodeServer { get; set; }
+    public HiveTaskQueue? CampaignQueue { get; set; }
 
     // ── Delegate callbacks injected by MainWindow ─────────────────────────────
     public Func<string, string, Task>?          AlertAsync   { get; set; }
@@ -49,6 +50,8 @@ public partial class HivePanel : UserControl
     private const int MaxEventRows = 150;
     private readonly ObservableCollection<EventRow> _events = [];
     private readonly DispatcherTimer _eventPoll = new() { Interval = TimeSpan.FromSeconds(2) };
+    private readonly DispatcherTimer _campaignPoll = new() { Interval = TimeSpan.FromSeconds(2) };
+    private IReadOnlyList<CampaignStatusSnapshot> _campaigns = [];
     private HiveEventBus? _eventBus;
     private long _eventSeq = -1;
 
@@ -92,9 +95,11 @@ public partial class HivePanel : UserControl
     {
         InitializeComponent();
         IcEventLog.ItemsSource = _events;
+        CampaignTemplate.ItemsSource = new[] { "Native AI Eval Factory", "Alien Signal Search" };
 
         _poll.Tick      += async (_, _) => await ProbeAndDrawAsync();
         _eventPoll.Tick += (_, _) => PollEvents();
+        _campaignPoll.Tick += (_, _) => RefreshCampaigns();
 
         HiveView.NodeClicked      += (_, e) => ShowNodeDetail(e.Node);
         HiveView.NodeRightClicked += (_, e) => ShowNodeMenu(e.Node);
@@ -104,8 +109,163 @@ public partial class HivePanel : UserControl
         var layout = OrchestratorIDE.Core.AppSettings.Load();
         ApplyRailLayout(layout.HiveRailOnLeft, layout.HiveRailWidth);
 
-        Loaded   += async (_, _) => { Refresh(); await ProbeAndDrawAsync(); _poll.Start(); };
-        Unloaded += (_, _) => { _poll.Stop(); _eventPoll.Stop(); SaveRailLayout(); };
+        Loaded   += async (_, _) => { Refresh(); RefreshCampaigns(); await ProbeAndDrawAsync(); _poll.Start(); _campaignPoll.Start(); };
+        Unloaded += (_, _) => { _poll.Stop(); _eventPoll.Stop(); _campaignPoll.Stop(); SaveRailLayout(); };
+    }
+
+    private void RefreshCampaigns()
+    {
+        if (CampaignQueue is null)
+        {
+            TbCampaignStatus.Text = "Campaign queue is not enabled on this node.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(CampaignModelHash.Text) && CampaignQueue.ModelStore is { } models)
+            CampaignModelHash.Text = models.GetDigests(limit: 1).FirstOrDefault() ?? "";
+
+        var selectedId = SelectedCampaign()?.CampaignId;
+        _campaigns = CampaignQueue.GetCampaignStatuses();
+        CampaignSelector.ItemsSource = _campaigns.Select(c => $"{c.Name}  ·  {c.Status}").ToArray();
+        CampaignSelector.SelectedIndex = selectedId is null
+            ? (_campaigns.Count > 0 ? 0 : -1)
+            : Math.Max(0, _campaigns.ToList().FindIndex(c => c.CampaignId == selectedId));
+        ShowSelectedCampaign();
+    }
+
+    private CampaignStatusSnapshot? SelectedCampaign() => CampaignSelector.SelectedIndex is var index &&
+        index >= 0 && index < _campaigns.Count ? _campaigns[index] : null;
+
+    private void ShowSelectedCampaign()
+    {
+        var c = SelectedCampaign();
+        TbCampaignStatus.Text = c is null
+            ? "No campaigns queued."
+            : $"{c.Status.ToUpperInvariant()}  ·  {c.Total} work units\n" +
+              $"queued {c.Pending}   running {c.Running}   verifying {c.Verifying}\n" +
+              $"accepted {c.Completed}   failed {c.Failed}   cancelled {c.Cancelled}";
+    }
+
+    private void CampaignSelector_SelectionChanged(object? sender, SelectionChangedEventArgs e) => ShowSelectedCampaign();
+
+    private async void LaunchCampaign_Click(object? sender, RoutedEventArgs e)
+    {
+        if (CampaignQueue is null)
+        {
+            await NotifyAsync("Enable this node as a HIVE Warchief before launching campaigns.", "Campaign Engine");
+            return;
+        }
+
+        try
+        {
+            CampaignDefinition definition;
+            var name = string.IsNullOrWhiteSpace(CampaignName.Text) ? $"Campaign {DateTime.Now:g}" : CampaignName.Text.Trim();
+            var lines = (CampaignPayload.Text ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (CampaignTemplate.SelectedIndex == 0)
+            {
+                var modelHash = NormalizeDigest(CampaignModelHash.Text);
+                if (lines.Length == 0) throw new InvalidDataException("Add at least one eval prompt, one per line.");
+                definition = CampaignTemplates.NativeAiEval(name, lines, modelHash);
+            }
+            else
+            {
+                if (lines.Length == 0) throw new InvalidDataException("Add at least one observation manifest line.");
+                definition = CampaignTemplates.AlienSignalSearch(name, lines.Select(ParseObservation));
+            }
+
+            CampaignQueue.SubmitCampaign(definition);
+            RefreshCampaigns();
+        }
+        catch (Exception ex)
+        {
+            await NotifyAsync(ex.Message, "Campaign not launched");
+        }
+    }
+
+    private async void StageModel_Click(object? sender, RoutedEventArgs e)
+    {
+        if (CampaignQueue?.ModelStore is null)
+        {
+            await NotifyAsync("The Warchief model store is not configured.", "Native model staging");
+            return;
+        }
+
+        var path = await (InputAsync?.Invoke("Absolute path to an approved GGUF model:", "Stage native model")
+            ?? Task.FromResult<string?>(null));
+        if (string.IsNullOrWhiteSpace(path)) return;
+        try
+        {
+            path = System.IO.Path.GetFullPath(path.Trim().Trim('"'));
+            if (!File.Exists(path) || !path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
+                throw new FileNotFoundException("Select an existing .gguf file.", path);
+
+            var digest = await ContentAddressedStore.ComputeSha256Async(path);
+            var total = new FileInfo(path).Length;
+            var offset = CampaignQueue.ModelStore.GetResumeOffset(digest);
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                ContentAddressedStore.MaxChunkBytes, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            stream.Position = Math.Min(offset, total);
+            var buffer = new byte[ContentAddressedStore.MaxChunkBytes];
+            while (offset < total)
+            {
+                var read = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, total - offset)));
+                if (read == 0) throw new EndOfStreamException("The model changed while it was being staged.");
+                await CampaignQueue.ModelStore.WriteChunkAsync(digest, offset, total, buffer.AsMemory(0, read));
+                offset += read;
+            }
+            CampaignModelHash.Text = digest;
+            await NotifyAsync($"Approved and SHA-256 verified:\n{digest}\n\nWarbands will pull it resumably. They advertise it only after restart and native preflight.",
+                "Native model offered to Warbands");
+        }
+        catch (Exception ex)
+        {
+            await NotifyAsync(ex.Message, "Model staging failed");
+        }
+    }
+
+    private void PauseCampaign_Click(object? sender, RoutedEventArgs e) => SetSelectedCampaignState(CampaignStates.Paused);
+    private void ResumeCampaign_Click(object? sender, RoutedEventArgs e) => SetSelectedCampaignState(CampaignStates.Running);
+    private async void CancelCampaign_Click(object? sender, RoutedEventArgs e)
+    {
+        var campaign = SelectedCampaign();
+        if (campaign is null || CampaignQueue is null) return;
+        var confirmed = await (ConfirmAsync?.Invoke($"Cancel {campaign.Name}? Completed artifacts and audit history will be preserved.",
+            "Cancel campaign") ?? Task.FromResult(false));
+        if (confirmed) SetSelectedCampaignState(CampaignStates.Cancelled);
+    }
+
+    private void SetSelectedCampaignState(string state)
+    {
+        var campaign = SelectedCampaign();
+        if (campaign is null || CampaignQueue is null) return;
+        CampaignQueue.SetCampaignState(campaign.CampaignId, state);
+        RefreshCampaigns();
+    }
+
+    private Task NotifyAsync(string message, string title) => AlertAsync?.Invoke(message, title) ?? Task.CompletedTask;
+
+    private static string NormalizeDigest(string? digest)
+    {
+        digest = (digest ?? "").Trim().ToLowerInvariant();
+        if (digest.Length != 64 || digest.Any(c => !Uri.IsHexDigit(c)))
+            throw new InvalidDataException("A 64-character native model SHA-256 is required.");
+        return digest;
+    }
+
+    private static ArtifactRef ParseObservation(string line)
+    {
+        var parts = line.Split('|', 4, StringSplitOptions.TrimEntries);
+        if (parts.Length != 4 || !long.TryParse(parts[1], out var size) || size <= 0 ||
+            !Uri.TryCreate(parts[3], UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+            throw new InvalidDataException("Observation lines must be: sha256|bytes|name|https-url");
+        return new ArtifactRef
+        {
+            DigestSha256 = NormalizeDigest(parts[0]),
+            SizeBytes = size,
+            Name = parts[2],
+            SourceUri = uri.ToString(),
+            Kind = "science-input",
+        };
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -1017,8 +1177,8 @@ public partial class HivePanel : UserControl
             var found = await HiveBeacon.ScanAsync(durationMs: 3000);
             foreach (var msg in found)
             {
-                if (_hosts.Any(h => string.Equals(h.Url, msg.OllamaUrl, StringComparison.OrdinalIgnoreCase))) continue;
-                _discovered[msg.OllamaUrl] = msg;
+                if (IsKnownDiscovery(msg)) continue;
+                _discovered[DiscoveryKey(msg)] = msg;
             }
             RefreshDiscoveredStrip();
             if (found.Count == 0 && _discovered.Count == 0)
@@ -1035,6 +1195,8 @@ public partial class HivePanel : UserControl
 
     private void RefreshDiscoveredStrip()
     {
+        foreach (var key in _discovered.Where(kv => IsKnownDiscovery(kv.Value)).Select(kv => kv.Key).ToArray())
+            _discovered.Remove(key);
         PnlDiscoveredNodes.Children.Clear();
         foreach (var msg in _discovered.Values)
             PnlDiscoveredNodes.Children.Add(BuildDiscoveredChip(msg));
@@ -1060,7 +1222,7 @@ public partial class HivePanel : UserControl
         });
         var addBtn = new Button
         {
-            Content = "⊕ Trust & Add", FontSize = 10, Padding = new Thickness(8, 3, 8, 3),
+            Content = "⊕ Add to view", FontSize = 10, Padding = new Thickness(8, 3, 8, 3),
             Background    = new SolidColorBrush(Color.FromRgb(0x1F, 0x3D, 0x00)),
             BorderBrush   = new SolidColorBrush(Color.FromRgb(0x76, 0xB9, 0x00)),
             Foreground    = new SolidColorBrush(Color.FromRgb(0xA8, 0xCC, 0x80)),
@@ -1081,7 +1243,7 @@ public partial class HivePanel : UserControl
 
     private async void TrustAndAdd(HiveBeaconMessage msg)
     {
-        _discovered.Remove(msg.OllamaUrl);
+        _discovered.Remove(DiscoveryKey(msg));
         RefreshDiscoveredStrip();
         var host = new HiveHost { Name = msg.Name, Url = msg.OllamaUrl, Source = "lan" };
         _hosts.Add(host);
@@ -1281,11 +1443,33 @@ public partial class HivePanel : UserControl
     public void OnBeaconNodeSeen(HiveBeaconMessage msg)
     {
         if (!Dispatcher.UIThread.CheckAccess()) { Dispatcher.UIThread.InvokeAsync(() => OnBeaconNodeSeen(msg)); return; }
-        if (_hosts.Any(h => string.Equals(h.Url, msg.OllamaUrl, StringComparison.OrdinalIgnoreCase))) return;
+        if (IsKnownDiscovery(msg))
+        {
+            foreach (var key in _discovered.Where(kv => SameDiscovery(kv.Value, msg)).Select(kv => kv.Key).ToArray())
+                _discovered.Remove(key);
+            RefreshDiscoveredStrip();
+            return;
+        }
         if (IsSelfUrl(msg.OllamaUrl)) return;
-        _discovered[msg.OllamaUrl] = msg;
+        _discovered[DiscoveryKey(msg)] = msg;
         RefreshDiscoveredStrip();
     }
+
+    private bool IsKnownDiscovery(HiveBeaconMessage msg)
+    {
+        if (HiveHosts.SameMachine(Environment.MachineName, msg.Name)) return true;
+        if (_hosts.Any(h => HiveHosts.SameMachine(h.Name, msg.Name) ||
+            (msg.OllamaUrl.Length > 0 && string.Equals(h.Url, msg.OllamaUrl, StringComparison.OrdinalIgnoreCase))))
+            return true;
+        return HivePeerStore.Default.All().Any(p => !p.Revoked && HiveHosts.SameMachine(p.Name, msg.Name));
+    }
+
+    private static bool SameDiscovery(HiveBeaconMessage left, HiveBeaconMessage right) =>
+        HiveHosts.SameMachine(left.Name, right.Name) ||
+        (left.OllamaUrl.Length > 0 && string.Equals(left.OllamaUrl, right.OllamaUrl, StringComparison.OrdinalIgnoreCase));
+
+    private static string DiscoveryKey(HiveBeaconMessage msg) =>
+        msg.OllamaUrl.Length > 0 ? msg.OllamaUrl : $"{msg.Name}:{msg.HivePort}";
 
     private static bool IsSelfUrl(string url)
     {

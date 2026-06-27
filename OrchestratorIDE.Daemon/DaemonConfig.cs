@@ -15,9 +15,17 @@ public sealed class DaemonConfig
     // They are intentionally not exposed as per-node config to avoid split-brain.
     public int TaskQueuePort   { get; set; } = 7079;   // HiveTaskQueue
 
-    // ── Inference ─────────────────────────────────────────────────────────────
-    /// <summary>Base URL of the local Ollama instance this node can advertise to Warchiefs.</summary>
-    public string OllamaUrl    { get; set; } = "http://localhost:11434";
+    // ── Native inference ──────────────────────────────────────────────────────
+    /// <summary>Local content-addressed depot containing GGUF bases and role LoRAs.</summary>
+    public string NativeModelRoot { get; set; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "TheOrc", "models");
+
+    public int NativeContextSize { get; set; } = 8192;
+    public int NativeGpuLayers   { get; set; } = -1;
+    public long NativeVramMb     { get; set; }
+    /// <summary>Digest-pinned Alien Search image. Empty keeps the pack unavailable.</summary>
+    public string AlienSearchImage { get; set; } = "";
 
     // ── Workspace ────────────────────────────────────────────────────────────
     /// <summary>Path to the workspace root that contains .orc/theorc.db.
@@ -38,7 +46,7 @@ public sealed class DaemonConfig
     public bool WorkerMode { get; set; } = true;
 
     /// <summary>
-    /// Ollama model tag this worker uses for coder-lane tasks. Empty means "use whatever
+    /// Legacy Phase 3A setting retained for config-file compatibility. Phase 3B ignores it.
     /// Core.AppSettings.Load() (the GUI's own settings.json) has for LastWorkerModel" -- which
     /// is never populated on a headless box that has no realistic path to ever run the GUI
     /// (found 2026-06-24 testing on a Raspberry Pi: HiveWorkerAgent throws "no model configured"

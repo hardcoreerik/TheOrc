@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>OrchestratorIDE</RootNamespace>
+    <AssemblyName>OrchestratorIDE.NativeRuntime</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="OrchestratorIDE.Avalonia" />
+    <InternalsVisibleTo Include="OrchestratorIDE.Daemon" />
+    <InternalsVisibleTo Include="OrchestratorIDE.UnitTests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\OrchestratorIDE\Models\AgentMessage.cs" Link="Models\AgentMessage.cs" />
+    <Compile Include="..\OrchestratorIDE\Models\ToolCall.cs" Link="Models\ToolCall.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\ContextManager.cs" Link="Core\ContextManager.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\ToolCallTextParser.cs" Link="Core\ToolCallTextParser.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\IModelRuntime.cs" Link="Runtime\IModelRuntime.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\IRoleRuntime.cs" Link="Runtime\IRoleRuntime.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\LLamaSharpRuntime.cs" Link="Runtime\LLamaSharpRuntime.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\ModelDepot.cs" Link="Runtime\ModelDepot.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\SessionManager.cs" Link="Runtime\SessionManager.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\AdapterManager.cs" Link="Runtime\AdapterManager.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\RuntimeOrchestrator.cs" Link="Runtime\RuntimeOrchestrator.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\OrcScheduler.cs" Link="Runtime\OrcScheduler.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\NativeRuntimeTestSupport.cs" Link="Runtime\NativeRuntimeTestSupport.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\HeadlessAgentLoop.cs" Link="Runtime\HeadlessAgentLoop.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="LLamaSharp" Version="0.27.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cuda12.Windows" Version="0.27.0"
+                      Condition="'$(RuntimeIdentifier)' == 'win-x64' Or ('$(RuntimeIdentifier)' == '' And $([MSBuild]::IsOSPlatform('Windows')))" />
+    <PackageReference Include="LLamaSharp.Backend.Cuda12.Linux" Version="0.27.0"
+                      Condition="'$(RuntimeIdentifier)' == 'linux-x64' Or ('$(RuntimeIdentifier)' == '' And $([MSBuild]::IsOSPlatform('Linux')))" />
+  </ItemGroup>
+
+</Project>

@@ -19,6 +19,10 @@ WORKDIR /app
 COPY theorc-warband ./theorc-warband
 RUN chmod +x ./theorc-warband
 
+# Writable state is mounted by compose; the image and model mount stay read-only.
+ENV XDG_DATA_HOME=/state \
+    HOME=/state
+
 # HiveNodeServer (peer API/pairing) and HiveTaskQueue (Warchief task queue) -- see
 # .grok/WARBANDS.md "What a Warband runs" for the full six-service list booted at startup.
 EXPOSE 7078 7079

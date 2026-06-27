@@ -18,6 +18,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="130"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -180,8 +181,41 @@
             </Border>
         </Grid>
 
+        <!-- Campaign control room -->
+        <Border Grid.Row="2" Margin="0,8,0,0" Padding="10,8" MinHeight="240"
+                Background="#0B1410" BorderBrush="#28513D" BorderThickness="1" CornerRadius="7">
+            <Grid ColumnDefinitions="310,12,*">
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="CAMPAIGN CONTROL" FontFamily="Consolas" FontSize="10" Foreground="#64D69D"/>
+                    <ComboBox x:Name="CampaignTemplate" Margin="0,6,0,4" SelectedIndex="0"/>
+                    <TextBox x:Name="CampaignName" PlaceholderText="Campaign name" Text="Phase 3B native eval" Margin="0,0,0,4"/>
+                    <TextBox x:Name="CampaignModelHash" PlaceholderText="Required native model SHA-256" Margin="0,0,0,4"/>
+                    <TextBox x:Name="CampaignPayload" AcceptsReturn="True" Height="60"
+                             PlaceholderText="Native: one prompt per line&#x0a;Alien: sha256|bytes|name|https-url"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <Button Content="Launch" Click="LaunchCampaign_Click" Padding="12,4" Background="#173C2B" Foreground="#8FE9B8"/>
+                        <Button Content="Approve + sync GGUF" Click="StageModel_Click" Padding="10,4" Margin="6,0,0,0"/>
+                    </StackPanel>
+                </StackPanel>
+                <Border Grid.Column="2" Background="#07100B" BorderBrush="#183326" BorderThickness="1" CornerRadius="5" Padding="9">
+                    <Grid RowDefinitions="Auto,Auto,*,Auto">
+                        <TextBlock Text="LIVE CAMPAIGNS" FontFamily="Consolas" FontSize="10" Foreground="#3F7A5A"/>
+                        <ComboBox x:Name="CampaignSelector" Grid.Row="1" Margin="0,6,0,4" SelectionChanged="CampaignSelector_SelectionChanged"/>
+                        <TextBlock x:Name="TbCampaignStatus" Grid.Row="2" FontFamily="Consolas" FontSize="11"
+                                   Foreground="#8FE9B8" TextWrapping="Wrap" Text="No campaigns queued."/>
+                        <StackPanel Grid.Row="3" Orientation="Horizontal">
+                            <Button Content="Pause" Click="PauseCampaign_Click" Padding="9,3"/>
+                            <Button Content="Resume" Click="ResumeCampaign_Click" Padding="9,3" Margin="5,0,0,0"/>
+                            <Button Content="Cancel" Click="CancelCampaign_Click" Padding="9,3" Margin="5,0,0,0"
+                                    Background="#331515" Foreground="#FF9898"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+
         <!-- ── Event log strip ────────────────────────────────────── -->
-        <Border Grid.Row="2" Margin="0,8,0,0"
+        <Border Grid.Row="3" Margin="0,8,0,0"
                 Background="#070D07" BorderBrush="#1A2A1A" BorderThickness="1"
                 CornerRadius="6" ClipToBounds="True">
             <DockPanel>
@@ -211,7 +245,7 @@
         </Border>
 
         <!-- ── Discovered nodes strip (beacon / LAN scan results) ── -->
-        <Border x:Name="BdrDiscovered" Grid.Row="3" Margin="0,8,0,0"
+        <Border x:Name="BdrDiscovered" Grid.Row="4" Margin="0,8,0,0"
                 Background="#0D1A0D" BorderBrush="#2A4A2A" BorderThickness="1"
                 CornerRadius="6" Padding="10,7"
                 IsVisible="False">
@@ -227,7 +261,7 @@
         </Border>
 
         <!-- ── Hint ───────────────────────────────────────────────── -->
-        <TextBlock Grid.Row="4" Margin="2,8,0,0" FontSize="10" Foreground="#666666"
+        <TextBlock Grid.Row="5" Margin="2,8,0,0" FontSize="10" Foreground="#666666"
                    TextWrapping="Wrap"
                    AutomationProperties.AutomationId="Hive.HintText"
                    Text="This PC sits at the center. Reachable nodes glow green; lines carry work. Click a node for detail. Use 📡 Scan LAN to find nodes running HIVE MIND."/>
