@@ -148,6 +148,7 @@
     <!-- Research (MarkdownFlowDocument.cs deferred to Phase 6) -->
     <Compile Include="..\OrchestratorIDE\Research\ChatEngine.cs" />
     <Compile Include="..\OrchestratorIDE\Research\FetchPageTool.cs" />
+    <Compile Include="..\OrchestratorIDE\Research\OrcChatToolCatalog.cs" />
     <Compile Include="..\OrchestratorIDE\Research\ResearchToolset.cs" />
     <Compile Include="..\OrchestratorIDE\Research\WebSearchTool.cs" />
 

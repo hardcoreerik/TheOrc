@@ -1,5 +1,6 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
+using System.Diagnostics;
 using System.Text;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -12,6 +13,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Core.Runtime;
+using OrchestratorIDE.Models;
 using OrchestratorIDE.Research;
 using OrchestratorIDE.Services;
 using OrchestratorIDE.Services.Hive;
@@ -34,6 +36,7 @@ public partial class ChatPanel : UserControl
     /// when probing/loading the persisted HIVE host list. Same convention as
     /// HivePanel.LocalUrl -- set by MainWindow from AppSettings.OllamaHost.</summary>
     public string LocalUrl { get; set; } = "http://localhost:11434";
+    public string WorkspaceRoot { get; set; } = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     private const string LocalNodeName = "Local";
 
@@ -44,6 +47,7 @@ public partial class ChatPanel : UserControl
     private bool                     _isSending;
     private Border?                  _lastToolChip;
     private List<HiveHost>           _hiveHosts = [];
+    private readonly List<ChatAttachment> _pendingAttachments = [];
     // Tracks the node CbNode was actually resolving to when _engine was last (re)built --
     // NOT just "the last SelectionChanged event," since RefreshHiveHosts() clearing and
     // re-populating Items fires spurious SelectionChanged events even when the user hasn't
@@ -186,9 +190,11 @@ public partial class ChatPanel : UserControl
     {
         _lastEngineNodeTarget = CbNode.SelectedItem as string ?? LocalNodeName;
         var runtime = new OllamaRuntime(ResolveOllamaClient());
-        return new ChatEngine(runtime, model, systemPrompt: "")
+        var tools = OrcChatToolCatalog.CreateWorkspaceTools(WorkspaceRoot);
+        return new ChatEngine(runtime, model, systemPrompt: "", tools: tools)
         {
             IncludeDateTimeContext = true,
+            ReactInstructions = OrcChatToolCatalog.BuildReactInstructions(tools),
         };
     }
 
@@ -339,7 +345,7 @@ public partial class ChatPanel : UserControl
     private async Task SendAsync()
     {
         var text = TbInput.Text?.Trim() ?? "";
-        if (string.IsNullOrEmpty(text) || _isSending) return;
+        if ((string.IsNullOrEmpty(text) && _pendingAttachments.Count == 0) || _isSending) return;
 
         if (OllamaClient is null) return;
         var model = CbModel.SelectedItem as string ?? "";
@@ -365,6 +371,8 @@ public partial class ChatPanel : UserControl
         engine.SystemPrompt = TbOpenSystemPrompt.Text ?? "";
         engine.Temperature  = ParseDoubleOrDefault(TbOpenTemperature.Text, 0.8);
         engine.TopP         = ParseDoubleOrDefault(TbOpenTopP.Text, 0.9);
+        var pendingAttachments = _pendingAttachments.ToList();
+        var promptText = await BuildPromptTextWithAttachmentsAsync(text, pendingAttachments, cts: null);
 
         // Hide welcome card on first send
         if (BdrWelcome.IsVisible)
@@ -376,8 +384,9 @@ public partial class ChatPanel : UserControl
         TbInput.Clear();
         _isSending        = true;
         BtnSend.IsEnabled = false;
+        ClearPendingAttachments();
 
-        AppendUserBubble(text);
+        AppendUserBubble(text, pendingAttachments);
 
         _streamBox = CreateStreamTextBox();
         AppendAssistantBubble(_streamBox);
@@ -394,7 +403,7 @@ public partial class ChatPanel : UserControl
 
         try
         {
-            await engine.SendAsync(text, cts.Token);
+            await engine.SendAsync(promptText, pendingAttachments.Where(a => a.IsImage).ToList(), cts.Token);
         }
         finally
         {
@@ -496,7 +505,7 @@ public partial class ChatPanel : UserControl
 
                 if (bubble is not null)
                 {
-                    bubble.Child = new MarkdownView { Text = finalText };
+                    bubble.Child = new MarkdownView { Text = finalText, LinkClicked = OpenChatLink };
                     // Tag carries the raw markdown source for "Copy as Markdown" -- the
                     // rendered MarkdownView tree has no single string property to read it
                     // back from once it's been split into multiple SelectableTextBlocks.
@@ -525,18 +534,9 @@ public partial class ChatPanel : UserControl
 
     // ── Bubble builders ───────────────────────────────────────────────────────
 
-    private void AppendUserBubble(string text)
+    private void AppendUserBubble(string text, IReadOnlyList<ChatAttachment> attachments)
     {
-        // SelectableTextBlock, not TextBlock -- plain TextBlock has no built-in text
-        // selection at all, which was the actual gap behind "give me the ability to select
-        // text and copy to clipboard." Same Inlines-based API, just selectable.
-        var tb = new SelectableTextBlock
-        {
-            Text         = text,
-            Foreground   = new SolidColorBrush(Color.FromRgb(0xD4, 0xD4, 0xD4)),
-            FontSize     = 13,
-            TextWrapping = Avalonia.Media.TextWrapping.Wrap,
-        };
+        var content = BuildUserBubbleContent(text, attachments);
         var bubble = new Border
         {
             Background          = new SolidColorBrush(Color.FromRgb(0x1A, 0x2A, 0x1A)),
@@ -547,10 +547,8 @@ public partial class ChatPanel : UserControl
             Margin              = new Avalonia.Thickness(60, 4, 0, 4),
             HorizontalAlignment = HorizontalAlignment.Right,
             MaxWidth            = 680,
-            Child               = tb,
-            // Tag = the raw message text -- a user message is never markdown-transformed,
-            // so "Copy" and "Copy as Markdown" both just copy this verbatim.
-            Tag                 = text,
+            Child               = content,
+            Tag                 = BuildUserBubbleMarkdown(text, attachments),
         };
         bubble.ContextMenu = BuildBubbleContextMenu(bubble);
         ChatStack.Children.Add(bubble);
@@ -659,11 +657,65 @@ public partial class ChatPanel : UserControl
         return tb;
     }
 
+    private Control BuildUserBubbleContent(string text, IReadOnlyList<ChatAttachment> attachments)
+    {
+        if (attachments.Count == 0)
+        {
+            return new SelectableTextBlock
+            {
+                Text = text,
+                Foreground = new SolidColorBrush(Color.FromRgb(0xD4, 0xD4, 0xD4)),
+                FontSize = 13,
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            };
+        }
+
+        var stack = new StackPanel { Spacing = 8 };
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            stack.Children.Add(new SelectableTextBlock
+            {
+                Text = text,
+                Foreground = new SolidColorBrush(Color.FromRgb(0xD4, 0xD4, 0xD4)),
+                FontSize = 13,
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            });
+        }
+
+        if (attachments.Count > 0)
+            stack.Children.Add(new MarkdownView { Text = BuildUserBubbleMarkdown("", attachments) });
+
+        return stack;
+    }
+
+    private static string BuildUserBubbleMarkdown(string text, IReadOnlyList<ChatAttachment> attachments)
+    {
+        var sb = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(text))
+            sb.AppendLine(text);
+
+        foreach (var attachment in attachments)
+        {
+            if (attachment.IsImage)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"![{attachment.DisplayName}]({attachment.FilePath})");
+            }
+            else
+            {
+                sb.AppendLine();
+                sb.AppendLine($"- Attached: `{attachment.DisplayName}`");
+            }
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
     // ── Tool call chips ───────────────────────────────────────────────────────
 
     private void InsertToolChip(string toolName, string argsJson)
     {
-        var icon  = toolName == "web_search" ? "🔍" : "📄";
+        var icon  = ToolIcon(toolName);
         var label = FormatToolLabel(toolName, argsJson);
 
         var tb = new TextBlock
@@ -700,9 +752,11 @@ public partial class ChatPanel : UserControl
     {
         if (_lastToolChip?.Child is TextBlock tb)
         {
-            var icon  = toolName == "web_search" ? "🔍" : "📄";
+            var icon  = ToolIcon(toolName);
             var count = toolName == "web_search"
                 ? $"→ {CountLines(result)} results"
+                : toolName == "save_markdown_document"
+                    ? "→ saved"
                 : $"→ {result.Length:N0} chars";
             tb.Text      = $"{icon}  {toolName}  {count}";
             tb.Foreground = new SolidColorBrush(Color.FromRgb(0x44, 0x66, 0x33));
@@ -719,10 +773,24 @@ public partial class ChatPanel : UserControl
                 return $"web_search(\"{Truncate(q.ToString()!, 50)}\")";
             if (args?.TryGetValue("url", out var u) == true && u is not null)
                 return $"fetch_page({Truncate(u.ToString()!, 60)})";
+            if (args?.TryGetValue("path", out var p) == true && p is not null)
+                return $"{toolName}({Truncate(p.ToString()!, 48)})";
+            if (args?.TryGetValue("filename", out var f) == true && f is not null)
+                return $"{toolName}({Truncate(f.ToString()!, 48)})";
         }
         catch { /* fall through */ }
         return toolName;
     }
+
+    private static string ToolIcon(string toolName) => toolName switch
+    {
+        "web_search" => "🔍",
+        "fetch_page" or "fetch_url" => "📄",
+        "read_file" or "write_file" or "save_markdown_document" => "📝",
+        "list_files" or "grep_code" or "get_outline" => "📁",
+        "run_tests" => "🧪",
+        _ => "🛠",
+    };
 
     private static int CountLines(string s)
         => s.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
@@ -744,6 +812,7 @@ public partial class ChatPanel : UserControl
         _engine?.ClearHistory();
         _streamBox    = null;
         _lastToolChip = null;
+        ClearPendingAttachments();
 
         ResetConversationUi();
     }
@@ -794,7 +863,7 @@ public partial class ChatPanel : UserControl
             {
                 sb.AppendLine(msg.Role switch
                 {
-                    OrchestratorIDE.Models.MessageRole.User      => $"**You:** {msg.Content}",
+                    OrchestratorIDE.Models.MessageRole.User      => $"**You:** {BuildUserBubbleMarkdown(msg.Content, msg.Attachments)}",
                     OrchestratorIDE.Models.MessageRole.Assistant => $"**Assistant:**\n\n{msg.Content}",
                     OrchestratorIDE.Models.MessageRole.Tool      => "> 🔧 *Tool result (hidden)*",
                     _                                             => ""
@@ -812,4 +881,153 @@ public partial class ChatPanel : UserControl
 
     private void ScrollToBottom()
         => Dispatcher.UIThread.InvokeAsync(() => ChatScroll.ScrollToEnd());
+
+    private async void BtnAttach_Click(object? sender, RoutedEventArgs e)
+    {
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel?.StorageProvider is null) return;
+
+        try
+        {
+            var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Attach to chat",
+                AllowMultiple = true,
+                FileTypeFilter =
+                [
+                    new FilePickerFileType("Images") { Patterns = ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.gif", "*.bmp"] },
+                    new FilePickerFileType("Text and Markdown") { Patterns = ["*.md", "*.markdown", "*.txt", "*.json", "*.yml", "*.yaml", "*.cs", "*.ts", "*.js", "*.py"] },
+                    new FilePickerFileType("All files") { Patterns = ["*.*"] },
+                ],
+            });
+
+            AddAttachmentsFromPaths(files.Select(f => f.TryGetLocalPath()).Where(p => !string.IsNullOrWhiteSpace(p))!);
+        }
+        catch { /* non-fatal picker failure */ }
+    }
+
+    internal void AddAttachmentsFromPaths(IEnumerable<string?> paths)
+    {
+        foreach (var rawPath in paths)
+        {
+            if (string.IsNullOrWhiteSpace(rawPath) || !File.Exists(rawPath)) continue;
+            var attachment = ChatAttachment.FromPath(rawPath);
+            if (_pendingAttachments.All(a => !a.FilePath.Equals(attachment.FilePath, StringComparison.OrdinalIgnoreCase)))
+                _pendingAttachments.Add(attachment);
+        }
+
+        RefreshPendingAttachmentsUi();
+    }
+
+    private void RefreshPendingAttachmentsUi()
+    {
+        var items = PendingAttachmentsPanel.Items;
+        items.Clear();
+        PendingAttachmentsPanel.IsVisible = _pendingAttachments.Count > 0;
+
+        foreach (var attachment in _pendingAttachments)
+        {
+            var remove = new Button
+            {
+                Content = "x",
+                Background = Brushes.Transparent,
+                Foreground = new SolidColorBrush(Color.FromRgb(0x88, 0xAA, 0x60)),
+                BorderThickness = new Avalonia.Thickness(0),
+                Padding = new Avalonia.Thickness(4, 0),
+                Tag = attachment.Id,
+            };
+            remove.Click += (_, _) => RemovePendingAttachment(attachment.Id);
+
+            var chip = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x14, 0x1A, 0x14)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0x2A, 0x3A, 0x2A)),
+                BorderThickness = new Avalonia.Thickness(1),
+                CornerRadius = new Avalonia.CornerRadius(999),
+                Padding = new Avalonia.Thickness(8, 4),
+                Margin = new Avalonia.Thickness(0, 0, 6, 0),
+                Child = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 4,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = $"{(attachment.IsImage ? "Image" : "File")}: {attachment.DisplayName}",
+                            Foreground = new SolidColorBrush(Color.FromRgb(0xA8, 0xCC, 0x80)),
+                            FontSize = 11,
+                            VerticalAlignment = VerticalAlignment.Center,
+                        },
+                        remove,
+                    }
+                }
+            };
+
+            items.Add(chip);
+        }
+    }
+
+    private void RemovePendingAttachment(Guid attachmentId)
+    {
+        _pendingAttachments.RemoveAll(a => a.Id == attachmentId);
+        RefreshPendingAttachmentsUi();
+    }
+
+    private void ClearPendingAttachments()
+    {
+        _pendingAttachments.Clear();
+        RefreshPendingAttachmentsUi();
+    }
+
+    private static async Task<string> BuildPromptTextWithAttachmentsAsync(
+        string text,
+        IReadOnlyList<ChatAttachment> attachments,
+        CancellationTokenSource? cts)
+    {
+        var sb = new StringBuilder(text);
+        int remaining = 24_000;
+
+        foreach (var attachment in attachments.Where(a => a.IsTextLike && File.Exists(a.FilePath)))
+        {
+            if (remaining <= 0) break;
+
+            var content = await File.ReadAllTextAsync(attachment.FilePath, cts?.Token ?? CancellationToken.None);
+            if (content.Length > remaining)
+                content = content[..remaining];
+
+            sb.AppendLine();
+            sb.AppendLine();
+            sb.AppendLine($"Attached file: {attachment.DisplayName}");
+            sb.AppendLine("```");
+            sb.AppendLine(content);
+            sb.AppendLine("```");
+
+            remaining -= content.Length;
+        }
+
+        foreach (var attachment in attachments.Where(a => !a.IsImage && !a.IsTextLike))
+        {
+            sb.AppendLine();
+            sb.AppendLine($"Attached binary file: {attachment.DisplayName} ({attachment.ByteSize:N0} bytes)");
+        }
+
+        return sb.ToString();
+    }
+
+    private void OpenChatLink(string target)
+    {
+        try
+        {
+            if (Uri.TryCreate(target, UriKind.Absolute, out var uri))
+            {
+                Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+                return;
+            }
+
+            if (File.Exists(target))
+                Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+        }
+        catch { /* non-fatal convenience action */ }
+    }
 }

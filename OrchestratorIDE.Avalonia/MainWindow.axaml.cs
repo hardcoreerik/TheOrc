@@ -264,7 +264,7 @@ public partial class MainWindow : Window
         _swarmPanel.AlertAsync   = (title, msg) => DialogHelper.ShowInfoAsync(this, title, msg);
         _swarmPanel.ConfirmAsync = (title, msg) => DialogHelper.ShowYesNoAsync(this, title, msg);
 
-        _chatPanel = new ChatPanel { OllamaClient = _ollama };
+        _chatPanel = new ChatPanel { OllamaClient = _ollama, WorkspaceRoot = _session.WorkspaceRoot };
 
         _pitPanel = new TrainingPitPanel { WorkspaceRoot = _session.WorkspaceRoot };
         _pitPanel.StatusChanged   += msg => Dispatcher.UIThread.InvokeAsync(() => SetStatus(msg));
@@ -1670,6 +1670,7 @@ public partial class MainWindow : Window
         _agentPanel.Loop    = _loop;
         _agentPanel.Session = _session;
         _agentPanel.SetWorkspace(_session.WorkspaceRoot, confirmed: false);
+        _chatPanel.WorkspaceRoot = _session.WorkspaceRoot;
         _explorerPanel.LoadWorkspace(_session.WorkspaceRoot);
         _checkpointPanel.SetWorkspace(_session.WorkspaceRoot);
         UpdateStatusBar();
@@ -1694,6 +1695,7 @@ public partial class MainWindow : Window
         _checkpointPanel.SetWorkspace(path);
         _toolEditorPanel.WorkspaceRoot = path;
         _swarmPanel.WorkspaceRoot = path;
+        _chatPanel.WorkspaceRoot = path;
         _swarmPanel.RefreshGate();
         UpdateStatusBar();
         _ = AutoLoadWorkspaceToolsAsync(path);

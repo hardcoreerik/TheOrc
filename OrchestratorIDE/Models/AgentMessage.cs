@@ -15,6 +15,7 @@ public class AgentMessage
     public List<ToolCall> ToolCalls { get; set; } = [];
     public string? ToolCallId { get; set; }   // for role=Tool responses
     public int TokenCount { get; set; }
+    public List<ChatAttachment> Attachments { get; set; } = [];
 
     /// <summary>
     /// Returns a copy of this message with <paramref name="content"/> substituted.
@@ -32,5 +33,6 @@ public class AgentMessage
         ToolCalls  = new List<ToolCall>(ToolCalls),
         ToolCallId = ToolCallId,
         TokenCount = TokenCount,
+        Attachments = new List<ChatAttachment>(Attachments),
     };
 }

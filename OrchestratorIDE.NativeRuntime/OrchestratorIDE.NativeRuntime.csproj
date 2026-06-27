@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <Compile Include="..\OrchestratorIDE\Models\AgentMessage.cs" Link="Models\AgentMessage.cs" />
+    <Compile Include="..\OrchestratorIDE\Models\ChatAttachment.cs" Link="Models\ChatAttachment.cs" />
     <Compile Include="..\OrchestratorIDE\Models\ToolCall.cs" Link="Models\ToolCall.cs" />
     <Compile Include="..\OrchestratorIDE\Core\ContextManager.cs" Link="Core\ContextManager.cs" />
     <Compile Include="..\OrchestratorIDE\Core\ToolCallTextParser.cs" Link="Core\ToolCallTextParser.cs" />

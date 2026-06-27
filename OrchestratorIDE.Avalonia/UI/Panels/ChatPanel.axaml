@@ -191,7 +191,25 @@
                 BorderBrush="{StaticResource Br.Border}"
                 BorderThickness="0,1,0,0"
                 Padding="12,10">
-            <DockPanel>
+            <StackPanel Spacing="8">
+                <ItemsControl x:Name="PendingAttachmentsPanel" IsVisible="False">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+
+                <DockPanel>
+                    <Button x:Name="BtnAttach"
+                            DockPanel.Dock="Left"
+                            Content="Attach"
+                            Background="#141814" Foreground="#A8CC80"
+                            BorderBrush="#2A3A2A" BorderThickness="1"
+                            Padding="10,8" FontSize="12" FontWeight="SemiBold"
+                            Margin="0,0,10,0"
+                            ToolTip.Tip="Attach images or text files to this message."
+                            Click="BtnAttach_Click"/>
                 <Button x:Name="BtnSend"
                         DockPanel.Dock="Right"
                         Content="Send  ⏎"
@@ -223,7 +241,8 @@
                              KeyDown="TbInput_KeyDown"
                              AutomationProperties.AutomationId="OrcChat.Input"/>
                 </Border>
-            </DockPanel>
+                </DockPanel>
+            </StackPanel>
         </Border>
 
         <!-- ── Chat area ───────────────────────────────────────────── -->

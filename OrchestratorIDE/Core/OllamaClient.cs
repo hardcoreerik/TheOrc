@@ -233,12 +233,7 @@ public class OllamaClient
         Action<int, int>? onUsage = null,   // promptTokens, completionTokens
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        var messages = history.Select(m => new
-        {
-            role = RoleName(m.Role),
-            content = m.Content,
-            tool_call_id = m.ToolCallId,
-        }).ToList();
+        var messages = history.Select(BuildWireMessage).ToList();
 
         var payload = new Dictionary<string, object?>
         {
@@ -364,6 +359,42 @@ public class OllamaClient
         MessageRole.Tool => "tool",
         _ => "user"
     };
+
+    internal static object BuildWireMessage(AgentMessage message) => new
+    {
+        role = RoleName(message.Role),
+        content = BuildWireContent(message),
+        tool_call_id = message.ToolCallId,
+    };
+
+    internal static object BuildWireContent(AgentMessage message)
+    {
+        if (message.Attachments.Count == 0)
+            return message.Content;
+
+        var parts = new List<object>();
+        if (!string.IsNullOrWhiteSpace(message.Content))
+            parts.Add(new { type = "text", text = message.Content });
+
+        foreach (var attachment in message.Attachments)
+        {
+            if (!attachment.IsImage || !File.Exists(attachment.FilePath))
+                continue;
+
+            var bytes = File.ReadAllBytes(attachment.FilePath);
+            var dataUrl = $"data:{attachment.MediaType};base64,{Convert.ToBase64String(bytes)}";
+            parts.Add(new
+            {
+                type = "image_url",
+                image_url = new
+                {
+                    url = dataUrl,
+                }
+            });
+        }
+
+        return parts.Count == 0 ? message.Content : parts;
+    }
 
     private class ToolCallBuilder
     {

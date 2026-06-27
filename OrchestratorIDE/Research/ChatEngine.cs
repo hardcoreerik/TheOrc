@@ -48,6 +48,7 @@ public class ChatEngine
     public string? SystemPrompt { get; set; }
     public double  Temperature  { get; set; }
     public double? TopP         { get; set; }
+    public string? ReactInstructions { get; set; }
 
     /// <summary>
     /// When true, prepends the current local date/time to the system prompt every turn, so
@@ -124,8 +125,19 @@ public class ChatEngine
     /// OnToolComplete events, then fires OnTurnComplete with the full final text.
     /// </summary>
     public async Task SendAsync(string userMessage, CancellationToken ct = default)
+        => await SendAsync(userMessage, attachments: null, ct);
+
+    public async Task SendAsync(
+        string userMessage,
+        IReadOnlyList<ChatAttachment>? attachments,
+        CancellationToken ct = default)
     {
-        _history.Add(new AgentMessage { Role = MessageRole.User, Content = userMessage });
+        _history.Add(new AgentMessage
+        {
+            Role = MessageRole.User,
+            Content = userMessage,
+            Attachments = attachments?.ToList() ?? [],
+        });
 
         try
         {
@@ -414,6 +426,8 @@ public class ChatEngine
     private string? ResolveSystemPrompt()
     {
         var basePrompt = SystemPrompt ?? BuildSystemPrompt();
+        if (SystemPrompt != null && !ResearchToolset.KnownNativeToolSupport(Model) && !string.IsNullOrWhiteSpace(ReactInstructions))
+            basePrompt = string.IsNullOrWhiteSpace(basePrompt) ? ReactInstructions : $"{basePrompt}\n\n{ReactInstructions}";
         if (!IncludeDateTimeContext) return basePrompt;
 
         var dateTimeLine = $"Current date and time: {DateTime.Now:dddd, yyyy-MM-dd HH:mm} ({TimeZoneInfo.Local.StandardName}).";
