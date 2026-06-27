@@ -6,6 +6,7 @@ using Avalonia.Headless.NUnit;
 using Avalonia.Threading;
 using NUnit.Framework;
 using OrchestratorIDE.Services.Hive;
+using OrchestratorIDE.UI.Controls;
 using OrchestratorIDE.UI.Panels;
 
 namespace OrchestratorIDE.Avalonia.HeadlessTests;
@@ -28,6 +29,29 @@ namespace OrchestratorIDE.Avalonia.HeadlessTests;
 [TestFixture]
 public sealed class HivePanelConstellationTests
 {
+    private static void WithEphemeralIdentity(Action action)
+    {
+        var instanceField = typeof(HiveIdentity).GetField("_instance", BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new AssertionException("Expected HiveIdentity to have a private static '_instance' field.");
+        var createMethod = typeof(HiveIdentity).GetMethod("CreateEphemeral", BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new AssertionException("Expected HiveIdentity to expose CreateEphemeral for tests.");
+
+        var prior = instanceField.GetValue(null);
+        var ephemeral = (HiveIdentity?)createMethod.Invoke(null, null)
+            ?? throw new AssertionException("CreateEphemeral returned null.");
+
+        instanceField.SetValue(null, ephemeral);
+        try
+        {
+            action();
+        }
+        finally
+        {
+            instanceField.SetValue(null, prior);
+            ephemeral.Dispose();
+        }
+    }
+
     private static List<HiveHost> HostsField(HivePanel panel)
     {
         var field = typeof(HivePanel).GetField("_hosts", BindingFlags.NonPublic | BindingFlags.Instance)
@@ -42,31 +66,41 @@ public sealed class HivePanelConstellationTests
         method.Invoke(panel, null);
     }
 
+    private static int NodeCount(HiveConstellationView view)
+    {
+        var field = typeof(HiveConstellationView).GetField("_nodes", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new AssertionException("Expected HiveConstellationView to have a private '_nodes' field.");
+        return ((IReadOnlyList<HiveNodeVisual>)field.GetValue(view)!).Count;
+    }
+
     [AvaloniaTest]
     public void DrawConstellation_immediately_renders_a_card_for_a_newly_added_host()
     {
-        var panel = new HivePanel();
-        var window = new Window { Width = 900, Height = 700, Content = panel };
-        try
+        WithEphemeralIdentity(() =>
         {
-            window.Show();
-            Dispatcher.UIThread.RunJobs();
+            var panel = new HivePanel();
+            var window = new Window { Width = 900, Height = 700, Content = panel };
+            try
+            {
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
 
-            var canvas = panel.FindControl<Canvas>("HiveCanvas")
-                ?? throw new AssertionException("Expected to find HiveCanvas.");
-            var baselineCount = canvas.Children.Count;
+                var view = panel.FindControl<HiveConstellationView>("HiveView")
+                    ?? throw new AssertionException("Expected to find HiveView.");
+                var baselineCount = NodeCount(view);
 
-            HostsField(panel).Add(new HiveHost { Name = "REGRESSION-NODE", Url = "http://10.0.0.99:11434" });
-            InvokeDrawConstellation(panel);
+                HostsField(panel).Add(new HiveHost { Name = "REGRESSION-NODE", Url = "http://10.0.0.99:11434" });
+                InvokeDrawConstellation(panel);
 
-            Assert.That(canvas.Children.Count, Is.GreaterThan(baselineCount),
-                "Adding a host and calling DrawConstellation synchronously must grow the canvas " +
-                "immediately — handlers must not rely solely on the deferred redraw at the tail " +
-                "of ProbeAndDrawAsync.");
-        }
-        finally
-        {
-            window.Close();
-        }
+                Assert.That(NodeCount(view), Is.GreaterThan(baselineCount),
+                    "Adding a host and calling DrawConstellation synchronously must update HiveView " +
+                    "immediately — handlers must not rely solely on the deferred redraw at the tail " +
+                    "of ProbeAndDrawAsync.");
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
     }
 }

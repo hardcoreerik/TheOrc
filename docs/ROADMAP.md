@@ -565,6 +565,43 @@ and run as a service before the GUI-as-client changeover happens.
 
 Ollama stays the **default and fallback** until the ModelDepot + installer first-run story is bulletproof and the reviewer/Swarm abstraction leaks are closed.
 
+### Native runtime function priorities
+
+The next meaningful jump is not "more generation." It is giving the native runtime
+the same high-value local function surface that makes modern chat tools useful in
+practice, while keeping everything local-first and runtime-native.
+
+Ranked by likely operator value:
+
+| Rank | Function pack | Why it matters | Native-runtime direction |
+|---|---|---|---|
+| **1** | **Browser automation + page understanding** | Modern chat usage constantly crosses from text into websites, forms, docs, screenshots, and repeatable UI flows. Playwright already gives cross-browser automation, isolation, parallelization, screenshots, and trace/report tooling across Windows, Linux, and macOS. | Make browser control a first-class native tool surface for OrcChat and headless loops: navigate, click, type, extract DOM/text, capture screenshots, download files, and return structured evidence. |
+| **2** | **Image intake, OCR, and multimodal message handling** | A chat surface that cannot see screenshots, scans, whiteboards, or charts is behind current operator expectations. Tesseract provides local OCR by CLI/API, and LLamaSharp is explicitly positioned for local LLM/LLaVA-style execution. | Add attachment routing that can choose OCR-only, multimodal-native, or OCR+reasoning pipelines based on the selected model's capabilities. |
+| **3** | **Workspace intelligence primitives** | Code and docs work live or die on fast local search, safe file reads, outlines, diffs, and precise edits. ripgrep remains the strongest cross-platform baseline for repository search because it is fast, recursive, and respects `gitignore`. | Promote workspace browse/search/read/outline/diff/apply operations into the shared native function pack rather than leaving them chat-surface-specific. |
+| **4** | **Bounded shell / build / test execution** | Native chat does not replace real software work unless it can run builds, tests, formatters, and short diagnostics with approval and limits. This is the bridge from "assistant" to "project operator." | Standardize one runtime-owned execution surface with budgets, cancellation, streaming logs, exit codes, and replayable attestations. |
+| **5** | **Document and artifact generation/export** | Real chat sessions need to hand back durable outputs: Markdown plans, HTML previews, docx/PDF exports, release notes, and handoff docs. Pandoc remains the strongest local format-conversion backbone for this. | Treat artifact generation as a native function family: create markdown, export to docx/pdf/html, and return clickable artifact refs instead of giant chat blobs. |
+| **6** | **Structured extraction and typed result channels** | Tool use gets much more reliable when the runtime can return typed tables, schemas, metrics, and artifact refs instead of forcing everything through prose. | Expand shared tool/result contracts so browser, OCR, shell, and workspace tools all emit typed payloads plus compact human summaries. |
+| **7** | **Capability-aware attachment and tool routing** | Operators should not need to memorize which model can see images, which worker has Playwright, or which node has the right runtime backend. | Let the native runtime advertise model/tool capabilities and route work accordingly, with explicit "cannot satisfy" outcomes instead of silent fallbacks. |
+
+Recommended sequencing for v2.x:
+
+1. Browser automation
+2. Image/OCR ingestion
+3. Workspace intelligence
+4. Bounded shell/test execution
+5. Artifact export and typed result polish
+
+Why this order: it closes the biggest OrcChat parity gaps first, reuses the same
+headless execution loop needed by Phase 3B campaign work, and keeps the focus on
+functions that are hard to replace with a single SSH command.
+
+Reference points: [Playwright docs](https://playwright.dev/docs/intro),
+[Playwright screenshots](https://playwright.dev/docs/screenshots),
+[Tesseract user manual](https://tesseract-ocr.github.io/tessdoc/),
+[LLamaSharp](https://github.com/SciSharp/LLamaSharp),
+[Pandoc](https://pandoc.org/),
+[ripgrep](https://github.com/BurntSushi/ripgrep).
+
 ---
 
 ## Deferred — with rationale

@@ -88,3 +88,43 @@ When making shell or model-surface changes:
 4. if Training Pit scripts changed, run the Python tests too
 
 This gives you the shortest path to catching both UI breakage and dataset-pipeline regressions.
+
+---
+
+## Repo-Local Test Profile
+
+Some environments deny writes to the normal OS temp or per-user AppData paths
+even when the repo itself is writable. That can surface as false negatives in
+tests that touch git scratch repos, HIVE identity persistence, or other local
+state.
+
+For that case, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Tools\run-local-testenv.ps1
+```
+
+What it does:
+
+- redirects `TEMP`, `TMP`, `APPDATA`, `LOCALAPPDATA`, and `HOME` into
+  `F:\Ai\OrchestratorIDE-dev\.codex-testenv`
+- runs the `OrchestratorIDE.UnitTests` and
+  `OrchestratorIDE.Avalonia.HeadlessTests` projects under that profile
+- falls back to `dotnet vstest` against existing built test assemblies if
+  `dotnet test` is blocked by restore/build issues
+
+Useful variants:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Tools\run-local-testenv.ps1 -Suite Unit
+powershell -ExecutionPolicy Bypass -File Tools\run-local-testenv.ps1 -Suite Headless
+powershell -ExecutionPolicy Bypass -File Tools\run-local-testenv.ps1 -UseScratchBuildPaths
+powershell -ExecutionPolicy Bypass -File Tools\run-local-testenv.ps1 -UseVsTestOnly
+powershell -ExecutionPolicy Bypass -File Tools\run-local-testenv.ps1 -NoRestore
+```
+
+`-UseScratchBuildPaths` is the "build somewhere else" escape hatch. It tells
+MSBuild to place project `obj` / output files under a repo-local
+`.codex-scratch-build` tree, with one isolated subfolder per referenced project.
+Use it when the normal `obj` tree is locked or denied but the repo itself is
+still writable.
