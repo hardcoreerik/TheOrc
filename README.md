@@ -100,6 +100,14 @@ TheOrc is not trying to replace your editor. It's the AI **project runner** that
 
 ---
 
+## What's new in v1.11.1
+
+**Phase 3B native campaign engine ships.** The HIVE MIND can now coordinate native-runtime campaign work instead of pretending distributed shell access is the product. This release lands the first full campaign-engine slice: typed campaign/work-unit contracts, capability-aware leasing, content-addressed model and artifact storage, worker-side native execution plumbing, verifier-oriented result metadata, and the first showcase packs including **Native AI Eval Factory** and **Alien Signal Search**.
+
+**OrcChat grows into a real modern chat surface.** Chat now has a first-class tool pack built around the workflows people actually use in web chat: web search, page fetch, URL fetch, workspace browse/search/read/write, outline, test runs, and markdown document generation. It also gains **file attachments** and **image attachments**: images are carried through the multimodal message payload, text-like attachments are inlined into the prompt, and generated markdown docs come back as clickable links right in the conversation.
+
+**Release-quality native/runtime plumbing behind the scenes.** The shared native runtime now sits in its own cross-platform project, headless agent-loop work can run without Ollama, and campaign/worker execution uses the same native path instead of an Ollama fallback. The release pipeline and tests were expanded around this path, and the final pass verified the OrcChat attachment/tooling slice plus the Phase 3B unit suite before tagging.
+
 ## What's new in v1.11.0
 
 **The HIVE MIND screen, redesigned.** The constellation is now a living neural-swarm view drawn by a new immediate-mode renderer: each node is a **role-shaped silhouette** — a crowned hexagon for the Warchief, diamond for Coder, circle for Researcher, rounded square for UIDeveloper, triangle for Tester — with glow, a breathing core, and signal particles (all frozen by Lite Mode for thin machines). A new **metrics rail** shows nodes online, aggregate VRAM, and a role legend (live where the data exists, clearly-marked demo where the telemetry backend is still to come). **Left-click a node** for a detail panel; **right-click → ⬡ Set role** to assign HIVE roles and worker lanes. The rail is **resizable** (drag the splitter) and can be **moved to either side** (⇄), and your layout choice persists.
