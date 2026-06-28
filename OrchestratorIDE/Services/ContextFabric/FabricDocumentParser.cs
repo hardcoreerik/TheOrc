@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Text;
 using System.Text.RegularExpressions;
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
 
 namespace OrchestratorIDE.Services.ContextFabric;
 
@@ -19,7 +21,7 @@ public sealed class FabricDocumentParserRegistry
 
     public FabricDocumentParserRegistry(IEnumerable<IFabricDocumentParser>? parsers = null)
     {
-        _parsers = (parsers ?? [new TextMarkdownFabricParser()]).ToArray();
+        _parsers = (parsers ?? [new TextMarkdownFabricParser(), new PdfTextFabricParser()]).ToArray();
     }
 
     public IFabricDocumentParser Resolve(string mediaType) => _parsers
@@ -64,11 +66,11 @@ public sealed class TextMarkdownFabricParser : IFabricDocumentParser
             throw new InvalidDataException("Document is not valid UTF-8.", ex);
         }
 
-        var normalized = Normalize(decoded);
+        var normalized = FabricTextParsing.Normalize(decoded);
         if (string.IsNullOrWhiteSpace(normalized))
             throw new InvalidDataException("Document contains no text.");
 
-        var blocks = BuildBlocks(normalized, mediaType.Equals("text/markdown", StringComparison.OrdinalIgnoreCase));
+        var blocks = FabricTextParsing.BuildBlocks(normalized, mediaType.Equals("text/markdown", StringComparison.OrdinalIgnoreCase));
         if (blocks.Count == 0)
             throw new InvalidDataException("Document contains no parseable blocks.");
 
@@ -80,8 +82,71 @@ public sealed class TextMarkdownFabricParser : IFabricDocumentParser
             blocks,
             []);
     }
+}
 
-    private static string Normalize(string value)
+public sealed class PdfTextFabricParser : IFabricDocumentParser
+{
+    public string ParserId => "fabric-pdf-text";
+    public string ParserVersion => FabricIngestionVersions.PdfTextParser;
+
+    public bool Supports(string mediaType) =>
+        mediaType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase);
+
+    public FabricParsedDocument Parse(ReadOnlyMemory<byte> source, string mediaType)
+    {
+        if (!Supports(mediaType))
+            throw new NotSupportedException($"Parser does not support '{mediaType}'.");
+        if (source.IsEmpty)
+            throw new InvalidDataException("Document is empty.");
+
+        using var document = PdfDocument.Open(source.ToArray());
+        var pages = document.GetPages().ToArray();
+        if (pages.Length == 0)
+            throw new InvalidDataException("PDF contains no pages.");
+
+        var pageTexts = pages
+            .Select(ExtractPageText)
+            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .ToArray();
+        if (pageTexts.Length == 0)
+            throw new InvalidDataException("PDF contains no extractable text.");
+
+        var normalized = FabricTextParsing.Normalize(string.Join("\n\n", pageTexts));
+        if (string.IsNullOrWhiteSpace(normalized))
+            throw new InvalidDataException("PDF contains no parseable text.");
+
+        var blocks = FabricTextParsing.BuildBlocks(normalized, markdown: false);
+        if (blocks.Count == 0)
+            throw new InvalidDataException("PDF contains no parseable blocks.");
+
+        return new FabricParsedDocument(
+            ParserId,
+            ParserVersion,
+            "application/pdf",
+            normalized,
+            blocks,
+            []);
+    }
+
+    private static string ExtractPageText(Page page)
+    {
+        var lines = page.Text
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.Length > 0);
+        return string.Join('\n', lines);
+    }
+}
+
+internal static class FabricTextParsing
+{
+    private static readonly Regex MarkdownHeading = new(
+        @"^(?<level>#{1,6})[ \t]+(?<title>.+?)\s*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    public static string Normalize(string value)
     {
         value = value.TrimStart('\uFEFF')
             .Replace("\r\n", "\n", StringComparison.Ordinal)
@@ -94,7 +159,7 @@ public sealed class TextMarkdownFabricParser : IFabricDocumentParser
         return string.Join('\n', lines).Trim('\n') + "\n";
     }
 
-    private static IReadOnlyList<FabricParsedBlock> BuildBlocks(string text, bool markdown)
+    public static IReadOnlyList<FabricParsedBlock> BuildBlocks(string text, bool markdown)
     {
         var blocks = new List<FabricParsedBlock>();
         var headings = new string?[6];

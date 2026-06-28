@@ -14,7 +14,10 @@ public partial class App : Application
         // Boot secret protection before any HIVE store access.
         // DPAPI on Windows, AES-256-GCM (machine-key file) on Linux/macOS.
 #if WINDOWS
-        SecretProtection.Initialize(new DpapiSecretProtector());
+        if (OperatingSystem.IsWindows())
+            SecretProtection.Initialize(new DpapiSecretProtector());
+        else
+            SecretProtection.Initialize(new AesGcmSecretProtector(OrchestratorIDE.Daemon.MachineKey.Load()));
 #else
         SecretProtection.Initialize(new AesGcmSecretProtector(OrchestratorIDE.Daemon.MachineKey.Load()));
 #endif

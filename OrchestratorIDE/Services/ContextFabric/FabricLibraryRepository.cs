@@ -80,6 +80,7 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
 
         InTransaction((conn, tx) =>
         {
+            var owningCorpusId = document.CorpusId;
             using (var identity = CreateCmd(conn, tx, """
                 SELECT corpus_id, source_digest, media_type, parser_id, parser_version
                 FROM fabric_documents
@@ -88,14 +89,17 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
             {
                 P(identity.Parameters, "$id", document.DocumentId);
                 using var reader = identity.ExecuteReader();
-                if (reader.Read() &&
-                    (!reader.GetString(0).Equals(document.CorpusId, StringComparison.Ordinal) ||
+                if (reader.Read())
+                {
+                    owningCorpusId = reader.GetString(0);
+                    if (!owningCorpusId.Equals(document.CorpusId, StringComparison.Ordinal) ||
                      !reader.GetString(1).Equals(document.SourceDigest, StringComparison.Ordinal) ||
                      !reader.GetString(2).Equals(document.MediaType, StringComparison.Ordinal) ||
                      !reader.GetString(3).Equals(document.ParserId, StringComparison.Ordinal) ||
-                     !reader.GetString(4).Equals(document.ParserVersion, StringComparison.Ordinal)))
-                {
-                    throw new InvalidDataException("Document identity fields cannot change during replacement.");
+                     !reader.GetString(4).Equals(document.ParserVersion, StringComparison.Ordinal))
+                    {
+                        throw new InvalidDataException("Document identity fields cannot change during replacement.");
+                    }
                 }
             }
 
@@ -161,7 +165,7 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
                 ps =>
                 {
                     P(ps, "$updated", document.UpdatedAt.ToString("O"));
-                    P(ps, "$corpus", document.CorpusId);
+                    P(ps, "$corpus", owningCorpusId);
                 });
         });
     }
@@ -205,6 +209,18 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
     public bool DeleteCorpus(string corpusId) => Execute(
         "DELETE FROM fabric_corpora WHERE corpus_id = $id",
         ps => P(ps, "$id", corpusId)) > 0;
+
+    public IReadOnlySet<string> ListReferencedArtifactDigests()
+    {
+        var digests = Query(
+            """
+            SELECT source_digest AS digest FROM fabric_documents
+            UNION
+            SELECT normalized_digest AS digest FROM fabric_documents
+            """,
+            reader => reader.GetString(reader.GetOrdinal("digest")));
+        return new HashSet<string>(digests, StringComparer.Ordinal);
+    }
 
     private static string BuildFtsQuery(string query) => string.Join(" AND ", SearchTerms
         .Matches(query ?? "")

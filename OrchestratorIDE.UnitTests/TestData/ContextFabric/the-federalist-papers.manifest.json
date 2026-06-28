@@ -1,0 +1,17 @@
+{
+  "FixtureId": "the-federalist-papers",
+  "SourceUrl": "https://avalon.law.yale.edu/subject_menus/fed.asp",
+  "DownloadedAtUtc": "2026-06-28T15:24:53.0022180Z",
+  "Edition": "Avalon Project full public-domain text compiled from Federalist No. 1 through No. 85",
+  "MediaType": "text/plain",
+  "SourceSha256": "2087cf6a394176596086dabd34917a8afbfbcb3b84fa5bc86e289391ccee2076",
+  "ParserId": "fabric-text-markdown",
+  "ParserVersion": "fabric-text-markdown-1.0",
+  "SegmenterVersion": "fabric-segmenter-1.0",
+  "ExpectedDocumentId": "doc-e1f4c5f96f2cf0e4a67bd953",
+  "ExpectedNormalizedSha256": "2087cf6a394176596086dabd34917a8afbfbcb3b84fa5bc86e289391ccee2076",
+  "ExpectedSegmentCount": 408,
+  "ExpectedSegmentIdsSha256": "a3b28ef685a9c7091c390588adacfa949f6f7c323d3dfaca42c25f1d0824df14",
+  "ExpectedFirstSegmentId": "seg-d5d0104e4a48c4c97766951b",
+  "ExpectedLastSegmentId": "seg-b9b18a3a0bf9753ecf37f410"
+}

@@ -134,3 +134,7 @@ Tools/*.log
 # packages). Business/product copy + pricing, kept local-only by default; not part
 # of the source tree (decision 2026-06-23). Was previously only ignoring *.zip.
 marketplace/
+
+# Codex local scratch/test sandboxes — regenerable build output and one-off probes.
+.codex-scratch-build/
+.codex-testenv/

@@ -294,11 +294,10 @@ The full schema, HIVE execution model, benchmark, security policy, and phased
 implementation are specified in
 [The Orc Context Fabric.md](The%20Orc%20Context%20Fabric.md). CF-0 now has a
 native feasibility harness, deterministic corpus, strict host-side verifier,
-and report generator, and its real-model quality gate has passed. CF-1 is now
-underway: migrations v8-v9 plus deterministic text/Markdown parsing, structural
+and report generator, and its real-model quality gate has passed. CF-1's
+deterministic-ingestion framework has now passed its focused test exit: migrations v8-v9 plus deterministic text/Markdown parsing, structural
 segmentation, content-addressed artifacts, transactional document replacement,
-and segment FTS are implemented. PDF parsing, the Darwin acceptance fixture,
-artifact garbage collection, the document graph, HIVE execution, and the
+segment FTS, the pinned Darwin text/PDF acceptance fixtures, the pinned Constitution and Federalist text fixtures, PDF text parsing, and artifact garbage collection are implemented. The document graph, HIVE execution, and the
 OrcChat product surface remain proposed rather than shipped.
 
 ---

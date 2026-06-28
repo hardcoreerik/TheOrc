@@ -43,4 +43,10 @@
     <ProjectReference Include="..\OrchestratorIDE.NativeRuntime\OrchestratorIDE.NativeRuntime.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="TestData\ContextFabric\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

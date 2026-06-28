@@ -1,6 +1,7 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Text;
+using System.Text.Json;
 using NUnit.Framework;
 using OrchestratorIDE.Services.ContextFabric;
 using OrchestratorIDE.Services.Data;
@@ -274,6 +275,60 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public async Task Library_Garbage_Collects_Unreferenced_Artifacts_After_Delete()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("GC single");
+        var sourcePath = Path.Combine(harness.Root, "gc-single.txt");
+        await File.WriteAllTextAsync(sourcePath, "Garbage collection candidate.\n");
+        var imported = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+        var expectedDeletes = new[] { imported.Document.SourceDigest, imported.Document.NormalizedDigest }
+            .Distinct(StringComparer.Ordinal)
+            .Count();
+
+        Assert.That(harness.Service.DeleteCorpus(corpus.CorpusId), Is.True);
+
+        var deleted = harness.Service.DeleteUnreferencedArtifacts();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(deleted, Is.EqualTo(expectedDeletes));
+            Assert.That(harness.Artifacts.Has(imported.Document.SourceDigest), Is.False);
+            Assert.That(harness.Artifacts.Has(imported.Document.NormalizedDigest), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task Library_Garbage_Collection_Keeps_Shared_Artifacts_Until_Last_Reference_Is_Gone()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var firstCorpus = harness.Service.CreateCorpus("GC first");
+        var secondCorpus = harness.Service.CreateCorpus("GC second");
+        var sourcePath = Path.Combine(harness.Root, "gc-shared.txt");
+        await File.WriteAllTextAsync(sourcePath, "Shared content survives one delete.\n");
+        var first = await harness.Service.ImportFileAsync(firstCorpus.CorpusId, sourcePath);
+        var second = await harness.Service.ImportFileAsync(secondCorpus.CorpusId, sourcePath);
+        var expectedDeletes = new[] { second.Document.SourceDigest, second.Document.NormalizedDigest }
+            .Distinct(StringComparer.Ordinal)
+            .Count();
+
+        Assert.That(first.Document.SourceDigest, Is.EqualTo(second.Document.SourceDigest));
+        Assert.That(first.Document.NormalizedDigest, Is.EqualTo(second.Document.NormalizedDigest));
+
+        Assert.That(harness.Service.DeleteCorpus(firstCorpus.CorpusId), Is.True);
+        Assert.That(harness.Service.DeleteUnreferencedArtifacts(), Is.EqualTo(0));
+        Assert.That(harness.Artifacts.Has(second.Document.SourceDigest), Is.True);
+        Assert.That(harness.Artifacts.Has(second.Document.NormalizedDigest), Is.True);
+
+        Assert.That(harness.Service.DeleteCorpus(secondCorpus.CorpusId), Is.True);
+        Assert.That(harness.Service.DeleteUnreferencedArtifacts(), Is.EqualTo(expectedDeletes));
+        Assert.That(harness.Artifacts.Has(second.Document.SourceDigest), Is.False);
+        Assert.That(harness.Artifacts.Has(second.Document.NormalizedDigest), Is.False);
+    }
+
+    [Test]
     public async Task Repository_ReplaceDocument_Rolls_Back_On_Invalid_Segment_Set()
     {
         var harness = NewHarness();
@@ -338,6 +393,58 @@ public sealed class ContextFabricCf1Tests
             Assert.That(harness.Repository.GetSegments(imported.Document.DocumentId).Select(segment => segment.SegmentId),
                 Is.EqualTo(imported.Segments.Select(segment => segment.SegmentId)));
         });
+    }
+
+    [Test]
+    public async Task Repository_ReplaceDocument_Touches_Owning_Corpus_Timestamp()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Timestamp owner");
+        var sourcePath = Path.Combine(harness.Root, "timestamp.txt");
+        await File.WriteAllTextAsync(sourcePath, "Original content.\n");
+        var imported = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+        var updatedDocument = imported.Document with { UpdatedAt = imported.Document.UpdatedAt.AddMinutes(5) };
+
+        harness.Repository.ReplaceDocument(updatedDocument, [Draft("seg-replacement", 0, "replacement")]);
+
+        Assert.That(harness.Repository.GetCorpus(corpus.CorpusId)!.UpdatedAt, Is.EqualTo(updatedDocument.UpdatedAt));
+    }
+
+    [Test]
+    public async Task DarwinFixture_Imports_And_Rebuilds_Reproducibly()
+    {
+        await AssertFixtureImportsAndRebuildsReproducibly(
+            LoadDarwinFixtureManifest(),
+            GetDarwinFixturePath(),
+            "Darwin fixture");
+    }
+
+    [Test]
+    public async Task DarwinPdfFixture_Imports_And_Rebuilds_Reproducibly()
+    {
+        await AssertFixtureImportsAndRebuildsReproducibly(
+            LoadDarwinPdfFixtureManifest(),
+            GetDarwinPdfFixturePath(),
+            "Darwin PDF fixture");
+    }
+
+    [Test]
+    public async Task ConstitutionFixture_Imports_And_Rebuilds_Reproducibly()
+    {
+        await AssertFixtureImportsAndRebuildsReproducibly(
+            LoadFixtureManifest("united-states-constitution-full.manifest.json"),
+            GetFixturePath("united-states-constitution-full.txt"),
+            "Constitution fixture");
+    }
+
+    [Test]
+    public async Task FederalistFixture_Imports_And_Rebuilds_Reproducibly()
+    {
+        await AssertFixtureImportsAndRebuildsReproducibly(
+            LoadFixtureManifest("the-federalist-papers.manifest.json"),
+            GetFixturePath("the-federalist-papers.txt"),
+            "Federalist fixture");
     }
 
     [Test]
@@ -438,10 +545,101 @@ public sealed class ContextFabricCf1Tests
         null,
         FabricIngestionVersions.Segmenter);
 
+    private static string GetFixturePath(string fileName) => Path.Combine(
+        TestContext.CurrentContext.TestDirectory,
+        "TestData",
+        "ContextFabric",
+        fileName);
+
+    private static string GetDarwinFixturePath() => GetFixturePath("darwin-origin-species-2009.txt");
+
+    private static string GetDarwinPdfFixturePath() => GetFixturePath("darwin-origin-species-primary.pdf");
+
+    private static DarwinFixtureManifest LoadDarwinFixtureManifest() =>
+        LoadFixtureManifest("darwin-origin-species-2009.manifest.json");
+
+    private static DarwinFixtureManifest LoadDarwinPdfFixtureManifest() =>
+        LoadFixtureManifest("darwin-origin-species-primary-pdf.manifest.json");
+
+    private static DarwinFixtureManifest LoadFixtureManifest(string fileName)
+    {
+        var path = GetFixturePath(fileName);
+        return JsonSerializer.Deserialize<DarwinFixtureManifest>(File.ReadAllText(path))
+            ?? throw new InvalidDataException($"Fixture manifest '{fileName}' did not deserialize.");
+    }
+
+    private static string SegmentIdsDigest(IReadOnlyList<FabricSegmentEntry> segments)
+    {
+        var joined = string.Join('\n', segments.Select(segment => segment.SegmentId));
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(joined))).ToLowerInvariant();
+    }
+
+    private static string BuildDarwinActualMessage(FabricImportResult result) =>
+        JsonSerializer.Serialize(new
+        {
+            result.Document.DocumentId,
+            result.Document.SourceDigest,
+            NormalizedSha256 = result.Document.NormalizedDigest,
+            result.Document.ParserId,
+            result.Document.ParserVersion,
+            SegmentCount = result.Segments.Count,
+            SegmentIdsSha256 = SegmentIdsDigest(result.Segments),
+            FirstSegmentId = result.Segments[0].SegmentId,
+            LastSegmentId = result.Segments[^1].SegmentId,
+        });
+
+    private async Task AssertFixtureImportsAndRebuildsReproducibly(
+        DarwinFixtureManifest manifest,
+        string sourcePath,
+        string corpusName)
+    {
+        var harness = NewHarness(maximumSourceBytes: 4L * 1024 * 1024);
+        using var store = harness.Store;
+        var corpus = harness.Repository.CreateCorpus(manifest.FixtureId, corpusName);
+        var imported = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+        var rebuilt = await harness.Service.RebuildDocumentAsync(imported.Document.DocumentId);
+        var segmentIdsDigest = SegmentIdsDigest(imported.Segments);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(imported.Rebuilt, Is.False);
+            Assert.That(rebuilt.Rebuilt, Is.True);
+            Assert.That(imported.Document.SourceDigest, Is.EqualTo(manifest.SourceSha256), BuildDarwinActualMessage(imported));
+            Assert.That(imported.Document.DocumentId, Is.EqualTo(manifest.ExpectedDocumentId), BuildDarwinActualMessage(imported));
+            Assert.That(imported.Document.NormalizedDigest, Is.EqualTo(manifest.ExpectedNormalizedSha256), BuildDarwinActualMessage(imported));
+            Assert.That(imported.Document.ParserId, Is.EqualTo(manifest.ParserId));
+            Assert.That(imported.Document.ParserVersion, Is.EqualTo(manifest.ParserVersion));
+            Assert.That(imported.Segments, Has.Count.EqualTo(manifest.ExpectedSegmentCount), BuildDarwinActualMessage(imported));
+            Assert.That(segmentIdsDigest, Is.EqualTo(manifest.ExpectedSegmentIdsSha256), BuildDarwinActualMessage(imported));
+            Assert.That(imported.Segments[0].SegmentId, Is.EqualTo(manifest.ExpectedFirstSegmentId), BuildDarwinActualMessage(imported));
+            Assert.That(imported.Segments[^1].SegmentId, Is.EqualTo(manifest.ExpectedLastSegmentId), BuildDarwinActualMessage(imported));
+            Assert.That(rebuilt.Document.DocumentId, Is.EqualTo(imported.Document.DocumentId));
+            Assert.That(rebuilt.Document.NormalizedDigest, Is.EqualTo(imported.Document.NormalizedDigest));
+            Assert.That(rebuilt.Segments.Select(segment => segment.SegmentId), Is.EqualTo(imported.Segments.Select(segment => segment.SegmentId)));
+        });
+    }
+
     private sealed record Harness(
         string Root,
         SqliteStore Store,
         FabricLibraryRepository Repository,
         ContentAddressedStore Artifacts,
         FabricLibraryService Service);
+
+    private sealed record DarwinFixtureManifest(
+        string FixtureId,
+        string SourceUrl,
+        DateTimeOffset DownloadedAtUtc,
+        string Edition,
+        string MediaType,
+        string SourceSha256,
+        string ParserId,
+        string ParserVersion,
+        string SegmenterVersion,
+        string ExpectedDocumentId,
+        string ExpectedNormalizedSha256,
+        int ExpectedSegmentCount,
+        string ExpectedSegmentIdsSha256,
+        string ExpectedFirstSegmentId,
+        string ExpectedLastSegmentId);
 }

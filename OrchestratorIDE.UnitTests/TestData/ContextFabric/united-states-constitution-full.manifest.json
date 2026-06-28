@@ -1,0 +1,17 @@
+{
+  "FixtureId": "united-states-constitution-full",
+  "SourceUrl": "https://www.archives.gov/founding-docs/constitution-transcript",
+  "DownloadedAtUtc": "2026-06-28T15:24:53.0022180Z",
+  "Edition": "National Archives transcript, assembled with Bill of Rights and Amendments XI-XXVII transcript pages",
+  "MediaType": "text/plain",
+  "SourceSha256": "89e67bfca2c305fd8f1ef120f5a8b7e737c77dc84d556f8a0763e7a0608f1fc0",
+  "ParserId": "fabric-text-markdown",
+  "ParserVersion": "fabric-text-markdown-1.0",
+  "SegmenterVersion": "fabric-segmenter-1.0",
+  "ExpectedDocumentId": "doc-992af21452035a62e279c749",
+  "ExpectedNormalizedSha256": "89e67bfca2c305fd8f1ef120f5a8b7e737c77dc84d556f8a0763e7a0608f1fc0",
+  "ExpectedSegmentCount": 159,
+  "ExpectedSegmentIdsSha256": "aca55df8eb9a8a2216332e4a8a6e9cfd75c0befe330a285858f7a3e355bbe81e",
+  "ExpectedFirstSegmentId": "seg-ead9b15440f54d69d075c79f",
+  "ExpectedLastSegmentId": "seg-c7a57e2b0937f22e2405c884"
+}

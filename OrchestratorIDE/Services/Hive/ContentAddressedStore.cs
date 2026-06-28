@@ -48,6 +48,28 @@ public sealed class ContentAddressedStore
         return path;
     }
 
+    public bool DeleteIfPresent(string digest)
+    {
+        digest = ValidateDigest(digest);
+        var complete = CompletePath(digest);
+        var partial = PartialPath(digest);
+        var deleted = false;
+
+        if (File.Exists(complete))
+        {
+            File.Delete(complete);
+            deleted = true;
+        }
+
+        if (File.Exists(partial))
+        {
+            File.Delete(partial);
+            deleted = true;
+        }
+
+        return deleted;
+    }
+
     public IReadOnlyList<string> GetDigests(int limit = 4096) => Directory
         .EnumerateFiles(Root, "*" + _extension, SearchOption.AllDirectories)
         .Select(Path.GetFileNameWithoutExtension)

@@ -1,0 +1,50 @@
+{
+  "FixtureSetId": "darwin-origin-species-pdf-candidates-2026-06-28",
+  "GeneratedAtUtc": "2026-06-28T15:24:53.0022180Z",
+  "Candidates": [
+    {
+      "CandidateId": "darwin-pdf-archive-gutenberg-primary",
+      "SourceUrl": "https://archive.org/download/rmcg0005/Darwin-OriginOfSpecies-a1.pdf",
+      "Edition": "Project Gutenberg derived PDF",
+      "SourceSha256": "94ac3c292a290811521bceb8ae21862c5526898d5783f9ced9cdfe1b64b551c2",
+      "SizeBytes": 1123473,
+      "PageCount": 468,
+      "TextExtraction": "usable",
+      "Role": "primary-text-pdf-fixture",
+      "Notes": "Best current CF-1 candidate. pypdf extracts readable running text from the first sampled pages."
+    },
+    {
+      "CandidateId": "darwin-pdf-archive-first-edition-scan",
+      "SourceUrl": "https://archive.org/download/onoriginofspec00darw/onoriginofspec00darw.pdf",
+      "Edition": "1859 first edition scan",
+      "SourceSha256": "b26f3d634c0bce70e1b6b7cb95249b482a4d821147ac3930498f675ef5a4c132",
+      "SizeBytes": 32160142,
+      "PageCount": 556,
+      "TextExtraction": "poor-ocr-or-scan",
+      "Role": "future-negative-or-ocr-fixture",
+      "Notes": "Sample extraction returns mostly garbage glyphs. Good future scan/OCR or negative fixture, not the first CF-1 text parser target."
+    },
+    {
+      "CandidateId": "darwin-pdf-archive-uoft-scan",
+      "SourceUrl": "https://archive.org/download/originofspecies00darwuoft/originofspecies00darwuoft.pdf",
+      "Edition": "University of Toronto scan",
+      "SourceSha256": "6f04f39b2a590a7864c4e9d24fa17da24dea26f4e0a8b8cbc70fc11484c2aa3c",
+      "SizeBytes": 25372662,
+      "PageCount": 568,
+      "TextExtraction": "no-usable-text",
+      "Role": "future-negative-or-ocr-fixture",
+      "Notes": "Sample extraction yields essentially no usable text."
+    },
+    {
+      "CandidateId": "darwin-pdf-darwin-online-1861-ny-scan",
+      "SourceUrl": "https://darwin-online.org.uk/converted/pdf/1861_OriginNY_F382.pdf",
+      "Edition": "1861 New York edition",
+      "SourceSha256": "12bc4a8c5eac69106c5a59fadc9e487eb15271e0f5f7763b266180b68931f7cd",
+      "SizeBytes": 13503439,
+      "PageCount": 466,
+      "TextExtraction": "no-usable-text",
+      "Role": "future-negative-or-ocr-fixture",
+      "Notes": "Sample extraction returns no text with pypdf."
+    }
+  ]
+}

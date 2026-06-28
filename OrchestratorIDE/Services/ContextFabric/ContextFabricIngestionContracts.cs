@@ -6,6 +6,7 @@ namespace OrchestratorIDE.Services.ContextFabric;
 public static class FabricIngestionVersions
 {
     public const string TextMarkdownParser = "fabric-text-markdown-1.0";
+    public const string PdfTextParser = "fabric-pdf-text-1.0";
     public const string Segmenter = "fabric-segmenter-1.0";
 }
 
