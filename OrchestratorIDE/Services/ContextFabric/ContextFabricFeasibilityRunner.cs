@@ -26,19 +26,13 @@ public sealed class ContextFabricFeasibilityRunner
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(fixture);
-        ValidateFixture(fixture);
+        ValidateCorpus(fixture.Corpus);
+        ValidateQuestions(fixture.Questions);
 
         var stopwatch = Stopwatch.StartNew();
-        var calls = new List<FabricCallMetrics>();
-        var segmentResults = new List<FabricSegmentRunResult>(fixture.Corpus.Segments.Count);
-
-        foreach (var segment in fixture.Corpus.Segments.OrderBy(item => item.Ordinal))
-        {
-            ct.ThrowIfCancellationRequested();
-            var result = await ReadSegmentAsync(fixture.Corpus, segment, ct).ConfigureAwait(false);
-            segmentResults.Add(result);
-            calls.Add(result.Metrics);
-        }
+        var readReport = await ReadCorpusAsync(fixture.Corpus, ct).ConfigureAwait(false);
+        var calls = readReport.Calls.ToList();
+        var segmentResults = readReport.SegmentResults.ToList();
 
         var cards = segmentResults
             .Where(result => result.Accepted && result.Card is not null)
@@ -92,6 +86,34 @@ public sealed class ContextFabricFeasibilityRunner
             calls,
             gates,
             summary);
+    }
+
+    public async Task<FabricCorpusReadReport> ReadCorpusAsync(
+        FabricCorpus corpus,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(corpus);
+        ValidateCorpus(corpus);
+
+        var calls = new List<FabricCallMetrics>();
+        var segmentResults = new List<FabricSegmentRunResult>(corpus.Segments.Count);
+
+        foreach (var segment in corpus.Segments.OrderBy(item => item.Ordinal))
+        {
+            ct.ThrowIfCancellationRequested();
+            var result = await ReadSegmentAsync(corpus, segment, ct).ConfigureAwait(false);
+            segmentResults.Add(result);
+            calls.Add(result.Metrics);
+        }
+
+        return new FabricCorpusReadReport(
+            _runtime.RuntimeName,
+            corpus.CorpusId,
+            corpus.DocumentId,
+            DateTimeOffset.UtcNow,
+            _options,
+            segmentResults,
+            calls);
     }
 
     private async Task<FabricSegmentRunResult> ReadSegmentAsync(
@@ -771,16 +793,20 @@ public sealed class ContextFabricFeasibilityRunner
         Status = MessageStatus.Complete,
     };
 
-    private static void ValidateFixture(FabricBenchmarkFixture fixture)
+    private static void ValidateCorpus(FabricCorpus corpus)
     {
-        if (fixture.Corpus.SchemaVersion != FabricSchemaVersions.Corpus)
-            throw new InvalidDataException($"Unsupported corpus schema '{fixture.Corpus.SchemaVersion}'.");
-        if (fixture.Corpus.Segments.Count == 0)
+        if (corpus.SchemaVersion != FabricSchemaVersions.Corpus)
+            throw new InvalidDataException($"Unsupported corpus schema '{corpus.SchemaVersion}'.");
+        if (corpus.Segments.Count == 0)
             throw new InvalidDataException("The benchmark corpus has no segments.");
-        if (fixture.Corpus.Segments.Select(segment => segment.SegmentId).Distinct(StringComparer.Ordinal).Count() !=
-            fixture.Corpus.Segments.Count)
+        if (corpus.Segments.Select(segment => segment.SegmentId).Distinct(StringComparer.Ordinal).Count() !=
+            corpus.Segments.Count)
             throw new InvalidDataException("Segment IDs must be unique.");
-        if (fixture.Questions.Count == 0)
+    }
+
+    private static void ValidateQuestions(IReadOnlyList<FabricBenchmarkQuestion> questions)
+    {
+        if (questions.Count == 0)
             throw new InvalidDataException("The benchmark fixture has no questions.");
     }
 

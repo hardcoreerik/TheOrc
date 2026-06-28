@@ -188,6 +188,15 @@ public sealed record FabricSegmentRunResult(
     IReadOnlyList<string> Errors,
     FabricCallMetrics Metrics);
 
+public sealed record FabricCorpusReadReport(
+    string RuntimeName,
+    string CorpusId,
+    string DocumentId,
+    DateTimeOffset GeneratedAt,
+    FabricRunOptions Options,
+    IReadOnlyList<FabricSegmentRunResult> SegmentResults,
+    IReadOnlyList<FabricCallMetrics> Calls);
+
 public sealed record FabricVerificationResult(
     bool Passed,
     double CitationPrecision,

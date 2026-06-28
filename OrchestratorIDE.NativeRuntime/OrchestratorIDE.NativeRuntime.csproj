@@ -39,6 +39,7 @@
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricBenchmarkExpansionWriter.cs" Link="ContextFabric\ContextFabricBenchmarkExpansionWriter.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricFeasibilityRunner.cs" Link="ContextFabric\ContextFabricFeasibilityRunner.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricReportWriter.cs" Link="ContextFabric\ContextFabricReportWriter.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricBoundaryStitcher.cs" Link="ContextFabric\FabricBoundaryStitcher.cs" />
   </ItemGroup>
 
   <ItemGroup>
