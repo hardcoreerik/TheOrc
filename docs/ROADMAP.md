@@ -451,7 +451,7 @@ The implementation deliberately builds beside CodeGraph on the same `SqliteStore
 Delivery order:
 
 1. CF-0 contracts, evidence schema, deterministic corpus, and 16-segment native feasibility spike. **Passed:** the scripted lane remains green; the pinned Hermes 3 Llama 3.1 8B native lane passed 16/16 segment cards, 5/5 questions, 100% citation precision, all nine gates, and an 11.50x source-to-working-context ratio inside the 8K limit. Quote anchoring and the 2/2 native boundary-stitch lane also pass.
-2. CF-1 deterministic ingestion, structural segmentation, and content-addressed source storage. **In progress:** migration v8, strict UTF-8 text/Markdown parsing, stable structural segmentation, SHA-256 source/normalized storage, transactional repository replacement, FTS5 search, rebuild/delete paths, and focused failure tests are implemented. Darwin reproducibility, text-based PDF parsing, artifact GC, and product integration remain.
+2. CF-1 deterministic ingestion, structural segmentation, and content-addressed source storage. **In progress:** migrations v8-v9, strict UTF-8 text/Markdown parsing, stable structural segmentation, SHA-256 source/normalized storage, transactional repository replacement, FTS5 search, rebuild/delete paths, and focused failure tests are implemented. Darwin reproducibility, text-based PDF parsing, artifact GC, and product integration remain.
 3. CF-2 document graph, SQLite migrations, FTS, source tools, and local retrieval.
 4. CF-3 native readers, boundary stitching, schema validation, and source verification.
 5. CF-4 hierarchical reducers, context budgeting, source rehydration, Quick and Study modes.

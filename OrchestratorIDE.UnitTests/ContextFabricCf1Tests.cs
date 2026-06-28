@@ -39,7 +39,7 @@ public sealed class ContextFabricCf1Tests
 
         Assert.Multiple(() =>
         {
-            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM schema_migrations WHERE version = 8"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM schema_migrations WHERE version = 9"), Is.EqualTo(1));
             Assert.That(Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'fabric_corpora'"), Is.EqualTo(1));
             Assert.That(Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'fabric_segment_fts'"), Is.EqualTo(1));
         });
@@ -302,48 +302,82 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
-    public async Task Repository_ReplaceDocument_Updates_Identity_Metadata()
+    public async Task Repository_ReplaceDocument_Rejects_Identity_Changes()
     {
         var harness = NewHarness();
         using var store = harness.Store;
         var corpus = harness.Service.CreateCorpus("Identity replacement");
+        var otherCorpus = harness.Service.CreateCorpus("Other corpus");
         var sourcePath = Path.Combine(harness.Root, "identity.txt");
         await File.WriteAllTextAsync(sourcePath, "Original content.\n");
         var imported = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
-        var replacement = imported.Document with
+        var replacements = new[]
         {
-            SourceDigest = new string('a', 64),
-            ParserId = "replacement-parser",
-            ParserVersion = "2",
+            imported.Document with { CorpusId = otherCorpus.CorpusId },
+            imported.Document with { SourceDigest = new string('a', 64) },
+            imported.Document with { MediaType = "text/markdown" },
+            imported.Document with { ParserId = "replacement-parser" },
+            imported.Document with { ParserVersion = "2" },
         };
 
-        harness.Repository.ReplaceDocument(replacement, [Draft("seg-replacement", 0, "replacement")]);
-        var persisted = harness.Repository.GetDocument(replacement.DocumentId)!;
+        foreach (var replacement in replacements)
+        {
+            Assert.That(
+                () => harness.Repository.ReplaceDocument(replacement, [Draft("seg-replacement", 0, "replacement")]),
+                Throws.TypeOf<InvalidDataException>());
+        }
+        var persisted = harness.Repository.GetDocument(imported.Document.DocumentId)!;
 
         Assert.Multiple(() =>
         {
-            Assert.That(persisted.SourceDigest, Is.EqualTo(replacement.SourceDigest));
-            Assert.That(persisted.ParserId, Is.EqualTo(replacement.ParserId));
-            Assert.That(persisted.ParserVersion, Is.EqualTo(replacement.ParserVersion));
+            Assert.That(persisted.CorpusId, Is.EqualTo(imported.Document.CorpusId));
+            Assert.That(persisted.SourceDigest, Is.EqualTo(imported.Document.SourceDigest));
+            Assert.That(persisted.MediaType, Is.EqualTo(imported.Document.MediaType));
+            Assert.That(persisted.ParserId, Is.EqualTo(imported.Document.ParserId));
+            Assert.That(persisted.ParserVersion, Is.EqualTo(imported.Document.ParserVersion));
+            Assert.That(harness.Repository.GetSegments(imported.Document.DocumentId).Select(segment => segment.SegmentId),
+                Is.EqualTo(imported.Segments.Select(segment => segment.SegmentId)));
         });
     }
 
     [Test]
-    public async Task MigrationV8_Rejects_Invalid_Segment_Ranges()
+    public void MigrationV9_Retrofits_Segment_Constraints_And_Preserves_Search_Text()
     {
-        var harness = NewHarness();
-        using var store = harness.Store;
-        var corpus = harness.Service.CreateCorpus("Segment constraints");
-        var sourcePath = Path.Combine(harness.Root, "constraints.txt");
-        await File.WriteAllTextAsync(sourcePath, "Valid content.\n");
-        var imported = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
-        using var connection = store.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = "UPDATE fabric_segments SET char_start = -1 WHERE document_id = $document";
-        command.Parameters.AddWithValue("$document", imported.Document.DocumentId);
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+            "Data Source=:memory:;Foreign Keys=True");
+        connection.Open();
+        Execute(connection, """
+            CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL,
+                description TEXT
+            );
+            """);
+        Execute(connection, Migrations.All.Single(migration => migration.Version == 8).Sql);
+        for (var version = 1; version <= 8; version++)
+            Execute(connection, $"INSERT INTO schema_migrations VALUES ({version}, 'now', 'test')");
+        Execute(connection, """
+            INSERT INTO fabric_corpora VALUES ('corpus', 'Corpus', NULL, 'default', 'ready', 'now', 'now');
+            INSERT INTO fabric_documents VALUES (
+                'document', 'corpus', 'source', 'normalized', 'Document', 'text/plain',
+                'parser', '1', 'ready', '[]', 'now', 'now');
+            INSERT INTO fabric_segments VALUES (
+                'segment', 'document', 0, NULL, 0, 4, 1, 'digest', NULL, NULL, '1');
+            INSERT INTO fabric_segment_text VALUES ('segment', NULL, 'kept');
+            """);
 
-        Assert.That(() => command.ExecuteNonQuery(),
-            Throws.TypeOf<Microsoft.Data.Sqlite.SqliteException>());
+        MigrationRunner.Apply(connection);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM schema_migrations WHERE version = 9"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check"), Is.Zero);
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_segment_text WHERE normalized_text = 'kept'"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_segment_fts WHERE fabric_segment_fts MATCH 'kept'"), Is.EqualTo(1));
+            Assert.That(
+                () => Execute(connection, "UPDATE fabric_segments SET char_start = -1 WHERE segment_id = 'segment'"),
+                Throws.TypeOf<Microsoft.Data.Sqlite.SqliteException>());
+        });
     }
 
     private Harness NewHarness(long maximumSourceBytes = 1024 * 1024)
@@ -372,6 +406,13 @@ public sealed class ContextFabricCf1Tests
         using var command = connection.CreateCommand();
         command.CommandText = sql;
         return Convert.ToInt64(command.ExecuteScalar());
+    }
+
+    private static void Execute(Microsoft.Data.Sqlite.SqliteConnection connection, string sql)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
     }
 
     private static FabricSegmentDraft Draft(string id, int ordinal, string text) => new(

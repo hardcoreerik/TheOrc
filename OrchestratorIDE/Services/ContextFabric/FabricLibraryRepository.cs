@@ -80,6 +80,25 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
 
         InTransaction((conn, tx) =>
         {
+            using (var identity = CreateCmd(conn, tx, """
+                SELECT corpus_id, source_digest, media_type, parser_id, parser_version
+                FROM fabric_documents
+                WHERE document_id = $id
+                """))
+            {
+                P(identity.Parameters, "$id", document.DocumentId);
+                using var reader = identity.ExecuteReader();
+                if (reader.Read() &&
+                    (!reader.GetString(0).Equals(document.CorpusId, StringComparison.Ordinal) ||
+                     !reader.GetString(1).Equals(document.SourceDigest, StringComparison.Ordinal) ||
+                     !reader.GetString(2).Equals(document.MediaType, StringComparison.Ordinal) ||
+                     !reader.GetString(3).Equals(document.ParserId, StringComparison.Ordinal) ||
+                     !reader.GetString(4).Equals(document.ParserVersion, StringComparison.Ordinal)))
+                {
+                    throw new InvalidDataException("Document identity fields cannot change during replacement.");
+                }
+            }
+
             using (var cmd = CreateCmd(conn, tx, """
                 INSERT INTO fabric_documents
                     (document_id, corpus_id, source_digest, normalized_digest, display_name,
@@ -88,13 +107,8 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
                     ($id, $corpus, $source, $normalized, $name,
                      $media, $parser, $version, $status, $warnings, $created, $updated)
                 ON CONFLICT(document_id) DO UPDATE SET
-                    corpus_id = excluded.corpus_id,
-                    source_digest = excluded.source_digest,
                     normalized_digest = excluded.normalized_digest,
                     display_name = excluded.display_name,
-                    media_type = excluded.media_type,
-                    parser_id = excluded.parser_id,
-                    parser_version = excluded.parser_version,
                     status = excluded.status,
                     warnings_json = excluded.warnings_json,
                     updated_at = excluded.updated_at

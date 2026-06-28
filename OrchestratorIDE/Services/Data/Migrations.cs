@@ -23,6 +23,7 @@ internal static class Migrations
         new Migration(6, "graph_adr step4 (title,decision,status,created_at,body)", Sql006_AdrV2),
         new Migration(7, "native campaign engine", Sql007_Campaigns),
         new Migration(8, "context fabric ingestion and segment search", Sql008_ContextFabric),
+        new Migration(9, "context fabric segment integrity retrofit", Sql009_ContextFabricSegmentIntegrity),
     ];
 
     // ── v1 — Phase 1: captures + triage ─────────────────────────────────────────
@@ -268,11 +269,11 @@ internal static class Migrations
         CREATE TABLE fabric_segments (
             segment_id          TEXT PRIMARY KEY,
             document_id         TEXT NOT NULL REFERENCES fabric_documents(document_id) ON DELETE CASCADE,
-            ordinal             INTEGER NOT NULL CHECK (ordinal >= 0),
+            ordinal             INTEGER NOT NULL,
             heading_path        TEXT,
-            char_start          INTEGER NOT NULL CHECK (char_start >= 0),
-            char_end            INTEGER NOT NULL CHECK (char_end >= char_start),
-            token_count         INTEGER NOT NULL CHECK (token_count >= 0),
+            char_start          INTEGER NOT NULL,
+            char_end            INTEGER NOT NULL,
+            token_count         INTEGER NOT NULL,
             text_digest         TEXT NOT NULL,
             previous_segment_id TEXT,
             next_segment_id     TEXT,
@@ -294,6 +295,79 @@ internal static class Migrations
             content_rowid='rowid',
             tokenize='unicode61 remove_diacritics 2'
         );
+
+        CREATE TRIGGER fabric_segment_text_ai AFTER INSERT ON fabric_segment_text BEGIN
+            INSERT INTO fabric_segment_fts(rowid, heading_path, normalized_text)
+            VALUES (new.rowid, new.heading_path, new.normalized_text);
+        END;
+        CREATE TRIGGER fabric_segment_text_ad AFTER DELETE ON fabric_segment_text BEGIN
+            INSERT INTO fabric_segment_fts(fabric_segment_fts, rowid, heading_path, normalized_text)
+            VALUES ('delete', old.rowid, old.heading_path, old.normalized_text);
+        END;
+        CREATE TRIGGER fabric_segment_text_au AFTER UPDATE ON fabric_segment_text BEGIN
+            INSERT INTO fabric_segment_fts(fabric_segment_fts, rowid, heading_path, normalized_text)
+            VALUES ('delete', old.rowid, old.heading_path, old.normalized_text);
+            INSERT INTO fabric_segment_fts(rowid, heading_path, normalized_text)
+            VALUES (new.rowid, new.heading_path, new.normalized_text);
+        END;
+        """;
+
+    // v8 shipped without range constraints. Rebuild both linked tables so existing
+    // databases and fresh installs converge on the same constrained schema.
+    private const string Sql009_ContextFabricSegmentIntegrity = """
+        DROP TRIGGER fabric_segment_text_ai;
+        DROP TRIGGER fabric_segment_text_ad;
+        DROP TRIGGER fabric_segment_text_au;
+        DROP TABLE fabric_segment_fts;
+        DROP INDEX ix_fabric_segments_document;
+
+        ALTER TABLE fabric_segment_text RENAME TO fabric_segment_text_v8;
+        ALTER TABLE fabric_segments RENAME TO fabric_segments_v8;
+
+        CREATE TABLE fabric_segments (
+            segment_id          TEXT PRIMARY KEY,
+            document_id         TEXT NOT NULL REFERENCES fabric_documents(document_id) ON DELETE CASCADE,
+            ordinal             INTEGER NOT NULL CHECK (ordinal >= 0),
+            heading_path        TEXT,
+            char_start          INTEGER NOT NULL CHECK (char_start >= 0),
+            char_end            INTEGER NOT NULL CHECK (char_end >= char_start),
+            token_count         INTEGER NOT NULL CHECK (token_count >= 0),
+            text_digest         TEXT NOT NULL,
+            previous_segment_id TEXT,
+            next_segment_id     TEXT,
+            chunker_version     TEXT NOT NULL,
+            UNIQUE(document_id, ordinal, chunker_version)
+        );
+        CREATE INDEX ix_fabric_segments_document ON fabric_segments(document_id, ordinal);
+
+        INSERT INTO fabric_segments
+            (segment_id, document_id, ordinal, heading_path, char_start, char_end,
+             token_count, text_digest, previous_segment_id, next_segment_id, chunker_version)
+        SELECT segment_id, document_id, ordinal, heading_path, char_start, char_end,
+               token_count, text_digest, previous_segment_id, next_segment_id, chunker_version
+        FROM fabric_segments_v8;
+
+        CREATE TABLE fabric_segment_text (
+            segment_id      TEXT PRIMARY KEY REFERENCES fabric_segments(segment_id) ON DELETE CASCADE,
+            heading_path    TEXT,
+            normalized_text TEXT NOT NULL
+        );
+        INSERT INTO fabric_segment_text(segment_id, heading_path, normalized_text)
+        SELECT segment_id, heading_path, normalized_text
+        FROM fabric_segment_text_v8;
+
+        DROP TABLE fabric_segment_text_v8;
+        DROP TABLE fabric_segments_v8;
+
+        CREATE VIRTUAL TABLE fabric_segment_fts USING fts5(
+            heading_path,
+            normalized_text,
+            content='fabric_segment_text',
+            content_rowid='rowid',
+            tokenize='unicode61 remove_diacritics 2'
+        );
+        INSERT INTO fabric_segment_fts(rowid, heading_path, normalized_text)
+        SELECT rowid, heading_path, normalized_text FROM fabric_segment_text;
 
         CREATE TRIGGER fabric_segment_text_ai AFTER INSERT ON fabric_segment_text BEGIN
             INSERT INTO fabric_segment_fts(rowid, heading_path, normalized_text)
