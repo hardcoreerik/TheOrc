@@ -1251,7 +1251,7 @@ Exit gate:
 
 Implementation status (2026-06-27): **framework in progress**.
 
-- Migration v8 adds dedicated corpus, document, segment, normalized segment text, and external-content FTS5 storage beside CodeGraph in the shared WAL database; migration v9 retrofits segment range constraints for existing v8 databases.
+- Migration v8 adds dedicated corpus, document, segment, normalized segment text, and external-content FTS5 storage beside CodeGraph in the shared WAL database; migration v9 retrofits segment range constraints for existing v8 databases and marks documents with invalid legacy segments for deterministic rebuild from their source artifacts.
 - `FabricLibraryService` and `FabricLibraryRepository` provide corpus creation, bounded file import, deterministic rebuild, lexical segment search, and cascade deletion. Original and normalized artifacts reuse the existing quota-bounded SHA-256 object store.
 - The first parser accepts strict UTF-8 plain text and Markdown, canonicalizes newlines and Unicode, preserves normalized character offsets, and records Markdown heading paths. PDF remains behind the parser boundary and fails explicitly as unsupported.
 - `FabricSegmenter` prefers parsed block boundaries, splits oversized blocks safely, adds bounded overlap, wires neighbors, and derives stable IDs from document identity, chunker version, source range, and text digest.

@@ -340,12 +340,34 @@ internal static class Migrations
         );
         CREATE INDEX ix_fabric_segments_document ON fabric_segments(document_id, ordinal);
 
+        CREATE TABLE fabric_documents_rebuild_v9 (
+            document_id TEXT PRIMARY KEY
+        );
+        INSERT INTO fabric_documents_rebuild_v9(document_id)
+        SELECT DISTINCT document_id
+        FROM fabric_segments_v8
+        WHERE ordinal < 0
+           OR char_start < 0
+           OR char_end < char_start
+           OR token_count < 0;
+
+        UPDATE fabric_documents
+        SET status = 'needs_rebuild',
+            updated_at = datetime('now')
+        WHERE document_id IN (SELECT document_id FROM fabric_documents_rebuild_v9);
+
         INSERT INTO fabric_segments
             (segment_id, document_id, ordinal, heading_path, char_start, char_end,
              token_count, text_digest, previous_segment_id, next_segment_id, chunker_version)
-        SELECT segment_id, document_id, ordinal, heading_path, char_start, char_end,
-               token_count, text_digest, previous_segment_id, next_segment_id, chunker_version
-        FROM fabric_segments_v8;
+        SELECT segment.segment_id, segment.document_id, segment.ordinal, segment.heading_path,
+               segment.char_start, segment.char_end, segment.token_count, segment.text_digest,
+               segment.previous_segment_id, segment.next_segment_id, segment.chunker_version
+        FROM fabric_segments_v8 AS segment
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM fabric_documents_rebuild_v9 AS rebuild
+            WHERE rebuild.document_id = segment.document_id
+        );
 
         CREATE TABLE fabric_segment_text (
             segment_id      TEXT PRIMARY KEY REFERENCES fabric_segments(segment_id) ON DELETE CASCADE,
@@ -353,11 +375,13 @@ internal static class Migrations
             normalized_text TEXT NOT NULL
         );
         INSERT INTO fabric_segment_text(segment_id, heading_path, normalized_text)
-        SELECT segment_id, heading_path, normalized_text
-        FROM fabric_segment_text_v8;
+        SELECT legacy.segment_id, legacy.heading_path, legacy.normalized_text
+        FROM fabric_segment_text_v8 AS legacy
+        JOIN fabric_segments AS segment ON segment.segment_id = legacy.segment_id;
 
         DROP TABLE fabric_segment_text_v8;
         DROP TABLE fabric_segments_v8;
+        DROP TABLE fabric_documents_rebuild_v9;
 
         CREATE VIRTUAL TABLE fabric_segment_fts USING fts5(
             heading_path,

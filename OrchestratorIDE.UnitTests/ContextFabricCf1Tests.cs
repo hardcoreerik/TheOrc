@@ -31,7 +31,7 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
-    public void MigrationV8_Creates_ContextFabric_Tables_And_Fts()
+    public void MigrationV9_Creates_ContextFabric_Tables_And_Fts()
     {
         using var store = new SqliteStore(":memory:");
         store.Initialize();
@@ -364,6 +364,13 @@ public sealed class ContextFabricCf1Tests
             INSERT INTO fabric_segments VALUES (
                 'segment', 'document', 0, NULL, 0, 4, 1, 'digest', NULL, NULL, '1');
             INSERT INTO fabric_segment_text VALUES ('segment', NULL, 'kept');
+            INSERT INTO fabric_documents VALUES (
+                'invalid-document', 'corpus', 'invalid-source', 'invalid-normalized',
+                'Invalid document', 'text/plain', 'parser', '1', 'ready', '[]', 'now', 'now');
+            INSERT INTO fabric_segments VALUES (
+                'invalid-segment', 'invalid-document', 0, NULL, -1, 4, 1,
+                'invalid-digest', NULL, NULL, '1');
+            INSERT INTO fabric_segment_text VALUES ('invalid-segment', NULL, 'discarded-derived-text');
             """);
 
         MigrationRunner.Apply(connection);
@@ -374,6 +381,9 @@ public sealed class ContextFabricCf1Tests
             Assert.That(Scalar(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check"), Is.Zero);
             Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_segment_text WHERE normalized_text = 'kept'"), Is.EqualTo(1));
             Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_segment_fts WHERE fabric_segment_fts MATCH 'kept'"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_segments WHERE document_id = 'invalid-document'"), Is.Zero);
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_segment_fts WHERE fabric_segment_fts MATCH 'discarded'"), Is.Zero);
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_documents WHERE document_id = 'invalid-document' AND status = 'needs_rebuild'"), Is.EqualTo(1));
             Assert.That(
                 () => Execute(connection, "UPDATE fabric_segments SET char_start = -1 WHERE segment_id = 'segment'"),
                 Throws.TypeOf<Microsoft.Data.Sqlite.SqliteException>());
