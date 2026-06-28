@@ -173,7 +173,8 @@ native workload."
 - strongest gate in the first release
 - reject toy models outright
 - do not auto-admit uncensored chat finetunes
-- admit only stronger generalist or reasoning families
+- keep reasoning-tuned models provisional until they prove clean structured output without visible reasoning traces
+- reject model/runtime template combinations known to fall through to an incompatible prompt format
 - require benchmark evidence before promotion from provisional to admitted
 
 ### AgenticCoding
@@ -195,7 +196,13 @@ The first implementation is intentionally conservative and heuristic-driven:
 - model family inferred from GGUF filename
 - parameter scale inferred from filename, with a few family defaults
 - admission decision returned as `Admitted`, `Provisional`, or `Rejected`
-- Context Fabric bench now performs a model-admission preflight before running
+- Context Fabric bench performs workload-aware resolution and model-admission preflight before running
+- the benchmark pins the exact preflight bindings into `NativeRoleRuntime`, preventing execution from silently resolving a different model
+- Hermes-family instruction models are no longer assumed to be uncensored solely from the family name
+
+The first benchmark-cleared provisional lane is `Hermes-3-Llama-3.1-8B.Q5_K_M.gguf`. It passed the real CF-0 native gate with 16/16 accepted segments, 5/5 verified questions, 100% citation precision, and no fallback prompt path. This is local workload evidence, not a blanket admission claim for every Hermes model or quantization.
+
+Gemma 4 remains rejected for Context Fabric in the current native stack because its embedded template cannot be applied and ChatML fallback does not produce a valid Gemma prompt. This should be revisited when the runtime gains a verified Gemma 4 template path.
 
 This is good enough to stop obvious foot-guns, especially:
 

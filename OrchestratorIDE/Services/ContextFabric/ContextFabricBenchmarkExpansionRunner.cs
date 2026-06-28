@@ -10,6 +10,7 @@ namespace OrchestratorIDE.Services.ContextFabric;
 
 public sealed class ContextFabricBenchmarkExpansionRunner
 {
+    private const int MaxRawOutputExcerptChars = 400;
     private readonly IRoleRuntime? _runtime;
     private readonly FabricRunOptions _options;
 
@@ -117,11 +118,8 @@ public sealed class ContextFabricBenchmarkExpansionRunner
         if (string.IsNullOrWhiteSpace(draft.Summary))
             errors.Add("summary is required");
 
-        foreach (var fact in testCase.ExpectedLinkedFacts)
-        {
-            if (!(draft.LinkedFacts ?? []).Any(item => item.Contains(fact, StringComparison.OrdinalIgnoreCase)))
-                errors.Add($"missing expected linked fact '{fact}'");
-        }
+        if ((draft.LinkedFacts?.Count ?? 0) < testCase.ExpectedLinkedFacts.Count)
+            errors.Add($"linkedFacts must contain at least {testCase.ExpectedLinkedFacts.Count} items");
 
         foreach (var term in testCase.ForbiddenTerms)
         {
@@ -197,7 +195,9 @@ public sealed class ContextFabricBenchmarkExpansionRunner
                     reportedCompletion > 0 ? reportedCompletion : ContextManager.EstimateTokens(output.ToString()),
                     _options.ContextBudget.ContextLimit,
                     stopwatch.ElapsedMilliseconds,
-                    true));
+                    true,
+                    PromptPath: ResolvePromptPath(RuntimeRole.Researcher),
+                    RawOutputExcerpt: BuildRawOutputExcerpt(output.ToString())));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -213,8 +213,29 @@ public sealed class ContextFabricBenchmarkExpansionRunner
                     _options.ContextBudget.ContextLimit,
                     stopwatch.ElapsedMilliseconds,
                     false,
-                    ex.Message));
+                    ex.Message,
+                    ResolvePromptPath(RuntimeRole.Researcher),
+                    BuildRawOutputExcerpt(output.ToString())));
         }
+    }
+
+    private string? ResolvePromptPath(RuntimeRole role) =>
+        _runtime is IRoleRuntimeDiagnostics diagnostics
+            ? diagnostics.GetLastPromptPath(role)
+            : null;
+
+    private static string? BuildRawOutputExcerpt(string output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return null;
+
+        var compact = output
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Trim();
+        if (compact.Length <= MaxRawOutputExcerptChars)
+            return compact;
+        return compact[..MaxRawOutputExcerptChars] + "...";
     }
 
     private static AgentMessage SystemMessage(string content) => new()

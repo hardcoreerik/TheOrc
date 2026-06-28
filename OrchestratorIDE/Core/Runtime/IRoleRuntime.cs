@@ -38,7 +38,7 @@ public interface IRoleRuntime
 /// ModelDepot resolves a role binding, RuntimeOrchestrator loads the base model via
 /// SessionManager, and AdapterManager returns a reference-counted role conversation.
 /// </summary>
-public sealed class NativeRoleRuntime : IRoleRuntime, IContextLengthProvider, IAsyncDisposable
+public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, IContextLengthProvider, IAsyncDisposable
 {
     private static readonly string[] _antiPrompts =
     [
@@ -52,25 +52,29 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IContextLengthProvider, IA
 
     private readonly ModelDepot _depot;
     private readonly RuntimeOptions _options;
+    private readonly IReadOnlyDictionary<RuntimeRole, RuntimeRoleBinding> _roleBindings;
     private readonly LLamaSharpRuntime _runtime;
     private readonly RuntimeOrchestrator _orchestrator;
     private readonly object _telemetryGate = new();
     private readonly Dictionary<RuntimeRole, RuntimeHealth> _lastHealthByRole = new();
     private readonly Dictionary<RuntimeRole, RuntimeStats> _lastStatsByRole = new();
+    private readonly Dictionary<RuntimeRole, string?> _lastPromptPathByRole = new();
     private bool _disposed;
 
     public NativeRoleRuntime(
         ModelDepot depot,
         RuntimeOptions? options = null,
         IOrcScheduler? scheduler = null,
-        Func<VramBudget>? budgetProvider = null)
+        Func<VramBudget>? budgetProvider = null,
+        IReadOnlyDictionary<RuntimeRole, RuntimeRoleBinding>? roleBindings = null)
         : this(
             depot,
             new LLamaSharpRuntime(),
             options,
             disposeRuntime: true,
             scheduler,
-            budgetProvider)
+            budgetProvider,
+            roleBindings)
     {
     }
 
@@ -80,11 +84,13 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IContextLengthProvider, IA
         RuntimeOptions? options = null,
         bool disposeRuntime = false,
         IOrcScheduler? scheduler = null,
-        Func<VramBudget>? budgetProvider = null)
+        Func<VramBudget>? budgetProvider = null,
+        IReadOnlyDictionary<RuntimeRole, RuntimeRoleBinding>? roleBindings = null)
     {
         _depot = depot ?? throw new ArgumentNullException(nameof(depot));
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _options = options ?? new RuntimeOptions();
+        _roleBindings = roleBindings ?? new Dictionary<RuntimeRole, RuntimeRoleBinding>();
         _orchestrator = new RuntimeOrchestrator(_runtime, disposeRuntime, scheduler, budgetProvider);
     }
 
@@ -103,7 +109,7 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IContextLengthProvider, IA
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(history);
 
-        var binding = _depot.ResolveRole(role)
+        var binding = (_roleBindings.TryGetValue(role, out var configured) ? configured : _depot.ResolveRole(role))
             ?? throw new InvalidOperationException($"No base GGUF resolved for runtime role {role}.");
 
         await using var enumerator = StreamRoleCompletionCoreAsync(
@@ -170,6 +176,17 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IContextLengthProvider, IA
     public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) =>
         Task.FromResult<int?>(_options.ContextLength);
 
+    public string? GetLastPromptPath(RuntimeRole role)
+    {
+        ThrowIfDisposed();
+
+        lock (_telemetryGate)
+            if (_lastPromptPathByRole.TryGetValue(role, out var promptPath))
+                return promptPath;
+
+        return _runtime.GetLastPromptPath();
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
@@ -222,6 +239,7 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IContextLengthProvider, IA
         };
 
         var prompt = _runtime.BuildPromptForLoadedModel(history, tools);
+        var promptPath = _runtime.GetLastPromptPath() ?? "Unknown";
         var started = DateTime.UtcNow;
         var firstTokenAt = default(DateTime);
         var outputBuilder = new StringBuilder();
@@ -285,6 +303,7 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IContextLengthProvider, IA
         {
             _lastHealthByRole[role] = health;
             _lastStatsByRole[role] = stats;
+            _lastPromptPathByRole[role] = promptPath;
         }
 
         onUsage?.Invoke(ContextManager.EstimateTokens(prompt), completionTokens);
@@ -338,6 +357,7 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IContextLengthProvider, IA
                 RuntimeName,
                 ActiveModel: FormatActiveModel(binding),
                 EstimatedVramBytes: EstimateBindingBytes(binding));
+            _lastPromptPathByRole[role] = _runtime.GetLastPromptPath();
         }
     }
 }

@@ -96,6 +96,28 @@ public static class ContextFabricReportWriter
             sb.AppendLine();
         }
 
+        var failedCalls = report.Calls.Where(call => !call.Succeeded).ToArray();
+        if (failedCalls.Length > 0)
+        {
+            sb.AppendLine("## Failed Calls");
+            sb.AppendLine();
+            foreach (var call in failedCalls)
+            {
+                sb.AppendLine($"### {Escape(call.Stage)}/{Escape(call.ItemId)}");
+                sb.AppendLine();
+                sb.AppendLine($"Role: `{call.Role}`");
+                sb.AppendLine($"Prompt path: `{Escape(call.PromptPath ?? "unknown")}`");
+                if (!string.IsNullOrWhiteSpace(call.Error))
+                    sb.AppendLine($"Error: {Escape(call.Error)}");
+                if (!string.IsNullOrWhiteSpace(call.RawOutputExcerpt))
+                {
+                    sb.AppendLine();
+                    AppendFencedText(sb, call.RawOutputExcerpt);
+                }
+                sb.AppendLine();
+            }
+        }
+
         return sb.ToString();
     }
 

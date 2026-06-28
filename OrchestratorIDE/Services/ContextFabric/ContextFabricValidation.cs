@@ -169,7 +169,8 @@ public static class FabricEvidenceProcessor
     public static FabricEvidenceValidationResult NormalizeAndValidate(
         FabricCorpus corpus,
         FabricSegment segment,
-        FabricEvidenceCard draft)
+        FabricEvidenceCard draft,
+        bool requireCompleteCoverage = false)
     {
         ArgumentNullException.ThrowIfNull(corpus);
         ArgumentNullException.ThrowIfNull(segment);
@@ -236,6 +237,22 @@ public static class FabricEvidenceProcessor
                 continue;
             }
             normalizedClaims.Add(claim with { ClaimId = canonicalClaimId, Citations = citations });
+        }
+
+        if (requireCompleteCoverage)
+        {
+            var expectedEvidence = segment.Text
+                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+                .Where(line => line.StartsWith("EVIDENCE:", StringComparison.Ordinal))
+                .Select(line => line["EVIDENCE:".Length..].Trim())
+                .ToArray();
+            var anchoredQuotes = normalizedClaims
+                .SelectMany(claim => claim.Citations)
+                .Select(citation => citation.Quote.Trim())
+                .ToHashSet(StringComparer.Ordinal);
+            foreach (var evidence in expectedEvidence)
+                if (!anchoredQuotes.Contains(evidence))
+                    errors.Add($"missing evidence line '{evidence}'");
         }
 
         if (errors.Count > 0)
@@ -618,8 +635,11 @@ public static class FabricAnswerVerifier
         {
             if (draft.Abstained)
                 errors.Add("answer unexpectedly abstained");
+            var groundedTrace = string.Join(' ', normalizedClaims
+                .SelectMany(claim => claim.Citations.Select(citation => citation.Quote).Prepend(claim.Text))
+                .Prepend(answerText));
             foreach (var term in question.ExpectedTerms)
-                if (!answerText.Contains(term, StringComparison.OrdinalIgnoreCase))
+                if (!groundedTrace.Contains(term, StringComparison.OrdinalIgnoreCase))
                     errors.Add($"answer is missing expected term '{term}'");
             foreach (var segmentId in question.ExpectedSegmentIds)
                 if (!verifiedSegments.Contains(segmentId))

@@ -83,6 +83,11 @@ public sealed record RuntimeStats(
     TimeSpan? LastTimeToFirstToken = null,  // null until measured
     long?     EstimatedVramBytes   = null); // null on Ollama (not exposed per-process)
 
+public interface IRoleRuntimeDiagnostics
+{
+    string? GetLastPromptPath(RuntimeRole role);
+}
+
 // ── ILocalModelRuntime — native-only capabilities (Phase 2+) ─────────────────
 // OllamaRuntime does NOT implement this. Callers that only generate depend on
 // IModelRuntime. Only the future SessionManager depends on ILocalModelRuntime.

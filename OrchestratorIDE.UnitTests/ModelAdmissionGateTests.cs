@@ -39,6 +39,44 @@ public sealed class ModelAdmissionGateTests
     }
 
     [Test]
+    public void ContextFabric_Keeps_Reasoning_Tuned_Model_Provisional()
+    {
+        var decision = ModelAdmissionGate.Evaluate(
+            Asset("DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf"),
+            RuntimeWorkloadKind.ContextFabricReader);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision.Verdict, Is.EqualTo(ModelAdmissionVerdict.Provisional));
+            Assert.That(decision.Fingerprint.IsReasoningTuned, Is.True);
+        });
+    }
+
+    [Test]
+    public void ContextFabric_Rejects_Gemma4_Until_Native_Template_Is_Supported()
+    {
+        var decision = ModelAdmissionGate.Evaluate(
+            Asset("gemma-4-12B-it-qat-q4_0.gguf"),
+            RuntimeWorkloadKind.ContextFabricReader);
+
+        Assert.That(decision.Verdict, Is.EqualTo(ModelAdmissionVerdict.Rejected));
+    }
+
+    [Test]
+    public void ContextFabric_Does_Not_Assume_Hermes3_Is_Uncensored()
+    {
+        var decision = ModelAdmissionGate.Evaluate(
+            Asset("Hermes-3-Llama-3.1-8B.Q5_K_M.gguf"),
+            RuntimeWorkloadKind.ContextFabricReader);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision.Verdict, Is.EqualTo(ModelAdmissionVerdict.Provisional));
+            Assert.That(decision.Fingerprint.IsUncensoredStyle, Is.False);
+        });
+    }
+
+    [Test]
     public void AgenticCoding_Admits_Devstral()
     {
         var decision = ModelAdmissionGate.Evaluate(

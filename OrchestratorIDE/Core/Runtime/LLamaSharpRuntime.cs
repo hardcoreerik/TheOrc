@@ -44,6 +44,8 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     // true = model has a working embedded template, false = fall back to ChatML every time.
     // Avoids paying the exception cost on every call for templateless models.
     private bool? _hasEmbeddedTemplate;
+    private bool _foldSystemIntoUser;
+    private string? _lastPromptPath;
 
     public string RuntimeName => "LLamaSharp";
 
@@ -187,6 +189,8 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         LastTimeToFirstToken: _lastTimeToFirstToken,
         EstimatedVramBytes: null);  // LLamaSharp doesn't expose per-process VRAM via managed API
 
+    internal string? GetLastPromptPath() => _lastPromptPath;
+
     // ── ILocalModelRuntime ───────────────────────────────────────────────────
 
     public async Task<ModelLoadResult> LoadModelAsync(
@@ -268,6 +272,8 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         _lastTokensPerSecond  = null;
         _lastTimeToFirstToken = null;
         _hasEmbeddedTemplate  = null;
+        _foldSystemIntoUser   = false;
+        _lastPromptPath       = null;
         if (hadWeights) Interlocked.Increment(ref _weightsGeneration);
         return ValueTask.CompletedTask;
     }
@@ -295,7 +301,10 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
 
         // Fast path: we already know this model has no embedded template.
         if (_hasEmbeddedTemplate == false)
+        {
+            _lastPromptPath = "ChatMLFallback";
             return NativePromptBuilder.BuildChatMLPrompt(messages);
+        }
 
         if (_weights is null)
             throw new InvalidOperationException(
@@ -306,33 +315,53 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         // metadata once; Phase 3 will explore caching the parsed template string.
         try
         {
-            var template = new LLamaTemplate(_weights) { AddAssistant = true };
-            // AddAssistant defaults to false (confirmed via reflection against LLamaSharp
-            // 0.27.0, 2026-06-21) -- without it, Apply() renders a "closed" conversation with
-            // no open assistant-turn cue (the standard chat-template "add_generation_prompt"
-            // concept), so the model has no signal to generate a reply. This was the root
-            // cause of every native-runtime test producing EmptyOutput despite real token
-            // activity (non-zero tok/s and time-to-first-token) -- the model was almost
-            // certainly predicting an immediate EOS against a prompt that looked complete.
-            foreach (var msg in messages)
-                template.Add(NativePromptBuilder.ToRoleString(msg.Role), msg.Content ?? "");
-            var result = Encoding.UTF8.GetString(template.Apply());
+            var templateMessages = _foldSystemIntoUser
+                ? NativePromptBuilder.FoldSystemIntoFirstUser(messages)
+                : messages;
+            var result = ApplyEmbeddedTemplate(templateMessages);
             _hasEmbeddedTemplate = true;
+            _lastPromptPath = _foldSystemIntoUser ? "EmbeddedTemplate:SystemFolded" : "EmbeddedTemplate";
             return result;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
+            var templateFailure = ex;
+            if (!_foldSystemIntoUser && messages.Any(message => message.Role == MessageRole.System))
+            {
+                try
+                {
+                    var result = ApplyEmbeddedTemplate(NativePromptBuilder.FoldSystemIntoFirstUser(messages));
+                    _hasEmbeddedTemplate = true;
+                    _foldSystemIntoUser = true;
+                    _lastPromptPath = "EmbeddedTemplate:SystemFolded";
+                    return result;
+                }
+                catch (Exception retryEx) when (retryEx is not OutOfMemoryException)
+                {
+                    templateFailure = retryEx;
+                }
+            }
+
             // Only cache false if we haven't already confirmed a working template.
             // A failure after a successful probe is a runtime error, not a template-absent signal.
             if (_hasEmbeddedTemplate is null)
             {
                 _hasEmbeddedTemplate = false;
                 System.Diagnostics.Trace.TraceWarning(
-                    $"[LLamaSharpRuntime] Template probe failed ({ex.GetType().Name}: {ex.Message}); " +
+                    $"[LLamaSharpRuntime] Template probe failed ({templateFailure.GetType().Name}: {templateFailure.Message}); " +
                     "falling back to ChatML for this session.");
             }
+            _lastPromptPath = "ChatMLFallback";
             return NativePromptBuilder.BuildChatMLPrompt(messages);
         }
+    }
+
+    private string ApplyEmbeddedTemplate(IEnumerable<AgentMessage> messages)
+    {
+        var template = new LLamaTemplate(_weights!) { AddAssistant = true };
+        foreach (var msg in messages)
+            template.Add(NativePromptBuilder.ToRoleString(msg.Role), msg.Content ?? "");
+        return Encoding.UTF8.GetString(template.Apply());
     }
 
     private static List<ToolCall> ParseToolCalls(string text) => ToolCallTextParser.Parse(text);

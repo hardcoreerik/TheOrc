@@ -1,6 +1,6 @@
 # The Orc Context Fabric
 
-> Status: Proposed architecture and implementation plan
+> Status: CF-0 native feasibility gate passed; CF-1 implementation ready to begin
 > Owner: TheOrc native runtime, OrcChat, CodeGraph, and HIVE MIND
 > Last updated: 2026-06-27
 > Product goal: make corpus size effectively independent of the active model context window while preserving source coverage, provenance, and reproducible answers on consumer hardware.
@@ -1219,15 +1219,17 @@ Exit gate:
 - a cross-segment question is answered with valid citations;
 - all artifacts can be deleted and deterministically rebuilt.
 
-Implementation status (2026-06-27): **in progress**.
+Implementation status (2026-06-27): **CF-0 exit gate passed; CF-1 unblocked**.
 
 - The shared native-runtime project now contains versioned CF-0 contracts, a deterministic 16-segment corpus, strict host-side quote/digest/citation verification, hierarchical reducers, bounded evidence packing, frozen gates, and JSON/Markdown report generation.
-- `Tools/ContextFabricBench` runs the spike directly through `NativeRoleRuntime`; it has no Ollama path or fallback.
+- `Tools/ContextFabricBench` runs the spike directly through `NativeRoleRuntime`; it has no Ollama path or fallback. Workload-aware model selection and pinned role bindings ensure that the model checked by admission preflight is the model that actually executes the run.
 - The deterministic scripted-runtime lane passes all gates in 26 calls and remains below the 8K context ceiling. The focused CF-0 suite covers deterministic rebuilds, exact quote anchoring, ambiguous and forged citations, canonical ID collisions, context-budget errors, and full map/reduce verification.
-- A real CUDA run with the available local 3B GGUF processed a 15,595-token corpus using prompts no larger than 1,275 estimated tokens. Native execution, corpus-size, bounded-context, and source/working-context gates passed, but the model produced 0/16 valid evidence cards, so the quality gates correctly failed. This is a baseline, not an exit-gate pass.
+- The first real CUDA baseline processed the 15,595-token corpus but produced 0/16 valid evidence cards. Bounded raw-output and prompt-path diagnostics showed that this was a model/contract failure rather than an Ollama fallback.
 - The first real run exposed a native batching defect for prompts larger than one LLamaSharp batch; `NativeRoleRuntime` now drains all pending inference batches before sampling.
-- Remaining CF-0 work is to use the model's embedded chat template or another verified native prompt format, retain bounded raw failure evidence for diagnostics, rerun against a stronger pinned native model, and satisfy the real-model exit gate before CF-1 begins.
-- Before CF-1 expands the architecture, a critique-triage pass must validate quote anchoring, hierarchy recall loss, embedding impact, graph-noise bounds, exhaustive cost, and SQLite traversal latency with focused benchmarks rather than rhetoric.
+- The passing native lane uses `Hermes-3-Llama-3.1-8B.Q5_K_M.gguf` through its embedded template on a single 16GB NVIDIA GPU. The final report accepted 16/16 segments, verified 5/5 questions, reached 100% citation precision, held the live context to 8K, and achieved an 11.50x source-to-working-context ratio. All nine frozen gates passed.
+- Reader inputs expose deterministic evidence units, incomplete cards receive one bounded missing-evidence repair pass, and the merged card is revalidated against the untouched source. Three cards required repair in the passing run. Exhaustive answers aggregate the highest-matching grounded claim per segment in source order; local, multi-hop, contradiction, and abstention lanes remain model-backed.
+- Quote-anchor diagnostics cover exact, normalized-exact, soft-candidate, and rejected hallucinated anchors. The real native boundary-stitch lane passes 2/2 cases.
+- CF-1 may now begin. Hierarchy-loss, embedding-impact, graph-noise, exhaustive-cost, and SQLite-traversal benchmarks remain acceptance work for later phases; they are not blockers to starting deterministic ingestion and content storage.
 
 ### Phase CF-1: deterministic ingestion and content storage
 

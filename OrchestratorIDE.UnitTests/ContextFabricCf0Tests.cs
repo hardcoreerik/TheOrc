@@ -206,6 +206,8 @@ public sealed class ContextFabricCf0Tests
             Assert.That(report.Reductions.Last().CoveredSegmentIds, Has.Count.EqualTo(16));
             Assert.That(report.Calls, Has.Count.EqualTo(26));
             Assert.That(report.Calls, Has.All.Matches<FabricCallMetrics>(call => call.FitsContext));
+            Assert.That(report.Calls.Select(call => call.PromptPath).Distinct(), Is.EquivalentTo(new[] { "Scripted", "HostDeterministic" }));
+            Assert.That(report.Calls, Has.All.Matches<FabricCallMetrics>(call => !string.IsNullOrWhiteSpace(call.RawOutputExcerpt)));
         });
     }
 
@@ -304,6 +306,7 @@ public sealed class ContextFabricCf0Tests
             Assert.That(report.Results, Has.All.Matches<FabricBoundaryStitchResult>(item => item.Passed));
             Assert.That(report.Calls, Has.Count.EqualTo(2));
             Assert.That(report.Results.Select(item => item.CaseId), Is.EquivalentTo(fixture.Cases.Select(item => item.CaseId)));
+            Assert.That(report.Calls.Select(call => call.PromptPath).Distinct(), Is.EqualTo(new[] { "Scripted" }));
         });
     }
 

@@ -143,6 +143,22 @@ public sealed class ModelDepotTests
         Assert.That(binding!.BaseModel.Path, Is.EqualTo(Path.GetFullPath(readable)));
     }
 
+    [Test]
+    public void ResolveRole_For_ContextFabric_Prefers_Compatible_Model()
+    {
+        var root = NewTempRoot();
+        WriteFile(root, "DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf");
+        WriteFile(root, "gemma-4-12B-it-qat-q4_0.gguf");
+        var compatible = WriteFile(root, "Hermes-3-Llama-3.1-8B.Q5_K_M.gguf");
+
+        var binding = ModelDepot.Scan(root).ResolveRole(
+            RuntimeRole.Researcher,
+            RuntimeWorkloadKind.ContextFabricReader);
+
+        Assert.That(binding, Is.Not.Null);
+        Assert.That(binding!.BaseModel.Path, Is.EqualTo(Path.GetFullPath(compatible)));
+    }
+
     private string NewTempRoot()
     {
         var root = Path.Combine(Path.GetTempPath(), "orc-model-depot-" + Guid.NewGuid().ToString("N"));

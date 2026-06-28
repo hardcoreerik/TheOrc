@@ -96,6 +96,8 @@ public static class ContextFabricBenchmarkExpansionWriter
         {
             sb.AppendLine($"## {Escape(result.CaseId)}");
             sb.AppendLine();
+            sb.AppendLine($"Prompt path: `{Escape(result.Metrics.PromptPath ?? "unknown")}`");
+            sb.AppendLine();
             sb.AppendLine(result.Summary.Length == 0 ? "_No summary produced._" : Escape(result.Summary));
             if (result.LinkedFacts.Count > 0)
             {
@@ -108,6 +110,11 @@ public static class ContextFabricBenchmarkExpansionWriter
                 sb.AppendLine();
                 foreach (var error in result.Errors)
                     sb.AppendLine($"- {Escape(error)}");
+                if (!string.IsNullOrWhiteSpace(result.Metrics.RawOutputExcerpt))
+                {
+                    sb.AppendLine();
+                    AppendFencedText(sb, result.Metrics.RawOutputExcerpt);
+                }
             }
             sb.AppendLine();
         }
@@ -118,4 +125,20 @@ public static class ContextFabricBenchmarkExpansionWriter
         .Replace("|", "\\|", StringComparison.Ordinal)
         .Replace("\r", " ", StringComparison.Ordinal)
         .Replace("\n", " ", StringComparison.Ordinal);
+
+    private static void AppendFencedText(StringBuilder sb, string value)
+    {
+        var longestRun = 0;
+        var currentRun = 0;
+        foreach (var character in value)
+        {
+            currentRun = character == '`' ? currentRun + 1 : 0;
+            longestRun = Math.Max(longestRun, currentRun);
+        }
+
+        var fence = new string('`', Math.Max(3, longestRun + 1));
+        sb.AppendLine(fence + "text");
+        sb.AppendLine(value);
+        sb.AppendLine(fence);
+    }
 }

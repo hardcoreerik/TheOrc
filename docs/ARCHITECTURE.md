@@ -276,20 +276,25 @@ should reject obviously unfit models before spending time on a benchmark run,
 rather than discovering only after execution that a tiny chat model cannot
 produce valid evidence cards.
 
-The current critique-triage pass also locks in a host-trusted citation boundary:
+The critique-triage pass also locks in a host-trusted citation boundary:
 models produce draft quotes, while the host computes canonical offsets and
 digests, rejects ambiguous anchors, and records the benchmark environment with
-the resolved model-admission verdicts. Planned follow-up benchmarks should
-measure hierarchy recall loss, embedding impact, graph noise, and SQLite
-traversal cost before the proposed CF-1 to CF-2 architecture is promoted.
+the resolved model-admission verdicts. The real native CF-0 lane now passes on
+the pinned Hermes 3 Llama 3.1 8B model: 16/16 accepted segments, 5/5 verified
+questions, 100% citation precision, all nine frozen gates, and an 11.50x
+source-to-working-context ratio inside the 8K limit. Prompt-path telemetry
+confirmed the embedded template; exhaustive enumeration is intentionally a
+host-deterministic aggregation of grounded per-segment claims. Planned
+follow-up benchmarks should measure hierarchy recall loss, embedding impact,
+graph noise, and SQLite traversal cost as CF-1 and CF-2 mature.
 
 The full schema, HIVE execution model, benchmark, security policy, and phased
 implementation are specified in
 [The Orc Context Fabric.md](The%20Orc%20Context%20Fabric.md). CF-0 now has a
 native feasibility harness, deterministic corpus, strict host-side verifier,
-and report generator, but its real-model quality gate has not passed; the
-document graph, persistence, retrieval, HIVE execution, and OrcChat product
-surface remain proposed rather than shipped.
+and report generator, and its real-model quality gate has passed. CF-1 is now
+unblocked, but the document graph, persistence, retrieval, HIVE execution, and
+OrcChat product surface remain proposed rather than shipped.
 
 ---
 

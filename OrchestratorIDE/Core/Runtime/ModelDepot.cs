@@ -144,12 +144,31 @@ public sealed class ModelDepot
     }
 
     public RuntimeRoleBinding? ResolveRole(RuntimeRole role)
+        => ResolveRoleCore(role, workload: null);
+
+    public RuntimeRoleBinding? ResolveRole(RuntimeRole role, RuntimeWorkloadKind workload)
+        => ResolveRoleCore(role, workload);
+
+    private RuntimeRoleBinding? ResolveRoleCore(RuntimeRole role, RuntimeWorkloadKind? workload)
     {
-        var baseModel = Assets
-            .Where(a => a.Kind == RuntimeAssetKind.BaseModelGguf)
+        var candidates = Assets.Where(a => a.Kind == RuntimeAssetKind.BaseModelGguf);
+        if (workload is { } workloadKind)
+        {
+            candidates = candidates
+                .OrderByDescending(a => ModelAdmissionGate.Evaluate(a, workloadKind).Verdict)
+                .ThenByDescending(a => a.SuggestedRoles.Contains(role))
+                .ThenBy(a => ModelAdmissionGate.Fingerprint(a).IsReasoningTuned)
+                .ThenByDescending(a => ModelAdmissionGate.Fingerprint(a).ParametersB ?? 0)
+                .ThenBy(a => LooksOpaqueName(a.DisplayName))
+                .ThenBy(a => a.Path, _pathComparer);
+        }
+
+        var baseModel = (workload is null
+            ? candidates
             .OrderByDescending(a => a.SuggestedRoles.Contains(role))
             .ThenBy(a => LooksOpaqueName(a.DisplayName))
             .ThenBy(a => a.Path, _pathComparer)
+            : candidates)
             .FirstOrDefault();
 
         if (baseModel is null)

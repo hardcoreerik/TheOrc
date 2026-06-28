@@ -270,15 +270,16 @@ Every benchmark run should record:
 
 ### CF-0
 
-- Correct the public evidence-card contract to match host-trusted citation normalization.
-- Persist benchmark environment metadata in CF reports.
-- Re-run CF-0 only on models that pass the admission preflight for Context Fabric.
+- **Complete:** correct the public evidence-card contract to match host-trusted citation normalization.
+- **Complete:** persist benchmark environment metadata, prompt path, and bounded raw failure evidence in CF reports.
+- **Complete:** run CF-0 only with workload-aware admission preflight and pin the exact selected bindings into execution.
+- **Complete:** clear the real native exit gate on the pinned Hermes 3 Llama 3.1 8B lane: 16/16 segments, 5/5 questions, 100% citation precision, and all nine gates passed.
 
 ### CF-1
 
 - Add paraphrase-recall and hierarchy-loss fixtures before shipping retrieval policy as settled.
-- Add quote-anchoring lanes for exact, normalized-exact, and soft-anchor diagnostics.
-- Add a boundary-stitch benchmark before assuming hierarchy failures are really hierarchy failures.
+- **Complete:** add quote-anchoring lanes for exact, normalized-exact, soft-anchor, and rejected hallucinated-anchor diagnostics.
+- **Complete:** add a boundary-stitch benchmark; the pinned native lane passes 2/2 deterministic cases.
 - Treat hybrid retrieval as the default design target when embeddings are available.
 - Keep lexical search as mandatory fallback and exact-quote retrieval path.
 

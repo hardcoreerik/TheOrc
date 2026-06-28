@@ -95,7 +95,7 @@ public static class ModelAdmissionGate
             tokens.Contains("reasoning") ||
             tokens.Contains("r1");
         var isUncensoredStyle =
-            family is RuntimeModelFamily.Dolphin or RuntimeModelFamily.Hermes ||
+            family == RuntimeModelFamily.Dolphin ||
             tokens.Contains("uncensored") ||
             tokens.Contains("abliterated");
 
@@ -193,8 +193,15 @@ public static class ModelAdmissionGate
         if (fp.IsUncensoredStyle)
             return Reject(workload, fp, "Context Fabric should not default to uncensored-style chat finetunes.");
 
+        if (fp.Family == RuntimeModelFamily.Gemma &&
+            fp.NormalizedName.Contains("gemma-4", StringComparison.Ordinal))
+            return Reject(workload, fp, "Gemma 4 is not compatible with the current native chat-template path.", "The embedded template cannot be applied and ChatML fallback does not produce valid Gemma prompts.");
+
         if (fp.Family is RuntimeModelFamily.SmolLm or RuntimeModelFamily.Nemotron)
             return Reject(workload, fp, "This family should not be auto-admitted for high-trust evidence work.");
+
+        if (fp.IsReasoningTuned)
+            return Provisional(workload, fp, "Reasoning-tuned models require a clean structured-output benchmark pass for Context Fabric.", "Visible reasoning traces can consume the response budget or precede the required JSON object.");
 
         if (fp.Family is RuntimeModelFamily.Qwen3 or RuntimeModelFamily.Qwen or RuntimeModelFamily.Gemma or RuntimeModelFamily.Llama or RuntimeModelFamily.Phi or RuntimeModelFamily.MistralNemo or RuntimeModelFamily.Mistral or RuntimeModelFamily.Devstral or RuntimeModelFamily.DeepSeekR1)
             return (fp.ParametersB ?? 0) >= 12

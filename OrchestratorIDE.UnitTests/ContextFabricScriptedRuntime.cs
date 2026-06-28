@@ -8,7 +8,7 @@ using OrchestratorIDE.Services.ContextFabric;
 
 namespace OrchestratorIDE.UnitTests;
 
-internal sealed class ScriptedFabricRuntime : IRoleRuntime
+internal sealed class ScriptedFabricRuntime : IRoleRuntime, IRoleRuntimeDiagnostics
 {
     public string RuntimeName => "scripted-native-cf0";
 
@@ -44,6 +44,7 @@ internal sealed class ScriptedFabricRuntime : IRoleRuntime
 
     public RuntimeHealth GetHealth(RuntimeRole? role = null) => new(true, RuntimeName, "scripted.gguf");
     public RuntimeStats GetStats(RuntimeRole? role = null) => new(RuntimeName, "scripted.gguf");
+    public string? GetLastPromptPath(RuntimeRole role) => "Scripted";
 
     private static string BuildEvidenceCard(string input)
     {

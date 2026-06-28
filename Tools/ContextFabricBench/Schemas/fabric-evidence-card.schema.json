@@ -10,7 +10,7 @@
     "corpusId": { "type": "string", "minLength": 1, "maxLength": 128 },
     "documentId": { "type": "string", "minLength": 1, "maxLength": 128 },
     "segmentId": { "type": "string", "minLength": 1, "maxLength": 128 },
-    "promptVersion": { "const": "cf0-reader-1.0" },
+    "promptVersion": { "const": "cf0-reader-1.2" },
     "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
     "claims": {
       "type": "array",

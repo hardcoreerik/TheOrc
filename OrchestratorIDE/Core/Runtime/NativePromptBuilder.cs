@@ -48,6 +48,25 @@ internal static class NativePromptBuilder
         return sb.ToString();
     }
 
+    internal static List<AgentMessage> FoldSystemIntoFirstUser(IReadOnlyList<AgentMessage> messages)
+    {
+        var systemText = string.Join("\n\n", messages
+            .Where(message => message.Role == MessageRole.System)
+            .Select(message => message.Content)
+            .Where(content => !string.IsNullOrWhiteSpace(content)));
+        if (systemText.Length == 0)
+            return messages.ToList();
+
+        var folded = messages.Where(message => message.Role != MessageRole.System).ToList();
+        var userIndex = folded.FindIndex(message => message.Role == MessageRole.User);
+        var prefix = $"System instructions:\n{systemText}\n\nUser input:\n";
+        if (userIndex >= 0)
+            folded[userIndex] = folded[userIndex].WithContent(prefix + folded[userIndex].Content);
+        else
+            folded.Insert(0, new AgentMessage { Role = MessageRole.User, Content = prefix });
+        return folded;
+    }
+
     internal static string ToRoleString(MessageRole role) => role switch
     {
         MessageRole.System => "system",

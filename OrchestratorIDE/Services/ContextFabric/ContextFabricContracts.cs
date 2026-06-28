@@ -14,9 +14,9 @@ public static class FabricSchemaVersions
     public const string Stitch = "cf0-stitch-1.0";
     public const string QuoteDiagnostics = "cf0-quote-diagnostics-1.0";
     public const string StitchDiagnostics = "cf0-stitch-diagnostics-1.0";
-    public const string ReaderPrompt = "cf0-reader-1.0";
+    public const string ReaderPrompt = "cf0-reader-1.2";
     public const string ReducerPrompt = "cf0-reducer-1.0";
-    public const string AnswerPrompt = "cf0-answer-1.0";
+    public const string AnswerPrompt = "cf0-answer-1.2";
     public const string StitchPrompt = "cf0-stitch-1.0";
 }
 
@@ -120,7 +120,7 @@ public sealed record FabricAnswerDraft
 
 public sealed record FabricContextBudget(
     int ContextLimit = 8192,
-    int ResponseReserve = 1024,
+    int ResponseReserve = 1536,
     int SystemReserve = 512)
 {
     public int EvidenceLimit => ContextLimit - ResponseReserve - SystemReserve;
@@ -142,7 +142,7 @@ public sealed record FabricRunOptions(
     FabricContextBudget ContextBudget,
     int ReaderMaxTokens = 1024,
     int ReducerMaxTokens = 768,
-    int AnswerMaxTokens = 1024,
+    int AnswerMaxTokens = 1536,
     int ReductionFanIn = 4,
     double Temperature = 0.0)
 {
@@ -173,7 +173,9 @@ public sealed record FabricCallMetrics(
     int ContextLimit,
     long DurationMs,
     bool Succeeded,
-    string? Error = null)
+    string? Error = null,
+    string? PromptPath = null,
+    string? RawOutputExcerpt = null)
 {
     public int TotalTokens => PromptTokens + CompletionTokens;
     public bool FitsContext => TotalTokens <= ContextLimit;

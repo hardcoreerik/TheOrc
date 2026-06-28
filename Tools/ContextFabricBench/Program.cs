@@ -54,8 +54,8 @@ internal static class Program
             }
 
             var depot = ModelDepot.Scan(modelRoot);
-            var researcher = depot.ResolveRole(RuntimeRole.Researcher);
-            var reviewer = depot.ResolveRole(RuntimeRole.Reviewer);
+            var researcher = depot.ResolveRole(RuntimeRole.Researcher, RuntimeWorkloadKind.ContextFabricReader);
+            var reviewer = depot.ResolveRole(RuntimeRole.Reviewer, RuntimeWorkloadKind.ContextFabricReviewer);
             if (researcher is null || (reviewer is null && options.Suite == BenchmarkSuite.Cf0))
             {
                 Console.Error.WriteLine($"No native base GGUF was resolved beneath '{Path.GetFullPath(modelRoot)}'.");
@@ -101,7 +101,8 @@ internal static class Program
 
             await using var runtime = new NativeRoleRuntime(
                 depot,
-                new RuntimeOptions(options.ContextLength, options.GpuLayers, PreferGpu: options.GpuLayers != 0));
+                new RuntimeOptions(options.ContextLength, options.GpuLayers, PreferGpu: options.GpuLayers != 0),
+                roleBindings: BuildRoleBindings(researcher, reviewer));
             if (options.Suite == BenchmarkSuite.Stitch)
             {
                 var stitchReport = await new ContextFabricBenchmarkExpansionRunner(runtime, runOptions)
@@ -167,10 +168,10 @@ internal static class Program
         string? modelRoot = null;
         string? output = null;
         var context = 8192;
-        var responseReserve = 1024;
+        var responseReserve = 1536;
         var readerMax = 1024;
         var reducerMax = 768;
-        var answerMax = 1024;
+        var answerMax = 1536;
         var gpuLayers = -1;
         var suite = BenchmarkSuite.Cf0;
 
@@ -226,10 +227,10 @@ internal static class Program
         Console.WriteLine("  --suite <name>            cf0 | quote-anchor | stitch (default cf0)");
         Console.WriteLine("  --output <folder>          Report directory (default .orc/context-fabric/benchmarks)");
         Console.WriteLine("  --context <tokens>        Native context length (default 8192)");
-        Console.WriteLine("  --response-reserve <n>    Reserved response tokens (default 1024)");
+        Console.WriteLine("  --response-reserve <n>    Reserved response tokens (default 1536)");
         Console.WriteLine("  --reader-max <n>          Reader output limit (default 1024)");
         Console.WriteLine("  --reducer-max <n>         Reducer output limit (default 768)");
-        Console.WriteLine("  --answer-max <n>          Answer output limit (default 1024)");
+        Console.WriteLine("  --answer-max <n>          Answer output limit (default 1536)");
         Console.WriteLine("  --gpu-layers <n>          LLamaSharp GPU layers; 0 forces CPU (default -1)");
     }
 
@@ -264,6 +265,19 @@ internal static class Program
         if (reviewer is not null && reviewerAdmission is not null)
             lanes.Add(ToBenchmarkLane("Reviewer", reviewer, reviewerAdmission));
         return lanes;
+    }
+
+    private static IReadOnlyDictionary<RuntimeRole, RuntimeRoleBinding> BuildRoleBindings(
+        RuntimeRoleBinding researcher,
+        RuntimeRoleBinding? reviewer)
+    {
+        var bindings = new Dictionary<RuntimeRole, RuntimeRoleBinding>
+        {
+            [RuntimeRole.Researcher] = researcher,
+        };
+        if (reviewer is not null)
+            bindings[RuntimeRole.Reviewer] = reviewer;
+        return bindings;
     }
 
     private sealed record CliOptions(
