@@ -224,7 +224,7 @@ internal sealed class GdiMjpegEncoder : IVideoEncoder
     }
 
     // IVideoEncoder
-    public FourCC       Codec        => KnownFourCCs.Codecs.MotionJpeg;
+    public FourCC       Codec        => CodecIds.MotionJpeg;
     public BitsPerPixel BitsPerPixel => BitsPerPixel.Bpp24;
 
     /// <summary>
@@ -238,25 +238,36 @@ internal sealed class GdiMjpegEncoder : IVideoEncoder
                            out bool isKeyFrame)
     {
         isKeyFrame = true;   // MJPEG — every frame is a keyframe
+        var jpeg = EncodeFrameToJpeg(source.AsSpan(srcOffset));
+        Buffer.BlockCopy(jpeg, 0, destination, destOffset, jpeg.Length);
+        return jpeg.Length;
+    }
 
-        // Copy raw BGR32 pixels into a temporary GDI bitmap
-        using var bmp  = new Bitmap(_width, _height, PixelFormat.Format32bppRgb);
+    public int EncodeFrame(ReadOnlySpan<byte> source, Span<byte> destination, out bool isKeyFrame)
+    {
+        // ponytail: test-only adapter for SharpAvi 3 span API; keep array path as the single implementation.
+        isKeyFrame = true;
+        var jpeg = EncodeFrameToJpeg(source);
+        jpeg.CopyTo(destination);
+        return jpeg.Length;
+    }
+
+    private byte[] EncodeFrameToJpeg(ReadOnlySpan<byte> source)
+    {
+        var raw = source.ToArray();
+        using var bmp = new Bitmap(_width, _height, PixelFormat.Format32bppRgb);
         var bits = bmp.LockBits(new Rectangle(0, 0, _width, _height),
                                 ImageLockMode.WriteOnly,
                                 PixelFormat.Format32bppRgb);
         try
         {
             var stride = Math.Abs(bits.Stride);
-            Marshal.Copy(source, srcOffset, bits.Scan0, _height * stride);
+            Marshal.Copy(raw, 0, bits.Scan0, _height * stride);
         }
         finally { bmp.UnlockBits(bits); }
 
-        // JPEG-encode into a MemoryStream, then copy into destination buffer
         using var ms = new MemoryStream();
         bmp.Save(ms, _jpegCodec, _encParams);
-
-        var jpeg = ms.ToArray();
-        Buffer.BlockCopy(jpeg, 0, destination, destOffset, jpeg.Length);
-        return jpeg.Length;
+        return ms.ToArray();
     }
 }
