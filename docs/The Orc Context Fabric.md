@@ -1280,6 +1280,14 @@ Exit gate:
 - query results always include corpus/document/segment provenance;
 - CodeGraph tests remain unchanged and green.
 
+Implementation status (2026-06-28): **exit gate passed in focused tests**.
+
+- Migration v10 adds dedicated document-graph storage beside CodeGraph: `fabric_claims`, `fabric_claim_citations`, `fabric_entities`, `fabric_relations`, and external-content `fabric_claim_fts` plus triggers.
+- `DocumentGraphRepository` now persists claims, citations, entities, and relations; `FabricEvidenceGraphImporter` projects real evidence cards into those tables without collapsing them into the code graph.
+- `FabricSearchService` keeps lexical segment retrieval as the baseline path and expands through claim search when lexical lookup misses, while preserving corpus, document, segment, display-name, and retrieval-path provenance on every hit.
+- Read-only `library_list`, `library_search`, `library_open`, and `library_graph` tools are registered in the product and research tool catalogs for local inspection of corpus contents and provisional graph state.
+- Focused CF-2 tests now cover migration v10 shape, in-memory graph persistence, on-disk claim FTS persistence across reopen, evidence-card import, claim-expanded retrieval, lexical-hit provenance, and unchanged `T19_GraphRepositoryTests` behavior for the existing CodeGraph lane.
+
 ### Phase CF-3: native readers and source verification
 
 Deliver:

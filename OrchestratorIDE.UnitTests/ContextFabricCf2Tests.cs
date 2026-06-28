@@ -9,6 +9,25 @@ namespace OrchestratorIDE.UnitTests;
 [TestFixture]
 public sealed class ContextFabricCf2Tests
 {
+    private readonly List<string> _tempRoots = [];
+
+    [TearDown]
+    public void TearDown()
+    {
+        foreach (var root in _tempRoots)
+        {
+            try
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+            }
+            catch
+            {
+                // Best effort for pooled SQLite and antivirus handles on Windows.
+            }
+        }
+        _tempRoots.Clear();
+    }
+
     [Test]
     public void MigrationV10_Creates_DocumentGraph_Tables_And_ClaimFts()
     {
@@ -285,8 +304,168 @@ public sealed class ContextFabricCf2Tests
             Assert.That(lexical, Is.Empty);
             Assert.That(expanded, Has.Count.EqualTo(1));
             Assert.That(expanded[0].SegmentId, Is.EqualTo("seg-search"));
+            Assert.That(expanded[0].CorpusId, Is.EqualTo(corpus.CorpusId));
+            Assert.That(expanded[0].DocumentId, Is.EqualTo(document.DocumentId));
+            Assert.That(expanded[0].DisplayName, Is.EqualTo(document.DisplayName));
             Assert.That(expanded[0].RetrievalPath, Is.EqualTo("claim"));
             Assert.That(expanded[0].ClaimId, Is.EqualTo("claim-search"));
+        });
+    }
+
+    [Test]
+    public void DocumentGraphRepository_Persists_Fts_Search_On_Disk_Across_Reopen()
+    {
+        var root = NewTempRoot();
+        var dbRoot = Path.Combine(root, "workspace");
+        Directory.CreateDirectory(dbRoot);
+        var dbPath = Path.Combine(dbRoot, ".orc");
+        Directory.CreateDirectory(dbPath);
+
+        string corpusId;
+        const string documentId = "doc-disk";
+
+        using (var store = new SqliteStore(dbRoot))
+        {
+            store.Initialize();
+            var library = new FabricLibraryRepository(store);
+            var graph = new DocumentGraphRepository(store);
+            var importer = new FabricEvidenceGraphImporter(library, graph);
+            var now = DateTimeOffset.UtcNow;
+
+            var corpus = library.CreateCorpus("corpus-disk", "Disk lane");
+            corpusId = corpus.CorpusId;
+            var document = new FabricDocumentEntry(
+                documentId,
+                corpus.CorpusId,
+                "source-digest",
+                "normalized-digest",
+                "Constitution",
+                "text/plain",
+                FabricIngestionVersions.TextMarkdownParser,
+                FabricIngestionVersions.TextMarkdownParser,
+                "ready",
+                [],
+                now,
+                now);
+            library.ReplaceDocument(document,
+            [
+                new FabricSegmentDraft(
+                    "seg-disk",
+                    0,
+                    "Article I",
+                    0,
+                    66,
+                    12,
+                    "seg-digest",
+                    "All legislative Powers herein granted shall be vested in a Congress.",
+                    null,
+                    null,
+                    FabricIngestionVersions.Segmenter)
+            ]);
+
+            importer.ImportEvidenceCard(new FabricEvidenceCard
+            {
+                CorpusId = corpus.CorpusId,
+                DocumentId = document.DocumentId,
+                SegmentId = "seg-disk",
+                Summary = "Legislative powers vest in Congress.",
+                Claims =
+                [
+                    new FabricClaim
+                    {
+                        ClaimId = "claim-disk",
+                        Type = "assertion",
+                        Text = "Legislative authority is vested in Congress.",
+                        Confidence = 0.9,
+                        Citations =
+                        [
+                            new FabricCitation
+                            {
+                                SegmentId = "seg-disk",
+                                CharStart = 0,
+                                CharEnd = 66,
+                                Quote = "All legislative Powers herein granted shall be vested in a Congress.",
+                                QuoteDigest = "quote-digest"
+                            }
+                        ]
+                    }
+                ]
+            });
+        }
+
+        using (var store = new SqliteStore(dbRoot))
+        {
+            store.Initialize();
+            var library = new FabricLibraryRepository(store);
+            var graph = new DocumentGraphRepository(store);
+            var search = new FabricSearchService(library, graph);
+
+            var claims = graph.SearchClaims("vested in Congress", corpusId, 10);
+            var expanded = search.Search("legislative authority", corpusId, 10);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(claims, Has.Count.EqualTo(1));
+                Assert.That(claims[0].DocumentId, Is.EqualTo(documentId));
+                Assert.That(expanded, Has.Count.EqualTo(1));
+                Assert.That(expanded[0].CorpusId, Is.EqualTo(corpusId));
+                Assert.That(expanded[0].DocumentId, Is.EqualTo(documentId));
+                Assert.That(expanded[0].SegmentId, Is.EqualTo("seg-disk"));
+                Assert.That(expanded[0].RetrievalPath, Is.EqualTo("claim"));
+            });
+        }
+    }
+
+    [Test]
+    public void FabricSearchService_Lexical_Hits_Always_Carry_Provenance()
+    {
+        using var store = new SqliteStore(":memory:");
+        store.Initialize();
+        var library = new FabricLibraryRepository(store);
+        var graph = new DocumentGraphRepository(store);
+        var search = new FabricSearchService(library, graph);
+        var now = DateTimeOffset.UtcNow;
+
+        var corpus = library.CreateCorpus("corpus-lexical", "Lexical lane");
+        var document = new FabricDocumentEntry(
+            "doc-lexical",
+            corpus.CorpusId,
+            "source-digest",
+            "normalized-digest",
+            "Darwin",
+            "text/plain",
+            FabricIngestionVersions.TextMarkdownParser,
+            FabricIngestionVersions.TextMarkdownParser,
+            "ready",
+            [],
+            now,
+            now);
+        library.ReplaceDocument(document,
+        [
+            new FabricSegmentDraft(
+                "seg-lexical",
+                0,
+                "Chapter I",
+                0,
+                48,
+                8,
+                "seg-digest",
+                "Variation under domestication appears everywhere.",
+                null,
+                null,
+                FabricIngestionVersions.Segmenter)
+        ]);
+
+        var hits = search.Search("domestication", corpus.CorpusId, 10);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(hits, Has.Count.EqualTo(1));
+            Assert.That(hits[0].CorpusId, Is.EqualTo(corpus.CorpusId));
+            Assert.That(hits[0].DocumentId, Is.EqualTo(document.DocumentId));
+            Assert.That(hits[0].SegmentId, Is.EqualTo("seg-lexical"));
+            Assert.That(hits[0].DisplayName, Is.EqualTo(document.DisplayName));
+            Assert.That(hits[0].RetrievalPath, Is.EqualTo("segment"));
         });
     }
 
@@ -295,5 +474,13 @@ public sealed class ContextFabricCf2Tests
         using var cmd = connection.CreateCommand();
         cmd.CommandText = sql;
         return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
+    private string NewTempRoot()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "orc-cf2-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        _tempRoots.Add(root);
+        return root;
     }
 }

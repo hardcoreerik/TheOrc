@@ -297,8 +297,7 @@ native feasibility harness, deterministic corpus, strict host-side verifier,
 and report generator, and its real-model quality gate has passed. CF-1's
 deterministic-ingestion framework has now passed its focused test exit: migrations v8-v9 plus deterministic text/Markdown parsing, structural
 segmentation, content-addressed artifacts, transactional document replacement,
-segment FTS, the pinned Darwin text/PDF acceptance fixtures, the pinned Constitution and Federalist text fixtures, PDF text parsing, and artifact garbage collection are implemented. The document graph, HIVE execution, and the
-OrcChat product surface remain proposed rather than shipped.
+segment FTS, the pinned Darwin text/PDF acceptance fixtures, the pinned Constitution and Federalist text fixtures, PDF text parsing, and artifact garbage collection are implemented. CF-2's focused exit now also passes: migration v10, the document graph repository, claim FTS, evidence-card import, provenance-carrying local retrieval, read-only library graph/search/open/list tools, and unchanged CodeGraph tests are implemented. HIVE execution and the OrcChat product surface remain proposed rather than shipped.
 
 ---
 
