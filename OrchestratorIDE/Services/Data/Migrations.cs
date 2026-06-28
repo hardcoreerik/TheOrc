@@ -22,6 +22,7 @@ internal static class Migrations
         new Migration(5, "code graph nodes/edges/fts/adr", Sql005_Graph),
         new Migration(6, "graph_adr step4 (title,decision,status,created_at,body)", Sql006_AdrV2),
         new Migration(7, "native campaign engine", Sql007_Campaigns),
+        new Migration(8, "context fabric ingestion and segment search", Sql008_ContextFabric),
     ];
 
     // ── v1 — Phase 1: captures + triage ─────────────────────────────────────────
@@ -232,6 +233,82 @@ internal static class Migrations
             PRIMARY KEY (campaign_id, digest_sha256)
         );
         CREATE INDEX ix_campaign_artifacts_digest ON campaign_artifacts(digest_sha256);
+        """;
+
+    // ── v8 — Context Fabric deterministic ingestion ───────────────────────────
+    private const string Sql008_ContextFabric = """
+        CREATE TABLE fabric_corpora (
+            corpus_id       TEXT PRIMARY KEY,
+            name            TEXT NOT NULL,
+            description     TEXT,
+            policy_profile  TEXT NOT NULL,
+            status          TEXT NOT NULL,
+            created_at      TEXT NOT NULL,
+            updated_at      TEXT NOT NULL
+        );
+
+        CREATE TABLE fabric_documents (
+            document_id       TEXT PRIMARY KEY,
+            corpus_id         TEXT NOT NULL REFERENCES fabric_corpora(corpus_id) ON DELETE CASCADE,
+            source_digest     TEXT NOT NULL,
+            normalized_digest TEXT NOT NULL,
+            display_name      TEXT NOT NULL,
+            media_type        TEXT NOT NULL,
+            parser_id         TEXT NOT NULL,
+            parser_version    TEXT NOT NULL,
+            status            TEXT NOT NULL,
+            warnings_json     TEXT NOT NULL,
+            created_at        TEXT NOT NULL,
+            updated_at        TEXT NOT NULL,
+            UNIQUE(corpus_id, source_digest, media_type, parser_id, parser_version)
+        );
+        CREATE INDEX ix_fabric_documents_corpus ON fabric_documents(corpus_id, display_name);
+        CREATE INDEX ix_fabric_documents_source ON fabric_documents(source_digest);
+
+        CREATE TABLE fabric_segments (
+            segment_id          TEXT PRIMARY KEY,
+            document_id         TEXT NOT NULL REFERENCES fabric_documents(document_id) ON DELETE CASCADE,
+            ordinal             INTEGER NOT NULL,
+            heading_path        TEXT,
+            char_start          INTEGER NOT NULL,
+            char_end            INTEGER NOT NULL,
+            token_count         INTEGER NOT NULL,
+            text_digest         TEXT NOT NULL,
+            previous_segment_id TEXT,
+            next_segment_id     TEXT,
+            chunker_version     TEXT NOT NULL,
+            UNIQUE(document_id, ordinal, chunker_version)
+        );
+        CREATE INDEX ix_fabric_segments_document ON fabric_segments(document_id, ordinal);
+
+        CREATE TABLE fabric_segment_text (
+            segment_id      TEXT PRIMARY KEY REFERENCES fabric_segments(segment_id) ON DELETE CASCADE,
+            heading_path    TEXT,
+            normalized_text TEXT NOT NULL
+        );
+
+        CREATE VIRTUAL TABLE fabric_segment_fts USING fts5(
+            heading_path,
+            normalized_text,
+            content='fabric_segment_text',
+            content_rowid='rowid',
+            tokenize='unicode61 remove_diacritics 2'
+        );
+
+        CREATE TRIGGER fabric_segment_text_ai AFTER INSERT ON fabric_segment_text BEGIN
+            INSERT INTO fabric_segment_fts(rowid, heading_path, normalized_text)
+            VALUES (new.rowid, new.heading_path, new.normalized_text);
+        END;
+        CREATE TRIGGER fabric_segment_text_ad AFTER DELETE ON fabric_segment_text BEGIN
+            INSERT INTO fabric_segment_fts(fabric_segment_fts, rowid, heading_path, normalized_text)
+            VALUES ('delete', old.rowid, old.heading_path, old.normalized_text);
+        END;
+        CREATE TRIGGER fabric_segment_text_au AFTER UPDATE ON fabric_segment_text BEGIN
+            INSERT INTO fabric_segment_fts(fabric_segment_fts, rowid, heading_path, normalized_text)
+            VALUES ('delete', old.rowid, old.heading_path, old.normalized_text);
+            INSERT INTO fabric_segment_fts(rowid, heading_path, normalized_text)
+            VALUES (new.rowid, new.heading_path, new.normalized_text);
+        END;
         """;
 
     // ── v5 — CodeGraph v1 (C# structure + search index) ─────────────────────────
