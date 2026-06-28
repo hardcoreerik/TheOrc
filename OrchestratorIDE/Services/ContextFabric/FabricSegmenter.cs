@@ -110,6 +110,11 @@ public sealed class FabricSegmenter
                 var whitespace = block.Text.LastIndexOfAny([' ', '\t', '\n'], offset + length - 1, length);
                 if (whitespace > offset + (length / 2))
                     length = whitespace - offset + 1;
+
+                if (char.IsLowSurrogate(block.Text[offset + length]))
+                {
+                    length--;
+                }
             }
 
             var text = block.Text.Substring(offset, length);

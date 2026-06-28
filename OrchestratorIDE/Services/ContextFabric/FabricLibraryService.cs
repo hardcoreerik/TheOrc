@@ -150,7 +150,13 @@ public sealed class FabricLibraryService
             return;
         }
 
-        long offset = 0;
+        var offset = _artifacts.GetResumeOffset(digest);
+        if (offset == bytes.LongLength)
+        {
+            _artifacts.Finalize(digest);
+            return;
+        }
+
         while (offset < bytes.LongLength)
         {
             var length = (int)Math.Min(ContentAddressedStore.MaxChunkBytes, bytes.LongLength - offset);

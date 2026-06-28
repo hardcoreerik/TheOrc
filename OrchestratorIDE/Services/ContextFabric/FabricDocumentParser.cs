@@ -112,14 +112,35 @@ public sealed class TextMarkdownFabricParser : IFabricDocumentParser
 
             if (markdown)
             {
-                var firstLineEnd = blockText.IndexOf('\n');
-                var firstLine = firstLineEnd < 0 ? blockText : blockText[..firstLineEnd];
-                var match = MarkdownHeading.Match(firstLine);
-                if (match.Success)
+                var lines = blockText.Split('\n');
+                var lineStart = cursor;
+                foreach (var line in lines)
                 {
-                    var level = match.Groups["level"].Value.Length;
-                    headings[level - 1] = match.Groups["title"].Value.Trim();
-                    for (var index = level; index < headings.Length; index++) headings[index] = null;
+                    var match = MarkdownHeading.Match(line);
+                    if (match.Success)
+                    {
+                        if (lineStart > cursor)
+                        {
+                            var priorText = text[cursor..(lineStart - 1)];
+                            while (priorText.EndsWith('\n')) priorText = priorText[..^1];
+                            if (priorText.Length > 0)
+                            {
+                                var headingPath = string.Join(" / ", headings.Where(value => !string.IsNullOrWhiteSpace(value))!);
+                                blocks.Add(new FabricParsedBlock(
+                                    cursor,
+                                    lineStart - 1,
+                                    headingPath.Length == 0 ? null : headingPath,
+                                    priorText));
+                            }
+                            cursor = lineStart;
+                            blockText = text[cursor..blockEnd];
+                        }
+
+                        var level = match.Groups["level"].Value.Length;
+                        headings[level - 1] = match.Groups["title"].Value.Trim();
+                        for (var index = level; index < headings.Length; index++) headings[index] = null;
+                    }
+                    lineStart += line.Length + 1;
                 }
             }
 
