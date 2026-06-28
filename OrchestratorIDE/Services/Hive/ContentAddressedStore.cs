@@ -51,23 +51,32 @@ public sealed class ContentAddressedStore
     public bool DeleteIfPresent(string digest)
     {
         digest = ValidateDigest(digest);
-        var complete = CompletePath(digest);
-        var partial = PartialPath(digest);
-        var deleted = false;
-
-        if (File.Exists(complete))
+        var gate = _gates.GetOrAdd(digest, _ => new SemaphoreSlim(1, 1));
+        gate.Wait();
+        try
         {
-            File.Delete(complete);
-            deleted = true;
-        }
+            var complete = CompletePath(digest);
+            var partial = PartialPath(digest);
+            var deleted = false;
 
-        if (File.Exists(partial))
+            if (File.Exists(complete))
+            {
+                File.Delete(complete);
+                deleted = true;
+            }
+
+            if (File.Exists(partial))
+            {
+                File.Delete(partial);
+                deleted = true;
+            }
+
+            return deleted;
+        }
+        finally
         {
-            File.Delete(partial);
-            deleted = true;
+            gate.Release();
         }
-
-        return deleted;
     }
 
     public IReadOnlyList<string> GetDigests(int limit = 4096) => Directory

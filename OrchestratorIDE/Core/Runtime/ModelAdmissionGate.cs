@@ -1,5 +1,6 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace OrchestratorIDE.Core.Runtime;
@@ -191,7 +192,8 @@ public static class ModelAdmissionGate
             return Reject(workload, fp, "Model is too small for Context Fabric evidence extraction and verification.");
 
         if (fp.Family == RuntimeModelFamily.Gemma &&
-            fp.NormalizedName.Contains("gemma-4-e4b", StringComparison.Ordinal))
+            (fp.NormalizedName.Contains("gemma-4-e4b", StringComparison.Ordinal) ||
+             fp.NormalizedName.Contains("gemma4-e4b", StringComparison.Ordinal)))
             return Reject(workload, fp, "This Gemma 4 E4B variant is not a current Context Fabric candidate in the native runtime.", "The local GGUF is recognized as 8B, but the current LLamaSharp stack fails to load it before any evidence pass can begin.");
 
         if (fp.IsUncensoredStyle)
@@ -325,7 +327,7 @@ public static class ModelAdmissionGate
     {
         var parsedBValues = _paramsPattern.Matches(normalized)
             .Select(match => match.Groups["value"].Value.Replace('_', '.'))
-            .Select(value => double.TryParse(value, out var parsed) ? parsed : (double?)null)
+            .Select(value => double.TryParse(value, CultureInfo.InvariantCulture, out var parsed) ? parsed : (double?)null)
             .Where(value => value.HasValue)
             .Select(value => value!.Value)
             .ToList();
@@ -334,7 +336,7 @@ public static class ModelAdmissionGate
 
         var parsedMValues = _paramsMillionPattern.Matches(normalized)
             .Select(match => match.Groups["value"].Value.Replace('_', '.'))
-            .Select(value => double.TryParse(value, out var parsed) ? parsed / 1000d : (double?)null)
+            .Select(value => double.TryParse(value, CultureInfo.InvariantCulture, out var parsed) ? parsed / 1000d : (double?)null)
             .Where(value => value.HasValue)
             .Select(value => value!.Value)
             .ToList();

@@ -221,10 +221,146 @@ public sealed class ContextFabricCf2Tests
             Assert.That(claims, Has.Count.EqualTo(1));
             Assert.That(claims[0].VerificationStatus, Is.EqualTo(FabricVerificationStatus.Provisional));
             Assert.That(claimSearch, Has.Count.EqualTo(1));
-            Assert.That(claimSearch[0].ClaimId, Is.EqualTo("claim-faction"));
+            Assert.That(claimSearch[0].ClaimId, Does.StartWith("claim-"));
             Assert.That(entities.Select(item => item.CanonicalName),
                 Is.EquivalentTo(new[] { "public good", "rival parties" }));
         });
+    }
+
+    [Test]
+    public void EvidenceGraphImporter_Rejects_Corpus_Id_Mismatch()
+    {
+        using var store = new SqliteStore(":memory:");
+        store.Initialize();
+        var library = new FabricLibraryRepository(store);
+        var graph = new DocumentGraphRepository(store);
+        var importer = new FabricEvidenceGraphImporter(library, graph);
+        var now = DateTimeOffset.UtcNow;
+
+        var corpus = library.CreateCorpus("corpus-import-mismatch", "Import lane");
+        var document = new FabricDocumentEntry(
+            "doc-import-mismatch",
+            corpus.CorpusId,
+            "source-digest",
+            "normalized-digest",
+            "Federalist",
+            "text/plain",
+            FabricIngestionVersions.TextMarkdownParser,
+            FabricIngestionVersions.TextMarkdownParser,
+            "ready",
+            [],
+            now,
+            now);
+        library.ReplaceDocument(document,
+        [
+            new FabricSegmentDraft(
+                "seg-import-mismatch",
+                0,
+                "No. 10",
+                0,
+                20,
+                4,
+                "seg-digest",
+                "Faction harms union.",
+                null,
+                null,
+                FabricIngestionVersions.Segmenter)
+        ]);
+
+        Assert.That(
+            () => importer.ImportEvidenceCard(new FabricEvidenceCard
+            {
+                CorpusId = "corpus-other",
+                DocumentId = document.DocumentId,
+                SegmentId = "seg-import-mismatch",
+                Claims = [new FabricClaim { ClaimId = "claim-1", Text = "Faction harms union." }]
+            }),
+            Throws.TypeOf<InvalidDataException>());
+        Assert.That(graph.ListClaims(corpus.CorpusId, limit: 10), Is.Empty);
+    }
+
+    [Test]
+    public void EvidenceGraphImporter_Scopes_Duplicate_Local_Claim_Ids_Per_Document()
+    {
+        using var store = new SqliteStore(":memory:");
+        store.Initialize();
+        var library = new FabricLibraryRepository(store);
+        var graph = new DocumentGraphRepository(store);
+        var importer = new FabricEvidenceGraphImporter(library, graph);
+        var now = DateTimeOffset.UtcNow;
+
+        var corpus = library.CreateCorpus("corpus-duplicate-claims", "Import lane");
+        var first = new FabricDocumentEntry(
+            "doc-first",
+            corpus.CorpusId,
+            "source-digest-1",
+            "normalized-digest-1",
+            "Federalist 1",
+            "text/plain",
+            FabricIngestionVersions.TextMarkdownParser,
+            FabricIngestionVersions.TextMarkdownParser,
+            "ready",
+            [],
+            now,
+            now);
+        var second = new FabricDocumentEntry(
+            "doc-second",
+            corpus.CorpusId,
+            "source-digest-2",
+            "normalized-digest-2",
+            "Federalist 2",
+            "text/plain",
+            FabricIngestionVersions.TextMarkdownParser,
+            FabricIngestionVersions.TextMarkdownParser,
+            "ready",
+            [],
+            now,
+            now);
+        library.ReplaceDocument(first,
+        [
+            new FabricSegmentDraft("seg-first", 0, "No. 10", 0, 20, 4, "seg-digest-1", "Faction harms union.", null, null, FabricIngestionVersions.Segmenter)
+        ]);
+        library.ReplaceDocument(second,
+        [
+            new FabricSegmentDraft("seg-second", 0, "No. 51", 0, 24, 4, "seg-digest-2", "Ambition checks ambition.", null, null, FabricIngestionVersions.Segmenter)
+        ]);
+
+        importer.ImportEvidenceCard(new FabricEvidenceCard
+        {
+            CorpusId = corpus.CorpusId,
+            DocumentId = first.DocumentId,
+            SegmentId = "seg-first",
+            Claims =
+            [
+                new FabricClaim
+                {
+                    ClaimId = "claim-local",
+                    Text = "Faction harms union.",
+                    Citations = [new FabricCitation { SegmentId = "seg-first", CharStart = 0, CharEnd = 20, QuoteDigest = "quote-1", Quote = "Faction harms union." }]
+                }
+            ]
+        });
+        importer.ImportEvidenceCard(new FabricEvidenceCard
+        {
+            CorpusId = corpus.CorpusId,
+            DocumentId = second.DocumentId,
+            SegmentId = "seg-second",
+            Claims =
+            [
+                new FabricClaim
+                {
+                    ClaimId = "claim-local",
+                    Text = "Ambition checks ambition.",
+                    Citations = [new FabricCitation { SegmentId = "seg-second", CharStart = 0, CharEnd = 24, QuoteDigest = "quote-2", Quote = "Ambition checks ambition." }]
+                }
+            ]
+        });
+
+        var claims = graph.ListClaims(corpus.CorpusId, limit: 10);
+        Assert.That(claims, Has.Count.EqualTo(2));
+        Assert.That(claims.Select(item => item.DocumentId), Is.EquivalentTo(new[] { first.DocumentId, second.DocumentId }));
+        Assert.That(claims.Select(item => item.ClaimId).Distinct().Count(), Is.EqualTo(2));
+        Assert.That(claims.SelectMany(item => graph.ListClaimCitations(item.ClaimId)).Count(), Is.EqualTo(2));
     }
 
     [Test]
@@ -308,7 +444,7 @@ public sealed class ContextFabricCf2Tests
             Assert.That(expanded[0].DocumentId, Is.EqualTo(document.DocumentId));
             Assert.That(expanded[0].DisplayName, Is.EqualTo(document.DisplayName));
             Assert.That(expanded[0].RetrievalPath, Is.EqualTo("claim"));
-            Assert.That(expanded[0].ClaimId, Is.EqualTo("claim-search"));
+            Assert.That(expanded[0].ClaimId, Does.StartWith("claim-"));
         });
     }
 

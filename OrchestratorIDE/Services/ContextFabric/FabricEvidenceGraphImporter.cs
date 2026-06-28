@@ -19,6 +19,8 @@ public sealed class FabricEvidenceGraphImporter(
             ?? throw new KeyNotFoundException($"Context Fabric document '{card.DocumentId}' does not exist.");
         var segment = libraryRepository.GetSegment(card.SegmentId)
             ?? throw new KeyNotFoundException($"Context Fabric segment '{card.SegmentId}' does not exist.");
+        if (!card.CorpusId.Equals(document.CorpusId, StringComparison.Ordinal))
+            throw new InvalidDataException("Evidence card corpus identity does not match the repository state.");
         if (!segment.DocumentId.Equals(document.DocumentId, StringComparison.Ordinal))
             throw new InvalidDataException($"Segment '{segment.SegmentId}' does not belong to document '{document.DocumentId}'.");
         if (!card.SegmentId.Equals(segment.SegmentId, StringComparison.Ordinal) ||
@@ -30,9 +32,10 @@ public sealed class FabricEvidenceGraphImporter(
         foreach (var claim in card.Claims)
         {
             if (claim is null) continue;
+            var claimId = BuildScopedClaimId(document.CorpusId, document.DocumentId, segment.SegmentId, claim.ClaimId);
 
             var entry = new FabricClaimEntry(
-                claim.ClaimId,
+                claimId,
                 document.CorpusId,
                 document.DocumentId,
                 segment.SegmentId,
@@ -46,7 +49,7 @@ public sealed class FabricEvidenceGraphImporter(
             var citations = (claim.Citations ?? [])
                 .Where(citation => citation is not null)
                 .Select((citation, index) => new FabricClaimCitationEntry(
-                    claim.ClaimId,
+                    claimId,
                     index,
                     string.IsNullOrWhiteSpace(citation.SegmentId) ? segment.SegmentId : citation.SegmentId,
                     citation.CharStart,
@@ -78,4 +81,7 @@ public sealed class FabricEvidenceGraphImporter(
 
         return imported;
     }
+
+    private static string BuildScopedClaimId(string corpusId, string documentId, string segmentId, string claimId) =>
+        $"claim-{FabricHashing.Sha256($"{corpusId}|{documentId}|{segmentId}|{claimId}")[..24]}";
 }

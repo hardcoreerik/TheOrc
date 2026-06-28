@@ -27,7 +27,6 @@ public static class FabricTools
                     return Task.FromResult("[library_list] Context Fabric database not available.");
 
                 using var store = new SqliteStore(dbRoot);
-                store.Initialize();
                 var repo = new FabricLibraryRepository(store);
                 var corpora = repo.ListCorpora();
                 if (corpora.Count == 0) return Task.FromResult("[library_list]\n(no corpora)");
@@ -64,7 +63,6 @@ public static class FabricTools
                     return Task.FromResult("[library_search] Context Fabric database not available.");
 
                 using var store = new SqliteStore(dbRoot);
-                store.Initialize();
                 var repo = new FabricLibraryRepository(store);
                 var graph = new DocumentGraphRepository(store);
                 var search = new FabricSearchService(repo, graph);
@@ -108,7 +106,6 @@ public static class FabricTools
                     return Task.FromResult("[library_open] Context Fabric database not available.");
 
                 using var store = new SqliteStore(dbRoot);
-                store.Initialize();
                 var repo = new FabricLibraryRepository(store);
 
                 if (!string.IsNullOrWhiteSpace(segmentId))
@@ -160,7 +157,6 @@ public static class FabricTools
                     return Task.FromResult("[library_graph] Context Fabric database not available.");
 
                 using var store = new SqliteStore(dbRoot);
-                store.Initialize();
                 var graph = new DocumentGraphRepository(store);
                 var limit = Math.Clamp(GetInt(args, "limit") ?? 10, 1, 50);
                 var query = GetString(args, "query");

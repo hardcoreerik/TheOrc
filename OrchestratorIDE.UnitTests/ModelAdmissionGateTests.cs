@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using NUnit.Framework;
 using OrchestratorIDE.Core.Runtime;
+using System.Globalization;
 
 namespace OrchestratorIDE.UnitTests;
 
@@ -91,6 +92,16 @@ public sealed class ModelAdmissionGateTests
     }
 
     [Test]
+    public void ContextFabric_Rejects_Gemma4_E4B_Without_Hyphenated_Family_Token()
+    {
+        var decision = ModelAdmissionGate.Evaluate(
+            Asset("gemma4-e4b-8.0B.gguf"),
+            RuntimeWorkloadKind.ContextFabricReader);
+
+        Assert.That(decision.Verdict, Is.EqualTo(ModelAdmissionVerdict.Rejected));
+    }
+
+    [Test]
     public void ContextFabric_Does_Not_Assume_Hermes3_Is_Uncensored()
     {
         var decision = ModelAdmissionGate.Evaluate(
@@ -162,6 +173,23 @@ public sealed class ModelAdmissionGateTests
             Assert.That(decision.Fingerprint.Family, Is.EqualTo(RuntimeModelFamily.QwenCoder));
             Assert.That(decision.Fingerprint.IsCoder, Is.True);
         });
+    }
+
+    [Test]
+    public void Fingerprint_Parses_Decimals_With_Invariant_Culture()
+    {
+        var prior = Thread.CurrentThread.CurrentCulture;
+        Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+        try
+        {
+            var fingerprint = ModelAdmissionGate.Fingerprint(
+                Asset("phi4-mini-3.8b-q8_0.gguf"));
+            Assert.That(fingerprint.ParametersB, Is.EqualTo(3.8).Within(0.001));
+        }
+        finally
+        {
+            Thread.CurrentThread.CurrentCulture = prior;
+        }
     }
 
     private static RuntimeModelAsset Asset(string displayName) => new(
