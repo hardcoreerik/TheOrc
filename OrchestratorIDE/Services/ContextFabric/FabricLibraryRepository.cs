@@ -88,9 +88,13 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
                     ($id, $corpus, $source, $normalized, $name,
                      $media, $parser, $version, $status, $warnings, $created, $updated)
                 ON CONFLICT(document_id) DO UPDATE SET
+                    corpus_id = excluded.corpus_id,
+                    source_digest = excluded.source_digest,
                     normalized_digest = excluded.normalized_digest,
                     display_name = excluded.display_name,
                     media_type = excluded.media_type,
+                    parser_id = excluded.parser_id,
+                    parser_version = excluded.parser_version,
                     status = excluded.status,
                     warnings_json = excluded.warnings_json,
                     updated_at = excluded.updated_at
