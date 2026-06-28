@@ -210,6 +210,7 @@
 
     <!-- Services / Models -->
     <Compile Include="..\OrchestratorIDE\Services\Models\CuratedModelCatalog.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Models\HuggingFaceAccessTokenResolver.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Models\HuggingFaceClient.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Models\ModelCapabilityTestService.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Models\ModelDownloadService.cs" />

@@ -129,6 +129,20 @@ public sealed class ModelDepotTests
         });
     }
 
+    [Test]
+    public void ResolveRole_Prefers_HumanReadable_Model_Name_Over_Opaque_Hash_Name()
+    {
+        var root = NewTempRoot();
+        var readable = WriteFile(root, "SmolLM2-360M-Instruct-Q4_K_M.gguf");
+        WriteFile(root, "2f", "2fa3f013dcdd7b99f9b237717fa0b12d75bbb89984cc1274be1471a465bac9c2.gguf");
+
+        var depot = ModelDepot.Scan(root);
+        var binding = depot.ResolveRole(RuntimeRole.Researcher);
+
+        Assert.That(binding, Is.Not.Null);
+        Assert.That(binding!.BaseModel.Path, Is.EqualTo(Path.GetFullPath(readable)));
+    }
+
     private string NewTempRoot()
     {
         var root = Path.Combine(Path.GetTempPath(), "orc-model-depot-" + Guid.NewGuid().ToString("N"));

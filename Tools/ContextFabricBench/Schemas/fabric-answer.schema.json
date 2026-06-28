@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://theorc.local/schemas/cf0-answer-1.0.json",
+  "title": "TheOrc Context Fabric CF-0 Answer",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "answer", "abstained", "claims"],
+  "properties": {
+    "schemaVersion": { "const": "cf0-answer-1.0" },
+    "answer": { "type": "string", "maxLength": 12000 },
+    "abstained": { "type": "boolean" },
+    "claims": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "citations"],
+        "properties": {
+          "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "citations": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["segmentId", "charStart", "charEnd", "quote", "quoteDigest"],
+              "properties": {
+                "segmentId": { "type": "string", "minLength": 1, "maxLength": 128 },
+                "charStart": { "type": "integer", "minimum": -1 },
+                "charEnd": { "type": "integer", "minimum": -1 },
+                "quote": { "type": "string", "minLength": 1, "maxLength": 1500 },
+                "quoteDigest": { "type": "string", "maxLength": 64 }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

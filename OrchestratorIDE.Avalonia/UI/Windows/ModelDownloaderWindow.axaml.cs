@@ -43,9 +43,9 @@ public partial class ModelDownloaderWindow : Window
         Func<Task<List<string>>>? verifyCuratedAsync = null)
     {
         _settings = settings;
-        _search = new ModelSearchService();
-        _downloader = new ModelDownloadService();
-        _hf = new HuggingFaceClient();
+        _search = new ModelSearchService(settings: _settings);
+        _downloader = new ModelDownloadService(settings: _settings);
+        _hf = new HuggingFaceClient(settings: _settings);
         _probeHardwareAsync = probeHardwareAsync ?? ProbeHardwareAsync;
         _verifyCuratedAsync = verifyCuratedAsync ?? (() => _search.VerifyCuratedReposAsync());
 

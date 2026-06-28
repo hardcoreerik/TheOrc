@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Text.Json;
 using LLama;
 using LLama.Batched;
 using LLama.Common;
@@ -46,9 +45,6 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     // Avoids paying the exception cost on every call for templateless models.
     private bool? _hasEmbeddedTemplate;
 
-    // Fix #7: static so JsonSerializerOptions reflection cache survives across calls.
-    private static readonly JsonSerializerOptions _compactJson = new() { WriteIndented = false };
-
     public string RuntimeName => "LLamaSharp";
 
     // ── IModelRuntime ────────────────────────────────────────────────────────
@@ -60,6 +56,9 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         Task.FromResult<List<string>>(_activeModelPath is null
             ? []
             : [Path.GetFileName(_activeModelPath)]);
+
+    public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) =>
+        Task.FromResult<int?>(_weights is null ? null : _options.ContextLength);
 
     /// <summary>
     /// Phase 3 / AdapterManager seam (RUNTIME_PHASE0_SPEC.md §7a). AdapterManager needs raw
@@ -119,7 +118,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         {
             // Build the raw prompt using the GGUF's embedded chat template.
             // Falls back to ChatML format if the model has no template.
-            var prompt = BuildPrompt(history, tools);
+            var prompt = BuildPromptForLoadedModel(history, tools);
 
             // TopP is init-only on DefaultSamplingPipeline -- must be set in the initializer,
             // not assigned after construction. Only overridden when explicitly set, otherwise
@@ -279,14 +278,6 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         ? null
         : Path.GetFileName(_activeModelPath);
 
-    private static string ToRoleString(MessageRole role) => role switch
-    {
-        MessageRole.System => "system",
-        MessageRole.User   => "user",
-        MessageRole.Tool   => "tool",
-        _                  => "assistant",
-    };
-
     /// <summary>
     /// Converts the message history into a raw prompt string using the model's
     /// embedded GGUF chat template. Falls back to ChatML if the model has none.
@@ -296,35 +287,26 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     /// Template probe result is cached after the first call so templateless models
     /// skip the try/catch entirely on subsequent turns.
     /// </summary>
-    private string BuildPrompt(
+    internal string BuildPromptForLoadedModel(
         IEnumerable<AgentMessage> history,
         IReadOnlyList<object>? tools)
     {
-        var messages = history.ToList();
-
-        if (tools is { Count: > 0 })
-        {
-            var toolJson = JsonSerializer.Serialize(tools, _compactJson);
-            var toolBlock = $"\n\nAvailable tools (call as JSON):\n{toolJson}";
-            var sysIdx = messages.FindIndex(m => m.Role == MessageRole.System);
-            if (sysIdx >= 0)
-                // WithContent() centralises all-field copying — safe when AgentMessage grows.
-                messages[sysIdx] = messages[sysIdx].WithContent(messages[sysIdx].Content + toolBlock);
-            else
-                messages.Insert(0, new AgentMessage
-                    { Role = MessageRole.System, Content = toolBlock });
-        }
+        var messages = NativePromptBuilder.PrepareMessages(history, tools);
 
         // Fast path: we already know this model has no embedded template.
         if (_hasEmbeddedTemplate == false)
-            return BuildChatMLPrompt(messages);
+            return NativePromptBuilder.BuildChatMLPrompt(messages);
+
+        if (_weights is null)
+            throw new InvalidOperationException(
+                "No model loaded. Call LoadModelAsync before building a native prompt.");
 
         // Try the GGUF-embedded template. LLamaTemplate is stateful (Add() accumulates),
         // so a fresh instance is required per call. Construction reads the GGUF template
         // metadata once; Phase 3 will explore caching the parsed template string.
         try
         {
-            var template = new LLamaTemplate(_weights!) { AddAssistant = true };
+            var template = new LLamaTemplate(_weights) { AddAssistant = true };
             // AddAssistant defaults to false (confirmed via reflection against LLamaSharp
             // 0.27.0, 2026-06-21) -- without it, Apply() renders a "closed" conversation with
             // no open assistant-turn cue (the standard chat-template "add_generation_prompt"
@@ -333,7 +315,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             // activity (non-zero tok/s and time-to-first-token) -- the model was almost
             // certainly predicting an immediate EOS against a prompt that looked complete.
             foreach (var msg in messages)
-                template.Add(ToRoleString(msg.Role), msg.Content ?? "");
+                template.Add(NativePromptBuilder.ToRoleString(msg.Role), msg.Content ?? "");
             var result = Encoding.UTF8.GetString(template.Apply());
             _hasEmbeddedTemplate = true;
             return result;
@@ -349,21 +331,8 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
                     $"[LLamaSharpRuntime] Template probe failed ({ex.GetType().Name}: {ex.Message}); " +
                     "falling back to ChatML for this session.");
             }
-            return BuildChatMLPrompt(messages);
+            return NativePromptBuilder.BuildChatMLPrompt(messages);
         }
-    }
-
-    private static string BuildChatMLPrompt(List<AgentMessage> messages)
-    {
-        var sb = new StringBuilder();
-        foreach (var msg in messages)
-        {
-            sb.Append("<|im_start|>").Append(ToRoleString(msg.Role)).Append('\n');
-            sb.Append(msg.Content ?? "");
-            sb.AppendLine("<|im_end|>");
-        }
-        sb.Append("<|im_start|>assistant\n");
-        return sb.ToString();
     }
 
     private static List<ToolCall> ParseToolCalls(string text) => ToolCallTextParser.Parse(text);

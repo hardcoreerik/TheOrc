@@ -3,6 +3,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using NUnit.Framework;
+using OrchestratorIDE.Core;
 using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Models;
 
@@ -160,6 +161,159 @@ public sealed class NativeRuntimeTestSupportTests
     }
 
     [Test]
+    public void ComparisonRunner_Evaluate_ExactText_Normalizes_Whitespace()
+    {
+        var testCase = new NativeRuntimeComparisonCase(
+            "exact",
+            "format",
+            "unused",
+            NativeRuntimeComparisonExpectationKind.ExactText,
+            "alpha beta");
+        var attempt = Attempt("LLamaSharp", "boss.gguf", success: true, output: " alpha   beta \r\n");
+
+        var evaluation = NativeRuntimeComparisonRunner.Evaluate(testCase, attempt);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(evaluation.ExpectationMatched, Is.True);
+            Assert.That(evaluation.CanonicalOutput, Is.EqualTo("alpha beta"));
+            Assert.That(evaluation.ValidationErrors, Is.Empty);
+        });
+    }
+
+    [Test]
+    public void ComparisonRunner_Evaluate_JsonExact_Canonicalizes_KeySpacing()
+    {
+        var testCase = new NativeRuntimeComparisonCase(
+            "json",
+            "json",
+            "unused",
+            NativeRuntimeComparisonExpectationKind.JsonExact,
+            "{\"status\":\"ok\",\"count\":3}");
+        var attempt = Attempt("Ollama", "qwen", success: true, output: "{ \"status\" : \"ok\", \"count\" : 3 }");
+
+        var evaluation = NativeRuntimeComparisonRunner.Evaluate(testCase, attempt);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(evaluation.ExpectationMatched, Is.True);
+            Assert.That(evaluation.CanonicalOutput, Is.EqualTo("{\"status\":\"ok\",\"count\":3}"));
+            Assert.That(evaluation.ValidationErrors, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task ComparisonRunner_RunAsync_Builds_Summary_And_Match_Details()
+    {
+        var cases = new[]
+        {
+            new NativeRuntimeComparisonCase(
+                "literal",
+                "format",
+                "Reply with exactly one word: yes",
+                NativeRuntimeComparisonExpectationKind.ExactText,
+                "yes",
+                MaxTokens: 8),
+            new NativeRuntimeComparisonCase(
+                "math",
+                "reasoning",
+                "Compute 12 + 30 and answer with digits only.",
+                NativeRuntimeComparisonExpectationKind.Regex,
+                "^42$",
+                MaxTokens: 8),
+        };
+
+        var native = new PromptMappedRuntime(new Dictionary<string, string>
+        {
+            [cases[0].PromptText] = "yes",
+            [cases[1].PromptText] = "42",
+        });
+        var ollama = new PromptMappedRuntime(new Dictionary<string, string>
+        {
+            [cases[0].PromptText] = "yes",
+            [cases[1].PromptText] = "41",
+        });
+
+        var report = await NativeRuntimeComparisonRunner.RunAsync(
+            native,
+            "boss.gguf",
+            ollama,
+            "qwen",
+            cases,
+            corpusName: "test-corpus");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(report.CorpusName, Is.EqualTo("test-corpus"));
+            Assert.That(report.Results, Has.Count.EqualTo(2));
+            Assert.That(report.Summary.TotalCases, Is.EqualTo(2));
+            Assert.That(report.Summary.NativePassedCases, Is.EqualTo(2));
+            Assert.That(report.Summary.OllamaPassedCases, Is.EqualTo(1));
+            Assert.That(report.Summary.BothPassedCases, Is.EqualTo(1));
+            Assert.That(report.Results[0].CanonicalOutputsMatch, Is.True);
+            Assert.That(report.Results[1].OllamaEvaluation.ExpectationMatched, Is.False);
+        });
+    }
+
+    [Test]
+    public void ComparisonCaseResult_DoesNotTreatDualFailuresAsCanonicalMatch()
+    {
+        var testCase = new NativeRuntimeComparisonCase(
+            "failure",
+            "format",
+            "unused",
+            NativeRuntimeComparisonExpectationKind.ExactText,
+            "yes");
+        var failedAttempt = Attempt("LLamaSharp", "boss.gguf", success: false, output: null, errorType: "Boom");
+        var result = new NativeRuntimeComparisonCaseResult(
+            testCase,
+            failedAttempt,
+            new NativeRuntimeComparisonEvaluation(false, false, "", ["native failed"]),
+            failedAttempt with { RuntimeName = "Ollama", ModelRef = "qwen" },
+            new NativeRuntimeComparisonEvaluation(false, false, "", ["fallback failed"]));
+
+        Assert.That(result.CanonicalOutputsMatch, Is.False);
+    }
+
+    [Test]
+    public async Task ComparisonReportStore_Writes_Json_Report()
+    {
+        var root = NewTempRoot();
+        var report = new NativeRuntimeComparisonReport(
+            NativeRuntimeComparisonCorpus.DefaultCorpusName,
+            "LLamaSharp",
+            "boss.gguf",
+            "Ollama",
+            "qwen",
+            DateTimeOffset.UtcNow,
+            [
+                new NativeRuntimeComparisonCaseResult(
+                    new NativeRuntimeComparisonCase(
+                        "literal",
+                        "format",
+                        "unused",
+                        NativeRuntimeComparisonExpectationKind.ExactText,
+                        "yes"),
+                    Attempt("LLamaSharp", "boss.gguf", success: true, output: "yes"),
+                    new NativeRuntimeComparisonEvaluation(true, true, "yes", []),
+                    Attempt("Ollama", "qwen", success: true, output: "yes"),
+                    new NativeRuntimeComparisonEvaluation(true, true, "yes", []))
+            ],
+            new NativeRuntimeComparisonSummary(1, 1, 1, 1, 1, 0, 0));
+
+        var path = await NativeRuntimeComparisonReportStore.WriteAsync(report, root);
+
+        Assert.That(File.Exists(path), Is.True);
+        using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        Assert.Multiple(() =>
+        {
+            Assert.That(doc.RootElement.GetProperty("schema_version").GetString(), Is.EqualTo("1"));
+            Assert.That(doc.RootElement.GetProperty("CorpusName").GetString(), Is.EqualTo(NativeRuntimeComparisonCorpus.DefaultCorpusName));
+            Assert.That(doc.RootElement.GetProperty("Summary").GetProperty("BothPassedCases").GetInt32(), Is.EqualTo(1));
+        });
+    }
+
+    [Test]
     public async Task NativeRuntimeSmoke_WithConfiguredGguf_Loads_Generates_And_Repeats()
     {
         var ggufPath = Environment.GetEnvironmentVariable("THEORC_TEST_GGUF");
@@ -177,6 +331,46 @@ public sealed class NativeRuntimeTestSupportTests
             Assert.That(second.Output, Is.Not.Null.And.Not.Empty);
             Assert.That(first.Stats.LastTimeToFirstToken, Is.Not.Null);
             Assert.That(second.Stats.LastTimeToFirstToken, Is.Not.Null);
+        });
+    }
+
+    [Test]
+    public async Task NativeRuntimeParity_WithConfiguredNativeAndOllama_Runs_Default_Corpus()
+    {
+        var ggufPath = Environment.GetEnvironmentVariable("THEORC_TEST_GGUF");
+        if (string.IsNullOrWhiteSpace(ggufPath))
+            Assert.Ignore("Set THEORC_TEST_GGUF to run the native parity lane.");
+
+        var ollamaModel = Environment.GetEnvironmentVariable("THEORC_TEST_OLLAMA_MODEL");
+        if (string.IsNullOrWhiteSpace(ollamaModel))
+            Assert.Ignore("Set THEORC_TEST_OLLAMA_MODEL to run the native parity lane.");
+
+        var ollamaHost = Environment.GetEnvironmentVariable("THEORC_TEST_OLLAMA_HOST") ?? "http://localhost:11434";
+
+        await using var native = new LLamaSharpRuntime();
+        var load = await native.LoadModelAsync(ggufPath!);
+        if (!load.Success)
+            Assert.Fail(load.Message ?? "Native model load failed.");
+
+        var report = await NativeRuntimeComparisonRunner.RunAsync(
+            native,
+            load.ModelRef,
+            new OllamaRuntime(new OllamaClient(ollamaHost)),
+            ollamaModel!);
+
+        var reportPath = await NativeRuntimeComparisonReportStore.WriteAsync(
+            report,
+            Path.GetDirectoryName(Path.GetFullPath(ggufPath!)));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(report.Results, Has.Count.EqualTo(NativeRuntimeComparisonCorpus.DefaultCases.Count));
+            Assert.That(report.Summary.NativeExecutionFailures, Is.EqualTo(0));
+            Assert.That(report.Summary.OllamaExecutionFailures, Is.EqualTo(0));
+            Assert.That(report.Summary.NativePassedCases, Is.EqualTo(report.Summary.TotalCases));
+            Assert.That(report.Summary.OllamaPassedCases, Is.EqualTo(report.Summary.TotalCases));
+            Assert.That(report.Summary.CanonicalMatches, Is.EqualTo(report.Summary.TotalCases));
+            Assert.That(File.Exists(reportPath), Is.True);
         });
     }
 
@@ -302,6 +496,58 @@ public sealed class NativeRuntimeTestSupportTests
         });
     }
 
+    [Test]
+    public void NativePromptBuilder_PrepareMessages_Appends_Tools_To_System_Message()
+    {
+        var messages = NativePromptBuilder.PrepareMessages(
+            [
+                new AgentMessage
+                {
+                    Role = MessageRole.System,
+                    Content = "system",
+                },
+                new AgentMessage
+                {
+                    Role = MessageRole.User,
+                    Content = "user",
+                },
+            ],
+            [new { name = "search", description = "lookup" }]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(messages, Has.Count.EqualTo(2));
+            Assert.That(messages[0].Content, Does.Contain("Available tools (call as JSON):"));
+            Assert.That(messages[0].Content, Does.Contain("\"name\":\"search\""));
+            Assert.That(messages[1].Content, Is.EqualTo("user"));
+        });
+    }
+
+    [Test]
+    public void NativePromptBuilder_BuildChatMLPrompt_Ends_With_Assistant_Cue()
+    {
+        var prompt = NativePromptBuilder.BuildChatMLPrompt(
+            [
+                new AgentMessage
+                {
+                    Role = MessageRole.System,
+                    Content = "system",
+                },
+                new AgentMessage
+                {
+                    Role = MessageRole.User,
+                    Content = "what time is it?",
+                },
+            ]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("<|im_start|>system\nsystem<|im_end|>"));
+            Assert.That(prompt, Does.Contain("<|im_start|>user\nwhat time is it?<|im_end|>"));
+            Assert.That(prompt, Does.EndWith("<|im_start|>assistant\n"));
+        });
+    }
+
     private string NewTempRoot()
     {
         var root = Path.Combine(Path.GetTempPath(), "orc-native-runtime-" + Guid.NewGuid().ToString("N"));
@@ -338,6 +584,9 @@ public sealed class NativeRuntimeTestSupportTests
 
         public Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default) =>
             Task.FromResult(new List<string> { "boss.gguf" });
+
+        public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) =>
+            Task.FromResult<int?>(null);
 
         public async IAsyncEnumerable<string> StreamCompletionAsync(
             string model,
@@ -402,5 +651,43 @@ public sealed class NativeRuntimeTestSupportTests
                 TokensPerSecond: 88.8,
                 LastTimeToFirstToken: TimeSpan.FromMilliseconds(33),
                 EstimatedVramBytes: 123);
+    }
+
+    private sealed class PromptMappedRuntime(IReadOnlyDictionary<string, string> outputs) : IModelRuntime
+    {
+        public string RuntimeName => "PromptMapped";
+
+        public Task<bool> IsReachableAsync(CancellationToken ct = default) => Task.FromResult(true);
+
+        public Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default) =>
+            Task.FromResult(new List<string> { "mapped" });
+
+        public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) =>
+            Task.FromResult<int?>(2048);
+
+        public async IAsyncEnumerable<string> StreamCompletionAsync(
+            string model,
+            IEnumerable<AgentMessage> history,
+            IReadOnlyList<object>? tools = null,
+            double temperature = 0.1,
+            double? topP = null,
+            int maxTokens = 4096,
+            Action<ToolCall>? onToolCall = null,
+            Action<int, int>? onUsage = null,
+            [EnumeratorCancellation] CancellationToken ct = default)
+        {
+            var prompt = history.LastOrDefault(m => m.Role == MessageRole.User)?.Content ?? string.Empty;
+            var output = outputs.TryGetValue(prompt, out var mapped)
+                ? mapped
+                : "UNMAPPED";
+
+            await Task.Yield();
+            yield return output;
+            onUsage?.Invoke(prompt.Length, output.Length);
+        }
+
+        public RuntimeHealth GetHealth() => new(true, RuntimeName, ActiveModel: "mapped");
+
+        public RuntimeStats GetStats() => new(RuntimeName, ActiveModel: "mapped");
     }
 }

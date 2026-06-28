@@ -3,6 +3,7 @@
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using OrchestratorIDE.Models;
 
@@ -58,6 +59,138 @@ public sealed record NativeRuntimeTestOutcome(
     NativeRuntimeTestAttempt NativeAttempt,
     NativeRuntimeTestAttempt? FallbackAttempt = null);
 
+public enum NativeRuntimeComparisonExpectationKind
+{
+    ExactText,
+    Regex,
+    JsonExact,
+}
+
+public sealed record NativeRuntimeComparisonCase(
+    string CaseId,
+    string Category,
+    string PromptText,
+    NativeRuntimeComparisonExpectationKind ExpectationKind,
+    string Expectation,
+    int MaxTokens = 96,
+    string? Notes = null);
+
+public sealed record NativeRuntimeComparisonEvaluation(
+    bool AttemptSucceeded,
+    bool ExpectationMatched,
+    string CanonicalOutput,
+    IReadOnlyList<string> ValidationErrors);
+
+public sealed record NativeRuntimeComparisonCaseResult(
+    NativeRuntimeComparisonCase TestCase,
+    NativeRuntimeTestAttempt NativeAttempt,
+    NativeRuntimeComparisonEvaluation NativeEvaluation,
+    NativeRuntimeTestAttempt OllamaAttempt,
+    NativeRuntimeComparisonEvaluation OllamaEvaluation)
+{
+    public bool BothAttemptsSucceeded => NativeAttempt.Success && OllamaAttempt.Success;
+    public bool BothMatchedExpectation => NativeEvaluation.ExpectationMatched && OllamaEvaluation.ExpectationMatched;
+    public bool CanonicalOutputsMatch =>
+        BothAttemptsSucceeded &&
+        string.Equals(NativeEvaluation.CanonicalOutput, OllamaEvaluation.CanonicalOutput, StringComparison.Ordinal);
+}
+
+public sealed record NativeRuntimeComparisonSummary(
+    int TotalCases,
+    int NativePassedCases,
+    int OllamaPassedCases,
+    int BothPassedCases,
+    int CanonicalMatches,
+    int NativeExecutionFailures,
+    int OllamaExecutionFailures);
+
+public sealed record NativeRuntimeComparisonReport(
+    string CorpusName,
+    string NativeRuntimeName,
+    string NativeModelRef,
+    string OllamaRuntimeName,
+    string OllamaModelRef,
+    DateTimeOffset GeneratedUtc,
+    IReadOnlyList<NativeRuntimeComparisonCaseResult> Results,
+    NativeRuntimeComparisonSummary Summary);
+
+public static class NativeRuntimeComparisonCorpus
+{
+    public const string DefaultCorpusName = "native_vs_ollama_v1";
+
+    public static IReadOnlyList<NativeRuntimeComparisonCase> DefaultCases { get; } =
+    [
+        new(
+            "literal_two_lines",
+            "format",
+            "Reply with exactly two lines:\n" +
+            "native runtime ok\n" +
+            "color=green",
+            NativeRuntimeComparisonExpectationKind.ExactText,
+            "native runtime ok\ncolor=green",
+            Notes: "Strict literal reproduction with newline preservation."),
+        new(
+            "literal_json_object",
+            "json",
+            "Return only this compact JSON object and nothing else:\n" +
+            "{\"status\":\"ok\",\"count\":3}",
+            NativeRuntimeComparisonExpectationKind.JsonExact,
+            "{\"status\":\"ok\",\"count\":3}",
+            Notes: "Ensures compact JSON obedience and no markdown fences."),
+        new(
+            "literal_json_array_sorted",
+            "json",
+            "Sort these words alphabetically and return only a JSON array:\n" +
+            "pear, apple, kiwi",
+            NativeRuntimeComparisonExpectationKind.JsonExact,
+            "[\"apple\",\"kiwi\",\"pear\"]",
+            Notes: "Simple reasoning plus strict JSON output."),
+        new(
+            "digits_only_math",
+            "reasoning",
+            "Compute 12 + 30 and answer with digits only.",
+            NativeRuntimeComparisonExpectationKind.Regex,
+            "^42$",
+            MaxTokens: 12,
+            Notes: "Digits-only arithmetic."),
+        new(
+            "exact_csv",
+            "format",
+            "Return only this comma-separated list exactly as written:\n" +
+            "red,green,blue",
+            NativeRuntimeComparisonExpectationKind.ExactText,
+            "red,green,blue",
+            MaxTokens: 24,
+            Notes: "Checks delimiter fidelity and extra-text suppression."),
+        new(
+            "three_line_copy",
+            "format",
+            "Reply with exactly these three lines:\n" +
+            "alpha\n" +
+            "beta\n" +
+            "gamma",
+            NativeRuntimeComparisonExpectationKind.ExactText,
+            "alpha\nbeta\ngamma",
+            Notes: "Line-count and ordering check."),
+        new(
+            "single_word_yes",
+            "obedience",
+            "Reply with one lowercase word only: yes",
+            NativeRuntimeComparisonExpectationKind.ExactText,
+            "yes",
+            MaxTokens: 8,
+            Notes: "Minimal-output obedience."),
+        new(
+            "json_boolean",
+            "json",
+            "Return only this compact JSON object and nothing else:\n" +
+            "{\"ready\":true,\"source\":\"native\"}",
+            NativeRuntimeComparisonExpectationKind.JsonExact,
+            "{\"ready\":true,\"source\":\"native\"}",
+            Notes: "Boolean/value fidelity in compact JSON."),
+    ];
+}
+
 public static class NativeRuntimeTestRunner
 {
     public static async Task<NativeRuntimeTestAttempt> RunRoleAsync(
@@ -66,6 +199,7 @@ public static class NativeRuntimeTestRunner
         string modelRef,
         string promptCategory = NativeRuntimeTestPrompt.PromptCategory,
         string promptText = NativeRuntimeTestPrompt.PromptText,
+        int maxTokens = 64,
         Action<string>? onToken = null,
         CancellationToken ct = default)
     {
@@ -77,7 +211,7 @@ public static class NativeRuntimeTestRunner
                                role,
                                messages,
                                temperature: 0.0,
-                               maxTokens: 64,
+                               maxTokens: maxTokens,
                                ct: ct))
             {
                 sb.Append(token);
@@ -126,6 +260,7 @@ public static class NativeRuntimeTestRunner
         string promptCategory = NativeRuntimeTestPrompt.PromptCategory,
         string promptText = NativeRuntimeTestPrompt.PromptText,
         RuntimeOptions? options = null,
+        int maxTokens = 64,
         Action<string>? onToken = null,
         CancellationToken ct = default)
     {
@@ -153,6 +288,7 @@ public static class NativeRuntimeTestRunner
             load.ModelRef,
             promptCategory,
             promptText,
+            maxTokens,
             onToken,
             ct);
     }
@@ -162,6 +298,7 @@ public static class NativeRuntimeTestRunner
         string model,
         string promptCategory = NativeRuntimeTestPrompt.PromptCategory,
         string promptText = NativeRuntimeTestPrompt.PromptText,
+        int maxTokens = 64,
         Action<string>? onToken = null,
         CancellationToken ct = default)
     {
@@ -169,7 +306,7 @@ public static class NativeRuntimeTestRunner
         try
         {
             var sb = new StringBuilder();
-            await foreach (var token in runtime.StreamCompletionAsync(model, messages, temperature: 0.0, maxTokens: 64, ct: ct))
+            await foreach (var token in runtime.StreamCompletionAsync(model, messages, temperature: 0.0, maxTokens: maxTokens, ct: ct))
             {
                 sb.Append(token);
                 onToken?.Invoke(token);
@@ -272,6 +409,148 @@ public static class NativeRuntimeFallbackCoordinator
             nativeAttempt,
             fallbackAttempt);
     }
+}
+
+public static class NativeRuntimeComparisonRunner
+{
+    public static async Task<NativeRuntimeComparisonReport> RunAsync(
+        IModelRuntime nativeRuntime,
+        string nativeModelRef,
+        IModelRuntime ollamaRuntime,
+        string ollamaModelRef,
+        IEnumerable<NativeRuntimeComparisonCase>? cases = null,
+        string corpusName = NativeRuntimeComparisonCorpus.DefaultCorpusName,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(nativeRuntime);
+        ArgumentNullException.ThrowIfNull(ollamaRuntime);
+
+        var testCases = (cases ?? NativeRuntimeComparisonCorpus.DefaultCases).ToList();
+        var results = new List<NativeRuntimeComparisonCaseResult>(testCases.Count);
+
+        foreach (var testCase in testCases)
+        {
+            var promptCategory = $"native_runtime_compare:{testCase.CaseId}";
+            var nativeAttempt = await NativeRuntimeTestRunner.RunRuntimeAsync(
+                nativeRuntime,
+                nativeModelRef,
+                promptCategory: promptCategory,
+                promptText: testCase.PromptText,
+                maxTokens: testCase.MaxTokens,
+                ct: ct);
+            var ollamaAttempt = await NativeRuntimeTestRunner.RunRuntimeAsync(
+                ollamaRuntime,
+                ollamaModelRef,
+                promptCategory: promptCategory,
+                promptText: testCase.PromptText,
+                maxTokens: testCase.MaxTokens,
+                ct: ct);
+
+            var nativeEvaluation = Evaluate(testCase, nativeAttempt);
+            var ollamaEvaluation = Evaluate(testCase, ollamaAttempt);
+            results.Add(new NativeRuntimeComparisonCaseResult(
+                testCase,
+                nativeAttempt,
+                nativeEvaluation,
+                ollamaAttempt,
+                ollamaEvaluation));
+        }
+
+        var summary = new NativeRuntimeComparisonSummary(
+            TotalCases: results.Count,
+            NativePassedCases: results.Count(r => r.NativeEvaluation.ExpectationMatched),
+            OllamaPassedCases: results.Count(r => r.OllamaEvaluation.ExpectationMatched),
+            BothPassedCases: results.Count(r => r.BothMatchedExpectation),
+            CanonicalMatches: results.Count(r => r.CanonicalOutputsMatch),
+            NativeExecutionFailures: results.Count(r => !r.NativeAttempt.Success),
+            OllamaExecutionFailures: results.Count(r => !r.OllamaAttempt.Success));
+
+        return new NativeRuntimeComparisonReport(
+            corpusName,
+            nativeRuntime.RuntimeName,
+            nativeModelRef,
+            ollamaRuntime.RuntimeName,
+            ollamaModelRef,
+            DateTimeOffset.UtcNow,
+            results,
+            summary);
+    }
+
+    internal static NativeRuntimeComparisonEvaluation Evaluate(
+        NativeRuntimeComparisonCase testCase,
+        NativeRuntimeTestAttempt attempt)
+    {
+        var errors = new List<string>();
+        var canonicalOutput = CanonicalizeOutput(testCase, attempt.Output, errors);
+
+        if (!attempt.Success)
+            errors.Add($"{attempt.ErrorType ?? "RuntimeFailure"}: {attempt.ErrorMessage ?? "Runtime did not complete successfully."}");
+        else if (string.IsNullOrWhiteSpace(attempt.Output))
+            errors.Add("Empty output.");
+
+        var matched = attempt.Success && errors.Count == 0;
+        return new NativeRuntimeComparisonEvaluation(
+            AttemptSucceeded: attempt.Success,
+            ExpectationMatched: matched,
+            CanonicalOutput: canonicalOutput,
+            ValidationErrors: errors);
+    }
+
+    private static string CanonicalizeOutput(
+        NativeRuntimeComparisonCase testCase,
+        string? output,
+        List<string> errors)
+    {
+        var raw = output ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(raw))
+            return string.Empty;
+
+        switch (testCase.ExpectationKind)
+        {
+            case NativeRuntimeComparisonExpectationKind.ExactText:
+            {
+                var actual = NormalizeText(raw);
+                var expected = NormalizeText(testCase.Expectation);
+                if (!string.Equals(actual, expected, StringComparison.Ordinal))
+                    errors.Add($"Expected exact text '{expected}' but got '{actual}'.");
+                return actual;
+            }
+
+            case NativeRuntimeComparisonExpectationKind.Regex:
+            {
+                var actual = NormalizeText(raw);
+                if (!Regex.IsMatch(actual, testCase.Expectation, RegexOptions.CultureInvariant))
+                    errors.Add($"Output '{actual}' did not match regex '{testCase.Expectation}'.");
+                return actual;
+            }
+
+            case NativeRuntimeComparisonExpectationKind.JsonExact:
+            {
+                try
+                {
+                    var actualNode = JsonNode.Parse(raw);
+                    var expectedNode = JsonNode.Parse(testCase.Expectation);
+                    var actual = JsonSerializer.Serialize(actualNode);
+                    var expected = JsonSerializer.Serialize(expectedNode);
+                    if (!string.Equals(actual, expected, StringComparison.Ordinal))
+                        errors.Add($"Expected JSON '{expected}' but got '{actual}'.");
+                    return actual;
+                }
+                catch (JsonException ex)
+                {
+                    errors.Add($"Invalid JSON output: {ex.Message}");
+                    return NormalizeText(raw);
+                }
+            }
+
+            default:
+                errors.Add($"Unsupported expectation kind: {testCase.ExpectationKind}");
+                return NormalizeText(raw);
+        }
+    }
+
+    private static string NormalizeText(string value) =>
+        Regex.Replace(value.Replace("\r\n", "\n").Trim(), @"[ \t]+", " ");
 }
 
 public static class NativeRuntimeFallbackEvidenceStore
@@ -391,5 +670,47 @@ public static class NativeRuntimeFallbackEvidenceStore
         return cleaned.Length <= maxChars
             ? cleaned
             : cleaned[..maxChars] + "…[truncated]";
+    }
+}
+
+public static class NativeRuntimeComparisonReportStore
+{
+    private static readonly JsonSerializerOptions _json = new() { WriteIndented = true };
+
+    public static string ResolveDirectory(string? workspaceRoot)
+    {
+        var root = !string.IsNullOrWhiteSpace(workspaceRoot) && Directory.Exists(workspaceRoot)
+            ? Path.Combine(workspaceRoot, ".orc", "native-runtime-parity")
+            : Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "OrchestratorIDE", ".orc", "native-runtime-parity");
+
+        Directory.CreateDirectory(root);
+        return root;
+    }
+
+    public static async Task<string> WriteAsync(
+        NativeRuntimeComparisonReport report,
+        string? workspaceRoot = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+
+        var root = ResolveDirectory(workspaceRoot);
+        var path = Path.Combine(root, $"native_runtime_parity_{DateTime.Now:yyyyMMdd_HHmmss_fff}.json");
+        var payload = new
+        {
+            schema_version = "1",
+            report.CorpusName,
+            report.NativeRuntimeName,
+            report.NativeModelRef,
+            report.OllamaRuntimeName,
+            report.OllamaModelRef,
+            generated_utc = report.GeneratedUtc.ToString("O"),
+            report.Summary,
+            report.Results,
+        };
+        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(payload, _json), ct);
+        return path;
     }
 }

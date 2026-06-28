@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://theorc.local/schemas/cf0-evidence-card-1.0.json",
+  "title": "TheOrc Context Fabric CF-0 Evidence Card",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "corpusId", "documentId", "segmentId", "promptVersion", "summary", "claims"],
+  "properties": {
+    "schemaVersion": { "const": "cf0-evidence-card-1.0" },
+    "corpusId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "documentId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "segmentId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "promptVersion": { "const": "cf0-reader-1.0" },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/claim" }
+    },
+    "entities": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 256 } },
+    "conflicts": { "type": "array", "maxItems": 32, "items": { "type": "string", "maxLength": 1000 } },
+    "openQuestions": { "type": "array", "maxItems": 32, "items": { "type": "string", "maxLength": 1000 } }
+  },
+  "$defs": {
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claimId", "type", "text", "confidence", "citations"],
+      "properties": {
+        "claimId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "type": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "citations": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "$ref": "#/$defs/citation" } }
+      }
+    },
+    "citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["segmentId", "charStart", "charEnd", "quote", "quoteDigest"],
+      "properties": {
+        "segmentId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "charStart": { "type": "integer", "minimum": -1 },
+        "charEnd": { "type": "integer", "minimum": -1 },
+        "quote": { "type": "string", "minLength": 1, "maxLength": 1500 },
+        "quoteDigest": { "type": "string", "maxLength": 64 }
+      }
+    }
+  }
+}

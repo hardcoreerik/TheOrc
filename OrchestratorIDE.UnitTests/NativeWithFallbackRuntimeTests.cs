@@ -146,6 +146,19 @@ public sealed class NativeWithFallbackRuntimeTests
         Assert.Throws<ArgumentNullException>(
             () => new NativeWithFallbackRuntime(new FakeRoleRuntime(), RuntimeRole.Boss, null!));
 
+    [Test]
+    public async Task GetContextLengthAsync_Falls_Back_When_Native_Returns_Null()
+    {
+        var runtime = new NativeWithFallbackRuntime(
+            new FakeRoleRuntimeWithContextLength(null),
+            RuntimeRole.Boss,
+            new FakeModelRuntimeWithContextLength(4096));
+
+        var length = await runtime.GetContextLengthAsync("ignored-model");
+
+        Assert.That(length, Is.EqualTo(4096));
+    }
+
     private static async Task<List<string>> CollectAsync(IAsyncEnumerable<string> stream)
     {
         var tokens = new List<string>();
@@ -213,6 +226,32 @@ public sealed class NativeWithFallbackRuntimeTests
         public RuntimeStats GetStats(RuntimeRole? role = null) => new(RuntimeName);
     }
 
+    private sealed class FakeRoleRuntimeWithContextLength(int? contextLength) : IRoleRuntime, IContextLengthProvider
+    {
+        public string RuntimeName => "FakeRoleRuntimeWithContextLength";
+
+        public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) =>
+            Task.FromResult(contextLength);
+
+        public async IAsyncEnumerable<string> StreamRoleCompletionAsync(
+            RuntimeRole role,
+            IEnumerable<AgentMessage> history,
+            IReadOnlyList<object>? tools = null,
+            double temperature = 0.1,
+            int maxTokens = 4096,
+            Action<ToolCall>? onToolCall = null,
+            Action<int, int>? onUsage = null,
+            [EnumeratorCancellation] CancellationToken ct = default)
+        {
+            await Task.Yield();
+            yield return "token";
+        }
+
+        public RuntimeHealth GetHealth(RuntimeRole? role = null) => new(true, RuntimeName);
+
+        public RuntimeStats GetStats(RuntimeRole? role = null) => new(RuntimeName);
+    }
+
     private sealed class DisposableFakeRoleRuntime : IRoleRuntime, IAsyncDisposable
     {
         public bool Disposed { get; private set; }
@@ -255,6 +294,9 @@ public sealed class NativeWithFallbackRuntimeTests
         public Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default) =>
             Task.FromResult(new List<string>());
 
+        public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) =>
+            Task.FromResult<int?>(null);
+
         public async IAsyncEnumerable<string> StreamCompletionAsync(
             string model,
             IEnumerable<AgentMessage> history,
@@ -272,6 +314,38 @@ public sealed class NativeWithFallbackRuntimeTests
                 await Task.Yield();
                 yield return token;
             }
+        }
+
+        public RuntimeHealth GetHealth() => new(true, RuntimeName);
+
+        public RuntimeStats GetStats() => new(RuntimeName);
+    }
+
+    private sealed class FakeModelRuntimeWithContextLength(int? contextLength) : IModelRuntime
+    {
+        public string RuntimeName => "FakeModelRuntimeWithContextLength";
+
+        public Task<bool> IsReachableAsync(CancellationToken ct = default) => Task.FromResult(true);
+
+        public Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default) =>
+            Task.FromResult(new List<string>());
+
+        public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) =>
+            Task.FromResult(contextLength);
+
+        public async IAsyncEnumerable<string> StreamCompletionAsync(
+            string model,
+            IEnumerable<AgentMessage> history,
+            IReadOnlyList<object>? tools = null,
+            double temperature = 0.1,
+            double? topP = null,
+            int maxTokens = 4096,
+            Action<ToolCall>? onToolCall = null,
+            Action<int, int>? onUsage = null,
+            [EnumeratorCancellation] CancellationToken ct = default)
+        {
+            await Task.Yield();
+            yield return "token";
         }
 
         public RuntimeHealth GetHealth() => new(true, RuntimeName);

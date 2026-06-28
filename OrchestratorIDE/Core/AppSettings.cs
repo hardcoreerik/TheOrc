@@ -74,6 +74,12 @@ public class AppSettings
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "OrchestratorIDE", "Models");
 
+    /// <summary>
+    /// Optional Hugging Face access token used for gated model metadata and downloads.
+    /// Empty = prefer environment variables or the local Hugging Face CLI login token.
+    /// </summary>
+    public string HuggingFaceAccessToken { get; set; } = "";
+
     // ── Agent behaviour ──────────────────────────────────────────────────
     public string DefaultModel  { get; set; } = "qwen2.5-coder:14b";
 

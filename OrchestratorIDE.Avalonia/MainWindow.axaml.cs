@@ -264,7 +264,13 @@ public partial class MainWindow : Window
         _swarmPanel.AlertAsync   = (title, msg) => DialogHelper.ShowInfoAsync(this, title, msg);
         _swarmPanel.ConfirmAsync = (title, msg) => DialogHelper.ShowYesNoAsync(this, title, msg);
 
-        _chatPanel = new ChatPanel { OllamaClient = _ollama, WorkspaceRoot = _session.WorkspaceRoot };
+        _chatPanel = new ChatPanel
+        {
+            RuntimeResolver = ResolveChatRuntime,
+            OllamaClient = _ollama,
+            LocalUrl = _settings.OllamaHost,
+            WorkspaceRoot = _session.WorkspaceRoot,
+        };
 
         _pitPanel = new TrainingPitPanel { WorkspaceRoot = _session.WorkspaceRoot };
         _pitPanel.StatusChanged   += msg => Dispatcher.UIThread.InvokeAsync(() => SetStatus(msg));
@@ -1514,8 +1520,8 @@ public partial class MainWindow : Window
         }
         else if (mode == "chat")
         {
-            _chatPanel.OllamaClient = _ollama;
-            _chatPanel.LocalUrl     = _settings.OllamaHost;
+            _chatPanel.RuntimeResolver = ResolveChatRuntime;
+            _chatPanel.LocalUrl        = _settings.OllamaHost;
             _chatPanel.SetModels(_installedModels, _session.ActiveModel);
             _chatPanel.RefreshHiveHosts();
             _chatPanel.LoadPersistedMemory();
@@ -1968,6 +1974,14 @@ public partial class MainWindow : Window
             fallback,
             onFallback: reason => AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
                 $"Main chat native generation failed, fell back to Ollama: {reason}", DateTime.Now)));
+    }
+
+    private IModelRuntime ResolveChatRuntime(HiveHost? target)
+    {
+        if (target is not null)
+            return new OllamaRuntime(new OllamaClient(target.Url));
+
+        return BuildAgentLoopRuntime();
     }
 
     // ── HIVE MIND C2: Apply RPC workers ──────────────────────────────────

@@ -1,6 +1,6 @@
 # TheOrc — Roadmap
 
-> Last updated: 2026-06-20 (WPF deleted — Avalonia-only + experimental native HIVE worker opt-in).
+> Last updated: 2026-06-27 (Phase 3B native campaign foundation landed; Orc Context Fabric proposed; native model-admission gate scaffold added; Context Fabric critique-triage pass started).
 > This document is updated after every GitHub release. It reflects actual code state, not aspirations — features marked Shipped have been verified in the running app.
 
 ---
@@ -13,7 +13,7 @@ v1.8.0 ships the Avalonia MarkdownView (Phase 6), the full FlaUI + Avalonia test
 
 **HIVE MIND node startup was broken on every normal-user install until 2026-06-20** — `HiveNodeServer.Start()` silently aborted (no error, no log line, nothing listening) on any non-elevated machine, because a failed wildcard `HttpListener` bind left the listener disposed internally and the fallback cleanup code's own property access threw a second, masking exception inside an unobserved `Task.Run`. Found via a pre-release smoke test specifically because nothing in automated test coverage exercises real socket binding. Fixed — verified `localhost:7078/hive/info` returns 200 and UDP 7077 beacon listens. This was a hard release blocker for any LAN/Tailscale HIVE MIND testing; not caught by `dotnet test` since the unit/headless suites mock or don't reach real listener startup.
 
-The honest gaps: the Reviewer Quality Gate is advisory-only (can always be overridden), the Tool Editor hot-reload is a stub, and HIVE MIND multi-step tool calling on remote workers is Phase 3B (not yet built). **WPF is deleted (2026-06-20)** — `OrchestratorIDE/OrchestratorIDE.csproj` and every WPF-only file are gone from the repo; Avalonia is the only desktop shell. `ask_user`, `ModelCapabilityTestDialog`, and `ToolCallTestWindow` all have real Avalonia resolutions (the latter two retired as diagnostics, not ported); `ModelWikiWindow`/`ModelCompareWindow` were retired rather than ported (data layer kept, window itself dropped — a future from-scratch Avalonia rebuild is a real feature request, not a blocker). The UIA automation lane already targeted Avalonia exclusively. Native Runtime groundwork is now real in code (IModelRuntime, Ollama wrapper, llama.cpp server wrapper, LLamaSharp runtime, shared text tool-call parser, Chat/Swarm/HIVE worker/reviewer migration, ModelDepot, SessionManager, AdapterManager with per-role persistent LoRA contexts, RuntimeOrchestrator wiring all three together, `IRoleRuntime`/`NativeRoleRuntime`, Settings-panel telemetry/smoke surfaces with explicit Ollama fallback and evidence capture, and a first OrcScheduler VRAM-budget admission check). It is still **not** production/default: the first live path is an experimental HIVE worker opt-in only; main chat, research chat, and SwarmSession stay on the configured default runtime, with Ollama remaining default/fallback.
+The honest gaps: the Reviewer Quality Gate is advisory-only (can always be overridden), the Tool Editor hot-reload is a stub, and Phase 3B is implementation groundwork rather than a completed distributed-computing release. Native campaign contracts, capability-aware atomic leasing, persistence, content-addressed transfer, independent verification, the shared headless loop, and fail-closed native-agent execution landed in commit `22db2ccf`; staged campaign dependencies, native input-artifact materialization, full dashboard acceptance, and multi-node hardware validation remain. **WPF is deleted (2026-06-20)** — `OrchestratorIDE/OrchestratorIDE.csproj` and every WPF-only file are gone from the repo; Avalonia is the only desktop shell. `ask_user`, `ModelCapabilityTestDialog`, and `ToolCallTestWindow` all have real Avalonia resolutions (the latter two retired as diagnostics, not ported); `ModelWikiWindow`/`ModelCompareWindow` were retired rather than ported (data layer kept, window itself dropped — a future from-scratch Avalonia rebuild is a real feature request, not a blocker). The UIA automation lane already targeted Avalonia exclusively. Native Runtime groundwork is now real in code (IModelRuntime, Ollama wrapper, llama.cpp server wrapper, LLamaSharp runtime, shared text tool-call parser, Chat/Swarm/HIVE worker/reviewer migration, ModelDepot, SessionManager, AdapterManager with per-role persistent LoRA contexts, RuntimeOrchestrator wiring all three together, `IRoleRuntime`/`NativeRoleRuntime`, Settings-panel telemetry/smoke surfaces with explicit Ollama fallback and evidence capture, a first OrcScheduler VRAM-budget admission check, and a first workload-aware native model-admission gate). It is still **not** production/default: native main chat and native HIVE workers are opt-in; legacy paths may retain configured fallback behavior, while Phase 3B `native_agent` campaign jobs fail closed and do not fall back to Ollama. Context Fabric now also has an explicit critique-triage lane: the doc/spec mismatch on citation offsets is being corrected toward host-trusted anchoring, Exhaustive mode is being reframed as verification-first rather than default chat, and future CF promotion depends on benchmark evidence for hierarchy loss, embedding gains, graph noise, and SQLite traversal cost.
 
 ---
 
@@ -426,12 +426,7 @@ OrchestratorIDE/Tools/
 
 **Test coverage:** 132 unit tests + 11 T19 graph tests (RoslynIndexer roundtrip, FTS search, ADR CRUD, trace, complexity) all green. grok-review CLEAN on all 5 increments.
 
-**Remaining for v1.9:**
-- `CodeGraphService.cs` lifecycle façade (background re-index on workspace open + git-change signal)
-- System prompt nudge in `AgentLoop`: "prefer graph_search/trace_path over grep_code for structural questions"
-- Graph panel UI (optional nicety — not blocking)
-- Tag captures that use graph tools to measure trajectory-quality lift (Level 2)
-- Measure token-budget reduction on real swarm runs vs grep baseline
+**Follow-through state:** `CodeGraphService` now owns background indexing on workspace open, and `AgentLoop` explicitly prefers graph tools for structural questions. Remaining measurement and UX work is to tag graph-backed captures, measure token-budget reduction against the grep baseline, and decide whether a dedicated graph panel earns its cost.
 
 ### ORC ACADEMY v4 Boss — fix files_named gap
 v3 scored 94.7% overall but dropped `files_named` to 65/87 (worse than base 74/87). Fix: audit v3gold examples for file-naming coverage, author targeted golden examples where CODER tasks name explicit output files (`.cs`, `.xaml`, etc.), pass suitability gate, retrain. Target: ≥99% overall, ≥85/87 on files_named.
@@ -439,8 +434,33 @@ v3 scored 94.7% overall but dropped `files_named` to 65/87 (worse than base 74/8
 ### Avalonia remaining modal dialogs — ✅ CLOSED (2026-06-20, WPF deleted)
 `AgentBuilderDialog`'s functionality was already replaced by Avalonia's `AgentRulesWindow` before this closed. `ModelWikiWindow`/`ModelCompareWindow` were retired (not ported) as part of deleting WPF outright. ("`LabWindow`" never existed as an actual file in this repo — a stale planning reference, removed here.) `UserInputDialog` and `ToolEditorDialog` shipped in v1.8.
 
-### HIVE MIND Phase 3B — multi-step tool calling on remote workers
-`HiveWorkerAgent` currently executes single-pass LLM calls. Phase 3B adds full `AgentLoop`-style multi-step tool execution on remote nodes (file writes, shell commands, web search — all running on the worker machine). This is the primary remaining HIVE gap.
+### HIVE MIND Phase 3B — native campaign engine (FOUNDATION LANDED)
+
+Commit `22db2ccf` landed the shared headless native loop, `native_agent` and `container_pack` campaign contracts, worker capability declarations, atomic capability-aware leasing, campaign persistence, resumable content-addressed model/artifact transfer, independent verification, retries, stale-token rejection, and fail-closed native execution.
+
+This is not yet a finished Phase 3B product. The remaining release gates are dependency-aware campaign stages, native-agent input-artifact materialization, hostile-input hardening, complete campaign-control UX, and the planned multi-node acceptance run with worker loss, re-lease, stale-result rejection, pause/resume/cancel, artifact verification, and measured speedup.
+
+### The Orc Context Fabric — effectively unbounded source memory (CF-0 IN PROGRESS)
+
+Full design: [The Orc Context Fabric.md](The%20Orc%20Context%20Fabric.md).
+
+Context Fabric is the next major OrcChat/native-runtime direction. It treats the model context as a bounded working set over a disk-backed, source-addressable memory system rather than trying to place an entire book or library into one prompt. Every source is parsed and segmented; native readers create citation-bearing evidence cards; section/chapter/document reducers create hierarchical memory; a document graph connects claims, entities, conflicts, and source ranges; and query-time "cognitive page faults" reopen original text whenever compressed memory is insufficient.
+
+The implementation deliberately builds beside CodeGraph on the same `SqliteStore`, migration runner, WAL database, FTS5 pattern, transactional repository layer, and lifecycle model. It does not put document concepts into `graph_nodes`; a dedicated `DocumentGraphRepository` preserves corpus, edition, page, confidence, coverage, and citation semantics while optional typed links connect document evidence to code symbols.
+
+Delivery order:
+
+1. CF-0 contracts, evidence schema, deterministic corpus, and 16-segment native feasibility spike. **In progress:** the harness, strict verifier, CLI, scripted 26-call passing lane, and real CUDA baseline are implemented; the available local 3B model failed the 16-card quality gate, so CF-0 is not complete.
+2. CF-1 deterministic ingestion, structural segmentation, and content-addressed source storage.
+3. CF-2 document graph, SQLite migrations, FTS, source tools, and local retrieval.
+4. CF-3 native readers, boundary stitching, schema validation, and source verification.
+5. CF-4 hierarchical reducers, context budgeting, source rehydration, Quick and Study modes.
+6. CF-5 OrcChat Library, corpus attachment, citations, coverage, and persistent cited notebook.
+7. CF-6 HIVE stage dependencies, native input staging, distributed readers/reducers/verifiers.
+8. CF-7 Exhaustive mode and frozen B0-B4 benchmark gate.
+9. CF-8 multimodal documents, optional vector acceleration, and cross-CodeGraph links.
+
+The go/no-go benchmark compares closed-book, truncated prompt, conventional RAG, single-node Context Fabric, and HIVE Context Fabric with the same native model. It requires exact synthetic ground truth, a pinned public-domain Darwin corpus, standardized long-context subsets, citation precision, multi-hop and exhaustive recall, correct abstention, an 8K final-context ceiling, normalized HIVE scaling, and worker-failure recovery. The project must report a failed hypothesis if these gates do not beat ordinary RAG; impressive demos are not acceptance evidence.
 
 ### Reviewer Gate hardening — true blocking mode
 Add a session-level confirmation dialog for BLOCKER findings. The user must explicitly acknowledge ("I understand this output has a BLOCKER finding and I am proceeding anyway") rather than just clicking Apply. Optional: log all BLOCKER overrides to the SQLite runs table for audit.
@@ -629,3 +649,4 @@ New to the project — read in this order:
 4. [SWARM_GUIDE.md](SWARM_GUIDE.md)
 5. [TRAINING_PIT_GUIDE.md](TRAINING_PIT_GUIDE.md)
 6. [HIVE_MIND_SPEC.md](HIVE_MIND_SPEC.md)
+7. [The Orc Context Fabric.md](The%20Orc%20Context%20Fabric.md)

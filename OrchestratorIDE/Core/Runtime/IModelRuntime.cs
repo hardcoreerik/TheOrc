@@ -27,6 +27,12 @@ public interface IModelRuntime
     Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default);
 
     /// <summary>
+    /// Best-effort max context window for the given model. Returns null when the backend
+    /// cannot report one honestly.
+    /// </summary>
+    Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default);
+
+    /// <summary>
     /// Stream a completion. Text deltas are yielded; tool calls and token usage
     /// are delivered via callbacks — exactly matching OllamaClient.StreamCompletionAsync.
     ///
@@ -106,3 +112,8 @@ public sealed record ModelLoadResult(
     string  RuntimeName,
     string  ModelRef,
     string? Message = null);
+
+public interface IContextLengthProvider
+{
+    Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default);
+}

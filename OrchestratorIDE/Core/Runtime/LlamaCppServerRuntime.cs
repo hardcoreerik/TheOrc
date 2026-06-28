@@ -56,6 +56,12 @@ public sealed class LlamaCppServerRuntime : IModelRuntime, IDisposable
         return _client.GetInstalledModelsAsync(ct);
     }
 
+    public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default)
+    {
+        if (!_server.IsRunning) return Task.FromResult<int?>(null);
+        return _client.GetContextLengthAsync(model, ct);
+    }
+
     public IAsyncEnumerable<string> StreamCompletionAsync(
         string model,
         IEnumerable<AgentMessage> history,

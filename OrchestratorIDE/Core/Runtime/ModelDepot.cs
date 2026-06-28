@@ -48,6 +48,7 @@ public sealed record RuntimeRoleBinding(
 public sealed class ModelDepot
 {
     private static readonly Regex _tokenSplitter = new("[^a-z0-9]+", RegexOptions.Compiled);
+    private static readonly Regex _opaqueFileName = new(@"^[0-9a-f]{32,}\.gguf$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly StringComparer _pathComparer = StringComparer.OrdinalIgnoreCase;
 
     private static readonly IReadOnlyDictionary<RuntimeRole, string[]> _roleTokens =
@@ -147,6 +148,7 @@ public sealed class ModelDepot
         var baseModel = Assets
             .Where(a => a.Kind == RuntimeAssetKind.BaseModelGguf)
             .OrderByDescending(a => a.SuggestedRoles.Contains(role))
+            .ThenBy(a => LooksOpaqueName(a.DisplayName))
             .ThenBy(a => a.Path, _pathComparer)
             .FirstOrDefault();
 
@@ -159,6 +161,7 @@ public sealed class ModelDepot
                 a.SuggestedRoles.Contains(role) &&
                 IsCompatibleWithBase(a, baseModel))
             .OrderByDescending(a => AdapterAffinityScore(a, baseModel))
+            .ThenBy(a => LooksOpaqueName(a.DisplayName))
             .ThenBy(a => a.Path, _pathComparer)
             .FirstOrDefault();
 
@@ -212,6 +215,9 @@ public sealed class ModelDepot
                tokens.Contains("adapter") ||
                tokens.Contains("adapters");
     }
+
+    private static bool LooksOpaqueName(string displayName) =>
+        _opaqueFileName.IsMatch(displayName);
 
     private static bool IsCompatibleWithBase(RuntimeModelAsset adapter, RuntimeModelAsset baseModel)
     {

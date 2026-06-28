@@ -30,6 +30,10 @@ namespace OrchestratorIDE.UI.Panels;
 public partial class ChatPanel : UserControl
 {
     // ── Dependencies ──────────────────────────────────────────────────────────
+    public IModelRuntime? LocalRuntime { get; set; }
+    public Func<HiveHost?, IModelRuntime>? RuntimeResolver { get; set; }
+
+    // Legacy seam retained for tests and the plain Ollama fallback path.
     public OllamaClient? OllamaClient { get; set; }
 
     /// <summary>Local Ollama URL, used as the "Local" node's target and to resolve it
@@ -42,6 +46,7 @@ public partial class ChatPanel : UserControl
 
     // ── State ─────────────────────────────────────────────────────────────────
     private ChatEngine?              _engine;
+    private IModelRuntime?           _engineRuntime;
     private CancellationTokenSource? _cts;
     private TextBox?                 _streamBox;
     private bool                     _isSending;
@@ -172,6 +177,7 @@ public partial class ChatPanel : UserControl
 
     private void ResetConversationUi()
     {
+        DisposeEngineRuntime();
         ChatStack.Children.Clear();
         BdrWelcome.IsVisible = true;
         ChatStack.Children.Add(BdrWelcome);
@@ -189,7 +195,8 @@ public partial class ChatPanel : UserControl
     private ChatEngine CreateEngine(string model)
     {
         _lastEngineNodeTarget = CbNode.SelectedItem as string ?? LocalNodeName;
-        var runtime = new OllamaRuntime(ResolveOllamaClient());
+        var runtime = ResolveRuntime();
+        _engineRuntime = runtime;
         var tools = OrcChatToolCatalog.CreateWorkspaceTools(WorkspaceRoot);
         return new ChatEngine(runtime, model, systemPrompt: "", tools: tools)
         {
@@ -204,10 +211,22 @@ public partial class ChatPanel : UserControl
     // (`new ChatPanel { OllamaClient = fake }`) keeps working unchanged -- only an
     // explicitly selected remote node constructs a new client.
 
-    private OllamaClient ResolveOllamaClient()
+    private IModelRuntime ResolveRuntime()
     {
         var target = ResolveTargetNode();
-        return target is null ? OllamaClient! : new OllamaClient(target.Url);
+        if (RuntimeResolver is not null)
+            return RuntimeResolver(target);
+
+        if (target is not null)
+            return new OllamaRuntime(new OllamaClient(target.Url));
+
+        if (LocalRuntime is not null)
+            return LocalRuntime;
+
+        if (OllamaClient is not null)
+            return new OllamaRuntime(OllamaClient);
+
+        throw new InvalidOperationException("No local chat runtime is configured.");
     }
 
     /// <summary>
@@ -227,7 +246,6 @@ public partial class ChatPanel : UserControl
 
     private void CbNode_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (OllamaClient is null) return;
         var newTarget = CbNode.SelectedItem as string ?? LocalNodeName;
         // RefreshHiveHosts() clears and re-populates Items, which fires this handler even
         // when the user hasn't touched anything -- only treat it as a real switch if the
@@ -254,7 +272,7 @@ public partial class ChatPanel : UserControl
     private void CbModel_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         var model = CbModel.SelectedItem as string;
-        if (string.IsNullOrEmpty(model) || OllamaClient is null) return;
+        if (string.IsNullOrEmpty(model)) return;
         if (_engine is null) _engine = CreateEngine(model);
         else                  _engine.Model = model;
         _ = RefreshContextLimitAsync();
@@ -299,7 +317,7 @@ public partial class ChatPanel : UserControl
             var cacheKey = $"{(CbNode.SelectedItem as string) ?? LocalNodeName}|{model}";
             if (!_contextLengthCache.TryGetValue(cacheKey, out var limit))
             {
-                limit = await ResolveOllamaClient().GetContextLengthAsync(model);
+                limit = await ResolveRuntime().GetContextLengthAsync(model);
                 _contextLengthCache[cacheKey] = limit;
             }
 
@@ -347,7 +365,6 @@ public partial class ChatPanel : UserControl
         var text = TbInput.Text?.Trim() ?? "";
         if ((string.IsNullOrEmpty(text) && _pendingAttachments.Count == 0) || _isSending) return;
 
-        if (OllamaClient is null) return;
         var model = CbModel.SelectedItem as string ?? "";
         if (string.IsNullOrEmpty(model)) return;
 
@@ -810,6 +827,7 @@ public partial class ChatPanel : UserControl
     {
         _cts?.Cancel();
         _engine?.ClearHistory();
+        _engine       = null;
         _streamBox    = null;
         _lastToolChip = null;
         ClearPendingAttachments();
@@ -1029,5 +1047,21 @@ public partial class ChatPanel : UserControl
                 Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
         }
         catch { /* non-fatal convenience action */ }
+    }
+
+    private void DisposeEngineRuntime()
+    {
+        var runtime = _engineRuntime;
+        _engineRuntime = null;
+
+        switch (runtime)
+        {
+            case IAsyncDisposable asyncDisposable:
+                _ = asyncDisposable.DisposeAsync();
+                break;
+            case IDisposable disposable:
+                disposable.Dispose();
+                break;
+        }
     }
 }

@@ -1,6 +1,7 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using OrchestratorIDE.Models;
+using OrchestratorIDE.Core;
 
 namespace OrchestratorIDE.Services.Models;
 
@@ -21,9 +22,9 @@ public sealed class ModelSearchService : IDisposable
 {
     private readonly HuggingFaceClient _hf;
 
-    public ModelSearchService()
+    public ModelSearchService(string? accessToken = null, AppSettings? settings = null)
     {
-        _hf = new HuggingFaceClient();
+        _hf = new HuggingFaceClient(accessToken, settings);
     }
 
     // ── Main search entry point ───────────────────────────────────────────────

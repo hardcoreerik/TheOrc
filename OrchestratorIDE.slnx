@@ -6,4 +6,5 @@
   <Project Path="OrchestratorIDE.UnitTests/OrchestratorIDE.UnitTests.csproj" />
   <Project Path="OrchestratorIDE.UITests/OrchestratorIDE.UITests.csproj" />
   <Project Path="OrchestratorSetup/OrchestratorSetup.csproj" />
+  <Project Path="Tools/ContextFabricBench/ContextFabricBench.csproj" />
 </Solution>

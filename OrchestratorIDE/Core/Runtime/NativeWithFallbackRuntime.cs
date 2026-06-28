@@ -64,6 +64,17 @@ public sealed class NativeWithFallbackRuntime : IModelRuntime, IAsyncDisposable
     public Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default) =>
         _fallback.GetInstalledModelsAsync(ct);
 
+    public async Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default)
+    {
+        int? nativeLength = null;
+        if (_native is IContextLengthProvider nativeContext)
+            nativeLength = await nativeContext.GetContextLengthAsync(model, ct).ConfigureAwait(false);
+        else if (_native is IModelRuntime nativeModelRuntime)
+            nativeLength = await nativeModelRuntime.GetContextLengthAsync(model, ct).ConfigureAwait(false);
+
+        return nativeLength ?? await _fallback.GetContextLengthAsync(model, ct).ConfigureAwait(false);
+    }
+
     public async IAsyncEnumerable<string> StreamCompletionAsync(
         string model,
         IEnumerable<AgentMessage> history,

@@ -85,4 +85,5 @@ public class ChatPanelContextUsageTests
         // 10 prompt + 3 completion tokens = 13 total, per FakeOllamaClient's onUsage(10, 3).
         Assert.That(Required<TextBlock>(panel, "TxtContextUsage").Text, Is.EqualTo("Context: 13 / 32,768 (0%)"));
     }
+
 }

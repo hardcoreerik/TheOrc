@@ -41,6 +41,9 @@ public sealed class OllamaRuntime : IModelRuntime
     public Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default) =>
         _inner.GetInstalledModelsAsync(ct);
 
+    public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) =>
+        _inner.GetContextLengthAsync(model, ct);
+
     public IAsyncEnumerable<string> StreamCompletionAsync(
         string model,
         IEnumerable<AgentMessage> history,

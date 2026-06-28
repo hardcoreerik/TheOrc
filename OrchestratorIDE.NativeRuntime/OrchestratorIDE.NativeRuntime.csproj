@@ -23,6 +23,8 @@
     <Compile Include="..\OrchestratorIDE\Core\Runtime\IModelRuntime.cs" Link="Runtime\IModelRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\IRoleRuntime.cs" Link="Runtime\IRoleRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\LLamaSharpRuntime.cs" Link="Runtime\LLamaSharpRuntime.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\ModelAdmissionGate.cs" Link="Runtime\ModelAdmissionGate.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\NativePromptBuilder.cs" Link="Runtime\NativePromptBuilder.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\ModelDepot.cs" Link="Runtime\ModelDepot.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\SessionManager.cs" Link="Runtime\SessionManager.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\AdapterManager.cs" Link="Runtime\AdapterManager.cs" />
@@ -30,6 +32,13 @@
     <Compile Include="..\OrchestratorIDE\Core\Runtime\OrcScheduler.cs" Link="Runtime\OrcScheduler.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\NativeRuntimeTestSupport.cs" Link="Runtime\NativeRuntimeTestSupport.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\HeadlessAgentLoop.cs" Link="Runtime\HeadlessAgentLoop.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricContracts.cs" Link="ContextFabric\ContextFabricContracts.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\DeterministicFabricCorpus.cs" Link="ContextFabric\DeterministicFabricCorpus.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricValidation.cs" Link="ContextFabric\ContextFabricValidation.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricBenchmarkExpansionRunner.cs" Link="ContextFabric\ContextFabricBenchmarkExpansionRunner.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricBenchmarkExpansionWriter.cs" Link="ContextFabric\ContextFabricBenchmarkExpansionWriter.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricFeasibilityRunner.cs" Link="ContextFabric\ContextFabricFeasibilityRunner.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricReportWriter.cs" Link="ContextFabric\ContextFabricReportWriter.cs" />
   </ItemGroup>
 
   <ItemGroup>

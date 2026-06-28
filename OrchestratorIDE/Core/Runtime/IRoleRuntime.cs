@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Text.Json;
 using LLama.Native;
 using LLama.Sampling;
 using OrchestratorIDE.Models;
@@ -39,9 +38,8 @@ public interface IRoleRuntime
 /// ModelDepot resolves a role binding, RuntimeOrchestrator loads the base model via
 /// SessionManager, and AdapterManager returns a reference-counted role conversation.
 /// </summary>
-public sealed class NativeRoleRuntime : IRoleRuntime, IAsyncDisposable
+public sealed class NativeRoleRuntime : IRoleRuntime, IContextLengthProvider, IAsyncDisposable
 {
-    private static readonly JsonSerializerOptions _compactJson = new() { WriteIndented = false };
     private static readonly string[] _antiPrompts =
     [
         "<|user|>",
@@ -169,6 +167,9 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IAsyncDisposable
         return runtimeStats with { RuntimeName = RuntimeName };
     }
 
+    public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) =>
+        Task.FromResult<int?>(_options.ContextLength);
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
@@ -183,41 +184,6 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IAsyncDisposable
         if (_disposed)
             throw new ObjectDisposedException(nameof(NativeRoleRuntime));
     }
-
-    private static string BuildPrompt(IEnumerable<AgentMessage> history, IReadOnlyList<object>? tools)
-    {
-        var messages = history.ToList();
-
-        if (tools is { Count: > 0 })
-        {
-            var toolJson = JsonSerializer.Serialize(tools, _compactJson);
-            var toolBlock = $"\n\nAvailable tools (call as JSON):\n{toolJson}";
-            var sysIdx = messages.FindIndex(m => m.Role == MessageRole.System);
-            if (sysIdx >= 0)
-                messages[sysIdx] = messages[sysIdx].WithContent(messages[sysIdx].Content + toolBlock);
-            else
-                messages.Insert(0, new AgentMessage
-                    { Role = MessageRole.System, Content = toolBlock });
-        }
-
-        var sb = new StringBuilder();
-        foreach (var msg in messages)
-        {
-            sb.Append("<|im_start|>").Append(ToRoleString(msg.Role)).Append('\n');
-            sb.Append(msg.Content ?? "");
-            sb.AppendLine("<|im_end|>");
-        }
-        sb.Append("<|im_start|>assistant\n");
-        return sb.ToString();
-    }
-
-    private static string ToRoleString(MessageRole role) => role switch
-    {
-        MessageRole.System => "system",
-        MessageRole.User => "user",
-        MessageRole.Tool => "tool",
-        _ => "assistant",
-    };
 
     private static bool IsStopToken(SafeLlamaModelHandle.Vocabulary vocab, LLamaToken token) =>
         (vocab.EOS is { } eos && token.Equals(eos)) ||
@@ -255,13 +221,13 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IAsyncDisposable
             Temperature = (float)Math.Clamp(temperature, 0.0, 2.0),
         };
 
-        var prompt = BuildPrompt(history, tools);
+        var prompt = _runtime.BuildPromptForLoadedModel(history, tools);
         var started = DateTime.UtcNow;
         var firstTokenAt = default(DateTime);
         var outputBuilder = new StringBuilder();
 
         conversation.Prompt(prompt, addBos: true, special: true);
-        await executor.Infer(ct).ConfigureAwait(false);
+        await InferUntilReadyAsync(conversation, ct).ConfigureAwait(false);
 
         for (var i = 0; i < Math.Max(0, maxTokens); i++)
         {
@@ -288,7 +254,7 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IAsyncDisposable
             }
 
             conversation.Prompt(token);
-            await executor.Infer(ct).ConfigureAwait(false);
+            await InferUntilReadyAsync(conversation, ct).ConfigureAwait(false);
         }
 
         var elapsed = DateTime.UtcNow - started;
@@ -326,6 +292,19 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IAsyncDisposable
         if (onToolCall is not null)
             foreach (var tc in ToolCallTextParser.Parse(outputText))
                 onToolCall(tc);
+    }
+
+    private static async Task InferUntilReadyAsync(LLama.Batched.Conversation conversation, CancellationToken ct)
+    {
+        var passes = 0;
+        while (conversation.RequiresInference)
+        {
+            var result = await conversation.Executor.Infer(ct).ConfigureAwait(false);
+            if (result != DecodeResult.Ok)
+                throw new InvalidOperationException($"Native inference failed while draining a prompt batch: {result}.");
+            if (++passes > 1024)
+                throw new InvalidOperationException("Native inference did not drain the pending prompt batch.");
+        }
     }
 
     private static string FormatActiveModel(RuntimeRoleBinding binding) =>

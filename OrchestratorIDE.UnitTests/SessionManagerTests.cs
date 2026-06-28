@@ -292,6 +292,9 @@ public sealed class SessionManagerTests
                 ? []
                 : new List<string> { Path.GetFileName(LastBasePath) });
 
+        public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) =>
+            Task.FromResult<int?>(null);
+
         public async IAsyncEnumerable<string> StreamCompletionAsync(
             string model,
             IEnumerable<AgentMessage> history,

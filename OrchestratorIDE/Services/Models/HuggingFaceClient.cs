@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using OrchestratorIDE.Core;
 using OrchestratorIDE.Models;
 
 namespace OrchestratorIDE.Services.Models;
@@ -27,7 +29,7 @@ public sealed class HuggingFaceClient : IDisposable
         PropertyNameCaseInsensitive = true,
     };
 
-    public HuggingFaceClient()
+    public HuggingFaceClient(string? accessToken = null, AppSettings? settings = null)
     {
         _http = new HttpClient
         {
@@ -35,6 +37,10 @@ public sealed class HuggingFaceClient : IDisposable
             Timeout     = TimeSpan.FromSeconds(20),
         };
         _http.DefaultRequestHeaders.Add("User-Agent", "OrchestratorIDE/1.0");
+
+        var resolvedToken = HuggingFaceAccessTokenResolver.Resolve(accessToken, settings);
+        if (!string.IsNullOrWhiteSpace(resolvedToken))
+            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", resolvedToken);
     }
 
     // ── Search ────────────────────────────────────────────────────────────────

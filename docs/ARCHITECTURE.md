@@ -2,8 +2,10 @@
 
 > Implementation-grounded system view for the current branch. Read this with
 > [GLOSSARY.md](GLOSSARY.md) for naming, [ROADMAP.md](ROADMAP.md) for phased
-> status, and [`../.grok/PROJECT_TRUTH.md`](../.grok/PROJECT_TRUTH.md) for the
-> stricter "what is actually true right now" ledger.
+> status, [The Orc Context Fabric.md](The%20Orc%20Context%20Fabric.md) for the
+> proposed large-corpus memory architecture, and
+> [`../.grok/PROJECT_TRUTH.md`](../.grok/PROJECT_TRUTH.md) for the stricter
+> "what is actually true right now" ledger.
 
 ---
 
@@ -28,46 +30,43 @@ in keeping local execution reviewable.
 ## System Map
 
 ```text
-+------------------ OPERATOR SHELL -------------------+
-| Avalonia app (only desktop shell — WPF deleted)     |
-|  - Single / Swarm / Chat / Pit / Hive / Settings    |
-|  - docs/help viewer                                 |
-|  - status: workspace / git / build / model/runtime  |
-+-------------------------+---------------------------+
-                          |
-          +---------------+----------------+
-          |                                |
-          v                                v
-+-----------------------+      +------------------------+
-| Single + Chat         |      | Swarm + HIVE           |
-| AgentLoop             |      | SwarmSession           |
-| ChatEngine            |      | HiveTaskQueue          |
-| ToolRegistry          |      | HiveWorkerAgent        |
-| Approval queue        |      | HiveScheduler          |
-+-----------+-----------+      +-----------+------------+
-            |                              |
-            v                              v
-     +------+------------------------------+------+
-     | files, shell, web, tests, git, research    |
-     +--------------------+-----------------------+
-                          |
-                          v
-               +----------+-----------+
-               | Training Pit         |
-               | capture/review       |
-               | ORC ACADEMY          |
-               | adapter registry     |
-               +----------+-----------+
-                          |
-                          v
-               +----------+-----------+
-               | Runtime layer        |
-               | OllamaRuntime        |
-               | LlamaCppServerRuntime|
-               | LLamaSharpRuntime    |
-               | ModelDepot / Session |
-               | Adapter / Scheduler  |
-               +----------------------+
++-------------------- OPERATOR SHELL ---------------------+
+| Avalonia: Single / Swarm / Chat / Pit / Hive / Settings |
++---------------------------+-----------------------------+
+                            |
+          +-----------------+------------------+
+          |                                    |
+          v                                    v
++-------------------------+        +-------------------------+
+| Single + OrcChat        |        | Swarm + HIVE            |
+| AgentLoop / ChatEngine  |        | SwarmSession             |
+| ToolRegistry / approval |        | TaskQueue / WorkerAgent  |
++------------+------------+        | Campaign engine          |
+             |                     +------------+------------+
+             +------------------+---------------+
+                                |
+                +---------------+----------------+
+                | Knowledge and tool layer       |
+                | CodeGraph (shipped)             |
+                | Context Fabric (proposed)       |
+                | files / web / shell / artifacts|
+                +---------------+----------------+
+                                |
+          +---------------------+---------------------+
+          |                                           |
+          v                                           v
++-------------------------+               +-------------------------+
+| Runtime layer           |               | Persistence             |
+| IModelRuntime           |               | .orc/theorc.db (WAL)    |
+| NativeRoleRuntime       |               | content-addressed stores|
+| Model/Session/Adapter   |               | run/campaign artifacts  |
++------------+------------+               +-------------------------+
+             |
+             v
++-------------------------+
+| Training Pit / Academy  |
+| capture / review / LoRA |
++-------------------------+
 ```
 
 ---
@@ -147,6 +146,17 @@ Implemented capability areas:
 The important architectural point is unchanged: TheOrc does not assume one
 universal tool-call format works for every local model. It probes and adapts.
 
+The next layer now exists in scaffold form for the native runtime as well:
+
+- `ModelAdmissionGate` fingerprints local GGUF names into model families
+- native workloads are classified (`OrcChat`, `ToolCalling`,
+  `StrictStructuredOutput`, `ContextFabricReader`, `ContextFabricReviewer`,
+  `AgenticCoding`, `VisionReasoning`)
+- each model/workload pair is labeled `Admitted`, `Provisional`, or `Rejected`
+
+This is intentionally separate from tool-call probing. A model can be broadly
+chat-capable and still be rejected for strict JSON or evidence-grade work.
+
 ---
 
 ## Swarm And HIVE Execution
@@ -187,12 +197,99 @@ Shipped groundwork:
 - distributed task queue and worker claiming
 - capability-aware scheduler
 - remote worker execution through `HiveWorkerAgent`
+- native campaign/work-unit contracts and atomic capability-aware leases
+- campaign persistence and lifecycle controls
+- resumable SHA-256 content-addressed model/artifact transfer
+- shared `HeadlessAgentLoop` execution through `NativeRoleRuntime`
+- independent verification runs, retries, and stale-result rejection
 
 Still missing:
 
-- Phase 3B multi-step tool calling on remote workers
-- fuller runtime-native routing across remote nodes
-- some recovery and polishing around the distributed path
+- dependency-aware campaign stages and fan-in barriers
+- input-artifact materialization for native-agent jobs
+- complete campaign-control UX and hostile-input hardening
+- the planned multi-node hardware acceptance and scaling report
+
+Phase 3B native campaign jobs fail closed when native admission or execution
+fails. They do not use an Ollama fallback. Legacy non-campaign execution remains
+a separate compatibility path.
+
+---
+
+## Knowledge And Context Layer
+
+### CodeGraph
+
+CodeGraph is a shipped, code-specialized knowledge index:
+
+- `RoslynIndexer` creates symbol nodes and structural edges
+- `ComplexityAnalyzer` adds code metrics
+- `GraphRepository` persists nodes, edges, FTS5 search data, and ADRs
+- `CodeGraphService` manages background indexing when a workspace opens
+- `GraphTools` exposes search, path tracing, architecture, change impact, and ADR operations
+- `AgentLoop` prefers graph tools over repeated grep/read exploration for structural questions
+
+CodeGraph stores its relational graph in the shared `.orc/theorc.db`. Its node
+contract is intentionally specific to code: qualified names, source files,
+line ranges, labels, degree, and complexity metrics.
+
+### The Orc Context Fabric (proposed)
+
+Context Fabric extends the same architectural pattern to books, manuals, and
+large document collections without pretending that all source tokens fit in
+the live prompt.
+
+Its core loop is:
+
+```text
+immutable source
+  -> deterministic parse and overlapping segments
+  -> native evidence-card readers
+  -> boundary stitching
+  -> section/chapter/document/corpus reduction
+  -> document graph + FTS + optional embeddings
+  -> query planning and source rehydration
+  -> token-bounded answer synthesis
+  -> independent citation verification
+```
+
+Context Fabric shares `SqliteStore`, migrations, `RepositoryBase`, WAL,
+transaction patterns, FTS5 conventions, lifecycle events, native runtime, and
+HIVE campaigns with the current architecture. It uses a separate
+`DocumentGraphRepository`; document claims, entities, editions, page ranges,
+coverage, and citations do not belong in CodeGraph's `graph_nodes` table.
+
+The two graphs may later connect through typed external links. For example, a
+manual requirement may link to the CodeGraph method that implements it, while
+both repositories retain their own invariants and rebuild rules.
+
+Context Fabric treats the context window as working memory over a persistent
+address space. Summaries are navigation caches, not source truth. When evidence
+is missing or disputed, a query triggers a "cognitive page fault" and reloads
+the exact source segment. Quick, Study, and Exhaustive modes trade latency for
+coverage. Exhaustive mode maps the question across all selected leaves, reports
+code-computed coverage, and should be treated as a premium verification path
+rather than the default interactive chat mode for large corpora.
+
+The first Context Fabric bench now also depends on native model admission. Orc
+should reject obviously unfit models before spending time on a benchmark run,
+rather than discovering only after execution that a tiny chat model cannot
+produce valid evidence cards.
+
+The current critique-triage pass also locks in a host-trusted citation boundary:
+models produce draft quotes, while the host computes canonical offsets and
+digests, rejects ambiguous anchors, and records the benchmark environment with
+the resolved model-admission verdicts. Planned follow-up benchmarks should
+measure hierarchy recall loss, embedding impact, graph noise, and SQLite
+traversal cost before the proposed CF-1 to CF-2 architecture is promoted.
+
+The full schema, HIVE execution model, benchmark, security policy, and phased
+implementation are specified in
+[The Orc Context Fabric.md](The%20Orc%20Context%20Fabric.md). CF-0 now has a
+native feasibility harness, deterministic corpus, strict host-side verifier,
+and report generator, but its real-model quality gate has not passed; the
+document graph, persistence, retrieval, HIVE execution, and OrcChat product
+surface remain proposed rather than shipped.
 
 ---
 
@@ -253,9 +350,10 @@ Phase 3 runtime orchestration pieces now exist:
 Important caveats:
 
 - Native Runtime is **not** the default path yet
-- the first live path is limited to experimental HIVE worker opt-in; main
-  chat, research chat, and SwarmSession still stay on the configured default
-  runtime for this release
+- native main chat and native HIVE workers are explicit opt-ins; other paths
+  may still use the configured default runtime
+- Phase 3B `native_agent` jobs require the native role runtime and fail closed
+  rather than silently substituting Ollama
 - Session/Adapter telemetry is only partially surfaced
 - prefix KV cache is research, not a promised feature
 - cross-role shared KV cache is specifically unsafe with different adapters
@@ -266,6 +364,31 @@ shared cached brain" when the actual branch truth is more constrained.
 ---
 
 ## Persistence And Truth Sources
+
+`SqliteStore` owns one operational metadata database at
+`<workspace>/.orc/theorc.db`:
+
+- WAL lets readers continue while the owner process writes
+- each repository operation uses its own pooled connection
+- foreign keys and a busy timeout are applied per connection
+- `MigrationRunner` applies ordered migrations transactionally
+- `RepositoryBase` centralizes parameterized commands and transaction helpers
+- remote HIVE workers never open the database directly
+
+Current persisted domains include captures, plans/runs, dataset indexes, HIVE
+tasks/events, CodeGraph nodes/edges/FTS/ADRs, and Phase 3B
+campaign/work-unit/artifact metadata.
+
+Large model and campaign objects use `ContentAddressedStore`: SHA-256 names,
+bounded one-megabyte chunks, resumable partial files, object/store quotas,
+atomic completion, and final digest verification. Context Fabric will reuse
+that split: SQLite for searchable metadata, graph structure, provenance, and
+metrics; content-addressed storage for original documents, normalized source,
+evidence payloads, images, and reports.
+
+The Warchief/local app remains the single database writer. Completed HIVE
+artifacts are verified first, then imported through repositories in bounded
+transactions. This prevents remote-node SQLite corruption and write stampedes.
 
 The repo has several classes of truth now:
 
@@ -305,5 +428,5 @@ control.
 
 ---
 
-*Last updated: 2026-06-19 — architecture refreshed for Avalonia-primary UI,
-shipped HIVE/Training Pit state, and Native Runtime branch work.*
+*Last updated: 2026-06-27 — architecture refreshed for Phase 3B native campaign
+groundwork, CodeGraph lifecycle, and the proposed Orc Context Fabric.*

@@ -43,7 +43,9 @@ using System.Text;
 using OrchestratorIDE.Agents;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Core.Runtime;
+using OrchestratorIDE.Models;
 using OrchestratorIDE.Services.Hive;
+using OrchestratorIDE.Services.Models;
 
 Console.OutputEncoding = Encoding.UTF8;
 
@@ -68,7 +70,13 @@ bool    showIdentity = false;
 bool    pairMode     = false;
 bool    noRun        = false;
 string? nativeTestGgufPath = null;
+string? nativeCompareGgufPath = null;
+string? nativeCompareOllamaModel = null;
 string? nativeGgufPath     = null;
+string? nativeDownloadQuery = null;
+string? nativeDownloadQuant = null;
+string? nativeDownloadModelRoot = null;
+bool    nativeDownloadNoOllamaRegister = false;
 int     nativeRepeatCount  = 1;
 string? expectFile         = null;
 int     warchiefPort = HiveTaskQueue.QueuePort;
@@ -108,7 +116,13 @@ for (int i = 0; i < args.Length; i++)
         case "--pair":          pairMode     = true;            break;
         case "--no-run":        noRun        = true;            break;
         case "--native-test":   nativeTestGgufPath = Next();    break;
+        case "--native-compare": nativeCompareGgufPath = Next(); break;
+        case "--ollama-model":  nativeCompareOllamaModel = Next(); break;
         case "--native":        nativeGgufPath     = Next();    break;
+        case "--native-download": nativeDownloadQuery = Next(); break;
+        case "--quant":         nativeDownloadQuant = Next();   break;
+        case "--model-root":    nativeDownloadModelRoot = Next(); break;
+        case "--no-ollama-register": nativeDownloadNoOllamaRegister = true; break;
         case "--native-repeat": nativeRepeatCount  = int.TryParse(Next(), out var nr) ? nr : nativeRepeatCount; break;
         case "--expect-file":   expectFile         = Next();    break;
         case "--target":        pairTarget   = Next();          break;
@@ -143,6 +157,23 @@ for (int i = 0; i < args.Length; i++)
                 Headless native-runtime smoke test (same prompt/checks as the GUI Settings
                 "Run Native Test" button, no Ollama fallback -- just the native attempt):
                   swarmcli --native-test <path-to-gguf-or-ollama-blob>
+
+                Download a native GGUF into TheOrc's model folder using the same HuggingFace
+                search/download stack as the GUI model downloader. QUERY may be either an exact
+                HF repo id (e.g. Qwen/Qwen2.5-Coder-14B-Instruct-GGUF) or a search phrase
+                (e.g. qwen coder 14b). For gated repos, auth is picked up automatically from
+                AppSettings.HuggingFaceAccessToken, HUGGING_FACE_HUB_TOKEN / HF_TOKEN, or an
+                existing `hf auth login` token on this machine. By default the recommended
+                quant is chosen and the GGUF is also registered into Ollama after download so
+                it feels closer to "ollama pull":
+                  swarmcli --native-download <query-or-hf-repo>
+                           [--quant <Q4_K_M>] [--model-root <dir>] [--no-ollama-register]
+
+                Headless native-vs-Ollama parity corpus. Loads one GGUF into the native
+                runtime, runs a deterministic comparison set through BOTH runtimes, prints
+                per-case pass/fail, and writes a JSON report under .orc/native-runtime-parity:
+                  swarmcli --native-compare <path-to-gguf-or-ollama-blob> --ollama-model <model>
+                           [--host <url>] [--workspace <dir>]
 
                 Repeat the same goal N times against ONE loaded native model (loaded once, not
                 reloaded per iteration) and report a per-iteration file outcome plus a summary --
@@ -222,10 +253,24 @@ if (warchiefMode && workerMode)
     Console.Error.WriteLine("--warchief and --worker are mutually exclusive.");
     return 1;
 }
+if (nativeDownloadNoOllamaRegister && nativeDownloadQuery is null)
+{
+    Console.Error.WriteLine("--no-ollama-register only applies to --native-download.");
+    return 1;
+}
 if (noRun && !warchiefMode)
 {
     Console.Error.WriteLine("--no-run only applies to --warchief (pairing/queue-server only, no swarm run).");
     return 1;
+}
+
+if (nativeDownloadQuery is not null)
+{
+    return await NativeDownloadCli.RunAsync(
+        nativeDownloadQuery,
+        nativeDownloadQuant,
+        nativeDownloadModelRoot,
+        nativeDownloadNoOllamaRegister);
 }
 
 // ── --show-identity — print this node's NodeId + fingerprint and exit ─────────
@@ -351,6 +396,71 @@ if (nativeTestGgufPath is not null)
         $"vram~{(attempt.Stats.EstimatedVramBytes is { } vramBytes ? $"{vramBytes / 1024 / 1024}MB" : "n/a")}");
 
     return attempt.Success ? 0 : 1;
+}
+
+// ── --native-compare — deterministic native-vs-Ollama parity corpus ─────────
+
+if (nativeCompareGgufPath is not null)
+{
+    if (!File.Exists(nativeCompareGgufPath))
+    {
+        Console.Error.WriteLine($"--native-compare: file not found: {nativeCompareGgufPath}");
+        return 1;
+    }
+
+    if (string.IsNullOrWhiteSpace(nativeCompareOllamaModel))
+    {
+        Console.Error.WriteLine("--native-compare requires --ollama-model <model>.");
+        return 1;
+    }
+
+    Console.WriteLine($"swarmcli --native-compare — native model: {nativeCompareGgufPath}");
+    Console.WriteLine($"  ollama model: {nativeCompareOllamaModel}");
+    Console.WriteLine($"  corpus: {NativeRuntimeComparisonCorpus.DefaultCorpusName} ({NativeRuntimeComparisonCorpus.DefaultCases.Count} cases)");
+    Console.WriteLine();
+
+    await using var compareNativeRuntime = new LLamaSharpRuntime();
+    var load = await compareNativeRuntime.LoadModelAsync(nativeCompareGgufPath);
+    if (!load.Success)
+    {
+        Console.Error.WriteLine($"--native-compare: failed to load native model: {load.Message}");
+        return 1;
+    }
+
+    var ollamaRuntime = new OllamaRuntime(new OllamaClient(host));
+    var report = await NativeRuntimeComparisonRunner.RunAsync(
+        compareNativeRuntime,
+        load.ModelRef,
+        ollamaRuntime,
+        nativeCompareOllamaModel);
+    var reportPath = await NativeRuntimeComparisonReportStore.WriteAsync(report, workspace);
+
+    foreach (var result in report.Results)
+    {
+        var verdict = result.BothMatchedExpectation && result.CanonicalOutputsMatch ? "MATCH" :
+            result.BothMatchedExpectation ? "DRIFT" : "FAIL";
+        Console.WriteLine($"[{verdict}] {result.TestCase.CaseId}");
+        Console.WriteLine($"  native : {(result.NativeEvaluation.ExpectationMatched ? "PASS" : "FAIL")} -> {result.NativeEvaluation.CanonicalOutput}");
+        Console.WriteLine($"  ollama : {(result.OllamaEvaluation.ExpectationMatched ? "PASS" : "FAIL")} -> {result.OllamaEvaluation.CanonicalOutput}");
+        if (result.NativeEvaluation.ValidationErrors.Count > 0)
+            Console.WriteLine($"  native errors: {string.Join(" | ", result.NativeEvaluation.ValidationErrors)}");
+        if (result.OllamaEvaluation.ValidationErrors.Count > 0)
+            Console.WriteLine($"  ollama errors: {string.Join(" | ", result.OllamaEvaluation.ValidationErrors)}");
+    }
+
+    Console.WriteLine();
+    Console.WriteLine("Summary");
+    Console.WriteLine($"  native passed : {report.Summary.NativePassedCases}/{report.Summary.TotalCases}");
+    Console.WriteLine($"  ollama passed : {report.Summary.OllamaPassedCases}/{report.Summary.TotalCases}");
+    Console.WriteLine($"  both passed   : {report.Summary.BothPassedCases}/{report.Summary.TotalCases}");
+    Console.WriteLine($"  exact matches : {report.Summary.CanonicalMatches}/{report.Summary.TotalCases}");
+    Console.WriteLine($"  report        : {reportPath}");
+
+    return report.Summary.NativePassedCases == report.Summary.TotalCases &&
+           report.Summary.OllamaPassedCases == report.Summary.TotalCases &&
+           report.Summary.CanonicalMatches == report.Summary.TotalCases
+        ? 0
+        : 1;
 }
 
 // ── --pair — initiator side of the pairing ceremony, fingerprint-gated ────────
@@ -892,3 +1002,233 @@ if (timedOut)            { Console.WriteLine("No capture staged (timeout).");   
 if (errored || !planSeen){ Console.WriteLine("No capture staged (run error / no plan).");    return 1; }
 Console.WriteLine("No capture staged — plan likely scored marginal (40–69, silently skipped).");
 return 2;
+
+internal static class NativeDownloadCli
+{
+    public static async Task<int> RunAsync(
+        string queryOrRepo,
+        string? quant,
+        string? modelRootOverride,
+        bool noOllamaRegister)
+    {
+        var settings = AppSettings.Load();
+        var modelRoot = !string.IsNullOrWhiteSpace(modelRootOverride)
+            ? Path.GetFullPath(modelRootOverride)
+            : Path.GetFullPath(settings.ResolvedNativeRuntimeModelRoot);
+        Directory.CreateDirectory(modelRoot);
+
+        var userVramGb = settings.DetectedVramGb > 0
+            ? (int)Math.Round(settings.DetectedVramGb)
+            : 0;
+
+        Console.WriteLine($"swarmcli --native-download - query: {queryOrRepo}");
+        Console.WriteLine($"  model root: {modelRoot}");
+
+        using var search = new ModelSearchService(settings: settings);
+        using var downloader = new ModelDownloadService(settings: settings);
+
+        var selected = await ResolveModelAsync(search, queryOrRepo.Trim(), userVramGb);
+        if (selected is null)
+        {
+            Console.Error.WriteLine("  No GGUF model search results found.");
+            return 1;
+        }
+
+        Console.WriteLine($"  selected: {selected.Name}");
+        if (!string.IsNullOrWhiteSpace(selected.HuggingFaceId))
+            Console.WriteLine($"  huggingface: {selected.HuggingFaceId}");
+        if (!string.IsNullOrWhiteSpace(selected.OllamaName))
+            Console.WriteLine($"  ollama tag: {selected.OllamaName}");
+
+        var variants = await search.GetVariantsAsync(selected, userVramGb);
+        if (variants.Count == 0)
+        {
+            Console.Error.WriteLine("  Selected model exposes no downloadable GGUF variants.");
+            return 1;
+        }
+
+        var chosen = ChooseVariant(variants, quant);
+        if (chosen is null)
+        {
+            Console.Error.WriteLine("  Unable to choose a GGUF variant.");
+            return 1;
+        }
+
+        Console.WriteLine($"  quant: {chosen.QuantLabel}  size: {chosen.SizeDisplay}  est VRAM: {chosen.VramEstimateGb} GB");
+        var fileName = Path.GetFileName(chosen.DownloadUrl.Split('?')[0]);
+        var destPath = Path.Combine(modelRoot, fileName);
+        Console.WriteLine($"  destination: {destPath}");
+
+        if (File.Exists(destPath) && !string.IsNullOrWhiteSpace(chosen.Sha256))
+        {
+            Console.WriteLine("  Existing file found - verifying SHA-256...");
+            if (await downloader.VerifySha256Async(destPath, chosen.Sha256))
+            {
+                Console.WriteLine("  Existing GGUF already matches expected SHA-256.");
+                return await RegisterIfWantedAsync(downloader, selected, destPath, fileName, noOllamaRegister);
+            }
+
+            Console.WriteLine("  Existing file hash mismatch - redownloading.");
+            try { File.Delete(destPath); } catch { }
+        }
+
+        var progress = new Progress<(long done, long total, double speed, int eta)>(p =>
+        {
+            var pct = p.total > 0 ? (double)p.done / p.total * 100 : 0;
+            Console.Write($"\r  downloading {fileName}  {pct,6:F1}%  {FormatBytes(p.done)} / {FormatBytes(p.total)}  {FormatSpeed(p.speed)}  ETA {p.eta}s   ");
+        });
+        var retry = new Progress<string>(msg =>
+        {
+            Console.WriteLine();
+            Console.WriteLine($"  {msg}");
+        });
+
+        await downloader.DownloadAsync(chosen.DownloadUrl, destPath, progress, onRetry: retry);
+        Console.WriteLine();
+
+        if (!string.IsNullOrWhiteSpace(chosen.Sha256))
+        {
+            Console.WriteLine("  Verifying SHA-256...");
+            if (!await downloader.VerifySha256Async(destPath, chosen.Sha256))
+            {
+                try { File.Delete(destPath); } catch { }
+                Console.Error.WriteLine("  SHA-256 mismatch - downloaded file was deleted.");
+                return 1;
+            }
+            Console.WriteLine("  SHA-256 verified.");
+        }
+
+        return await RegisterIfWantedAsync(downloader, selected, destPath, fileName, noOllamaRegister);
+    }
+
+    private static async Task<ModelSearchResult?> ResolveModelAsync(
+        ModelSearchService search,
+        string trimmed,
+        int userVramGb)
+    {
+        if (trimmed.Contains('/', StringComparison.Ordinal))
+        {
+            var exact = CuratedModelCatalog.FindByHfId(trimmed);
+            if (exact is not null)
+            {
+                return new ModelSearchResult
+                {
+                    Id = exact.Id,
+                    Name = exact.Name,
+                    HuggingFaceId = exact.HuggingFaceId,
+                    OllamaName = exact.OllamaName,
+                    Publisher = exact.Publisher,
+                    Architecture = exact.Architecture,
+                    IsCurated = true,
+                    IsFromHuggingFace = true,
+                    IsFromOllama = !string.IsNullOrWhiteSpace(exact.OllamaName),
+                    Description = exact.Description,
+                    IntendedUse = exact.IntendedUse,
+                    ToolUseNotes = exact.ToolUse,
+                    SwarmRoles = exact.SwarmRoles,
+                    SwarmCapable = exact.SwarmCapable,
+                    QualityStars = exact.QualityStars,
+                    RecommendedQuant = exact.RecommendedQuant,
+                    VramMinGb = exact.VramMinGb,
+                    VramRecommendedGb = exact.VramRecommendedGb,
+                    CpuOk = exact.CpuOk,
+                    ContextK = exact.ContextK,
+                };
+            }
+
+            return new ModelSearchResult
+            {
+                Id = trimmed,
+                Name = trimmed.Split('/').Last(),
+                HuggingFaceId = trimmed,
+                IsCurated = false,
+                IsFromHuggingFace = true,
+                IsFromOllama = false,
+            };
+        }
+
+        var status = new List<string>();
+        var results = await search.SearchAsync(
+            trimmed,
+            userVramGb,
+            onStatus: status.Add);
+        foreach (var msg in status.Distinct())
+            Console.WriteLine($"  {msg}");
+        return results.FirstOrDefault();
+    }
+
+    private static GgufVariant? ChooseVariant(IReadOnlyList<GgufVariant> variants, string? quant)
+    {
+        if (!string.IsNullOrWhiteSpace(quant))
+        {
+            var requested = variants
+                .Where(v => string.Equals(v.QuantLabel, quant, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(v => IsShardedPart(v.Filename) ? 1 : 0)
+                .ThenBy(v => v.Filename.Length)
+                .FirstOrDefault();
+            if (requested is not null)
+                return requested;
+        }
+
+        return variants
+            .Where(v => v.IsRecommended)
+            .OrderBy(v => IsShardedPart(v.Filename) ? 1 : 0)
+            .ThenBy(v => v.Filename.Length)
+            .FirstOrDefault()
+            ?? variants
+                .OrderBy(v => IsShardedPart(v.Filename) ? 1 : 0)
+                .ThenBy(v => v.SizeBytes)
+                .FirstOrDefault();
+    }
+
+    private static bool IsShardedPart(string filename) =>
+        filename.Contains("-000", StringComparison.OrdinalIgnoreCase)
+        || filename.Contains(".part", StringComparison.OrdinalIgnoreCase);
+
+    private static async Task<int> RegisterIfWantedAsync(
+        ModelDownloadService downloader,
+        ModelSearchResult selected,
+        string destPath,
+        string fileName,
+        bool noOllamaRegister)
+    {
+        if (noOllamaRegister)
+        {
+            Console.WriteLine("  Download complete. Skipped Ollama registration (--no-ollama-register).");
+            return 0;
+        }
+
+        var ollamaName = !string.IsNullOrWhiteSpace(selected.OllamaName)
+            ? selected.OllamaName
+            : Path.GetFileNameWithoutExtension(fileName).ToLowerInvariant();
+        Console.WriteLine($"  Registering with Ollama as '{ollamaName}'...");
+        var log = new Progress<string>(msg => Console.WriteLine($"    {msg}"));
+        var registered = await downloader.RegisterWithOllamaAsync(destPath, ollamaName, log);
+        if (registered)
+        {
+            Console.WriteLine("  Native GGUF ready and registered with Ollama.");
+            return 0;
+        }
+
+        Console.WriteLine("  Download complete. Ollama registration failed or was skipped by environment.");
+        return 0;
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes <= 0) return "0 B";
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        var size = (double)bytes;
+        var unit = 0;
+        while (size >= 1024 && unit < units.Length - 1)
+        {
+            size /= 1024;
+            unit++;
+        }
+
+        return $"{size:F1} {units[unit]}";
+    }
+
+    private static string FormatSpeed(double bytesPerSec) =>
+        bytesPerSec <= 0 ? "0 B/s" : $"{FormatBytes((long)bytesPerSec)}/s";
+}

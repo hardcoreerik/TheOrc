@@ -28,6 +28,8 @@ public class ChatEngineTests
         public Task<bool> IsReachableAsync(CancellationToken ct = default) => Task.FromResult(true);
         public Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default) =>
             Task.FromResult(new List<string>());
+        public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) =>
+            Task.FromResult<int?>(null);
 
         public async IAsyncEnumerable<string> StreamCompletionAsync(
             string model,

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Diagnostics;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Models;
@@ -16,10 +17,14 @@ public sealed class ModelDownloadService : IDisposable
 {
     private readonly HttpClient _http;
 
-    public ModelDownloadService()
+    public ModelDownloadService(string? accessToken = null, AppSettings? settings = null)
     {
         _http = new HttpClient { Timeout = TimeSpan.FromHours(4) };
         _http.DefaultRequestHeaders.Add("User-Agent", "OrchestratorIDE/1.0");
+
+        var resolvedToken = HuggingFaceAccessTokenResolver.Resolve(accessToken, settings);
+        if (!string.IsNullOrWhiteSpace(resolvedToken))
+            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", resolvedToken);
     }
 
     // ── Download ──────────────────────────────────────────────────────────────
