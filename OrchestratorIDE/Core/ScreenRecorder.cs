@@ -206,8 +206,8 @@ public sealed class ScreenRecorder : IDisposable
 /// </summary>
 public sealed class ScreenRecorder : IDisposable
 {
-    public event Action<string>? OnTick;
-    public event Action<string>? OnStopped;
+    public event Action<string>? OnTick { add { } remove { } }
+    public event Action<string>? OnStopped { add { } remove { } }
     public bool IsRecording => false;
 
     public void Start(object target) { }

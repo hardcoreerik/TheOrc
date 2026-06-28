@@ -930,6 +930,7 @@ public partial class MainWindow : Window
 
         ShellTools.Register(_registry, ws, onSandboxBypass: sandboxBypass);
         SearchTools.Register(_registry, ws);
+        FabricTools.Register(_registry, ws);
         GraphTools.Register(_registry, ws);
         TestTools.Register(_registry, ws);
         WebTools.Register(_registry);

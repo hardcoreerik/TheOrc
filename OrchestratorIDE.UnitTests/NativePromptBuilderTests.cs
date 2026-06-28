@@ -29,4 +29,25 @@ public sealed class NativePromptBuilderTests
             Assert.That(messages[1].Content, Is.EqualTo("Source text"));
         });
     }
+
+    [Test]
+    public void BuildGemma4Prompt_Uses_Native_Turns_And_Disables_Thinking()
+    {
+        var prompt = NativePromptBuilder.BuildGemma4Prompt(
+        [
+            new AgentMessage { Role = MessageRole.System, Content = "Return JSON only." },
+            new AgentMessage { Role = MessageRole.User, Content = "Source text" },
+            new AgentMessage { Role = MessageRole.Assistant, Content = "Prior answer" },
+            new AgentMessage { Role = MessageRole.Tool, Content = "Tool output" },
+        ]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.StartWith("<bos><|turn>system\nReturn JSON only.<turn|>\n"));
+            Assert.That(prompt, Does.Contain("<|turn>user\nSource text<turn|>"));
+            Assert.That(prompt, Does.Contain("<|turn>model\nPrior answer<turn|>"));
+            Assert.That(prompt, Does.Contain("<|turn>user\nTool result:\nTool output<turn|>"));
+            Assert.That(prompt, Does.EndWith("<|turn>model\n<|channel>thought\n<channel|>"));
+        });
+    }
 }

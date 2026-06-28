@@ -1,0 +1,17 @@
+{
+  "FixtureId": "darwin-origin-species-2009",
+  "SourceUrl": "https://www.gutenberg.org/cache/epub/2009/pg2009.txt",
+  "DownloadedAtUtc": "2026-06-28T15:24:53.0022180Z",
+  "Edition": "Project Gutenberg eBook #2009 (1872, Sixth Edition)",
+  "MediaType": "text/plain",
+  "SourceSha256": "449778512fe7bb168e01614b9a760b874a24d63d4127b6a4b06955d9e0ff560a",
+  "ParserId": "fabric-text-markdown",
+  "ParserVersion": "fabric-text-markdown-1.0",
+  "SegmenterVersion": "fabric-segmenter-1.0",
+  "ExpectedDocumentId": "doc-a6ad97d453628e07bdd1dc6b",
+  "ExpectedNormalizedSha256": "6d128427af1e827ea69293000e6db510fa3471a358f1a623d75d4eeb3bd9ba17",
+  "ExpectedSegmentCount": 3107,
+  "ExpectedSegmentIdsSha256": "8094337c998b2d3b907718f11f1926499c0f1f951c8838626ccf86796d03921a",
+  "ExpectedFirstSegmentId": "seg-9c5ecf6a35c955e6394729c8",
+  "ExpectedLastSegmentId": "seg-ef43b5335921e166bdd7ba69"
+}

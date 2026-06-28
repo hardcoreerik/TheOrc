@@ -23,6 +23,8 @@ internal static class Migrations
         new Migration(6, "graph_adr step4 (title,decision,status,created_at,body)", Sql006_AdrV2),
         new Migration(7, "native campaign engine", Sql007_Campaigns),
         new Migration(8, "context fabric ingestion and segment search", Sql008_ContextFabric),
+        new Migration(9, "context fabric segment integrity retrofit", Sql009_ContextFabricSegmentIntegrity),
+        new Migration(10, "context fabric document graph and claim search", Sql010_ContextFabricDocumentGraph),
     ];
 
     // ── v1 — Phase 1: captures + triage ─────────────────────────────────────────
@@ -308,6 +310,183 @@ internal static class Migrations
             VALUES ('delete', old.rowid, old.heading_path, old.normalized_text);
             INSERT INTO fabric_segment_fts(rowid, heading_path, normalized_text)
             VALUES (new.rowid, new.heading_path, new.normalized_text);
+        END;
+        """;
+
+    // v8 shipped without range constraints. Rebuild both linked tables so existing
+    // databases and fresh installs converge on the same constrained schema.
+    private const string Sql009_ContextFabricSegmentIntegrity = """
+        DROP TRIGGER fabric_segment_text_ai;
+        DROP TRIGGER fabric_segment_text_ad;
+        DROP TRIGGER fabric_segment_text_au;
+        DROP TABLE fabric_segment_fts;
+        DROP INDEX ix_fabric_segments_document;
+
+        ALTER TABLE fabric_segment_text RENAME TO fabric_segment_text_v8;
+        ALTER TABLE fabric_segments RENAME TO fabric_segments_v8;
+
+        CREATE TABLE fabric_segments (
+            segment_id          TEXT PRIMARY KEY,
+            document_id         TEXT NOT NULL REFERENCES fabric_documents(document_id) ON DELETE CASCADE,
+            ordinal             INTEGER NOT NULL CHECK (ordinal >= 0),
+            heading_path        TEXT,
+            char_start          INTEGER NOT NULL CHECK (char_start >= 0),
+            char_end            INTEGER NOT NULL CHECK (char_end >= char_start),
+            token_count         INTEGER NOT NULL CHECK (token_count >= 0),
+            text_digest         TEXT NOT NULL,
+            previous_segment_id TEXT,
+            next_segment_id     TEXT,
+            chunker_version     TEXT NOT NULL,
+            UNIQUE(document_id, ordinal, chunker_version)
+        );
+        CREATE INDEX ix_fabric_segments_document ON fabric_segments(document_id, ordinal);
+
+        CREATE TABLE fabric_documents_rebuild_v9 (
+            document_id TEXT PRIMARY KEY
+        );
+        INSERT INTO fabric_documents_rebuild_v9(document_id)
+        SELECT DISTINCT document_id
+        FROM fabric_segments_v8
+        WHERE ordinal < 0
+           OR char_start < 0
+           OR char_end < char_start
+           OR token_count < 0;
+
+        UPDATE fabric_documents
+        SET status = 'needs_rebuild',
+            updated_at = datetime('now')
+        WHERE document_id IN (SELECT document_id FROM fabric_documents_rebuild_v9);
+
+        INSERT INTO fabric_segments
+            (segment_id, document_id, ordinal, heading_path, char_start, char_end,
+             token_count, text_digest, previous_segment_id, next_segment_id, chunker_version)
+        SELECT segment.segment_id, segment.document_id, segment.ordinal, segment.heading_path,
+               segment.char_start, segment.char_end, segment.token_count, segment.text_digest,
+               segment.previous_segment_id, segment.next_segment_id, segment.chunker_version
+        FROM fabric_segments_v8 AS segment
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM fabric_documents_rebuild_v9 AS rebuild
+            WHERE rebuild.document_id = segment.document_id
+        );
+
+        CREATE TABLE fabric_segment_text (
+            segment_id      TEXT PRIMARY KEY REFERENCES fabric_segments(segment_id) ON DELETE CASCADE,
+            heading_path    TEXT,
+            normalized_text TEXT NOT NULL
+        );
+        INSERT INTO fabric_segment_text(segment_id, heading_path, normalized_text)
+        SELECT legacy.segment_id, legacy.heading_path, legacy.normalized_text
+        FROM fabric_segment_text_v8 AS legacy
+        JOIN fabric_segments AS segment ON segment.segment_id = legacy.segment_id;
+
+        DROP TABLE fabric_segment_text_v8;
+        DROP TABLE fabric_segments_v8;
+        DROP TABLE fabric_documents_rebuild_v9;
+
+        CREATE VIRTUAL TABLE fabric_segment_fts USING fts5(
+            heading_path,
+            normalized_text,
+            content='fabric_segment_text',
+            content_rowid='rowid',
+            tokenize='unicode61 remove_diacritics 2'
+        );
+        INSERT INTO fabric_segment_fts(rowid, heading_path, normalized_text)
+        SELECT rowid, heading_path, normalized_text FROM fabric_segment_text;
+
+        CREATE TRIGGER fabric_segment_text_ai AFTER INSERT ON fabric_segment_text BEGIN
+            INSERT INTO fabric_segment_fts(rowid, heading_path, normalized_text)
+            VALUES (new.rowid, new.heading_path, new.normalized_text);
+        END;
+        CREATE TRIGGER fabric_segment_text_ad AFTER DELETE ON fabric_segment_text BEGIN
+            INSERT INTO fabric_segment_fts(fabric_segment_fts, rowid, heading_path, normalized_text)
+            VALUES ('delete', old.rowid, old.heading_path, old.normalized_text);
+        END;
+        CREATE TRIGGER fabric_segment_text_au AFTER UPDATE ON fabric_segment_text BEGIN
+            INSERT INTO fabric_segment_fts(fabric_segment_fts, rowid, heading_path, normalized_text)
+            VALUES ('delete', old.rowid, old.heading_path, old.normalized_text);
+            INSERT INTO fabric_segment_fts(rowid, heading_path, normalized_text)
+            VALUES (new.rowid, new.heading_path, new.normalized_text);
+        END;
+        """;
+
+    // ── v10 — Context Fabric document graph + claim FTS ─────────────────────
+    private const string Sql010_ContextFabricDocumentGraph = """
+        CREATE TABLE fabric_claims (
+            claim_id             TEXT PRIMARY KEY,
+            corpus_id            TEXT NOT NULL REFERENCES fabric_corpora(corpus_id) ON DELETE CASCADE,
+            document_id          TEXT NOT NULL REFERENCES fabric_documents(document_id) ON DELETE CASCADE,
+            segment_id           TEXT NOT NULL REFERENCES fabric_segments(segment_id) ON DELETE CASCADE,
+            claim_type           TEXT NOT NULL,
+            claim_text           TEXT NOT NULL,
+            verification_status  TEXT NOT NULL CHECK (verification_status IN ('provisional', 'verified', 'rejected')),
+            confidence           REAL,
+            created_at           TEXT NOT NULL,
+            updated_at           TEXT NOT NULL
+        );
+        CREATE INDEX ix_fabric_claims_corpus ON fabric_claims(corpus_id, claim_type, verification_status);
+        CREATE INDEX ix_fabric_claims_segment ON fabric_claims(segment_id);
+
+        CREATE TABLE fabric_claim_citations (
+            claim_id      TEXT NOT NULL REFERENCES fabric_claims(claim_id) ON DELETE CASCADE,
+            ordinal       INTEGER NOT NULL CHECK (ordinal >= 0),
+            segment_id    TEXT NOT NULL REFERENCES fabric_segments(segment_id) ON DELETE CASCADE,
+            char_start    INTEGER NOT NULL CHECK (char_start >= 0),
+            char_end      INTEGER NOT NULL CHECK (char_end >= char_start),
+            quote_digest  TEXT NOT NULL,
+            quote_text    TEXT NOT NULL,
+            PRIMARY KEY (claim_id, ordinal)
+        );
+        CREATE INDEX ix_fabric_claim_citations_segment ON fabric_claim_citations(segment_id);
+
+        CREATE TABLE fabric_entities (
+            entity_id             TEXT PRIMARY KEY,
+            corpus_id            TEXT NOT NULL REFERENCES fabric_corpora(corpus_id) ON DELETE CASCADE,
+            canonical_name       TEXT NOT NULL,
+            entity_type          TEXT,
+            verification_status  TEXT NOT NULL CHECK (verification_status IN ('provisional', 'verified', 'rejected')),
+            confidence           REAL,
+            created_at           TEXT NOT NULL,
+            updated_at           TEXT NOT NULL
+        );
+        CREATE INDEX ix_fabric_entities_corpus ON fabric_entities(corpus_id, canonical_name);
+
+        CREATE TABLE fabric_relations (
+            relation_id           TEXT PRIMARY KEY,
+            corpus_id            TEXT NOT NULL REFERENCES fabric_corpora(corpus_id) ON DELETE CASCADE,
+            source_entity_id     TEXT NOT NULL REFERENCES fabric_entities(entity_id) ON DELETE CASCADE,
+            target_entity_id     TEXT NOT NULL REFERENCES fabric_entities(entity_id) ON DELETE CASCADE,
+            relation_type        TEXT NOT NULL,
+            verification_status  TEXT NOT NULL CHECK (verification_status IN ('provisional', 'verified', 'rejected')),
+            confidence           REAL,
+            evidence_count       INTEGER NOT NULL CHECK (evidence_count >= 0),
+            created_at           TEXT NOT NULL,
+            updated_at           TEXT NOT NULL
+        );
+        CREATE INDEX ix_fabric_relations_corpus ON fabric_relations(corpus_id, relation_type, verification_status);
+        CREATE INDEX ix_fabric_relations_source ON fabric_relations(source_entity_id);
+        CREATE INDEX ix_fabric_relations_target ON fabric_relations(target_entity_id);
+
+        CREATE VIRTUAL TABLE fabric_claim_fts USING fts5(
+            claim_text,
+            content='fabric_claims',
+            content_rowid='rowid',
+            tokenize='unicode61 remove_diacritics 2'
+        );
+
+        CREATE TRIGGER fabric_claims_ai AFTER INSERT ON fabric_claims BEGIN
+            INSERT INTO fabric_claim_fts(rowid, claim_text)
+            VALUES (new.rowid, new.claim_text);
+        END;
+        CREATE TRIGGER fabric_claims_ad AFTER DELETE ON fabric_claims BEGIN
+            INSERT INTO fabric_claim_fts(fabric_claim_fts, rowid, claim_text)
+            VALUES ('delete', old.rowid, old.claim_text);
+        END;
+        CREATE TRIGGER fabric_claims_au AFTER UPDATE ON fabric_claims BEGIN
+            INSERT INTO fabric_claim_fts(fabric_claim_fts, rowid, claim_text)
+            VALUES ('delete', old.rowid, old.claim_text);
+            INSERT INTO fabric_claim_fts(rowid, claim_text)
+            VALUES (new.rowid, new.claim_text);
         END;
         """;
 

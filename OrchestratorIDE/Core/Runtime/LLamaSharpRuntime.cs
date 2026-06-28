@@ -135,7 +135,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
                 MaxTokens = maxTokens,
                 SamplingPipeline = samplingPipeline,
                 // Common end-of-turn markers across model families
-                AntiPrompts = ["<|user|>", "<|end|>", "<|im_end|>", "[/INST]", "\nUser:", "\nHuman:"],
+                AntiPrompts = ["<|user|>", "<|end|>", "<|im_end|>", "<end_of_turn>", "<turn|>", "[/INST]", "\nUser:", "\nHuman:"],
             };
 
             var outputBuilder = new StringBuilder();
@@ -244,7 +244,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         }
         catch (Exception ex)
         {
-            return new ModelLoadResult(false, RuntimeName, baseGgufPath, ex.Message);
+            return new ModelLoadResult(false, RuntimeName, baseGgufPath, FormatLoadFailure(ex));
         }
     }
 
@@ -301,10 +301,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
 
         // Fast path: we already know this model has no embedded template.
         if (_hasEmbeddedTemplate == false)
-        {
-            _lastPromptPath = "ChatMLFallback";
-            return NativePromptBuilder.BuildChatMLPrompt(messages);
-        }
+            return BuildFallbackPrompt(messages);
 
         if (_weights is null)
             throw new InvalidOperationException(
@@ -351,9 +348,27 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
                     $"[LLamaSharpRuntime] Template probe failed ({templateFailure.GetType().Name}: {templateFailure.Message}); " +
                     "falling back to ChatML for this session.");
             }
-            _lastPromptPath = "ChatMLFallback";
-            return NativePromptBuilder.BuildChatMLPrompt(messages);
+            return BuildFallbackPrompt(messages);
         }
+    }
+
+    private string BuildFallbackPrompt(List<AgentMessage> messages)
+    {
+        if (IsGemma4Model(_activeModelPath))
+        {
+            _lastPromptPath = "GemmaNativeFallback";
+            return NativePromptBuilder.BuildGemma4Prompt(messages);
+        }
+
+        _lastPromptPath = "ChatMLFallback";
+        return NativePromptBuilder.BuildChatMLPrompt(messages);
+    }
+
+    private static bool IsGemma4Model(string? modelPath)
+    {
+        var name = Path.GetFileName(modelPath ?? "").Replace('_', '-');
+        return name.Contains("gemma4", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("gemma-4", StringComparison.OrdinalIgnoreCase);
     }
 
     private string ApplyEmbeddedTemplate(IEnumerable<AgentMessage> messages)
@@ -362,6 +377,15 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         foreach (var msg in messages)
             template.Add(NativePromptBuilder.ToRoleString(msg.Role), msg.Content ?? "");
         return Encoding.UTF8.GetString(template.Apply());
+    }
+
+    private static string FormatLoadFailure(Exception ex)
+    {
+        var message = $"{ex.GetType().Name}: {ex.Message}";
+        if (ex.InnerException is null)
+            return message;
+
+        return $"{message} | Inner: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}";
     }
 
     private static List<ToolCall> ParseToolCalls(string text) => ToolCallTextParser.Parse(text);

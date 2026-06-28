@@ -48,6 +48,37 @@ public sealed class ContentAddressedStore
         return path;
     }
 
+    public bool DeleteIfPresent(string digest)
+    {
+        digest = ValidateDigest(digest);
+        var gate = _gates.GetOrAdd(digest, _ => new SemaphoreSlim(1, 1));
+        gate.Wait();
+        try
+        {
+            var complete = CompletePath(digest);
+            var partial = PartialPath(digest);
+            var deleted = false;
+
+            if (File.Exists(complete))
+            {
+                File.Delete(complete);
+                deleted = true;
+            }
+
+            if (File.Exists(partial))
+            {
+                File.Delete(partial);
+                deleted = true;
+            }
+
+            return deleted;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
     public IReadOnlyList<string> GetDigests(int limit = 4096) => Directory
         .EnumerateFiles(Root, "*" + _extension, SearchOption.AllDirectories)
         .Select(Path.GetFileNameWithoutExtension)
@@ -62,8 +93,8 @@ public sealed class ContentAddressedStore
         digest = ValidateDigest(digest);
         if (offset < 0 || totalBytes <= 0 || totalBytes > _maxObjectBytes || offset + data.Length > totalBytes)
             throw new InvalidDataException("Invalid object size or chunk range.");
-        if (data.Length <= 0 || data.Length > MaxChunkBytes)
-            throw new InvalidDataException($"Chunk must be between 1 and {MaxChunkBytes} bytes.");
+        if (data.Length > MaxChunkBytes || data.Length == 0 && offset != totalBytes)
+            throw new InvalidDataException($"Chunk must be between 1 and {MaxChunkBytes} bytes unless finalizing a complete partial object.");
 
         var gate = _gates.GetOrAdd(digest, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
@@ -73,16 +104,17 @@ public sealed class ContentAddressedStore
             if (File.Exists(complete))
                 return new ChunkWriteResult(true, new FileInfo(complete).Length, complete);
 
-            EnsureCapacity(data.Length);
             var partial = PartialPath(digest);
             Directory.CreateDirectory(Path.GetDirectoryName(partial)!);
             var existing = File.Exists(partial) ? new FileInfo(partial).Length : 0;
             if (existing != offset)
                 throw new InvalidDataException($"Resume offset mismatch: store has {existing}, request supplied {offset}.");
 
-            await using (var stream = new FileStream(partial, FileMode.Append, FileAccess.Write,
-                FileShare.None, MaxChunkBytes, FileOptions.Asynchronous | FileOptions.WriteThrough))
+            if (data.Length > 0)
             {
+                EnsureCapacity(data.Length);
+                await using var stream = new FileStream(partial, FileMode.Append, FileAccess.Write,
+                    FileShare.None, MaxChunkBytes, FileOptions.Asynchronous | FileOptions.WriteThrough);
                 await stream.WriteAsync(data, ct).ConfigureAwait(false);
                 await stream.FlushAsync(ct).ConfigureAwait(false);
             }

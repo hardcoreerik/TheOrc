@@ -8,6 +8,7 @@ namespace OrchestratorIDE.Services.ContextFabric;
 
 public sealed class FabricLibraryService
 {
+    private readonly SemaphoreSlim _mutationGate = new(1, 1);
     private readonly FabricLibraryRepository _repository;
     private readonly ContentAddressedStore _artifacts;
     private readonly FabricDocumentParserRegistry _parsers;
@@ -57,12 +58,20 @@ public sealed class FabricLibraryService
         EnsureBoundedSize(info.Length);
 
         var bytes = await File.ReadAllBytesAsync(fullPath, ct).ConfigureAwait(false);
-        return await ImportBytesAsync(
-            corpusId,
-            info.Name,
-            mediaType ?? InferMediaType(info.Extension),
-            bytes,
-            ct).ConfigureAwait(false);
+        await _mutationGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await ImportBytesAsync(
+                corpusId,
+                info.Name,
+                mediaType ?? InferMediaType(info.Extension),
+                bytes,
+                ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _mutationGate.Release();
+        }
     }
 
     public async Task<FabricImportResult> RebuildDocumentAsync(
@@ -79,17 +88,46 @@ public sealed class FabricLibraryService
         if (!digest.Equals(existing.SourceDigest, StringComparison.Ordinal))
             throw new InvalidDataException($"Stored source digest mismatch for document '{documentId}'.");
 
-        return await ImportBytesAsync(
-            existing.CorpusId,
-            existing.DisplayName,
-            existing.MediaType,
-            bytes,
-            ct,
-            expectedParserId: existing.ParserId,
-            expectedParserVersion: existing.ParserVersion).ConfigureAwait(false);
+        await _mutationGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await ImportBytesAsync(
+                existing.CorpusId,
+                existing.DisplayName,
+                existing.MediaType,
+                bytes,
+                ct,
+                expectedParserId: existing.ParserId,
+                expectedParserVersion: existing.ParserVersion).ConfigureAwait(false);
+        }
+        finally
+        {
+            _mutationGate.Release();
+        }
     }
 
     public bool DeleteCorpus(string corpusId) => _repository.DeleteCorpus(corpusId);
+
+    public int DeleteUnreferencedArtifacts()
+    {
+        _mutationGate.Wait();
+        try
+        {
+            var referenced = _repository.ListReferencedArtifactDigests();
+            var deleted = 0;
+            foreach (var digest in _artifacts.GetDigests())
+            {
+                if (!referenced.Contains(digest) && _artifacts.DeleteIfPresent(digest))
+                    deleted++;
+            }
+
+            return deleted;
+        }
+        finally
+        {
+            _mutationGate.Release();
+        }
+    }
 
     private async Task<FabricImportResult> ImportBytesAsync(
         string corpusId,
@@ -150,7 +188,20 @@ public sealed class FabricLibraryService
             return;
         }
 
-        long offset = 0;
+        var offset = _artifacts.GetResumeOffset(digest);
+        if (offset > bytes.LongLength)
+            throw new InvalidDataException($"Partial content-addressed object '{digest}' exceeds the expected size.");
+        if (offset == bytes.LongLength)
+        {
+            await _artifacts.WriteChunkAsync(
+                digest,
+                offset,
+                bytes.LongLength,
+                ReadOnlyMemory<byte>.Empty,
+                ct).ConfigureAwait(false);
+            return;
+        }
+
         while (offset < bytes.LongLength)
         {
             var length = (int)Math.Min(ContentAddressedStore.MaxChunkBytes, bytes.LongLength - offset);

@@ -1,0 +1,17 @@
+{
+  "FixtureId": "darwin-origin-species-primary-pdf",
+  "SourceUrl": "https://archive.org/download/rmcg0005/Darwin-OriginOfSpecies-a1.pdf",
+  "DownloadedAtUtc": "2026-06-28T15:24:53.0022180Z",
+  "Edition": "Project Gutenberg derived PDF",
+  "MediaType": "application/pdf",
+  "SourceSha256": "94ac3c292a290811521bceb8ae21862c5526898d5783f9ced9cdfe1b64b551c2",
+  "ParserId": "fabric-pdf-text",
+  "ParserVersion": "fabric-pdf-text-1.0",
+  "SegmenterVersion": "fabric-segmenter-1.0",
+  "ExpectedDocumentId": "doc-d7f81a1aedeaec9fe462fed2",
+  "ExpectedNormalizedSha256": "c24e505c56ceca987fc79b789fb0e67b7ab3cad3d6074010cf191d76c223b2ff",
+  "ExpectedSegmentCount": 1824,
+  "ExpectedSegmentIdsSha256": "1b4b614f1cd907cb0f7a52bb153b896761360c1992864a2cf5b9bc5569177332",
+  "ExpectedFirstSegmentId": "seg-b7a6bc51d9753f49e762f6e3",
+  "ExpectedLastSegmentId": "seg-11c4d0668f42c4c0dec8c74c"
+}

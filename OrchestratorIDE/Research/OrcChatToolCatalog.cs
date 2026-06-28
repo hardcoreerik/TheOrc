@@ -27,6 +27,10 @@ public static class OrcChatToolCatalog
         "write_file",
         "grep_code",
         "get_outline",
+        "library_list",
+        "library_search",
+        "library_open",
+        "library_graph",
         "run_tests",
         "save_markdown_document",
     ];
@@ -38,6 +42,7 @@ public static class OrcChatToolCatalog
 
         FileTools.Register(registry, workspaceRoot);
         SearchTools.Register(registry, workspaceRoot);
+        FabricTools.Register(registry, workspaceRoot);
         TestTools.Register(registry, workspaceRoot);
         WebTools.Register(registry);
 

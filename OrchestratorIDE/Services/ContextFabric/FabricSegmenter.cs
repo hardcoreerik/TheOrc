@@ -110,6 +110,16 @@ public sealed class FabricSegmenter
                 var whitespace = block.Text.LastIndexOfAny([' ', '\t', '\n'], offset + length - 1, length);
                 if (whitespace > offset + (length / 2))
                     length = whitespace - offset + 1;
+
+                var splitAt = offset + length;
+                if (splitAt > offset &&
+                    char.IsHighSurrogate(block.Text[splitAt - 1]) &&
+                    char.IsLowSurrogate(block.Text[splitAt]))
+                {
+                    length--;
+                    if (length == 0)
+                        throw new InvalidDataException("Unable to split block at a Unicode scalar boundary.");
+                }
             }
 
             var text = block.Text.Substring(offset, length);

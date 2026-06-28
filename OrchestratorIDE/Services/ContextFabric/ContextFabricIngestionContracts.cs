@@ -6,7 +6,15 @@ namespace OrchestratorIDE.Services.ContextFabric;
 public static class FabricIngestionVersions
 {
     public const string TextMarkdownParser = "fabric-text-markdown-1.0";
+    public const string PdfTextParser = "fabric-pdf-text-1.0";
     public const string Segmenter = "fabric-segmenter-1.0";
+}
+
+public static class FabricVerificationStatus
+{
+    public const string Provisional = "provisional";
+    public const string Verified = "verified";
+    public const string Rejected = "rejected";
 }
 
 public sealed record FabricParsedBlock(
@@ -87,6 +95,74 @@ public sealed record FabricSearchHit(
     string? HeadingPath,
     string Text,
     double Rank);
+
+public sealed record FabricClaimEntry(
+    string ClaimId,
+    string CorpusId,
+    string DocumentId,
+    string SegmentId,
+    string ClaimType,
+    string ClaimText,
+    string VerificationStatus,
+    double? Confidence,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
+public sealed record FabricClaimCitationEntry(
+    string ClaimId,
+    int Ordinal,
+    string SegmentId,
+    int CharStart,
+    int CharEnd,
+    string QuoteDigest,
+    string QuoteText);
+
+public sealed record FabricEntityEntry(
+    string EntityId,
+    string CorpusId,
+    string CanonicalName,
+    string? EntityType,
+    string VerificationStatus,
+    double? Confidence,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
+public sealed record FabricRelationEntry(
+    string RelationId,
+    string CorpusId,
+    string SourceEntityId,
+    string TargetEntityId,
+    string RelationType,
+    string VerificationStatus,
+    double? Confidence,
+    int EvidenceCount,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
+public sealed record FabricClaimSearchHit(
+    string ClaimId,
+    string CorpusId,
+    string DocumentId,
+    string SegmentId,
+    string DisplayName,
+    string ClaimType,
+    string ClaimText,
+    string VerificationStatus,
+    double? Confidence,
+    double Rank);
+
+public sealed record FabricRetrievalHit(
+    string CorpusId,
+    string DocumentId,
+    string DisplayName,
+    string SegmentId,
+    int Ordinal,
+    string? HeadingPath,
+    string Text,
+    string RetrievalPath,
+    string? ClaimId,
+    string? ClaimText,
+    string? VerificationStatus);
 
 public sealed record FabricSegmenterOptions(
     int TargetTokens = 2_000,

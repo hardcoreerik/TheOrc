@@ -1,8 +1,8 @@
 # The Orc Context Fabric
 
-> Status: CF-0 native feasibility gate passed; CF-1 implementation ready to begin
+> Status: CF-0 native feasibility gate passed; CF-1 deterministic-ingestion framework passed; product integration remains ahead
 > Owner: TheOrc native runtime, OrcChat, CodeGraph, and HIVE MIND
-> Last updated: 2026-06-27
+> Last updated: 2026-06-28
 > Product goal: make corpus size effectively independent of the active model context window while preserving source coverage, provenance, and reproducible answers on consumer hardware.
 
 ---
@@ -52,11 +52,11 @@ Context Fabric combines exhaustive preprocessing, hierarchical memory, lexical a
 
 ---
 
-## Operational Definition Of "Infinite In Practice"
+## Operational Definition Of Corpus-Scale Memory
 
-Context Fabric is successful when corpus size no longer determines whether OrcChat can use a source. Corpus size may increase indexing time, storage, and exhaustive-query latency, but it must not require a larger live prompt.
+Earlier drafts used "infinite in practice" as shorthand. The concrete goal is corpus-scale memory: corpus size no longer determines whether OrcChat can use a source. Corpus size may increase indexing time, storage, and exhaustive-query latency, but it must not require a larger live prompt.
 
-"Infinite in practice" means:
+Corpus-scale memory means:
 
 - The corpus address space is limited by disk, not the model's context length.
 - Every source segment has a stable address and content digest.
@@ -938,6 +938,10 @@ Use one pinned edition of Charles Darwin's *On the Origin of Species* from Proje
 
 Questions are independently authored and reviewed. They cover direct facts, argument structure, examples, exceptions, terminology, cross-chapter synthesis, and global themes.
 
+Current PDF fixture note (2026-06-28): the checked-in candidate list at `OrchestratorIDE.UnitTests/TestData/ContextFabric/darwin-origin-species-pdf-candidates.json` pins four public-domain Darwin PDFs by source URL and SHA-256. The initial CF-1 text-PDF target is the small Project Gutenberg-derived Archive PDF, now also checked in as `OrchestratorIDE.UnitTests/TestData/ContextFabric/darwin-origin-species-primary.pdf` with a reproducibility manifest. The first-edition scan, the Toronto scan, and the Darwin Online 1861 New York PDF are still better held as future scan/OCR or negative fixtures because sampled extraction was unreadable or empty.
+
+See [CONTEXT_FABRIC_BENCHMARK_CORPUS.md](CONTEXT_FABRIC_BENCHMARK_CORPUS.md) for the branded public benchmark shelf, private/licensed benchmark rules, and phase-to-corpus mapping.
+
 ### Corpus C: standardized long-context subset
 
 Add a pinned subset of LongBench/LongBench v2 tasks where licensing permits local evaluation. Preserve original task IDs and official scoring. This tests whether gains transfer beyond our custom fixtures.
@@ -1219,7 +1223,7 @@ Exit gate:
 - a cross-segment question is answered with valid citations;
 - all artifacts can be deleted and deterministically rebuilt.
 
-Implementation status (2026-06-27): **CF-0 exit gate passed; CF-1 unblocked**.
+Implementation status (2026-06-28): **CF-0 exit gate passed; CF-1 deterministic-ingestion framework exit passed in focused tests**.
 
 - The shared native-runtime project now contains versioned CF-0 contracts, a deterministic 16-segment corpus, strict host-side quote/digest/citation verification, hierarchical reducers, bounded evidence packing, frozen gates, and JSON/Markdown report generation.
 - `Tools/ContextFabricBench` runs the spike directly through `NativeRoleRuntime`; it has no Ollama path or fallback. Workload-aware model selection and pinned role bindings ensure that the model checked by admission preflight is the model that actually executes the run.
@@ -1227,9 +1231,10 @@ Implementation status (2026-06-27): **CF-0 exit gate passed; CF-1 unblocked**.
 - The first real CUDA baseline processed the 15,595-token corpus but produced 0/16 valid evidence cards. Bounded raw-output and prompt-path diagnostics showed that this was a model/contract failure rather than an Ollama fallback.
 - The first real run exposed a native batching defect for prompts larger than one LLamaSharp batch; `NativeRoleRuntime` now drains all pending inference batches before sampling.
 - The passing native lane uses `Hermes-3-Llama-3.1-8B.Q5_K_M.gguf` through its embedded template on a single 16GB NVIDIA GPU. The final report accepted 16/16 segments, verified 5/5 questions, reached 100% citation precision, held the live context to 8K, and achieved an 11.50x source-to-working-context ratio. All nine frozen gates passed.
+- A second real native lane now passes on `gemma-4-12b.gguf` through the runtime's verified `GemmaNativeFallback` prompt path after the embedded-template apply path failed. The final report accepted 16/16 segments, verified 5/5 questions, reached 100% citation precision, held the live context to 8K, and achieved an 11.48x source-to-working-context ratio.
 - Reader inputs expose deterministic evidence units, incomplete cards receive one bounded missing-evidence repair pass, and the merged card is revalidated against the untouched source. Three cards required repair in the passing run. Exhaustive answers aggregate the highest-matching grounded claim per segment in source order; local, multi-hop, contradiction, and abstention lanes remain model-backed.
 - Quote-anchor diagnostics cover exact, normalized-exact, soft-candidate, and rejected hallucinated anchors. The real native boundary-stitch lane passes 2/2 cases.
-- CF-1 may now begin. Hierarchy-loss, embedding-impact, graph-noise, exhaustive-cost, and SQLite-traversal benchmarks remain acceptance work for later phases; they are not blockers to starting deterministic ingestion and content storage.
+- CF-1's deterministic-ingestion exit is now closed. Hierarchy-loss, embedding-impact, graph-noise, exhaustive-cost, and SQLite-traversal benchmarks remain acceptance work for later phases; they are not blockers to deterministic ingestion and content storage.
 
 ### Phase CF-1: deterministic ingestion and content storage
 
@@ -1249,14 +1254,14 @@ Exit gate:
 - segment IDs and normalized digest remain stable across two clean rebuilds;
 - malformed and oversized documents fail safely.
 
-Implementation status (2026-06-27): **framework in progress**.
+Implementation status (2026-06-28): **framework exit passed in focused tests**.
 
-- Migration v8 now adds dedicated corpus, document, segment, normalized segment text, and external-content FTS5 storage beside CodeGraph in the shared WAL database.
-- `FabricLibraryService` and `FabricLibraryRepository` provide corpus creation, bounded file import, deterministic rebuild, lexical segment search, and cascade deletion. Original and normalized artifacts reuse the existing quota-bounded SHA-256 object store.
-- The first parser accepts strict UTF-8 plain text and Markdown, canonicalizes newlines and Unicode, preserves normalized character offsets, and records Markdown heading paths. PDF remains behind the parser boundary and fails explicitly as unsupported.
+- Migration v8 adds dedicated corpus, document, segment, normalized segment text, and external-content FTS5 storage beside CodeGraph in the shared WAL database; migration v9 retrofits segment range constraints for existing v8 databases and marks documents with invalid legacy segments for deterministic rebuild from their source artifacts.
+- `FabricLibraryService` and `FabricLibraryRepository` provide corpus creation, bounded file import, deterministic rebuild, lexical segment search, cascade deletion, and unreferenced artifact garbage collection. Original and normalized artifacts reuse the existing quota-bounded SHA-256 object store.
+- The first parser set accepts strict UTF-8 plain text, Markdown, and text-extractable PDFs, canonicalizes newlines and Unicode, preserves normalized character offsets, and records Markdown heading paths. The pinned Darwin primary PDF fixture now imports and rebuilds reproducibly; scan-heavy Darwin PDFs remain future OCR or fail-closed fixtures.
 - `FabricSegmenter` prefers parsed block boundaries, splits oversized blocks safely, adds bounded overlap, wires neighbors, and derives stable IDs from document identity, chunker version, source range, and text digest.
-- Focused CF-1 tests cover migration v8, malformed UTF-8 and NUL rejection, deterministic bounded segmentation, stable import/rebuild IDs, media-type identity, FTS search and cleanup, oversized input, cascade deletion, and fail-closed missing-artifact rebuilds.
-- Remaining CF-1 exit work is the pinned Darwin import/rebuild fixture, a real text-based PDF parser, artifact reference tracking and garbage collection, and product integration.
+- Focused CF-1 tests cover the v8-to-v9 upgrade, the pinned Darwin text and PDF import/rebuild fixtures, the pinned United States Constitution and Federalist Papers import/rebuild fixtures, malformed UTF-8 and NUL rejection, deterministic bounded segmentation, stable import/rebuild IDs, immutable document identity, owning-corpus timestamp updates during replacement, FTS search and cleanup, partial artifact recovery, oversized input, cascade deletion, artifact garbage collection, and fail-closed missing-artifact rebuilds.
+- Product integration remains important, but it is follow-on work for the Library and chat surface rather than a blocker to the deterministic-ingestion framework itself.
 
 ### Phase CF-2: DocumentGraph and local retrieval
 
@@ -1274,6 +1279,14 @@ Exit gate:
 - repository and FTS tests pass in memory and on disk;
 - query results always include corpus/document/segment provenance;
 - CodeGraph tests remain unchanged and green.
+
+Implementation status (2026-06-28): **exit gate passed in focused tests**.
+
+- Migration v10 adds dedicated document-graph storage beside CodeGraph: `fabric_claims`, `fabric_claim_citations`, `fabric_entities`, `fabric_relations`, and external-content `fabric_claim_fts` plus triggers.
+- `DocumentGraphRepository` now persists claims, citations, entities, and relations; `FabricEvidenceGraphImporter` projects real evidence cards into those tables without collapsing them into the code graph.
+- `FabricSearchService` keeps lexical segment retrieval as the baseline path and expands through claim search when lexical lookup misses, while preserving corpus, document, segment, display-name, and retrieval-path provenance on every hit.
+- Read-only `library_list`, `library_search`, `library_open`, and `library_graph` tools are registered in the product and research tool catalogs for local inspection of corpus contents and provisional graph state.
+- Focused CF-2 tests now cover migration v10 shape, in-memory graph persistence, on-disk claim FTS persistence across reopen, evidence-card import, claim-expanded retrieval, lexical-hit provenance, and unchanged `T19_GraphRepositoryTests` behavior for the existing CodeGraph lane.
 
 ### Phase CF-3: native readers and source verification
 
@@ -1483,4 +1496,4 @@ Context Fabric is production-ready only when:
 - The final answer can be produced inside the configured 8K acceptance context even when the indexed corpus is orders of magnitude larger.
 - Documentation never describes this as literal billion-token dense attention.
 
-At that point, TheOrc will not possess an infinite context window. It will possess something more practical for local hardware: a durable cognitive filesystem with exhaustive readers, hierarchical memory, graph navigation, source paging, and proof of what it actually examined.
+At that point, TheOrc will not possess fake unlimited attention. It will possess something more practical for local hardware: a durable cognitive filesystem with exhaustive readers, hierarchical memory, graph navigation, source paging, and proof of what it actually examined.

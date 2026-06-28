@@ -16,7 +16,7 @@
     <PackageReference Include="FlaUI.UIA3"  Version="4.0.0" />
 
     <!-- Screen recording during tests (same library as main app F12 recorder) -->
-    <PackageReference Include="SharpAvi" Version="2.2.1" />
+    <PackageReference Include="SharpAvi" Version="3.0.1" />
 
     <!-- Override System.Drawing.Common to a version without the critical CVE
          (NU1904 — GHSA-rxg9-xrhp-64gj) pulled in transitively by FlaUI -->

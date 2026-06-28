@@ -89,12 +89,17 @@
     <PackageReference Include="DiffPlex" Version="1.9.0" />
     <PackageReference Include="LibGit2Sharp" Version="0.31.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.13.0" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
-    <PackageReference Include="System.Text.Json" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
+    <PackageReference Include="SQLitePCLRaw.core" Version="3.0.3" />
+    <PackageReference Include="SQLitePCLRaw.provider.e_sqlite3" Version="3.0.3" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
+    <PackageReference Include="System.Text.Json" Version="10.0.9" />
+    <PackageReference Include="PdfPig" Version="0.1.9" />
 
     <!-- Windows-only packages (target-OS conditioned, see _TargetsWindows above) -->
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" Condition="'$(_TargetsWindows)' == 'true'" />
-    <PackageReference Include="SharpAvi" Version="2.2.1" Condition="'$(_TargetsWindows)' == 'true'" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.9" Condition="'$(_TargetsWindows)' == 'true'" />
+    <PackageReference Include="SharpAvi" Version="3.0.1" Condition="'$(_TargetsWindows)' == 'true'" />
   </ItemGroup>
 
   <!-- ── Embedded resources (same as WPF project) ────────────────────────── -->
@@ -172,6 +177,9 @@
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricSegmenter.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricLibraryRepository.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricLibraryService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\DocumentGraphRepository.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricEvidenceGraphImporter.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricSearchService.cs" />
     <!-- CodeGraph v1 (step 1+) — shared with WPF via explicit include (Avalonia_Migration.md discipline) -->
     <Compile Include="..\OrchestratorIDE\Services\CodeGraph\GraphModels.cs" />
     <Compile Include="..\OrchestratorIDE\Services\CodeGraph\ComplexityAnalyzer.cs" />
@@ -261,6 +269,7 @@
 
     <!-- Tools -->
     <Compile Include="..\OrchestratorIDE\Tools\FileTools.cs" />
+    <Compile Include="..\OrchestratorIDE\Tools\FabricTools.cs" />
     <Compile Include="..\OrchestratorIDE\Tools\SearchTools.cs" />
     <Compile Include="..\OrchestratorIDE\Tools\ShellTools.cs" />
     <Compile Include="..\OrchestratorIDE\Tools\TestTools.cs" />

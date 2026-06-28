@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using NUnit.Framework;
 using OrchestratorIDE.Core.Runtime;
+using System.Globalization;
 
 namespace OrchestratorIDE.UnitTests;
 
@@ -53,10 +54,48 @@ public sealed class ModelAdmissionGateTests
     }
 
     [Test]
-    public void ContextFabric_Rejects_Gemma4_Until_Native_Template_Is_Supported()
+    public void ContextFabric_Admits_Gemma4_When_Size_Clears_The_Gate()
     {
         var decision = ModelAdmissionGate.Evaluate(
             Asset("gemma-4-12B-it-qat-q4_0.gguf"),
+            RuntimeWorkloadKind.ContextFabricReader);
+
+        Assert.That(decision.Verdict, Is.EqualTo(ModelAdmissionVerdict.Admitted));
+    }
+
+    [Test]
+    public void Fingerprint_Prefers_Real_Size_Token_Over_Gemma4_E4B_Shard_Name()
+    {
+        var fingerprint = ModelAdmissionGate.Fingerprint(
+            Asset("gemma-4-e4b-8.0B.gguf"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(fingerprint.Family, Is.EqualTo(RuntimeModelFamily.Gemma));
+            Assert.That(fingerprint.ParametersB, Is.EqualTo(8.0).Within(0.001));
+        });
+    }
+
+    [Test]
+    public void ContextFabric_Rejects_Gemma4_E4B_Until_Native_Load_Path_Works()
+    {
+        var decision = ModelAdmissionGate.Evaluate(
+            Asset("gemma-4-e4b-8.0B.gguf"),
+            RuntimeWorkloadKind.ContextFabricReader);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision.Fingerprint.ParametersB, Is.EqualTo(8.0).Within(0.001));
+            Assert.That(decision.Verdict, Is.EqualTo(ModelAdmissionVerdict.Rejected));
+            Assert.That(decision.Summary, Does.Contain("Gemma 4 E4B"));
+        });
+    }
+
+    [Test]
+    public void ContextFabric_Rejects_Gemma4_E4B_Without_Hyphenated_Family_Token()
+    {
+        var decision = ModelAdmissionGate.Evaluate(
+            Asset("gemma4-e4b-8.0B.gguf"),
             RuntimeWorkloadKind.ContextFabricReader);
 
         Assert.That(decision.Verdict, Is.EqualTo(ModelAdmissionVerdict.Rejected));
@@ -134,6 +173,23 @@ public sealed class ModelAdmissionGateTests
             Assert.That(decision.Fingerprint.Family, Is.EqualTo(RuntimeModelFamily.QwenCoder));
             Assert.That(decision.Fingerprint.IsCoder, Is.True);
         });
+    }
+
+    [Test]
+    public void Fingerprint_Parses_Decimals_With_Invariant_Culture()
+    {
+        var prior = Thread.CurrentThread.CurrentCulture;
+        Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+        try
+        {
+            var fingerprint = ModelAdmissionGate.Fingerprint(
+                Asset("phi4-mini-3.8b-q8_0.gguf"));
+            Assert.That(fingerprint.ParametersB, Is.EqualTo(3.8).Within(0.001));
+        }
+        finally
+        {
+            Thread.CurrentThread.CurrentCulture = prior;
+        }
     }
 
     private static RuntimeModelAsset Asset(string displayName) => new(

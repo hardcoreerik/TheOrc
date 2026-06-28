@@ -8,9 +8,9 @@
 [![License](https://img.shields.io/badge/license-AGPL--3.0-39FF6A?style=for-the-badge)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/hardcoreerik/TheOrc?style=for-the-badge&color=13E9B4)](https://github.com/hardcoreerik/TheOrc/releases)
 
-**You already use AI to write code. TheOrc is what happens when you let it run.**
+**Local-first AI orchestration, native runtimes, and source-grounded memory for people who would rather own the machine than rent permission from one.**
 
-[**Download**](https://github.com/hardcoreerik/TheOrc/releases) · [**Docs**](docs/ARCHITECTURE.md) · [**User Guide**](docs/USER_GUIDE.md) · [**Roadmap**](docs/ROADMAP.md)
+[**Download**](https://github.com/hardcoreerik/TheOrc/releases) · [**Docs**](docs/ARCHITECTURE.md) · [**Context Fabric**](docs/The%20Orc%20Context%20Fabric.md) · [**Benchmark Corpus**](docs/CONTEXT_FABRIC_BENCHMARK_CORPUS.md) · [**Roadmap**](docs/ROADMAP.md)
 
 </div>
 
@@ -35,9 +35,52 @@ GitHub Copilot helps you write the next line. Cursor rewrites the current file. 
 
 TheOrc receives a **goal** — *"build a Python CSV cleaner with a GUI"* — breaks it into parallel tasks, and sends each one to a specialist AI agent. While you wait, a Researcher is reading the pandas docs, two Coders are writing separate files, and a UIDeveloper is setting up the README. When they're done, your workspace has the whole project.
 
-Everything runs on your machine. No API key. No subscription. No code leaves your network.
+The difference is that TheOrc is not just a chat window. It is a local orchestration shell with:
+
+- an Avalonia desktop operator surface
+- local chat and swarm execution
+- native-runtime and Ollama-backed model paths
+- HIVE MIND for distributed local work
+- ORC ACADEMY for training a better boss model from reviewed swarm behavior
+- Context Fabric, a source-grounded memory system for working across corpora larger than a model context window
+
+Everything runs from your machine and your infrastructure choices. TheOrc is built around inspectability, approval gates, local ownership, and source reopening instead of magic-context marketing.
 
 It's basically a tiny software company that lives in your PC and does what you tell it. The staff are goblins. This is intentional.
+
+---
+
+## Why TheOrc feels different
+
+Most AI coding tools sell autocomplete, cloud convenience, or one giant context window.
+
+TheOrc is going after a stranger and more useful target:
+
+- **Local-first orchestration**: the shell, runtime paths, approvals, artifacts, and training loop are designed around operator control.
+- **Warband execution**: one boss can route work to specialist agents and, increasingly, to other enrolled machines.
+- **Source-grounded memory**: Context Fabric is being built so finite-context local models can reopen verified source evidence instead of bluffing from summaries.
+- **Self-improvement on your hardware**: ORC ACADEMY closes the loop from reviewed swarm plans to a better boss adapter.
+
+If Copilot is a better autocomplete, TheOrc is trying to become a better local AI workbench.
+
+---
+
+## Where the project is right now
+
+The current repo is no longer just a swarm experiment. Several big pieces are already real:
+
+- **Avalonia-only shell**: WPF is gone. The desktop app is now one cross-platform Avalonia codebase.
+- **Native runtime path**: local native inference is a first-class runtime lane, not just a side experiment.
+- **HIVE campaign engine**: distributed worker and campaign plumbing now exists as a real implementation path.
+- **ORC ACADEMY**: the shipped `theorc-boss:gemma4-ft` adapter proved the boss can improve from reviewed swarm plans.
+- **Context Fabric**: CF-0 passed its real-model evidence-card gate, and CF-1 now has deterministic ingestion, pinned Darwin, Constitution, and Federalist fixtures plus the Darwin primary PDF fixture, artifact GC, and reproducible rebuild tests.
+
+The current direction is straightforward:
+
+1. Keep making local AI execution more capable and more inspectable.
+2. Turn Context Fabric into a real source-grounded memory layer for OrcChat and future library workflows.
+3. Grow the public benchmark shelf around the **Independent Mind Corpus** instead of hiding behind toy demos.
+4. Keep the long-term loop intact: run, review, learn, and ship better local operators.
 
 ---
 
@@ -99,6 +142,24 @@ Nothing gets written, no shell command runs, and no git operation executes witho
 TheOrc is not trying to replace your editor. It's the AI **project runner** that sits next to it and does the parts that were never fun to do yourself.
 
 ---
+
+## In active development now
+
+**Context Fabric is the most distinctive new system on the workbench.** It is TheOrc's answer to the "finite model, large corpus" problem: a source-grounded memory fabric that stores durable artifacts, reopens evidence on demand, and keeps every accepted claim tied back to source.
+
+Current repo truth:
+
+- **CF-0 passed** with scripted and real native-model evidence-card verification.
+- **CF-1 passed its focused deterministic-ingestion exit**: stable import/rebuild, text and PDF parsing, lexical search, content-addressed artifacts, and pinned Darwin, Constitution, and Federalist fixtures.
+- The first branded benchmark lane now has a name: **The Independent Mind Corpus** — a public benchmark shelf built around works that stress evidence, liberty, literacy, institutional design, strategy, and source-grounded truth.
+
+This is where TheOrc starts to become more than "AI swarm for code." It becomes a local system for reading, checking, and reasoning across source material without pretending the model remembered the whole shelf.
+
+---
+
+## Historical release notes
+
+Everything below this line is preserved release history. The sections above describe where the project is now; the sections below describe what changed at each tagged release.
 
 ## What's new in v1.11.1
 
@@ -364,7 +425,7 @@ The full loop — from "I want better planning" to a deployed adapter — is now
 ```powershell
 git clone https://github.com/hardcoreerik/TheOrc.git
 cd TheOrc
-dotnet run --project OrchestratorIDE/OrchestratorIDE.csproj
+dotnet run --project OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj
 ```
 
 **Requirements:** Windows 10/11 · .NET 10 · [Ollama](https://ollama.com) · 8 GB VRAM minimum (16 GB recommended for running a full swarm)
@@ -386,6 +447,10 @@ ollama pull qwen2.5-coder:14b       # coder workers — great speed/quality bala
 | | |
 |---|---|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the shell, swarm, GOBLIN MIND, and Training Pit all connect |
+| [The Orc Context Fabric.md](docs/The%20Orc%20Context%20Fabric.md) | The technical design and current implementation path for source-grounded large-corpus memory |
+| [CONTEXT_FABRIC_BENCHMARK_CORPUS.md](docs/CONTEXT_FABRIC_BENCHMARK_CORPUS.md) | The Independent Mind Corpus, benchmark shelf, private-corpus rules, and phase mapping |
+| [CONTEXT_FABRIC_BENCHMARK_MANIFEST.md](docs/CONTEXT_FABRIC_BENCHMARK_MANIFEST.md) | Fixture manifest fields, pinned-fixture schema, and sample JSON for reproducible CF benchmark imports |
+| [CONTEXT_FABRIC_PUBLIC_COPY.md](docs/CONTEXT_FABRIC_PUBLIC_COPY.md) | Short public-facing Context Fabric copy for README, website, and launch posts |
 | [USER_GUIDE.md](docs/USER_GUIDE.md) | Best place to start on day one — modes, approvals, workspaces |
 | [SWARM_GUIDE.md](docs/SWARM_GUIDE.md) | How goals become plans and how to steer the swarm mid-run |
 | [TRAINING_PIT_GUIDE.md](docs/TRAINING_PIT_GUIDE.md) | Capture → review → ORC ACADEMY training, step by step |

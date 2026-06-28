@@ -277,6 +277,7 @@ Every benchmark run should record:
 
 ### CF-1
 
+- **Complete:** pin deterministic public-fixture imports for Darwin text, Darwin primary PDF, the United States Constitution, and the Federalist Papers, with reproducible rebuild coverage in `ContextFabricCf1Tests`.
 - Add paraphrase-recall and hierarchy-loss fixtures before shipping retrieval policy as settled.
 - **Complete:** add quote-anchoring lanes for exact, normalized-exact, soft-anchor, and rejected hallucinated-anchor diagnostics.
 - **Complete:** add a boundary-stitch benchmark; the pinned native lane passes 2/2 deterministic cases.

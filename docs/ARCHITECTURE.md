@@ -280,24 +280,24 @@ The critique-triage pass also locks in a host-trusted citation boundary:
 models produce draft quotes, while the host computes canonical offsets and
 digests, rejects ambiguous anchors, and records the benchmark environment with
 the resolved model-admission verdicts. The real native CF-0 lane now passes on
-the pinned Hermes 3 Llama 3.1 8B model: 16/16 accepted segments, 5/5 verified
-questions, 100% citation precision, all nine frozen gates, and an 11.50x
+the pinned Hermes 3 Llama 3.1 8B model and the verified Gemma 4 12B native
+fallback path: both cleared 16/16 accepted segments, 5/5 verified questions,
+100% citation precision, all nine frozen gates, and roughly an 11.5x
 source-to-working-context ratio inside the 8K limit. Prompt-path telemetry
-confirmed the embedded template; exhaustive enumeration is intentionally a
-host-deterministic aggregation of grounded per-segment claims. Planned
-follow-up benchmarks should measure hierarchy recall loss, embedding impact,
-graph noise, and SQLite traversal cost as CF-1 and CF-2 mature.
+confirmed the embedded template on Hermes and `GemmaNativeFallback` on Gemma 4;
+exhaustive enumeration is intentionally a host-deterministic aggregation of
+grounded per-segment claims. Planned follow-up benchmarks should measure
+hierarchy recall loss, embedding impact, graph noise, and SQLite traversal cost
+as CF-1 and CF-2 mature.
 
 The full schema, HIVE execution model, benchmark, security policy, and phased
 implementation are specified in
 [The Orc Context Fabric.md](The%20Orc%20Context%20Fabric.md). CF-0 now has a
 native feasibility harness, deterministic corpus, strict host-side verifier,
-and report generator, and its real-model quality gate has passed. CF-1 is now
-underway: migration v8 plus deterministic text/Markdown parsing, structural
+and report generator, and its real-model quality gate has passed. CF-1's
+deterministic-ingestion framework has now passed its focused test exit: migrations v8-v9 plus deterministic text/Markdown parsing, structural
 segmentation, content-addressed artifacts, transactional document replacement,
-and segment FTS are implemented. PDF parsing, the Darwin acceptance fixture,
-artifact garbage collection, the document graph, HIVE execution, and the
-OrcChat product surface remain proposed rather than shipped.
+segment FTS, the pinned Darwin text/PDF acceptance fixtures, the pinned Constitution and Federalist text fixtures, PDF text parsing, and artifact garbage collection are implemented. CF-2's focused exit now also passes: migration v10, the document graph repository, claim FTS, evidence-card import, provenance-carrying local retrieval, read-only library graph/search/open/list tools, and unchanged CodeGraph tests are implemented. HIVE execution and the OrcChat product surface remain proposed rather than shipped.
 
 ---
 

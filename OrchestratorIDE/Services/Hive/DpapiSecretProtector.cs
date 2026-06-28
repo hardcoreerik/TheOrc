@@ -1,6 +1,7 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Security.Cryptography;
+using System.Runtime.Versioning;
 
 namespace OrchestratorIDE.Services.Hive;
 
@@ -10,6 +11,7 @@ namespace OrchestratorIDE.Services.Hive;
 /// the same semantics as the previous inline <c>ProtectedData</c> calls.
 /// Only compiled into the WPF project (which carries the ProtectedData NuGet ref).
 /// </summary>
+ [SupportedOSPlatform("windows")]
 internal sealed class DpapiSecretProtector : ISecretProtector
 {
     public byte[] Protect(byte[] data)
