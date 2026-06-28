@@ -41,9 +41,11 @@ public sealed class FabricNativeReaderService
         var corpus = BuildCorpus(document, segments);
         var readReport = await _runner.ReadCorpusAsync(corpus, ct).ConfigureAwait(false);
 
-        var importedClaims = 0;
-        foreach (var result in readReport.SegmentResults.Where(item => item.Accepted && item.Card is not null))
-            importedClaims += _graphImporter.ImportEvidenceCard(result.Card!);
+        var cards = readReport.SegmentResults
+            .Where(item => item.Accepted && item.Card is not null)
+            .Select(item => item.Card!)
+            .ToArray();
+        var importedClaims = _graphImporter.ReplaceDocumentEvidenceCards(document.DocumentId, cards);
 
         return new FabricDocumentReadResult(document, readReport, importedClaims);
     }

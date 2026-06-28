@@ -329,6 +329,25 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public void Library_Garbage_Collection_Deletes_Unreferenced_Partial_Artifacts()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var digest = new string('a', 64);
+        var partialPath = Path.Combine(harness.Artifacts.Root, digest[..2], digest + ".part");
+        Directory.CreateDirectory(Path.GetDirectoryName(partialPath)!);
+        File.WriteAllText(partialPath, "partial");
+
+        var deleted = harness.Service.DeleteUnreferencedArtifacts();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(deleted, Is.EqualTo(1));
+            Assert.That(File.Exists(partialPath), Is.False);
+        });
+    }
+
+    [Test]
     public async Task Repository_ReplaceDocument_Rolls_Back_On_Invalid_Segment_Set()
     {
         var harness = NewHarness();
@@ -607,8 +626,10 @@ public sealed class ContextFabricCf1Tests
             Assert.That(imported.Document.SourceDigest, Is.EqualTo(manifest.SourceSha256), BuildDarwinActualMessage(imported));
             Assert.That(imported.Document.DocumentId, Is.EqualTo(manifest.ExpectedDocumentId), BuildDarwinActualMessage(imported));
             Assert.That(imported.Document.NormalizedDigest, Is.EqualTo(manifest.ExpectedNormalizedSha256), BuildDarwinActualMessage(imported));
+            Assert.That(imported.Document.MediaType, Is.EqualTo(manifest.MediaType));
             Assert.That(imported.Document.ParserId, Is.EqualTo(manifest.ParserId));
             Assert.That(imported.Document.ParserVersion, Is.EqualTo(manifest.ParserVersion));
+            Assert.That(imported.Segments, Has.All.Matches<FabricSegmentEntry>(segment => segment.ChunkerVersion == manifest.SegmenterVersion));
             Assert.That(imported.Segments, Has.Count.EqualTo(manifest.ExpectedSegmentCount), BuildDarwinActualMessage(imported));
             Assert.That(segmentIdsDigest, Is.EqualTo(manifest.ExpectedSegmentIdsSha256), BuildDarwinActualMessage(imported));
             Assert.That(imported.Segments[0].SegmentId, Is.EqualTo(manifest.ExpectedFirstSegmentId), BuildDarwinActualMessage(imported));

@@ -28,7 +28,7 @@ That shape is what `ContextFabricCf1Tests` verifies during import and rebuild.
 |---|---|---|
 | `FixtureId` | string | Stable fixture handle used by tests and docs. |
 | `SourceUrl` | string | Canonical public source used to assemble or download the fixture. |
-| `DownloadedAtUtc` | string | UTC timestamp for when the pinned source text or PDF was captured. |
+| `DownloadedAtUtc` | DateTimeOffset (ISO-8601 string) | UTC timestamp for when the pinned source text or PDF was captured. |
 | `Edition` | string | Human-readable edition or assembly note. |
 | `MediaType` | string | Imported media type, such as `text/plain` or `application/pdf`. |
 | `SourceSha256` | string | SHA-256 of the pinned source artifact committed to the repo. |

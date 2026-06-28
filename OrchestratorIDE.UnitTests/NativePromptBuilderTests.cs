@@ -50,4 +50,15 @@ public sealed class NativePromptBuilderTests
             Assert.That(prompt, Does.EndWith("<|turn>model\n<|channel>thought\n<channel|>"));
         });
     }
+
+    [Test]
+    public void BuildGemma4Prompt_Preserves_Message_Whitespace()
+    {
+        var prompt = NativePromptBuilder.BuildGemma4Prompt(
+        [
+            new AgentMessage { Role = MessageRole.User, Content = "  keep edges  \n" },
+        ]);
+
+        Assert.That(prompt, Does.Contain("<|turn>user\n  keep edges  \n<turn|>"));
+    }
 }

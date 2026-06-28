@@ -254,7 +254,6 @@ internal sealed class GdiMjpegEncoder : IVideoEncoder
 
     private byte[] EncodeFrameToJpeg(ReadOnlySpan<byte> source)
     {
-        var raw = source.ToArray();
         using var bmp = new Bitmap(_width, _height, PixelFormat.Format32bppRgb);
         var bits = bmp.LockBits(new Rectangle(0, 0, _width, _height),
                                 ImageLockMode.WriteOnly,
@@ -262,7 +261,12 @@ internal sealed class GdiMjpegEncoder : IVideoEncoder
         try
         {
             var stride = Math.Abs(bits.Stride);
-            Marshal.Copy(raw, 0, bits.Scan0, _height * stride);
+            var byteCount = checked(_height * stride);
+            if (source.Length < byteCount)
+                throw new ArgumentException("Source frame is smaller than the expected bitmap size.", nameof(source));
+
+            var raw = source[..byteCount].ToArray();
+            Marshal.Copy(raw, 0, bits.Scan0, byteCount);
         }
         finally { bmp.UnlockBits(bits); }
 

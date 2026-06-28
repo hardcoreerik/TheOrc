@@ -1,6 +1,6 @@
 # The Orc Context Fabric
 
-> Status: CF-0 native feasibility gate passed; CF-1 deterministic-ingestion framework passed; product integration remains ahead
+> Status: CF-0 native feasibility gate passed; CF-1 deterministic-ingestion framework passed; CF-2 graph-backed retrieval passed in focused tests; CF-3 native reader framework passed in focused no-fallback tests
 > Owner: TheOrc native runtime, OrcChat, CodeGraph, and HIVE MIND
 > Last updated: 2026-06-28
 > Product goal: make corpus size effectively independent of the active model context window while preserving source coverage, provenance, and reproducible answers on consumer hardware.

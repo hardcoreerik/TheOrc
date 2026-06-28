@@ -62,7 +62,7 @@ internal static class NativePromptBuilder
             sb.Append("<|turn>").Append(role).Append('\n');
             if (msg.Role == MessageRole.Tool)
                 sb.Append("Tool result:\n");
-            sb.Append((msg.Content ?? "").Trim()).Append("<turn|>\n");
+            sb.Append(msg.Content ?? "").Append("<turn|>\n");
         }
 
         // Gemma 4's template uses an empty thought channel to request a direct answer.

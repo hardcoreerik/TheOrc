@@ -71,6 +71,12 @@ public sealed class FabricBoundaryStitcher
         if ((draft.LinkedFacts?.Count ?? 0) < testCase.ExpectedLinkedFacts.Count)
             errors.Add($"linkedFacts must contain at least {testCase.ExpectedLinkedFacts.Count} items");
 
+        foreach (var expectedFact in testCase.ExpectedLinkedFacts)
+        {
+            if (!((draft.LinkedFacts ?? []).Any(item => string.Equals(item, expectedFact, StringComparison.OrdinalIgnoreCase))))
+                errors.Add($"missing expected linked fact '{expectedFact}'");
+        }
+
         foreach (var term in testCase.ForbiddenTerms)
         {
             if ((draft.Summary?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||

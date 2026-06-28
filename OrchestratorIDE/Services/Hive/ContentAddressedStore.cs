@@ -87,6 +87,14 @@ public sealed class ContentAddressedStore
         .Cast<string>()
         .ToArray();
 
+    public IReadOnlyList<string> GetPartialDigests(int limit = 4096) => Directory
+        .EnumerateFiles(Root, "*.part", SearchOption.AllDirectories)
+        .Select(Path.GetFileNameWithoutExtension)
+        .Where(d => d is not null && DigestPattern.IsMatch(d))
+        .Take(Math.Clamp(limit, 1, 100_000))
+        .Cast<string>()
+        .ToArray();
+
     public async Task<ChunkWriteResult> WriteChunkAsync(string digest, long offset, long totalBytes,
         ReadOnlyMemory<byte> data, CancellationToken ct = default)
     {

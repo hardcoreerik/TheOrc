@@ -106,7 +106,18 @@ public sealed class FabricLibraryService
         }
     }
 
-    public bool DeleteCorpus(string corpusId) => _repository.DeleteCorpus(corpusId);
+    public bool DeleteCorpus(string corpusId)
+    {
+        _mutationGate.Wait();
+        try
+        {
+            return _repository.DeleteCorpus(corpusId);
+        }
+        finally
+        {
+            _mutationGate.Release();
+        }
+    }
 
     public int DeleteUnreferencedArtifacts()
     {
@@ -115,7 +126,9 @@ public sealed class FabricLibraryService
         {
             var referenced = _repository.ListReferencedArtifactDigests();
             var deleted = 0;
-            foreach (var digest in _artifacts.GetDigests())
+            foreach (var digest in _artifacts.GetDigests()
+                         .Concat(_artifacts.GetPartialDigests())
+                         .Distinct(StringComparer.Ordinal))
             {
                 if (!referenced.Contains(digest) && _artifacts.DeleteIfPresent(digest))
                     deleted++;
