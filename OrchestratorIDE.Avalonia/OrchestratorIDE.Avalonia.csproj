@@ -177,6 +177,9 @@
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricSegmenter.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricLibraryRepository.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricLibraryService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\DocumentGraphRepository.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricEvidenceGraphImporter.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricSearchService.cs" />
     <!-- CodeGraph v1 (step 1+) — shared with WPF via explicit include (Avalonia_Migration.md discipline) -->
     <Compile Include="..\OrchestratorIDE\Services\CodeGraph\GraphModels.cs" />
     <Compile Include="..\OrchestratorIDE\Services\CodeGraph\ComplexityAnalyzer.cs" />
@@ -266,6 +269,7 @@
 
     <!-- Tools -->
     <Compile Include="..\OrchestratorIDE\Tools\FileTools.cs" />
+    <Compile Include="..\OrchestratorIDE\Tools\FabricTools.cs" />
     <Compile Include="..\OrchestratorIDE\Tools\SearchTools.cs" />
     <Compile Include="..\OrchestratorIDE\Tools\ShellTools.cs" />
     <Compile Include="..\OrchestratorIDE\Tools\TestTools.cs" />

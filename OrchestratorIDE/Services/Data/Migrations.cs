@@ -24,6 +24,7 @@ internal static class Migrations
         new Migration(7, "native campaign engine", Sql007_Campaigns),
         new Migration(8, "context fabric ingestion and segment search", Sql008_ContextFabric),
         new Migration(9, "context fabric segment integrity retrofit", Sql009_ContextFabricSegmentIntegrity),
+        new Migration(10, "context fabric document graph and claim search", Sql010_ContextFabricDocumentGraph),
     ];
 
     // ── v1 — Phase 1: captures + triage ─────────────────────────────────────────
@@ -406,6 +407,86 @@ internal static class Migrations
             VALUES ('delete', old.rowid, old.heading_path, old.normalized_text);
             INSERT INTO fabric_segment_fts(rowid, heading_path, normalized_text)
             VALUES (new.rowid, new.heading_path, new.normalized_text);
+        END;
+        """;
+
+    // ── v10 — Context Fabric document graph + claim FTS ─────────────────────
+    private const string Sql010_ContextFabricDocumentGraph = """
+        CREATE TABLE fabric_claims (
+            claim_id             TEXT PRIMARY KEY,
+            corpus_id            TEXT NOT NULL REFERENCES fabric_corpora(corpus_id) ON DELETE CASCADE,
+            document_id          TEXT NOT NULL REFERENCES fabric_documents(document_id) ON DELETE CASCADE,
+            segment_id           TEXT NOT NULL REFERENCES fabric_segments(segment_id) ON DELETE CASCADE,
+            claim_type           TEXT NOT NULL,
+            claim_text           TEXT NOT NULL,
+            verification_status  TEXT NOT NULL CHECK (verification_status IN ('provisional', 'verified', 'rejected')),
+            confidence           REAL,
+            created_at           TEXT NOT NULL,
+            updated_at           TEXT NOT NULL
+        );
+        CREATE INDEX ix_fabric_claims_corpus ON fabric_claims(corpus_id, claim_type, verification_status);
+        CREATE INDEX ix_fabric_claims_segment ON fabric_claims(segment_id);
+
+        CREATE TABLE fabric_claim_citations (
+            claim_id      TEXT NOT NULL REFERENCES fabric_claims(claim_id) ON DELETE CASCADE,
+            ordinal       INTEGER NOT NULL CHECK (ordinal >= 0),
+            segment_id    TEXT NOT NULL REFERENCES fabric_segments(segment_id) ON DELETE CASCADE,
+            char_start    INTEGER NOT NULL CHECK (char_start >= 0),
+            char_end      INTEGER NOT NULL CHECK (char_end >= char_start),
+            quote_digest  TEXT NOT NULL,
+            quote_text    TEXT NOT NULL,
+            PRIMARY KEY (claim_id, ordinal)
+        );
+        CREATE INDEX ix_fabric_claim_citations_segment ON fabric_claim_citations(segment_id);
+
+        CREATE TABLE fabric_entities (
+            entity_id             TEXT PRIMARY KEY,
+            corpus_id            TEXT NOT NULL REFERENCES fabric_corpora(corpus_id) ON DELETE CASCADE,
+            canonical_name       TEXT NOT NULL,
+            entity_type          TEXT,
+            verification_status  TEXT NOT NULL CHECK (verification_status IN ('provisional', 'verified', 'rejected')),
+            confidence           REAL,
+            created_at           TEXT NOT NULL,
+            updated_at           TEXT NOT NULL
+        );
+        CREATE INDEX ix_fabric_entities_corpus ON fabric_entities(corpus_id, canonical_name);
+
+        CREATE TABLE fabric_relations (
+            relation_id           TEXT PRIMARY KEY,
+            corpus_id            TEXT NOT NULL REFERENCES fabric_corpora(corpus_id) ON DELETE CASCADE,
+            source_entity_id     TEXT NOT NULL REFERENCES fabric_entities(entity_id) ON DELETE CASCADE,
+            target_entity_id     TEXT NOT NULL REFERENCES fabric_entities(entity_id) ON DELETE CASCADE,
+            relation_type        TEXT NOT NULL,
+            verification_status  TEXT NOT NULL CHECK (verification_status IN ('provisional', 'verified', 'rejected')),
+            confidence           REAL,
+            evidence_count       INTEGER NOT NULL CHECK (evidence_count >= 0),
+            created_at           TEXT NOT NULL,
+            updated_at           TEXT NOT NULL
+        );
+        CREATE INDEX ix_fabric_relations_corpus ON fabric_relations(corpus_id, relation_type, verification_status);
+        CREATE INDEX ix_fabric_relations_source ON fabric_relations(source_entity_id);
+        CREATE INDEX ix_fabric_relations_target ON fabric_relations(target_entity_id);
+
+        CREATE VIRTUAL TABLE fabric_claim_fts USING fts5(
+            claim_text,
+            content='fabric_claims',
+            content_rowid='rowid',
+            tokenize='unicode61 remove_diacritics 2'
+        );
+
+        CREATE TRIGGER fabric_claims_ai AFTER INSERT ON fabric_claims BEGIN
+            INSERT INTO fabric_claim_fts(rowid, claim_text)
+            VALUES (new.rowid, new.claim_text);
+        END;
+        CREATE TRIGGER fabric_claims_ad AFTER DELETE ON fabric_claims BEGIN
+            INSERT INTO fabric_claim_fts(fabric_claim_fts, rowid, claim_text)
+            VALUES ('delete', old.rowid, old.claim_text);
+        END;
+        CREATE TRIGGER fabric_claims_au AFTER UPDATE ON fabric_claims BEGIN
+            INSERT INTO fabric_claim_fts(fabric_claim_fts, rowid, claim_text)
+            VALUES ('delete', old.rowid, old.claim_text);
+            INSERT INTO fabric_claim_fts(rowid, claim_text)
+            VALUES (new.rowid, new.claim_text);
         END;
         """;
 

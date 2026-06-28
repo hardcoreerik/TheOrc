@@ -72,6 +72,16 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
         MapSegment,
         ps => P(ps, "$document", documentId));
 
+    public FabricSegmentEntry? GetSegment(string segmentId) => Query(
+        """
+        SELECT s.*, t.normalized_text
+        FROM fabric_segments s
+        JOIN fabric_segment_text t ON t.segment_id = s.segment_id
+        WHERE s.segment_id = $segment
+        """,
+        MapSegment,
+        ps => P(ps, "$segment", segmentId)).SingleOrDefault();
+
     public void ReplaceDocument(FabricDocumentEntry document, IReadOnlyList<FabricSegmentDraft> segments)
     {
         ArgumentNullException.ThrowIfNull(document);
