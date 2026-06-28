@@ -111,9 +111,14 @@ public sealed class FabricSegmenter
                 if (whitespace > offset + (length / 2))
                     length = whitespace - offset + 1;
 
-                if (char.IsLowSurrogate(block.Text[offset + length]))
+                var splitAt = offset + length;
+                if (splitAt > offset &&
+                    char.IsHighSurrogate(block.Text[splitAt - 1]) &&
+                    char.IsLowSurrogate(block.Text[splitAt]))
                 {
                     length--;
+                    if (length == 0)
+                        throw new InvalidDataException("Unable to split block at a Unicode scalar boundary.");
                 }
             }
 

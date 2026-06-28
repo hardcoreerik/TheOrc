@@ -80,6 +80,24 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public void TextMarkdownParser_Treats_Adjacent_Headings_As_Boundaries()
+    {
+        var parsed = new TextMarkdownFabricParser().Parse(
+            Encoding.UTF8.GetBytes("# Alpha\nIntro\n## Beta\nBody\n"),
+            "text/markdown");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed.Blocks.Select(block => block.Text),
+                Is.EqualTo(new[] { "# Alpha", "Intro", "## Beta", "Body" }));
+            Assert.That(parsed.Blocks.Select(block => block.HeadingPath),
+                Is.EqualTo(new[] { "Alpha", "Alpha", "Alpha / Beta", "Alpha / Beta" }));
+            Assert.That(parsed.Blocks, Has.All.Matches<FabricParsedBlock>(block =>
+                parsed.NormalizedText[block.CharStart..block.CharEnd] == block.Text));
+        });
+    }
+
+    [Test]
     public void Segmenter_Is_Deterministic_Bounded_And_Wires_Neighbors()
     {
         var parser = new TextMarkdownFabricParser();
@@ -99,6 +117,23 @@ public sealed class ContextFabricCf1Tests
             Assert.That(first[0].PreviousSegmentId, Is.Null);
             Assert.That(first[^1].NextSegmentId, Is.Null);
             Assert.That(first[1].PreviousSegmentId, Is.EqualTo(first[0].SegmentId));
+        });
+    }
+
+    [Test]
+    public void Segmenter_Does_Not_Split_Utf16_Surrogate_Pairs()
+    {
+        var parsed = new TextMarkdownFabricParser().Parse(
+            Encoding.UTF8.GetBytes(string.Concat(Enumerable.Repeat("\U0001F600", 400))),
+            "text/plain");
+        var segments = new FabricSegmenter(new FabricSegmenterOptions(64, 64, 0))
+            .Segment("doc-unicode", parsed);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(segments, Has.Count.GreaterThan(1));
+            Assert.That(segments, Has.All.Matches<FabricSegmentDraft>(segment =>
+                !char.IsLowSurrogate(segment.Text[0]) && !char.IsHighSurrogate(segment.Text[^1])));
         });
     }
 
@@ -199,6 +234,46 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public async Task Library_Resumes_Partial_Source_Artifact()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Resume partial");
+        var source = Encoding.UTF8.GetBytes("Resumable source content.\n");
+        var digest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(source)).ToLowerInvariant();
+        await harness.Artifacts.WriteChunkAsync(digest, 0, source.Length, source.AsMemory(0, 7));
+        var sourcePath = Path.Combine(harness.Root, "resume.txt");
+        await File.WriteAllBytesAsync(sourcePath, source);
+
+        await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+
+        Assert.That(harness.Artifacts.Has(digest), Is.True);
+    }
+
+    [Test]
+    public async Task Library_Finalizes_Full_Length_Partial_Source_Artifact()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Finalize partial");
+        var source = Encoding.UTF8.GetBytes("Fully written source content.\n");
+        var digest = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(source)).ToLowerInvariant();
+        var partialPath = Path.Combine(harness.Artifacts.Root, digest[..2], digest + ".part");
+        Directory.CreateDirectory(Path.GetDirectoryName(partialPath)!);
+        await File.WriteAllBytesAsync(partialPath, source);
+        var sourcePath = Path.Combine(harness.Root, "finalize.txt");
+        await File.WriteAllBytesAsync(sourcePath, source);
+
+        await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(harness.Artifacts.Has(digest), Is.True);
+            Assert.That(File.Exists(partialPath), Is.False);
+        });
+    }
+
+    [Test]
     public async Task Repository_ReplaceDocument_Rolls_Back_On_Invalid_Segment_Set()
     {
         var harness = NewHarness();
@@ -224,6 +299,51 @@ public sealed class ContextFabricCf1Tests
                 Is.EqualTo(originalIds));
             Assert.That(harness.Service.Search("searchable", corpus.CorpusId), Has.Count.EqualTo(1));
         });
+    }
+
+    [Test]
+    public async Task Repository_ReplaceDocument_Updates_Identity_Metadata()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Identity replacement");
+        var sourcePath = Path.Combine(harness.Root, "identity.txt");
+        await File.WriteAllTextAsync(sourcePath, "Original content.\n");
+        var imported = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+        var replacement = imported.Document with
+        {
+            SourceDigest = new string('a', 64),
+            ParserId = "replacement-parser",
+            ParserVersion = "2",
+        };
+
+        harness.Repository.ReplaceDocument(replacement, [Draft("seg-replacement", 0, "replacement")]);
+        var persisted = harness.Repository.GetDocument(replacement.DocumentId)!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(persisted.SourceDigest, Is.EqualTo(replacement.SourceDigest));
+            Assert.That(persisted.ParserId, Is.EqualTo(replacement.ParserId));
+            Assert.That(persisted.ParserVersion, Is.EqualTo(replacement.ParserVersion));
+        });
+    }
+
+    [Test]
+    public async Task MigrationV8_Rejects_Invalid_Segment_Ranges()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Segment constraints");
+        var sourcePath = Path.Combine(harness.Root, "constraints.txt");
+        await File.WriteAllTextAsync(sourcePath, "Valid content.\n");
+        var imported = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+        using var connection = store.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE fabric_segments SET char_start = -1 WHERE document_id = $document";
+        command.Parameters.AddWithValue("$document", imported.Document.DocumentId);
+
+        Assert.That(() => command.ExecuteNonQuery(),
+            Throws.TypeOf<Microsoft.Data.Sqlite.SqliteException>());
     }
 
     private Harness NewHarness(long maximumSourceBytes = 1024 * 1024)

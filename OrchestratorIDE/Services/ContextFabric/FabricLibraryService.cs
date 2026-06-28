@@ -151,9 +151,16 @@ public sealed class FabricLibraryService
         }
 
         var offset = _artifacts.GetResumeOffset(digest);
+        if (offset > bytes.LongLength)
+            throw new InvalidDataException($"Partial content-addressed object '{digest}' exceeds the expected size.");
         if (offset == bytes.LongLength)
         {
-            _artifacts.Finalize(digest);
+            await _artifacts.WriteChunkAsync(
+                digest,
+                offset,
+                bytes.LongLength,
+                ReadOnlyMemory<byte>.Empty,
+                ct).ConfigureAwait(false);
             return;
         }
 

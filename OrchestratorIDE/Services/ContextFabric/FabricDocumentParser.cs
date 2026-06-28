@@ -104,53 +104,51 @@ public sealed class TextMarkdownFabricParser : IFabricDocumentParser
             while (cursor < text.Length && text[cursor] == '\n') cursor++;
             if (cursor >= text.Length) break;
 
-            var end = text.IndexOf("\n\n", cursor, StringComparison.Ordinal);
-            if (end < 0) end = text.Length;
-            var blockEnd = end;
-            while (blockEnd > cursor && text[blockEnd - 1] == '\n') blockEnd--;
-            var blockText = text[cursor..blockEnd];
-
-            if (markdown)
+            var lineEnd = text.IndexOf('\n', cursor);
+            if (lineEnd < 0) lineEnd = text.Length;
+            var heading = markdown ? MarkdownHeading.Match(text[cursor..lineEnd]) : Match.Empty;
+            int boundary;
+            if (heading.Success)
             {
-                var lines = blockText.Split('\n');
-                var lineStart = cursor;
-                foreach (var line in lines)
+                var level = heading.Groups["level"].Value.Length;
+                headings[level - 1] = heading.Groups["title"].Value.Trim();
+                for (var index = level; index < headings.Length; index++) headings[index] = null;
+                boundary = lineEnd;
+            }
+            else
+            {
+                boundary = text.Length;
+                var scan = cursor;
+                while (scan < text.Length)
                 {
-                    var match = MarkdownHeading.Match(line);
-                    if (match.Success)
+                    var newline = text.IndexOf('\n', scan);
+                    if (newline < 0 || newline == text.Length - 1)
                     {
-                        if (lineStart > cursor)
-                        {
-                            var priorText = text[cursor..(lineStart - 1)];
-                            while (priorText.EndsWith('\n')) priorText = priorText[..^1];
-                            if (priorText.Length > 0)
-                            {
-                                var headingPath = string.Join(" / ", headings.Where(value => !string.IsNullOrWhiteSpace(value))!);
-                                blocks.Add(new FabricParsedBlock(
-                                    cursor,
-                                    lineStart - 1,
-                                    headingPath.Length == 0 ? null : headingPath,
-                                    priorText));
-                            }
-                            cursor = lineStart;
-                            blockText = text[cursor..blockEnd];
-                        }
-
-                        var level = match.Groups["level"].Value.Length;
-                        headings[level - 1] = match.Groups["title"].Value.Trim();
-                        for (var index = level; index < headings.Length; index++) headings[index] = null;
+                        boundary = newline < 0 ? text.Length : newline;
+                        break;
                     }
-                    lineStart += line.Length + 1;
+
+                    var nextLineEnd = text.IndexOf('\n', newline + 1);
+                    if (nextLineEnd < 0) nextLineEnd = text.Length;
+                    if (text[newline + 1] == '\n' ||
+                        markdown && MarkdownHeading.IsMatch(text[(newline + 1)..nextLineEnd]))
+                    {
+                        boundary = newline;
+                        break;
+                    }
+
+                    scan = newline + 1;
                 }
             }
 
+            var blockText = text[cursor..boundary];
             var headingPath = string.Join(" / ", headings.Where(value => !string.IsNullOrWhiteSpace(value))!);
             blocks.Add(new FabricParsedBlock(
                 cursor,
-                blockEnd,
+                boundary,
                 headingPath.Length == 0 ? null : headingPath,
                 blockText));
-            cursor = end < text.Length ? end + 2 : text.Length;
+            cursor = boundary;
         }
 
         return blocks;
