@@ -293,7 +293,10 @@ implementation are specified in
 [The Orc Context Fabric.md](The%20Orc%20Context%20Fabric.md). CF-0 now has a
 native feasibility harness, deterministic corpus, strict host-side verifier,
 and report generator, and its real-model quality gate has passed. CF-1 is now
-unblocked, but the document graph, persistence, retrieval, HIVE execution, and
+underway: migration v8 plus deterministic text/Markdown parsing, structural
+segmentation, content-addressed artifacts, transactional document replacement,
+and segment FTS are implemented. PDF parsing, the Darwin acceptance fixture,
+artifact garbage collection, the document graph, HIVE execution, and the
 OrcChat product surface remain proposed rather than shipped.
 
 ---

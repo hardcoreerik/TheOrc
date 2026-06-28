@@ -1249,6 +1249,15 @@ Exit gate:
 - segment IDs and normalized digest remain stable across two clean rebuilds;
 - malformed and oversized documents fail safely.
 
+Implementation status (2026-06-27): **framework in progress**.
+
+- Migration v8 now adds dedicated corpus, document, segment, normalized segment text, and external-content FTS5 storage beside CodeGraph in the shared WAL database.
+- `FabricLibraryService` and `FabricLibraryRepository` provide corpus creation, bounded file import, deterministic rebuild, lexical segment search, and cascade deletion. Original and normalized artifacts reuse the existing quota-bounded SHA-256 object store.
+- The first parser accepts strict UTF-8 plain text and Markdown, canonicalizes newlines and Unicode, preserves normalized character offsets, and records Markdown heading paths. PDF remains behind the parser boundary and fails explicitly as unsupported.
+- `FabricSegmenter` prefers parsed block boundaries, splits oversized blocks safely, adds bounded overlap, wires neighbors, and derives stable IDs from document identity, chunker version, source range, and text digest.
+- Focused CF-1 tests cover migration v8, malformed UTF-8 and NUL rejection, deterministic bounded segmentation, stable import/rebuild IDs, media-type identity, FTS search and cleanup, oversized input, cascade deletion, and fail-closed missing-artifact rebuilds.
+- Remaining CF-1 exit work is the pinned Darwin import/rebuild fixture, a real text-based PDF parser, artifact reference tracking and garbage collection, and product integration.
+
 ### Phase CF-2: DocumentGraph and local retrieval
 
 Deliver:

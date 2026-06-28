@@ -165,6 +165,13 @@
     <Compile Include="..\OrchestratorIDE\Services\Data\RunRepository.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Data\SqliteStore.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Data\TriageRepository.cs" />
+
+    <!-- Context Fabric CF-1 ingestion framework -->
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricIngestionContracts.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricDocumentParser.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricSegmenter.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricLibraryRepository.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricLibraryService.cs" />
     <!-- CodeGraph v1 (step 1+) — shared with WPF via explicit include (Avalonia_Migration.md discipline) -->
     <Compile Include="..\OrchestratorIDE\Services\CodeGraph\GraphModels.cs" />
     <Compile Include="..\OrchestratorIDE\Services\CodeGraph\ComplexityAnalyzer.cs" />
