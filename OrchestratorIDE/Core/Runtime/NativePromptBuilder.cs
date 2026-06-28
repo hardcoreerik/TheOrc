@@ -48,6 +48,28 @@ internal static class NativePromptBuilder
         return sb.ToString();
     }
 
+    internal static string BuildGemma4Prompt(IReadOnlyList<AgentMessage> messages)
+    {
+        var sb = new StringBuilder("<bos>");
+        foreach (var msg in messages)
+        {
+            var role = msg.Role switch
+            {
+                MessageRole.System => "system",
+                MessageRole.Assistant => "model",
+                _ => "user",
+            };
+            sb.Append("<|turn>").Append(role).Append('\n');
+            if (msg.Role == MessageRole.Tool)
+                sb.Append("Tool result:\n");
+            sb.Append((msg.Content ?? "").Trim()).Append("<turn|>\n");
+        }
+
+        // Gemma 4's template uses an empty thought channel to request a direct answer.
+        sb.Append("<|turn>model\n<|channel>thought\n<channel|>");
+        return sb.ToString();
+    }
+
     internal static List<AgentMessage> FoldSystemIntoFirstUser(IReadOnlyList<AgentMessage> messages)
     {
         var systemText = string.Join("\n\n", messages

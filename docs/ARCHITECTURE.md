@@ -280,13 +280,15 @@ The critique-triage pass also locks in a host-trusted citation boundary:
 models produce draft quotes, while the host computes canonical offsets and
 digests, rejects ambiguous anchors, and records the benchmark environment with
 the resolved model-admission verdicts. The real native CF-0 lane now passes on
-the pinned Hermes 3 Llama 3.1 8B model: 16/16 accepted segments, 5/5 verified
-questions, 100% citation precision, all nine frozen gates, and an 11.50x
+the pinned Hermes 3 Llama 3.1 8B model and the verified Gemma 4 12B native
+fallback path: both cleared 16/16 accepted segments, 5/5 verified questions,
+100% citation precision, all nine frozen gates, and roughly an 11.5x
 source-to-working-context ratio inside the 8K limit. Prompt-path telemetry
-confirmed the embedded template; exhaustive enumeration is intentionally a
-host-deterministic aggregation of grounded per-segment claims. Planned
-follow-up benchmarks should measure hierarchy recall loss, embedding impact,
-graph noise, and SQLite traversal cost as CF-1 and CF-2 mature.
+confirmed the embedded template on Hermes and `GemmaNativeFallback` on Gemma 4;
+exhaustive enumeration is intentionally a host-deterministic aggregation of
+grounded per-segment claims. Planned follow-up benchmarks should measure
+hierarchy recall loss, embedding impact, graph noise, and SQLite traversal cost
+as CF-1 and CF-2 mature.
 
 The full schema, HIVE execution model, benchmark, security policy, and phased
 implementation are specified in

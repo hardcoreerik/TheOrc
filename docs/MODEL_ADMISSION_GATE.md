@@ -174,7 +174,7 @@ native workload."
 - reject toy models outright
 - do not auto-admit uncensored chat finetunes
 - keep reasoning-tuned models provisional until they prove clean structured output without visible reasoning traces
-- reject model/runtime template combinations known to fall through to an incompatible prompt format
+- reject model/runtime template combinations known to have no verified compatible prompt path
 - require benchmark evidence before promotion from provisional to admitted
 
 ### AgenticCoding
@@ -202,7 +202,9 @@ The first implementation is intentionally conservative and heuristic-driven:
 
 The first benchmark-cleared provisional lane is `Hermes-3-Llama-3.1-8B.Q5_K_M.gguf`. It passed the real CF-0 native gate with 16/16 accepted segments, 5/5 verified questions, 100% citation precision, and no fallback prompt path. This is local workload evidence, not a blanket admission claim for every Hermes model or quantization.
 
-Gemma 4 remains rejected for Context Fabric in the current native stack because its embedded template cannot be applied and ChatML fallback does not produce a valid Gemma prompt. This should be revisited when the runtime gains a verified Gemma 4 template path.
+Gemma 4 is no longer template-blocked for Context Fabric in the current native stack. Its embedded template still does not apply through the LLamaSharp path, but the runtime now has a verified `GemmaNativeFallback` prompt builder that matches the local Gemma 4 chat-template shape closely enough to pass the real CF-0 native gate on `gemma-4-12b.gguf` with 16/16 accepted segments, 5/5 verified questions, and 100% citation precision. This is workload evidence for that local model/runtime path, not blanket admission for every Gemma 4 quantization.
+
+The current local `gemma-4-e4b-8.0B.gguf` lane is a separate case. Orc now fingerprints it correctly as an 8B Gemma 4 variant rather than misreading the `e4b` shard token as `4B`, but the present LLamaSharp stack still fails to load that GGUF before any Context Fabric evidence pass begins. It should remain rejected for Context Fabric until the native load path itself is verified.
 
 This is good enough to stop obvious foot-guns, especially:
 

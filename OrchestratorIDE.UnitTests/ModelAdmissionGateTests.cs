@@ -53,13 +53,41 @@ public sealed class ModelAdmissionGateTests
     }
 
     [Test]
-    public void ContextFabric_Rejects_Gemma4_Until_Native_Template_Is_Supported()
+    public void ContextFabric_Admits_Gemma4_When_Size_Clears_The_Gate()
     {
         var decision = ModelAdmissionGate.Evaluate(
             Asset("gemma-4-12B-it-qat-q4_0.gguf"),
             RuntimeWorkloadKind.ContextFabricReader);
 
-        Assert.That(decision.Verdict, Is.EqualTo(ModelAdmissionVerdict.Rejected));
+        Assert.That(decision.Verdict, Is.EqualTo(ModelAdmissionVerdict.Admitted));
+    }
+
+    [Test]
+    public void Fingerprint_Prefers_Real_Size_Token_Over_Gemma4_E4B_Shard_Name()
+    {
+        var fingerprint = ModelAdmissionGate.Fingerprint(
+            Asset("gemma-4-e4b-8.0B.gguf"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(fingerprint.Family, Is.EqualTo(RuntimeModelFamily.Gemma));
+            Assert.That(fingerprint.ParametersB, Is.EqualTo(8.0).Within(0.001));
+        });
+    }
+
+    [Test]
+    public void ContextFabric_Rejects_Gemma4_E4B_Until_Native_Load_Path_Works()
+    {
+        var decision = ModelAdmissionGate.Evaluate(
+            Asset("gemma-4-e4b-8.0B.gguf"),
+            RuntimeWorkloadKind.ContextFabricReader);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision.Fingerprint.ParametersB, Is.EqualTo(8.0).Within(0.001));
+            Assert.That(decision.Verdict, Is.EqualTo(ModelAdmissionVerdict.Rejected));
+            Assert.That(decision.Summary, Does.Contain("Gemma 4 E4B"));
+        });
     }
 
     [Test]
