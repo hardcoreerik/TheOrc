@@ -440,7 +440,7 @@ Commit `22db2ccf` landed the shared headless native loop, `native_agent` and `co
 
 This is not yet a finished Phase 3B product. The remaining release gates are dependency-aware campaign stages, native-agent input-artifact materialization, hostile-input hardening, complete campaign-control UX, and the planned multi-node acceptance run with worker loss, re-lease, stale-result rejection, pause/resume/cancel, artifact verification, and measured speedup.
 
-### The Orc Context Fabric — effectively unbounded source memory (CF-0 PASSED; CF-1 READY)
+### The Orc Context Fabric — effectively unbounded source memory (CF-0 through CF-4 passed in focused tests; CF-5 framework done, real-model exit gate pending)
 
 Full design: [The Orc Context Fabric.md](The%20Orc%20Context%20Fabric.md).
 
@@ -453,9 +453,9 @@ Delivery order:
 1. CF-0 contracts, evidence schema, deterministic corpus, and 16-segment native feasibility spike. **Passed:** the scripted lane remains green; the pinned Hermes 3 Llama 3.1 8B native lane passed 16/16 segment cards, 5/5 questions, 100% citation precision, all nine gates, and an 11.50x source-to-working-context ratio inside the 8K limit. A second verified native lane now passes on Gemma 4 12B through the runtime's `GemmaNativeFallback` prompt path with 16/16 segment cards, 5/5 questions, 100% citation precision, and an 11.48x ratio. Quote anchoring and the 2/2 native boundary-stitch lane also pass.
 2. CF-1 deterministic ingestion, structural segmentation, and content-addressed source storage. **Passed in focused tests:** migrations v8-v9, strict UTF-8 text/Markdown parsing, stable structural segmentation, SHA-256 source/normalized storage, transactional repository replacement, FTS5 search, rebuild/delete paths, Darwin text/PDF reproducibility, pinned Constitution and Federalist fixtures, artifact GC, and focused failure tests are implemented. Product-surface work remains follow-on rather than a CF-1 blocker.
 3. CF-2 document graph, SQLite migrations, FTS, source tools, and local retrieval. **Passed in focused tests:** migration v10, `DocumentGraphRepository`, `FabricEvidenceGraphImporter`, claim FTS, provenance-carrying `FabricSearchService`, and read-only library graph/search/open/list tools are implemented, with in-memory and on-disk repository tests plus unchanged CodeGraph tests.
-4. CF-3 native readers, boundary stitching, schema validation, and source verification.
-5. CF-4 hierarchical reducers, context budgeting, source rehydration, Quick and Study modes.
-6. CF-5 OrcChat Library, corpus attachment, citations, coverage, and persistent cited notebook.
+4. CF-3 native readers, boundary stitching, schema validation, and source verification. **Framework exit gate passed in focused no-fallback tests.**
+5. CF-4 hierarchical reducers, context budgeting, source rehydration, Quick and Study modes. **Framework exit gate passed in focused tests.**
+6. CF-5 OrcChat Library, corpus attachment, citations, coverage, and persistent cited notebook. **Framework/integration exit passed in focused headless/scripted-runtime tests (351 unit + 73 headless, all green); the real native-model end-to-end exit gate (index the real Darwin PDF, ask a cited cross-chapter question) has not yet been run.**
 7. CF-6 HIVE stage dependencies, native input staging, distributed readers/reducers/verifiers.
 8. CF-7 Exhaustive mode and frozen B0-B4 benchmark gate.
 9. CF-8 multimodal documents, optional vector acceleration, and cross-CodeGraph links.
