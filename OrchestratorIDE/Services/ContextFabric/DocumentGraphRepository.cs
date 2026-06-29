@@ -78,6 +78,23 @@ public sealed class DocumentGraphRepository(SqliteStore store) : RepositoryBase(
             P(ps, "$limit", Math.Clamp(limit, 1, 500));
         });
 
+    public IReadOnlyList<FabricClaimEntry> ListClaimsForDocument(string documentId, string? verificationStatus = null, int limit = 500) => Query(
+        """
+        SELECT *
+        FROM fabric_claims
+        WHERE document_id = $document
+          AND ($status IS NULL OR verification_status = $status)
+        ORDER BY segment_id, claim_id
+        LIMIT $limit
+        """,
+        MapClaim,
+        ps =>
+        {
+            P(ps, "$document", documentId);
+            P(ps, "$status", verificationStatus);
+            P(ps, "$limit", Math.Clamp(limit, 1, 4096));
+        });
+
     public IReadOnlyList<FabricClaimCitationEntry> ListClaimCitations(string claimId) => Query(
         """
         SELECT *
@@ -243,6 +260,82 @@ public sealed class DocumentGraphRepository(SqliteStore store) : RepositoryBase(
             P(ps, "$limit", Math.Clamp(limit, 1, 500));
         });
 
+    public void ReplaceMemoryNodesForDocument(
+        string documentId,
+        IReadOnlyList<FabricMemoryNodeEntry> nodes,
+        IReadOnlyDictionary<string, IReadOnlyList<FabricMemoryMembershipEntry>> membershipsByParentId)
+    {
+        if (string.IsNullOrWhiteSpace(documentId))
+            throw new ArgumentException("Document id is required.", nameof(documentId));
+        ArgumentNullException.ThrowIfNull(nodes);
+        ArgumentNullException.ThrowIfNull(membershipsByParentId);
+        if (nodes.Any(node => !string.Equals(node.DocumentId, documentId, StringComparison.Ordinal)))
+            throw new InvalidDataException($"Replacement memory nodes must all belong to document '{documentId}'.");
+        ValidateMemoryMemberships(documentId, nodes, membershipsByParentId);
+
+        InTransaction((conn, tx) =>
+        {
+            ExecuteOn(tx, """
+                DELETE FROM fabric_memory_nodes
+                WHERE document_id = $document
+                """,
+                ps => P(ps, "$document", documentId));
+
+            foreach (var node in nodes.OrderBy(item => item.Generation).ThenBy(item => item.NodeId))
+            {
+                InsertMemoryNodeOn(conn, tx, node);
+                if (!membershipsByParentId.TryGetValue(node.NodeId, out var memberships))
+                    continue;
+
+                foreach (var membership in memberships.OrderBy(item => item.Ordinal))
+                    InsertMemoryMembershipOn(conn, tx, membership);
+            }
+        });
+    }
+
+    public FabricMemoryNodeEntry? GetMemoryNode(string nodeId) => Query(
+        "SELECT * FROM fabric_memory_nodes WHERE node_id = $id",
+        MapMemoryNode,
+        ps => P(ps, "$id", nodeId)).SingleOrDefault();
+
+    public IReadOnlyList<FabricMemoryNodeEntry> ListMemoryNodes(
+        string corpusId,
+        string? documentId = null,
+        int? generation = null,
+        int limit = 200) => Query(
+        """
+        SELECT *
+        FROM fabric_memory_nodes
+        WHERE corpus_id = $corpus
+          AND ($document IS NULL OR document_id = $document)
+          AND ($generation IS NULL OR generation = $generation)
+        ORDER BY generation DESC, node_id
+        LIMIT $limit
+        """,
+        MapMemoryNode,
+        ps =>
+        {
+            P(ps, "$corpus", corpusId);
+            P(ps, "$document", documentId);
+            P(ps, "$generation", generation);
+            P(ps, "$limit", Math.Clamp(limit, 1, 1000));
+        });
+
+    public IReadOnlyList<FabricMemoryMembershipEntry> ListMemoryMemberships(string parentNodeId) => Query(
+        """
+        SELECT *
+        FROM fabric_memory_memberships
+        WHERE parent_node_id = $parent
+        ORDER BY ordinal
+        """,
+        reader => new FabricMemoryMembershipEntry(
+            reader.GetString(reader.GetOrdinal("parent_node_id")),
+            reader.GetString(reader.GetOrdinal("child_kind")),
+            reader.GetString(reader.GetOrdinal("child_id")),
+            reader.GetInt32(reader.GetOrdinal("ordinal")),
+            reader.GetInt32(reader.GetOrdinal("is_covered")) == 1),
+        ps => P(ps, "$parent", parentNodeId));
+
     private static FabricClaimEntry MapClaim(SqliteDataReader reader) => new(
         reader.GetString(reader.GetOrdinal("claim_id")),
         reader.GetString(reader.GetOrdinal("corpus_id")),
@@ -255,9 +348,72 @@ public sealed class DocumentGraphRepository(SqliteStore store) : RepositoryBase(
         DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("created_at"))),
         DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("updated_at"))));
 
+    private static FabricMemoryNodeEntry MapMemoryNode(SqliteDataReader reader) => new(
+        reader.GetString(reader.GetOrdinal("node_id")),
+        reader.GetString(reader.GetOrdinal("corpus_id")),
+        reader.GetString(reader.GetOrdinal("document_id")),
+        reader.GetString(reader.GetOrdinal("node_type")),
+        reader.GetString(reader.GetOrdinal("title")),
+        reader.GetString(reader.GetOrdinal("summary_text")),
+        reader.GetInt32(reader.GetOrdinal("generation")),
+        reader.GetInt32(reader.GetOrdinal("fan_in")),
+        reader.GetInt32(reader.GetOrdinal("expected_child_count")),
+        reader.GetInt32(reader.GetOrdinal("covered_child_count")),
+        reader.GetString(reader.GetOrdinal("coverage_status")),
+        reader.GetString(reader.GetOrdinal("reducer_version")),
+        DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("created_at"))),
+        DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("updated_at"))));
+
     private static string BuildFtsQuery(string query) => string.Join(" AND ", query
         .Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .Select(term => $"\"{term.Replace("\"", "\"\"")}\""));
+
+    private void ValidateMemoryMemberships(
+        string documentId,
+        IReadOnlyList<FabricMemoryNodeEntry> nodes,
+        IReadOnlyDictionary<string, IReadOnlyList<FabricMemoryMembershipEntry>> membershipsByParentId)
+    {
+        var replacementNodes = nodes.ToDictionary(node => node.NodeId, StringComparer.Ordinal);
+
+        foreach (var parentId in membershipsByParentId.Keys)
+        {
+            if (!replacementNodes.ContainsKey(parentId))
+                throw new InvalidDataException($"Memory memberships reference missing parent node '{parentId}'.");
+        }
+
+        foreach (var (parentId, memberships) in membershipsByParentId)
+        {
+            var seenOrdinals = new HashSet<int>();
+            foreach (var membership in memberships)
+            {
+                if (!string.Equals(membership.ParentNodeId, parentId, StringComparison.Ordinal))
+                    throw new InvalidDataException($"Memory membership parent '{membership.ParentNodeId}' does not match '{parentId}'.");
+                if (membership.ChildKind is not ("segment" or "memory"))
+                    throw new InvalidDataException($"Memory membership child kind '{membership.ChildKind}' is not supported.");
+                if (!seenOrdinals.Add(membership.Ordinal))
+                    throw new InvalidDataException($"Memory memberships for '{parentId}' contain duplicate ordinal '{membership.Ordinal}'.");
+
+                if (membership.ChildKind == "segment")
+                {
+                    var segment = Query(
+                        "SELECT document_id FROM fabric_segments WHERE segment_id = $id",
+                        reader => reader.GetString(reader.GetOrdinal("document_id")),
+                        ps => P(ps, "$id", membership.ChildId)).SingleOrDefault();
+                    if (segment is null)
+                        throw new InvalidDataException($"Memory membership references missing segment '{membership.ChildId}'.");
+                    if (!string.Equals(segment, documentId, StringComparison.Ordinal))
+                        throw new InvalidDataException($"Memory membership segment '{membership.ChildId}' does not belong to document '{documentId}'.");
+                }
+                else
+                {
+                    if (!replacementNodes.TryGetValue(membership.ChildId, out var childNode))
+                        throw new InvalidDataException($"Memory membership references missing child node '{membership.ChildId}'.");
+                    if (!string.Equals(childNode.DocumentId, documentId, StringComparison.Ordinal))
+                        throw new InvalidDataException($"Memory membership child node '{membership.ChildId}' does not belong to document '{documentId}'.");
+                }
+            }
+        }
+    }
 
     private static void UpsertClaimOn(SqliteConnection conn, SqliteTransaction tx, FabricClaimEntry claim)
     {
@@ -310,6 +466,52 @@ public sealed class DocumentGraphRepository(SqliteStore store) : RepositoryBase(
         P(cmd.Parameters, "$end", citation.CharEnd);
         P(cmd.Parameters, "$digest", citation.QuoteDigest);
         P(cmd.Parameters, "$quote", citation.QuoteText);
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void InsertMemoryNodeOn(SqliteConnection conn, SqliteTransaction tx, FabricMemoryNodeEntry node)
+    {
+        using var cmd = CreateCmd(conn, tx, """
+            INSERT INTO fabric_memory_nodes
+                (node_id, corpus_id, document_id, node_type, title, summary_text, generation, fan_in,
+                 expected_child_count, covered_child_count, coverage_status, reducer_version, created_at, updated_at)
+            VALUES
+                ($id, $corpus, $document, $type, $title, $summary, $generation, $fanIn,
+                 $expected, $covered, $status, $version, $created, $updated)
+            """);
+        P(cmd.Parameters, "$id", node.NodeId);
+        P(cmd.Parameters, "$corpus", node.CorpusId);
+        P(cmd.Parameters, "$document", node.DocumentId);
+        P(cmd.Parameters, "$type", node.NodeType);
+        P(cmd.Parameters, "$title", node.Title);
+        P(cmd.Parameters, "$summary", node.SummaryText);
+        P(cmd.Parameters, "$generation", node.Generation);
+        P(cmd.Parameters, "$fanIn", node.FanIn);
+        P(cmd.Parameters, "$expected", node.ExpectedChildCount);
+        P(cmd.Parameters, "$covered", node.CoveredChildCount);
+        P(cmd.Parameters, "$status", node.CoverageStatus);
+        P(cmd.Parameters, "$version", node.ReducerVersion);
+        P(cmd.Parameters, "$created", node.CreatedAt.ToString("O"));
+        P(cmd.Parameters, "$updated", node.UpdatedAt.ToString("O"));
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void InsertMemoryMembershipOn(
+        SqliteConnection conn,
+        SqliteTransaction tx,
+        FabricMemoryMembershipEntry membership)
+    {
+        using var cmd = CreateCmd(conn, tx, """
+            INSERT INTO fabric_memory_memberships
+                (parent_node_id, child_kind, child_id, ordinal, is_covered)
+            VALUES
+                ($parent, $kind, $child, $ordinal, $covered)
+            """);
+        P(cmd.Parameters, "$parent", membership.ParentNodeId);
+        P(cmd.Parameters, "$kind", membership.ChildKind);
+        P(cmd.Parameters, "$child", membership.ChildId);
+        P(cmd.Parameters, "$ordinal", membership.Ordinal);
+        P(cmd.Parameters, "$covered", membership.IsCovered ? 1 : 0);
         cmd.ExecuteNonQuery();
     }
 }

@@ -82,6 +82,25 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
         MapSegment,
         ps => P(ps, "$segment", segmentId)).SingleOrDefault();
 
+    public IReadOnlyList<FabricSegmentEntry> GetSegmentsByIds(IEnumerable<string> segmentIds)
+    {
+        ArgumentNullException.ThrowIfNull(segmentIds);
+
+        var segments = new List<FabricSegmentEntry>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var segmentId in segmentIds)
+        {
+            if (string.IsNullOrWhiteSpace(segmentId) || !seen.Add(segmentId))
+                continue;
+
+            var segment = GetSegment(segmentId);
+            if (segment is not null)
+                segments.Add(segment);
+        }
+
+        return segments;
+    }
+
     public void ReplaceDocument(FabricDocumentEntry document, IReadOnlyList<FabricSegmentDraft> segments)
     {
         ArgumentNullException.ThrowIfNull(document);

@@ -1316,6 +1316,14 @@ Exit gate:
 
 ### Phase CF-4: hierarchy and cognitive paging
 
+Implementation status (2026-06-28): **framework exit gate passed in focused tests**.
+
+- `FabricReducer` now persists hierarchical memory nodes plus child memberships, expected-child counts, covered-child counts, coverage status, and reducer generation metadata in dedicated CF-4 tables.
+- `FabricQueryPlanner` now exposes deterministic Quick and Study modes with bounded retrieval, prompt-budget, round, and source-open limits; Study mode triggers explicit source reopen when hierarchy coverage is incomplete or summaries are insufficient.
+- `EvidencePackBuilder` now builds a token-bounded live context that prefers direct source segments before summaries, reserves response tokens, and records excluded evidence when the budget cuts apply.
+- `FabricCitationVerifier` now reopens normalized source text through the library repository, validates exact cited ranges, and labels results as supported, partially supported, contradicted, citation mismatch, interpretive, or unverifiable without silently strengthening claims.
+- `ContextFabricCf4Tests` now cover hierarchy persistence, incomplete coverage visibility, bounded fan-in, Quick vs Study planning, source rehydration, citation acceptance/rejection, and the 8K-context budget rule; the broader `FullyQualifiedName~ContextFabric` regression lane remains green.
+
 Deliver:
 
 - `FabricReducer`;

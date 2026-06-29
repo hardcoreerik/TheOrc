@@ -180,6 +180,10 @@
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\DocumentGraphRepository.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricEvidenceGraphImporter.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricNativeReaderService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricReducer.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricQueryPlanner.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\EvidencePackBuilder.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricCitationVerifier.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricSearchService.cs" />
     <!-- CodeGraph v1 (step 1+) — shared with WPF via explicit include (Avalonia_Migration.md discipline) -->
     <Compile Include="..\OrchestratorIDE\Services\CodeGraph\GraphModels.cs" />

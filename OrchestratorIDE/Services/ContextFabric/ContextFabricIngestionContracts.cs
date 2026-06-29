@@ -17,6 +17,28 @@ public static class FabricVerificationStatus
     public const string Rejected = "rejected";
 }
 
+public static class FabricCoverageStatus
+{
+    public const string Complete = "complete";
+    public const string Incomplete = "incomplete";
+}
+
+public static class FabricQueryMode
+{
+    public const string Quick = "quick";
+    public const string Study = "study";
+}
+
+public static class FabricCitationVerificationLabel
+{
+    public const string Supported = "supported";
+    public const string PartiallySupported = "partially_supported";
+    public const string Contradicted = "contradicted";
+    public const string CitationMismatch = "citation_mismatch";
+    public const string Interpretive = "interpretive";
+    public const string Unverifiable = "unverifiable";
+}
+
 public sealed record FabricParsedBlock(
     int CharStart,
     int CharEnd,
@@ -163,6 +185,115 @@ public sealed record FabricRetrievalHit(
     string? ClaimId,
     string? ClaimText,
     string? VerificationStatus);
+
+public sealed record FabricMemoryNodeEntry(
+    string NodeId,
+    string CorpusId,
+    string DocumentId,
+    string NodeType,
+    string Title,
+    string SummaryText,
+    int Generation,
+    int FanIn,
+    int ExpectedChildCount,
+    int CoveredChildCount,
+    string CoverageStatus,
+    string ReducerVersion,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
+public sealed record FabricMemoryMembershipEntry(
+    string ParentNodeId,
+    string ChildKind,
+    string ChildId,
+    int Ordinal,
+    bool IsCovered);
+
+public sealed record FabricReducerOptions(
+    int FanIn = 4,
+    int MaxSummaryChars = 320)
+{
+    public void Validate()
+    {
+        if (FanIn < 2 || FanIn > 16)
+            throw new ArgumentOutOfRangeException(nameof(FanIn));
+        if (MaxSummaryChars < 64)
+            throw new ArgumentOutOfRangeException(nameof(MaxSummaryChars));
+    }
+}
+
+public sealed record FabricReductionResult(
+    string DocumentId,
+    IReadOnlyList<FabricMemoryNodeEntry> Nodes,
+    IReadOnlyList<FabricMemoryMembershipEntry> Memberships,
+    string RootNodeId);
+
+public sealed record FabricQueryPlannerOptions(
+    int RetrievalLimit = 8,
+    int MaxRounds = 2,
+    int MaxSourceOpens = 6,
+    int MaxPromptTokens = 8_192,
+    int ResponseTokenReserve = 1_024)
+{
+    public void Validate()
+    {
+        if (RetrievalLimit < 1 || RetrievalLimit > 64)
+            throw new ArgumentOutOfRangeException(nameof(RetrievalLimit));
+        if (MaxRounds < 1 || MaxRounds > 8)
+            throw new ArgumentOutOfRangeException(nameof(MaxRounds));
+        if (MaxSourceOpens < 1 || MaxSourceOpens > 64)
+            throw new ArgumentOutOfRangeException(nameof(MaxSourceOpens));
+        if (ResponseTokenReserve < 128 || ResponseTokenReserve >= MaxPromptTokens)
+            throw new ArgumentOutOfRangeException(nameof(ResponseTokenReserve));
+    }
+}
+
+public sealed record FabricQueryPlan(
+    string Query,
+    string CorpusId,
+    string Mode,
+    int MaxRounds,
+    int MaxSourceOpens,
+    int MaxPromptTokens,
+    int ResponseTokenReserve,
+    IReadOnlyList<FabricRetrievalHit> SeedHits,
+    IReadOnlyList<string> SummaryNodeIds,
+    IReadOnlyList<string> ReopenedSegmentIds,
+    bool TriggeredSourceReopen);
+
+public sealed record FabricEvidenceItem(
+    string Kind,
+    string Id,
+    string Text,
+    int TokenCount,
+    bool FromSource,
+    string Provenance);
+
+public sealed record FabricEvidencePack(
+    string Query,
+    string Mode,
+    int PromptTokenBudget,
+    int ResponseTokenReserve,
+    int UsedPromptTokens,
+    IReadOnlyList<FabricEvidenceItem> Included,
+    IReadOnlyList<FabricEvidenceItem> Excluded,
+    bool WithinBudget,
+    bool TriggeredSourceReopen);
+
+public sealed record FabricCitationVerificationItem(
+    string SegmentId,
+    string Label,
+    string QuoteText,
+    int CharStart,
+    int CharEnd,
+    string Reason);
+
+public sealed record FabricCitationVerificationResult(
+    string ClaimText,
+    string Label,
+    IReadOnlyList<FabricCitationVerificationItem> Items,
+    bool Repaired,
+    IReadOnlyList<FabricCitation> EffectiveCitations);
 
 public sealed record FabricSegmenterOptions(
     int TargetTokens = 2_000,
