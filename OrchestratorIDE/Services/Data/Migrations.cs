@@ -25,6 +25,7 @@ internal static class Migrations
         new Migration(8, "context fabric ingestion and segment search", Sql008_ContextFabric),
         new Migration(9, "context fabric segment integrity retrofit", Sql009_ContextFabricSegmentIntegrity),
         new Migration(10, "context fabric document graph and claim search", Sql010_ContextFabricDocumentGraph),
+        new Migration(11, "context fabric hierarchy and cognitive paging", Sql011_ContextFabricHierarchyPaging),
     ];
 
     // ── v1 — Phase 1: captures + triage ─────────────────────────────────────────
@@ -488,6 +489,40 @@ internal static class Migrations
             INSERT INTO fabric_claim_fts(rowid, claim_text)
             VALUES (new.rowid, new.claim_text);
         END;
+        """;
+
+    // ── v11 — Context Fabric hierarchy + cognitive paging ──────────────────
+    private const string Sql011_ContextFabricHierarchyPaging = """
+        CREATE TABLE fabric_memory_nodes (
+            node_id               TEXT PRIMARY KEY,
+            corpus_id             TEXT NOT NULL REFERENCES fabric_corpora(corpus_id) ON DELETE CASCADE,
+            document_id           TEXT NOT NULL REFERENCES fabric_documents(document_id) ON DELETE CASCADE,
+            node_type             TEXT NOT NULL,
+            title                 TEXT NOT NULL,
+            summary_text          TEXT NOT NULL,
+            generation            INTEGER NOT NULL CHECK (generation >= 0),
+            fan_in                INTEGER NOT NULL CHECK (fan_in >= 2),
+            expected_child_count  INTEGER NOT NULL CHECK (expected_child_count >= 0),
+            covered_child_count   INTEGER NOT NULL CHECK (covered_child_count >= 0 AND covered_child_count <= expected_child_count),
+            coverage_status       TEXT NOT NULL CHECK (coverage_status IN ('complete', 'incomplete')),
+            reducer_version       TEXT NOT NULL,
+            created_at            TEXT NOT NULL,
+            updated_at            TEXT NOT NULL
+        );
+        CREATE INDEX ix_fabric_memory_nodes_document ON fabric_memory_nodes(document_id, generation DESC, node_id);
+        CREATE INDEX ix_fabric_memory_nodes_corpus ON fabric_memory_nodes(corpus_id, coverage_status, generation DESC);
+
+        CREATE TABLE fabric_memory_memberships (
+            parent_node_id   TEXT NOT NULL REFERENCES fabric_memory_nodes(node_id) ON DELETE CASCADE,
+            child_kind       TEXT NOT NULL CHECK (child_kind IN ('segment', 'memory')),
+            child_id         TEXT NOT NULL,
+            ordinal          INTEGER NOT NULL CHECK (ordinal >= 0),
+            is_covered       INTEGER NOT NULL CHECK (is_covered IN (0, 1)),
+            PRIMARY KEY (parent_node_id, child_kind, child_id),
+            UNIQUE (parent_node_id, ordinal)
+        );
+        CREATE INDEX ix_fabric_memory_memberships_parent ON fabric_memory_memberships(parent_node_id, ordinal);
+        CREATE INDEX ix_fabric_memory_memberships_child ON fabric_memory_memberships(child_kind, child_id);
         """;
 
     // ── v5 — CodeGraph v1 (C# structure + search index) ─────────────────────────
