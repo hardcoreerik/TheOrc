@@ -31,6 +31,7 @@ public partial class LibraryDrawerControl : UserControl
     private IReadOnlyList<WebImportCandidate> _webResults = [];
     private readonly Dictionary<string, IndexProgressViewModel> _progressByDocument = [];
     private IReadOnlyList<ConversationNotebookEntry> _notebookEntries = [];
+    private string? _lastError;
 
     public LibraryDrawerControl()
     {
@@ -94,9 +95,17 @@ public partial class LibraryDrawerControl : UserControl
             BorderThickness = new Thickness(1),
         };
         var fromFile = new MenuItem { Header = "From file…" };
-        fromFile.Click += async (_, _) => await AddFromFileAsync();
+        fromFile.Click += async (_, _) =>
+        {
+            try { await AddFromFileAsync(); }
+            catch (Exception ex) { ShowError("Adding source from file", ex); }
+        };
         var fromFolder = new MenuItem { Header = "From folder…" };
-        fromFolder.Click += async (_, _) => await AddFromFolderAsync();
+        fromFolder.Click += async (_, _) =>
+        {
+            try { await AddFromFolderAsync(); }
+            catch (Exception ex) { ShowError("Adding sources from folder", ex); }
+        };
         var findWeb = new MenuItem { Header = "Find on the web…" };
         findWeb.Click += (_, _) => { _webFindMode = true; Render(); };
         addBtn.ContextMenu = new ContextMenu { ItemsSource = new[] { fromFile, fromFolder, findWeb } };
@@ -198,12 +207,45 @@ public partial class LibraryDrawerControl : UserControl
     private void BeginIndexing(string documentId)
     {
         if (_orchestrator is null) return;
+        // Re-entrancy guard -- without this, a double-click on "Re-index corpus" or a second
+        // import landing on the same document while the first is still running fires two
+        // concurrent IndexDocumentAsync calls racing the same SQLite rows (claims replace +
+        // reduce), and the second BeginIndexing's progress VM orphans the first one's.
+        if (_progressByDocument.TryGetValue(documentId, out var existing) &&
+            existing.Stage is not IndexStageKind.Complete and not IndexStageKind.Failed)
+        {
+            return;
+        }
+
         var progress = new IndexProgressViewModel(documentId);
         _progressByDocument[documentId] = progress;
         progress.PropertyChanged += (_, _) => Dispatcher.UIThread.Post(Render);
 
         var reporter = new Progress<IndexStageEvent>(progress.Apply);
         _ = _orchestrator.IndexDocumentAsync(documentId, readOnly: false, reporter)
+            .ContinueWith(_ => Dispatcher.UIThread.Post(() => { _vm?.Refresh(); Render(); }));
+    }
+
+    /// <summary>
+    /// Scoped retry for a document's previously-failed segments -- the "Repair" affordance,
+    /// using FabricIndexingOrchestrator.RetryFailedAsync instead of re-reading every segment
+    /// the way "Re-index corpus" (BeginIndexing) does.
+    /// </summary>
+    private void BeginRetry(string documentId, IReadOnlyList<string> failedSegmentIds)
+    {
+        if (_orchestrator is null) return;
+        if (_progressByDocument.TryGetValue(documentId, out var existing) &&
+            existing.Stage is not IndexStageKind.Complete and not IndexStageKind.Failed)
+        {
+            return;
+        }
+
+        var progress = new IndexProgressViewModel(documentId);
+        _progressByDocument[documentId] = progress;
+        progress.PropertyChanged += (_, _) => Dispatcher.UIThread.Post(Render);
+
+        var reporter = new Progress<IndexStageEvent>(progress.Apply);
+        _ = _orchestrator.RetryFailedAsync(documentId, failedSegmentIds, readOnly: false, reporter)
             .ContinueWith(_ => Dispatcher.UIThread.Post(() => { _vm?.Refresh(); Render(); }));
     }
 
@@ -272,6 +314,9 @@ public partial class LibraryDrawerControl : UserControl
     {
         BodyStack.Children.Clear();
 
+        if (_lastError is not null)
+            BodyStack.Children.Add(BuildErrorBanner(_lastError));
+
         if (_webFindMode)
         {
             BodyStack.Children.Add(BuildWebFindPanel());
@@ -285,6 +330,34 @@ public partial class LibraryDrawerControl : UserControl
             BodyStack.Children.Add(BuildCorpusCard(corpus));
 
         BodyStack.Children.Add(BuildNotebookSection());
+    }
+
+    /// <summary>
+    /// Surfaces a failure from one of the async-void Click handlers below instead of letting
+    /// it become an unhandled exception on the UI thread (the exact BLOCKER-class bug this
+    /// codebase's own ChatPanel.CopyBubbleTextAsync comment documents fixing once already).
+    /// </summary>
+    private void ShowError(string action, Exception ex)
+    {
+        _lastError = $"{action} failed: {ex.Message}";
+        Dispatcher.UIThread.Post(Render);
+    }
+
+    private Control BuildErrorBanner(string message)
+    {
+        var dismiss = new Button { Content = "✕", FontSize = 10, Padding = new Thickness(4), Background = Brushes.Transparent, BorderThickness = new Thickness(0), Foreground = Brush(0xC0, 0x61, 0x4F) };
+        dismiss.Click += (_, _) => { _lastError = null; Render(); };
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        var text = new TextBlock { Text = message, FontSize = 10.5, Foreground = Brush(0xC0, 0x61, 0x4F), TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(text, 0);
+        Grid.SetColumn(dismiss, 1);
+        row.Children.Add(text);
+        row.Children.Add(dismiss);
+        return new Border
+        {
+            Background = Brush(0x1E, 0x11, 0x0E), BorderBrush = Brush(0x3A, 0x1E, 0x18), BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 6), Margin = new Thickness(0, 0, 0, 6), Child = row,
+        };
     }
 
     private Control BuildSearchResultsSection()
@@ -386,16 +459,47 @@ public partial class LibraryDrawerControl : UserControl
         if (actionsRow.Children.Count > 0)
             stack.Children.Add(actionsRow);
 
-        if (_progressByDocument.Values.Any(p => corpus.Documents.Any(d => d.DocumentId == p.DocumentId) &&
-                                                  p.Stage is not IndexStageKind.Complete and not IndexStageKind.Failed))
+        var activeProgress = _progressByDocument.Values.FirstOrDefault(p =>
+            corpus.Documents.Any(d => d.DocumentId == p.DocumentId) &&
+            p.Stage is not IndexStageKind.Complete and not IndexStageKind.Failed);
+        if (activeProgress is not null)
         {
-            var active = _progressByDocument.Values.First(p => corpus.Documents.Any(d => d.DocumentId == p.DocumentId));
             stack.Children.Add(new TextBlock
             {
-                Text = active.StageLabel,
+                Text = activeProgress.StageLabel,
                 FontFamily = new FontFamily("JetBrains Mono, Consolas, monospace"),
                 FontSize = 10, Foreground = Brush(0x8A, 0x7E, 0x60),
             });
+        }
+
+        // A completed run can still have left some segments failed -- offer the scoped
+        // retry (FabricIndexingOrchestrator.RetryFailedAsync) instead of forcing a full
+        // re-read of every segment via "Re-index corpus".
+        var failedProgress = _progressByDocument.Values.FirstOrDefault(p =>
+            corpus.Documents.Any(d => d.DocumentId == p.DocumentId) &&
+            p.Stage == IndexStageKind.Complete && p.FailedSegmentIds.Count > 0);
+        if (failedProgress is not null)
+        {
+            var repairRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(0, 4, 0, 0) };
+            var failedLabel = new TextBlock
+            {
+                Text = $"{failedProgress.FailedSegmentIds.Count} failed segments",
+                FontFamily = new FontFamily("JetBrains Mono, Consolas, monospace"),
+                FontSize = 10, Foreground = Brush(0xD6, 0xA8, 0x5A), VerticalAlignment = VerticalAlignment.Center,
+            };
+            var repairBtn = new Button
+            {
+                Content = "Repair", FontSize = 10.5, Padding = new Thickness(8, 3),
+                Background = Brush(0x1A, 0x14, 0x0B), BorderBrush = Brush(0x44, 0x37, 0x14), Foreground = Brush(0xC9, 0x8A, 0x4B),
+            };
+            var documentId = failedProgress.DocumentId;
+            var failedIds = failedProgress.FailedSegmentIds.ToArray();
+            repairBtn.Click += (_, _) => BeginRetry(documentId, failedIds);
+            Grid.SetColumn(failedLabel, 0);
+            Grid.SetColumn(repairBtn, 1);
+            repairRow.Children.Add(failedLabel);
+            repairRow.Children.Add(repairBtn);
+            stack.Children.Add(repairRow);
         }
 
         return new Border
@@ -467,8 +571,12 @@ public partial class LibraryDrawerControl : UserControl
         searchBtn.Click += async (_, _) =>
         {
             if (_webImporter is null || string.IsNullOrWhiteSpace(input.Text)) return;
-            _webResults = await _webImporter.SearchAsync(input.Text!).ConfigureAwait(true);
-            Render();
+            try
+            {
+                _webResults = await _webImporter.SearchAsync(input.Text!).ConfigureAwait(true);
+                Render();
+            }
+            catch (Exception ex) { ShowError("Web search", ex); }
         };
         stack.Children.Add(input);
         stack.Children.Add(searchBtn);
@@ -482,13 +590,17 @@ public partial class LibraryDrawerControl : UserControl
             addBtn.Click += async (_, _) =>
             {
                 if (_vm is null) return;
-                var corpusId = _attachedCorpusId ?? EnsureDefaultCorpus();
-                var result = await _webImporter!.DownloadAndImportAsync(corpusId, candidate).ConfigureAwait(true);
-                _vm.Refresh();
-                BeginIndexing(result.ImportResult.Document.DocumentId);
-                _webFindMode = false;
-                _webResults = [];
-                Render();
+                try
+                {
+                    var corpusId = _attachedCorpusId ?? EnsureDefaultCorpus();
+                    var result = await _webImporter!.DownloadAndImportAsync(corpusId, candidate).ConfigureAwait(true);
+                    _vm.Refresh();
+                    BeginIndexing(result.ImportResult.Document.DocumentId);
+                    _webFindMode = false;
+                    _webResults = [];
+                    Render();
+                }
+                catch (Exception ex) { ShowError($"Downloading '{candidate.Title}'", ex); }
             };
             row.Children.Add(addBtn);
             stack.Children.Add(new Border

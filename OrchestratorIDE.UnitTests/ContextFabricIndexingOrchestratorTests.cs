@@ -91,7 +91,7 @@ public sealed class ContextFabricIndexingOrchestratorTests
         Assert.That(claimsBefore, Has.Count.GreaterThanOrEqualTo(2));
 
         // Retry only seg-0 — seg-1's previously-imported claims must survive untouched
-        // (RetryFailedAsync uses FabricNativeReaderService.ReadSegmentsAsync + ImportEvidenceCard,
+        // (RetryFailedAsync uses FabricNativeReaderService.ReadSegmentsAsync + ReplaceSegmentEvidenceCard,
         // not the document-wide ReplaceDocumentEvidenceCards the full read path uses).
         var result = await orchestrator.RetryFailedAsync(harness.Document.DocumentId, ["seg-0"], readOnly: true);
 
@@ -102,6 +102,39 @@ public sealed class ContextFabricIndexingOrchestratorTests
             Assert.That(result.Stage, Is.EqualTo(IndexStageKind.Complete));
             Assert.That(claimsAfter.Select(c => c.SegmentId), Does.Contain("seg-1"));
             Assert.That(claimsAfter.Select(c => c.SegmentId), Does.Contain("seg-0"));
+        });
+    }
+
+    [Test]
+    public void ReplaceSegmentEvidenceCard_Drops_Claims_No_Longer_In_A_Smaller_Retry_Card()
+    {
+        using var harness = NewHarness();
+        var importer = new FabricEvidenceGraphImporter(harness.Library, harness.Graph);
+
+        var firstCard = new FabricEvidenceCard
+        {
+            CorpusId = harness.Corpus.CorpusId,
+            DocumentId = harness.Document.DocumentId,
+            SegmentId = "seg-0",
+            Claims =
+            [
+                new FabricClaim { Text = "LANTERN is the call sign.", Citations = [new FabricCitation { SegmentId = "seg-0", CharStart = 0, CharEnd = 9, Quote = "call sign" }] },
+                new FabricClaim { Text = "A second fact that won't survive the retry.", Citations = [new FabricCitation { SegmentId = "seg-0", CharStart = 9, CharEnd = 20, Quote = "second fact" }] },
+            ],
+        };
+        importer.ReplaceSegmentEvidenceCard(firstCard);
+        Assert.That(harness.Graph.ListClaimsForDocument(harness.Document.DocumentId, limit: 64), Has.Count.EqualTo(2));
+
+        // A retry that returns fewer claims for the same segment must drop the orphaned one,
+        // not just upsert what's present (the bug ImportEvidenceCard had).
+        var retriedCard = firstCard with { Claims = [firstCard.Claims[0]] };
+        importer.ReplaceSegmentEvidenceCard(retriedCard);
+
+        var claims = harness.Graph.ListClaimsForDocument(harness.Document.DocumentId, limit: 64);
+        Assert.Multiple(() =>
+        {
+            Assert.That(claims, Has.Count.EqualTo(1));
+            Assert.That(claims[0].ClaimText, Is.EqualTo("LANTERN is the call sign."));
         });
     }
 

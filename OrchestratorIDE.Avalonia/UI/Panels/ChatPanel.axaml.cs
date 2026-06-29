@@ -419,7 +419,10 @@ public partial class ChatPanel : UserControl
         // ── CF-5: route through FabricAskService when a corpus is attached ───────
         // Source-bound asks skip the Ollama model picker entirely (FabricAskService
         // generates via the native IRoleRuntime Reviewer role, not the chat model).
-        if (_corpus is not null && _askService is not null && !string.IsNullOrEmpty(text))
+        // Only takes this path with no pending attachments -- FabricAskService has no
+        // attachment support, so falling through to the plain ChatEngine path below is what
+        // actually sends them instead of silently dropping them.
+        if (_corpus is not null && _askService is not null && !string.IsNullOrEmpty(text) && _pendingAttachments.Count == 0)
         {
             await SendFabricAsync(_corpus, text, CancellationToken.None);
             return;

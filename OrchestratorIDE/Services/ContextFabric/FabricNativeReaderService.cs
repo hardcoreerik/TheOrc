@@ -51,9 +51,11 @@ public sealed class FabricNativeReaderService
     }
 
     /// <summary>
-    /// Re-reads only the given segments and upserts their cards without touching
-    /// claims already imported for the rest of the document (unlike ReadDocumentAsync,
-    /// which replaces the full document's claim set).
+    /// Re-reads only the given segments and replaces each one's claims without touching
+    /// claims already imported for the rest of the document (unlike ReadDocumentAsync, which
+    /// replaces the full document's claim set). Replacing per-segment rather than upserting
+    /// means a retry that returns fewer claims than the previous read for the same segment
+    /// doesn't leave the dropped-out claims orphaned in the graph.
     /// </summary>
     public async Task<FabricCorpusReadReport> ReadSegmentsAsync(
         string documentId,
@@ -77,7 +79,7 @@ public sealed class FabricNativeReaderService
                      .Where(item => item.Accepted && item.Card is not null)
                      .Select(item => item.Card!))
         {
-            _graphImporter.ImportEvidenceCard(card);
+            _graphImporter.ReplaceSegmentEvidenceCard(card);
         }
 
         return readReport;
