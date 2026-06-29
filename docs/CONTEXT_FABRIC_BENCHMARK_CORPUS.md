@@ -159,7 +159,7 @@ What it tests:
 quote verification, source-range integrity, hostile inputs, formal section language, and fail-closed evidence handling.
 
 Acceptance note:
-Current repo truth is stronger on framework than on public benchmark breadth: `ContextFabricCf3Tests` now prove the intrinsic no-fallback reader lane, hostile-source handling, valid source ranges, trusted quote digests, and reusable stitcher path against the synthetic adversarial corpus. Public-source CF-3 benchmark claims should wait for explicit real-model benchmark evidence on the recommended shelf.
+This phase should only claim success when accepted claims consistently survive host-side verification against the original source.
 
 Marketing line:
 Every claim must survive a source check.
