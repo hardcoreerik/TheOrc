@@ -1,6 +1,6 @@
 # The Orc Context Fabric
 
-> Status: CF-0 native feasibility gate passed; CF-1 deterministic-ingestion framework passed; product integration remains ahead
+> Status: CF-0 native feasibility gate passed; CF-1 deterministic-ingestion framework passed; CF-2 graph-backed retrieval passed in focused tests; CF-3 native reader framework passed in focused no-fallback tests
 > Owner: TheOrc native runtime, OrcChat, CodeGraph, and HIVE MIND
 > Last updated: 2026-06-28
 > Product goal: make corpus size effectively independent of the active model context window while preserving source coverage, provenance, and reproducible answers on consumer hardware.
@@ -1289,6 +1289,14 @@ Implementation status (2026-06-28): **exit gate passed in focused tests**.
 - Focused CF-2 tests now cover migration v10 shape, in-memory graph persistence, on-disk claim FTS persistence across reopen, evidence-card import, claim-expanded retrieval, lexical-hit provenance, and unchanged `T19_GraphRepositoryTests` behavior for the existing CodeGraph lane.
 
 ### Phase CF-3: native readers and source verification
+
+Implementation status (2026-06-28): **framework exit gate passed in focused no-fallback tests**.
+
+- `FabricNativeReaderService` now runs stored library documents through the native reader lane, reuses `ContextFabricFeasibilityRunner.ReadCorpusAsync`, and imports accepted evidence cards into the CF-2 graph tables.
+- `FabricBoundaryStitcher` now owns reusable boundary-stitch invocation and validation, and `ContextFabricBenchmarkExpansionRunner` delegates to it instead of carrying a duplicate benchmark-only copy.
+- Reader prompts and schemas were already versioned, host-side quote anchoring and quote-digest verification were already active in `FabricEvidenceProcessor`, and the bounded reader repair pass already existed in `RepairSegmentAsync`.
+- `ContextFabricCf3Tests` now prove the intrinsic CF-3 framework path end to end with the scripted native runtime: accepted claims are imported with valid source ranges and trusted quote digests, the hostile source line is preserved as source data instead of changing reader policy, and the reusable stitcher passes deterministic cases directly.
+- This status is intentionally narrower than a real-model benchmark claim. It closes the framework gate for CF-3 in code, while any future real native-model validation remains benchmark work rather than missing infrastructure.
 
 Deliver:
 

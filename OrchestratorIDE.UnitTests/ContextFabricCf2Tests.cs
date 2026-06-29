@@ -52,6 +52,7 @@ public sealed class ContextFabricCf2Tests
         var library = new FabricLibraryRepository(store);
         var graph = new DocumentGraphRepository(store);
         var now = DateTimeOffset.UtcNow;
+        const string segmentText = "Natural selection preserves favorable variations.";
 
         var corpus = library.CreateCorpus("corpus-test", "Independent Mind");
         var document = new FabricDocumentEntry(
@@ -74,10 +75,10 @@ public sealed class ContextFabricCf2Tests
                 0,
                 "Alpha",
                 0,
-                42,
+                segmentText.Length,
                 9,
                 "seg-digest",
-                "Natural selection preserves favorable variations.",
+                segmentText,
                 null,
                 null,
                 FabricIngestionVersions.Segmenter)
@@ -101,9 +102,9 @@ public sealed class ContextFabricCf2Tests
                 0,
                 "seg-test",
                 0,
-                42,
+                segmentText.Length,
                 "quote-digest",
-                "Natural selection preserves favorable variations.")
+                segmentText)
         ]);
 
         var source = new FabricEntityEntry("entity-source", corpus.CorpusId, "natural selection", "concept", FabricVerificationStatus.Provisional, 0.7, now, now);
@@ -150,6 +151,8 @@ public sealed class ContextFabricCf2Tests
         var graph = new DocumentGraphRepository(store);
         var importer = new FabricEvidenceGraphImporter(library, graph);
         var now = DateTimeOffset.UtcNow;
+        const string segmentText = "The public good is disregarded in the conflicts of rival parties.";
+        const string quoteText = "public good is disregarded in the conflicts of rival parties";
 
         var corpus = library.CreateCorpus("corpus-import", "Import lane");
         var document = new FabricDocumentEntry(
@@ -172,10 +175,10 @@ public sealed class ContextFabricCf2Tests
                 0,
                 "No. 10",
                 0,
-                71,
+                segmentText.Length,
                 14,
                 "seg-digest",
-                "The public good is disregarded in the conflicts of rival parties.",
+                segmentText,
                 null,
                 null,
                 FabricIngestionVersions.Segmenter)
@@ -201,8 +204,8 @@ public sealed class ContextFabricCf2Tests
                         {
                             SegmentId = "seg-import",
                             CharStart = 4,
-                            CharEnd = 53,
-                            Quote = "public good is disregarded in the conflicts of rival parties",
+                            CharEnd = 4 + quoteText.Length,
+                            Quote = quoteText,
                             QuoteDigest = "quote-digest"
                         }
                     ]
@@ -280,6 +283,132 @@ public sealed class ContextFabricCf2Tests
     }
 
     [Test]
+    public void EvidenceGraphImporter_Rejects_Citation_Segment_From_Another_Document()
+    {
+        using var store = new SqliteStore(":memory:");
+        store.Initialize();
+        var library = new FabricLibraryRepository(store);
+        var graph = new DocumentGraphRepository(store);
+        var importer = new FabricEvidenceGraphImporter(library, graph);
+        var now = DateTimeOffset.UtcNow;
+
+        var corpus = library.CreateCorpus("corpus-cross-doc-citation", "Import lane");
+        var first = new FabricDocumentEntry(
+            "doc-first",
+            corpus.CorpusId,
+            "source-digest-1",
+            "normalized-digest-1",
+            "Federalist 1",
+            "text/plain",
+            FabricIngestionVersions.TextMarkdownParser,
+            FabricIngestionVersions.TextMarkdownParser,
+            "ready",
+            [],
+            now,
+            now);
+        var second = new FabricDocumentEntry(
+            "doc-second",
+            corpus.CorpusId,
+            "source-digest-2",
+            "normalized-digest-2",
+            "Federalist 2",
+            "text/plain",
+            FabricIngestionVersions.TextMarkdownParser,
+            FabricIngestionVersions.TextMarkdownParser,
+            "ready",
+            [],
+            now,
+            now);
+        library.ReplaceDocument(first,
+        [
+            new FabricSegmentDraft("seg-first", 0, "No. 10", 0, "Faction harms union.".Length, 4, "seg-digest-1", "Faction harms union.", null, null, FabricIngestionVersions.Segmenter)
+        ]);
+        library.ReplaceDocument(second,
+        [
+            new FabricSegmentDraft("seg-second", 0, "No. 51", 0, "Ambition checks ambition.".Length, 4, "seg-digest-2", "Ambition checks ambition.", null, null, FabricIngestionVersions.Segmenter)
+        ]);
+
+        Assert.That(
+            () => importer.ImportEvidenceCard(new FabricEvidenceCard
+            {
+                CorpusId = corpus.CorpusId,
+                DocumentId = first.DocumentId,
+                SegmentId = "seg-first",
+                Claims =
+                [
+                    new FabricClaim
+                    {
+                        ClaimId = "claim-1",
+                        Text = "Faction harms union.",
+                        Citations = [new FabricCitation { SegmentId = "seg-second", CharStart = 0, CharEnd = "Ambition checks ambition.".Length, QuoteDigest = "quote-2", Quote = "Ambition checks ambition." }]
+                    }
+                ]
+            }),
+            Throws.TypeOf<InvalidDataException>());
+        Assert.That(graph.ListClaims(corpus.CorpusId, limit: 10), Is.Empty);
+    }
+
+    [Test]
+    public void EvidenceGraphImporter_Assigns_Unique_Fallback_Ids_For_Blank_ClaimIds()
+    {
+        using var store = new SqliteStore(":memory:");
+        store.Initialize();
+        var library = new FabricLibraryRepository(store);
+        var graph = new DocumentGraphRepository(store);
+        var importer = new FabricEvidenceGraphImporter(library, graph);
+        var now = DateTimeOffset.UtcNow;
+
+        var corpus = library.CreateCorpus("corpus-blank-claim-ids", "Import lane");
+        var document = new FabricDocumentEntry(
+            "doc-blank-ids",
+            corpus.CorpusId,
+            "source-digest",
+            "normalized-digest",
+            "Federalist",
+            "text/plain",
+            FabricIngestionVersions.TextMarkdownParser,
+            FabricIngestionVersions.TextMarkdownParser,
+            "ready",
+            [],
+            now,
+            now);
+        library.ReplaceDocument(document,
+        [
+            new FabricSegmentDraft("seg-blank-ids", 0, "No. 10", 0, "Faction harms union.".Length, 4, "seg-digest", "Faction harms union.", null, null, FabricIngestionVersions.Segmenter)
+        ]);
+
+        var imported = importer.ImportEvidenceCard(new FabricEvidenceCard
+        {
+            CorpusId = corpus.CorpusId,
+            DocumentId = document.DocumentId,
+            SegmentId = "seg-blank-ids",
+            Claims =
+            [
+                new FabricClaim
+                {
+                    ClaimId = "",
+                    Text = "Faction harms union.",
+                    Citations = [new FabricCitation { SegmentId = "seg-blank-ids", CharStart = 0, CharEnd = "Faction harms union.".Length, QuoteDigest = "quote-1", Quote = "Faction harms union." }]
+                },
+                new FabricClaim
+                {
+                    ClaimId = "",
+                    Text = "Faction harms union differently.",
+                    Citations = [new FabricCitation { SegmentId = "seg-blank-ids", CharStart = 0, CharEnd = "Faction harms union.".Length, QuoteDigest = "quote-2", Quote = "Faction harms union." }]
+                }
+            ]
+        });
+
+        var claims = graph.ListClaims(corpus.CorpusId, limit: 10);
+        Assert.Multiple(() =>
+        {
+            Assert.That(imported, Is.EqualTo(2));
+            Assert.That(claims, Has.Count.EqualTo(2));
+            Assert.That(claims.Select(item => item.ClaimId).Distinct().Count(), Is.EqualTo(2));
+        });
+    }
+
+    [Test]
     public void EvidenceGraphImporter_Scopes_Duplicate_Local_Claim_Ids_Per_Document()
     {
         using var store = new SqliteStore(":memory:");
@@ -336,7 +465,7 @@ public sealed class ContextFabricCf2Tests
                 {
                     ClaimId = "claim-local",
                     Text = "Faction harms union.",
-                    Citations = [new FabricCitation { SegmentId = "seg-first", CharStart = 0, CharEnd = 20, QuoteDigest = "quote-1", Quote = "Faction harms union." }]
+                    Citations = [new FabricCitation { SegmentId = "seg-first", CharStart = 0, CharEnd = "Faction harms union.".Length, QuoteDigest = "quote-1", Quote = "Faction harms union." }]
                 }
             ]
         });
@@ -351,7 +480,7 @@ public sealed class ContextFabricCf2Tests
                 {
                     ClaimId = "claim-local",
                     Text = "Ambition checks ambition.",
-                    Citations = [new FabricCitation { SegmentId = "seg-second", CharStart = 0, CharEnd = 24, QuoteDigest = "quote-2", Quote = "Ambition checks ambition." }]
+                    Citations = [new FabricCitation { SegmentId = "seg-second", CharStart = 0, CharEnd = "Ambition checks ambition.".Length, QuoteDigest = "quote-2", Quote = "Ambition checks ambition." }]
                 }
             ]
         });
@@ -373,6 +502,8 @@ public sealed class ContextFabricCf2Tests
         var importer = new FabricEvidenceGraphImporter(library, graph);
         var search = new FabricSearchService(library, graph);
         var now = DateTimeOffset.UtcNow;
+        const string segmentText = "The public good is disregarded in the conflicts of rival parties.";
+        const string quoteText = "public good is disregarded in the conflicts of rival parties";
 
         var corpus = library.CreateCorpus("corpus-search", "Search lane");
         var document = new FabricDocumentEntry(
@@ -395,10 +526,10 @@ public sealed class ContextFabricCf2Tests
                 0,
                 "No. 10",
                 0,
-                71,
+                segmentText.Length,
                 14,
                 "seg-digest",
-                "The public good is disregarded in the conflicts of rival parties.",
+                segmentText,
                 null,
                 null,
                 FabricIngestionVersions.Segmenter)
@@ -423,8 +554,8 @@ public sealed class ContextFabricCf2Tests
                         {
                             SegmentId = "seg-search",
                             CharStart = 4,
-                            CharEnd = 53,
-                            Quote = "public good is disregarded in the conflicts of rival parties",
+                            CharEnd = 4 + quoteText.Length,
+                            Quote = quoteText,
                             QuoteDigest = "quote-digest"
                         }
                     ]
@@ -467,6 +598,7 @@ public sealed class ContextFabricCf2Tests
             var graph = new DocumentGraphRepository(store);
             var importer = new FabricEvidenceGraphImporter(library, graph);
             var now = DateTimeOffset.UtcNow;
+            const string segmentText = "All legislative Powers herein granted shall be vested in a Congress.";
 
             var corpus = library.CreateCorpus("corpus-disk", "Disk lane");
             corpusId = corpus.CorpusId;
@@ -490,10 +622,10 @@ public sealed class ContextFabricCf2Tests
                     0,
                     "Article I",
                     0,
-                    66,
+                    segmentText.Length,
                     12,
                     "seg-digest",
-                    "All legislative Powers herein granted shall be vested in a Congress.",
+                    segmentText,
                     null,
                     null,
                     FabricIngestionVersions.Segmenter)
@@ -519,8 +651,8 @@ public sealed class ContextFabricCf2Tests
                             {
                                 SegmentId = "seg-disk",
                                 CharStart = 0,
-                                CharEnd = 66,
-                                Quote = "All legislative Powers herein granted shall be vested in a Congress.",
+                                CharEnd = segmentText.Length,
+                                Quote = segmentText,
                                 QuoteDigest = "quote-digest"
                             }
                         ]
@@ -561,6 +693,7 @@ public sealed class ContextFabricCf2Tests
         var graph = new DocumentGraphRepository(store);
         var search = new FabricSearchService(library, graph);
         var now = DateTimeOffset.UtcNow;
+        const string segmentText = "Variation under domestication appears everywhere.";
 
         var corpus = library.CreateCorpus("corpus-lexical", "Lexical lane");
         var document = new FabricDocumentEntry(
@@ -583,10 +716,10 @@ public sealed class ContextFabricCf2Tests
                 0,
                 "Chapter I",
                 0,
-                48,
+                segmentText.Length,
                 8,
                 "seg-digest",
-                "Variation under domestication appears everywhere.",
+                segmentText,
                 null,
                 null,
                 FabricIngestionVersions.Segmenter)
