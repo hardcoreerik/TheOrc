@@ -50,6 +50,39 @@ public sealed class FabricNativeReaderService
         return new FabricDocumentReadResult(document, readReport, importedClaims);
     }
 
+    /// <summary>
+    /// Re-reads only the given segments and upserts their cards without touching
+    /// claims already imported for the rest of the document (unlike ReadDocumentAsync,
+    /// which replaces the full document's claim set).
+    /// </summary>
+    public async Task<FabricCorpusReadReport> ReadSegmentsAsync(
+        string documentId,
+        IReadOnlyList<string> segmentIds,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(segmentIds);
+        var document = _libraryRepository.GetDocument(documentId)
+            ?? throw new KeyNotFoundException($"Context Fabric document '{documentId}' does not exist.");
+        var requested = segmentIds.ToHashSet(StringComparer.Ordinal);
+        var scopedSegments = _libraryRepository.GetSegments(documentId)
+            .Where(segment => requested.Contains(segment.SegmentId))
+            .ToArray();
+        if (scopedSegments.Length == 0)
+            throw new InvalidDataException($"None of the requested segment ids belong to document '{documentId}'.");
+
+        var corpus = BuildCorpus(document, scopedSegments);
+        var readReport = await _runner.ReadCorpusAsync(corpus, ct).ConfigureAwait(false);
+
+        foreach (var card in readReport.SegmentResults
+                     .Where(item => item.Accepted && item.Card is not null)
+                     .Select(item => item.Card!))
+        {
+            _graphImporter.ImportEvidenceCard(card);
+        }
+
+        return readReport;
+    }
+
     internal static FabricCorpus BuildCorpus(
         FabricDocumentEntry document,
         IReadOnlyList<FabricSegmentEntry> segments)

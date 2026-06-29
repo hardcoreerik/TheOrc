@@ -2,6 +2,7 @@
 <UserControl x:Class="OrchestratorIDE.UI.Panels.ChatPanel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:OrchestratorIDE.UI.Controls"
              Background="{StaticResource Br.Bg.App}">
 
     <!--
@@ -104,6 +105,48 @@
                 </StackPanel>
 
             </DockPanel>
+        </Border>
+
+        <!-- ── CF-5: corpus bar (library toggle, attached-corpus badge, Quick/Study) ── -->
+        <Border x:Name="BdrCorpusBar"
+                DockPanel.Dock="Top"
+                Background="#0D120D"
+                BorderBrush="{StaticResource Br.Border}"
+                BorderThickness="0,0,0,1"
+                Padding="12,6">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <ToggleButton x:Name="BtnToggleLibrary"
+                              Content="📚 Library"
+                              FontSize="11" Padding="8,4"
+                              Background="Transparent" BorderBrush="#2A3A2A"
+                              Foreground="#9FB890"
+                              Click="BtnToggleLibrary_Click"/>
+
+                <Border x:Name="BdrCorpusBadge"
+                        Background="#101A10" BorderBrush="#2A4A2A" BorderThickness="1"
+                        CornerRadius="8" Padding="6,4" IsVisible="False">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="📖" FontSize="11" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TxtCorpusName" FontSize="12" FontWeight="SemiBold" Foreground="#D8E4D0" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TxtCorpusStatus" FontSize="9.5" Foreground="#7FB069" VerticalAlignment="Center"/>
+                        <Button x:Name="BtnDetachCorpus" Content="✕" FontSize="10" Padding="3"
+                                Background="Transparent" BorderThickness="0" Foreground="#5A6B5A"
+                                Click="BtnDetachCorpus_Click"/>
+                    </StackPanel>
+                </Border>
+
+                <StackPanel x:Name="StackModeToggle" Orientation="Horizontal" Spacing="3" IsVisible="False"
+                            Background="#0E140E">
+                    <Button x:Name="BtnModeQuick" Content="Quick" FontSize="11.5" Padding="10,5"
+                            Background="#1A2A1A" Foreground="#C4E89A" BorderBrush="#3A5A3A"
+                            Click="BtnModeQuick_Click"/>
+                    <Button x:Name="BtnModeStudy" Content="Study" FontSize="11.5" Padding="10,5"
+                            Background="Transparent" Foreground="#7E8C7E" BorderThickness="0"
+                            Click="BtnModeStudy_Click"/>
+                </StackPanel>
+                <TextBlock x:Name="TxtModeHint" FontSize="10" Foreground="#6E8068" MaxWidth="170"
+                           TextWrapping="Wrap" VerticalAlignment="Center"/>
+            </StackPanel>
         </Border>
 
         <!-- ── System prompt / sampling controls ───────────── -->
@@ -245,49 +288,70 @@
             </StackPanel>
         </Border>
 
-        <!-- ── Chat area ───────────────────────────────────────────── -->
-        <ScrollViewer x:Name="ChatScroll"
-                      VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Disabled"
-                      Padding="16,8">
-            <StackPanel x:Name="ChatStack"
-                        Orientation="Vertical"
-                        Margin="0,8,0,16">
+        <!-- ── Chat area + CF-5 library drawer / source preview rails ─ -->
+        <Grid x:Name="LibraryLayoutGrid"
+              ColumnDefinitions="Auto,Auto,*,Auto,Auto">
 
-                <!-- Welcome card (removed from ChatStack on first send) -->
-                <Border x:Name="BdrWelcome"
-                        Background="#111611"
-                        BorderBrush="#1E2E1E" BorderThickness="1"
-                        CornerRadius="8,8,8,2"
-                        Padding="14,10" Margin="0,4,60,4"
-                        HorizontalAlignment="Left" MaxWidth="780">
-                    <StackPanel>
-                        <TextBlock x:Name="TxtWelcomeTitle"
-                                   Text="👋  OrcChat"
-                                   Foreground="#76B900"
-                                   FontSize="14" FontWeight="SemiBold"
-                                   Margin="0,0,0,8"/>
-                        <TextBlock x:Name="TxtWelcomeBody"
-                                   TextWrapping="Wrap"
-                                   Foreground="#A8CC80"
-                                   FontSize="12" LineHeight="20"
-                                   Text="I can search the web and fetch pages when it helps. No system prompt by default — set one above if you want a persona or standing instruction; leave it empty for plain, unfiltered conversation."/>
-                        <TextBlock x:Name="TxtWelcomeTip"
-                                   TextWrapping="Wrap"
-                                   Foreground="#5A7A40"
-                                   FontSize="11" Margin="0,8,0,0" LineHeight="18">
-                            💡  Try: "Summarise the latest news on [topic]" · "Compare X vs Y with sources" · "Find and summarise the docs for [library]"
-                        </TextBlock>
-                        <TextBlock TextWrapping="Wrap"
-                                   Foreground="#444444"
-                                   FontSize="10" Margin="0,10,0,0">
-                            ⌨  Enter to send · Shift+Enter for new line
-                        </TextBlock>
-                    </StackPanel>
-                </Border>
+            <controls:LibraryDrawerControl x:Name="LibraryDrawer"
+                                            Grid.Column="0"
+                                            IsVisible="False"/>
+            <GridSplitter x:Name="LibraryDrawerSplitter"
+                          Grid.Column="1"
+                          Width="3" Background="#1E2E1E"
+                          IsVisible="False"/>
 
-            </StackPanel>
-        </ScrollViewer>
+            <ScrollViewer x:Name="ChatScroll"
+                          Grid.Column="2"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Padding="16,8">
+                <StackPanel x:Name="ChatStack"
+                            Orientation="Vertical"
+                            Margin="0,8,0,16">
+
+                    <!-- Welcome card (removed from ChatStack on first send) -->
+                    <Border x:Name="BdrWelcome"
+                            Background="#111611"
+                            BorderBrush="#1E2E1E" BorderThickness="1"
+                            CornerRadius="8,8,8,2"
+                            Padding="14,10" Margin="0,4,60,4"
+                            HorizontalAlignment="Left" MaxWidth="780">
+                        <StackPanel>
+                            <TextBlock x:Name="TxtWelcomeTitle"
+                                       Text="👋  OrcChat"
+                                       Foreground="#76B900"
+                                       FontSize="14" FontWeight="SemiBold"
+                                       Margin="0,0,0,8"/>
+                            <TextBlock x:Name="TxtWelcomeBody"
+                                       TextWrapping="Wrap"
+                                       Foreground="#A8CC80"
+                                       FontSize="12" LineHeight="20"
+                                       Text="I can search the web and fetch pages when it helps. No system prompt by default — set one above if you want a persona or standing instruction; leave it empty for plain, unfiltered conversation."/>
+                            <TextBlock x:Name="TxtWelcomeTip"
+                                       TextWrapping="Wrap"
+                                       Foreground="#5A7A40"
+                                       FontSize="11" Margin="0,8,0,0" LineHeight="18">
+                                💡  Try: "Summarise the latest news on [topic]" · "Compare X vs Y with sources" · "Find and summarise the docs for [library]"
+                            </TextBlock>
+                            <TextBlock TextWrapping="Wrap"
+                                       Foreground="#444444"
+                                       FontSize="10" Margin="0,10,0,0">
+                                ⌨  Enter to send · Shift+Enter for new line
+                            </TextBlock>
+                        </StackPanel>
+                    </Border>
+
+                </StackPanel>
+            </ScrollViewer>
+
+            <GridSplitter x:Name="SourcePreviewSplitter"
+                          Grid.Column="3"
+                          Width="3" Background="#1E2E1E"
+                          IsVisible="False"/>
+            <controls:SourcePreviewPanel x:Name="SourcePreviewPanel"
+                                          Grid.Column="4"
+                                          IsVisible="False"/>
+        </Grid>
 
     </DockPanel>
 </UserControl>

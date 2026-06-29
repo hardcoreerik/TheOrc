@@ -1,0 +1,20 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<UserControl x:Class="OrchestratorIDE.UI.Controls.SourcePreviewPanel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Width="372"
+             IsVisible="False"
+             Background="#0A0D0A">
+
+    <!--
+    CF-5 source-preview right rail. Opens on citation click, closes on ✕ or corpus
+    detach. Dynamic content built in code-behind (see ChatPanel.axaml.cs convention).
+    -->
+    <DockPanel x:Name="RootDock">
+        <Border x:Name="HeaderBorder" DockPanel.Dock="Top" />
+        <Border x:Name="FooterBorder" DockPanel.Dock="Bottom" />
+        <ScrollViewer>
+            <StackPanel x:Name="BodyStack" Spacing="10" Margin="14,10,14,14" />
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>
