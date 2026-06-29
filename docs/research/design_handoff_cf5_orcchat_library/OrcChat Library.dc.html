@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:#070A07;}
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-thumb{background:#1E2E1E;border-radius:6px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  @keyframes orcShimmer{0%{transform:translateX(-100%);}100%{transform:translateX(280%);}}
+  @keyframes orcBlink{0%,49%{opacity:1;}50%,100%{opacity:0;}}
+  @keyframes orcPulse{0%,100%{opacity:.55;}50%{opacity:1;}}
+</style>
+</helmet>
+
+<div data-screen-label="OrcChat Library" style="width:1440px;height:920px;margin:0 auto;background:#0B0F0B;color:#D4D4D4;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;font-size:13px;display:flex;flex-direction:column;border:1px solid #1A241A;box-shadow:0 24px 80px rgba(0,0,0,.6);overflow:hidden;border-radius:6px;">
+
+  <!-- ============ MODE BAR ============ -->
+  <div style="height:46px;flex:0 0 46px;background:#0D120D;border-bottom:1px solid #1A241A;display:flex;align-items:center;padding:0 14px;gap:4px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-right:18px;">
+      <div style="width:22px;height:22px;border-radius:5px;background:linear-gradient(135deg,#2A4A2A,#162616);display:flex;align-items:center;justify-content:center;font-size:13px;">🗡</div>
+      <span style="font-weight:600;letter-spacing:.3px;color:#A8CC80;font-size:13px;">TheOrc</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:2px;">
+      <div style="padding:6px 13px;border-radius:6px;color:#7E8C7E;cursor:default;">Single</div>
+      <div style="padding:6px 13px;border-radius:6px;color:#7E8C7E;cursor:default;">Swarm</div>
+      <div style="padding:6px 13px;border-radius:6px;background:#162616;color:#C4E89A;border:1px solid #2A4A2A;font-weight:600;">Chat</div>
+      <div style="padding:6px 13px;border-radius:6px;color:#7E8C7E;cursor:default;">Pit</div>
+      <div style="padding:6px 13px;border-radius:6px;color:#7E8C7E;cursor:default;">Hive</div>
+    </div>
+    <div style="flex:1;"></div>
+    <div style="display:flex;align-items:center;gap:7px;padding:5px 11px;border-radius:6px;background:#0E160E;border:1px solid #1E2E1E;color:#9FB890;font-family:'JetBrains Mono',monospace;font-size:11px;">
+      <span style="width:7px;height:7px;border-radius:50%;background:#7FB069;box-shadow:0 0 6px #7FB069;"></span>
+      hermes-3-llama-3.1-8b
+    </div>
+    <div style="position:relative;padding:6px 13px;border-radius:6px;color:#7E8C7E;margin-left:4px;">⬆ Update<span style="position:absolute;top:4px;right:6px;width:6px;height:6px;border-radius:50%;background:#D6A85A;"></span></div>
+  </div>
+
+  <!-- ============ BODY ============ -->
+  <div style="flex:1;min-height:0;display:flex;">
+
+    <!-- ====== LIBRARY DRAWER ====== -->
+    <div style="width:312px;flex:0 0 312px;background:#0A0D0A;border-right:1px solid #1A241A;display:flex;flex-direction:column;min-height:0;">
+      <div style="padding:14px 15px 10px;border-bottom:1px solid #162016;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:13px;">📚</span>
+            <span style="font-weight:600;color:#C8D4C8;letter-spacing:.2px;">Library</span>
+          </div>
+          <div style="position:relative;">
+            <button onClick="{{ toggleAdd }}" style="background:#162616;border:1px solid #2A4A2A;color:#C4E89A;border-radius:6px;padding:5px 10px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit;" style-hover="background:#1E3A1E;">+ Add source ▾</button>
+            <sc-if value="{{ addMenu }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;top:32px;right:0;z-index:20;width:228px;background:#0E140E;border:1px solid #2A4A2A;border-radius:9px;padding:6px;box-shadow:0 14px 40px rgba(0,0,0,.6);">
+                <div style="display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:6px;cursor:pointer;" style-hover="background:#142014;"><span>📄</span><div><div style="color:#D8E4D0;font-size:12px;font-weight:600;">From file…</div><div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#6E8068;">.txt · .md · .pdf</div></div></div>
+                <div style="display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:6px;cursor:pointer;" style-hover="background:#142014;"><span>📁</span><div><div style="color:#D8E4D0;font-size:12px;font-weight:600;">From folder…</div><div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#6E8068;">batch import a directory</div></div></div>
+                <div style="display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:6px;cursor:pointer;" style-hover="background:#142014;"><span>🌐</span><div><div style="color:#C4E89A;font-size:12px;font-weight:600;">Find on the web…</div><div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#6E8068;">orc searches &amp; downloads</div></div></div>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+        <div style="margin-top:10px;display:flex;align-items:center;gap:8px;background:#0B0F0B;border:1px solid #1E2E1E;border-radius:7px;padding:6px 9px;">
+          <span style="color:#5A6B5A;font-size:12px;">🔎</span>
+          <span style="color:#5E6E5A;font-size:11.5px;flex:1;">Search the library…</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#5A6B5A;border:1px solid #1E2E1E;border-radius:4px;padding:1px 5px;">FTS</span>
+        </div>
+      </div>
+
+      <div style="flex:1;min-height:0;overflow-y:auto;padding:12px 12px 16px;">
+
+        <div style="font-size:10px;font-weight:600;letter-spacing:1.2px;color:#5A6B5A;text-transform:uppercase;margin:2px 4px 9px;">Corpora</div>
+
+        <!-- Darwin — READY, attached -->
+        <div style="background:#101A10;border:1px solid #2A4A2A;border-radius:9px;padding:11px 12px;margin-bottom:10px;box-shadow:0 0 0 1px rgba(127,176,105,.05);">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+            <div style="min-width:0;">
+              <div style="font-weight:600;color:#D8E4D0;font-size:12.5px;line-height:1.25;">On the Origin of Species</div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#6E8068;margin-top:3px;">Darwin · 1st ed. 1859 · PDF</div>
+            </div>
+            <span style="flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;background:#132513;border:1px solid #2F4F2F;color:#9FD37F;border-radius:999px;padding:3px 8px;font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;">● Attached</span>
+          </div>
+          <div style="margin-top:10px;display:flex;align-items:center;gap:8px;">
+            <div style="flex:1;height:5px;border-radius:3px;background:#162016;overflow:hidden;"><div style="width:100%;height:100%;background:linear-gradient(90deg,#3F6E33,#7FB069);"></div></div>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7FB069;white-space:nowrap;">384 / 384</span>
+          </div>
+          <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:5px;font-family:'JetBrains Mono',monospace;font-size:9.5px;">
+            <span style="color:#7FB069;background:#132513;border-radius:4px;padding:2px 6px;">✓ coverage complete</span>
+            <span style="color:#6E8068;background:#0E160E;border-radius:4px;padding:2px 6px;">14 chapters</span>
+            <span style="color:#6E8068;background:#0E160E;border-radius:4px;padding:2px 6px;">2,914 claims</span>
+          </div>
+        </div>
+
+        <!-- DSM — INDEXING -->
+        <div style="background:#12100A;border:1px solid #3A3017;border-radius:9px;padding:11px 12px;margin-bottom:10px;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+            <div style="min-width:0;">
+              <div style="font-weight:600;color:#E0D8C4;font-size:12.5px;line-height:1.25;">Clinical Reference (sample)</div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#8A7E60;margin-top:3px;">5th ed. · PDF · educational use</div>
+            </div>
+            <span style="flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;background:#221B0C;border:1px solid #4A3C18;color:#D6A85A;border-radius:999px;padding:3px 8px;font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;"><span style="width:6px;height:6px;border-radius:50%;background:#D6A85A;animation:orcPulse 1.1s infinite;"></span> Indexing</span>
+          </div>
+          <div style="margin-top:10px;display:flex;align-items:center;gap:8px;">
+            <div style="position:relative;flex:1;height:5px;border-radius:3px;background:#1E1810;overflow:hidden;">
+              <div style="width:64%;height:100%;background:linear-gradient(90deg,#7A5E22,#D6A85A);"></div>
+              <div style="position:absolute;top:0;left:0;width:38%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,220,150,.45),transparent);animation:orcShimmer 1.6s infinite;"></div>
+            </div>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#D6A85A;white-space:nowrap;">247 / 384</span>
+          </div>
+          <div style="margin-top:7px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#8A7E60;">Reading evidence cards · ~2m left</div>
+          <div style="margin-top:8px;display:flex;align-items:center;gap:6px;">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#C0614F;background:#1E110E;border:1px solid #3A1E18;border-radius:4px;padding:2px 6px;">⚠ 3 segments failed</span>
+            <button style="margin-left:auto;background:transparent;border:1px solid #3A3017;color:#D6A85A;border-radius:5px;padding:3px 9px;font-size:10px;cursor:pointer;font-family:inherit;" style-hover="background:#221B0C;">Repair</button>
+          </div>
+        </div>
+
+        <!-- A small corpus — STALE -->
+        <div style="background:#0E120E;border:1px solid #1E2E1E;border-radius:9px;padding:11px 12px;margin-bottom:10px;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+            <div style="min-width:0;">
+              <div style="font-weight:600;color:#B8C4B4;font-size:12.5px;line-height:1.25;">Project Manuals</div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#6E8068;margin-top:3px;">9 docs · Markdown</div>
+            </div>
+            <span style="flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;background:#1A140B;border:1px solid #443714;color:#C98A4B;border-radius:999px;padding:3px 8px;font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;">↻ Stale</span>
+          </div>
+          <div style="margin-top:9px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#9A845E;line-height:1.4;">Parser v2.1 → index built on v1.8.<br>Re-index to use latest extraction.</div>
+          <button style="margin-top:9px;width:100%;background:#1A140B;border:1px solid #443714;color:#C98A4B;border-radius:6px;padding:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;" style-hover="background:#221A0C;">Re-index corpus</button>
+        </div>
+
+        <div style="margin:18px 4px 9px;font-size:10px;font-weight:600;letter-spacing:1.2px;color:#5A6B5A;text-transform:uppercase;">Notebook · this chat</div>
+        <div style="background:#0E140E;border:1px dashed #243424;border-radius:8px;padding:10px 11px;">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#6E8068;margin-bottom:7px;">2 cited conclusions saved</div>
+          <div style="font-size:11.5px;color:#A8B8A0;line-height:1.45;border-left:2px solid #2F4F2F;padding-left:8px;margin-bottom:8px;">Selection acts on heritable variation that already exists in populations. <span style="font-family:'JetBrains Mono',monospace;color:#6E9E5A;font-size:9.5px;">[Ch.1, Ch.4]</span></div>
+          <div style="font-size:11.5px;color:#A8B8A0;line-height:1.45;border-left:2px solid #2F4F2F;padding-left:8px;">Geometric population growth creates the struggle that makes selection inevitable. <span style="font-family:'JetBrains Mono',monospace;color:#6E9E5A;font-size:9.5px;">[Ch.3]</span></div>
+        </div>
+
+      </div>
+
+      <!-- storage location footer -->
+      <div style="flex:0 0 auto;border-top:1px solid #162016;padding:10px 13px;display:flex;align-items:center;gap:9px;">
+        <span style="font-size:12px;color:#5A6B5A;">🗄</span>
+        <div style="min-width:0;flex:1;">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#5A6B5A;letter-spacing:.5px;">LIBRARY STORAGE</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#8A9A84;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">~/research/darwin/.orc/fabric</div>
+        </div>
+        <button style="background:transparent;border:1px solid #1E2E1E;color:#9FB890;border-radius:5px;padding:4px 9px;font-size:10px;cursor:pointer;font-family:inherit;" style-hover="border-color:#2A4A2A;">Change…</button>
+      </div>
+    </div>
+
+    <!-- ====== CHAT PANEL ====== -->
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#0B0F0B;min-height:0;">
+
+      <!-- chat header -->
+      <div style="flex:0 0 auto;padding:11px 18px;border-bottom:1px solid #162016;display:flex;align-items:center;gap:12px;">
+        <!-- corpus badge -->
+        <div style="display:flex;align-items:center;gap:8px;background:#101A10;border:1px solid #2A4A2A;border-radius:8px;padding:6px 11px;">
+          <span style="font-size:12px;">📖</span>
+          <div style="line-height:1.15;">
+            <div style="font-size:12px;font-weight:600;color:#D8E4D0;">Origin of Species <span style="color:#6E8068;font-weight:400;font-family:'JetBrains Mono',monospace;font-size:10px;">1st ed.</span></div>
+            <div style="font-size:9.5px;color:#7FB069;font-family:'JetBrains Mono',monospace;">source-bound · coverage complete</div>
+          </div>
+          <span style="color:#5A6B5A;cursor:pointer;padding-left:4px;font-size:13px;" style-hover="color:#C0614F;">✕</span>
+        </div>
+
+        <!-- Quick / Study toggle -->
+        <div style="display:flex;align-items:center;background:#0E140E;border:1px solid #1E2E1E;border-radius:8px;padding:3px;gap:3px;">
+          <button onClick="{{ setQuick }}" style="{{ quickStyle }}border-radius:6px;padding:5px 14px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit;">Quick</button>
+          <button onClick="{{ setStudy }}" style="{{ studyStyle }}border-radius:6px;padding:5px 14px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit;">Study</button>
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#6E8068;max-width:170px;line-height:1.3;">{{ modeHint }}</div>
+
+        <div style="flex:1;"></div>
+        <div style="display:flex;align-items:center;gap:7px;padding:5px 10px;border-radius:6px;background:#0E160E;border:1px solid #1E2E1E;color:#7E8C7E;font-family:'JetBrains Mono',monospace;font-size:10px;">Context: 3,120 / 8,192 (38%)</div>
+      </div>
+
+      <!-- conversation -->
+      <div style="flex:1;min-height:0;overflow-y:auto;padding:22px 26px;">
+
+        <!-- user bubble -->
+        <div style="display:flex;justify-content:flex-end;margin-bottom:18px;">
+          <div style="max-width:620px;background:#1A2A1A;border:1px solid #2A4A2A;border-radius:10px 10px 2px 10px;padding:11px 14px;color:#D8E4D0;line-height:1.5;">How does Darwin build the case for natural selection — from variation under domestication, through the struggle for existence, to selection in the wild? Trace it across chapters.</div>
+        </div>
+
+        <!-- tool chip -->
+        <div style="display:flex;margin-bottom:8px;">
+          <div style="display:inline-flex;align-items:center;gap:8px;background:#0E160E;border:1px solid #1E2E1E;border-radius:6px;padding:5px 10px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#5A7744;">
+            🔎 library_ask <span style="color:#446633;">→ planned {{ modePlanLabel }} · {{ segConsidered }} segments · packed 3,120 tok</span>
+          </div>
+        </div>
+
+        <!-- assistant bubble -->
+        <div style="display:flex;margin-bottom:14px;">
+          <div style="max-width:760px;background:#111611;border:1px solid #1E2E1E;border-radius:10px 10px 10px 2px;padding:15px 17px;">
+
+            <div style="color:#C8D4C8;line-height:1.62;font-size:13px;">
+              Darwin builds the argument cumulatively rather than asserting it. He opens with <strong style="color:#D8E4D0;">variation under domestication</strong>, showing that breeders reshape species by accumulating small heritable differences over generations<span onClick="{{ open1 }}" style="{{ chip1 }}">1</span>. That establishes his raw material: variation is real, heritable, and acted upon.
+              <br><br>
+              He then argues that a parallel pressure operates in nature. Because populations tend to multiply geometrically while resources do not, far more individuals are born than can survive — producing a constant <strong style="color:#D8E4D0;">struggle for existence</strong><span onClick="{{ open2 }}" style="{{ chip2 }}">2</span>. This is the engine that domestic breeding only imitates.
+              <br><br>
+              Selection in the wild follows by analogy: where the breeder chooses, nature's struggle does the choosing, preserving favourable variations and rejecting injurious ones<span onClick="{{ open3 }}" style="{{ chip3 }}">3</span>. The cross-chapter move is the key claim — the same accumulative mechanism, with the selecting agent swapped from human to environment.
+            </div>
+
+            <!-- coverage / verification line -->
+            <div style="margin-top:15px;padding-top:12px;border-top:1px solid #1A241A;display:flex;flex-wrap:wrap;align-items:center;gap:7px;font-family:'JetBrains Mono',monospace;font-size:10px;">
+              <span style="display:inline-flex;align-items:center;gap:5px;color:#9FD37F;background:#132513;border:1px solid #2F4F2F;border-radius:5px;padding:3px 8px;">{{ modeBadge }}</span>
+              <span style="color:#7E8C7E;background:#0E160E;border:1px solid #1A241A;border-radius:5px;padding:3px 8px;">{{ coverageText }}</span>
+              <span style="display:inline-flex;align-items:center;gap:5px;color:#7FB069;background:#0E160E;border:1px solid #1A241A;border-radius:5px;padding:3px 8px;">✓ citations verified</span>
+              <span style="display:inline-flex;align-items:center;gap:5px;color:#7F94A8;background:#0E160E;border:1px solid #1A241A;border-radius:5px;padding:3px 8px;">✎ 1 interpretive</span>
+            </div>
+
+            <!-- citation footnotes -->
+            <div style="margin-top:11px;display:flex;flex-direction:column;gap:6px;">
+              <div onClick="{{ open1 }}" style="display:flex;align-items:center;gap:9px;cursor:pointer;padding:6px 9px;border-radius:6px;background:#0E140E;border:1px solid #1A241A;" style-hover="border-color:#2A4A2A;">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#9FD37F;background:#132513;border-radius:4px;padding:1px 6px;">1</span>
+                <span style="font-size:11px;color:#A8B8A0;">Ch. 1 · Variation under Domestication</span>
+                <span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#7FB069;">✓ supported · seg-1f4 · 612–741</span>
+              </div>
+              <div onClick="{{ open2 }}" style="display:flex;align-items:center;gap:9px;cursor:pointer;padding:6px 9px;border-radius:6px;background:#0E140E;border:1px solid #1A241A;" style-hover="border-color:#2A4A2A;">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#9FD37F;background:#132513;border-radius:4px;padding:1px 6px;">2</span>
+                <span style="font-size:11px;color:#A8B8A0;">Ch. 3 · Struggle for Existence</span>
+                <span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#7FB069;">✓ supported · seg-8b2 · 1042–1190</span>
+              </div>
+              <div onClick="{{ open3 }}" style="display:flex;align-items:center;gap:9px;cursor:pointer;padding:6px 9px;border-radius:6px;background:#0E140E;border:1px solid #1A241A;" style-hover="border-color:#2A4A2A;">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#7F94A8;background:#10161C;border-radius:4px;padding:1px 6px;">3</span>
+                <span style="font-size:11px;color:#A8B8A0;">Ch. 4 · Natural Selection</span>
+                <span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#7F94A8;">✎ interpretive · seg-c07 · 88–233</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+
+      <!-- input -->
+      <div style="flex:0 0 auto;padding:13px 18px 16px;border-top:1px solid #162016;">
+        <div style="display:flex;align-items:flex-end;gap:10px;background:#0E140E;border:1px solid #243424;border-radius:11px;padding:11px 13px;">
+          <span style="color:#5A6B5A;font-size:15px;padding-bottom:1px;cursor:pointer;">📎</span>
+          <div style="flex:1;color:#5E6E5A;font-size:13px;padding-bottom:2px;">Ask a source-bound question…<span style="display:inline-block;width:1px;height:14px;background:#7FB069;margin-left:1px;vertical-align:middle;animation:orcBlink 1.1s infinite;"></span></div>
+          <button style="background:#1E3A1E;border:1px solid #2F4F2F;color:#C4E89A;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;" style-hover="background:#264A26;">Send</button>
+        </div>
+        <div style="margin-top:8px;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#5A6B5A;display:flex;align-items:center;gap:7px;">
+          <span style="color:#6E8068;">⛓ source-bound</span> answers cite source ranges and are independently verified · summaries are navigation, not truth
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ====== SOURCE PREVIEW PANE ====== -->
+    <div style="width:372px;flex:0 0 372px;background:#0A0D0A;border-left:1px solid #1A241A;display:flex;flex-direction:column;min-height:0;">
+      <div style="flex:0 0 auto;padding:13px 15px;border-bottom:1px solid #162016;display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:8px;"><span style="font-size:12px;">📄</span><span style="font-weight:600;color:#C8D4C8;">Source</span></div>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#6E8068;">{{ citLabel }}</span>
+      </div>
+
+      <div style="flex:1;min-height:0;overflow-y:auto;padding:15px;">
+
+        <!-- meta -->
+        <div style="background:#0E140E;border:1px solid #1A241A;border-radius:8px;padding:11px 12px;margin-bottom:13px;">
+          <div style="font-weight:600;color:#D8E4D0;font-size:12.5px;">{{ citDoc }}</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#6E8068;margin-top:5px;line-height:1.6;">
+            heading · {{ citHeading }}<br>
+            segment · {{ citSeg }}<br>
+            chars · {{ citRange }}
+          </div>
+          <div style="margin-top:9px;">{{ citVerifyBadge }}</div>
+        </div>
+
+        <!-- source text with highlighted quote -->
+        <div style="font-size:12.5px;line-height:1.72;color:#8A9A84;font-family:'JetBrains Mono',monospace;">
+          {{ citContext }}
+        </div>
+
+        <div style="margin-top:16px;padding-top:13px;border-top:1px solid #1A241A;display:flex;gap:8px;">
+          <button style="flex:1;background:#0E160E;border:1px solid #1E2E1E;color:#9FB890;border-radius:7px;padding:7px;font-size:11px;cursor:pointer;font-family:inherit;" style-hover="border-color:#2A4A2A;">Open full segment</button>
+          <button style="flex:1;background:#0E160E;border:1px solid #1E2E1E;color:#9FB890;border-radius:7px;padding:7px;font-size:11px;cursor:pointer;font-family:inherit;" style-hover="border-color:#2A4A2A;">Save to notebook</button>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============ STATUS BAR ============ -->
+  <div style="height:28px;flex:0 0 28px;background:#0D120D;border-top:1px solid #1A241A;display:flex;align-items:center;padding:0 14px;gap:16px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#6E8068;">
+    <span>📁 ~/research/darwin</span>
+    <span style="color:#5A6B5A;">⎇ master</span>
+    <span style="color:#5A6B5A;">build d7a6af7</span>
+    <span style="flex:1;"></span>
+    <span style="display:inline-flex;align-items:center;gap:6px;color:#7FB069;"><span style="width:6px;height:6px;border-radius:50%;background:#7FB069;"></span>corpus: Origin of Species · 384/384</span>
+    <span style="color:#5A6B5A;">Quick/Study ready</span>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:920}}">
+class Component extends DCLogic {
+  state = { mode: 'Study', open: 1, addMenu: false };
+
+  renderVals() {
+    const mode = this.state.mode;
+    const open = this.state.open;
+
+    const activeToggle = 'background:#1A2A1A;color:#C4E89A;border:1px solid #3A5A3A;';
+    const idleToggle   = 'background:transparent;color:#7E8C7E;border:1px solid transparent;';
+
+    const chipBase = 'cursor:pointer;font-family:\'JetBrains Mono\',monospace;font-size:9px;vertical-align:super;margin-left:2px;border-radius:4px;padding:1px 5px;';
+    const chipGreen = (on) => chipBase + (on
+      ? 'background:#1E3A1E;color:#C4E89A;border:1px solid #3A5A3A;'
+      : 'background:#132513;color:#9FD37F;border:1px solid transparent;');
+    const chipBlue = (on) => chipBase + (on
+      ? 'background:#16222C;color:#A8C4D8;border:1px solid #2A4256;'
+      : 'background:#10161C;color:#7F94A8;border:1px solid transparent;');
+
+    const studyMode = mode === 'Study';
+
+    // citation source data
+    const cites = {
+      1: {
+        label: 'citation [1]',
+        doc: 'On the Origin of Species — Darwin, 1859',
+        heading: 'Ch. 1 › Variation under Domestication',
+        seg: 'seg-1f4a9c',
+        range: '612–741',
+        verify: 'green',
+        pre: 'When we compare the individuals of the same variety or sub-variety of our older cultivated plants and animals, one of the first points which strikes us is, that they generally differ more from each other than do the individuals of any one species or variety in a state of nature. ',
+        quote: 'Breeders habitually speak of an animal\u2019s organisation as something plastic, which they can model almost as they please.',
+        post: ' If gifted with this power of selection for so short a time, what may not nature effect in the long lapse of whole geological periods?'
+      },
+      2: {
+        label: 'citation [2]',
+        doc: 'On the Origin of Species — Darwin, 1859',
+        heading: 'Ch. 3 › The Struggle for Existence',
+        seg: 'seg-8b2e07',
+        range: '1042–1190',
+        verify: 'green',
+        pre: 'A struggle for existence inevitably follows from the high rate at which all organic beings tend to increase. ',
+        quote: 'There is no exception to the rule that every organic being naturally increases at so high a rate, that, if not destroyed, the earth would soon be covered by the progeny of a single pair.',
+        post: ' Hence, as more individuals are produced than can possibly survive, there must in every case be a struggle for existence.'
+      },
+      3: {
+        label: 'citation [3]',
+        doc: 'On the Origin of Species — Darwin, 1859',
+        heading: 'Ch. 4 › Natural Selection',
+        seg: 'seg-c07f31',
+        range: '88–233',
+        verify: 'blue',
+        pre: 'Can it, then, be thought improbable, seeing that variations useful to man have undoubtedly occurred, that other variations useful in some way to each being in the great and complex battle of life, should sometimes occur? ',
+        quote: 'This preservation of favourable variations and the rejection of injurious variations, I call Natural Selection.',
+        post: ' Variations neither useful nor injurious would not be affected by natural selection.'
+      }
+    };
+    const c = cites[open];
+
+    const verifyBadge = c.verify === 'green'
+      ? React.createElement('span', { style: { fontFamily:"'JetBrains Mono',monospace", fontSize:'10px', color:'#7FB069', background:'#132513', border:'1px solid #2F4F2F', borderRadius:'5px', padding:'3px 8px', display:'inline-flex', gap:'5px' } }, '✓ supported — exact source match')
+      : React.createElement('span', { style: { fontFamily:"'JetBrains Mono',monospace", fontSize:'10px', color:'#7F94A8', background:'#10161C', border:'1px solid #2A4256', borderRadius:'5px', padding:'3px 8px', display:'inline-flex', gap:'5px' } }, '✎ interpretive — not directly stated');
+
+    // context block with highlighted quote
+    const hlStyle = c.verify === 'green'
+      ? { background:'#1B3018', color:'#D8E4D0', borderBottom:'2px solid #7FB069', padding:'1px 2px', borderRadius:'2px' }
+      : { background:'#16222C', color:'#D4E0E8', borderBottom:'2px solid #7F94A8', padding:'1px 2px', borderRadius:'2px' };
+    const citContext = React.createElement('span', null,
+      c.pre,
+      React.createElement('span', { style: hlStyle }, c.quote),
+      c.post
+    );
+
+    return {
+      mode,
+      quickStyle: mode === 'Quick' ? activeToggle : idleToggle,
+      studyStyle: mode === 'Study' ? activeToggle : idleToggle,
+      addMenu: this.state.addMenu,
+      toggleAdd: () => this.setState({ addMenu: !this.state.addMenu }),
+      setQuick: () => this.setState({ mode: 'Quick' }),
+      setStudy: () => this.setState({ mode: 'Study' }),
+      open1: () => this.setState({ open: 1 }),
+      open2: () => this.setState({ open: 2 }),
+      open3: () => this.setState({ open: 3 }),
+      chip1: chipGreen(open === 1),
+      chip2: chipGreen(open === 2),
+      chip3: chipBlue(open === 3),
+
+      modeHint: studyMode
+        ? 'iterative retrieval + targeted rereading'
+        : 'hybrid retrieval over segments + summaries',
+      modePlanLabel: studyMode ? 'Study (multi-hop)' : 'Quick (local)',
+      segConsidered: studyMode ? '38' : '9',
+      modeBadge: studyMode ? 'Study mode' : 'Quick mode',
+      coverageText: studyMode
+        ? 'considered 38 / 384 segments · reopened 12 sources'
+        : 'considered 9 / 384 segments',
+
+      citLabel: c.label,
+      citDoc: c.doc,
+      citHeading: c.heading,
+      citSeg: c.seg,
+      citRange: c.range,
+      citVerifyBadge: verifyBadge,
+      citContext,
+    };
+  }
+}
+</script>
+</body>
+</html>

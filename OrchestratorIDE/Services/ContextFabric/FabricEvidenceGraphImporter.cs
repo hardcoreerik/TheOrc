@@ -20,6 +20,35 @@ public sealed class FabricEvidenceGraphImporter(
         return imports.Count;
     }
 
+    /// <summary>
+    /// Replaces one segment's claims with the given card's claims, leaving every other
+    /// segment's claims in the document untouched -- unlike ImportEvidenceCard (which only
+    /// upserts what's in the card and never removes a claim that dropped out between reads)
+    /// or ReplaceDocumentEvidenceCards (which wipes the whole document). Used for scoped
+    /// re-reads (see FabricNativeReaderService.ReadSegmentsAsync) so a retry that returns
+    /// fewer claims than the previous read doesn't leave the old ones orphaned in the graph.
+    /// </summary>
+    public int ReplaceSegmentEvidenceCard(
+        FabricEvidenceCard card,
+        string verificationStatus = FabricVerificationStatus.Provisional)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        var imports = BuildClaimImports(card, verificationStatus);
+
+        graphRepository.ReplaceClaimsForSegment(
+            card.DocumentId,
+            card.SegmentId,
+            imports.Select(item => item.Claim).ToArray(),
+            imports.ToDictionary(
+                item => item.Claim.ClaimId,
+                item => (IReadOnlyList<FabricClaimCitationEntry>)item.Citations,
+                StringComparer.Ordinal));
+
+        if (imports.Count > 0)
+            UpsertEntities(imports[0].Document, verificationStatus, imports[0].Card.Entities);
+        return imports.Count;
+    }
+
     public int ReplaceDocumentEvidenceCards(
         string documentId,
         IEnumerable<FabricEvidenceCard> cards,

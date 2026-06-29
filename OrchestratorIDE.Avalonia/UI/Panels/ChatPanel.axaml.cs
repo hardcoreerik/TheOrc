@@ -16,10 +16,23 @@ using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Models;
 using OrchestratorIDE.Research;
 using OrchestratorIDE.Services;
+using OrchestratorIDE.Services.ContextFabric;
 using OrchestratorIDE.Services.Hive;
 using OrchestratorIDE.UI.Controls;
+using OrchestratorIDE.UI.ViewModels;
 
 namespace OrchestratorIDE.UI.Panels;
+
+/// <summary>CF-5: tracks the corpus currently attached to this conversation, if any.</summary>
+public sealed record CorpusAttachmentState(
+    string CorpusId,
+    string DisplayName,
+    string Edition,
+    string Mode,                // "Quick" | "Study" (FabricQueryMode casing for the planner)
+    string CoverageStatus,      // "complete" | "partial" | "none"
+    bool IsStale,
+    bool IsReadOnly,
+    string PolicyProfile);      // "default" | "medical" | ...
 
 /// <summary>
 /// OrcChat — the single merged chat surface (formerly separate Research/Open modes). Web
@@ -64,6 +77,14 @@ public partial class ChatPanel : UserControl
     // to a temp file instead of polluting the user's actual saved system prompt.
     internal string?                 MemoryStorePathOverride { get; set; }
 
+    // ── CF-5 Library state ──────────────────────────────────────────────────────
+    private CorpusAttachmentState?      _corpus;        // null = plain chat; non-null = source-bound
+    private LibraryViewModel?           _libraryVm;
+    private FabricAskService?           _askService;
+    private FabricIndexingOrchestrator? _indexingOrchestrator;
+    private string                      _notebookPath = "";
+    private readonly List<ConversationNotebookEntry> _notebookEntries = [];
+
     // ── Construction ──────────────────────────────────────────────────────────
 
     public ChatPanel()
@@ -71,6 +92,11 @@ public partial class ChatPanel : UserControl
         InitializeComponent();
         CbNode.Items.Add(LocalNodeName);
         CbNode.SelectedIndex = 0;
+
+        LibraryDrawer.CorpusAttachRequested += OnCorpusAttachRequested;
+        LibraryDrawer.CorpusDetachRequested += OnCorpusDetachRequested;
+        SourcePreviewPanel.CloseRequested += OnSourcePreviewClosed;
+        SourcePreviewPanel.SaveToNotebookRequested += OnSaveToNotebookRequested;
 
         // Auto-saves the system prompt on every edit -- including a preset button's
         // programmatic Text assignment, which also fires TextChanged. This is the actual
@@ -146,6 +172,31 @@ public partial class ChatPanel : UserControl
 
         var idx = CbNode.Items.IndexOf(previouslySelected);
         CbNode.SelectedIndex = idx >= 0 ? idx : 0;
+    }
+
+    /// <summary>
+    /// Wires the CF-5 Context Fabric Library services into this panel — called by
+    /// MainWindow after construction, same lifecycle as SetModels(). Until this is called,
+    /// the library drawer/source-preview rails stay hidden and chat behaves exactly as
+    /// before CF-5 (plain ChatEngine path only).
+    /// </summary>
+    public void SetFabricServices(
+        FabricAskService askService,
+        FabricIndexingOrchestrator indexingOrchestrator,
+        LibraryViewModel libraryVm,
+        FabricWebImporter? webImporter,
+        string workspaceRoot)
+    {
+        _askService           = askService;
+        _indexingOrchestrator = indexingOrchestrator;
+        _libraryVm            = libraryVm;
+        _notebookPath         = ConversationNotebookStore.StorePath(workspaceRoot, "default");
+
+        _notebookEntries.Clear();
+        _notebookEntries.AddRange(ConversationNotebookStore.Load(_notebookPath));
+
+        LibraryDrawer.Attach(libraryVm, indexingOrchestrator, webImporter);
+        LibraryDrawer.UpdateNotebook(_notebookEntries);
     }
 
     // ── System-prompt presets ────────────────────────────────────────────────────
@@ -365,6 +416,18 @@ public partial class ChatPanel : UserControl
         var text = TbInput.Text?.Trim() ?? "";
         if ((string.IsNullOrEmpty(text) && _pendingAttachments.Count == 0) || _isSending) return;
 
+        // ── CF-5: route through FabricAskService when a corpus is attached ───────
+        // Source-bound asks skip the Ollama model picker entirely (FabricAskService
+        // generates via the native IRoleRuntime Reviewer role, not the chat model).
+        // Only takes this path with no pending attachments -- FabricAskService has no
+        // attachment support, so falling through to the plain ChatEngine path below is what
+        // actually sends them instead of silently dropping them.
+        if (_corpus is not null && _askService is not null && !string.IsNullOrEmpty(text) && _pendingAttachments.Count == 0)
+        {
+            await SendFabricAsync(_corpus, text, CancellationToken.None);
+            return;
+        }
+
         var model = CbModel.SelectedItem as string ?? "";
         if (string.IsNullOrEmpty(model)) return;
 
@@ -444,6 +507,341 @@ public partial class ChatPanel : UserControl
             if (ReferenceEquals(_cts, cts)) _cts = null;
             cts.Dispose();
         }
+    }
+
+    // ── CF-5: source-bound ask path ──────────────────────────────────────────
+
+    private async Task SendFabricAsync(CorpusAttachmentState corpus, string question, CancellationToken ct)
+    {
+        if (_askService is null) return;
+
+        if (BdrWelcome.IsVisible)
+        {
+            ChatStack.Children.Remove(BdrWelcome);
+            BdrWelcome.IsVisible = false;
+        }
+
+        TbInput.Clear();
+        _isSending = true;
+        BtnSend.IsEnabled = false;
+
+        AppendUserBubble(question, []);
+        var placeholder = new TextBlock { Text = "…", Foreground = new SolidColorBrush(Color.FromRgb(0x7E, 0x8C, 0x7E)) };
+        var bubble = MakeAssistantBubble(placeholder);
+        ChatStack.Children.Add(bubble);
+        ScrollToBottom();
+
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        _cts = cts;
+
+        try
+        {
+            // No ConfigureAwait(false) -- the finally block below touches UI-thread-only
+            // controls (BtnSend.IsEnabled), so this must resume on Avalonia's UI-thread
+            // SynchronizationContext, same as the rest of this method.
+            var result = await _askService.AskAsync(question, corpus.CorpusId, corpus.Mode, cts.Token);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                bubble.Child = BuildCitedAnswerView(result, corpus);
+                bubble.Tag = result.Answer;
+                ScrollToBottom();
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // user cancelled
+        }
+        catch (Exception ex)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+                bubble.Child = new TextBlock
+                {
+                    Text = $"⚠ Library ask failed: {ex.Message}",
+                    Foreground = new SolidColorBrush(Color.FromRgb(0xC0, 0x61, 0x4F)),
+                    TextWrapping = TextWrapping.Wrap,
+                });
+        }
+        finally
+        {
+            _isSending = false;
+            BtnSend.IsEnabled = true;
+            if (ReferenceEquals(_cts, cts)) _cts = null;
+            cts.Dispose();
+        }
+    }
+
+    private Control BuildCitedAnswerView(FabricAskResult result, CorpusAttachmentState corpus)
+    {
+        var stack = new StackPanel { Spacing = 6 };
+
+        if (corpus.IsStale || (result.SegmentsTotal > 0 && result.SegmentsConsidered < result.SegmentsTotal * 0.5))
+        {
+            stack.Children.Add(new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(0x22, 0x1B, 0x0C)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0x4A, 0x3C, 0x18)),
+                BorderThickness = new Avalonia.Thickness(0, 0, 0, 1),
+                Padding = new Avalonia.Thickness(0, 0, 0, 6),
+                Child = new TextBlock
+                {
+                    Text = $"⚠ Index incomplete — answers may miss sections. Coverage: {result.SegmentsConsidered}/{result.SegmentsTotal} segments.",
+                    Foreground = new SolidColorBrush(Color.FromRgb(0xD6, 0xA8, 0x5A)),
+                    FontSize = 11,
+                    TextWrapping = TextWrapping.Wrap,
+                },
+            });
+        }
+
+        if (!string.Equals(corpus.PolicyProfile, "default", StringComparison.OrdinalIgnoreCase))
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = "Educational interpretation of the cited source — not professional advice.",
+                Foreground = new SolidColorBrush(Color.FromRgb(0xA8, 0xC4, 0xD8)),
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+            });
+        }
+
+        if (!result.FitsBudget)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = "Evidence truncated by token budget — ask a narrower question or switch to Study.",
+                Foreground = new SolidColorBrush(Color.FromRgb(0xD6, 0xA8, 0x5A)),
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+            });
+        }
+
+        if (result.Abstained)
+        {
+            stack.Children.Add(new TextBlock { Text = result.Answer, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Color.FromRgb(0xD4, 0xD4, 0xD4)) });
+        }
+        else
+        {
+            stack.Children.Add(new MarkdownView { Text = result.Answer, LinkClicked = OpenChatLink });
+        }
+
+        stack.Children.Add(BuildCoverageLine(result, corpus));
+
+        var citations = BuildCitationViewModels(result, corpus.CorpusId);
+        foreach (var cit in citations)
+            stack.Children.Add(BuildFootnoteRow(cit));
+
+        return stack;
+    }
+
+    private static Control BuildCoverageLine(FabricAskResult result, CorpusAttachmentState corpus)
+    {
+        var row = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Margin = new Avalonia.Thickness(0, 6, 0, 0),
+        };
+        var mono = new FontFamily("JetBrains Mono, Consolas, monospace");
+
+        row.Children.Add(new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(0x13, 0x25, 0x13)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x2F, 0x4F, 0x2F)),
+            BorderThickness = new Avalonia.Thickness(1),
+            CornerRadius = new Avalonia.CornerRadius(999),
+            Padding = new Avalonia.Thickness(7, 2),
+            Child = new TextBlock
+            {
+                Text = string.Equals(result.Mode, "study", StringComparison.OrdinalIgnoreCase) ? "Study mode" : "Quick mode",
+                FontFamily = mono, FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(0x9F, 0xD3, 0x7F)),
+            },
+        });
+
+        var reopened = result.TriggeredSourceReopen ? $" · reopened {result.SegmentsConsidered} sources" : "";
+        row.Children.Add(new TextBlock
+        {
+            Text = $"considered {result.SegmentsConsidered} / {result.SegmentsTotal} segments{reopened}",
+            FontFamily = mono, FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(0x6E, 0x80, 0x68)),
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+
+        var allVerified = result.Claims.Count == 0 || result.Claims.All(c => c.VerificationLabel is "supported" or "partially_supported");
+        row.Children.Add(new TextBlock
+        {
+            Text = allVerified ? "✓ citations verified" : "⚠ coverage incomplete",
+            FontFamily = mono, FontSize = 10,
+            Foreground = new SolidColorBrush(allVerified ? Color.FromRgb(0x7F, 0xB0, 0x69) : Color.FromRgb(0xD6, 0xA8, 0x5A)),
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+
+        var interpretiveCount = result.Claims.Count(c => c.VerificationLabel == "interpretive");
+        if (interpretiveCount > 0)
+        {
+            row.Children.Add(new TextBlock
+            {
+                Text = $"✎ {interpretiveCount} interpretive",
+                FontFamily = mono, FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(0x7F, 0x94, 0xA8)),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+        }
+
+        return row;
+    }
+
+    private List<CitationViewModel> BuildCitationViewModels(FabricAskResult result, string corpusId)
+    {
+        var list = new List<CitationViewModel>();
+        var seen = new HashSet<int>();
+        foreach (var claim in result.Claims)
+            foreach (var cit in claim.Citations)
+            {
+                if (!seen.Add(cit.Index)) continue;
+                // FabricAskService leaves HeadingPath blank by design ("resolved from repo at
+                // render time in the UI layer" -- see FabricAskService.BuildCitationDetail).
+                var heading = string.IsNullOrWhiteSpace(cit.HeadingPath)
+                    ? _libraryVm?.Repository.GetSegment(cit.SegmentId)?.HeadingPath ?? ""
+                    : cit.HeadingPath;
+                list.Add(new CitationViewModel(
+                    cit.Index, cit.SegmentId, corpusId, heading,
+                    cit.CharStart, cit.CharEnd, cit.Quote,
+                    MapVerificationLabel(cit.VerificationLabel)));
+            }
+        return list;
+    }
+
+    private static string MapVerificationLabel(string fabricLabel) => fabricLabel switch
+    {
+        FabricCitationVerificationLabel.Supported => "Supported",
+        FabricCitationVerificationLabel.PartiallySupported => "PartiallySupported",
+        FabricCitationVerificationLabel.Interpretive => "Interpretive",
+        FabricCitationVerificationLabel.CitationMismatch => "CitationMismatch",
+        _ => "Unverifiable",
+    };
+
+    private Control BuildFootnoteRow(CitationViewModel cit)
+    {
+        var (fg, bg) = cit.IsVerified
+            ? (Color.FromRgb(0x9F, 0xD3, 0x7F), Color.FromRgb(0x13, 0x25, 0x13))
+            : cit.IsInterpretive
+                ? (Color.FromRgb(0x7F, 0x94, 0xA8), Color.FromRgb(0x10, 0x16, 0x1C))
+                : (Color.FromRgb(0xC0, 0x61, 0x4F), Color.FromRgb(0x1E, 0x11, 0x0E));
+
+        var row = new Border
+        {
+            Background = new SolidColorBrush(Color.FromRgb(0x0E, 0x14, 0x0E)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x1A, 0x24, 0x1A)),
+            BorderThickness = new Avalonia.Thickness(1),
+            CornerRadius = new Avalonia.CornerRadius(6),
+            Padding = new Avalonia.Thickness(8, 5),
+            Margin = new Avalonia.Thickness(0, 2, 0, 0),
+            Cursor = new Cursor(StandardCursorType.Hand),
+            Child = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+                Children =
+                {
+                    new Border
+                    {
+                        Background = new SolidColorBrush(bg),
+                        CornerRadius = new Avalonia.CornerRadius(999),
+                        Padding = new Avalonia.Thickness(5, 1),
+                        Child = new TextBlock { Text = $"{cit.Index}", FontSize = 9.5, Foreground = new SolidColorBrush(fg) },
+                    },
+                    new TextBlock
+                    {
+                        Text = string.IsNullOrWhiteSpace(cit.HeadingPath)
+                            ? $"seg-{(cit.SegmentId.Length > 8 ? cit.SegmentId[..8] : cit.SegmentId)} · {cit.CharStart}-{cit.CharEnd} · {cit.VerificationLabel}"
+                            : $"{cit.HeadingPath} · seg-{(cit.SegmentId.Length > 8 ? cit.SegmentId[..8] : cit.SegmentId)} · {cit.CharStart}-{cit.CharEnd} · {cit.VerificationLabel}",
+                        FontFamily = new FontFamily("JetBrains Mono, Consolas, monospace"),
+                        FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(0x8A, 0x9A, 0x84)),
+                    },
+                },
+            },
+        };
+        row.PointerPressed += (_, _) => OpenSourcePreview(cit);
+        return row;
+    }
+
+    private void OpenSourcePreview(CitationViewModel cit)
+    {
+        if (_libraryVm is null) return;
+        SourcePreviewPanel.IsVisible = true;
+        SourcePreviewSplitter.IsVisible = true;
+        SourcePreviewPanel.LoadCitation(cit, _libraryVm);
+    }
+
+    // ── CF-5: library drawer / corpus bar event handlers ────────────────────
+
+    private void BtnToggleLibrary_Click(object? sender, RoutedEventArgs e)
+    {
+        var show = !LibraryDrawer.IsVisible;
+        LibraryDrawer.IsVisible = show;
+        LibraryDrawerSplitter.IsVisible = show;
+    }
+
+    private void OnCorpusAttachRequested(string corpusId)
+    {
+        if (_libraryVm is null) return;
+        var corpus = _libraryVm.Corpora.FirstOrDefault(c => c.CorpusId == corpusId);
+        if (corpus is null) return;
+
+        _corpus = new CorpusAttachmentState(
+            corpusId, corpus.Name, "", FabricQueryMode.Quick, "complete", false, false, "default");
+
+        TxtCorpusName.Text = corpus.Name;
+        TxtCorpusStatus.Text = "source-bound · coverage complete";
+        BdrCorpusBadge.IsVisible = true;
+        StackModeToggle.IsVisible = true;
+        SetModeUi(FabricQueryMode.Quick);
+
+        LibraryDrawer.SetAttachedCorpus(corpusId);
+    }
+
+    private void OnCorpusDetachRequested()
+    {
+        _corpus = null;
+        BdrCorpusBadge.IsVisible = false;
+        StackModeToggle.IsVisible = false;
+        TxtModeHint.Text = "";
+        SourcePreviewPanel.IsVisible = false;
+        SourcePreviewSplitter.IsVisible = false;
+        LibraryDrawer.SetAttachedCorpus(null);
+    }
+
+    private void BtnDetachCorpus_Click(object? sender, RoutedEventArgs e) => OnCorpusDetachRequested();
+
+    private void BtnModeQuick_Click(object? sender, RoutedEventArgs e) => SetModeUi(FabricQueryMode.Quick);
+    private void BtnModeStudy_Click(object? sender, RoutedEventArgs e) => SetModeUi(FabricQueryMode.Study);
+
+    private void SetModeUi(string mode)
+    {
+        if (_corpus is not null) _corpus = _corpus with { Mode = mode };
+
+        var isQuick = mode == FabricQueryMode.Quick;
+        BtnModeQuick.Background = isQuick ? new SolidColorBrush(Color.FromRgb(0x1A, 0x2A, 0x1A)) : Brushes.Transparent;
+        BtnModeQuick.Foreground = isQuick ? new SolidColorBrush(Color.FromRgb(0xC4, 0xE8, 0x9A)) : new SolidColorBrush(Color.FromRgb(0x7E, 0x8C, 0x7E));
+        BtnModeStudy.Background = isQuick ? Brushes.Transparent : new SolidColorBrush(Color.FromRgb(0x1A, 0x2A, 0x1A));
+        BtnModeStudy.Foreground = isQuick ? new SolidColorBrush(Color.FromRgb(0x7E, 0x8C, 0x7E)) : new SolidColorBrush(Color.FromRgb(0xC4, 0xE8, 0x9A));
+
+        TxtModeHint.Text = isQuick
+            ? "hybrid retrieval over segments + summaries"
+            : "iterative retrieval + targeted rereading";
+    }
+
+    private void OnSourcePreviewClosed()
+    {
+        SourcePreviewSplitter.IsVisible = false;
+    }
+
+    private void OnSaveToNotebookRequested(CitationViewModel cit)
+    {
+        var entry = new ConversationNotebookEntry(
+            cit.Quote, [cit], DateTimeOffset.UtcNow, Guid.NewGuid().ToString("N"));
+        _notebookEntries.Add(entry);
+        if (!string.IsNullOrEmpty(_notebookPath))
+            ConversationNotebookStore.Append(_notebookPath, entry);
+        LibraryDrawer.UpdateNotebook(_notebookEntries);
     }
 
     // ── Engine event handlers ─────────────────────────────────────────────────

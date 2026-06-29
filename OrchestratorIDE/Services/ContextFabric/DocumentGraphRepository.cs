@@ -61,6 +61,54 @@ public sealed class DocumentGraphRepository(SqliteStore store) : RepositoryBase(
         });
     }
 
+    /// <summary>
+    /// Replaces only the claims for one segment of a document, leaving every other segment's
+    /// claims untouched -- the scoped counterpart to ReplaceClaimsForDocument, used when
+    /// re-reading a subset of a document's segments (see FabricNativeReaderService.ReadSegmentsAsync)
+    /// so a retry that returns fewer claims than before doesn't leave the old ones orphaned.
+    /// </summary>
+    public void ReplaceClaimsForSegment(
+        string documentId,
+        string segmentId,
+        IReadOnlyList<FabricClaimEntry> claims,
+        IReadOnlyDictionary<string, IReadOnlyList<FabricClaimCitationEntry>> citationsByClaimId)
+    {
+        if (string.IsNullOrWhiteSpace(documentId))
+            throw new ArgumentException("Document id is required.", nameof(documentId));
+        if (string.IsNullOrWhiteSpace(segmentId))
+            throw new ArgumentException("Segment id is required.", nameof(segmentId));
+        ArgumentNullException.ThrowIfNull(claims);
+        ArgumentNullException.ThrowIfNull(citationsByClaimId);
+        if (claims.Any(claim => !string.Equals(claim.DocumentId, documentId, StringComparison.Ordinal) ||
+                                 !string.Equals(claim.SegmentId, segmentId, StringComparison.Ordinal)))
+            throw new InvalidDataException($"Replacement claims must all belong to document '{documentId}' segment '{segmentId}'.");
+
+        InTransaction((conn, tx) =>
+        {
+            ExecuteOn(tx, """
+                DELETE FROM fabric_claim_citations
+                WHERE claim_id IN (
+                    SELECT claim_id
+                    FROM fabric_claims
+                    WHERE document_id = $document AND segment_id = $segment
+                )
+                """,
+                ps => { P(ps, "$document", documentId); P(ps, "$segment", segmentId); });
+            ExecuteOn(tx, "DELETE FROM fabric_claims WHERE document_id = $document AND segment_id = $segment",
+                ps => { P(ps, "$document", documentId); P(ps, "$segment", segmentId); });
+
+            foreach (var claim in claims)
+            {
+                UpsertClaimOn(conn, tx, claim);
+                if (!citationsByClaimId.TryGetValue(claim.ClaimId, out var citations))
+                    continue;
+
+                foreach (var citation in citations.OrderBy(item => item.Ordinal))
+                    InsertCitationOn(conn, tx, claim.ClaimId, citation);
+            }
+        });
+    }
+
     public IReadOnlyList<FabricClaimEntry> ListClaims(string corpusId, string? verificationStatus = null, int limit = 200) => Query(
         """
         SELECT *

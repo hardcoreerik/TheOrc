@@ -1,0 +1,25 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<UserControl x:Class="OrchestratorIDE.UI.Controls.LibraryDrawerControl"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Width="312"
+             Background="#0A0D0A">
+
+    <!--
+    ═══════════════════════════════════════════════════════════════════
+    CF-5 Library drawer — left rail inside ChatPanel. All dynamic content
+    (corpus cards, search results, notebook entries) is built in
+    code-behind, matching the rest of the Avalonia UI's no-MVVM,
+    code-behind-only convention (see ChatPanel.axaml.cs).
+    ═══════════════════════════════════════════════════════════════════
+    -->
+    <DockPanel x:Name="RootDock">
+        <Border x:Name="StorageFooter" DockPanel.Dock="Bottom" />
+        <Border DockPanel.Dock="Top">
+            <StackPanel x:Name="HeaderStack" />
+        </Border>
+        <ScrollViewer>
+            <StackPanel x:Name="BodyStack" Spacing="8" Margin="10,6,10,10" />
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

@@ -704,6 +704,8 @@ public partial class MainWindow : Window
             foreach (var stale in _runRepo.ActiveRuns())
                 _runRepo.UpdateStatus(stale.RunId, "stale");
 
+            InitContextFabricLibrary(workspaceRoot, _sqlStore);
+
             var planRepo = _planRepo;
             Task.Run(() =>
             {
@@ -729,6 +731,56 @@ public partial class MainWindow : Window
         {
             AddActivity(new ActivityEvent(ActivityKind.Info, "Data",
                 $"SQLite init failed (non-fatal): {ex.Message}", DateTime.Now));
+        }
+    }
+
+    // ── CF-5 Context Fabric Library wiring ──────────────────────────────────
+
+    /// <summary>
+    /// Wires the CF-5 OrcChat Library services into _chatPanel. Requires a native
+    /// IRoleRuntime (the same experimental opt-in BuildExperimentalNativeMainChatRuntime
+    /// uses for the agent loop — see that method's VRAM double-booking caveat if both are
+    /// enabled at once) since FabricAskService/FabricNativeReaderService both generate via
+    /// IRoleRuntime, not the Ollama-backed ChatEngine path. When the toggle is off or no base
+    /// GGUF is found, the library drawer/source-preview rails simply stay hidden and chat
+    /// behaves exactly as it did before CF-5 — same graceful-no-op shape as every other
+    /// experimental-native call site in this file.
+    /// </summary>
+    private void InitContextFabricLibrary(string workspaceRoot, Services.Data.SqliteStore? sqlStore)
+    {
+        if (sqlStore is null) return;
+
+        try
+        {
+            var nativeRuntime = BuildExperimentalNativeMainChatRuntime();
+            if (nativeRuntime is null) return;
+
+            var fabricRepo      = new Services.ContextFabric.FabricLibraryRepository(sqlStore);
+            var graphRepo       = new Services.ContextFabric.DocumentGraphRepository(sqlStore);
+            var fabricArtifacts = new Services.Hive.ContentAddressedStore(
+                Path.Combine(workspaceRoot, ".orc", "fabric", "objects"));
+            var libraryService  = new Services.ContextFabric.FabricLibraryService(fabricRepo, fabricArtifacts);
+            var searchService   = new Services.ContextFabric.FabricSearchService(fabricRepo, graphRepo);
+            var planner         = new Services.ContextFabric.FabricQueryPlanner(searchService, graphRepo);
+            var packBuilder     = new Services.ContextFabric.EvidencePackBuilder(fabricRepo, graphRepo);
+            var verifier        = new Services.ContextFabric.FabricCitationVerifier(fabricRepo);
+            var nativeReader    = new Services.ContextFabric.FabricNativeReaderService(fabricRepo, graphRepo, nativeRuntime);
+            var reducer         = new Services.ContextFabric.FabricReducer(fabricRepo, graphRepo);
+            var askService      = new Services.ContextFabric.FabricAskService(planner, packBuilder, verifier, fabricRepo, nativeRuntime);
+            var orchestrator    = new Services.ContextFabric.FabricIndexingOrchestrator(nativeReader, reducer, fabricRepo);
+            var libraryVm       = new UI.ViewModels.LibraryViewModel(
+                libraryService, fabricRepo, Path.Combine(workspaceRoot, ".orc", "fabric"));
+            var webImporter     = new Services.ContextFabric.FabricWebImporter(libraryService, new HttpClient());
+
+            _chatPanel.SetFabricServices(askService, orchestrator, libraryVm, webImporter, workspaceRoot);
+
+            AddActivity(new ActivityEvent(ActivityKind.Info, "Context Fabric",
+                "OrcChat Library enabled (native runtime available).", DateTime.Now));
+        }
+        catch (Exception ex)
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Info, "Context Fabric",
+                $"OrcChat Library init failed (non-fatal): {ex.Message}", DateTime.Now));
         }
     }
 
