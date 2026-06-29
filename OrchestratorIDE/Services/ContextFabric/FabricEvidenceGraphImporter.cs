@@ -33,7 +33,8 @@ public sealed class FabricEvidenceGraphImporter(
             .SelectMany(card => BuildClaimImports(card, verificationStatus))
             .ToArray();
         var document = imports.Length == 0 ? null : imports[0].Document;
-        if (document is not null && !string.Equals(document.DocumentId, documentId, StringComparison.Ordinal))
+        if (imports.Any(import => !string.Equals(import.Document.DocumentId, documentId, StringComparison.Ordinal) ||
+                                  !string.Equals(import.Claim.DocumentId, documentId, StringComparison.Ordinal)))
             throw new InvalidDataException($"Evidence cards do not belong to document '{documentId}'.");
 
         graphRepository.ReplaceClaimsForDocument(

@@ -32,6 +32,8 @@ public sealed class DocumentGraphRepository(SqliteStore store) : RepositoryBase(
             throw new ArgumentException("Document id is required.", nameof(documentId));
         ArgumentNullException.ThrowIfNull(claims);
         ArgumentNullException.ThrowIfNull(citationsByClaimId);
+        if (claims.Any(claim => !string.Equals(claim.DocumentId, documentId, StringComparison.Ordinal)))
+            throw new InvalidDataException($"Replacement claims must all belong to document '{documentId}'.");
 
         InTransaction((conn, tx) =>
         {
