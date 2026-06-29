@@ -21,14 +21,18 @@ public sealed class FabricQueryPlanner(
         var effective = options ?? new FabricQueryPlannerOptions();
         effective.Validate();
 
-        var resolvedMode = string.IsNullOrWhiteSpace(mode) ? ClassifyMode(query) : mode.Trim().ToLowerInvariant();
-        var hits = searchService.Search(query, corpusId, effective.RetrievalLimit);
+        var normalizedQuery = query.Trim();
+        var normalizedCorpusId = corpusId.Trim();
+        var resolvedMode = string.IsNullOrWhiteSpace(mode)
+            ? ClassifyMode(normalizedQuery)
+            : NormalizeMode(mode);
+        var hits = searchService.Search(normalizedQuery, normalizedCorpusId, effective.RetrievalLimit);
         var summaryNodeIds = hits
             .Select(item => item.DocumentId)
             .Distinct(StringComparer.Ordinal)
             .SelectMany(documentId =>
             {
-                var highest = graphRepository.ListMemoryNodes(corpusId, documentId, limit: 16)
+                var highest = graphRepository.ListMemoryNodes(normalizedCorpusId, documentId, limit: 16)
                     .GroupBy(node => node.Generation)
                     .OrderByDescending(group => group.Key)
                     .FirstOrDefault();
@@ -39,7 +43,7 @@ public sealed class FabricQueryPlanner(
             .ToArray();
         if (summaryNodeIds.Length == 0)
         {
-            summaryNodeIds = graphRepository.ListMemoryNodes(corpusId, limit: 32)
+            summaryNodeIds = graphRepository.ListMemoryNodes(normalizedCorpusId, limit: 32)
                 .GroupBy(node => node.DocumentId, StringComparer.Ordinal)
                 .SelectMany(group =>
                 {
@@ -54,12 +58,12 @@ public sealed class FabricQueryPlanner(
         }
 
         var reopenedSegmentIds = resolvedMode == FabricQueryMode.Study
-            ? ReopenSegments(query, summaryNodeIds, effective.MaxSourceOpens)
+            ? ReopenSegments(normalizedQuery, summaryNodeIds, effective.MaxSourceOpens)
             : [];
 
         return new FabricQueryPlan(
-            query.Trim(),
-            corpusId.Trim(),
+            normalizedQuery,
+            normalizedCorpusId,
             resolvedMode,
             effective.MaxRounds,
             effective.MaxSourceOpens,
@@ -70,6 +74,13 @@ public sealed class FabricQueryPlanner(
             reopenedSegmentIds,
             reopenedSegmentIds.Count > 0);
     }
+
+    private static string NormalizeMode(string mode) => mode.Trim().ToLowerInvariant() switch
+    {
+        FabricQueryMode.Quick => FabricQueryMode.Quick,
+        FabricQueryMode.Study => FabricQueryMode.Study,
+        _ => throw new ArgumentOutOfRangeException(nameof(mode), $"Unsupported Context Fabric query mode '{mode}'."),
+    };
 
     private IReadOnlyList<string> ReopenSegments(string query, IReadOnlyList<string> summaryNodeIds, int maxSourceOpens)
     {
@@ -115,14 +126,7 @@ public sealed class FabricQueryPlanner(
 
     private static string ClassifyMode(string query)
     {
-        var lower = query.ToLowerInvariant();
-        return lower.Contains("compare", StringComparison.Ordinal) ||
-               lower.Contains("across", StringComparison.Ordinal) ||
-               lower.Contains("between", StringComparison.Ordinal) ||
-               lower.Contains("change", StringComparison.Ordinal) ||
-               lower.Contains("exception", StringComparison.Ordinal) ||
-               lower.Contains("why", StringComparison.Ordinal) ||
-               lower.Contains("how", StringComparison.Ordinal)
+        return Tokenize(query).Overlaps(["compare", "across", "between", "change", "exception", "why", "how"])
             ? FabricQueryMode.Study
             : FabricQueryMode.Quick;
     }

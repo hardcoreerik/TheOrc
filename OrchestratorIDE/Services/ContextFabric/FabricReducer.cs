@@ -43,13 +43,13 @@ public sealed class FabricReducer(
                 var summary = BuildSummary(groupList);
                 var expected = groupList.Length;
                 var covered = groupList.Count(item => item.IsCovered);
-                var nodeId = BuildNodeId(document.DocumentId, generation, groupList[0].Ordinal, groupList[^1].Ordinal, summary);
+                var nodeId = BuildNodeId(document.DocumentId, generation, groupList[0].StartOrdinal, groupList[^1].EndOrdinal, summary);
                 var node = new FabricMemoryNodeEntry(
                     nodeId,
                     document.CorpusId,
                     document.DocumentId,
                     generation == 0 ? "section" : "summary",
-                    $"{document.DisplayName} g{generation} {groupList[0].Ordinal}-{groupList[^1].Ordinal}",
+                    $"{document.DisplayName} g{generation} {groupList[0].StartOrdinal}-{groupList[^1].EndOrdinal}",
                     summary,
                     generation,
                     _options.FanIn,
@@ -71,7 +71,8 @@ public sealed class FabricReducer(
                 next.Add(new ReductionChild(
                     "memory",
                     node.NodeId,
-                    groupList[0].Ordinal,
+                    groupList[0].StartOrdinal,
+                    groupList[^1].EndOrdinal,
                     node.SummaryText,
                     node.CoverageStatus == FabricCoverageStatus.Complete));
             }
@@ -104,6 +105,7 @@ public sealed class FabricReducer(
             "segment",
             segment.SegmentId,
             ordinal,
+            ordinal,
             TrimSummary(summary),
             isCovered);
     }
@@ -135,7 +137,8 @@ public sealed class FabricReducer(
     private sealed record ReductionChild(
         string Kind,
         string Id,
-        int Ordinal,
+        int StartOrdinal,
+        int EndOrdinal,
         string SummaryText,
         bool IsCovered);
 }

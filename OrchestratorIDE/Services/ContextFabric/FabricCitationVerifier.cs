@@ -74,15 +74,14 @@ public sealed class FabricCitationVerifier(FabricLibraryRepository libraryReposi
         var sourceTokens = Tokenize(string.Join(" ", matchedQuotes));
         if (claimTokens.Count == 0 || sourceTokens.Count == 0)
             return FabricCitationVerificationLabel.Interpretive;
+        if (claimTokens.Contains("not") != sourceTokens.Contains("not"))
+            return FabricCitationVerificationLabel.Contradicted;
 
         var overlap = claimTokens.Count(sourceTokens.Contains) / (double)claimTokens.Count;
         if (overlap >= 0.95)
             return FabricCitationVerificationLabel.Supported;
         if (overlap >= 0.50)
             return FabricCitationVerificationLabel.PartiallySupported;
-        if (matchedQuotes.Any(quote => quote.Contains(" not ", StringComparison.OrdinalIgnoreCase)) &&
-            !claimText.Contains(" not ", StringComparison.OrdinalIgnoreCase))
-            return FabricCitationVerificationLabel.Contradicted;
         return FabricCitationVerificationLabel.Interpretive;
     }
 
@@ -123,6 +122,5 @@ public sealed class FabricCitationVerifier(FabricLibraryRepository libraryReposi
     private static HashSet<string> Tokenize(string text) => text
         .Split([' ', '\t', '\r', '\n', ',', '.', ';', ':', '?', '!'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .Select(item => item.ToLowerInvariant())
-        .Where(item => item.Length >= 3)
         .ToHashSet(StringComparer.Ordinal);
 }

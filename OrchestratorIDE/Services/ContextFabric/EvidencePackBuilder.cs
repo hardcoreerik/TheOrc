@@ -1,5 +1,6 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
+using OrchestratorIDE.Core;
 
 namespace OrchestratorIDE.Services.ContextFabric;
 
@@ -55,7 +56,7 @@ public sealed class EvidencePackBuilder(
                 "source",
                 segment.SegmentId,
                 segment.Text,
-                EstimateTokens(segment.Text),
+                EstimatePromptTokensConservatively(segment.Text),
                 true,
                 $"{segment.DocumentId}:{segment.Ordinal}");
         }
@@ -66,7 +67,7 @@ public sealed class EvidencePackBuilder(
                 "source",
                 hit.SegmentId,
                 hit.Text,
-                EstimateTokens(hit.Text),
+                EstimatePromptTokensConservatively(hit.Text),
                 true,
                 $"{hit.DocumentId}:{hit.Ordinal}:{hit.RetrievalPath}");
         }
@@ -81,12 +82,12 @@ public sealed class EvidencePackBuilder(
                 "summary",
                 node.NodeId,
                 node.SummaryText,
-                EstimateTokens(node.SummaryText),
+                EstimatePromptTokensConservatively(node.SummaryText),
                 false,
                 $"{node.DocumentId}:g{node.Generation}:{node.CoverageStatus}");
         }
     }
 
-    private static int EstimateTokens(string text) =>
-        Math.Max(1, (int)Math.Ceiling(text.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Length * 1.35));
+    private static int EstimatePromptTokensConservatively(string text) =>
+        ContextManager.EstimateTokens(text ?? "");
 }
