@@ -153,12 +153,148 @@ public sealed class HiveNativeRoleExecutorAdapter(IRoleRuntime inner, string wor
             promptTokens, completionTokens, FabricHashing.Sha256(json));
     }
 
+    public async Task<HiveNativeAgentExecution> ExecuteContextFabricStitcherAsync(
+        HiveTaskBundle bundle,
+        FabricCorpus leftCorpus,
+        FabricCorpus rightCorpus,
+        CancellationToken ct)
+    {
+        if (leftCorpus.Segments.Count != 1 || rightCorpus.Segments.Count != 1)
+            throw new InvalidOperationException(
+                $"Context Fabric stitcher requires single-segment corpora; got left={leftCorpus.Segments.Count} right={rightCorpus.Segments.Count}.");
+
+        var safeCampaign = SafeSegment(bundle.CampaignId.Length > 0 ? bundle.CampaignId : "legacy");
+        var safeUnit = SafeSegment(bundle.WorkUnitId.Length > 0 ? bundle.WorkUnitId : bundle.TaskId);
+        var outputDirectory = Path.Combine(workspaceRoot, ".orc", "remote-work", safeCampaign, safeUnit);
+        Directory.CreateDirectory(outputDirectory);
+
+        var left = leftCorpus.Segments[0];
+        var right = rightCorpus.Segments[0];
+        var caseId = $"stitch-{left.SegmentId}-{right.SegmentId}";
+        var testCase = new FabricBoundaryStitchCase(
+            caseId,
+            left.Text,
+            right.Text,
+            ExpectedSummary: "",
+            ExpectedLinkedFacts: [],
+            ForbiddenTerms: []);
+
+        var result = await new FabricBoundaryStitcher(inner).StitchAsync(testCase, ct).ConfigureAwait(false);
+        var json = FabricJson.Serialize(new StitchOutput(
+            leftCorpus.CorpusId,
+            leftCorpus.DocumentId,
+            left.SegmentId,
+            right.SegmentId,
+            result.Passed,
+            result.Summary,
+            result.LinkedFacts));
+        await File.WriteAllTextAsync(Path.Combine(outputDirectory, "stitch-result.json"), json, ct)
+            .ConfigureAwait(false);
+
+        return new HiveNativeAgentExecution(json, outputDirectory, Steps: 1,
+            result.Metrics.PromptTokens, result.Metrics.CompletionTokens, FabricHashing.Sha256(json));
+    }
+
+    public async Task<HiveNativeAgentExecution> ExecuteContextFabricVerifierAsync(
+        HiveTaskBundle bundle,
+        FabricEvidenceCard card,
+        FabricCorpus sourceCorpus,
+        CancellationToken ct)
+    {
+        if (sourceCorpus.Segments.Count != 1)
+            throw new InvalidOperationException(
+                $"Context Fabric verifier requires a single-segment source corpus, got {sourceCorpus.Segments.Count}.");
+
+        var safeCampaign = SafeSegment(bundle.CampaignId.Length > 0 ? bundle.CampaignId : "legacy");
+        var safeUnit = SafeSegment(bundle.WorkUnitId.Length > 0 ? bundle.WorkUnitId : bundle.TaskId);
+        var outputDirectory = Path.Combine(workspaceRoot, ".orc", "remote-work", safeCampaign, safeUnit);
+        Directory.CreateDirectory(outputDirectory);
+
+        var segment = sourceCorpus.Segments[0];
+        var items = new List<FabricHiveVerificationItem>(card.Claims.Count);
+        foreach (var claim in card.Claims)
+        {
+            if (claim is null) continue;
+            var errors = new List<string>();
+            foreach (var citation in claim.Citations ?? [])
+            {
+                if (citation is null) continue;
+                if (!string.IsNullOrWhiteSpace(citation.Quote))
+                {
+                    var pos = segment.Text.IndexOf(citation.Quote, StringComparison.Ordinal);
+                    if (pos < 0)
+                        errors.Add($"Quote not found in source: '{citation.Quote[..Math.Min(80, citation.Quote.Length)]}'");
+                    else if (citation.CharStart >= 0 && citation.CharStart != pos)
+                        errors.Add($"CharStart mismatch: expected {pos}, got {citation.CharStart}");
+                    if (!string.IsNullOrWhiteSpace(citation.QuoteDigest))
+                    {
+                        var expectedDigest = FabricHashing.Sha256(citation.Quote);
+                        if (!string.Equals(expectedDigest, citation.QuoteDigest, StringComparison.OrdinalIgnoreCase))
+                            errors.Add($"QuoteDigest mismatch for claim {claim.ClaimId}");
+                    }
+                }
+            }
+            items.Add(new FabricHiveVerificationItem(
+                claim.ClaimId ?? "",
+                segment.SegmentId,
+                errors.Count == 0,
+                errors));
+        }
+
+        var report = new FabricHiveVerificationReport(
+            sourceCorpus.CorpusId,
+            sourceCorpus.DocumentId,
+            segment.SegmentId,
+            items.All(item => item.Passed),
+            items);
+        var json = FabricJson.Serialize(report);
+        await File.WriteAllTextAsync(Path.Combine(outputDirectory, "verification-result.json"), json, ct)
+            .ConfigureAwait(false);
+
+        return new HiveNativeAgentExecution(json, outputDirectory, Steps: items.Count,
+            0, 0, FabricHashing.Sha256(json));
+    }
+
+    public async Task<HiveNativeAgentExecution> ExecuteContextFabricQueryAsync(
+        HiveTaskBundle bundle,
+        string questionId,
+        string questionText,
+        FabricCorpus corpus,
+        CancellationToken ct)
+    {
+        var safeCampaign = SafeSegment(bundle.CampaignId.Length > 0 ? bundle.CampaignId : "legacy");
+        var safeUnit = SafeSegment(bundle.WorkUnitId.Length > 0 ? bundle.WorkUnitId : bundle.TaskId);
+        var outputDirectory = Path.Combine(workspaceRoot, ".orc", "remote-work", safeCampaign, safeUnit);
+        Directory.CreateDirectory(outputDirectory);
+
+        var finding = await new ContextFabricFeasibilityRunner(inner)
+            .QuerySegmentAsync(corpus, questionId, questionText, ct).ConfigureAwait(false);
+
+        var json = FabricJson.Serialize(finding);
+        await File.WriteAllTextAsync(Path.Combine(outputDirectory, "query-finding.json"), json, ct)
+            .ConfigureAwait(false);
+
+        return new HiveNativeAgentExecution(json, outputDirectory,
+            Steps: finding.Relevant ? 1 : 0,
+            finding.Metrics.PromptTokens, finding.Metrics.CompletionTokens,
+            FabricHashing.Sha256(json));
+    }
+
     private sealed record ReducerOutput(
         string CorpusId,
         string DocumentId,
         string GenerationId,
         int NodeCount,
         IReadOnlyList<FabricReductionNode> Nodes);
+
+    private sealed record StitchOutput(
+        string CorpusId,
+        string DocumentId,
+        string LeftSegmentId,
+        string RightSegmentId,
+        bool Passed,
+        string Summary,
+        IReadOnlyList<string> LinkedFacts);
 
     private static string SafeSegment(string value)
     {

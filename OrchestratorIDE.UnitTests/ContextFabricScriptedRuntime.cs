@@ -36,6 +36,8 @@ internal sealed class ScriptedFabricRuntime : IRoleRuntime, IRoleRuntimeDiagnost
             output = BuildAnswer(input);
         else if (system.Contains("[FABRIC_STITCHER]", StringComparison.Ordinal))
             output = BuildStitch(input);
+        else if (system.Contains("[FABRIC_QUERY]", StringComparison.Ordinal))
+            output = BuildQueryFinding(input);
         else
             throw new InvalidOperationException("Unexpected CF-0 prompt.");
 
@@ -191,8 +193,55 @@ internal sealed class ScriptedFabricRuntime : IRoleRuntime, IRoleRuntimeDiagnost
                     "They documented the transfer at 19:40 UTC before leaving the records office.",
                 ],
             }),
-            _ => throw new InvalidOperationException($"Unsupported scripted stitch caseId '{caseId}'."),
+            _ => FabricJson.Serialize(new FabricBoundaryStitchDraft
+            {
+                CaseId = caseId,
+                Summary = $"Stitched boundary for case '{caseId}'.",
+                LinkedFacts = [],
+            }),
         };
+    }
+
+    private static string BuildQueryFinding(string input)
+    {
+        using var doc = JsonDocument.Parse(input);
+        var root = doc.RootElement;
+        var questionId = root.GetProperty("questionId").GetString()!;
+        var segmentId = root.GetProperty("segmentId").GetString()!;
+        var source = root.GetProperty("sourceText").GetString()!;
+
+        var evidenceFacts = source.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.TrimEnd('\r'))
+            .Where(line => line.StartsWith("EVIDENCE: ", StringComparison.Ordinal))
+            .Select(line => line["EVIDENCE: ".Length..])
+            .ToArray();
+
+        if (evidenceFacts.Length == 0)
+            return FabricJson.Serialize(new FabricQueryFindingDraft { Relevant = false });
+
+        var claims = evidenceFacts.Select((fact, index) => new FabricClaim
+        {
+            ClaimId = $"{segmentId}-q{index + 1}",
+            Text = fact,
+            Confidence = 1,
+            Citations =
+            [
+                new FabricCitation
+                {
+                    SegmentId = segmentId,
+                    CharStart = -1,
+                    CharEnd = -1,
+                    Quote = fact,
+                },
+            ],
+        }).ToList();
+
+        return FabricJson.Serialize(new FabricQueryFindingDraft
+        {
+            Relevant = true,
+            FindingText = string.Join(' ', evidenceFacts),
+            Claims = claims,
+        });
     }
 
     private sealed record EvidenceClaim(string Text, string SegmentId, string Quote);

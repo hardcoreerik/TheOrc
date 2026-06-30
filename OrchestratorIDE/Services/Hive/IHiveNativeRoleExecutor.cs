@@ -45,6 +45,40 @@ public interface IHiveNativeRoleExecutor : IAsyncDisposable
         FabricCorpus corpusMeta,
         IReadOnlyList<FabricEvidenceCard> cards,
         CancellationToken ct);
+
+    /// <summary>
+    /// CF-6: runs the boundary stitcher (FabricBoundaryStitcher.StitchAsync) on two adjacent single-segment
+    /// corpora to resolve cross-boundary duplicates, pronoun references, and heading transitions.
+    /// Outputs stitch-result.json to the output directory.
+    /// </summary>
+    Task<HiveNativeAgentExecution> ExecuteContextFabricStitcherAsync(
+        HiveTaskBundle bundle,
+        FabricCorpus leftCorpus,
+        FabricCorpus rightCorpus,
+        CancellationToken ct);
+
+    /// <summary>
+    /// CF-6: runs inline citation verification (no LLM) against the source corpus artifact.
+    /// Each claim's citations are checked for quote text, character offsets, and quote digest.
+    /// Outputs verification-result.json to the output directory.
+    /// </summary>
+    Task<HiveNativeAgentExecution> ExecuteContextFabricVerifierAsync(
+        HiveTaskBundle bundle,
+        FabricEvidenceCard card,
+        FabricCorpus sourceCorpus,
+        CancellationToken ct);
+
+    /// <summary>
+    /// CF-6: runs a per-segment exhaustive query (ContextFabricFeasibilityRunner.QuerySegmentAsync).
+    /// Returns relevant=false when the segment contains no evidence for the question.
+    /// Outputs query-finding.json to the output directory.
+    /// </summary>
+    Task<HiveNativeAgentExecution> ExecuteContextFabricQueryAsync(
+        HiveTaskBundle bundle,
+        string questionId,
+        string questionText,
+        FabricCorpus corpus,
+        CancellationToken ct);
 }
 
 public sealed record HiveNativeAgentExecution(

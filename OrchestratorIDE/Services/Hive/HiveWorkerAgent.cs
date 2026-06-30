@@ -519,6 +519,53 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
     /// CF-6: downloads and deserializes the reducer's inputs from the Warchief artifact store.
     /// The first artifact named "corpus-meta.json" supplies structural metadata (CorpusId, DocumentId,
     /// GenerationId); every remaining artifact named "*.evidence-card.json" is a reader output card.
+    private async Task<(FabricCorpus Left, FabricCorpus Right)>
+        FetchStitcherInputsAsync(HiveTaskBundle bundle, CancellationToken ct)
+    {
+        var corpora = bundle.InputArtifacts
+            .Where(a => a.Name.EndsWith(".corpus.json", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (corpora.Length < 2)
+            throw new InvalidOperationException(
+                $"Context Fabric stitcher task requires exactly 2 corpus artifacts, got {corpora.Length}.");
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        var left = await FetchAndVerifyJsonAsync<FabricCorpus>(http, corpora[0], ct).ConfigureAwait(false);
+        var right = await FetchAndVerifyJsonAsync<FabricCorpus>(http, corpora[1], ct).ConfigureAwait(false);
+        return (left, right);
+    }
+
+    private async Task<(FabricEvidenceCard Card, FabricCorpus SourceCorpus)>
+        FetchVerifierInputsAsync(HiveTaskBundle bundle, CancellationToken ct)
+    {
+        var cardArtifact = bundle.InputArtifacts.FirstOrDefault(a =>
+            a.Name.EndsWith(".evidence-card.json", StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("Verifier task has no '.evidence-card.json' input artifact.");
+        var corpusArtifact = bundle.InputArtifacts.FirstOrDefault(a =>
+            a.Name.EndsWith(".corpus.json", StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("Verifier task has no '.corpus.json' input artifact.");
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        var card = await FetchAndVerifyJsonAsync<FabricEvidenceCard>(http, cardArtifact, ct).ConfigureAwait(false);
+        var corpus = await FetchAndVerifyJsonAsync<FabricCorpus>(http, corpusArtifact, ct).ConfigureAwait(false);
+        return (card, corpus);
+    }
+
+    private async Task<(string QuestionId, string QuestionText, FabricCorpus Corpus)>
+        FetchQueryInputsAsync(HiveTaskBundle bundle, CancellationToken ct)
+    {
+        var questionArtifact = bundle.InputArtifacts.FirstOrDefault(a =>
+            a.Name.StartsWith("question-", StringComparison.OrdinalIgnoreCase) &&
+            a.Name.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("Query task has no 'question-*.json' input artifact.");
+        var corpusArtifact = bundle.InputArtifacts.FirstOrDefault(a =>
+            a.Name.EndsWith(".corpus.json", StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("Query task has no '.corpus.json' input artifact.");
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        var question = await FetchAndVerifyJsonAsync<FabricQueryQuestion>(http, questionArtifact, ct).ConfigureAwait(false);
+        var corpus = await FetchAndVerifyJsonAsync<FabricCorpus>(http, corpusArtifact, ct).ConfigureAwait(false);
+        return (question.QuestionId, question.QuestionText, corpus);
+    }
+
     /// All digests are re-verified locally before deserialization.
     /// </summary>
     private async Task<(FabricCorpus CorpusMeta, IReadOnlyList<FabricEvidenceCard> Cards)>
@@ -725,8 +772,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             ct).ConfigureAwait(false);
 
         // CF-6: the Context Fabric pack bypasses the generic agent/tool-call loop.
-        // Dispatch key: NativeRole == ContextFabricReducerRole → reduction fan-in;
-        // anything else (or empty) → single-segment reader.
+        // Dispatch key: NativeRole discriminates reducer / stitcher / verifier / query / reader.
         if (string.Equals(bundle.PackId, CampaignPackCatalog.ContextFabricPackId, StringComparison.OrdinalIgnoreCase))
         {
             if (string.Equals(bundle.NativeRole, CampaignPackCatalog.ContextFabricReducerRole,
@@ -738,6 +784,38 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 if (string.IsNullOrWhiteSpace(_lastAgentExecution.Output))
                     throw new InvalidOperationException("Context Fabric reducer emitted no reduction nodes.");
                 Log($"🐝 [{bundle.Role}] '{bundle.Title}' — Context Fabric reducer built {_lastAgentExecution.Steps} node(s){DescribeNativeRuntimeTelemetry(bundle.Role)}");
+                return _lastAgentExecution.Output;
+            }
+
+            if (string.Equals(bundle.NativeRole, CampaignPackCatalog.ContextFabricStitcherRole,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                var (leftCorpus, rightCorpus) = await FetchStitcherInputsAsync(bundle, ct).ConfigureAwait(false);
+                _lastAgentExecution = await NativeRoleExecutor.ExecuteContextFabricStitcherAsync(
+                    bundle, leftCorpus, rightCorpus, ct).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(_lastAgentExecution.Output))
+                    throw new InvalidOperationException("Context Fabric stitcher emitted no stitch result.");
+                Log($"🐝 [{bundle.Role}] '{bundle.Title}' — Context Fabric stitcher completed{DescribeNativeRuntimeTelemetry(bundle.Role)}");
+                return _lastAgentExecution.Output;
+            }
+
+            if (string.Equals(bundle.NativeRole, CampaignPackCatalog.ContextFabricVerifierRole,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                var (card, sourceCorpus) = await FetchVerifierInputsAsync(bundle, ct).ConfigureAwait(false);
+                _lastAgentExecution = await NativeRoleExecutor.ExecuteContextFabricVerifierAsync(
+                    bundle, card, sourceCorpus, ct).ConfigureAwait(false);
+                Log($"🐝 [{bundle.Role}] '{bundle.Title}' — Context Fabric verifier checked {_lastAgentExecution.Steps} claim(s){DescribeNativeRuntimeTelemetry(bundle.Role)}");
+                return _lastAgentExecution.Output;
+            }
+
+            if (string.Equals(bundle.NativeRole, CampaignPackCatalog.ContextFabricQueryRole,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                var (questionId, questionText, queryCorpus) = await FetchQueryInputsAsync(bundle, ct).ConfigureAwait(false);
+                _lastAgentExecution = await NativeRoleExecutor.ExecuteContextFabricQueryAsync(
+                    bundle, questionId, questionText, queryCorpus, ct).ConfigureAwait(false);
+                Log($"🐝 [{bundle.Role}] '{bundle.Title}' — Context Fabric query {(_lastAgentExecution.Steps > 0 ? "found evidence" : "no evidence")}{DescribeNativeRuntimeTelemetry(bundle.Role)}");
                 return _lastAgentExecution.Output;
             }
 

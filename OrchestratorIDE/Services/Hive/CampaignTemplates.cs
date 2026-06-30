@@ -169,6 +169,160 @@ public static class CampaignTemplates
         };
     }
 
+    /// <summary>
+    /// CF-6: one stitcher work unit per adjacent segment pair. Each unit receives the two single-segment
+    /// corpus artifacts for the left and right segments and depends on both reader work units completing
+    /// first. The stitcher resolves cross-boundary duplicate claims, pronouns, and heading transitions.
+    /// </summary>
+    public static CampaignDefinition ContextFabricStitchers(
+        string name,
+        IReadOnlyList<(ArtifactRef LeftCorpus, ArtifactRef RightCorpus, string LeftReaderId, string RightReaderId)> pairs,
+        string modelHash,
+        string adapterHash = "")
+    {
+        var units = pairs.Select((pair, index) => new WorkUnit
+        {
+            WorkUnitId = $"stitch-{index + 1:00000}",
+            Title = $"Context Fabric stitch: {pair.LeftCorpus.Name} ↔ {pair.RightCorpus.Name}",
+            Role = "Researcher",
+            NativeRole = CampaignPackCatalog.ContextFabricStitcherRole,
+            ExecutionKind = HiveExecutionKinds.NativeAgent,
+            PackId = CampaignPackCatalog.ContextFabricPackId,
+            PackVersion = CampaignPackCatalog.ContextFabricPackVersion,
+            Requirements = new ResourceRequirements
+            {
+                NativeModelHash = modelHash,
+                NativeAdapterHash = adapterHash,
+                RequiredPacks = [$"{CampaignPackCatalog.ContextFabricPackId}@{CampaignPackCatalog.ContextFabricPackVersion}"],
+            },
+            Verification = new VerificationPolicy { Mode = "independent_consensus", RequiredIndependentRuns = 1 },
+            Inputs = [pair.LeftCorpus, pair.RightCorpus],
+            DependsOn = [pair.LeftReaderId, pair.RightReaderId],
+            TimeoutMs = 1_800_000,
+        }).ToList();
+        return new CampaignDefinition
+        {
+            Name = name,
+            PackId = CampaignPackCatalog.ContextFabricPackId,
+            PackVersion = CampaignPackCatalog.ContextFabricPackVersion,
+            WorkUnits = units,
+        };
+    }
+
+    /// <summary>
+    /// CF-6: one verifier work unit per reader output evidence card. Each unit receives the evidence-card
+    /// artifact and the corresponding source-corpus artifact and depends on the reader work unit.
+    /// The verifier checks citation offsets, quote digests, and quote text against the original source —
+    /// CPU-bound, no LLM required.
+    /// </summary>
+    public static CampaignDefinition ContextFabricVerifiers(
+        string name,
+        IReadOnlyList<(ArtifactRef EvidenceCard, ArtifactRef SourceCorpus, string ReaderWorkUnitId)> items,
+        string modelHash,
+        string adapterHash = "")
+    {
+        var units = items.Select((item, index) => new WorkUnit
+        {
+            WorkUnitId = $"verify-{index + 1:00000}",
+            Title = $"Context Fabric verify: {item.EvidenceCard.Name}",
+            Role = "Researcher",
+            NativeRole = CampaignPackCatalog.ContextFabricVerifierRole,
+            ExecutionKind = HiveExecutionKinds.NativeAgent,
+            PackId = CampaignPackCatalog.ContextFabricPackId,
+            PackVersion = CampaignPackCatalog.ContextFabricPackVersion,
+            Requirements = new ResourceRequirements
+            {
+                NativeModelHash = modelHash,
+                NativeAdapterHash = adapterHash,
+                RequiredPacks = [$"{CampaignPackCatalog.ContextFabricPackId}@{CampaignPackCatalog.ContextFabricPackVersion}"],
+            },
+            Verification = new VerificationPolicy { Mode = "independent_consensus", RequiredIndependentRuns = 1 },
+            Inputs = [item.EvidenceCard, item.SourceCorpus],
+            DependsOn = [item.ReaderWorkUnitId],
+            TimeoutMs = 300_000,
+        }).ToList();
+        return new CampaignDefinition
+        {
+            Name = name,
+            PackId = CampaignPackCatalog.ContextFabricPackId,
+            PackVersion = CampaignPackCatalog.ContextFabricPackVersion,
+            WorkUnits = units,
+        };
+    }
+
+    /// <summary>
+    /// CF-6: one exhaustive-query work unit per segment corpus artifact. The question artifact is included
+    /// as input alongside each segment corpus so the worker runs the question against one segment in isolation.
+    /// No DependsOn — query units are independent of reader units; they work from source text directly.
+    /// A separate reducer campaign fans in the query findings to produce the final exhaustive answer.
+    /// </summary>
+    public static async Task<(IReadOnlyList<ArtifactRef> QuestionRefs, CampaignDefinition Campaign)>
+        ContextFabricExhaustiveQueryAsync(
+            string name,
+            string questionId,
+            string questionText,
+            IReadOnlyList<ArtifactRef> segmentCorpora,
+            ContentAddressedStore store,
+            string modelHash,
+            string adapterHash = "",
+            CancellationToken ct = default)
+    {
+        var questionJson = FabricJson.Serialize(new FabricQueryQuestion(questionId, questionText));
+        var bytes = Encoding.UTF8.GetBytes(questionJson);
+        var digest = ContentAddressedStore.ComputeSha256(bytes);
+        if (!store.Has(digest))
+        {
+            for (long offset = 0; offset < bytes.Length;)
+            {
+                var len = (int)Math.Min(ContentAddressedStore.MaxChunkBytes, bytes.Length - offset);
+                await store.WriteChunkAsync(digest, offset, bytes.Length, bytes.AsMemory((int)offset, len), ct)
+                    .ConfigureAwait(false);
+                offset += len;
+            }
+        }
+        var questionRef = new ArtifactRef
+        {
+            DigestSha256 = digest,
+            Name = $"question-{questionId}.json",
+            SizeBytes = bytes.Length,
+            MediaType = "application/json",
+            Kind = "input",
+        };
+
+        var questionRefs = new List<ArtifactRef>(segmentCorpora.Count);
+        var units = segmentCorpora.Select((corpus, index) =>
+        {
+            questionRefs.Add(questionRef);
+            return new WorkUnit
+            {
+                WorkUnitId = $"query-{index + 1:00000}",
+                Title = $"Context Fabric exhaustive query: {corpus.Name}",
+                Role = "Researcher",
+                NativeRole = CampaignPackCatalog.ContextFabricQueryRole,
+                ExecutionKind = HiveExecutionKinds.NativeAgent,
+                PackId = CampaignPackCatalog.ContextFabricPackId,
+                PackVersion = CampaignPackCatalog.ContextFabricPackVersion,
+                Requirements = new ResourceRequirements
+                {
+                    NativeModelHash = modelHash,
+                    NativeAdapterHash = adapterHash,
+                    RequiredPacks = [$"{CampaignPackCatalog.ContextFabricPackId}@{CampaignPackCatalog.ContextFabricPackVersion}"],
+                },
+                Verification = new VerificationPolicy { Mode = "independent_consensus", RequiredIndependentRuns = 1 },
+                Inputs = [questionRef, corpus],
+                TimeoutMs = 1_800_000,
+            };
+        }).ToList();
+
+        return (questionRefs.Distinct().ToList(), new CampaignDefinition
+        {
+            Name = name,
+            PackId = CampaignPackCatalog.ContextFabricPackId,
+            PackVersion = CampaignPackCatalog.ContextFabricPackVersion,
+            WorkUnits = units,
+        });
+    }
+
     public static CampaignDefinition NativeAiEval(string name, IEnumerable<string> prompts,
         string modelHash, string adapterHash = "")
     {
