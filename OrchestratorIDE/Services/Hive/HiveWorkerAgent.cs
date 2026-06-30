@@ -570,6 +570,12 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         if (Runtime is null && NativeRoleExecutor is null)
             throw new InvalidOperationException("Worker: model runtime not configured");
 
+        // CF reader pack requires the native role executor — it has no generic-LLM fallback path.
+        if (string.Equals(bundle.PackId, CampaignPackCatalog.ContextFabricPackId, StringComparison.OrdinalIgnoreCase)
+            && NativeRoleExecutor is null)
+            throw new InvalidOperationException(
+                "Worker: Context Fabric reader tasks require a native role executor — this host has none configured.");
+
         var sysPrompt = BuildSystemPrompt(bundle.Role);
         var userMsg   = BuildUserMessage(bundle);
 

@@ -81,6 +81,54 @@ public sealed class CampaignDependencyBarrierTests
         Assert.That((bool)method.Invoke(queue, [entryA])!, Is.True);
     }
 
+    [Test]
+    public void SubmitCampaign_ThrowsOnUnknownDependencyId()
+    {
+        using var queue = new HiveTaskQueue();
+        var campaign = new CampaignDefinition
+        {
+            Name = "cf6-bad-dep",
+            WorkUnits =
+            [
+                new WorkUnit { WorkUnitId = "a", Title = "Read" },
+                new WorkUnit { WorkUnitId = "b", Title = "Reduce", DependsOn = ["does-not-exist"] },
+            ],
+        };
+
+        Assert.Throws<ArgumentException>(() => queue.SubmitCampaign(campaign),
+            "SubmitCampaign must reject a DependsOn ID that isn't in the same campaign.");
+    }
+
+    [Test]
+    public void AreDependenciesSatisfied_CascadesToFailed_WhenDependencyFails()
+    {
+        using var queue = new HiveTaskQueue();
+        var campaign = new CampaignDefinition
+        {
+            Name = "cf6-cascade-test",
+            WorkUnits =
+            [
+                new WorkUnit { WorkUnitId = "a", Title = "Read seg 0" },
+                new WorkUnit { WorkUnitId = "b", Title = "Reduce", DependsOn = ["a"] },
+            ],
+        };
+        queue.SubmitCampaign(campaign);
+
+        var entryA = GetEntry(queue, $"{campaign.CampaignId}-a");
+        var entryB = GetEntry(queue, $"{campaign.CampaignId}-b");
+        var method = typeof(HiveTaskQueue).GetMethod("AreDependenciesSatisfied",
+            BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var statusProp = entryB.GetType().GetProperty("Status")!;
+
+        // Mark dependency as failed.
+        entryA.GetType().GetProperty("Status")!.SetValue(entryA, "failed");
+
+        // First call cascades 'b' to failed and returns false.
+        Assert.That((bool)method.Invoke(queue, [entryB])!, Is.False);
+        Assert.That(statusProp.GetValue(entryB), Is.EqualTo("failed"),
+            "AreDependenciesSatisfied must cascade dependent to 'failed' when dependency is terminal.");
+    }
+
     private static object GetEntry(HiveTaskQueue queue, string taskId)
     {
         var tasksField = typeof(HiveTaskQueue).GetField("_tasks", BindingFlags.NonPublic | BindingFlags.Instance)

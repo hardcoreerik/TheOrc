@@ -438,9 +438,9 @@ public sealed class HiveTaskQueue : IDisposable
     /// <summary>
     /// Stage/dependency-barrier check (CF-6): a work unit with DependsOnWorkUnitIds is only
     /// leasable once every dependency's task in the same campaign has reached "completed".
-    /// Deliberately minimal for this first slice -- a permanently-failed dependency currently
-    /// leaves the dependent pending forever rather than cascading to failed; that's a known
-    /// gap, not yet a requirement any CF-6 pack relies on.
+    /// If any dependency is in a terminal failure state (failed/timeout/cancelled) the entry
+    /// is immediately marked "failed" so the campaign can reach a terminal state rather than
+    /// wedging in pending forever. Returns false whenever the entry is not yet ready to run.
     /// </summary>
     private bool AreDependenciesSatisfied(QueuedTask entry)
     {
@@ -448,8 +448,24 @@ public sealed class HiveTaskQueue : IDisposable
         foreach (var depWorkUnitId in entry.Bundle.DependsOnWorkUnitIds)
         {
             var depTaskId = $"{entry.Bundle.CampaignId}-{depWorkUnitId}";
-            if (!_tasks.TryGetValue(depTaskId, out var dep) || dep.Status != "completed")
-                return false;
+            if (!_tasks.TryGetValue(depTaskId, out var dep)) return false;
+            if (dep.Status == "completed") continue;
+
+            // Cascade a terminal failure: a dependency that can never complete should not
+            // leave this entry pending forever.
+            if (dep.Status is "failed" or "timeout" or "cancelled")
+            {
+                if (entry.Status != "failed" && entry.Status != "cancelled")
+                {
+                    entry.Status = "failed";
+                    CampaignRepository?.UpdateWorkUnit(
+                        entry.Bundle.CampaignId, entry.Bundle.WorkUnitId,
+                        "failed", entry.Bundle.Attempt,
+                        error: $"Dependency '{depWorkUnitId}' reached terminal state '{dep.Status}'.");
+                    UpdateCampaignAfterTerminal(entry.Bundle.CampaignId);
+                }
+            }
+            return false;
         }
         return true;
     }
@@ -602,6 +618,21 @@ public sealed class HiveTaskQueue : IDisposable
         ArgumentNullException.ThrowIfNull(definition);
         if (string.IsNullOrWhiteSpace(definition.CampaignId) || definition.WorkUnits.Count == 0)
             throw new ArgumentException("Campaign id and at least one work unit are required.", nameof(definition));
+
+        // Reject any unit that references a DependsOn ID not present in this campaign — an unresolvable
+        // dependency would silently wedge the campaign forever in AreDependenciesSatisfied.
+        var unitIds = definition.WorkUnits.Select(u => u.WorkUnitId).ToHashSet(StringComparer.Ordinal);
+        foreach (var unit in definition.WorkUnits)
+        {
+            foreach (var dep in unit.DependsOn)
+            {
+                if (!unitIds.Contains(dep))
+                    throw new ArgumentException(
+                        $"Work unit '{unit.WorkUnitId}' depends on '{dep}' which does not exist in the campaign.",
+                        nameof(definition));
+            }
+        }
+
         if (!_campaigns.TryAdd(definition.CampaignId, (definition.Name, CampaignStates.Running)))
             throw new InvalidOperationException($"Campaign {definition.CampaignId} already exists.");
 

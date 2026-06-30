@@ -60,7 +60,7 @@ public sealed class ContextFabricReaderWorkUnitTests
         Assert.That(refs[0].Name, Is.EqualTo("seg-a.corpus.json"));
         Assert.That(refs[1].Name, Is.EqualTo("seg-b.corpus.json"));
 
-        foreach (var (artifact, expectedSegment) in refs.Zip(corpus.Segments))
+        foreach (var (artifact, expectedSegment) in refs.Zip(corpus.Segments.OrderBy(s => s.Ordinal)))
         {
             Assert.That(artifact.Kind, Is.EqualTo("input"));
             Assert.That(artifact.MediaType, Is.EqualTo("application/json"));
@@ -160,6 +160,7 @@ public sealed class ContextFabricReaderWorkUnitTests
         const string textB = "EVIDENCE: The archive ledger is sealed in cabinet forty-two.";
         var a = new FabricSegment("seg-a", 1, "Reactor", textA, FabricHashing.Sha256(textA), 12);
         var b = new FabricSegment("seg-b", 2, "Archive", textB, FabricHashing.Sha256(textB), 14);
-        return fixture.Corpus with { Segments = [a, b], EstimatedSourceTokens = 26 };
+        // Intentionally reversed so the ordinal sort in StageReaderCorpusAsync is actually exercised.
+        return fixture.Corpus with { Segments = [b, a], EstimatedSourceTokens = 26 };
     }
 }

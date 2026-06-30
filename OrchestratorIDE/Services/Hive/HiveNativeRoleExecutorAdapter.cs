@@ -101,6 +101,11 @@ public sealed class HiveNativeRoleExecutorAdapter(IRoleRuntime inner, string wor
         var outputDirectory = Path.Combine(workspaceRoot, ".orc", "remote-work", safeCampaign, safeUnit);
         Directory.CreateDirectory(outputDirectory);
 
+        if (corpus.Segments.Count != 1)
+            throw new InvalidOperationException(
+                $"Context Fabric reader requires a single-segment corpus, got {corpus.Segments.Count}. " +
+                "Use CampaignTemplates.StageReaderCorpusAsync to split a multi-segment corpus first.");
+
         var report = await new ContextFabricFeasibilityRunner(inner).ReadCorpusAsync(corpus, ct).ConfigureAwait(false);
         var segmentResult = report.SegmentResults.SingleOrDefault()
             ?? throw new InvalidOperationException("Context Fabric reader produced no segment result.");
