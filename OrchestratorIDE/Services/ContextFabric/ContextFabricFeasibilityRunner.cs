@@ -88,6 +88,22 @@ public sealed class ContextFabricFeasibilityRunner
             summary);
     }
 
+    /// <summary>
+    /// CF-6 distributed reducer: runs the hierarchical reduction tree over pre-read evidence cards
+    /// (produced by distributed reader work units) using the configured native runtime. Returns the
+    /// reduction nodes; an empty list means the cards set was empty or every reduce call failed.
+    /// </summary>
+    public async Task<IReadOnlyList<FabricReductionNode>> ReduceEvidenceCardsAsync(
+        FabricCorpus corpus,
+        IReadOnlyList<FabricEvidenceCard> cards,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(corpus);
+        ArgumentNullException.ThrowIfNull(cards);
+        var calls = new List<FabricCallMetrics>();
+        return await BuildReductionTreeAsync(corpus, cards, calls, ct).ConfigureAwait(false);
+    }
+
     public async Task<FabricCorpusReadReport> ReadCorpusAsync(
         FabricCorpus corpus,
         CancellationToken ct = default)

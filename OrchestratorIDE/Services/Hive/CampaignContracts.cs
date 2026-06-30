@@ -89,6 +89,10 @@ public sealed record WorkUnit
     public string CampaignId       { get; init; } = "";
     public string Title            { get; init; } = "";
     public string Role             { get; init; } = "Worker";
+    /// <summary>Fine-grained dispatch hint within a pack — used to route to sub-paths that share a PackId.
+    /// For example CampaignPackCatalog.ContextFabricReducerRole routes the reducer within theorc.context-fabric.
+    /// Empty means the pack's default execution path.</summary>
+    public string NativeRole       { get; init; } = "";
     public string Spec             { get; init; } = "";
     public string ExecutionKind    { get; init; } = HiveExecutionKinds.NativeAgent;
     public string PackId           { get; init; } = "";

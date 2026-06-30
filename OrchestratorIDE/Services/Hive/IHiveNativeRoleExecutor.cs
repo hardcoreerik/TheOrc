@@ -34,6 +34,17 @@ public interface IHiveNativeRoleExecutor : IAsyncDisposable
         HiveTaskBundle bundle,
         FabricCorpus corpus,
         CancellationToken ct);
+
+    /// <summary>
+    /// CF-6: runs the hierarchical reduction tree (ContextFabricFeasibilityRunner.ReduceEvidenceCardsAsync)
+    /// over pre-read evidence cards supplied as input artifacts -- the distributed fan-in step that follows
+    /// the reader fan-out. Outputs a serialized FabricCorpusReadReport to the output directory.
+    /// </summary>
+    Task<HiveNativeAgentExecution> ExecuteContextFabricReducerAsync(
+        HiveTaskBundle bundle,
+        FabricCorpus corpusMeta,
+        IReadOnlyList<FabricEvidenceCard> cards,
+        CancellationToken ct);
 }
 
 public sealed record HiveNativeAgentExecution(

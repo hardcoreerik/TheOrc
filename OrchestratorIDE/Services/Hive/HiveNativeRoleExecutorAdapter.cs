@@ -121,6 +121,45 @@ public sealed class HiveNativeRoleExecutorAdapter(IRoleRuntime inner, string wor
             FabricHashing.Sha256(json));
     }
 
+    public async Task<HiveNativeAgentExecution> ExecuteContextFabricReducerAsync(
+        HiveTaskBundle bundle,
+        FabricCorpus corpusMeta,
+        IReadOnlyList<FabricEvidenceCard> cards,
+        CancellationToken ct)
+    {
+        if (cards.Count == 0)
+            throw new InvalidOperationException("Context Fabric reducer received no evidence cards to reduce.");
+
+        var safeCampaign = SafeSegment(bundle.CampaignId.Length > 0 ? bundle.CampaignId : "legacy");
+        var safeUnit = SafeSegment(bundle.WorkUnitId.Length > 0 ? bundle.WorkUnitId : bundle.TaskId);
+        var outputDirectory = Path.Combine(workspaceRoot, ".orc", "remote-work", safeCampaign, safeUnit);
+        Directory.CreateDirectory(outputDirectory);
+
+        var nodes = await new ContextFabricFeasibilityRunner(inner)
+            .ReduceEvidenceCardsAsync(corpusMeta, cards, ct).ConfigureAwait(false);
+
+        var json = FabricJson.Serialize(new ReducerOutput(
+            corpusMeta.CorpusId,
+            corpusMeta.DocumentId,
+            corpusMeta.GenerationId,
+            nodes.Count,
+            nodes));
+        await File.WriteAllTextAsync(Path.Combine(outputDirectory, "reduction-nodes.json"), json, ct)
+            .ConfigureAwait(false);
+
+        var promptTokens = 0;
+        var completionTokens = 0;
+        return new HiveNativeAgentExecution(json, outputDirectory, Steps: nodes.Count,
+            promptTokens, completionTokens, FabricHashing.Sha256(json));
+    }
+
+    private sealed record ReducerOutput(
+        string CorpusId,
+        string DocumentId,
+        string GenerationId,
+        int NodeCount,
+        IReadOnlyList<FabricReductionNode> Nodes);
+
     private static string SafeSegment(string value)
     {
         var safe = new string(value.Where(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_').Take(96).ToArray());

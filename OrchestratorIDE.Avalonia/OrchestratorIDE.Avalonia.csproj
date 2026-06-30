@@ -186,6 +186,9 @@
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricCitationVerifier.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricSearchService.cs" />
 
+    <!-- Context Fabric CF-6 HIVE importer -->
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricHiveCampaignImporter.cs" />
+
     <!-- Context Fabric CF-5 OrcChat Library -->
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricAskService.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricIndexingOrchestrator.cs" />

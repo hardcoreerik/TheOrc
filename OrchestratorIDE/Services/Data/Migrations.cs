@@ -26,6 +26,7 @@ internal static class Migrations
         new Migration(9, "context fabric segment integrity retrofit", Sql009_ContextFabricSegmentIntegrity),
         new Migration(10, "context fabric document graph and claim search", Sql010_ContextFabricDocumentGraph),
         new Migration(11, "context fabric hierarchy and cognitive paging", Sql011_ContextFabricHierarchyPaging),
+        new Migration(12, "context fabric claims generation id", Sql012_ContextFabricClaimsGenerationId),
     ];
 
     // ── v1 — Phase 1: captures + triage ─────────────────────────────────────────
@@ -523,6 +524,16 @@ internal static class Migrations
         );
         CREATE INDEX ix_fabric_memory_memberships_parent ON fabric_memory_memberships(parent_node_id, ordinal);
         CREATE INDEX ix_fabric_memory_memberships_child ON fabric_memory_memberships(child_kind, child_id);
+        """;
+
+    // ── v12 — CF-6: generation_id on fabric_claims for generation-safe HIVE import ──
+    // Adds a nullable generation_id column to fabric_claims so each claim can be tagged with the
+    // corpus generation that produced it. A corpus re-index (new GenerationId) lets the importer
+    // identify and replace stale-generation claims rather than layering them on top.
+    // ALTER TABLE adds the column as NULL-permitted so existing rows keep their data intact.
+    private const string Sql012_ContextFabricClaimsGenerationId = """
+        ALTER TABLE fabric_claims ADD COLUMN generation_id TEXT;
+        CREATE INDEX ix_fabric_claims_generation ON fabric_claims(corpus_id, generation_id);
         """;
 
     // ── v5 — CodeGraph v1 (C# structure + search index) ─────────────────────────

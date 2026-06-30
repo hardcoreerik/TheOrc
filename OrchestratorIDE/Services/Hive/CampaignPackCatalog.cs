@@ -14,6 +14,10 @@ public static class CampaignPackCatalog
     public const string ContextFabricPackId = "theorc.context-fabric";
     public const string ContextFabricPackVersion = "1.0.0";
 
+    /// <summary>NativeRole discriminator used inside the theorc.context-fabric pack to route a task to
+    /// the reduction path instead of the default single-segment reader path.</summary>
+    public const string ContextFabricReducerRole = "cf-reducer";
+
     public static IReadOnlyList<PackManifest> All { get; } =
     [
         new()

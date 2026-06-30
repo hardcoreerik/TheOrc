@@ -468,10 +468,10 @@ public sealed class DocumentGraphRepository(SqliteStore store) : RepositoryBase(
         using var cmd = CreateCmd(conn, tx, """
             INSERT INTO fabric_claims
                 (claim_id, corpus_id, document_id, segment_id, claim_type, claim_text,
-                 verification_status, confidence, created_at, updated_at)
+                 verification_status, confidence, created_at, updated_at, generation_id)
             VALUES
                 ($id, $corpus, $document, $segment, $type, $text,
-                 $status, $confidence, $created, $updated)
+                 $status, $confidence, $created, $updated, $generation)
             ON CONFLICT(claim_id) DO UPDATE SET
                 corpus_id = excluded.corpus_id,
                 document_id = excluded.document_id,
@@ -480,6 +480,7 @@ public sealed class DocumentGraphRepository(SqliteStore store) : RepositoryBase(
                 claim_text = excluded.claim_text,
                 verification_status = excluded.verification_status,
                 confidence = excluded.confidence,
+                generation_id = excluded.generation_id,
                 updated_at = excluded.updated_at
             """);
         P(cmd.Parameters, "$id", claim.ClaimId);
@@ -492,6 +493,7 @@ public sealed class DocumentGraphRepository(SqliteStore store) : RepositoryBase(
         P(cmd.Parameters, "$confidence", claim.Confidence);
         P(cmd.Parameters, "$created", claim.CreatedAt.ToString("O"));
         P(cmd.Parameters, "$updated", claim.UpdatedAt.ToString("O"));
+        P(cmd.Parameters, "$generation", (object?)claim.GenerationId ?? DBNull.Value);
         cmd.ExecuteNonQuery();
     }
 

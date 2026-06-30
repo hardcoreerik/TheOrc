@@ -128,7 +128,11 @@ public sealed record FabricClaimEntry(
     string VerificationStatus,
     double? Confidence,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    /// <summary>CF-6: corpus generation that produced this claim. Null for claims from single-node
+    /// (non-HIVE) reads. Enables the generation-safe HIVE importer to identify and replace stale-
+    /// generation claims when a corpus is re-indexed in a new generation.</summary>
+    string? GenerationId = null);
 
 public sealed record FabricClaimCitationEntry(
     string ClaimId,

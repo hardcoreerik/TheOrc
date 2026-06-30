@@ -35,6 +35,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
     private int _disposeState;
     private HiveNativeAgentExecution? _lastAgentExecution;
     private ContainerPackExecution? _lastContainerExecution;
+    private int _readerEvidenceCount;
     private static readonly JsonSerializerOptions _json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -262,6 +263,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         var startedAt = DateTime.UtcNow;
         _lastAgentExecution = null;
         _lastContainerExecution = null;
+        _readerEvidenceCount = 0;
         string? result   = null;
         string  status   = "completed";
         string? errorMsg = null;
@@ -303,6 +305,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             taskResult.Metrics["steps"] = execution.Steps;
             taskResult.Metrics["prompt_tokens"] = execution.PromptTokens;
             taskResult.Metrics["completion_tokens"] = execution.CompletionTokens;
+            if (_readerEvidenceCount > 0) taskResult.Metrics["evidence_count"] = _readerEvidenceCount;
             taskResult.Attestation = new ExecutionAttestation
             {
                 RuntimeName = "NativeRoleRuntime",
@@ -512,6 +515,59 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         return corpus;
     }
 
+    /// <summary>
+    /// CF-6: downloads and deserializes the reducer's inputs from the Warchief artifact store.
+    /// The first artifact named "corpus-meta.json" supplies structural metadata (CorpusId, DocumentId,
+    /// GenerationId); every remaining artifact named "*.evidence-card.json" is a reader output card.
+    /// All digests are re-verified locally before deserialization.
+    /// </summary>
+    private async Task<(FabricCorpus CorpusMeta, IReadOnlyList<FabricEvidenceCard> Cards)>
+        FetchReducerInputsAsync(HiveTaskBundle bundle, CancellationToken ct)
+    {
+        if (bundle.InputArtifacts.Count == 0)
+            throw new InvalidOperationException("Context Fabric reducer task has no input artifacts.");
+
+        var metaArtifact = bundle.InputArtifacts.FirstOrDefault(a =>
+            a.Name.EndsWith("corpus-meta.json", StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException(
+                "Context Fabric reducer task has no 'corpus-meta.json' input artifact.");
+        var cardArtifacts = bundle.InputArtifacts
+            .Where(a => a.Name.EndsWith(".evidence-card.json", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (cardArtifacts.Length == 0)
+            throw new InvalidOperationException(
+                "Context Fabric reducer task has no evidence-card input artifacts.");
+
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        var corpusMeta = await FetchAndVerifyJsonAsync<FabricCorpus>(http, metaArtifact, ct).ConfigureAwait(false);
+        if (corpusMeta.Segments.Count != 0)
+            throw new InvalidOperationException(
+                "Reducer corpus-meta artifact must have empty Segments; include only structural metadata.");
+
+        var cards = new List<FabricEvidenceCard>(cardArtifacts.Length);
+        foreach (var artifact in cardArtifacts)
+            cards.Add(await FetchAndVerifyJsonAsync<FabricEvidenceCard>(http, artifact, ct).ConfigureAwait(false));
+        return (corpusMeta, cards);
+    }
+
+    private async Task<T> FetchAndVerifyJsonAsync<T>(HttpClient http, ArtifactRef artifact, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(artifact.DigestSha256))
+            throw new InvalidOperationException($"Artifact '{artifact.Name}' has no digest.");
+        var url = $"{WarchiefUrl.TrimEnd('/')}/hive/artifacts/{artifact.DigestSha256}";
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        SignIfPaired(req, []);
+        using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+        resp.EnsureSuccessStatusCode();
+        var bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+        var actual = ContentAddressedStore.ComputeSha256(bytes);
+        if (!string.Equals(actual, artifact.DigestSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"Artifact '{artifact.Name}' digest mismatch: expected {artifact.DigestSha256}, got {actual}.");
+        return JsonSerializer.Deserialize<T>(Encoding.UTF8.GetString(bytes), FabricJson.Options)
+            ?? throw new InvalidOperationException($"Artifact '{artifact.Name}' deserialized to null.");
+    }
+
     private static string GuessMediaType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {
         ".json" => "application/json",
@@ -668,16 +724,42 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             bundle.TaskId,
             ct).ConfigureAwait(false);
 
-        // CF-6: the Context Fabric reader pack bypasses the generic agent/tool-call loop and runs
-        // ContextFabricFeasibilityRunner.ReadCorpusAsync over a single staged segment instead -- see
-        // CampaignPackCatalog.ContextFabricPackId's doc comment for why ExecuteAgentAsync doesn't fit.
+        // CF-6: the Context Fabric pack bypasses the generic agent/tool-call loop.
+        // Dispatch key: NativeRole == ContextFabricReducerRole → reduction fan-in;
+        // anything else (or empty) → single-segment reader.
         if (string.Equals(bundle.PackId, CampaignPackCatalog.ContextFabricPackId, StringComparison.OrdinalIgnoreCase))
         {
+            if (string.Equals(bundle.NativeRole, CampaignPackCatalog.ContextFabricReducerRole,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                var (corpusMeta, cards) = await FetchReducerInputsAsync(bundle, ct).ConfigureAwait(false);
+                _lastAgentExecution = await NativeRoleExecutor.ExecuteContextFabricReducerAsync(
+                    bundle, corpusMeta, cards, ct).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(_lastAgentExecution.Output))
+                    throw new InvalidOperationException("Context Fabric reducer emitted no reduction nodes.");
+                Log($"🐝 [{bundle.Role}] '{bundle.Title}' — Context Fabric reducer built {_lastAgentExecution.Steps} node(s){DescribeNativeRuntimeTelemetry(bundle.Role)}");
+                return _lastAgentExecution.Output;
+            }
+
             var corpus = await FetchReaderCorpusAsync(bundle, ct).ConfigureAwait(false);
             _lastAgentExecution = await NativeRoleExecutor.ExecuteContextFabricReaderAsync(bundle, corpus, ct)
                 .ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(_lastAgentExecution.Output))
                 throw new InvalidOperationException("Context Fabric reader emitted no evidence card.");
+
+            // Per-node telemetry: record the number of accepted claims so the Warchief's
+            // campaign dashboard can show evidence coverage without re-downloading the artifact.
+            try
+            {
+                var card = JsonSerializer.Deserialize<FabricEvidenceCard>(
+                    _lastAgentExecution.Output, FabricJson.Options);
+                if (card is not null)
+                {
+                    _readerEvidenceCount = card.Claims.Count;
+                }
+            }
+            catch { /* non-fatal: telemetry must not break task completion */ }
+
             Log($"🐝 [{bundle.Role}] '{bundle.Title}' — Context Fabric reader accepted segment{DescribeNativeRuntimeTelemetry(bundle.Role)}");
             return _lastAgentExecution.Output;
         }

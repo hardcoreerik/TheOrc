@@ -654,7 +654,7 @@ public sealed class HiveTaskQueue : IDisposable
                 WorkUnitId = unit.WorkUnitId,
                 PackId = unit.PackId.Length > 0 ? unit.PackId : definition.PackId,
                 PackVersion = unit.PackVersion.Length > 0 ? unit.PackVersion : definition.PackVersion,
-                NativeRole = unit.Role,
+                NativeRole = unit.NativeRole.Length > 0 ? unit.NativeRole : unit.Role,
                 Requirements = unit.Requirements,
                 Verification = unit.Verification,
                 Parameters = unit.Parameters,
