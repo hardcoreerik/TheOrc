@@ -1,6 +1,7 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using OrchestratorIDE.Models;
+using OrchestratorIDE.Services.ContextFabric;
 
 namespace OrchestratorIDE.Services.Hive;
 
@@ -22,6 +23,16 @@ public interface IHiveNativeRoleExecutor : IAsyncDisposable
     Task<HiveNativeAgentExecution> ExecuteAgentAsync(
         HiveTaskBundle bundle,
         IReadOnlyList<AgentMessage> messages,
+        CancellationToken ct);
+
+    /// <summary>
+    /// CF-6: runs a single-segment Context Fabric read (ContextFabricFeasibilityRunner.ReadCorpusAsync)
+    /// instead of the generic agent/tool-call loop -- see CampaignPackCatalog.ContextFabricPackId's
+    /// doc comment for why ExecuteAgentAsync's tool profile doesn't fit this pack.
+    /// </summary>
+    Task<HiveNativeAgentExecution> ExecuteContextFabricReaderAsync(
+        HiveTaskBundle bundle,
+        FabricCorpus corpus,
         CancellationToken ct);
 }
 

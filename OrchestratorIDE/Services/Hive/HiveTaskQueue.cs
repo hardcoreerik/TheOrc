@@ -435,6 +435,25 @@ public sealed class HiveTaskQueue : IDisposable
 
     // ── Endpoint handlers ─────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Stage/dependency-barrier check (CF-6): a work unit with DependsOnWorkUnitIds is only
+    /// leasable once every dependency's task in the same campaign has reached "completed".
+    /// Deliberately minimal for this first slice -- a permanently-failed dependency currently
+    /// leaves the dependent pending forever rather than cascading to failed; that's a known
+    /// gap, not yet a requirement any CF-6 pack relies on.
+    /// </summary>
+    private bool AreDependenciesSatisfied(QueuedTask entry)
+    {
+        if (entry.Bundle.DependsOnWorkUnitIds.Length == 0) return true;
+        foreach (var depWorkUnitId in entry.Bundle.DependsOnWorkUnitIds)
+        {
+            var depTaskId = $"{entry.Bundle.CampaignId}-{depWorkUnitId}";
+            if (!_tasks.TryGetValue(depTaskId, out var dep) || dep.Status != "completed")
+                return false;
+        }
+        return true;
+    }
+
     private Task HandleGetNextAsync(HttpListenerContext ctx)
     {
         var lanesParam = ctx.Request.QueryString["lanes"] ?? "";
@@ -448,6 +467,7 @@ public sealed class HiveTaskQueue : IDisposable
         {
             if (entry.Status != "pending") continue;
             if (lanes.Count > 0 && !lanes.Contains(entry.Bundle.Role.ToLower())) continue;
+            if (!AreDependenciesSatisfied(entry)) continue;
             found = entry;
             break;
         }
@@ -467,7 +487,8 @@ public sealed class HiveTaskQueue : IDisposable
         await _claimLock.WaitAsync();
         try
         {
-            if (!_tasks.TryGetValue(taskId, out var entry) || entry.Status != "pending")
+            if (!_tasks.TryGetValue(taskId, out var entry) || entry.Status != "pending" ||
+                !AreDependenciesSatisfied(entry))
             {
                 ctx.Response.StatusCode = 409;
                 return;
@@ -524,6 +545,7 @@ public sealed class HiveTaskQueue : IDisposable
                 .Where(kv => string.IsNullOrEmpty(kv.Value.Bundle.CampaignId) ||
                     !_campaigns.TryGetValue(kv.Value.Bundle.CampaignId, out var campaign) ||
                     campaign.Status == CampaignStates.Running)
+                .Where(kv => AreDependenciesSatisfied(kv.Value))
                 .Where(kv => lanes.Count == 0 || lanes.Contains(kv.Value.Bundle.Role.ToLowerInvariant()))
                 .Where(kv => CampaignCapabilityMatcher.IsEligible(kv.Value.Bundle, request.Capabilities))
                 .OrderByDescending(kv => CampaignCapabilityMatcher.Score(kv.Value.Bundle, request.Capabilities))
@@ -609,6 +631,7 @@ public sealed class HiveTaskQueue : IDisposable
                 Attempt = 1,
                 MaxAttempts = Math.Max(1, unit.MaxAttempts),
                 WarchiefUrl = BaseUrl,
+                DependsOnWorkUnitIds = unit.DependsOn,
             };
             EnqueueCore(taskId, bundle, authenticated: false, authNode: null);
             CampaignRepository?.BindTask(definition.CampaignId, unit.WorkUnitId, taskId);

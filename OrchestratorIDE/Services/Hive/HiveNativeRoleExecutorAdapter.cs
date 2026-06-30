@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Models;
+using OrchestratorIDE.Services.ContextFabric;
 
 namespace OrchestratorIDE.Services.Hive;
 
@@ -88,6 +89,31 @@ public sealed class HiveNativeRoleExecutorAdapter(IRoleRuntime inner, string wor
             ct: ct).ConfigureAwait(false);
         return new HiveNativeAgentExecution(result.Output, outputDirectory, result.Steps,
             result.PromptTokens, result.CompletionTokens, result.TraceDigest);
+    }
+
+    public async Task<HiveNativeAgentExecution> ExecuteContextFabricReaderAsync(
+        HiveTaskBundle bundle,
+        FabricCorpus corpus,
+        CancellationToken ct)
+    {
+        var safeCampaign = SafeSegment(bundle.CampaignId.Length > 0 ? bundle.CampaignId : "legacy");
+        var safeUnit = SafeSegment(bundle.WorkUnitId.Length > 0 ? bundle.WorkUnitId : bundle.TaskId);
+        var outputDirectory = Path.Combine(workspaceRoot, ".orc", "remote-work", safeCampaign, safeUnit);
+        Directory.CreateDirectory(outputDirectory);
+
+        var report = await new ContextFabricFeasibilityRunner(inner).ReadCorpusAsync(corpus, ct).ConfigureAwait(false);
+        var segmentResult = report.SegmentResults.SingleOrDefault()
+            ?? throw new InvalidOperationException("Context Fabric reader produced no segment result.");
+        if (!segmentResult.Accepted || segmentResult.Card is null)
+            throw new InvalidOperationException(
+                $"Context Fabric reader rejected segment '{corpus.Segments[0].SegmentId}': {string.Join("; ", segmentResult.Errors)}");
+
+        var json = FabricJson.Serialize(segmentResult.Card);
+        await File.WriteAllTextAsync(Path.Combine(outputDirectory, "evidence-card.json"), json, ct).ConfigureAwait(false);
+
+        return new HiveNativeAgentExecution(json, outputDirectory, Steps: 1,
+            segmentResult.Metrics.PromptTokens, segmentResult.Metrics.CompletionTokens,
+            FabricHashing.Sha256(json));
     }
 
     private static string SafeSegment(string value)

@@ -61,6 +61,10 @@ public sealed class HiveTaskBundle
     public int Attempt { get; set; } = 1;
     public int MaxAttempts { get; set; } = 3;
 
+    /// <summary>WorkUnitIds (within CampaignId) this task must wait on -- see WorkUnit.DependsOn
+    /// and HiveTaskQueue.AreDependenciesSatisfied for the lease-side barrier check.</summary>
+    public string[] DependsOnWorkUnitIds { get; set; } = [];
+
     /// <summary>Upstream research/task output included so workers have full context.</summary>
     public List<HiveArtifact> UpstreamArtifacts { get; set; } = [];
 }

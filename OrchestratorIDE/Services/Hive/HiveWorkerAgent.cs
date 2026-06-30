@@ -6,6 +6,7 @@ using System.Text.Json;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Models;
+using OrchestratorIDE.Services.ContextFabric;
 
 namespace OrchestratorIDE.Services.Hive;
 
@@ -473,6 +474,44 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         return artifacts;
     }
 
+    /// <summary>
+    /// CF-6: downloads the staged single-segment corpus for a Context Fabric reader task from the
+    /// Warchief's content-addressed store (GET /hive/artifacts/{digest}) and rebuilds the FabricCorpus.
+    /// The digest is re-verified locally so a corrupt or substituted artifact fails closed before the
+    /// reader ever sees untrusted bytes.
+    /// </summary>
+    private async Task<FabricCorpus> FetchReaderCorpusAsync(HiveTaskBundle bundle, CancellationToken ct)
+    {
+        var input = bundle.InputArtifacts.FirstOrDefault(a =>
+                        a.Name.EndsWith("corpus.json", StringComparison.OrdinalIgnoreCase))
+                    ?? bundle.InputArtifacts.FirstOrDefault()
+                    ?? throw new InvalidOperationException(
+                        "Context Fabric reader task has no input corpus artifact.");
+        if (string.IsNullOrWhiteSpace(input.DigestSha256))
+            throw new InvalidOperationException("Context Fabric reader input artifact has no digest.");
+
+        var url = $"{WarchiefUrl.TrimEnd('/')}/hive/artifacts/{input.DigestSha256}";
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        SignIfPaired(req, []);
+
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+        using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+        resp.EnsureSuccessStatusCode();
+        var bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+
+        var actual = ContentAddressedStore.ComputeSha256(bytes);
+        if (!string.Equals(actual, input.DigestSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"Context Fabric reader corpus digest mismatch: expected {input.DigestSha256}, got {actual}.");
+
+        var corpus = JsonSerializer.Deserialize<FabricCorpus>(Encoding.UTF8.GetString(bytes), FabricJson.Options)
+            ?? throw new InvalidOperationException("Context Fabric reader corpus artifact deserialized to null.");
+        if (corpus.Segments.Count != 1)
+            throw new InvalidOperationException(
+                $"Context Fabric reader expects a single-segment corpus, got {corpus.Segments.Count}.");
+        return corpus;
+    }
+
     private static string GuessMediaType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {
         ".json" => "application/json",
@@ -622,6 +661,20 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             $"⚡ {WorkerId} · [{bundle.Role}] {bundle.Title} · NativeRoleRuntime",
             bundle.TaskId,
             ct).ConfigureAwait(false);
+
+        // CF-6: the Context Fabric reader pack bypasses the generic agent/tool-call loop and runs
+        // ContextFabricFeasibilityRunner.ReadCorpusAsync over a single staged segment instead -- see
+        // CampaignPackCatalog.ContextFabricPackId's doc comment for why ExecuteAgentAsync doesn't fit.
+        if (string.Equals(bundle.PackId, CampaignPackCatalog.ContextFabricPackId, StringComparison.OrdinalIgnoreCase))
+        {
+            var corpus = await FetchReaderCorpusAsync(bundle, ct).ConfigureAwait(false);
+            _lastAgentExecution = await NativeRoleExecutor.ExecuteContextFabricReaderAsync(bundle, corpus, ct)
+                .ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(_lastAgentExecution.Output))
+                throw new InvalidOperationException("Context Fabric reader emitted no evidence card.");
+            Log($"🐝 [{bundle.Role}] '{bundle.Title}' — Context Fabric reader accepted segment{DescribeNativeRuntimeTelemetry(bundle.Role)}");
+            return _lastAgentExecution.Output;
+        }
 
         if (bundle.ExecutionKind == HiveExecutionKinds.NativeAgent)
         {

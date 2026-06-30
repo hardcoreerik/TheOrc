@@ -99,6 +99,13 @@ public sealed record WorkUnit
     public List<ArtifactRef> Inputs { get; init; } = [];
     public int TimeoutMs           { get; init; } = 600_000;
     public int MaxAttempts         { get; init; } = 3;
+
+    /// <summary>
+    /// WorkUnitIds (within the same campaign) that must reach "completed" before this unit
+    /// becomes eligible for lease/claim. Stage/dependency-barrier support for CF-6 -- see
+    /// HiveTaskQueue.AreDependenciesSatisfied for the dispatch-side check.
+    /// </summary>
+    public string[] DependsOn      { get; init; } = [];
 }
 
 public sealed record CampaignDefinition
