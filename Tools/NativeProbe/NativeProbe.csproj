@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>native-probe</AssemblyName>
+    <RootNamespace>NativeProbe</RootNamespace>
+  </PropertyGroup>
+
+  <!-- Mirror the exact LLamaSharp + backend package set the app/daemon use, so this probe
+       loads native libraries through the identical code path. -->
+  <ItemGroup>
+    <PackageReference Include="LLamaSharp" Version="0.27.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cuda12.Windows" Version="0.27.0"
+                      Condition="'$(RuntimeIdentifier)' == 'win-x64' Or ('$(RuntimeIdentifier)' == '' And $([MSBuild]::IsOSPlatform('Windows')))" />
+  </ItemGroup>
+
+</Project>

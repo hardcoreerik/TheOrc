@@ -43,7 +43,16 @@
 
   <!-- Match global usings in WPF project so shared source compiles cleanly. -->
   <ItemGroup>
-    <ProjectReference Include="..\OrchestratorIDE.NativeRuntime\OrchestratorIDE.NativeRuntime.csproj" />
+    <!--
+      UndefineProperties stops AssemblyName/OutputType overrides passed to THIS project
+      (e.g. release.yml's `-p:AssemblyName=OrchestratorIDE -p:OutputType=WinExe` for the
+      single-file publish) from cascading into NativeRuntime as global MSBuild properties.
+      Without this, both projects try to produce an assembly literally named
+      "OrchestratorIDE" (ambiguous-project-name restore error), and forcing NativeRuntime
+      (a class library, no Main) to OutputType=WinExe fails compilation with CS5001.
+    -->
+    <ProjectReference Include="..\OrchestratorIDE.NativeRuntime\OrchestratorIDE.NativeRuntime.csproj"
+                       UndefineProperties="AssemblyName;OutputType" />
   </ItemGroup>
 
   <ItemGroup>
