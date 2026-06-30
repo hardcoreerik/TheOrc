@@ -63,12 +63,13 @@ public static class CampaignTemplates
         ArgumentNullException.ThrowIfNull(corpus);
         ArgumentNullException.ThrowIfNull(store);
 
-        // Strip segment text — the reducer only needs structural metadata (CorpusId, DocumentId, GenerationId).
+        // The reducer only needs structural metadata (CorpusId, DocumentId, GenerationId) -- per-segment
+        // identity comes from the evidence cards themselves, not from corpus-meta. Segments must be
+        // genuinely EMPTY, not just text-blanked: FetchReducerInputsAsync hard-rejects any non-empty
+        // Segments list ("Reducer corpus-meta artifact must have empty Segments").
         var stripped = corpus with
         {
-            Segments = corpus.Segments
-                .Select(s => s with { Text = "", TextDigest = "", EstimatedTokens = 0 })
-                .ToArray(),
+            Segments = [],
             EstimatedSourceTokens = 0,
         };
         var bytes = Encoding.UTF8.GetBytes(FabricJson.Serialize(stripped));

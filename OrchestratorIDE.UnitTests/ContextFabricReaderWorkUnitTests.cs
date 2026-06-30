@@ -135,7 +135,11 @@ public sealed class ContextFabricReaderWorkUnitTests
         Assert.That(execution.Steps, Is.EqualTo(1));
         Assert.That(execution.TraceDigest, Is.EqualTo(FabricHashing.Sha256(execution.Output)));
 
-        var cardPath = Path.Combine(execution.OutputDirectory, "evidence-card.json");
+        // Name must carry the segment-id prefix (matches the "{segmentId}.corpus.json" convention) so
+        // FetchVerifierInputsAsync/FetchReducerInputsAsync's Name.EndsWith(".evidence-card.json") match
+        // succeeds -- a bare "evidence-card.json" has no leading dot to match and silently broke every
+        // verifier/reducer unit in production (found via a live CF-6 acceptance run).
+        var cardPath = Path.Combine(execution.OutputDirectory, "seg-a.evidence-card.json");
         Assert.That(File.Exists(cardPath), Is.True, "the evidence card must be written for output-artifact upload");
 
         var card = FabricJson.ParseModelObject<FabricEvidenceCard>(File.ReadAllText(cardPath));

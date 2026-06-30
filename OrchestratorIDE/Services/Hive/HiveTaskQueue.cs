@@ -1243,9 +1243,18 @@ public sealed class HiveTaskQueue : IDisposable
                     case "completed":
                     case "failed":
                     case "timeout":
-                        // Evict from MEMORY after 5 min; the durable SQL row stays (that's the
-                        // whole point of Phase 4) and is removed later by the retention sweep.
-                        if (now - entry.EnqueuedAt > TimeSpan.FromMinutes(5))
+                        // Evict from MEMORY after InMemoryRetention; the durable SQL row stays
+                        // (that's the whole point of Phase 4) and is removed later by the retention
+                        // sweep. Measured from EnqueuedAt (campaign submission), not completion --
+                        // a multi-unit campaign whose units finish minutes apart can otherwise have
+                        // its LATER units evicted almost immediately after completing, since the
+                        // clock started when the whole batch was submitted. An external poller (e.g.
+                        // an acceptance-test orchestrator walking a 16-unit campaign sequentially)
+                        // can easily take several minutes to reach a later unit's GET, observed in
+                        // practice losing visibility into results 5 minutes after submission even
+                        // though the unit itself had only just completed. 30 minutes gives that
+                        // headroom without materially changing the memory-bound intent.
+                        if (now - entry.EnqueuedAt > TimeSpan.FromMinutes(30))
                             toEvict.Add(id);
                         break;
                 }

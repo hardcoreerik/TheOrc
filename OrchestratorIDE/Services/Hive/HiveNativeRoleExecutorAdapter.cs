@@ -9,6 +9,21 @@ namespace OrchestratorIDE.Services.Hive;
 /// <summary>Bridges the shared native role runtime into the HIVE worker contract.</summary>
 public sealed class HiveNativeRoleExecutorAdapter(IRoleRuntime inner, string workspaceRoot) : IHiveNativeRoleExecutor
 {
+    /// <summary>
+    /// ModelAdmissionGate.EvaluateContextFabric admits reasoning-tuned models (DeepSeek-R1-distill,
+    /// Qwen3, etc.) only as "Provisional" specifically because their visible &lt;think&gt; trace can
+    /// consume the whole response budget before the required JSON object is emitted -- observed in
+    /// production as "Model response contained an unterminated JSON object." FabricRunOptions.Default
+    /// (1024 reader tokens) has no room for that trace. This budget gives it room; ResponseReserve is
+    /// raised to match so the evidence-text budget math in FabricContextBudget stays consistent.
+    /// </summary>
+    private static readonly FabricRunOptions HiveDispatchOptions = new(
+        new FabricContextBudget(ContextLimit: 8192, ResponseReserve: 4608, SystemReserve: 512),
+        ReaderMaxTokens: 4096,
+        ReducerMaxTokens: 2048,
+        AnswerMaxTokens: 3072);
+
+
     public static RuntimeRole MapHiveRoleToRuntimeRole(string? hiveRole) =>
         (hiveRole ?? "").Trim().ToLowerInvariant() switch
         {
@@ -106,7 +121,8 @@ public sealed class HiveNativeRoleExecutorAdapter(IRoleRuntime inner, string wor
                 $"Context Fabric reader requires a single-segment corpus, got {corpus.Segments.Count}. " +
                 "Use CampaignTemplates.StageReaderCorpusAsync to split a multi-segment corpus first.");
 
-        var report = await new ContextFabricFeasibilityRunner(inner).ReadCorpusAsync(corpus, ct).ConfigureAwait(false);
+        var report = await new ContextFabricFeasibilityRunner(inner, HiveDispatchOptions)
+            .ReadCorpusAsync(corpus, ct).ConfigureAwait(false);
         var segmentResult = report.SegmentResults.SingleOrDefault()
             ?? throw new InvalidOperationException("Context Fabric reader produced no segment result.");
         if (!segmentResult.Accepted || segmentResult.Card is null)
@@ -114,7 +130,14 @@ public sealed class HiveNativeRoleExecutorAdapter(IRoleRuntime inner, string wor
                 $"Context Fabric reader rejected segment '{corpus.Segments[0].SegmentId}': {string.Join("; ", segmentResult.Errors)}");
 
         var json = FabricJson.Serialize(segmentResult.Card);
-        await File.WriteAllTextAsync(Path.Combine(outputDirectory, "evidence-card.json"), json, ct).ConfigureAwait(false);
+        // Downstream fetchers (FetchVerifierInputsAsync, FetchReducerInputsAsync) match on
+        // Name.EndsWith(".evidence-card.json") -- a bare "evidence-card.json" has no leading dot to
+        // match, so every verifier/reducer unit failed with "no '.evidence-card.json' input
+        // artifact" despite the reader itself succeeding. The segment-id prefix also matches the
+        // "{segmentId}.corpus.json" convention used for every other staged artifact in this pack.
+        await File.WriteAllTextAsync(
+            Path.Combine(outputDirectory, $"{corpus.Segments[0].SegmentId}.evidence-card.json"), json, ct)
+            .ConfigureAwait(false);
 
         return new HiveNativeAgentExecution(json, outputDirectory, Steps: 1,
             segmentResult.Metrics.PromptTokens, segmentResult.Metrics.CompletionTokens,
@@ -135,7 +158,7 @@ public sealed class HiveNativeRoleExecutorAdapter(IRoleRuntime inner, string wor
         var outputDirectory = Path.Combine(workspaceRoot, ".orc", "remote-work", safeCampaign, safeUnit);
         Directory.CreateDirectory(outputDirectory);
 
-        var nodes = await new ContextFabricFeasibilityRunner(inner)
+        var nodes = await new ContextFabricFeasibilityRunner(inner, HiveDispatchOptions)
             .ReduceEvidenceCardsAsync(corpusMeta, cards, ct).ConfigureAwait(false);
 
         var json = FabricJson.Serialize(new ReducerOutput(
@@ -179,7 +202,8 @@ public sealed class HiveNativeRoleExecutorAdapter(IRoleRuntime inner, string wor
             ExpectedLinkedFacts: [],
             ForbiddenTerms: []);
 
-        var result = await new FabricBoundaryStitcher(inner).StitchAsync(testCase, ct).ConfigureAwait(false);
+        var result = await new FabricBoundaryStitcher(inner, HiveDispatchOptions)
+            .StitchAsync(testCase, ct).ConfigureAwait(false);
         var json = FabricJson.Serialize(new StitchOutput(
             leftCorpus.CorpusId,
             leftCorpus.DocumentId,
@@ -267,7 +291,7 @@ public sealed class HiveNativeRoleExecutorAdapter(IRoleRuntime inner, string wor
         var outputDirectory = Path.Combine(workspaceRoot, ".orc", "remote-work", safeCampaign, safeUnit);
         Directory.CreateDirectory(outputDirectory);
 
-        var finding = await new ContextFabricFeasibilityRunner(inner)
+        var finding = await new ContextFabricFeasibilityRunner(inner, HiveDispatchOptions)
             .QuerySegmentAsync(corpus, questionId, questionText, ct).ConfigureAwait(false);
 
         var json = FabricJson.Serialize(finding);
