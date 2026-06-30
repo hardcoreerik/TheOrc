@@ -538,6 +538,8 @@ public partial class MainWindow : Window
             Dispatcher.UIThread.InvokeAsync(() => _hivePanel.OnPairingRequest(sessionId, pairingReq));
         _hiveNodeServer.OnRoleAssignReceived += (assignerNodeId, newRole) =>
             Dispatcher.UIThread.InvokeAsync(() => _hivePanel.OnRoleAssignRequest(assignerNodeId, newRole));
+        _hiveNodeServer.OnLog += msg =>
+            AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE Node", msg, DateTime.Now));
         _hivePanel.NodeServer = _hiveNodeServer;
         // Without this, every ConfirmAsync?.Invoke(...) ?? Task.FromResult(false) call in
         // HivePanel (pairing approval, "Set as Warchief", "Remove from hive", etc.) silently
@@ -1306,7 +1308,9 @@ public partial class MainWindow : Window
         var parts = info.Split('+', 2);
         var ver   = parts.Length > 0 && parts[0].Length > 0 ? parts[0] : "?";
         var sha   = parts.Length > 1 ? parts[1] : "no-git";
-        SbBuild.Text = $"v{ver} · {sha}";
+        // Machine name alongside the build stamp -- helps tell screenshots/computer-use actions
+        // and diagnostic logs apart when several machines in the fleet are open side by side.
+        SbBuild.Text = $"v{ver} · {sha} · {Environment.MachineName}";
         var exe = Environment.ProcessPath;
         ToolTip.SetTip(SbBuild, $"Build {info}\n{exe}\nbuilt {(exe != null ? File.GetLastWriteTime(exe).ToString("yyyy-MM-dd HH:mm") : "?")}");
         if (sha.EndsWith("-dirty"))

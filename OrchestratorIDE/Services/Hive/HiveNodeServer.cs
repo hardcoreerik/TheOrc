@@ -89,6 +89,10 @@ public sealed class HiveNodeServer : IDisposable
     /// </summary>
     public event Action<string, HiveNodeRole>? OnRoleAssignReceived;
 
+    /// <summary>Diagnostic/activity log -- UI subscribes and surfaces these in the HIVE
+    /// Activity panel, same pattern as HiveTaskQueue.OnLog / HiveWorkerAgent.OnLog.</summary>
+    public event Action<string>? OnLog;
+
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     // Set once from TryBind's own return value during Start() -- never re-read
@@ -552,6 +556,17 @@ public sealed class HiveNodeServer : IDisposable
         // Check if already paired
         if (_peers.IsTrusted(req.InitiatorNodeId))
         {
+            // 2026-06-30: this rejection was observed firing for an initiator with NO matching
+            // entry anywhere in the on-disk hive-peers.json on either side, blocking re-pairing
+            // indefinitely until a full reset (remove the stale entry from BOTH machines' peer
+            // stores, restart both apps, redo the pairing ceremony with a fresh fingerprint
+            // check) was performed. The write path that produced the in-memory-only entry was
+            // never conclusively identified -- logging the in-memory peer list here so a future
+            // recurrence is diagnosable without re-adding instrumentation from scratch, since the
+            // disk file alone was repeatedly NOT sufficient to explain a stuck "already_paired".
+            OnLog?.Invoke(
+                $"already_paired rejected pairing from InitiatorNodeId={req.InitiatorNodeId} -- in-memory peers: " +
+                string.Join(", ", _peers.All().Select(p => $"{p.Name}/{p.NodeId[..Math.Min(12, p.NodeId.Length)]}/revoked={p.Revoked}")));
             resp.StatusCode = 409;
             Ok(resp, Json(new { status = "already_paired" }));
             return;
