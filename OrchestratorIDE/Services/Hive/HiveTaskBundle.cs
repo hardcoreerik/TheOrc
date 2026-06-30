@@ -161,6 +161,10 @@ public sealed class HiveTaskStatusResponse
     /// <summary>Populated once Status is "failed".</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string?   ErrorMsg  { get; set; }
+    /// <summary>Populated once Status is "completed" -- lets a polling orchestrator chain a
+    /// downstream campaign stage (e.g. CF-6 reducer) onto this unit's output digests without
+    /// needing in-process access to the queue.</summary>
+    public List<ArtifactRef> OutputArtifacts { get; set; } = [];
 }
 
 /// <summary>Response to GET /hive/tasks/status — full snapshot of queue state.</summary>
