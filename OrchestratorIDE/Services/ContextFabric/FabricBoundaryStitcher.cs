@@ -108,8 +108,12 @@ public sealed class FabricBoundaryStitcher
         var messages = new AgentMessage[]
         {
             SystemMessage(
-                "[FABRIC_STITCHER] Return one JSON object only. Merge only cross-boundary facts supported by the neighboring segments. " +
-                "Do not invent facts and do not rewrite supported values. Output shape: " +
+                "[FABRIC_STITCHER] Return one JSON object only. Merge ONLY the facts that span the boundary between " +
+                "the two neighboring segments: when a pronoun, clause, or reference in one segment points to something " +
+                "in the other, resolve it to the exact entity and keep BOTH the referring fact AND the fact it refers " +
+                "to -- never drop the referenced fact (e.g. the statement an unresolved pronoun points back to). Do NOT " +
+                "restate unrelated facts, do not invent facts, and do not rewrite supported values. List each linked " +
+                "fact separately in linkedFacts. Output shape: " +
                 "{\"schemaVersion\":\"cf0-stitch-1.0\",\"caseId\":\"...\",\"summary\":\"...\",\"linkedFacts\":[\"...\"]}"),
             UserMessage(FabricJson.Serialize(input)),
         };

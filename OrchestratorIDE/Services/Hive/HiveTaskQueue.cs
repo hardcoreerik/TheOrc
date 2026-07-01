@@ -520,7 +520,7 @@ public sealed class HiveTaskQueue : IDisposable
             entry.ClaimedAt     = DateTime.UtcNow;
             entry.LastHeartbeat = DateTime.UtcNow;
 
-            Log($"🐝 [{entry.Bundle.Role}] '{entry.Bundle.Title}' claimed by {entry.ClaimedBy} (token={entry.ClaimToken})");
+            Log($"🐝 ↗ sent to {entry.ClaimedBy} — [{entry.Bundle.Role}] '{entry.Bundle.Title}' (token={entry.ClaimToken})");
             Events.Append("task_claimed",
                 $"[{entry.Bundle.Role}] {entry.Bundle.Title} → {entry.ClaimedBy}",
                 taskId, entry.ClaimedBy ?? "");
@@ -954,7 +954,7 @@ public sealed class HiveTaskQueue : IDisposable
         // Resolve TCS outside lock — continuations run inline and must not re-enter _claimLock.
         entry!.CompletionTcs.TrySetResult(result);
 
-        Log($"🐝 [{entry.Bundle.Role}] '{entry.Bundle.Title}' ✅ completed by {result!.WorkerId} " +
+        Log($"🐝 ↘ returned from {result!.WorkerId} — [{entry.Bundle.Role}] '{entry.Bundle.Title}' ✅ " +
             $"({result.DurationMs / 1000.0:F1}s, {result.Result.Length} chars)");
         Events.Append("task_complete",
             $"[{result.WorkerId}] {entry.Bundle.Title} ✓ {result.DurationMs / 1000.0:F1}s · {result.Result.Length} chars",
