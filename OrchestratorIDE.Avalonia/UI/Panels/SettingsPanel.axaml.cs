@@ -41,6 +41,28 @@ public partial class SettingsPanel : UserControl
     public event Action<string>?      OpenFolderAsWorkspaceRequested;
     public event Action<string>?      ScanAnalysisReady;
     public event Action<CoreActivityEvent>? ActivityRequested;
+    public event Func<Task>?          StartHiveWorkerRequested;
+    public event Func<Task>?          StopHiveWorkerRequested;
+    /// <summary>Warchief side: open the time-boxed re-sync auto-approve window.</summary>
+    public event Action?              AcceptHiveResyncRequested;
+    /// <summary>Worker side: rediscover the Warchief identity and re-pair now.</summary>
+    public event Func<Task>?          ResyncWorkerNowRequested;
+
+    /// <summary>Shows a one-line status under the re-sync buttons (countdown, result, etc.).</summary>
+    public void SetHiveResyncStatus(string text) => TbHiveResyncStatus.Text = text;
+
+    /// <summary>Called by MainWindow whenever the worker's running state changes (start,
+    /// stop, or a poll-loop crash) so the button row reflects reality instead of just
+    /// whatever was last clicked.</summary>
+    public void SetHiveWorkerRunning(bool running)
+    {
+        BtnStartHiveWorker.IsEnabled = !running;
+        BtnStopHiveWorker.IsEnabled  = running;
+        TbHiveWorkerStatus.Text      = running ? "Running" : "Stopped";
+        TbHiveWorkerStatus.Foreground = running
+            ? new SolidColorBrush(Color.Parse("#76B900"))
+            : new SolidColorBrush(Color.Parse("#5A6A4A"));
+    }
 
     // ── State ─────────────────────────────────────────────────────────────────
 
@@ -109,6 +131,7 @@ public partial class SettingsPanel : UserControl
                 .FirstOrDefault(i => (string?)i.Tag == s.HiveDefaultAcceptControlFrom)
             ?? CmbHiveAcceptControlFrom.Items.OfType<ComboBoxItem>().ElementAt(1);
         TglNativeHiveWorker.IsChecked = s.ExperimentalNativeHiveWorkerEnabled;
+        TglAutoResync.IsChecked       = s.HiveDevAutoResyncEnabled;
         TglNativeMainChat.IsChecked   = s.ExperimentalNativeMainChatEnabled;
         TbNativeRuntimeModelRoot.Text = s.NativeRuntimeModelRoot;
         TbNativeRuntimeContextSize.Text = s.NativeRuntimeContextSize.ToString();
@@ -196,6 +219,45 @@ public partial class SettingsPanel : UserControl
     private async void BtnRefreshRuntimeStatus_Click(object? sender, RoutedEventArgs e) =>
         await RefreshRuntimeStatusAsync();
 
+    // async void UI handlers must never let an exception escape onto the Avalonia UI thread
+    // (worker start runs capability detection / native-runtime build, which can throw) — an
+    // unhandled fault here crashes the app. Each catch surfaces the error instead of dying
+    // (Codex review BLOCKER, 2026-06-30).
+    private async void BtnStartHiveWorker_Click(object? sender, RoutedEventArgs e)
+    {
+        if (StartHiveWorkerRequested is not { } handler) return;
+        try { await handler(); }
+        catch (Exception ex)
+        {
+            ActivityRequested?.Invoke(new CoreActivityEvent(
+                CoreActivityKind.Warning, "HIVE Worker", $"Start failed: {ex.Message}", DateTime.Now));
+        }
+    }
+
+    private async void BtnStopHiveWorker_Click(object? sender, RoutedEventArgs e)
+    {
+        if (StopHiveWorkerRequested is not { } handler) return;
+        try { await handler(); }
+        catch (Exception ex)
+        {
+            ActivityRequested?.Invoke(new CoreActivityEvent(
+                CoreActivityKind.Warning, "HIVE Worker", $"Stop failed: {ex.Message}", DateTime.Now));
+        }
+    }
+
+    private void BtnAcceptHiveResync_Click(object? sender, RoutedEventArgs e)
+        => AcceptHiveResyncRequested?.Invoke();
+
+    private async void BtnResyncWorkerNow_Click(object? sender, RoutedEventArgs e)
+    {
+        if (ResyncWorkerNowRequested is not { } handler) return;
+        BtnResyncWorkerNow.IsEnabled = false;
+        SetHiveResyncStatus("Re-syncing…");
+        try { await handler(); }
+        catch (Exception ex) { SetHiveResyncStatus($"Re-sync error: {ex.Message}"); }
+        finally { BtnResyncWorkerNow.IsEnabled = true; }
+    }
+
     private void SetComboToSlots(int slots)
     {
         foreach (ComboBoxItem? item in CbParallelSlots.Items)
@@ -246,6 +308,7 @@ public partial class SettingsPanel : UserControl
         s.HiveDefaultAcceptControlFrom =
             (CmbHiveAcceptControlFrom.SelectedItem as ComboBoxItem)?.Tag as string ?? "Ask";
         s.ExperimentalNativeHiveWorkerEnabled = TglNativeHiveWorker.IsChecked == true;
+        s.HiveDevAutoResyncEnabled            = TglAutoResync.IsChecked == true;
         s.ExperimentalNativeMainChatEnabled   = TglNativeMainChat.IsChecked == true;
         s.NativeRuntimeModelRoot = TbNativeRuntimeModelRoot.Text?.Trim() ?? "";
         s.NativeRuntimeContextSize = int.TryParse(TbNativeRuntimeContextSize.Text, out var nativeCtx)

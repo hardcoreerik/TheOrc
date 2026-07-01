@@ -45,6 +45,9 @@ public partial class MainWindow : Window
     private          Services.Hive.HiveRpcWorker?   _hiveRpcWorker;
     private          Services.Hive.HiveTaskQueue?   _hiveTaskQueue;
     private          Services.Hive.HiveWorkerAgent? _hiveWorkerAgent;
+    // Single retained countdown timer for the "Accept re-sync" window — replaced (stopped
+    // first) on each click so repeated clicks can't leave overlapping timers racing the label.
+    private          DispatcherTimer?               _hiveResyncCountdownTimer;
     private          Services.Data.SqliteStore?       _sqlStore;
     private          Services.Data.PlanRepository?   _planRepo;
     private          Services.Data.RunRepository?    _runRepo;
@@ -227,6 +230,10 @@ public partial class MainWindow : Window
         _settingsPanel.RegenerateAgentFileRequested += async () => await RegenerateAgentFileAsync();
         _settingsPanel.OpenFolderAsWorkspaceRequested += folder => _ = OpenWorkspaceAsync(folder);
         _settingsPanel.ActivityRequested            += ev => Dispatcher.UIThread.InvokeAsync(() => AddActivity(ev));
+        _settingsPanel.StartHiveWorkerRequested     += StartHiveWorkerAsync;
+        _settingsPanel.StopHiveWorkerRequested      += StopHiveWorkerAsync;
+        _settingsPanel.AcceptHiveResyncRequested    += OnAcceptHiveResync;
+        _settingsPanel.ResyncWorkerNowRequested     += OnResyncWorkerNow;
         _settingsPanel.ScanAnalysisReady            += prompt =>
         {
             BtnAgent_Click(this, new RoutedEventArgs());
@@ -600,39 +607,7 @@ public partial class MainWindow : Window
                 "⚠ Worker mode is enabled but Warchief URL is empty — set it in Settings → HIVE MIND.", DateTime.Now));
 
         if (_settings.HiveWorkerMode && !string.IsNullOrEmpty(_settings.HiveWarchiefUrl))
-        {
-            var nativeHiveRuntime = BuildRequiredNativeHiveWorkerRuntime();
-            _hiveWorkerAgent = new Services.Hive.HiveWorkerAgent
-            {
-                    WorkerId        = name,
-                    WorkerUrl       = $"native://{name}",
-                    WarchiefUrl     = _settings.HiveWarchiefUrl,
-                    WarchiefNodeId  = string.IsNullOrWhiteSpace(_settings.HiveWarchiefNodeId)
-                        ? ResolveWarchiefNodeId(_settings.HiveWarchiefUrl)
-                        : _settings.HiveWarchiefNodeId,
-                    Lanes           = string.IsNullOrWhiteSpace(_settings.HiveWorkerLanes)
-                                        ? []
-                                        : _settings.HiveWorkerLanes
-                                            .Split(',', StringSplitOptions.RemoveEmptyEntries)
-                                            .Select(l => l.Trim()).ToArray(),
-                    Runtime         = null,
-                    NativeRoleExecutor = nativeHiveRuntime is null ? null
-                        : new HiveNativeRoleExecutorAdapter(nativeHiveRuntime, _session.WorkspaceRoot),
-                    ModelStore = _hiveTaskQueue?.ModelStore ?? new ContentAddressedStore(
-                        _settings.ResolvedNativeRuntimeModelRoot, fileExtension: ".gguf"),
-            };
-            _hiveWorkerAgent.Capabilities = await WorkerCapabilityDetector.DetectAsync(
-                name,
-                ModelDepot.Scan(_settings.ResolvedNativeRuntimeModelRoot),
-                (long)Math.Max(0, _settings.DetectedVramGb * 1024),
-                _hiveTaskQueue?.ArtifactStore);
-            _hiveWorkerAgent.OnLog += msg =>
-                AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE Worker", msg, DateTime.Now));
-            _hiveWorkerAgent.Start();
-            if (nativeHiveRuntime is null)
-                AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
-                    "No native model is admitted yet. Approved model sync is active; native-agent leases remain ineligible.", DateTime.Now));
-        }
+            await StartHiveWorkerAsync();
 
         var rpcNote    = rpcPort > 0                    ? $" · RPC :{rpcPort}"                           : "";
         var queueNote  = _settings.HiveDistributedSwarm ? $" · Warchief :{_settings.HiveTaskQueuePort}"  : "";
@@ -834,6 +809,159 @@ public partial class MainWindow : Window
             // Reload rules so the agent picks up the new file immediately
             await _rules.LoadAsync(_session.WorkspaceRoot);
         }
+    }
+
+    /// <summary>
+    /// Builds and starts the HIVE worker agent on demand — shared by startup (when
+    /// HiveWorkerMode is already enabled) and the Settings panel's Start button (so toggling
+    /// worker mode no longer requires restarting the app).
+    /// </summary>
+    private async Task StartHiveWorkerAsync()
+    {
+        if (_hiveWorkerAgent is { IsRunning: true }) return;
+
+        if (string.IsNullOrEmpty(_settings.HiveWarchiefUrl))
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
+                "⚠ Cannot start worker — Warchief URL is empty. Set it in Settings → HIVE MIND.", DateTime.Now));
+            return;
+        }
+
+        var name = Environment.MachineName;
+        var nativeHiveRuntime = BuildRequiredNativeHiveWorkerRuntime();
+        _hiveWorkerAgent = new Services.Hive.HiveWorkerAgent
+        {
+            WorkerId        = name,
+            WorkerUrl       = $"native://{name}",
+            WarchiefUrl     = _settings.HiveWarchiefUrl,
+            WarchiefNodeId  = string.IsNullOrWhiteSpace(_settings.HiveWarchiefNodeId)
+                ? ResolveWarchiefNodeId(_settings.HiveWarchiefUrl)
+                : _settings.HiveWarchiefNodeId,
+            Lanes           = string.IsNullOrWhiteSpace(_settings.HiveWorkerLanes)
+                                ? []
+                                : _settings.HiveWorkerLanes
+                                    .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                    .Select(l => l.Trim()).ToArray(),
+            Runtime         = null,
+            NativeRoleExecutor = nativeHiveRuntime is null ? null
+                : new HiveNativeRoleExecutorAdapter(nativeHiveRuntime, _session.WorkspaceRoot),
+            ModelStore = _hiveTaskQueue?.ModelStore ?? new ContentAddressedStore(
+                _settings.ResolvedNativeRuntimeModelRoot, fileExtension: ".gguf"),
+        };
+        _hiveWorkerAgent.Capabilities = await WorkerCapabilityDetector.DetectAsync(
+            name,
+            ModelDepot.Scan(_settings.ResolvedNativeRuntimeModelRoot),
+            (long)Math.Max(0, _settings.DetectedVramGb * 1024),
+            _hiveTaskQueue?.ArtifactStore);
+        _hiveWorkerAgent.AutoResyncEnabled = _settings.HiveDevAutoResyncEnabled;
+        _hiveWorkerAgent.OnLog += msg =>
+            AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE Worker", msg, DateTime.Now));
+        _hiveWorkerAgent.OnStatusChanged += running =>
+            Dispatcher.UIThread.InvokeAsync(() => _settingsPanel.SetHiveWorkerRunning(running));
+        _hiveWorkerAgent.Start();
+        if (nativeHiveRuntime is null)
+            AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
+                "No native model is admitted yet. Approved model sync is active; native-agent leases remain ineligible.", DateTime.Now));
+
+        _settings.HiveWorkerMode = true;
+        _settings.Save();
+    }
+
+    /// <summary>
+    /// Stops the HIVE worker agent on demand (Settings panel's Stop button) without closing
+    /// the window — distinct from <see cref="ShutdownHiveWorkerAndCloseAsync"/>, which only
+    /// runs as part of window teardown.
+    /// </summary>
+    private async Task StopHiveWorkerAsync()
+    {
+        var worker = _hiveWorkerAgent;
+        if (worker is null) return;
+        _hiveWorkerAgent = null;
+
+        try
+        {
+            using var cts = new CancellationTokenSource(HiveWorkerShutdownTimeout);
+            await worker.ShutdownAsync(cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            worker.Stop();
+            AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
+                $"Shutdown exceeded {HiveWorkerShutdownTimeout.TotalSeconds:F0}s; forced stop.", DateTime.Now));
+        }
+        catch (Exception ex)
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
+                $"Stop failed: {ex.Message}", DateTime.Now));
+        }
+
+        _settings.HiveWorkerMode = false;
+        _settings.Save();
+        _settingsPanel.SetHiveWorkerRunning(false);
+    }
+
+    // ── HIVE fleet re-sync (dev) ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Warchief side: open the time-boxed auto-approve window so every worker's self-heal
+    /// re-pairs headlessly. Requires this machine to be running its HIVE node server.
+    /// </summary>
+    private void OnAcceptHiveResync()
+    {
+        if (_hiveNodeServer is not { IsListening: true })
+        {
+            _settingsPanel.SetHiveResyncStatus("HIVE MIND isn't listening on this machine — nothing to accept re-sync into. Enable HIVE MIND first.");
+            return;
+        }
+
+        var window = TimeSpan.FromMinutes(10);
+        _hiveNodeServer.EnableDevAutoApprove(window);
+        AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE MIND",
+            "⚠ Dev re-sync auto-approve OPEN for 10 min — incoming re-pairs auto-trusted as Worker.", DateTime.Now));
+
+        // Count the window down in the panel so it's obvious when it closes. Stop and replace
+        // any timer from a previous click so repeated clicks don't leave overlapping timers
+        // fighting over the status label (Codex review MINOR, 2026-06-30).
+        _hiveResyncCountdownTimer?.Stop();
+        var deadline = DateTimeOffset.UtcNow + window;
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        timer.Tick += (_, _) =>
+        {
+            var remaining = deadline - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero)
+            {
+                timer.Stop();
+                if (ReferenceEquals(_hiveResyncCountdownTimer, timer)) _hiveResyncCountdownTimer = null;
+                _settingsPanel.SetHiveResyncStatus("Accept-re-sync window closed.");
+            }
+            else
+            {
+                _settingsPanel.SetHiveResyncStatus(
+                    $"Accepting re-sync — auto-approving incoming re-pairs for {remaining:mm\\:ss}.");
+            }
+        };
+        _hiveResyncCountdownTimer = timer;
+        timer.Start();
+        _settingsPanel.SetHiveResyncStatus("Accepting re-sync — auto-approving incoming re-pairs for 10:00.");
+    }
+
+    /// <summary>
+    /// Worker side: rediscover the Warchief's live identity and re-pair now. Completes
+    /// headlessly only if the Warchief's accept window is open; otherwise it waits for a
+    /// manual approve there.
+    /// </summary>
+    private async Task OnResyncWorkerNow()
+    {
+        if (_hiveWorkerAgent is null)
+        {
+            _settingsPanel.SetHiveResyncStatus("The HIVE worker isn't running on this machine — start it first.");
+            return;
+        }
+
+        var ok = await _hiveWorkerAgent.TryResyncWithWarchiefAsync();
+        _settingsPanel.SetHiveResyncStatus(ok
+            ? "✅ Re-sync complete — trust is current."
+            : "Re-sync did not complete. If the Warchief needs approval, open its \"Accept re-sync\" window and retry.");
     }
 
     private void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
@@ -1724,6 +1852,7 @@ public partial class MainWindow : Window
     private void BtnSettings_Click(object? sender, RoutedEventArgs e)
     {
         _settingsPanel.LoadSettings(_settings);
+        _settingsPanel.SetHiveWorkerRunning(_hiveWorkerAgent is { IsRunning: true });
         SidebarContent.Content = _settingsPanel;
     }
 
@@ -1859,6 +1988,10 @@ public partial class MainWindow : Window
         if (_hiveNodeServer is not null && Enum.TryParse<Services.Hive.HiveAcceptControlPolicy>(
                 newSettings.HiveDefaultAcceptControlFrom, ignoreCase: true, out var defaultPolicy))
             _hiveNodeServer.DefaultAcceptControlFrom = defaultPolicy;
+
+        // Keep a running worker's auto-resync behaviour in step with the toggle without a restart.
+        if (_hiveWorkerAgent is not null)
+            _hiveWorkerAgent.AutoResyncEnabled = newSettings.HiveDevAutoResyncEnabled;
 
         if (newSettings.Backend != oldBackend ||
             (newSettings.Backend == InferenceBackend.LlamaCpp &&
@@ -2098,10 +2231,8 @@ public partial class MainWindow : Window
         _settings.HiveWorkerMode  = true;
         _settings.Save();
         AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE MIND",
-            $"🎯 Warchief target set to {url}. Worker mode enabled. Restart TheOrc to connect.", DateTime.Now));
-        await DialogHelper.ShowInfoAsync(this, "HIVE MIND — Warchief Target",
-            $"Warchief target set to:\n  {url}\n\n" +
-            "Worker mode has been enabled. Restart TheOrc for the worker agent to connect.");
+            $"🎯 Warchief target set to {url}. Starting worker…", DateTime.Now));
+        await StartHiveWorkerAsync();
     }
 
     private static string ResolveWarchiefNodeId(string warchiefUrl) =>

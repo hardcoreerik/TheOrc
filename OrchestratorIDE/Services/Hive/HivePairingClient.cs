@@ -62,6 +62,10 @@ public static class HivePairingClient
     {
         HivePeerStore.Default.AddOrUpdate(pending.Peer);
         HivePeerStore.Default.SetSharedSecret(pending.Peer.NodeId, pending.Secret);
+        // Self-clean: this peer just paired under NodeId pending.Peer.NodeId, so any other
+        // non-revoked entry with the same machine name is a superseded identity whose stale
+        // shared secret would otherwise keep triggering HTTP 401s (see PruneSuperseded).
+        HivePeerStore.Default.PruneSuperseded(pending.Peer.Name, pending.Peer.NodeId);
     }
 
     /// <summary>

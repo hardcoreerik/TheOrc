@@ -403,6 +403,7 @@
                                         <Grid Margin="0,1">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="18"/>
+                                                <ColumnDefinition Width="60"/>
                                                 <ColumnDefinition Width="110"/>
                                                 <ColumnDefinition Width="*"/>
                                             </Grid.ColumnDefinitions>
@@ -423,11 +424,15 @@
                                             <TextBlock Grid.Column="0" Text="{Binding Icon}"
                                                        Foreground="{Binding IconColor, Converter={StaticResource HexToBrush}}"
                                                        FontSize="11" VerticalAlignment="Top"/>
-                                            <TextBlock Grid.Column="1" Text="{Binding Label}"
+                                            <TextBlock Grid.Column="1" Text="{Binding Timestamp, StringFormat={}{0:HH:mm:ss}}"
                                                        Foreground="{StaticResource Br.Text.Muted}"
                                                        FontSize="11" Margin="4,0"
                                                        VerticalAlignment="Top"/>
-                                            <TextBlock Grid.Column="2" Text="{Binding Detail}"
+                                            <TextBlock Grid.Column="2" Text="{Binding Label}"
+                                                       Foreground="{StaticResource Br.Text.Muted}"
+                                                       FontSize="11" Margin="4,0"
+                                                       VerticalAlignment="Top"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding Detail}"
                                                        Foreground="{Binding HasFilePath, Converter={StaticResource FilePathFg}}"
                                                        FontSize="11" TextWrapping="Wrap"
                                                        PointerPressed="ActivityDetail_PointerPressed"/>

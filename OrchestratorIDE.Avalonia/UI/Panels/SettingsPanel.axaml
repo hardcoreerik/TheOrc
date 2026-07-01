@@ -470,6 +470,72 @@
 
                 <Border Classes="SettingRowBorder">
                     <DockPanel LastChildFill="True">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
+                            <Button x:Name="BtnStartHiveWorker"
+                                    Content="▶ Start"
+                                    Click="BtnStartHiveWorker_Click"
+                                    Background="{StaticResource Br.Bg.Input}"
+                                    Foreground="{StaticResource Br.Text.Primary}"
+                                    FontSize="11" Padding="8,6"
+                                    ToolTip.Tip="Start the HIVE worker now, without restarting the app"/>
+                            <Button x:Name="BtnStopHiveWorker"
+                                    Content="■ Stop"
+                                    Click="BtnStopHiveWorker_Click"
+                                    IsEnabled="False"
+                                    Background="{StaticResource Br.Bg.Input}"
+                                    Foreground="{StaticResource Br.Text.Primary}"
+                                    FontSize="11" Padding="8,6"
+                                    ToolTip.Tip="Stop the HIVE worker (finishes any in-flight task first)"/>
+                        </StackPanel>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="HIVE worker status" Classes="SettingLabel"/>
+                            <TextBlock x:Name="TbHiveWorkerStatus" Text="Stopped"
+                                       Foreground="#5A6A4A" FontSize="10"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <!-- Fleet re-sync (dev): recover from stale HIVE trust / HTTP 401 without
+                     hand-editing peer files or restarting apps. -->
+                <Border Classes="SettingRowBorder">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="HIVE fleet re-sync (dev)" Classes="SettingLabel"/>
+                        <TextBlock Text="Recovers a worker whose Warchief trust went stale (repeated HTTP 401). On the WARCHIEF, click &quot;Accept re-sync&quot; to open a 10-minute window; on each WORKER, click &quot;Re-sync now&quot; (or enable auto-resync). No file edits or restarts."
+                                   Classes="SettingHint" TextWrapping="Wrap"/>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button x:Name="BtnAcceptHiveResync"
+                                    Content="🛡 Accept re-sync (10 min)"
+                                    Click="BtnAcceptHiveResync_Click"
+                                    Background="{StaticResource Br.Bg.Input}"
+                                    Foreground="{StaticResource Br.Text.Primary}"
+                                    FontSize="11" Padding="8,6"
+                                    ToolTip.Tip="WARCHIEF side: auto-approve incoming re-pair requests as Worker for 10 minutes, then close automatically"/>
+                            <Button x:Name="BtnResyncWorkerNow"
+                                    Content="🔄 Re-sync now"
+                                    Click="BtnResyncWorkerNow_Click"
+                                    Background="{StaticResource Br.Bg.Input}"
+                                    Foreground="{StaticResource Br.Text.Primary}"
+                                    FontSize="11" Padding="8,6"
+                                    ToolTip.Tip="WORKER side: rediscover the Warchief's current identity and re-pair now"/>
+                        </StackPanel>
+                        <TextBlock x:Name="TbHiveResyncStatus" Text=""
+                                   Foreground="#5A6A4A" FontSize="10" TextWrapping="Wrap"/>
+                        <DockPanel LastChildFill="True">
+                            <ToggleButton x:Name="TglAutoResync"
+                                          DockPanel.Dock="Right"
+                                          Theme="{StaticResource ToggleStyle}"
+                                          IsChecked="False"/>
+                            <StackPanel Margin="0,0,8,0">
+                                <TextBlock Text="Auto re-sync worker on auth failure" Classes="SettingLabel"/>
+                                <TextBlock Text="When a Warchief 401 persists, re-sync automatically (completes headlessly only while the Warchief's accept window is open)."
+                                           Classes="SettingHint" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
                         <ToggleButton x:Name="TglNativeMainChat"
                                       DockPanel.Dock="Right"
                                       Theme="{StaticResource ToggleStyle}"

@@ -62,6 +62,17 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
     /// <summary>Task roles this worker accepts. Empty = all roles.</summary>
     public string[] Lanes     { get; set; } = [];
+
+    /// <summary>
+    /// When true, a persistent HTTP 401 from the Warchief triggers an automatic re-sync
+    /// (<see cref="TryResyncWithWarchiefAsync"/>) instead of just being logged — the worker
+    /// half of headless fleet re-sync. The manual "Re-sync now" button works regardless of
+    /// this flag; this only governs the automatic-on-401 behaviour. Set from
+    /// AppSettings.HiveDevAutoResyncEnabled.
+    /// </summary>
+    public bool AutoResyncEnabled { get; set; }
+    private DateTime _lastResyncAttempt = DateTime.MinValue;
+    private static readonly TimeSpan ResyncCooldown = TimeSpan.FromSeconds(60);
     public WorkerCapabilities Capabilities { get; set; } = new();
     public IContainerPackRunner? ContainerRunner { get; set; }
     public ContentAddressedStore? ModelStore { get; set; }
@@ -163,6 +174,17 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         if (!catalogResponse.IsSuccessStatusCode)
         {
             Log($"⚠ Approved-model catalog rejected by Warchief: HTTP {(int)catalogResponse.StatusCode}");
+            // A 401 here is the canonical "my trust for the Warchief went stale" signal (this
+            // runs once a minute, so it's a natural self-heal checkpoint). Auto-resync when the
+            // operator has opted in and the cooldown has elapsed — completes headlessly only if
+            // the Warchief's dev auto-approve window is open, otherwise it waits for a manual OK.
+            if (catalogResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized
+                && AutoResyncEnabled
+                && DateTime.UtcNow - _lastResyncAttempt > ResyncCooldown)
+            {
+                _lastResyncAttempt = DateTime.UtcNow;
+                await TryResyncWithWarchiefAsync(ct).ConfigureAwait(false);
+            }
             return;
         }
         var json = await catalogResponse.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
@@ -193,6 +215,92 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 offset += read;
             }
             Log($"🐝 Native model synced and verified: {model.DigestSha256[..12]}… Restart for native preflight.");
+        }
+    }
+
+    // ── Self-heal (headless fleet re-sync) ────────────────────────────────────
+
+    /// <summary>
+    /// Worker-side self-heal for the "HTTP 401 after the Warchief's identity rotated" failure
+    /// that otherwise needs a hand-edit of both machines' hive-peers.json plus a restart of
+    /// both apps. Discovers the Warchief's CURRENT NodeId via its unauthenticated
+    /// <c>/hive/update/version</c> endpoint (no trust required), and if this node doesn't
+    /// already hold a usable shared secret for that exact NodeId, re-initiates pairing. The
+    /// re-pair completes headlessly only while the Warchief has its dev auto-approve window
+    /// open (<see cref="HiveNodeServer.EnableDevAutoApprove"/>); otherwise it waits for a human
+    /// approve there. On success the fresh secret replaces the stale one, PruneSuperseded drops
+    /// the dead-identity duplicates, and <see cref="WarchiefNodeId"/> is pinned to the live id
+    /// so signing stops resolving to a stale entry by URL. Returns true when trust is healthy
+    /// (already, or after a completed re-pair). Never throws (except on cancellation).
+    /// </summary>
+    public async Task<bool> TryResyncWithWarchiefAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var host = Uri.TryCreate(WarchiefUrl, UriKind.Absolute, out var u) ? u.Host : "";
+            if (string.IsNullOrEmpty(host))
+            {
+                Log($"⚠ Re-sync: could not parse a host from Warchief URL '{WarchiefUrl}'.");
+                return false;
+            }
+
+            // 1. Discover the Warchief's live identity (unauthenticated — always answers even
+            //    when every signed request is being 401'd).
+            string liveNodeId;
+            using (var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) })
+            {
+                var versionUrl = $"http://{host}:{HiveNodeServer.ApiPort}/hive/update/version";
+                var json = await http.GetStringAsync(versionUrl, ct).ConfigureAwait(false);
+                using var doc = JsonDocument.Parse(json);
+                liveNodeId = doc.RootElement.TryGetProperty("nodeId", out var n) ? n.GetString() ?? "" : "";
+            }
+            if (string.IsNullOrEmpty(liveNodeId))
+            {
+                Log("⚠ Re-sync: Warchief did not report a NodeId — is its HIVE node server running?");
+                return false;
+            }
+
+            // 2. Already hold a usable secret for the live identity? Then the 401 is something
+            //    else; just make sure we TARGET that identity when signing and stop here.
+            var (trusted, secret) = HivePeerStore.Default.GetTrustedSecret(liveNodeId);
+            if (trusted && secret is not null)
+            {
+                WarchiefNodeId = liveNodeId;
+                Log("🔄 Re-sync: trust is already current for the live Warchief identity.");
+                return true;
+            }
+
+            // 3. Stale/missing trust → re-initiate pairing against the live host.
+            Log($"🔄 Re-sync: Warchief identity is {liveNodeId[..12]}… with no matching trust — re-pairing.");
+            var result = await HivePairingClient.PairAsync(host, timeoutSec: 60, ct: ct).ConfigureAwait(false);
+            if (result.Outcome != HivePairingClient.Outcome.Approved || result.Pending is null)
+            {
+                Log($"⚠ Re-sync pairing did not complete: {result.Outcome}" +
+                    (result.Message is null ? "" : $" — {result.Message}") +
+                    (result.Outcome == HivePairingClient.Outcome.TimedOut
+                        ? " (open the Warchief's \"Accept re-sync\" window and retry)" : ""));
+                return false;
+            }
+
+            // Defense against an on-path surprise: the identity we just paired with MUST be the
+            // one the version endpoint advertised. PairAsync already binds NodeId to the signing
+            // key; this additionally ties it to what we set out to trust.
+            if (!string.Equals(result.Pending.Peer.NodeId, liveNodeId, StringComparison.OrdinalIgnoreCase))
+            {
+                Log("⚠ Re-sync: the paired identity did not match the advertised Warchief NodeId — aborting, trusting nothing.");
+                return false;
+            }
+
+            HivePairingClient.ConfirmAndTrust(result.Pending);
+            WarchiefNodeId = liveNodeId;
+            Log($"✅ Re-sync complete — now trusting Warchief {liveNodeId[..12]}… (stale entries pruned).");
+            return true;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            Log($"⚠ Re-sync failed: {ex.Message}");
+            return false;
         }
     }
 

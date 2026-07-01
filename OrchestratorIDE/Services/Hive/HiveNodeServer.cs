@@ -71,6 +71,47 @@ public sealed class HiveNodeServer : IDisposable
     private readonly Dictionary<string, (HivePairingResponse Resp, DateTime StoredAt)>  _pairingResults  = [];
     private readonly Lock _pairingLock = new();
 
+    // ── Dev: time-boxed re-sync auto-approve ──────────────────────────────────
+    // The Warchief half of headless fleet re-sync. While this window is open, an incoming
+    // pairing request auto-approves as Worker (after the SAME crypto/nodeId-binding checks a
+    // manual approval runs) instead of waiting for the human fingerprint-confirmation dialog,
+    // AND an already-trusted initiator is treated as a re-pair (fresh shared secret) rather
+    // than rejected as already_paired. Off by default and time-boxed so the relaxed trust
+    // gate can never be left open indefinitely by accident. See EnableDevAutoApprove.
+    private DateTime _devAutoApproveUntil = DateTime.MinValue;
+    private readonly Lock _devApproveLock = new();
+
+    /// <summary>
+    /// Opens the dev re-sync auto-approve window for <paramref name="window"/>. Call this once
+    /// on the Warchief and every worker's <see cref="HiveWorkerAgent.TryResyncWithWarchiefAsync"/>
+    /// completes without a human on this side. Explicit, dev-only, and self-expiring — this is
+    /// the sole trust relaxation in the whole re-sync flow.
+    /// </summary>
+    public void EnableDevAutoApprove(TimeSpan window)
+    {
+        lock (_devApproveLock) _devAutoApproveUntil = DateTime.UtcNow + window;
+        OnLog?.Invoke($"⚠ DEV: HIVE re-sync auto-approve ON for {window.TotalMinutes:F0} min — " +
+                      "incoming pairings will be auto-trusted as Worker until it expires.");
+    }
+
+    public bool DevAutoApproveActive
+    {
+        get { lock (_devApproveLock) return DateTime.UtcNow < _devAutoApproveUntil; }
+    }
+
+    /// <summary>Time left in the auto-approve window, or <see cref="TimeSpan.Zero"/> if closed.</summary>
+    public TimeSpan DevAutoApproveRemaining
+    {
+        get
+        {
+            lock (_devApproveLock)
+            {
+                var remaining = _devAutoApproveUntil - DateTime.UtcNow;
+                return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+            }
+        }
+    }
+
     // ── Approval callback (wired to UI) ───────────────────────────────────────
 
     /// <summary>
@@ -264,6 +305,11 @@ public sealed class HiveNodeServer : IDisposable
             };
             _peers.AddOrUpdate(peer);
             _peers.SetSharedSecret(req.InitiatorNodeId, secret);
+            // Self-clean stale duplicates for this machine name (rotated-identity entries whose
+            // dead shared secret is exactly what produces the 401s this whole flow fixes).
+            var pruned = _peers.PruneSuperseded(req.InitiatorName, req.InitiatorNodeId);
+            if (pruned > 0)
+                OnLog?.Invoke($"Re-sync: pruned {pruned} superseded trust entr{(pruned == 1 ? "y" : "ies")} for {req.InitiatorName}.");
 
             // HIVE_MEMBERSHIP_SPEC.md §5.4 — only issue when both authorized to issue AND
             // the granted role is cert-eligible (never Controller, per §5.2). A Controller
@@ -553,23 +599,45 @@ public sealed class HiveNodeServer : IDisposable
         }
         catch { resp.StatusCode = 400; Error(resp, "invalid key/signature encoding"); return; }
 
+        // Captured before any mutation: the dev auto-approve window recovers STALE TRUST for a
+        // node we ALREADY know (re-pair), and must never fast-track a brand-new stranger past
+        // the human fingerprint check. Gating auto-approve on this exactly matches the intended
+        // use — the recovering worker's own identity is stable, so it still looks trusted here,
+        // which is precisely the already_paired case below — while a first-time peer (not
+        // trusted) still falls through to the normal manual-approval card even during the window.
+        var wasAlreadyTrusted = _peers.IsTrusted(req.InitiatorNodeId);
+
         // Check if already paired
-        if (_peers.IsTrusted(req.InitiatorNodeId))
+        if (wasAlreadyTrusted)
         {
-            // 2026-06-30: this rejection was observed firing for an initiator with NO matching
-            // entry anywhere in the on-disk hive-peers.json on either side, blocking re-pairing
-            // indefinitely until a full reset (remove the stale entry from BOTH machines' peer
-            // stores, restart both apps, redo the pairing ceremony with a fresh fingerprint
-            // check) was performed. The write path that produced the in-memory-only entry was
-            // never conclusively identified -- logging the in-memory peer list here so a future
-            // recurrence is diagnosable without re-adding instrumentation from scratch, since the
-            // disk file alone was repeatedly NOT sufficient to explain a stuck "already_paired".
-            OnLog?.Invoke(
-                $"already_paired rejected pairing from InitiatorNodeId={req.InitiatorNodeId} -- in-memory peers: " +
-                string.Join(", ", _peers.All().Select(p => $"{p.Name}/{p.NodeId[..Math.Min(12, p.NodeId.Length)]}/revoked={p.Revoked}")));
-            resp.StatusCode = 409;
-            Ok(resp, Json(new { status = "already_paired" }));
-            return;
+            // Dev re-sync window: a worker only re-initiates when ITS side of the trust went
+            // stale (Warchief identity rotated -> secret mismatch -> 401), yet from here the
+            // initiator's own (stable) identity still looks trusted, so the standard
+            // already_paired gate would block exactly the recovery it exists to guard. When the
+            // operator has explicitly opened the auto-approve window, treat this as a re-pair:
+            // fall through to auto-approve below, which re-derives the shared secret against
+            // both sides' CURRENT keys and replaces the entry (AddOrUpdate keys on NodeId).
+            if (DevAutoApproveActive)
+            {
+                OnLog?.Invoke($"DEV re-sync: re-pairing already-trusted {req.InitiatorName} to refresh its shared secret.");
+            }
+            else
+            {
+                // 2026-06-30: this rejection was observed firing for an initiator with NO matching
+                // entry anywhere in the on-disk hive-peers.json on either side, blocking re-pairing
+                // indefinitely until a full reset (remove the stale entry from BOTH machines' peer
+                // stores, restart both apps, redo the pairing ceremony with a fresh fingerprint
+                // check) was performed. The write path that produced the in-memory-only entry was
+                // never conclusively identified -- logging the in-memory peer list here so a future
+                // recurrence is diagnosable without re-adding instrumentation from scratch, since the
+                // disk file alone was repeatedly NOT sufficient to explain a stuck "already_paired".
+                OnLog?.Invoke(
+                    $"already_paired rejected pairing from InitiatorNodeId={req.InitiatorNodeId} -- in-memory peers: " +
+                    string.Join(", ", _peers.All().Select(p => $"{p.Name}/{p.NodeId[..Math.Min(12, p.NodeId.Length)]}/revoked={p.Revoked}")));
+                resp.StatusCode = 409;
+                Ok(resp, Json(new { status = "already_paired" }));
+                return;
+            }
         }
 
         // HIVE_MEMBERSHIP_SPEC.md §4.3 — refuse rather than silently bridge two separate
@@ -587,6 +655,24 @@ public sealed class HiveNodeServer : IDisposable
         lock (_pairingLock)
         {
             _pendingPairings[req.SessionId] = (req, DateTime.UtcNow.AddMinutes(5), remoteIp);
+        }
+
+        // Dev re-sync window open AND this is a re-pair of an already-trusted node (never a
+        // brand-new peer — see wasAlreadyTrusted above): approve inline as Worker (ApprovePairing
+        // runs the same crypto the manual path does) so the initiator's very next poll sees
+        // "approved" — no human card, no restart. Skip the UI event on this path to avoid a
+        // redundant approval prompt for a pairing that's already been decided.
+        if (DevAutoApproveActive && wasAlreadyTrusted)
+        {
+            if (ApprovePairing(req.SessionId, HiveNodeRole.Worker, [], req.IsMobileClient))
+            {
+                OnLog?.Invoke($"DEV re-sync: auto-approved re-pair of {req.InitiatorName} as Worker.");
+                resp.StatusCode = 202;
+                Ok(resp, Json(new { status = "pending", sessionId = req.SessionId }));
+                await Task.CompletedTask;
+                return;
+            }
+            OnLog?.Invoke($"DEV re-sync: auto-approve for {req.InitiatorName} failed — falling back to manual approval.");
         }
 
         // Fire UI event on thread pool (don't block the HTTP response)

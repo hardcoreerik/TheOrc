@@ -804,4 +804,86 @@ public class T17_HiveSecurityTests
         Assert.That(ok, Is.False);
         Assert.That(provisional, Is.Null);
     }
+
+    // ── HivePeerStore.PruneSuperseded — headless re-sync's accumulation fix ────
+
+    private static HivePeer NamedPeer(string name, string nodeId, bool revoked = false)
+        => new HivePeer { Name = name, NodeId = nodeId, Revoked = revoked };
+
+    [Test]
+    public void PruneSuperseded_DropsSameNameDifferentNodeId_KeepsCurrentAndOthers()
+    {
+        // Three stale "NEWCOREPC" identities + the current one + an unrelated machine —
+        // exactly the shape that produced the recurring HTTP 401s.
+        var store = HivePeerStore.CreateForTest(
+        [
+            NamedPeer("NEWCOREPC", "old-1"),
+            NamedPeer("NEWCOREPC", "old-2"),
+            NamedPeer("NEWCOREPC", "current"),
+            NamedPeer("HARDCOREPC", "hpc-1"),
+        ]);
+
+        var removed = store.PruneSuperseded("NEWCOREPC", "current");
+
+        Assert.That(removed, Is.EqualTo(2));
+        var names = store.All().Select(p => p.NodeId).ToArray();
+        Assert.That(names, Does.Contain("current"));
+        Assert.That(names, Does.Contain("hpc-1"));           // untouched — different name
+        Assert.That(names, Does.Not.Contain("old-1"));
+        Assert.That(names, Does.Not.Contain("old-2"));
+    }
+
+    [Test]
+    public void PruneSuperseded_IsCaseInsensitiveOnName()
+    {
+        var store = HivePeerStore.CreateForTest(
+        [
+            NamedPeer("hardcorelaptopm", "stale"),
+            NamedPeer("HARDCORELAPTOPM", "current"),
+        ]);
+
+        var removed = store.PruneSuperseded("HARDCORELAPTOPM", "current");
+
+        Assert.That(removed, Is.EqualTo(1));
+        Assert.That(store.All().Single().NodeId, Is.EqualTo("current"));
+    }
+
+    [Test]
+    public void PruneSuperseded_LeavesRevokedTombstonesAlone()
+    {
+        // A revoked entry is an intentional tombstone, not an accumulation artifact —
+        // pruning must not resurrect-then-delete it or touch it at all.
+        var store = HivePeerStore.CreateForTest(
+        [
+            NamedPeer("NODE", "revoked-old", revoked: true),
+            NamedPeer("NODE", "current"),
+        ]);
+
+        var removed = store.PruneSuperseded("NODE", "current");
+
+        Assert.That(removed, Is.EqualTo(0));
+        Assert.That(store.All().Count, Is.EqualTo(2));
+    }
+
+    [Test]
+    public void PruneSuperseded_EmptyName_IsNoOp()
+    {
+        var store = HivePeerStore.CreateForTest(
+        [
+            NamedPeer("", "a"),
+            NamedPeer("", "b"),
+        ]);
+
+        // A nameless peer can't be safely attributed to predecessors — never prune on "".
+        Assert.That(store.PruneSuperseded("", "a"), Is.EqualTo(0));
+        Assert.That(store.All().Count, Is.EqualTo(2));
+    }
+
+    [Test]
+    public void PruneSuperseded_NoDuplicates_ReturnsZero()
+    {
+        var store = HivePeerStore.CreateForTest([NamedPeer("SOLO", "only")]);
+        Assert.That(store.PruneSuperseded("SOLO", "only"), Is.EqualTo(0));
+        Assert.That(store.All().Count, Is.EqualTo(1));
+    }
 }
