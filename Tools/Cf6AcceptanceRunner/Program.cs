@@ -38,6 +38,7 @@ internal static class Program
         var outDir = GetArg(args, "--out") ?? Path.Combine(Environment.CurrentDirectory, ".orc", "cf6-acceptance");
         var modelHash = GetArg(args, "--model-hash") ?? "";
         var minNodes = int.TryParse(GetArg(args, "--min-nodes"), out var mn) ? mn : 1;
+        var resumeFrom = GetArg(args, "--resume-from");
         Directory.CreateDirectory(outDir);
         if (minNodes <= 1)
             Console.WriteLine(
@@ -73,6 +74,8 @@ internal static class Program
 
             Console.WriteLine($"Staged {segmentRefs.Count} segment artifacts + corpus-meta.");
             report.GateMode = minNodes > 1 ? "acceptance" : "smoke";
+            report.CorpusGenerationId = corpus.GenerationId;
+            report.ModelHash = modelHash;
 
             // Query work units are built per-segment in corpus order (see queryUnits below) --
             // this mirrors that same ordering so a question's ExpectedSegmentIds can be mapped to
@@ -82,28 +85,104 @@ internal static class Program
                 .ToDictionary(t => t.SegmentId, t => t.WorkUnitId);
             var queryUnitIdToSegmentId = segmentIdToQueryUnitId.ToDictionary(kv => kv.Value, kv => kv.Key);
 
-            // ── Stage 1: readers (one work unit per segment -- the fan-out that proves >1 node) ──
-            var readersCampaign = CampaignTemplates.ContextFabricReaders(
-                "cf6-acceptance-readers", segmentRefs, modelHash);
-            var readerStage = await RunCampaignAsync(http, readersCampaign, report, "readers");
-
             var readerCardRefs = new List<ArtifactRef>(segmentRefs.Count);
             var readerWorkUnitIds = new List<string>(segmentRefs.Count);
             var readerCards = new List<FabricEvidenceCard>(segmentRefs.Count);
-            foreach (var unit in readersCampaign.WorkUnits)
+            StageEvidence? readerStage = null;
+
+            if (resumeFrom is not null)
             {
-                var status = readerStage.Units.First(u => u.WorkUnitId == unit.WorkUnitId);
-                if (status.Status != "completed" || status.OutputArtifacts.Count == 0)
+                // ── Resume mode: skip pipeline stages 1-5, replay evidence from a previous run ──
+                // Re-upload the evidence cards from the prior run as artifacts so workers can fetch
+                // them; everything else (verifiers, stitchers, reducer validation) is copied verbatim
+                // from the previous report so the overall Passed gate still includes them.
+                Console.WriteLine($"Resume mode: loading evidence cards from {resumeFrom}");
+                var prevJson = await File.ReadAllTextAsync(resumeFrom);
+                var prev = JsonSerializer.Deserialize<AcceptanceReport>(prevJson, new JsonSerializerOptions(JsonOptions) { PropertyNameCaseInsensitive = true })
+                    ?? throw new InvalidOperationException("Failed to parse previous acceptance report.");
+
+                // Fail closed on stale/mismatched evidence: the replayed readers/verifiers/
+                // stitchers/reducer results are only meaningful for the SAME corpus generation and
+                // model they were produced against. Refuse rather than let a resume attribute old
+                // evidence to a corpus/model it didn't come from (Codex review BLOCKER, 2026-06-30).
+                // An empty prev.CorpusGenerationId means the prior report predates this field — too
+                // old to trust for replay, so it's rejected the same as an outright mismatch.
+                if (!string.Equals(prev.CorpusGenerationId, corpus.GenerationId, StringComparison.Ordinal))
                     throw new InvalidOperationException(
-                        $"Reader unit '{unit.WorkUnitId}' did not complete with an output artifact (status={status.Status}).");
-                readerCardRefs.Add(status.OutputArtifacts[0]);
-                readerWorkUnitIds.Add(unit.WorkUnitId);
-                if (string.IsNullOrWhiteSpace(status.Result))
-                    throw new InvalidOperationException($"Reader unit '{unit.WorkUnitId}' completed without a result body.");
-                readerCards.Add(JsonSerializer.Deserialize<FabricEvidenceCard>(status.Result, FabricJson.Options)
-                    ?? throw new InvalidOperationException($"Reader unit '{unit.WorkUnitId}' result did not parse as a FabricEvidenceCard."));
+                        $"--resume-from corpus generation '{prev.CorpusGenerationId}' does not match the current corpus " +
+                        $"'{corpus.GenerationId}'. Replaying evidence across corpus generations is refused; run a fresh acceptance pass.");
+                if (!string.Equals(prev.ModelHash, modelHash, StringComparison.Ordinal))
+                    throw new InvalidOperationException(
+                        $"--resume-from model-hash '{prev.ModelHash}' does not match --model-hash '{modelHash}'. " +
+                        "Replaying evidence produced by a different model is refused; run a fresh acceptance pass.");
+
+                var prevReaderStage = prev.Stages.FirstOrDefault(s => s.Stage == "readers")
+                    ?? throw new InvalidOperationException("Previous report has no 'readers' stage.");
+                var orderedSegments = corpus.Segments.OrderBy(s => s.Ordinal).ToList();
+                for (var i = 0; i < orderedSegments.Count; i++)
+                {
+                    var seg = orderedSegments[i];
+                    var unitId = $"read-{i + 1:00000}";
+                    var prevUnit = prevReaderStage.Units.FirstOrDefault(u => u.WorkUnitId == unitId)
+                        ?? throw new InvalidOperationException($"Previous report missing reader unit '{unitId}'.");
+                    if (string.IsNullOrWhiteSpace(prevUnit.Result))
+                        throw new InvalidOperationException($"Previous reader unit '{unitId}' has no result body.");
+                    var card = JsonSerializer.Deserialize<FabricEvidenceCard>(prevUnit.Result, FabricJson.Options)
+                        ?? throw new InvalidOperationException($"Previous reader unit '{unitId}' result did not parse as FabricEvidenceCard.");
+                    var cardBytes = Encoding.UTF8.GetBytes(prevUnit.Result);
+                    var cardRef = await StageArtifactAsync(http, cardBytes, $"{seg.SegmentId}.evidence-card.json", "output");
+                    readerCardRefs.Add(cardRef);
+                    readerWorkUnitIds.Add(unitId);
+                    readerCards.Add(card);
+                }
+                // Copy pipeline validation results verbatim from the previous report (only the
+                // replayed stages -- query stages are always run fresh below).
+                report.Stages.AddRange(prev.Stages.Where(s =>
+                    s.Stage is "readers" or "verifiers" or "stitchers" or "stitch-fixture" or "reducer"));
+                report.Verifiers.AddRange(prev.Verifiers);
+                report.StitchCases.AddRange(prev.StitchCases);
+                report.ReducerSegmentsCovered = prev.ReducerSegmentsCovered;
+                report.ReducerClaimsCovered = prev.ReducerClaimsCovered;
+                report.ReducerValidated = prev.ReducerValidated;
+                // Reader node proof carries over from the previous run -- REPLAYED, not freshly
+                // demonstrated, so this run is stamped Resumed and cannot count as a clean
+                // multi-node acceptance pass (surfaced in GateMode + the final verdict banner).
+                var prevReaderWorkers = prevReaderStage.Units
+                    .Select(u => u.ClaimedBy).Where(w => !string.IsNullOrWhiteSpace(w))
+                    .Select(w => w!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                report.DistinctWorkerIds = prevReaderWorkers;
+                report.NodeCount = prevReaderWorkers.Count;
+                report.ReaderWorkerIds = prevReaderWorkers;
+                report.ReaderNodeCount = prevReaderWorkers.Count;
+                report.Resumed = true;
+                report.GateMode = "resumed-query-only";
+                Console.WriteLine($"Resumed: {readerCards.Count} evidence cards re-staged (reader fan-out proof REPLAYED, " +
+                                  "not fresh). Skipping directly to query campaigns.");
+            }
+            else
+            {
+                // ── Stage 1: readers (one work unit per segment -- the fan-out that proves >1 node) ──
+                var readersCampaign = CampaignTemplates.ContextFabricReaders(
+                    "cf6-acceptance-readers", segmentRefs, modelHash);
+                readerStage = await RunCampaignAsync(http, readersCampaign, report, "readers");
+
+                foreach (var unit in readersCampaign.WorkUnits)
+                {
+                    var status = readerStage.Units.First(u => u.WorkUnitId == unit.WorkUnitId);
+                    if (status.Status != "completed" || status.OutputArtifacts.Count == 0)
+                        throw new InvalidOperationException(
+                            $"Reader unit '{unit.WorkUnitId}' did not complete with an output artifact (status={status.Status}).");
+                    readerCardRefs.Add(status.OutputArtifacts[0]);
+                    readerWorkUnitIds.Add(unit.WorkUnitId);
+                    if (string.IsNullOrWhiteSpace(status.Result))
+                        throw new InvalidOperationException($"Reader unit '{unit.WorkUnitId}' completed without a result body.");
+                    readerCards.Add(JsonSerializer.Deserialize<FabricEvidenceCard>(status.Result, FabricJson.Options)
+                        ?? throw new InvalidOperationException($"Reader unit '{unit.WorkUnitId}' result did not parse as a FabricEvidenceCard."));
+                }
             }
 
+            if (resumeFrom is null)
+            {
             // ── Stage 2: verifiers (CPU-only citation check, one per reader output) ──
             var verifierItems = readerCardRefs
                 .Zip(segmentRefs, readerWorkUnitIds)
@@ -253,6 +332,7 @@ internal static class Program
             report.ReducerSegmentsCovered = reducerParseOk && allSegmentIds.IsSubsetOf(coveredSegmentIds);
             report.ReducerClaimsCovered = reducerParseOk && allClaimIds.IsSubsetOf(coveredClaimIds);
             report.ReducerValidated = report.ReducerSegmentsCovered && report.ReducerClaimsCovered;
+            } // end if (resumeFrom is null) — stages 2-4
 
             // ── Stage 5: exhaustive query fan-out, one benchmark question at a time ──
             // Mirrors CampaignTemplates.ContextFabricExhaustiveQueryAsync's shape, but stages the
@@ -365,29 +445,51 @@ internal static class Program
             // Gated specifically on the READER stage's distinct claimants: that's the actual
             // per-segment fan-out CF-6's exit gate is about. A second node only ever claiming a
             // cheap verifier/query unit while every reader ran on one box must not count as having
-            // proven multi-node distribution.
-            var distinctWorkers = report.Stages.SelectMany(s => s.Units).Select(u => u.ClaimedBy)
-                .Where(w => !string.IsNullOrWhiteSpace(w)).Select(w => w!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            var readerWorkers = readerStage.Units.Select(u => u.ClaimedBy)
-                .Where(w => !string.IsNullOrWhiteSpace(w)).Select(w => w!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            report.DistinctWorkerIds = distinctWorkers;
-            report.NodeCount = distinctWorkers.Count;
-            report.ReaderNodeCount = readerWorkers.Count;
+            // proven multi-node distribution. In resume mode these were already populated from
+            // the prior run's reader stage in the resume block above.
+            if (resumeFrom is null)
+            {
+                var distinctWorkers = report.Stages.SelectMany(s => s.Units).Select(u => u.ClaimedBy)
+                    .Where(w => !string.IsNullOrWhiteSpace(w)).Select(w => w!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                var readerWorkers = readerStage!.Units.Select(u => u.ClaimedBy)
+                    .Where(w => !string.IsNullOrWhiteSpace(w)).Select(w => w!).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                report.DistinctWorkerIds = distinctWorkers;
+                report.NodeCount = distinctWorkers.Count;
+                report.ReaderWorkerIds = readerWorkers;
+                report.ReaderNodeCount = readerWorkers.Count;
+            }
             report.MinNodesRequired = minNodes;
             report.FinishedAt = DateTimeOffset.UtcNow;
-            report.Passed = report.Stages.All(s => s.Units.All(u => u.Status == "completed"))
+            var allChecksValidated = report.Stages.All(s => s.Units.All(u => u.Status == "completed"))
                 && report.ReaderNodeCount >= minNodes
                 && report.Questions.All(q => q.AnswerValidated)
                 && report.Verifiers.All(v => v.Validated)
                 && report.StitchCases.All(c => c.Validated)
                 && report.ReducerValidated;
+            // Passed == a CLEAN acceptance-gate pass. A resumed run replays the reader fan-out
+            // proof, so it can NEVER be that, regardless of the checks — and it must not exit 0,
+            // or CI/operators would treat a query-only replay as a real CF-6 pass despite the
+            // banner (Codex review BLOCKER, 2026-06-30). Resumed runs report a dedicated exit
+            // code (3) distinct from both a clean pass (0) and a genuine gate failure (2).
+            report.Passed = allChecksValidated && !report.Resumed;
 
             var outPath = Path.Combine(outDir, $"cf6-acceptance-{DateTime.UtcNow:yyyyMMdd-HHmmss}.json");
             await File.WriteAllTextAsync(outPath, JsonSerializer.Serialize(report, new JsonSerializerOptions(JsonOptions) { WriteIndented = true }));
 
             Console.WriteLine();
-            Console.WriteLine($"Distinct worker nodes that claimed at least one unit: {report.NodeCount} ({string.Join(", ", distinctWorkers)})");
-            Console.WriteLine($"Distinct worker nodes that claimed a READER unit (the fan-out proof): {report.ReaderNodeCount} ({string.Join(", ", readerWorkers)})");
+            Console.WriteLine($"Distinct worker nodes that claimed at least one unit: {report.NodeCount} ({string.Join(", ", report.DistinctWorkerIds)})");
+            Console.WriteLine($"Distinct worker nodes that claimed a READER unit (the fan-out proof): {report.ReaderNodeCount} ({string.Join(", ", report.ReaderWorkerIds)})");
+            if (report.Resumed)
+            {
+                var queriesOk = report.Questions.All(q => q.AnswerValidated);
+                Console.WriteLine("⚠ RESUMED RUN — readers/verifiers/stitchers/reducer and the reader fan-out proof were " +
+                                  "REPLAYED from a prior report; this validates query logic only and is NOT a clean CF-6 " +
+                                  "multi-node acceptance pass. Run without --resume-from for a gate-eligible result.");
+                Console.WriteLine($"Query-logic result (resumed): {(queriesOk ? "all questions validated" : "one or more questions FAILED")}.");
+                Console.WriteLine("Verdict: RESUMED (query-logic only — not gate-eligible, exit 3)");
+                Console.WriteLine($"Evidence written: {outPath}");
+                return 3;
+            }
             Console.WriteLine($"Verdict: {(report.Passed ? "PASS" : "FAIL")}");
             Console.WriteLine($"Evidence written: {outPath}");
             return report.Passed ? 0 : 2;
@@ -645,9 +747,23 @@ internal sealed class AcceptanceReport
     public bool ReducerValidated { get; set; }
     public List<string> DistinctWorkerIds { get; set; } = [];
     public int NodeCount { get; set; }
+    /// <summary>The distinct nodes that claimed a READER unit specifically — the actual CF-6
+    /// per-segment fan-out proof, kept separate from DistinctWorkerIds (all claimants) so a node
+    /// that only ever handled cheap verifier/query units isn't miscounted toward the reader gate.</summary>
+    public List<string> ReaderWorkerIds { get; set; } = [];
     public int ReaderNodeCount { get; set; }
     public int MinNodesRequired { get; set; }
     public string GateMode { get; set; } = "smoke";
     public bool Passed { get; set; }
     public string? Error { get; set; }
+    /// <summary>Corpus generation this run was executed against — a resume must match it so
+    /// replayed evidence can't be attributed to a corpus it wasn't produced from.</summary>
+    public string CorpusGenerationId { get; set; } = "";
+    /// <summary>--model-hash this run was executed against (same matching requirement on resume).</summary>
+    public string ModelHash { get; set; } = "";
+    /// <summary>True when stages 1-4 (readers/verifiers/stitchers/reducer) and the reader
+    /// node-fanout proof were REPLAYED from a prior report via --resume-from rather than run
+    /// fresh. A resumed run validates query logic against real evidence but does NOT
+    /// re-demonstrate multi-node fan-out, so it is not a clean CF-6 acceptance-gate pass.</summary>
+    public bool Resumed { get; set; }
 }

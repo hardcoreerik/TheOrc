@@ -193,9 +193,11 @@ public sealed class ContextFabricFeasibilityRunner
         if (string.IsNullOrWhiteSpace(questionText))
             throw new ArgumentException("Question text is required.", nameof(questionText));
 
-        var terms = Tokenize(questionText);
+        // ≥4-char filter drops stop-words ("the"/"and"/"for"); ≥3-match threshold prevents
+        // single-word coincidences (e.g. "approved") from triggering false positives.
+        var terms = Tokenize(questionText).Where(t => t.Length >= 4).ToHashSet(StringComparer.Ordinal);
         var matchingClaims = card.Claims
-            .Where(claim => Tokenize(claim.Text).Any(terms.Contains))
+            .Where(claim => Tokenize(claim.Text).Count(t => t.Length >= 4 && terms.Contains(t)) >= 3)
             .ToArray();
         var relevant = matchingClaims.Length > 0;
         var findingText = relevant
