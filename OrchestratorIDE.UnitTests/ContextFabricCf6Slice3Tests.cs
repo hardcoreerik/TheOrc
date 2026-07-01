@@ -203,7 +203,7 @@ public sealed class ContextFabricCf6Slice3Tests
         var bundle = new HiveTaskBundle { TaskId = "tq", CampaignId = "c", WorkUnitId = "query-00001", PackId = CampaignPackCatalog.ContextFabricPackId };
 
         var execution = await adapter.ExecuteContextFabricQueryAsync(
-            bundle, "q-temp", "What is the core temperature?", corpus, CancellationToken.None);
+            bundle, "q-temp", "What is the core temperature?", corpus, null, CancellationToken.None);
 
         Assert.That(execution.Output, Is.Not.Empty);
         Assert.That(execution.Steps, Is.EqualTo(1), "relevant = true → steps = 1");
@@ -224,7 +224,7 @@ public sealed class ContextFabricCf6Slice3Tests
         var bundle = new HiveTaskBundle { TaskId = "tq2", CampaignId = "c", WorkUnitId = "query-00002", PackId = CampaignPackCatalog.ContextFabricPackId };
 
         var execution = await adapter.ExecuteContextFabricQueryAsync(
-            bundle, "q-temp", "What is the core temperature?", corpus, CancellationToken.None);
+            bundle, "q-temp", "What is the core temperature?", corpus, null, CancellationToken.None);
 
         Assert.That(execution.Steps, Is.EqualTo(0), "relevant = false → steps = 0");
     }

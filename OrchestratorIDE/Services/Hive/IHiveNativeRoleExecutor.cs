@@ -69,8 +69,9 @@ public interface IHiveNativeRoleExecutor : IAsyncDisposable
         CancellationToken ct);
 
     /// <summary>
-    /// CF-6: runs a per-segment exhaustive query (ContextFabricFeasibilityRunner.QuerySegmentAsync).
-    /// Returns relevant=false when the segment contains no evidence for the question.
+    /// CF-6: runs a per-segment query. When <paramref name="card"/> is supplied the result is
+    /// computed deterministically via BM25 claim-index lookup (no LLM call). Falls back to
+    /// <c>QuerySegmentAsync</c> (LLM) only when no pre-extracted card is available.
     /// Outputs query-finding.json to the output directory.
     /// </summary>
     Task<HiveNativeAgentExecution> ExecuteContextFabricQueryAsync(
@@ -78,6 +79,7 @@ public interface IHiveNativeRoleExecutor : IAsyncDisposable
         string questionId,
         string questionText,
         FabricCorpus corpus,
+        FabricEvidenceCard? card,
         CancellationToken ct);
 }
 

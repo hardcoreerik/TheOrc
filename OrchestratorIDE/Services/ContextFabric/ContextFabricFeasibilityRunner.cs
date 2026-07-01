@@ -176,6 +176,45 @@ public sealed class ContextFabricFeasibilityRunner
         }
     }
 
+    /// <summary>
+    /// Deterministic BM25 claim-index query: scores each pre-extracted claim against the
+    /// question's token set. No LLM call — relevant=true when any claim shares at least one
+    /// non-trivial token with the question. Use this in place of <see cref="QuerySegmentAsync"/>
+    /// whenever the reader's evidence card for the segment is already available.
+    /// </summary>
+    public static FabricQueryFinding QueryEvidenceCard(
+        FabricEvidenceCard card,
+        string questionId,
+        string questionText)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        if (string.IsNullOrWhiteSpace(questionId))
+            throw new ArgumentException("Question ID is required.", nameof(questionId));
+        if (string.IsNullOrWhiteSpace(questionText))
+            throw new ArgumentException("Question text is required.", nameof(questionText));
+
+        var terms = Tokenize(questionText);
+        var matchingClaims = card.Claims
+            .Where(claim => Tokenize(claim.Text).Any(terms.Contains))
+            .ToArray();
+        var relevant = matchingClaims.Length > 0;
+        var findingText = relevant
+            ? string.Join(' ', matchingClaims.Select(c => c.Text))
+            : null;
+        var metrics = new FabricCallMetrics(
+            "query",
+            questionId,
+            RuntimeRole.Researcher,
+            PromptTokens: 0,
+            CompletionTokens: 0,
+            ContextLimit: int.MaxValue,
+            DurationMs: 0,
+            Succeeded: true,
+            PromptPath: "HostDeterministic");
+        return new FabricQueryFinding(questionId, card.SegmentId, relevant, findingText,
+            matchingClaims, metrics);
+    }
+
     public async Task<FabricCorpusReadReport> ReadCorpusAsync(
         FabricCorpus corpus,
         CancellationToken ct = default)

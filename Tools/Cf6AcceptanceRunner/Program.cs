@@ -280,7 +280,7 @@ internal static class Program
                         RequiredPacks = [$"{CampaignPackCatalog.ContextFabricPackId}@{CampaignPackCatalog.ContextFabricPackVersion}"],
                     },
                     Verification = new VerificationPolicy { Mode = "independent_consensus", RequiredIndependentRuns = 1 },
-                    Inputs = [questionRef, segCorpus],
+                    Inputs = [questionRef, segCorpus, readerCardRefs[index]],
                     TimeoutMs = 1_800_000,
                 }).ToList();
                 var queryCampaign = new CampaignDefinition

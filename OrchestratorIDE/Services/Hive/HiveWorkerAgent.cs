@@ -550,7 +550,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         return (card, corpus);
     }
 
-    private async Task<(string QuestionId, string QuestionText, FabricCorpus Corpus)>
+    private async Task<(string QuestionId, string QuestionText, FabricCorpus Corpus, FabricEvidenceCard? Card)>
         FetchQueryInputsAsync(HiveTaskBundle bundle, CancellationToken ct)
     {
         var questionArtifact = bundle.InputArtifacts.FirstOrDefault(a =>
@@ -560,10 +560,15 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         var corpusArtifact = bundle.InputArtifacts.FirstOrDefault(a =>
             a.Name.EndsWith(".corpus.json", StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidOperationException("Query task has no '.corpus.json' input artifact.");
+        var cardArtifact = bundle.InputArtifacts.FirstOrDefault(a =>
+            a.Name.EndsWith(".evidence-card.json", StringComparison.OrdinalIgnoreCase));
         using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         var question = await FetchAndVerifyJsonAsync<FabricQueryQuestion>(http, questionArtifact, ct).ConfigureAwait(false);
         var corpus = await FetchAndVerifyJsonAsync<FabricCorpus>(http, corpusArtifact, ct).ConfigureAwait(false);
-        return (question.QuestionId, question.QuestionText, corpus);
+        FabricEvidenceCard? card = null;
+        if (cardArtifact is not null)
+            card = await FetchAndVerifyJsonAsync<FabricEvidenceCard>(http, cardArtifact, ct).ConfigureAwait(false);
+        return (question.QuestionId, question.QuestionText, corpus, card);
     }
 
     /// All digests are re-verified locally before deserialization.
@@ -812,9 +817,9 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             if (string.Equals(bundle.NativeRole, CampaignPackCatalog.ContextFabricQueryRole,
                     StringComparison.OrdinalIgnoreCase))
             {
-                var (questionId, questionText, queryCorpus) = await FetchQueryInputsAsync(bundle, ct).ConfigureAwait(false);
+                var (questionId, questionText, queryCorpus, evidenceCard) = await FetchQueryInputsAsync(bundle, ct).ConfigureAwait(false);
                 _lastAgentExecution = await NativeRoleExecutor.ExecuteContextFabricQueryAsync(
-                    bundle, questionId, questionText, queryCorpus, ct).ConfigureAwait(false);
+                    bundle, questionId, questionText, queryCorpus, evidenceCard, ct).ConfigureAwait(false);
                 Log($"🐝 [{bundle.Role}] '{bundle.Title}' — Context Fabric query {(_lastAgentExecution.Steps > 0 ? "found evidence" : "no evidence")}{DescribeNativeRuntimeTelemetry(bundle.Role)}");
                 return _lastAgentExecution.Output;
             }

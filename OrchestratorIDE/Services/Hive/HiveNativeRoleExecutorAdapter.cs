@@ -284,6 +284,7 @@ public sealed class HiveNativeRoleExecutorAdapter(IRoleRuntime inner, string wor
         string questionId,
         string questionText,
         FabricCorpus corpus,
+        FabricEvidenceCard? card,
         CancellationToken ct)
     {
         var safeCampaign = SafeSegment(bundle.CampaignId.Length > 0 ? bundle.CampaignId : "legacy");
@@ -291,8 +292,10 @@ public sealed class HiveNativeRoleExecutorAdapter(IRoleRuntime inner, string wor
         var outputDirectory = Path.Combine(workspaceRoot, ".orc", "remote-work", safeCampaign, safeUnit);
         Directory.CreateDirectory(outputDirectory);
 
-        var finding = await new ContextFabricFeasibilityRunner(inner, HiveDispatchOptions)
-            .QuerySegmentAsync(corpus, questionId, questionText, ct).ConfigureAwait(false);
+        var finding = card is not null
+            ? ContextFabricFeasibilityRunner.QueryEvidenceCard(card, questionId, questionText)
+            : await new ContextFabricFeasibilityRunner(inner, HiveDispatchOptions)
+                .QuerySegmentAsync(corpus, questionId, questionText, ct).ConfigureAwait(false);
 
         var json = FabricJson.Serialize(finding);
         await File.WriteAllTextAsync(Path.Combine(outputDirectory, "query-finding.json"), json, ct)
