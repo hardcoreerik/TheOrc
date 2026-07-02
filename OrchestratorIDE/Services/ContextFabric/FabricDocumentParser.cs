@@ -21,6 +21,16 @@ public interface IFabricDocumentParser
     FabricParsedDocument Parse(ReadOnlyMemory<byte> source, string mediaType);
 }
 
+public interface IFabricOcrEngine
+{
+    FabricOcrPageResult RecognizePdfPage(int pageNumber, ReadOnlyMemory<byte> pdfSource);
+}
+
+public sealed record FabricOcrPageResult(
+    string Text,
+    double? Confidence = null,
+    IReadOnlyList<string>? Warnings = null);
+
 public sealed class FabricDocumentParserRegistry
 {
     private readonly IReadOnlyList<IFabricDocumentParser> _parsers;
@@ -97,6 +107,13 @@ public sealed class TextMarkdownFabricParser : IFabricDocumentParser
 
 public sealed class PdfTextFabricParser : IFabricDocumentParser
 {
+    private readonly IFabricOcrEngine? _ocrEngine;
+
+    public PdfTextFabricParser(IFabricOcrEngine? ocrEngine = null)
+    {
+        _ocrEngine = ocrEngine;
+    }
+
     public string ParserId => "fabric-pdf-text";
     public string ParserVersion => FabricIngestionVersions.PdfTextParser;
 
@@ -115,12 +132,41 @@ public sealed class PdfTextFabricParser : IFabricDocumentParser
         if (pages.Length == 0)
             throw new InvalidDataException("PDF contains no pages.");
 
-        var pageTexts = pages
-            .Select((page, index) => (PageNumber: index + 1, Text: ExtractPageText(page)))
-            .Where(page => !string.IsNullOrWhiteSpace(page.Text))
-            .ToArray();
-        if (pageTexts.Length == 0)
-            throw new InvalidDataException("PDF contains no extractable text.");
+        var pageTexts = new List<(int PageNumber, string Text)>();
+        var warnings = new List<string>();
+        var usedOcr = false;
+        var pageConfidences = new List<(int PageNumber, double? Confidence)>();
+        for (var index = 0; index < pages.Length; index++)
+        {
+            var pageNumber = index + 1;
+            var text = ExtractPageText(pages[index]);
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                pageTexts.Add((pageNumber, text));
+                continue;
+            }
+
+            if (_ocrEngine is not null)
+            {
+                var result = _ocrEngine.RecognizePdfPage(pageNumber, source);
+                foreach (var warning in result.Warnings ?? [])
+                {
+                    if (!string.IsNullOrWhiteSpace(warning))
+                        warnings.Add($"page {pageNumber}: {warning.Trim()}");
+                }
+
+                if (!string.IsNullOrWhiteSpace(result.Text))
+                {
+                    usedOcr = true;
+                    pageTexts.Add((pageNumber, result.Text));
+                    pageConfidences.Add((pageNumber, result.Confidence));
+                }
+            }
+        }
+        if (pageTexts.Count == 0)
+            throw _ocrEngine is null
+                ? new InvalidDataException("PDF contains no extractable text; configure OCR to ingest scanned or image-only PDFs.")
+                : new InvalidDataException("OCR produced no parseable text for PDF.");
 
         var normalized = FabricTextParsing.Normalize(string.Join("\n\n", pageTexts.Select(page => page.Text)));
         if (string.IsNullOrWhiteSpace(normalized))
@@ -130,6 +176,8 @@ public sealed class PdfTextFabricParser : IFabricDocumentParser
             FabricTextParsing.BuildBlocks(normalized, markdown: false),
             normalized,
             pageTexts);
+        if (usedOcr)
+            blocks = AddOcrMetadata(blocks, pageConfidences);
         if (blocks.Count == 0)
             throw new InvalidDataException("PDF contains no parseable blocks.");
 
@@ -139,7 +187,7 @@ public sealed class PdfTextFabricParser : IFabricDocumentParser
             "application/pdf",
             normalized,
             blocks,
-            []);
+            warnings);
     }
 
     private static string ExtractPageText(Page page)
@@ -151,6 +199,24 @@ public sealed class PdfTextFabricParser : IFabricDocumentParser
             .Select(line => line.Trim())
             .Where(line => line.Length > 0);
         return string.Join('\n', lines);
+    }
+
+    private static IReadOnlyList<FabricParsedBlock> AddOcrMetadata(
+        IReadOnlyList<FabricParsedBlock> blocks,
+        IReadOnlyList<(int PageNumber, double? Confidence)> pageConfidences)
+    {
+        var confidenceByPage = pageConfidences.ToDictionary(page => page.PageNumber, page => page.Confidence);
+        return blocks.Select(block =>
+        {
+            double? confidence = null;
+            var isOcrBlock = block.PageNumber.HasValue &&
+                confidenceByPage.TryGetValue(block.PageNumber.Value, out confidence);
+            return block with
+            {
+                BlockKind = isOcrBlock ? "ocr" : block.BlockKind,
+                Confidence = confidence,
+            };
+        }).ToArray();
     }
 }
 

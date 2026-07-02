@@ -163,6 +163,60 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public void PdfTextParser_Rejects_ImageOnly_Pdf_Without_Ocr()
+    {
+        var parser = new PdfTextFabricParser();
+
+        Assert.That(
+            () => parser.Parse(BuildBlankPdf(), "application/pdf"),
+            Throws.TypeOf<InvalidDataException>());
+    }
+
+    [Test]
+    public void PdfTextParser_Uses_Configured_Ocr_For_ImageOnly_Pdf()
+    {
+        var parser = new PdfTextFabricParser(new FakeOcrEngine("OCR sentinel text.", 0.88, "synthetic warning"));
+
+        var parsed = parser.Parse(BuildBlankPdf(), "application/pdf");
+        var block = parsed.Blocks.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(block.BlockKind, Is.EqualTo("ocr"));
+            Assert.That(block.PageNumber, Is.EqualTo(1));
+            Assert.That(block.SourceLocator, Is.EqualTo("page 1"));
+            Assert.That(block.Confidence, Is.EqualTo(0.88));
+            Assert.That(block.Text, Is.EqualTo("OCR sentinel text."));
+            Assert.That(parsed.Warnings, Is.EqualTo(new[] { "page 1: synthetic warning" }));
+        });
+    }
+
+    [Test]
+    public void PdfTextParser_Uses_Ocr_For_Blank_Pages_In_Mixed_Pdf()
+    {
+        var ocr = new FakeOcrEngine("OCR cover page.", 0.75, null);
+        var parser = new PdfTextFabricParser(ocr);
+
+        var parsed = parser.Parse(BuildTwoPagePdfWithBlankFirstPage(), "application/pdf");
+        var ocrBlock = parsed.Blocks.Single(block => block.Text.Contains("OCR cover page", StringComparison.Ordinal));
+        var textBlock = parsed.Blocks.Single(block => block.Text.Contains("Second page sentinel", StringComparison.Ordinal));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ocrBlock.BlockKind, Is.EqualTo("ocr"));
+            Assert.That(ocrBlock.PageNumber, Is.EqualTo(1));
+            Assert.That(ocrBlock.SourceLocator, Is.EqualTo("page 1"));
+            Assert.That(ocrBlock.Confidence, Is.EqualTo(0.75));
+            Assert.That(textBlock.BlockKind, Is.EqualTo("text"));
+            Assert.That(textBlock.PageNumber, Is.EqualTo(2));
+            Assert.That(textBlock.SourceLocator, Is.EqualTo("page 2"));
+            Assert.That(textBlock.Confidence, Is.Null);
+            Assert.That(parsed.Warnings, Is.Empty);
+            Assert.That(ocr.PageNumbers, Is.EqualTo(new[] { 1 }));
+        });
+    }
+
+    [Test]
     public void PdfPageLocators_Mark_Blocks_Spanning_Multiple_Pages()
     {
         const string normalized = "Page one starts\n\ncontinues on page two\n";
@@ -865,12 +919,28 @@ public sealed class ContextFabricCf1Tests
             "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
             $"<< /Length {body.Length} >>\nstream\n{body}\nendstream",
         };
+        return BuildPdf(objects);
+    }
+
+    private static byte[] BuildBlankPdf()
+    {
+        var objects = new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>",
+        };
+        return BuildPdf(objects);
+    }
+
+    private static byte[] BuildPdf(IReadOnlyList<string> objects)
+    {
         var bytes = new List<byte>();
         void Append(string text) => bytes.AddRange(Encoding.ASCII.GetBytes(text));
 
         Append("%PDF-1.4\n");
         var offsets = new List<int> { 0 };
-        for (var index = 0; index < objects.Length; index++)
+        for (var index = 0; index < objects.Count; index++)
         {
             offsets.Add(bytes.Count);
             Append($"{index + 1} 0 obj\n{objects[index]}\nendobj\n");
@@ -997,6 +1067,17 @@ public sealed class ContextFabricCf1Tests
         FabricLibraryRepository Repository,
         ContentAddressedStore Artifacts,
         FabricLibraryService Service);
+
+    private sealed class FakeOcrEngine(string text, double? confidence, string? warning) : IFabricOcrEngine
+    {
+        public List<int> PageNumbers { get; } = [];
+
+        public FabricOcrPageResult RecognizePdfPage(int pageNumber, ReadOnlyMemory<byte> pdfSource)
+        {
+            PageNumbers.Add(pageNumber);
+            return new(text, confidence, warning is null ? [] : [warning]);
+        }
+    }
 
     private sealed record DarwinFixtureManifest(
         string FixtureId,
