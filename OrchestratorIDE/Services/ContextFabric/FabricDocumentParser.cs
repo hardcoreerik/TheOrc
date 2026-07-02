@@ -132,40 +132,41 @@ public sealed class PdfTextFabricParser : IFabricDocumentParser
         if (pages.Length == 0)
             throw new InvalidDataException("PDF contains no pages.");
 
+        var pageTexts = new List<(int PageNumber, string Text)>();
         var warnings = new List<string>();
-        var pageTexts = pages
-            .Select((page, index) => (PageNumber: index + 1, Text: ExtractPageText(page)))
-            .Where(page => !string.IsNullOrWhiteSpace(page.Text))
-            .ToArray();
         var usedOcr = false;
-        IReadOnlyList<(int PageNumber, double? Confidence)> pageConfidences = [];
-        if (pageTexts.Length == 0)
+        var pageConfidences = new List<(int PageNumber, double? Confidence)>();
+        for (var index = 0; index < pages.Length; index++)
         {
-            if (_ocrEngine is null)
-                throw new InvalidDataException("PDF contains no extractable text; configure OCR to ingest scanned or image-only PDFs.");
+            var pageNumber = index + 1;
+            var text = ExtractPageText(pages[index]);
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                pageTexts.Add((pageNumber, text));
+                continue;
+            }
 
-            usedOcr = true;
-            var ocrPages = pages
-                .Select((_, index) =>
+            if (_ocrEngine is not null)
+            {
+                var result = _ocrEngine.RecognizePdfPage(pageNumber, source);
+                foreach (var warning in result.Warnings ?? [])
                 {
-                    var pageNumber = index + 1;
-                    var result = _ocrEngine.RecognizePdfPage(pageNumber, source);
-                    foreach (var warning in result.Warnings ?? [])
-                    {
-                        if (!string.IsNullOrWhiteSpace(warning))
-                            warnings.Add($"page {pageNumber}: {warning.Trim()}");
-                    }
+                    if (!string.IsNullOrWhiteSpace(warning))
+                        warnings.Add($"page {pageNumber}: {warning.Trim()}");
+                }
 
-                    return (PageNumber: pageNumber, result.Text, result.Confidence);
-                })
-                .Where(page => !string.IsNullOrWhiteSpace(page.Text))
-                .ToArray();
-            if (ocrPages.Length == 0)
-                throw new InvalidDataException("OCR produced no parseable text for PDF.");
-
-            pageTexts = ocrPages.Select(page => (page.PageNumber, page.Text)).ToArray();
-            pageConfidences = ocrPages.Select(page => (page.PageNumber, page.Confidence)).ToArray();
+                if (!string.IsNullOrWhiteSpace(result.Text))
+                {
+                    usedOcr = true;
+                    pageTexts.Add((pageNumber, result.Text));
+                    pageConfidences.Add((pageNumber, result.Confidence));
+                }
+            }
         }
+        if (pageTexts.Count == 0)
+            throw _ocrEngine is null
+                ? new InvalidDataException("PDF contains no extractable text; configure OCR to ingest scanned or image-only PDFs.")
+                : new InvalidDataException("OCR produced no parseable text for PDF.");
 
         var normalized = FabricTextParsing.Normalize(string.Join("\n\n", pageTexts.Select(page => page.Text)));
         if (string.IsNullOrWhiteSpace(normalized))
@@ -204,15 +205,15 @@ public sealed class PdfTextFabricParser : IFabricDocumentParser
         IReadOnlyList<FabricParsedBlock> blocks,
         IReadOnlyList<(int PageNumber, double? Confidence)> pageConfidences)
     {
+        var confidenceByPage = pageConfidences.ToDictionary(page => page.PageNumber, page => page.Confidence);
         return blocks.Select(block =>
         {
-            var confidence = pageConfidences
-                .Where(page => block.PageNumber == page.PageNumber)
-                .Select(page => page.Confidence)
-                .FirstOrDefault();
+            double? confidence = null;
+            var isOcrBlock = block.PageNumber.HasValue &&
+                confidenceByPage.TryGetValue(block.PageNumber.Value, out confidence);
             return block with
             {
-                BlockKind = "ocr",
+                BlockKind = isOcrBlock ? "ocr" : block.BlockKind,
                 Confidence = confidence,
             };
         }).ToArray();

@@ -192,6 +192,28 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public void PdfTextParser_Uses_Ocr_For_Blank_Pages_In_Mixed_Pdf()
+    {
+        var parser = new PdfTextFabricParser(new FakeOcrEngine("OCR cover page.", 0.75, null));
+
+        var parsed = parser.Parse(BuildTwoPagePdfWithBlankFirstPage(), "application/pdf");
+        var ocrBlock = parsed.Blocks.Single(block => block.Text.Contains("OCR cover page", StringComparison.Ordinal));
+        var textBlock = parsed.Blocks.Single(block => block.Text.Contains("Second page sentinel", StringComparison.Ordinal));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ocrBlock.BlockKind, Is.EqualTo("ocr"));
+            Assert.That(ocrBlock.PageNumber, Is.EqualTo(1));
+            Assert.That(ocrBlock.SourceLocator, Is.EqualTo("page 1"));
+            Assert.That(ocrBlock.Confidence, Is.EqualTo(0.75));
+            Assert.That(textBlock.BlockKind, Is.EqualTo("text"));
+            Assert.That(textBlock.PageNumber, Is.EqualTo(2));
+            Assert.That(textBlock.SourceLocator, Is.EqualTo("page 2"));
+            Assert.That(textBlock.Confidence, Is.Null);
+        });
+    }
+
+    [Test]
     public void PdfPageLocators_Mark_Blocks_Spanning_Multiple_Pages()
     {
         const string normalized = "Page one starts\n\ncontinues on page two\n";
@@ -894,24 +916,7 @@ public sealed class ContextFabricCf1Tests
             "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
             $"<< /Length {body.Length} >>\nstream\n{body}\nendstream",
         };
-        var bytes = new List<byte>();
-        void Append(string text) => bytes.AddRange(Encoding.ASCII.GetBytes(text));
-
-        Append("%PDF-1.4\n");
-        var offsets = new List<int> { 0 };
-        for (var index = 0; index < objects.Length; index++)
-        {
-            offsets.Add(bytes.Count);
-            Append($"{index + 1} 0 obj\n{objects[index]}\nendobj\n");
-        }
-
-        var xref = bytes.Count;
-        Append($"xref\n0 {offsets.Count}\n");
-        Append("0000000000 65535 f \n");
-        foreach (var offset in offsets.Skip(1))
-            Append($"{offset:0000000000} 00000 n \n");
-        Append($"trailer\n<< /Size {offsets.Count} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
-        return bytes.ToArray();
+        return BuildPdf(objects);
     }
 
     private static byte[] BuildBlankPdf()
@@ -922,12 +927,17 @@ public sealed class ContextFabricCf1Tests
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>",
         };
+        return BuildPdf(objects);
+    }
+
+    private static byte[] BuildPdf(IReadOnlyList<string> objects)
+    {
         var bytes = new List<byte>();
         void Append(string text) => bytes.AddRange(Encoding.ASCII.GetBytes(text));
 
         Append("%PDF-1.4\n");
         var offsets = new List<int> { 0 };
-        for (var index = 0; index < objects.Length; index++)
+        for (var index = 0; index < objects.Count; index++)
         {
             offsets.Add(bytes.Count);
             Append($"{index + 1} 0 obj\n{objects[index]}\nendobj\n");
