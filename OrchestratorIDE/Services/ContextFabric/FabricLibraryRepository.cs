@@ -61,6 +61,31 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
         MapDocument,
         ps => P(ps, "$corpus", corpusId));
 
+    public int NextDocumentVersionOrdinal(
+        string corpusId,
+        string displayName,
+        string mediaType,
+        string parserId,
+        string parserVersion) => Query(
+        """
+        SELECT COALESCE(MAX(version_ordinal), 0) + 1 AS next_version
+        FROM fabric_documents
+        WHERE corpus_id = $corpus
+          AND display_name = $name
+          AND media_type = $media
+          AND parser_id = $parser
+          AND parser_version = $version
+        """,
+        reader => reader.GetInt32(reader.GetOrdinal("next_version")),
+        ps =>
+        {
+            P(ps, "$corpus", corpusId);
+            P(ps, "$name", displayName);
+            P(ps, "$media", mediaType);
+            P(ps, "$parser", parserId);
+            P(ps, "$version", parserVersion);
+        }).Single();
+
     public IReadOnlyList<FabricSegmentEntry> GetSegments(string documentId) => Query(
         """
         SELECT s.*, t.normalized_text
@@ -110,6 +135,7 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
         InTransaction((conn, tx) =>
         {
             var owningCorpusId = document.CorpusId;
+            var isExistingDocument = false;
             using (var identity = CreateCmd(conn, tx, """
                 SELECT corpus_id, source_digest, media_type, parser_id, parser_version
                 FROM fabric_documents
@@ -120,6 +146,7 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
                 using var reader = identity.ExecuteReader();
                 if (reader.Read())
                 {
+                    isExistingDocument = true;
                     owningCorpusId = reader.GetString(0);
                     if (!owningCorpusId.Equals(document.CorpusId, StringComparison.Ordinal) ||
                      !reader.GetString(1).Equals(document.SourceDigest, StringComparison.Ordinal) ||
@@ -135,10 +162,12 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
             using (var cmd = CreateCmd(conn, tx, """
                 INSERT INTO fabric_documents
                     (document_id, corpus_id, source_digest, normalized_digest, display_name,
-                     media_type, parser_id, parser_version, status, warnings_json, created_at, updated_at)
+                     media_type, parser_id, parser_version, status, warnings_json, created_at, updated_at,
+                     version_ordinal, superseded_by_document_id, superseded_at)
                 VALUES
                     ($id, $corpus, $source, $normalized, $name,
-                     $media, $parser, $version, $status, $warnings, $created, $updated)
+                     $media, $parser, $version, $status, $warnings, $created, $updated,
+                     $versionOrdinal, $supersededBy, $supersededAt)
                 ON CONFLICT(document_id) DO UPDATE SET
                     normalized_digest = excluded.normalized_digest,
                     display_name = excluded.display_name,
@@ -149,6 +178,36 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
             {
                 BindDocument(cmd.Parameters, document);
                 cmd.ExecuteNonQuery();
+            }
+
+            if (!isExistingDocument)
+            {
+                ExecuteOn(tx,
+                    """
+                    UPDATE fabric_documents
+                    SET status = 'superseded',
+                        superseded_by_document_id = $newDocument,
+                        superseded_at = $updated,
+                        updated_at = $updated
+                    WHERE corpus_id = $corpus
+                      AND display_name = $name
+                      AND media_type = $media
+                      AND parser_id = $parser
+                      AND parser_version = $version
+                      AND document_id <> $newDocument
+                      AND superseded_by_document_id IS NULL
+                      AND status <> 'superseded'
+                    """,
+                    ps =>
+                    {
+                        P(ps, "$newDocument", document.DocumentId);
+                        P(ps, "$updated", document.UpdatedAt.ToString("O"));
+                        P(ps, "$corpus", document.CorpusId);
+                        P(ps, "$name", document.DisplayName);
+                        P(ps, "$media", document.MediaType);
+                        P(ps, "$parser", document.ParserId);
+                        P(ps, "$version", document.ParserVersion);
+                    });
             }
 
             ExecuteOn(tx, "DELETE FROM fabric_segments WHERE document_id = $document",
@@ -222,6 +281,7 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
             JOIN fabric_documents d ON d.document_id = s.document_id
             WHERE fabric_segment_fts MATCH $query
               AND ($corpus IS NULL OR d.corpus_id = $corpus)
+              AND d.status <> 'superseded'
             ORDER BY rank, d.document_id, s.ordinal
             LIMIT $limit
             """,
@@ -287,7 +347,10 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
         reader.GetString(reader.GetOrdinal("status")),
         JsonSerializer.Deserialize<string[]>(reader.GetString(reader.GetOrdinal("warnings_json")), FabricJson.Options) ?? [],
         DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("created_at"))),
-        DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("updated_at"))));
+        DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("updated_at"))),
+        reader.GetInt32(reader.GetOrdinal("version_ordinal")),
+        GetStr(reader, "superseded_by_document_id"),
+        GetStr(reader, "superseded_at") is { } supersededAt ? DateTimeOffset.Parse(supersededAt) : null);
 
     private static FabricSegmentEntry MapSegment(SqliteDataReader reader) => new(
         reader.GetString(reader.GetOrdinal("segment_id")),
@@ -321,5 +384,8 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
         P(parameters, "$warnings", JsonSerializer.Serialize(document.Warnings, FabricJson.Options));
         P(parameters, "$created", document.CreatedAt.ToString("O"));
         P(parameters, "$updated", document.UpdatedAt.ToString("O"));
+        P(parameters, "$versionOrdinal", document.VersionOrdinal);
+        P(parameters, "$supersededBy", document.SupersededByDocumentId);
+        P(parameters, "$supersededAt", document.SupersededAt?.ToString("O"));
     }
 }

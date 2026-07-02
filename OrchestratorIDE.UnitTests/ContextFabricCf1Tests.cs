@@ -416,6 +416,37 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public async Task ImportFileAsync_Creates_Immutable_Versions_And_Supersedes_Prior_Source()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Versioned source");
+        var sourcePath = Path.Combine(harness.Root, "versioned.txt");
+        await File.WriteAllTextAsync(sourcePath, "alpha old token.\n");
+        var first = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+        await File.WriteAllTextAsync(sourcePath, "beta new token.\n");
+
+        var second = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+
+        var firstPersisted = harness.Repository.GetDocument(first.Document.DocumentId)!;
+        var secondPersisted = harness.Repository.GetDocument(second.Document.DocumentId)!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(second.Document.DocumentId, Is.Not.EqualTo(first.Document.DocumentId));
+            Assert.That(firstPersisted.Status, Is.EqualTo("superseded"));
+            Assert.That(firstPersisted.SupersededByDocumentId, Is.EqualTo(second.Document.DocumentId));
+            Assert.That(firstPersisted.SupersededAt, Is.Not.Null);
+            Assert.That(firstPersisted.VersionOrdinal, Is.EqualTo(1));
+            Assert.That(secondPersisted.Status, Is.EqualTo("ready"));
+            Assert.That(secondPersisted.VersionOrdinal, Is.EqualTo(2));
+            Assert.That(secondPersisted.SupersededByDocumentId, Is.Null);
+            Assert.That(harness.Service.ListDocuments(corpus.CorpusId), Has.Count.EqualTo(2));
+            Assert.That(harness.Service.Search("alpha", corpus.CorpusId), Is.Empty);
+            Assert.That(harness.Service.Search("beta", corpus.CorpusId), Has.Count.EqualTo(1));
+        });
+    }
+
+    [Test]
     public async Task Library_Rejects_Oversized_Source_Without_Database_Rows()
     {
         var harness = NewHarness(maximumSourceBytes: 16);
@@ -812,6 +843,48 @@ public sealed class ContextFabricCf1Tests
             Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_segments WHERE segment_id = 'segment' AND page_number IS NULL"), Is.EqualTo(1));
             Assert.That(
                 () => Execute(connection, "UPDATE fabric_segments SET confidence = 2.0 WHERE segment_id = 'segment'"),
+                Throws.TypeOf<Microsoft.Data.Sqlite.SqliteException>());
+        });
+    }
+
+    [Test]
+    public void MigrationV14_Adds_Document_Version_Columns_With_Defaults()
+    {
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+            "Data Source=:memory:;Foreign Keys=True");
+        connection.Open();
+        Execute(connection, """
+            CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL,
+                description TEXT
+            );
+            """);
+        foreach (var migration in Migrations.All.Where(migration => migration.Version <= 13))
+        {
+            Execute(connection, migration.Sql);
+            Execute(connection, $"INSERT INTO schema_migrations VALUES ({migration.Version}, 'now', 'test')");
+        }
+
+        Execute(connection, """
+            INSERT INTO fabric_corpora VALUES ('corpus', 'Corpus', NULL, 'default', 'ready', 'now', 'now');
+            INSERT INTO fabric_documents
+                (document_id, corpus_id, source_digest, normalized_digest, display_name,
+                 media_type, parser_id, parser_version, status, warnings_json, created_at, updated_at)
+            VALUES
+                ('document', 'corpus', 'source', 'normalized', 'Document', 'text/plain',
+                 'parser', '1', 'ready', '[]', 'now', 'now');
+            """);
+
+        MigrationRunner.Apply(connection);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM schema_migrations WHERE version = 14"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT version_ordinal FROM fabric_documents WHERE document_id = 'document'"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_documents WHERE document_id = 'document' AND superseded_by_document_id IS NULL"), Is.EqualTo(1));
+            Assert.That(
+                () => Execute(connection, "UPDATE fabric_documents SET version_ordinal = 0 WHERE document_id = 'document'"),
                 Throws.TypeOf<Microsoft.Data.Sqlite.SqliteException>());
         });
     }

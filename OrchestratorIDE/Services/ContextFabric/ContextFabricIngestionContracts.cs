@@ -97,7 +97,10 @@ public sealed record FabricDocumentEntry(
     string Status,
     IReadOnlyList<string> Warnings,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    int VersionOrdinal = 1,
+    string? SupersededByDocumentId = null,
+    DateTimeOffset? SupersededAt = null);
 
 public sealed record FabricSegmentEntry(
     string SegmentId,

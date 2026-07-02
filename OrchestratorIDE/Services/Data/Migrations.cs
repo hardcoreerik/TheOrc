@@ -28,6 +28,7 @@ internal static class Migrations
         new Migration(11, "context fabric hierarchy and cognitive paging", Sql011_ContextFabricHierarchyPaging),
         new Migration(12, "context fabric claims generation id", Sql012_ContextFabricClaimsGenerationId),
         new Migration(13, "context fabric segment provenance", Sql013_ContextFabricSegmentProvenance),
+        new Migration(14, "context fabric document versions", Sql014_ContextFabricDocumentVersions),
     ];
 
     // ── v1 — Phase 1: captures + triage ─────────────────────────────────────────
@@ -546,6 +547,19 @@ internal static class Migrations
         ALTER TABLE fabric_segments ADD COLUMN source_locator TEXT;
         ALTER TABLE fabric_segments ADD COLUMN confidence REAL CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0));
         CREATE INDEX ix_fabric_segments_document_page ON fabric_segments(document_id, page_number);
+        """;
+
+    // ── v14 — CF-8: immutable logical document versions ─────────────────────
+    // New source bytes already produce a new content-addressed document_id. These columns
+    // connect same-name imports into a logical version chain and mark stale rows superseded.
+    private const string Sql014_ContextFabricDocumentVersions = """
+        ALTER TABLE fabric_documents ADD COLUMN version_ordinal INTEGER NOT NULL DEFAULT 1 CHECK (version_ordinal >= 1);
+        ALTER TABLE fabric_documents ADD COLUMN superseded_by_document_id TEXT;
+        ALTER TABLE fabric_documents ADD COLUMN superseded_at TEXT;
+        CREATE INDEX ix_fabric_documents_logical_version
+            ON fabric_documents(corpus_id, display_name, media_type, parser_id, parser_version, version_ordinal);
+        CREATE INDEX ix_fabric_documents_superseded_by
+            ON fabric_documents(superseded_by_document_id);
         """;
 
     // ── v5 — CodeGraph v1 (C# structure + search index) ─────────────────────────

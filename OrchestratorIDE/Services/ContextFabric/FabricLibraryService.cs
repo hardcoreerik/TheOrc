@@ -154,6 +154,12 @@ public sealed class FabricLibraryService
         var segmenter = new FabricSegmenter(_options.EffectiveSegmenter);
         var segments = segmenter.Segment(documentId, parsed);
         var existing = _repository.GetDocument(documentId);
+        var versionOrdinal = existing?.VersionOrdinal ?? _repository.NextDocumentVersionOrdinal(
+            corpusId,
+            displayName,
+            parsed.MediaType,
+            parsed.ParserId,
+            parsed.ParserVersion);
         var now = DateTimeOffset.UtcNow;
         var document = new FabricDocumentEntry(
             documentId,
@@ -164,10 +170,13 @@ public sealed class FabricLibraryService
             parsed.MediaType,
             parsed.ParserId,
             parsed.ParserVersion,
-            "ready",
+            existing?.Status ?? "ready",
             parsed.Warnings,
             existing?.CreatedAt ?? now,
-            now);
+            now,
+            versionOrdinal,
+            existing?.SupersededByDocumentId,
+            existing?.SupersededAt);
         _repository.ReplaceDocument(document, segments);
 
         return new FabricImportResult(
