@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Text;
 using System.Text.Json;
+using System.IO.Compression;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Wordprocessing;
 using NUnit.Framework;
 using OrchestratorIDE.Services.ContextFabric;
 using OrchestratorIDE.Services.Data;
@@ -64,6 +67,55 @@ public sealed class ContextFabricCf1Tests
             Assert.That(parsed.Blocks[1].BlockKind, Is.EqualTo("text"));
             Assert.That(parsed.NormalizedText[parsed.Blocks[3].CharStart..parsed.Blocks[3].CharEnd], Is.EqualTo("Second paragraph."));
         });
+    }
+
+    [Test]
+    public void DocxParser_Extracts_Text_Table_And_Figure_Blocks()
+    {
+        var parser = new DocxFabricParser();
+
+        var parsed = parser.Parse(BuildDocxPackage(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed.ParserVersion, Is.EqualTo(FabricIngestionVersions.DocxParser));
+            Assert.That(parsed.Blocks.Select(block => block.BlockKind), Does.Contain("table"));
+            Assert.That(parsed.Blocks.Select(block => block.BlockKind), Does.Contain("figure"));
+            Assert.That(parsed.Blocks.Single(block => block.BlockKind == "table").Text, Is.EqualTo("Key | Value"));
+            Assert.That(parsed.Blocks, Has.All.Matches<FabricParsedBlock>(block =>
+                !string.IsNullOrWhiteSpace(block.SourceLocator) &&
+                parsed.NormalizedText[block.CharStart..block.CharEnd] == block.Text));
+        });
+    }
+
+    [Test]
+    public void EpubParser_Extracts_Spine_Text_Table_And_Figure_Blocks()
+    {
+        var parser = new EpubFabricParser();
+
+        var parsed = parser.Parse(BuildEpubPackage(encrypted: false), "application/epub+zip");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed.ParserVersion, Is.EqualTo(FabricIngestionVersions.EpubParser));
+            Assert.That(parsed.Blocks.Select(block => block.BlockKind), Does.Contain("heading"));
+            Assert.That(parsed.Blocks.Select(block => block.BlockKind), Does.Contain("table"));
+            Assert.That(parsed.Blocks.Select(block => block.BlockKind), Does.Contain("figure"));
+            Assert.That(parsed.Blocks.Single(block => block.BlockKind == "table").Text, Is.EqualTo("Key | Value"));
+            Assert.That(parsed.Blocks, Has.All.Matches<FabricParsedBlock>(block =>
+                block.SourceLocator == "OEBPS/chapter.xhtml" &&
+                parsed.NormalizedText[block.CharStart..block.CharEnd] == block.Text));
+        });
+    }
+
+    [Test]
+    public void EpubParser_Rejects_Encrypted_Packages()
+    {
+        var parser = new EpubFabricParser();
+
+        Assert.That(
+            () => parser.Parse(BuildEpubPackage(encrypted: true), "application/epub+zip"),
+            Throws.TypeOf<InvalidDataException>());
     }
 
     [Test]
@@ -821,6 +873,75 @@ public sealed class ContextFabricCf1Tests
             Append($"{offset:0000000000} 00000 n \n");
         Append($"trailer\n<< /Size {offsets.Count} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
         return bytes.ToArray();
+    }
+
+    private static byte[] BuildDocxPackage()
+    {
+        using var stream = new MemoryStream();
+        using (var document = WordprocessingDocument.Create(stream, DocumentFormat.OpenXml.WordprocessingDocumentType.Document, autoSave: true))
+        {
+            var main = document.AddMainDocumentPart();
+            main.Document = new Document(new Body(
+                new Paragraph(new Run(new Text("DOCX introduction"))),
+                new Table(
+                    new TableRow(
+                        new TableCell(new Paragraph(new Run(new Text("Key")))),
+                        new TableCell(new Paragraph(new Run(new Text("Value")))))),
+                new Paragraph(
+                    new Run(new Drawing()),
+                    new Run(new Text("Figure 1. Diagram")))));
+        }
+
+        return stream.ToArray();
+    }
+
+    private static byte[] BuildEpubPackage(bool encrypted)
+    {
+        using var stream = new MemoryStream();
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            WriteZipEntry(archive, "META-INF/container.xml", """
+                <?xml version="1.0" encoding="utf-8"?>
+                <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                  <rootfiles>
+                    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml" />
+                  </rootfiles>
+                </container>
+                """);
+            if (encrypted)
+                WriteZipEntry(archive, "META-INF/encryption.xml", "<encryption />");
+            WriteZipEntry(archive, "OEBPS/content.opf", """
+                <?xml version="1.0" encoding="utf-8"?>
+                <package version="3.0" xmlns="http://www.idpf.org/2007/opf">
+                  <manifest>
+                    <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml" />
+                  </manifest>
+                  <spine>
+                    <itemref idref="chapter" />
+                  </spine>
+                </package>
+                """);
+            WriteZipEntry(archive, "OEBPS/chapter.xhtml", """
+                <?xml version="1.0" encoding="utf-8"?>
+                <html xmlns="http://www.w3.org/1999/xhtml">
+                  <body>
+                    <h1>EPUB Heading</h1>
+                    <p>EPUB introduction.</p>
+                    <table><tr><td>Key</td><td>Value</td></tr></table>
+                    <figure><figcaption>Figure 1. Diagram</figcaption></figure>
+                  </body>
+                </html>
+                """);
+        }
+
+        return stream.ToArray();
+    }
+
+    private static void WriteZipEntry(ZipArchive archive, string path, string content)
+    {
+        var entry = archive.CreateEntry(path);
+        using var writer = new StreamWriter(entry.Open(), Encoding.UTF8);
+        writer.Write(content);
     }
 
     private async Task AssertFixtureImportsAndRebuildsReproducibly(
