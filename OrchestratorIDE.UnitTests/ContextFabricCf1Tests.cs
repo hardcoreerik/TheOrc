@@ -194,7 +194,8 @@ public sealed class ContextFabricCf1Tests
     [Test]
     public void PdfTextParser_Uses_Ocr_For_Blank_Pages_In_Mixed_Pdf()
     {
-        var parser = new PdfTextFabricParser(new FakeOcrEngine("OCR cover page.", 0.75, null));
+        var ocr = new FakeOcrEngine("OCR cover page.", 0.75, null);
+        var parser = new PdfTextFabricParser(ocr);
 
         var parsed = parser.Parse(BuildTwoPagePdfWithBlankFirstPage(), "application/pdf");
         var ocrBlock = parsed.Blocks.Single(block => block.Text.Contains("OCR cover page", StringComparison.Ordinal));
@@ -210,6 +211,8 @@ public sealed class ContextFabricCf1Tests
             Assert.That(textBlock.PageNumber, Is.EqualTo(2));
             Assert.That(textBlock.SourceLocator, Is.EqualTo("page 2"));
             Assert.That(textBlock.Confidence, Is.Null);
+            Assert.That(parsed.Warnings, Is.Empty);
+            Assert.That(ocr.PageNumbers, Is.EqualTo(new[] { 1 }));
         });
     }
 
@@ -1067,8 +1070,13 @@ public sealed class ContextFabricCf1Tests
 
     private sealed class FakeOcrEngine(string text, double? confidence, string? warning) : IFabricOcrEngine
     {
-        public FabricOcrPageResult RecognizePdfPage(int pageNumber, ReadOnlyMemory<byte> pdfSource) =>
-            new(text, confidence, warning is null ? [] : [warning]);
+        public List<int> PageNumbers { get; } = [];
+
+        public FabricOcrPageResult RecognizePdfPage(int pageNumber, ReadOnlyMemory<byte> pdfSource)
+        {
+            PageNumbers.Add(pageNumber);
+            return new(text, confidence, warning is null ? [] : [warning]);
+        }
     }
 
     private sealed record DarwinFixtureManifest(
