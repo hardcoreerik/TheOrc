@@ -235,11 +235,17 @@ internal static class FabricTextParsing
         var ranges = BuildPageRanges(normalized, pageTexts);
         return blocks.Select(block =>
         {
-            var page = ranges.FirstOrDefault(range =>
-                block.CharStart >= range.Start && block.CharStart < range.End);
-            return page.PageNumber == 0
-                ? block
-                : block with { PageNumber = page.PageNumber, SourceLocator = $"page {page.PageNumber}" };
+            var pages = ranges
+                .Where(range => block.CharStart < range.End && block.CharEnd > range.Start)
+                .Select(range => range.PageNumber)
+                .Distinct()
+                .ToArray();
+            if (pages.Length == 0)
+                return block;
+
+            return pages.Length == 1
+                ? block with { PageNumber = pages[0], SourceLocator = $"page {pages[0]}" }
+                : block with { PageNumber = pages[0], SourceLocator = $"pages {pages[0]}-{pages[^1]}" };
         }).ToArray();
     }
 

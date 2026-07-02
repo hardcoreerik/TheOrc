@@ -101,6 +101,29 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public void PdfPageLocators_Mark_Blocks_Spanning_Multiple_Pages()
+    {
+        const string normalized = "Page one starts\n\ncontinues on page two\n";
+        var blocks = new[]
+        {
+            new FabricParsedBlock(0, normalized.Length, null, normalized.TrimEnd('\n')),
+        };
+        var pageTexts = new (int PageNumber, string Text)[]
+        {
+            (1, "Page one starts"),
+            (2, "continues on page two"),
+        };
+
+        var located = AddPageLocatorsForTest(blocks, normalized, pageTexts);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(located[0].PageNumber, Is.EqualTo(1));
+            Assert.That(located[0].SourceLocator, Is.EqualTo("pages 1-2"));
+        });
+    }
+
+    [Test]
     public void TextMarkdownParser_Rejects_Invalid_Utf8_And_Nul()
     {
         var parser = new TextMarkdownFabricParser();
@@ -654,6 +677,20 @@ public sealed class ContextFabricCf1Tests
             Append($"{offset:0000000000} 00000 n \n");
         Append($"trailer\n<< /Size {offsets.Count} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
         return bytes.ToArray();
+    }
+
+    private static IReadOnlyList<FabricParsedBlock> AddPageLocatorsForTest(
+        IReadOnlyList<FabricParsedBlock> blocks,
+        string normalized,
+        IReadOnlyList<(int PageNumber, string Text)> pageTexts)
+    {
+        var type = typeof(PdfTextFabricParser).Assembly.GetType(
+            "OrchestratorIDE.Services.ContextFabric.FabricTextParsing",
+            throwOnError: true)!;
+        var method = type.GetMethod(
+            "AddPageLocators",
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!;
+        return (IReadOnlyList<FabricParsedBlock>)method.Invoke(null, [blocks, normalized, pageTexts])!;
     }
 
     private async Task AssertFixtureImportsAndRebuildsReproducibly(
