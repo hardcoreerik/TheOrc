@@ -321,6 +321,22 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
         return new HashSet<string>(digests, StringComparer.Ordinal);
     }
 
+    public IReadOnlySet<string> ListSourceArtifactDigests()
+    {
+        var digests = Query(
+            "SELECT DISTINCT source_digest AS digest FROM fabric_documents",
+            reader => reader.GetString(reader.GetOrdinal("digest")));
+        return new HashSet<string>(digests, StringComparer.Ordinal);
+    }
+
+    public IReadOnlySet<string> ListNormalizedArtifactDigests()
+    {
+        var digests = Query(
+            "SELECT DISTINCT normalized_digest AS digest FROM fabric_documents",
+            reader => reader.GetString(reader.GetOrdinal("digest")));
+        return new HashSet<string>(digests, StringComparer.Ordinal);
+    }
+
     private static string BuildFtsQuery(string query) => string.Join(" AND ", SearchTerms
         .Matches(query ?? "")
         .Select(match => $"\"{match.Value.Replace("\"", "\"\"")}\""));
