@@ -150,10 +150,20 @@ public sealed class FabricLibraryService
         await StoreAsync(sourceDigest, source, ct).ConfigureAwait(false);
         await StoreAsync(normalizedDigest, normalizedBytes, ct).ConfigureAwait(false);
 
-        var documentId = $"doc-{FabricHashing.Sha256($"{corpusId}|{sourceDigest}|{parsed.MediaType}|{parsed.ParserId}|{parsed.ParserVersion}")[..24]}";
+        var documentIdSeed = $"{corpusId}|{sourceDigest}|{parsed.MediaType}|{parsed.ParserId}|{parsed.ParserVersion}";
+        var documentId = "";
+        FabricDocumentEntry? existing;
+        for (var revival = 0; ; revival++)
+        {
+            var seed = revival == 0 ? documentIdSeed : $"{documentIdSeed}|revival|{revival}";
+            documentId = $"doc-{FabricHashing.Sha256(seed)[..24]}";
+            existing = _repository.GetDocument(documentId);
+            if (existing is null || existing.SupersededByDocumentId is null)
+                break;
+        }
+
         var segmenter = new FabricSegmenter(_options.EffectiveSegmenter);
         var segments = segmenter.Segment(documentId, parsed);
-        var existing = _repository.GetDocument(documentId);
         var now = DateTimeOffset.UtcNow;
         var supersededByDocumentId = existing?.SupersededByDocumentId;
         var document = new FabricDocumentEntry(

@@ -447,6 +447,38 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public async Task ImportFileAsync_Reverted_Source_Creates_New_Visible_Version()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Reverted source");
+        var sourcePath = Path.Combine(harness.Root, "reverted.txt");
+        await File.WriteAllTextAsync(sourcePath, "alpha restored token.\n");
+        var first = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+        await File.WriteAllTextAsync(sourcePath, "beta middle token.\n");
+        var second = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+        await File.WriteAllTextAsync(sourcePath, "alpha restored token.\n");
+
+        var third = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+        var rebuiltThird = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(third.Document.DocumentId, Is.Not.EqualTo(first.Document.DocumentId));
+            Assert.That(third.Document.DocumentId, Is.Not.EqualTo(second.Document.DocumentId));
+            Assert.That(third.Document.VersionOrdinal, Is.EqualTo(3));
+            Assert.That(third.Document.Status, Is.EqualTo("ready"));
+            Assert.That(harness.Repository.GetDocument(first.Document.DocumentId)!.Status, Is.EqualTo("superseded"));
+            Assert.That(harness.Repository.GetDocument(second.Document.DocumentId)!.Status, Is.EqualTo("superseded"));
+            Assert.That(harness.Service.Search("alpha", corpus.CorpusId).Select(hit => hit.DocumentId), Is.EqualTo(new[] { third.Document.DocumentId }));
+            Assert.That(harness.Service.Search("beta", corpus.CorpusId), Is.Empty);
+            Assert.That(rebuiltThird.Rebuilt, Is.True);
+            Assert.That(rebuiltThird.Document.DocumentId, Is.EqualTo(third.Document.DocumentId));
+            Assert.That(harness.Service.ListDocuments(corpus.CorpusId), Has.Count.EqualTo(3));
+        });
+    }
+
+    [Test]
     public async Task RebuildDocumentAsync_Resets_Active_NeedsRebuild_Document_To_Ready()
     {
         var harness = NewHarness();

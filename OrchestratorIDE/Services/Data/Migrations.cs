@@ -265,8 +265,7 @@ internal static class Migrations
             status            TEXT NOT NULL,
             warnings_json     TEXT NOT NULL,
             created_at        TEXT NOT NULL,
-            updated_at        TEXT NOT NULL,
-            UNIQUE(corpus_id, source_digest, media_type, parser_id, parser_version)
+            updated_at        TEXT NOT NULL
         );
         CREATE INDEX ix_fabric_documents_corpus ON fabric_documents(corpus_id, display_name);
         CREATE INDEX ix_fabric_documents_source ON fabric_documents(source_digest);
