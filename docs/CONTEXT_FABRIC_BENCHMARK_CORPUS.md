@@ -227,7 +227,7 @@ What it tests:
 coverage reporting, exhaustive retrieval, repeated concepts, clause-level checks, and benchmark go or no-go evaluation.
 
 Acceptance note:
-The standard here is measured coverage with publishable metrics, not confidence theater. The first CF-7 slice should pin the benchmark-gate report contract before adding larger corpora: B0-B4 run identities, corpus/question manifest digests, answer/citation/coverage metrics, ablation rows, and an explicit automated go/no-go verdict.
+The standard here is measured coverage with publishable metrics, not confidence theater. The first CF-7 slice pins the benchmark-gate report contract before adding larger corpora: B0-B4 run identities, corpus/generation/source identity, answer/citation/coverage metrics, diagnostics presence, and an explicit automated go/no-go verdict.
 
 Marketing line:
 Context Fabric can report what it checked, not just what it guessed.

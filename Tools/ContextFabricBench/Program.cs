@@ -57,7 +57,8 @@ internal static class Program
             var depot = ModelDepot.Scan(modelRoot);
             var researcher = depot.ResolveRole(RuntimeRole.Researcher, RuntimeWorkloadKind.ContextFabricReader);
             var reviewer = depot.ResolveRole(RuntimeRole.Reviewer, RuntimeWorkloadKind.ContextFabricReviewer);
-            if (researcher is null || (reviewer is null && options.Suite == BenchmarkSuite.Cf0))
+            var requiresReviewer = options.Suite is BenchmarkSuite.Cf0 or BenchmarkSuite.Cf7Gate;
+            if (researcher is null || (reviewer is null && requiresReviewer))
             {
                 Console.Error.WriteLine($"No native base GGUF was resolved beneath '{Path.GetFullPath(modelRoot)}'.");
                 return 65;
@@ -69,7 +70,7 @@ internal static class Program
                 : ModelAdmissionGate.Evaluate(reviewer.BaseModel, RuntimeWorkloadKind.ContextFabricReviewer);
             var benchmarkEnvironment = new FabricBenchmarkEnvironment(BuildEnvironmentLanes(researcher, reviewer, researcherAdmission, reviewerAdmission));
             if (researcherAdmission.Verdict == ModelAdmissionVerdict.Rejected ||
-                (options.Suite == BenchmarkSuite.Cf0 && reviewerAdmission?.Verdict == ModelAdmissionVerdict.Rejected))
+                (requiresReviewer && reviewerAdmission?.Verdict == ModelAdmissionVerdict.Rejected))
             {
                 Console.Error.WriteLine("Context Fabric preflight rejected the resolved native model selection.");
                 PrintAdmission("Researcher", researcher.BaseModel.DisplayName, researcherAdmission);

@@ -18,7 +18,8 @@ public static class ContextFabricBenchmarkGateEvaluator
     public static FabricCf7BenchmarkGateReport Evaluate(
         FabricFeasibilityReport? singleNodeContextFabric,
         FabricQuoteAnchorReport? quoteAnchoring,
-        FabricBoundaryStitchReport? boundaryStitch)
+        FabricBoundaryStitchReport? boundaryStitch,
+        IReadOnlyList<FabricBenchmarkSystemGate>? frozenSystemRuns = null)
     {
         var corpusId = singleNodeContextFabric?.CorpusId
             ?? quoteAnchoring?.CorpusId
@@ -29,7 +30,7 @@ public static class ContextFabricBenchmarkGateEvaluator
         var sourceDigest = singleNodeContextFabric?.SourceDigest ?? "";
 
         var systems = RequiredSystems
-            .Select(pair => BuildSystemGate(pair.Key, pair.Value, singleNodeContextFabric))
+            .Select(pair => BuildSystemGate(pair.Key, pair.Value, singleNodeContextFabric, frozenSystemRuns))
             .ToArray();
         var metrics = BuildMetrics(singleNodeContextFabric, quoteAnchoring, boundaryStitch);
         var gates = BuildGates(systems, metrics, quoteAnchoring, boundaryStitch);
@@ -48,11 +49,18 @@ public static class ContextFabricBenchmarkGateEvaluator
     private static FabricBenchmarkSystemGate BuildSystemGate(
         string systemId,
         string label,
-        FabricFeasibilityReport? singleNodeContextFabric)
+        FabricFeasibilityReport? singleNodeContextFabric,
+        IReadOnlyList<FabricBenchmarkSystemGate>? frozenSystemRuns)
     {
         if (systemId != "B3")
+        {
+            var supplied = frozenSystemRuns?.FirstOrDefault(system => system.SystemId == systemId);
+            if (supplied is not null)
+                return supplied;
+
             return new FabricBenchmarkSystemGate(systemId, label, FabricBenchmarkSystemStatus.Missing,
                 "No frozen run artifact supplied yet.");
+        }
 
         if (singleNodeContextFabric is null)
             return new FabricBenchmarkSystemGate(systemId, label, FabricBenchmarkSystemStatus.Missing,

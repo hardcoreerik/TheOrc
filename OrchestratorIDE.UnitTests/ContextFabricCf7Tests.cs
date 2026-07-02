@@ -38,6 +38,35 @@ public sealed class ContextFabricCf7Tests
     }
 
     [Test]
+    public async Task BenchmarkGate_Passes_WhenRequiredSystemRunsAndDiagnosticsPass()
+    {
+        var fixture = DeterministicFabricCorpus.Create();
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime());
+        var b3 = await runner.RunAsync(fixture);
+        var quote = new ContextFabricBenchmarkExpansionRunner(runtime: null)
+            .RunQuoteAnchoringDiagnostics(fixture);
+        var stitch = await new ContextFabricBenchmarkExpansionRunner(new ScriptedFabricRuntime())
+            .RunBoundaryStitchDiagnosticsAsync(DeterministicFabricCorpus.CreateBoundaryStitchFixture());
+
+        var report = ContextFabricBenchmarkGateEvaluator.Evaluate(b3, quote, stitch,
+        [
+            PassedSystem("B0", "Closed-book native model"),
+            PassedSystem("B1", "Truncated prompt"),
+            PassedSystem("B2", "Conventional top-k RAG"),
+            PassedSystem("B4", "HIVE Context Fabric"),
+        ]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(report.SchemaVersion, Is.EqualTo(FabricSchemaVersions.BenchmarkGate));
+            Assert.That(report.ReadyForExpansion, Is.True);
+            Assert.That(report.Systems, Has.All.Matches<FabricBenchmarkSystemGate>(
+                system => system.Status == FabricBenchmarkSystemStatus.Passed));
+            Assert.That(report.Gates, Has.All.Matches<FabricGateResult>(gate => gate.Passed));
+        });
+    }
+
+    [Test]
     public void BenchmarkGateMarkdown_ListsSystemsMetricsAndNoGoVerdict()
     {
         var report = ContextFabricBenchmarkGateEvaluator.Evaluate(
@@ -56,4 +85,7 @@ public sealed class ContextFabricCf7Tests
             Assert.That(markdown, Does.Contain("B0-B4 frozen runs present"));
         });
     }
+
+    private static FabricBenchmarkSystemGate PassedSystem(string systemId, string label) =>
+        new(systemId, label, FabricBenchmarkSystemStatus.Passed, "Frozen run passed.");
 }

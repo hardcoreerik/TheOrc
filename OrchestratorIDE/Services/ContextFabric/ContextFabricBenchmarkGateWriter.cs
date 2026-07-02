@@ -74,5 +74,6 @@ public static class ContextFabricBenchmarkGateWriter
     private static string Escape(string value) => value
         .Replace("|", "\\|", StringComparison.Ordinal)
         .Replace("\r", " ", StringComparison.Ordinal)
-        .Replace("\n", " ", StringComparison.Ordinal);
+        .Replace("\n", " ", StringComparison.Ordinal)
+        .Replace("`", "'", StringComparison.Ordinal);
 }
