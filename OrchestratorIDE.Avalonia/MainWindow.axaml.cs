@@ -2102,6 +2102,21 @@ public partial class MainWindow : Window
                 $"Experimental {featureLabel} enabled: {baseCount} base GGUF(s) found under '{root}'.",
                 DateTime.Now));
 
+            // Pin CUDA-preferring backend selection BEFORE any native load and make the outcome
+            // loud: a CUDA-capable GPU running on the CPU backend is a Warning, not a Debug line
+            // (observed silent on hardcorelaptopmsi: RTX 4060 present, avx2 selected, 1.7 tok/s).
+            var backend = NativeBackendBootstrap.EnsureConfigured();
+            var cpuFallbackOnGpuBox = backend.CudaCapableGpu && !backend.SelectedCuda;
+            AddActivity(new ActivityEvent(
+                cpuFallbackOnGpuBox ? ActivityKind.Warning : ActivityKind.Info,
+                "Native Runtime",
+                $"Native backend: {backend.Verdict}.",
+                DateTime.Now));
+            if (cpuFallbackOnGpuBox || !backend.DryRunSucceeded)
+                AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
+                    "Backend selection log:\n" + string.Join("\n", backend.Log),
+                    DateTime.Now));
+
             var budget = TryBuildNativeHiveBudget();
             if (budget is null)
             {

@@ -153,6 +153,22 @@ public sealed class HiveService : BackgroundService
                 if (depot.ResolveRole(RuntimeRole.Researcher, RuntimeWorkloadKind.ContextFabricReader) is { } researcherBinding)
                     roleBindings[RuntimeRole.Researcher] = researcherBinding;
 
+                // Pin CUDA-preferring backend selection BEFORE any native load; ongoing native
+                // log lines (model-load progress) go to Debug. A CUDA-capable GPU landing on the
+                // CPU backend is a Warning with the full selection log — never silent.
+                var backend = NativeBackendBootstrap.EnsureConfigured(
+                    line => _log.LogDebug("[llama-native] {Line}", line));
+                if (backend.CudaCapableGpu && !backend.SelectedCuda)
+                {
+                    _log.LogWarning("Native backend: {Verdict}", backend.Verdict);
+                    foreach (var line in backend.Log)
+                        _log.LogWarning("[backend-selection] {Line}", line);
+                }
+                else
+                {
+                    _log.LogInformation("Native backend: {Verdict}", backend.Verdict);
+                }
+
                 var nativeRuntime = new NativeRoleRuntime(
                     depot,
                     new RuntimeOptions(

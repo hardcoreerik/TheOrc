@@ -199,6 +199,10 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         RuntimeOptions? options = null,
         CancellationToken ct = default)
     {
+        // Pin backend selection (CUDA preference on driver-only machines) before the first
+        // NativeApi touch. Idempotent — callers that already surfaced the report pay nothing.
+        NativeBackendBootstrap.EnsureConfigured();
+
         await DisposeAsync();  // unload previous model
 
         _options = options ?? new();
