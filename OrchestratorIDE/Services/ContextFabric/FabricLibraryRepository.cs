@@ -310,30 +310,22 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
         ps => P(ps, "$id", corpusId)) > 0;
 
     public IReadOnlySet<string> ListReferencedArtifactDigests()
-    {
-        var digests = Query(
+        => ListDistinctDigests(
             """
             SELECT source_digest AS digest FROM fabric_documents
             UNION
             SELECT normalized_digest AS digest FROM fabric_documents
-            """,
-            reader => reader.GetString(reader.GetOrdinal("digest")));
-        return new HashSet<string>(digests, StringComparer.Ordinal);
-    }
+            """);
 
-    public IReadOnlySet<string> ListSourceArtifactDigests()
-    {
-        var digests = Query(
-            "SELECT DISTINCT source_digest AS digest FROM fabric_documents",
-            reader => reader.GetString(reader.GetOrdinal("digest")));
-        return new HashSet<string>(digests, StringComparer.Ordinal);
-    }
+    public IReadOnlySet<string> ListSourceArtifactDigests() =>
+        ListDistinctDigests("SELECT DISTINCT source_digest AS digest FROM fabric_documents");
 
-    public IReadOnlySet<string> ListNormalizedArtifactDigests()
+    public IReadOnlySet<string> ListNormalizedArtifactDigests() =>
+        ListDistinctDigests("SELECT DISTINCT normalized_digest AS digest FROM fabric_documents");
+
+    private IReadOnlySet<string> ListDistinctDigests(string sql)
     {
-        var digests = Query(
-            "SELECT DISTINCT normalized_digest AS digest FROM fabric_documents",
-            reader => reader.GetString(reader.GetOrdinal("digest")));
+        var digests = Query(sql, reader => reader.GetString(reader.GetOrdinal("digest")));
         return new HashSet<string>(digests, StringComparer.Ordinal);
     }
 

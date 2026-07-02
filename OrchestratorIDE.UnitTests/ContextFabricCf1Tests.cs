@@ -695,6 +695,32 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public async Task CachePolicy_Keeps_Normalized_Artifact_When_Another_Document_Uses_It_As_Source()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Shared derived source");
+        var derivedSourcePath = Path.Combine(harness.Root, "derived.md");
+        var literalSourcePath = Path.Combine(harness.Root, "literal.md");
+        await File.WriteAllTextAsync(derivedSourcePath, "\uFEFF# Shared\r\n");
+        await File.WriteAllTextAsync(literalSourcePath, "# Shared\n");
+        var derived = await harness.Service.ImportFileAsync(corpus.CorpusId, derivedSourcePath);
+        var literal = await harness.Service.ImportFileAsync(corpus.CorpusId, literalSourcePath);
+
+        Assert.That(derived.Document.NormalizedDigest, Is.EqualTo(literal.Document.SourceDigest));
+
+        var deleted = harness.Service.EvictRebuildableArtifacts();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(deleted, Is.EqualTo(0));
+            Assert.That(harness.Artifacts.Has(derived.Document.SourceDigest), Is.True);
+            Assert.That(harness.Artifacts.Has(derived.Document.NormalizedDigest), Is.True);
+            Assert.That(harness.Artifacts.Has(literal.Document.SourceDigest), Is.True);
+        });
+    }
+
+    [Test]
     public async Task Library_Garbage_Collection_Keeps_Shared_Artifacts_Until_Last_Reference_Is_Gone()
     {
         var harness = NewHarness();
