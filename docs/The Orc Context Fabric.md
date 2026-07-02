@@ -243,7 +243,7 @@ Owns corpus creation, source import, versioning, deletion, rebuild requests, and
 
 ### `DocumentParserRegistry`
 
-Selects deterministic parsers by media type. The first release supports plain text, Markdown, and text-based PDF. EPUB, DOCX, OCR, and multimodal page parsing follow through the native function-pack plan.
+Selects deterministic parsers by media type. The current CF-8 lane supports plain text, Markdown, text-based PDF, DOCX, EPUB, and optional OCR for image-only or blank PDF pages. Multimodal page parsing beyond OCR remains future native function-pack work.
 
 Parser output is a normalized document artifact containing:
 
@@ -1412,22 +1412,23 @@ Exit gate:
 
 ### Phase CF-8: scale, multimodal documents, and hardening
 
-Implementation status (2026-07-02): **active next lane**. The first slice pins parser block provenance needed by OCR, page-image, table, and multimodal evidence before adding new heavyweight parsers.
+Implementation status (2026-07-02): **closeout audit active**. CF-8 now has parser block provenance, DOCX and EPUB ingestion, optional OCR contracts, immutable document versions, cache policy, optional persisted embeddings, and cross-corpus/CodeGraph links. Large LongBench and million-token runs remain harness/documentation scope, not unattended closeout runs.
 
 Deliver:
 
 - EPUB and DOCX structure-aware ingestion;
 - OCR and page-image evidence;
 - tables and figures as first-class evidence;
-- optional vector-extension acceleration;
+- optional vector search acceleration through persisted embeddings and bounded in-memory cosine scoring;
 - cross-corpus and cross-CodeGraph links;
 - incremental source updates;
 - cache eviction and cold-storage policy;
-- larger LongBench and million-token corpus runs.
+- runnable harness/documentation for larger LongBench and million-token corpus runs.
 
 Exit gate:
 
-- no regression against frozen CF-7 quality, citation, context, and recovery metrics.
+- no regression against frozen CF-7 quality, citation, context, and recovery metrics;
+- focused CF-1 and CF-2 tests plus native-runtime build pass after the final CF-8 slice.
 
 ---
 
