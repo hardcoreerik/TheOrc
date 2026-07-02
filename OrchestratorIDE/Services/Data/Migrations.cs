@@ -552,6 +552,10 @@ internal static class Migrations
     // New source bytes already produce a new content-addressed document_id. These columns
     // connect same-name imports into a logical version chain and mark stale rows superseded.
     private const string Sql014_ContextFabricDocumentVersions = """
+        -- MigrationRunner executes this rebuild in one transaction. Deployments should
+        -- rely on the normal database backup/checkpoint policy before applying migrations;
+        -- this block preserves FK enforcement by recreating dependent fabric tables before
+        -- dropping their _v13 copies.
         DROP TRIGGER fabric_segment_text_ai;
         DROP TRIGGER fabric_segment_text_ad;
         DROP TRIGGER fabric_segment_text_au;
