@@ -365,7 +365,7 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
               AND e.dimension = $dimension
               AND ($corpus IS NULL OR d.corpus_id = $corpus)
               AND d.status <> 'superseded'
-            ORDER BY d.document_id, s.ordinal
+            ORDER BY e.updated_at DESC, e.object_id
             LIMIT $candidateLimit
             """,
             reader => new VectorSearchCandidate(
@@ -381,7 +381,8 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
                     reader.GetString(reader.GetOrdinal("block_kind")),
                     GetInt(reader, "page_number"),
                     GetStr(reader, "source_locator"),
-                    GetReal(reader, "confidence")),
+                    GetReal(reader, "confidence"),
+                    "vector"),
                 (byte[])reader["vector_blob"],
                 reader.GetDouble(reader.GetOrdinal("vector_norm"))),
             ps =>

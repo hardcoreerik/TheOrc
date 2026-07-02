@@ -137,7 +137,13 @@ public sealed record FabricSearchHit(
     string BlockKind = "text",
     int? PageNumber = null,
     string? SourceLocator = null,
-    double? Confidence = null);
+    double? Confidence = null,
+    /// <summary>
+    /// Names the score family used by <see cref="Rank"/>. Lexical hits use SQLite FTS BM25;
+    /// vector hits use 1 - cosine similarity. Both are ordered lower-is-better, but the
+    /// numeric scales are not interchangeable.
+    /// </summary>
+    string RankSource = "lexical");
 
 public sealed record FabricClaimEntry(
     string ClaimId,

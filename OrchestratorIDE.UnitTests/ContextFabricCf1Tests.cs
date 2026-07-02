@@ -463,8 +463,15 @@ public sealed class ContextFabricCf1Tests
         {
             Assert.That(hybrid.Select(hit => hit.SegmentId), Is.EqualTo(new[] { "seg-alpha-vector", "seg-beta-vector" }));
             Assert.That(hybrid[0].Rank, Is.EqualTo(0.0).Within(0.0001));
+            Assert.That(hybrid[0].RankSource, Is.EqualTo("vector"));
+            Assert.That(hybrid[1].RankSource, Is.EqualTo("vector"));
             Assert.That(lexicalFallback.Select(hit => hit.SegmentId), Is.EqualTo(new[] { "seg-beta-vector" }));
+            Assert.That(lexicalFallback[0].RankSource, Is.EqualTo("lexical"));
         });
+
+        Assert.That(harness.Service.DeleteCorpus(corpus.CorpusId), Is.True);
+        using var connection = store.Open();
+        Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_embeddings"), Is.EqualTo(0));
     }
 
     [Test]

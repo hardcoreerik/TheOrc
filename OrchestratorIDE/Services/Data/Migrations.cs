@@ -853,6 +853,11 @@ internal static class Migrations
         );
         CREATE INDEX ix_fabric_embeddings_model_kind
             ON fabric_embeddings(embedding_model_hash, object_kind);
+        CREATE TRIGGER fabric_segments_embedding_ad AFTER DELETE ON fabric_segments BEGIN
+            DELETE FROM fabric_embeddings
+            WHERE object_kind = 'segment'
+              AND object_id = old.segment_id;
+        END;
         """;
 
     // ── v5 — CodeGraph v1 (C# structure + search index) ─────────────────────────
