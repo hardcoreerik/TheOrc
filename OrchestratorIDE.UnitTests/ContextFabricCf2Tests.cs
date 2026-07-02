@@ -226,6 +226,26 @@ public sealed class ContextFabricCf2Tests
             Assert.That(codeLinks[0].TargetCorpusId, Is.Null);
         });
 
+        codeGraph.ReplaceGraph("TheOrc",
+        [
+            new CodeNode(
+                null,
+                "TheOrc",
+                "Method",
+                "SearchWithVector",
+                "OrchestratorIDE.Services.ContextFabric.FabricLibraryService.SearchWithVector",
+                "OrchestratorIDE/Services/ContextFabric/FabricLibraryService.cs",
+                48,
+                78,
+                null,
+                null,
+                null,
+                null,
+                null)
+        ], []);
+
+        Assert.That(graph.ListGraphLinksForObject("codegraph_node", nodeId.ToString(System.Globalization.CultureInfo.InvariantCulture)), Has.Count.EqualTo(1));
+
         library.DeleteCorpus(first.Corpus.CorpusId);
 
         Assert.Multiple(() =>
@@ -295,6 +315,33 @@ public sealed class ContextFabricCf2Tests
             now)));
 
         Assert.That(ex!.Message, Does.Contain("does not match"));
+    }
+
+    [Test]
+    public void DocumentGraphRepository_Rejects_Link_With_Missing_Endpoint()
+    {
+        using var store = new SqliteStore(":memory:");
+        store.Initialize();
+        var library = new FabricLibraryRepository(store);
+        var graph = new DocumentGraphRepository(store);
+        var now = DateTimeOffset.UtcNow;
+        var first = SeedClaim(library, graph, "corpus-missing-endpoint", "doc-missing-endpoint", "seg-missing-endpoint", "claim-missing-endpoint", "Alpha source.", now);
+
+        var ex = Assert.Throws<InvalidDataException>(() => graph.UpsertGraphLink(new FabricGraphLinkEntry(
+            "link-missing-endpoint",
+            "claim",
+            first.Claim.ClaimId,
+            first.Corpus.CorpusId,
+            "claim",
+            "missing-claim",
+            first.Corpus.CorpusId,
+            "supports",
+            null,
+            null,
+            now,
+            now)));
+
+        Assert.That(ex!.Message, Does.Contain("does not exist"));
     }
 
     [Test]

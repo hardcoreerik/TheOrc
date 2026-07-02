@@ -105,11 +105,6 @@ public sealed class GraphRepository : RepositoryBase
 
         InTransaction((conn, tx) =>
         {
-            // Full project wipe (edges + fts rows via cascade + delete triggers)
-            DeleteFabricGraphLinksForProject(tx, project);
-            ExecuteOn(tx, "DELETE FROM graph_nodes WHERE project = $p",
-                ps => P(ps, "$p", project));
-
             var qnameToId = new Dictionary<string, int>(StringComparer.Ordinal);
 
             // Dedup caller list by qualified_name (last wins) to avoid UNIQUE violation on bulk path (blocker fix).
@@ -117,6 +112,42 @@ public sealed class GraphRepository : RepositoryBase
                 .GroupBy(n => n.QualifiedName, StringComparer.Ordinal)
                 .Select(g => g.Last())
                 .ToList();
+
+            ExecuteOn(tx, "CREATE TEMP TABLE IF NOT EXISTS replace_graph_qnames (qualified_name TEXT PRIMARY KEY)");
+            ExecuteOn(tx, "DELETE FROM replace_graph_qnames");
+            foreach (var n in uniqueNodes)
+            {
+                ExecuteOn(tx,
+                    "INSERT OR IGNORE INTO replace_graph_qnames (qualified_name) VALUES ($q)",
+                    ps => P(ps, "$q", n.QualifiedName));
+            }
+
+            ExecuteOn(tx,
+                """
+                DELETE FROM fabric_graph_links
+                WHERE (source_kind = 'codegraph_node' AND source_id IN (
+                        SELECT CAST(id AS TEXT)
+                        FROM graph_nodes
+                        WHERE project = $p
+                          AND qualified_name NOT IN (SELECT qualified_name FROM replace_graph_qnames)
+                    ))
+                   OR (target_kind = 'codegraph_node' AND target_id IN (
+                        SELECT CAST(id AS TEXT)
+                        FROM graph_nodes
+                        WHERE project = $p
+                          AND qualified_name NOT IN (SELECT qualified_name FROM replace_graph_qnames)
+                    ))
+                """,
+                ps => P(ps, "$p", project));
+            ExecuteOn(tx, "DELETE FROM graph_edges WHERE project = $p",
+                ps => P(ps, "$p", project));
+            ExecuteOn(tx,
+                """
+                DELETE FROM graph_nodes
+                WHERE project = $p
+                  AND qualified_name NOT IN (SELECT qualified_name FROM replace_graph_qnames)
+                """,
+                ps => P(ps, "$p", project));
 
             const string ins = """
                 INSERT INTO graph_nodes
@@ -126,14 +157,32 @@ public sealed class GraphRepository : RepositoryBase
                 VALUES
                     ($project, $label, $name, $qname, $fpath,
                      $lstart, $lend, $cyc, $cog, $ld, $tld, $lin, $rec, 0)
+                ON CONFLICT(project, qualified_name) DO UPDATE SET
+                    label                 = excluded.label,
+                    name                  = excluded.name,
+                    file_path             = excluded.file_path,
+                    line_start            = excluded.line_start,
+                    line_end              = excluded.line_end,
+                    cyclomatic            = excluded.cyclomatic,
+                    cognitive             = excluded.cognitive,
+                    loop_depth            = excluded.loop_depth,
+                    transitive_loop_depth = excluded.transitive_loop_depth,
+                    linear_scan_in_loop   = excluded.linear_scan_in_loop,
+                    is_recursive          = excluded.is_recursive
                 """;
 
             foreach (var n in uniqueNodes)
             {
-                using var cmd = CreateCmd(conn, tx, ins + "; SELECT last_insert_rowid();");
+                using var cmd = CreateCmd(conn, tx, ins);
                 BindNode(cmd.Parameters, n);
-                var idObj = cmd.ExecuteScalar();
-                var newId = idObj is null ? throw new InvalidOperationException("Failed to obtain node id after bulk insert") : Convert.ToInt32(idObj);
+                cmd.ExecuteNonQuery();
+
+                using var idCmd = CreateCmd(conn, tx,
+                    "SELECT id FROM graph_nodes WHERE project = $p AND qualified_name = $q");
+                P(idCmd.Parameters, "$p", n.Project);
+                P(idCmd.Parameters, "$q", n.QualifiedName);
+                var idObj = idCmd.ExecuteScalar();
+                var newId = idObj is null ? throw new InvalidOperationException("Failed to obtain node id after bulk upsert") : Convert.ToInt32(idObj);
                 qnameToId[n.QualifiedName] = newId;
 
                 // Correct the fts row that the AFTER INSERT trigger just wrote (raw → split)
