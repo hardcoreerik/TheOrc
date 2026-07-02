@@ -159,10 +159,12 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
                 using (var cmd = CreateCmd(conn, tx, """
                     INSERT INTO fabric_segments
                         (segment_id, document_id, ordinal, heading_path, char_start, char_end,
-                         token_count, text_digest, previous_segment_id, next_segment_id, chunker_version)
+                         token_count, text_digest, previous_segment_id, next_segment_id, chunker_version,
+                         block_kind, page_number, source_locator, confidence)
                     VALUES
                         ($id, $document, $ordinal, $heading, $start, $end,
-                         $tokens, $digest, $previous, $next, $version)
+                         $tokens, $digest, $previous, $next, $version,
+                         $blockKind, $pageNumber, $sourceLocator, $confidence)
                     """))
                 {
                     P(cmd.Parameters, "$id", segment.SegmentId);
@@ -176,6 +178,10 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
                     P(cmd.Parameters, "$previous", segment.PreviousSegmentId);
                     P(cmd.Parameters, "$next", segment.NextSegmentId);
                     P(cmd.Parameters, "$version", segment.ChunkerVersion);
+                    P(cmd.Parameters, "$blockKind", string.IsNullOrWhiteSpace(segment.BlockKind) ? "text" : segment.BlockKind);
+                    P(cmd.Parameters, "$pageNumber", segment.PageNumber);
+                    P(cmd.Parameters, "$sourceLocator", segment.SourceLocator);
+                    P(cmd.Parameters, "$confidence", segment.Confidence);
                     cmd.ExecuteNonQuery();
                 }
 
@@ -208,6 +214,7 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
             """
             SELECT d.corpus_id, d.document_id, d.display_name,
                    s.segment_id, s.ordinal, s.heading_path, t.normalized_text,
+                   s.block_kind, s.page_number, s.source_locator, s.confidence,
                    bm25(fabric_segment_fts) AS rank
             FROM fabric_segment_fts
             JOIN fabric_segment_text t ON t.rowid = fabric_segment_fts.rowid
@@ -226,7 +233,11 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
                 reader.GetInt32(reader.GetOrdinal("ordinal")),
                 GetStr(reader, "heading_path"),
                 reader.GetString(reader.GetOrdinal("normalized_text")),
-                reader.GetDouble(reader.GetOrdinal("rank"))),
+                reader.GetDouble(reader.GetOrdinal("rank")),
+                reader.GetString(reader.GetOrdinal("block_kind")),
+                GetInt(reader, "page_number"),
+                GetStr(reader, "source_locator"),
+                GetReal(reader, "confidence")),
             ps =>
             {
                 P(ps, "$query", ftsQuery);
@@ -290,7 +301,11 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
         reader.GetString(reader.GetOrdinal("normalized_text")),
         GetStr(reader, "previous_segment_id"),
         GetStr(reader, "next_segment_id"),
-        reader.GetString(reader.GetOrdinal("chunker_version")));
+        reader.GetString(reader.GetOrdinal("chunker_version")),
+        reader.GetString(reader.GetOrdinal("block_kind")),
+        GetInt(reader, "page_number"),
+        GetStr(reader, "source_locator"),
+        GetReal(reader, "confidence"));
 
     private static void BindDocument(SqliteParameterCollection parameters, FabricDocumentEntry document)
     {

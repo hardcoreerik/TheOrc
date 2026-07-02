@@ -109,7 +109,11 @@ public sealed record FabricSegmentEntry(
     string Text,
     string? PreviousSegmentId,
     string? NextSegmentId,
-    string ChunkerVersion);
+    string ChunkerVersion,
+    string BlockKind = "text",
+    int? PageNumber = null,
+    string? SourceLocator = null,
+    double? Confidence = null);
 
 public sealed record FabricImportResult(
     FabricDocumentEntry Document,
@@ -124,7 +128,11 @@ public sealed record FabricSearchHit(
     int Ordinal,
     string? HeadingPath,
     string Text,
-    double Rank);
+    double Rank,
+    string BlockKind = "text",
+    int? PageNumber = null,
+    string? SourceLocator = null,
+    double? Confidence = null);
 
 public sealed record FabricClaimEntry(
     string ClaimId,
@@ -196,7 +204,11 @@ public sealed record FabricRetrievalHit(
     string RetrievalPath,
     string? ClaimId,
     string? ClaimText,
-    string? VerificationStatus);
+    string? VerificationStatus,
+    string BlockKind = "text",
+    int? PageNumber = null,
+    string? SourceLocator = null,
+    double? Confidence = null);
 
 public sealed record FabricMemoryNodeEntry(
     string NodeId,

@@ -535,6 +535,41 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public async Task Repository_ReplaceDocument_Persists_And_Searches_Segment_Provenance()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Provenance persistence");
+        var sourcePath = Path.Combine(harness.Root, "provenance.txt");
+        await File.WriteAllTextAsync(sourcePath, "Original content.\n");
+        var imported = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+        var replacement = Draft("seg-provenance", 0, "needle provenance")
+            with
+            {
+                BlockKind = "table",
+                PageNumber = 4,
+                SourceLocator = "pages 4-5",
+                Confidence = 0.67,
+            };
+
+        harness.Repository.ReplaceDocument(imported.Document, [replacement]);
+        var persisted = harness.Repository.GetSegment(replacement.SegmentId)!;
+        var searchHit = harness.Repository.Search("needle", corpus.CorpusId).Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(persisted.BlockKind, Is.EqualTo("table"));
+            Assert.That(persisted.PageNumber, Is.EqualTo(4));
+            Assert.That(persisted.SourceLocator, Is.EqualTo("pages 4-5"));
+            Assert.That(persisted.Confidence, Is.EqualTo(0.67));
+            Assert.That(searchHit.BlockKind, Is.EqualTo("table"));
+            Assert.That(searchHit.PageNumber, Is.EqualTo(4));
+            Assert.That(searchHit.SourceLocator, Is.EqualTo("pages 4-5"));
+            Assert.That(searchHit.Confidence, Is.EqualTo(0.67));
+        });
+    }
+
+    [Test]
     public async Task DarwinFixture_Imports_And_Rebuilds_Reproducibly()
     {
         await AssertFixtureImportsAndRebuildsReproducibly(
@@ -616,6 +651,51 @@ public sealed class ContextFabricCf1Tests
             Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_documents WHERE document_id = 'invalid-document' AND status = 'needs_rebuild'"), Is.EqualTo(1));
             Assert.That(
                 () => Execute(connection, "UPDATE fabric_segments SET char_start = -1 WHERE segment_id = 'segment'"),
+                Throws.TypeOf<Microsoft.Data.Sqlite.SqliteException>());
+        });
+    }
+
+    [Test]
+    public void MigrationV13_Adds_Segment_Provenance_Columns_With_Defaults()
+    {
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+            "Data Source=:memory:;Foreign Keys=True");
+        connection.Open();
+        Execute(connection, """
+            CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL,
+                description TEXT
+            );
+            """);
+        foreach (var migration in Migrations.All.Where(migration => migration.Version <= 12))
+        {
+            Execute(connection, migration.Sql);
+            Execute(connection, $"INSERT INTO schema_migrations VALUES ({migration.Version}, 'now', 'test')");
+        }
+
+        Execute(connection, """
+            INSERT INTO fabric_corpora VALUES ('corpus', 'Corpus', NULL, 'default', 'ready', 'now', 'now');
+            INSERT INTO fabric_documents VALUES (
+                'document', 'corpus', 'source', 'normalized', 'Document', 'text/plain',
+                'parser', '1', 'ready', '[]', 'now', 'now');
+            INSERT INTO fabric_segments
+                (segment_id, document_id, ordinal, heading_path, char_start, char_end,
+                 token_count, text_digest, previous_segment_id, next_segment_id, chunker_version)
+            VALUES
+                ('segment', 'document', 0, NULL, 0, 4, 1, 'digest', NULL, NULL, '1');
+            INSERT INTO fabric_segment_text VALUES ('segment', NULL, 'kept');
+            """);
+
+        MigrationRunner.Apply(connection);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM schema_migrations WHERE version = 13"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_segments WHERE segment_id = 'segment' AND block_kind = 'text'"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_segments WHERE segment_id = 'segment' AND page_number IS NULL"), Is.EqualTo(1));
+            Assert.That(
+                () => Execute(connection, "UPDATE fabric_segments SET confidence = 2.0 WHERE segment_id = 'segment'"),
                 Throws.TypeOf<Microsoft.Data.Sqlite.SqliteException>());
         });
     }
