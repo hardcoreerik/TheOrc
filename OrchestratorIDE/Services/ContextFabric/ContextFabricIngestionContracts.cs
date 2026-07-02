@@ -125,6 +125,11 @@ public sealed record FabricImportResult(
     IReadOnlyList<FabricSegmentEntry> Segments,
     bool Rebuilt);
 
+/// <param name="Rank">
+/// Match score where lower is better. Lexical hits use SQLite FTS BM25; vector hits use
+/// 1 - cosine similarity, so numeric scales are not interchangeable across rank sources.
+/// </param>
+/// <param name="RankSource">Names the score family used by <paramref name="Rank"/>.</param>
 public sealed record FabricSearchHit(
     string CorpusId,
     string DocumentId,
@@ -138,11 +143,6 @@ public sealed record FabricSearchHit(
     int? PageNumber = null,
     string? SourceLocator = null,
     double? Confidence = null,
-    /// <summary>
-    /// Names the score family used by <see cref="Rank"/>. Lexical hits use SQLite FTS BM25;
-    /// vector hits use 1 - cosine similarity. Both are ordered lower-is-better, but the
-    /// numeric scales are not interchangeable.
-    /// </summary>
     string RankSource = "lexical");
 
 public sealed record FabricClaimEntry(
