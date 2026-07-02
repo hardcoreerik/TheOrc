@@ -244,7 +244,7 @@ What it tests:
 OCR, table fidelity, scan resilience, multimodal evidence, and large mixed-source hardening.
 
 Acceptance note:
-This is the right home for the scan-heavy Darwin PDFs already pinned as future candidates. They should not be oversold as solved before OCR and scan handling exist.
+This is the right home for the scan-heavy Darwin PDFs already pinned as future candidates. The first CF-8 slice pins parser block provenance for page, table, OCR, and multimodal evidence; it should not be oversold as OCR or scan handling itself.
 
 Marketing line:
 Books, manuals, standards, labels, and scans. One source-grounded memory fabric.

@@ -60,7 +60,130 @@ public sealed class ContextFabricCf1Tests
             Assert.That(parsed.Blocks, Has.Count.EqualTo(4));
             Assert.That(parsed.Blocks[1].HeadingPath, Is.EqualTo("Alpha"));
             Assert.That(parsed.Blocks[3].HeadingPath, Is.EqualTo("Alpha / Beta"));
+            Assert.That(parsed.Blocks[0].BlockKind, Is.EqualTo("heading"));
+            Assert.That(parsed.Blocks[1].BlockKind, Is.EqualTo("text"));
             Assert.That(parsed.NormalizedText[parsed.Blocks[3].CharStart..parsed.Blocks[3].CharEnd], Is.EqualTo("Second paragraph."));
+        });
+    }
+
+    [Test]
+    public async Task PdfTextParser_Attaches_Page_Locators_To_Blocks()
+    {
+        var parser = new PdfTextFabricParser();
+        var source = await File.ReadAllBytesAsync(GetDarwinPdfFixturePath());
+
+        var parsed = parser.Parse(source, "application/pdf");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed.Blocks, Has.Count.GreaterThan(0));
+            Assert.That(parsed.Blocks, Has.All.Matches<FabricParsedBlock>(block =>
+                block.PageNumber >= 1 && !string.IsNullOrWhiteSpace(block.SourceLocator)));
+            Assert.That(parsed.Blocks, Has.All.Matches<FabricParsedBlock>(block =>
+                parsed.NormalizedText[block.CharStart..block.CharEnd] == block.Text));
+        });
+    }
+
+    [Test]
+    public void PdfTextParser_Preserves_Page_Number_After_Blank_Page()
+    {
+        var parser = new PdfTextFabricParser();
+
+        var parsed = parser.Parse(BuildTwoPagePdfWithBlankFirstPage(), "application/pdf");
+        var sentinel = parsed.Blocks.Single(block => block.Text.Contains("Second page sentinel", StringComparison.Ordinal));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sentinel.PageNumber, Is.EqualTo(2));
+            Assert.That(sentinel.SourceLocator, Is.EqualTo("page 2"));
+            Assert.That(parsed.NormalizedText[sentinel.CharStart..sentinel.CharEnd], Is.EqualTo(sentinel.Text));
+        });
+    }
+
+    [Test]
+    public void PdfPageLocators_Mark_Blocks_Spanning_Multiple_Pages()
+    {
+        const string normalized = "Page one starts\n\ncontinues on page two\n";
+        var blocks = new[]
+        {
+            new FabricParsedBlock(0, normalized.Length, null, normalized.TrimEnd('\n')),
+        };
+        var pageTexts = new (int PageNumber, string Text)[]
+        {
+            (1, "Page one starts"),
+            (2, "continues on page two"),
+        };
+
+        var located = FabricTextParsing.AddPageLocators(blocks, normalized, pageTexts);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(located[0].PageNumber, Is.EqualTo(1));
+            Assert.That(located[0].SourceLocator, Is.EqualTo("pages 1-2"));
+        });
+    }
+
+    [Test]
+    public void Segmenter_Preserves_Block_Metadata_When_Splitting_Oversized_Blocks()
+    {
+        var text = string.Join(' ', Enumerable.Repeat("metadata-token", 180)) + "\n";
+        var parsed = new FabricParsedDocument(
+            "parser",
+            "version",
+            "application/pdf",
+            text,
+            [
+                new FabricParsedBlock(
+                    0,
+                    text.Length,
+                    "Manual",
+                    text.TrimEnd('\n'),
+                    "table",
+                    7,
+                    "pages 7-8",
+                    0.82),
+            ],
+            []);
+
+        var segments = new FabricSegmenter(new FabricSegmenterOptions(64, 96, 0))
+            .Segment("doc-metadata", parsed);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(segments, Has.Count.GreaterThan(1));
+            Assert.That(segments, Has.All.Matches<FabricSegmentDraft>(segment =>
+                segment.BlockKind == "table" &&
+                segment.PageNumber == 7 &&
+                segment.SourceLocator == "pages 7-8" &&
+                segment.Confidence == 0.82));
+        });
+    }
+
+    [Test]
+    public void Segmenter_Aggregates_Page_Metadata_When_Segment_Spans_Multiple_Blocks()
+    {
+        var first = new string('a', 150);
+        var second = new string('b', 150);
+        var text = $"{first}\n\n{second}\n";
+        var parsed = new FabricParsedDocument(
+            "parser",
+            "version",
+            "application/pdf",
+            text,
+            [
+                new FabricParsedBlock(0, first.Length, "Manual", first, "text", 2, "page 2", 0.91),
+                new FabricParsedBlock(first.Length + 2, first.Length + 2 + second.Length, "Manual", second, "text", 3, "page 3", 0.73),
+            ],
+            []);
+
+        var segments = new FabricSegmenter(new FabricSegmenterOptions(64, 96, 0))
+            .Segment("doc-merged-pages", parsed);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(segments[0].PageNumber, Is.EqualTo(2));
+            Assert.That(segments[0].SourceLocator, Is.EqualTo("pages 2-3"));
+            Assert.That(segments[0].Confidence, Is.EqualTo(0.73));
         });
     }
 
@@ -587,6 +710,38 @@ public sealed class ContextFabricCf1Tests
             FirstSegmentId = result.Segments[0].SegmentId,
             LastSegmentId = result.Segments[^1].SegmentId,
         });
+
+    private static byte[] BuildTwoPagePdfWithBlankFirstPage()
+    {
+        var body = "BT /F1 12 Tf 72 720 Td (Second page sentinel) Tj ET";
+        var objects = new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 6 0 R >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            $"<< /Length {body.Length} >>\nstream\n{body}\nendstream",
+        };
+        var bytes = new List<byte>();
+        void Append(string text) => bytes.AddRange(Encoding.ASCII.GetBytes(text));
+
+        Append("%PDF-1.4\n");
+        var offsets = new List<int> { 0 };
+        for (var index = 0; index < objects.Length; index++)
+        {
+            offsets.Add(bytes.Count);
+            Append($"{index + 1} 0 obj\n{objects[index]}\nendobj\n");
+        }
+
+        var xref = bytes.Count;
+        Append($"xref\n0 {offsets.Count}\n");
+        Append("0000000000 65535 f \n");
+        foreach (var offset in offsets.Skip(1))
+            Append($"{offset:0000000000} 00000 n \n");
+        Append($"trailer\n<< /Size {offsets.Count} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+        return bytes.ToArray();
+    }
 
     private async Task AssertFixtureImportsAndRebuildsReproducibly(
         DarwinFixtureManifest manifest,

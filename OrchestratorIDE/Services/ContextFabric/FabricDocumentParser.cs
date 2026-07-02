@@ -105,17 +105,20 @@ public sealed class PdfTextFabricParser : IFabricDocumentParser
             throw new InvalidDataException("PDF contains no pages.");
 
         var pageTexts = pages
-            .Select(ExtractPageText)
-            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .Select((page, index) => (PageNumber: index + 1, Text: ExtractPageText(page)))
+            .Where(page => !string.IsNullOrWhiteSpace(page.Text))
             .ToArray();
         if (pageTexts.Length == 0)
             throw new InvalidDataException("PDF contains no extractable text.");
 
-        var normalized = FabricTextParsing.Normalize(string.Join("\n\n", pageTexts));
+        var normalized = FabricTextParsing.Normalize(string.Join("\n\n", pageTexts.Select(page => page.Text)));
         if (string.IsNullOrWhiteSpace(normalized))
             throw new InvalidDataException("PDF contains no parseable text.");
 
-        var blocks = FabricTextParsing.BuildBlocks(normalized, markdown: false);
+        var blocks = FabricTextParsing.AddPageLocators(
+            FabricTextParsing.BuildBlocks(normalized, markdown: false),
+            normalized,
+            pageTexts);
         if (blocks.Count == 0)
             throw new InvalidDataException("PDF contains no parseable blocks.");
 
@@ -206,16 +209,67 @@ internal static class FabricTextParsing
                 }
             }
 
-            var blockText = text[cursor..boundary];
             var headingPath = string.Join(" / ", headings.Where(value => !string.IsNullOrWhiteSpace(value))!);
+            var blockText = text[cursor..boundary];
+            var kind = heading.Success ? "heading" : "text";
             blocks.Add(new FabricParsedBlock(
                 cursor,
                 boundary,
                 headingPath.Length == 0 ? null : headingPath,
-                blockText));
+                blockText,
+                kind));
             cursor = boundary;
         }
 
         return blocks;
+    }
+
+    public static IReadOnlyList<FabricParsedBlock> AddPageLocators(
+        IReadOnlyList<FabricParsedBlock> blocks,
+        string normalized,
+        IReadOnlyList<(int PageNumber, string Text)> pageTexts)
+    {
+        if (blocks.Count == 0 || pageTexts.Count == 0)
+            return blocks;
+
+        var ranges = BuildPageRanges(normalized, pageTexts);
+        return blocks.Select(block =>
+        {
+            var pages = ranges
+                .Where(range => block.CharStart < range.End && block.CharEnd > range.Start)
+                .Select(range => range.PageNumber)
+                .Distinct()
+                .ToArray();
+            if (pages.Length == 0)
+                return block;
+
+            return pages.Length == 1
+                ? block with { PageNumber = pages[0], SourceLocator = $"page {pages[0]}" }
+                : block with { PageNumber = pages[0], SourceLocator = $"pages {pages[0]}-{pages[^1]}" };
+        }).ToArray();
+    }
+
+    private static IReadOnlyList<(int PageNumber, int Start, int End)> BuildPageRanges(
+        string normalized,
+        IReadOnlyList<(int PageNumber, string Text)> pageTexts)
+    {
+        var ranges = new List<(int PageNumber, int Start, int End)>();
+        var cursor = 0;
+        for (var index = 0; index < pageTexts.Count; index++)
+        {
+            var page = Normalize(pageTexts[index].Text).Trim('\n');
+            if (page.Length == 0)
+                continue;
+
+            var start = normalized.IndexOf(page, cursor, StringComparison.Ordinal);
+            if (start < 0)
+                continue;
+
+            var end = start + page.Length;
+            ranges.Add((pageTexts[index].PageNumber, start, end));
+            cursor = end;
+        }
+
+        return ranges;
     }
 }

@@ -61,6 +61,7 @@ public sealed class FabricSegmenter
             var text = document.NormalizedText[charStart..charEnd];
             var digest = FabricHashing.Sha256(text);
             var segmentId = $"seg-{FabricHashing.Sha256($"{documentId}|{FabricIngestionVersions.Segmenter}|{charStart}|{charEnd}|{digest}")[..24]}";
+            var metadata = AggregateSourceMetadata(blocks[range.Start..range.End]);
             return new FabricSegmentDraft(
                 segmentId,
                 index + 1,
@@ -72,7 +73,11 @@ public sealed class FabricSegmenter
                 text,
                 null,
                 null,
-                FabricIngestionVersions.Segmenter);
+                FabricIngestionVersions.Segmenter,
+                blocks[range.Start].BlockKind,
+                metadata.PageNumber,
+                metadata.SourceLocator,
+                metadata.Confidence);
         }).ToArray();
 
         return drafts.Select((draft, index) => draft with
@@ -127,8 +132,77 @@ public sealed class FabricSegmenter
                 block.CharStart + offset,
                 block.CharStart + offset + length,
                 block.HeadingPath,
-                text);
+                text,
+                block.BlockKind,
+                block.PageNumber,
+                block.SourceLocator,
+                block.Confidence);
             offset += length;
         }
+    }
+
+    private static (int? PageNumber, string? SourceLocator, double? Confidence) AggregateSourceMetadata(
+        IReadOnlyList<FabricParsedBlock> blocks)
+    {
+        var pages = blocks.SelectMany(EnumeratePages).Distinct().Order().ToArray();
+        var confidences = blocks
+            .Where(block => block.Confidence.HasValue)
+            .Select(block => block.Confidence!.Value)
+            .ToArray();
+        var confidence = confidences.Length == 0 ? (double?)null : confidences.Min();
+
+        if (pages.Length == 0)
+        {
+            var locator = blocks.Select(block => block.SourceLocator).FirstOrDefault(locator => !string.IsNullOrWhiteSpace(locator));
+            return (blocks.Select(block => block.PageNumber).FirstOrDefault(page => page.HasValue), locator, confidence);
+        }
+
+        return pages.Length == 1
+            ? (pages[0], $"page {pages[0]}", confidence)
+            : (pages[0], $"pages {pages[0]}-{pages[^1]}", confidence);
+    }
+
+    private static IEnumerable<int> EnumeratePages(FabricParsedBlock block)
+    {
+        if (TryParsePageRange(block.SourceLocator, out var start, out var end))
+        {
+            for (var page = start; page <= end; page++)
+                yield return page;
+            yield break;
+        }
+
+        if (block.PageNumber.HasValue)
+            yield return block.PageNumber.Value;
+    }
+
+    private static bool TryParsePageRange(string? sourceLocator, out int start, out int end)
+    {
+        start = 0;
+        end = 0;
+        if (string.IsNullOrWhiteSpace(sourceLocator))
+            return false;
+
+        const string singlePrefix = "page ";
+        const string rangePrefix = "pages ";
+        if (sourceLocator.StartsWith(singlePrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!int.TryParse(sourceLocator[singlePrefix.Length..], out start))
+                return false;
+            end = start;
+            return start > 0;
+        }
+
+        if (!sourceLocator.StartsWith(rangePrefix, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var parts = sourceLocator[rangePrefix.Length..].Split('-', 2, StringSplitOptions.TrimEntries);
+        if (parts.Length != 2 ||
+            !int.TryParse(parts[0], out start) ||
+            !int.TryParse(parts[1], out end))
+        {
+            return false;
+        }
+
+        return start > 0 && end >= start;
     }
 }
