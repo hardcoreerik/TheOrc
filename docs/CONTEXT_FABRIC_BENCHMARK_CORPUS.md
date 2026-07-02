@@ -210,7 +210,7 @@ What it tests:
 distributed readers, recovery after worker loss, deterministic import, and generation-safe evidence merge.
 
 Acceptance note:
-Public language should emphasize coordinated reading and verified merge behavior, not vague swarm mystique. As of 2026-07-02, PR #15 has branch-level CF-6 evidence for the worker-loss gate: a live 3-machine HIVE run recovered a suspended worker without duplicate accepted evidence, rejected a stale completion with HTTP 409, rotated the claim token, and produced exactly one accepted completion. Keep this framed as PR/branch evidence until merged, and note that the first death-test run required manual completion of phases 4-7 after the original harness reclaim window expired one second before the reclaim.
+Public language should emphasize coordinated reading and verified merge behavior, not vague swarm mystique. As of 2026-07-02, PR #15 is merged: CF-6 has master-level evidence for the worker-loss gate. A live 3-machine HIVE run recovered a suspended worker without duplicate accepted evidence, rejected a stale completion with HTTP 409, rotated the claim token, and produced exactly one accepted completion. Note that the first death-test run required manual completion of phases 4-7 after the original harness reclaim window expired one second before the reclaim; the merged harness widens that window, so a fully automated rerun remains the cleanest repeatable evidence.
 
 Marketing line:
 One Orc reads. A Warband studies.
@@ -227,7 +227,7 @@ What it tests:
 coverage reporting, exhaustive retrieval, repeated concepts, clause-level checks, and benchmark go or no-go evaluation.
 
 Acceptance note:
-The standard here is measured coverage with publishable metrics, not confidence theater.
+The standard here is measured coverage with publishable metrics, not confidence theater. The first CF-7 slice pins the benchmark-gate report contract before adding larger corpora: B0-B4 run identities, corpus/generation/source identity, answer/citation/coverage metrics, diagnostics presence, and an explicit automated go/no-go verdict.
 
 Marketing line:
 Context Fabric can report what it checked, not just what it guessed.
