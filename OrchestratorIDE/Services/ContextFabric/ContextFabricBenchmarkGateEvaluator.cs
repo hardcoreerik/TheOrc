@@ -32,7 +32,7 @@ public static class ContextFabricBenchmarkGateEvaluator
         var systems = RequiredSystems
             .Select(pair => BuildSystemGate(pair.Key, pair.Value, singleNodeContextFabric, frozenSystemRuns))
             .ToArray();
-        var metrics = BuildMetrics(singleNodeContextFabric, quoteAnchoring, boundaryStitch);
+        var metrics = BuildMetrics(singleNodeContextFabric, boundaryStitch);
         var gates = BuildGates(systems, metrics, quoteAnchoring, boundaryStitch);
 
         return new FabricCf7BenchmarkGateReport(
@@ -62,6 +62,7 @@ public static class ContextFabricBenchmarkGateEvaluator
                 "No frozen run artifact supplied yet.");
         }
 
+        // B3 is the live single-node Context Fabric run; frozen inputs cover the other benchmark systems.
         if (singleNodeContextFabric is null)
             return new FabricBenchmarkSystemGate(systemId, label, FabricBenchmarkSystemStatus.Missing,
                 "No single-node Context Fabric report supplied.");
@@ -75,7 +76,6 @@ public static class ContextFabricBenchmarkGateEvaluator
 
     private static IReadOnlyList<FabricBenchmarkMetric> BuildMetrics(
         FabricFeasibilityReport? singleNodeContextFabric,
-        FabricQuoteAnchorReport? quoteAnchoring,
         FabricBoundaryStitchReport? boundaryStitch)
     {
         var metrics = new List<FabricBenchmarkMetric>();

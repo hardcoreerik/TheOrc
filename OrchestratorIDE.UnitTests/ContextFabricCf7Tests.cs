@@ -11,13 +11,7 @@ public sealed class ContextFabricCf7Tests
     [Test]
     public async Task BenchmarkGate_FailsClosed_WhenRequiredSystemRunsAreMissing()
     {
-        var fixture = DeterministicFabricCorpus.Create();
-        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime());
-        var b3 = await runner.RunAsync(fixture);
-        var quote = new ContextFabricBenchmarkExpansionRunner(runtime: null)
-            .RunQuoteAnchoringDiagnostics(fixture);
-        var stitch = await new ContextFabricBenchmarkExpansionRunner(new ScriptedFabricRuntime())
-            .RunBoundaryStitchDiagnosticsAsync(DeterministicFabricCorpus.CreateBoundaryStitchFixture());
+        var (b3, quote, stitch) = await BuildBaselineReportsAsync();
 
         var report = ContextFabricBenchmarkGateEvaluator.Evaluate(b3, quote, stitch);
 
@@ -40,13 +34,7 @@ public sealed class ContextFabricCf7Tests
     [Test]
     public async Task BenchmarkGate_Passes_WhenRequiredSystemRunsAndDiagnosticsPass()
     {
-        var fixture = DeterministicFabricCorpus.Create();
-        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime());
-        var b3 = await runner.RunAsync(fixture);
-        var quote = new ContextFabricBenchmarkExpansionRunner(runtime: null)
-            .RunQuoteAnchoringDiagnostics(fixture);
-        var stitch = await new ContextFabricBenchmarkExpansionRunner(new ScriptedFabricRuntime())
-            .RunBoundaryStitchDiagnosticsAsync(DeterministicFabricCorpus.CreateBoundaryStitchFixture());
+        var (b3, quote, stitch) = await BuildBaselineReportsAsync();
 
         var report = ContextFabricBenchmarkGateEvaluator.Evaluate(b3, quote, stitch,
         [
@@ -88,4 +76,19 @@ public sealed class ContextFabricCf7Tests
 
     private static FabricBenchmarkSystemGate PassedSystem(string systemId, string label) =>
         new(systemId, label, FabricBenchmarkSystemStatus.Passed, "Frozen run passed.");
+
+    private static async Task<(
+        FabricFeasibilityReport B3,
+        FabricQuoteAnchorReport Quote,
+        FabricBoundaryStitchReport Stitch)> BuildBaselineReportsAsync()
+    {
+        var fixture = DeterministicFabricCorpus.Create();
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime());
+        var b3 = await runner.RunAsync(fixture);
+        var quote = new ContextFabricBenchmarkExpansionRunner(runtime: null)
+            .RunQuoteAnchoringDiagnostics(fixture);
+        var stitch = await new ContextFabricBenchmarkExpansionRunner(new ScriptedFabricRuntime())
+            .RunBoundaryStitchDiagnosticsAsync(DeterministicFabricCorpus.CreateBoundaryStitchFixture());
+        return (b3, quote, stitch);
+    }
 }
