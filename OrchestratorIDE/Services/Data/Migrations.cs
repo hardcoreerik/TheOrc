@@ -545,7 +545,7 @@ internal static class Migrations
         ALTER TABLE fabric_segments ADD COLUMN page_number INTEGER CHECK (page_number IS NULL OR page_number >= 1);
         ALTER TABLE fabric_segments ADD COLUMN source_locator TEXT;
         ALTER TABLE fabric_segments ADD COLUMN confidence REAL CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0));
-        CREATE INDEX ix_fabric_segments_source_locator ON fabric_segments(document_id, page_number);
+        CREATE INDEX ix_fabric_segments_document_page ON fabric_segments(document_id, page_number);
         """;
 
     // ── v5 — CodeGraph v1 (C# structure + search index) ─────────────────────────
