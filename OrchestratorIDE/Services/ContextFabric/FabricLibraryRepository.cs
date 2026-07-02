@@ -61,31 +61,6 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
         MapDocument,
         ps => P(ps, "$corpus", corpusId));
 
-    public int NextDocumentVersionOrdinal(
-        string corpusId,
-        string displayName,
-        string mediaType,
-        string parserId,
-        string parserVersion) => Query(
-        """
-        SELECT COALESCE(MAX(version_ordinal), 0) + 1 AS next_version
-        FROM fabric_documents
-        WHERE corpus_id = $corpus
-          AND display_name = $name
-          AND media_type = $media
-          AND parser_id = $parser
-          AND parser_version = $version
-        """,
-        reader => reader.GetInt32(reader.GetOrdinal("next_version")),
-        ps =>
-        {
-            P(ps, "$corpus", corpusId);
-            P(ps, "$name", displayName);
-            P(ps, "$media", mediaType);
-            P(ps, "$parser", parserId);
-            P(ps, "$version", parserVersion);
-        }).Single();
-
     public IReadOnlyList<FabricSegmentEntry> GetSegments(string documentId) => Query(
         """
         SELECT s.*, t.normalized_text
@@ -159,6 +134,30 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
                 }
             }
 
+            var effectiveDocument = document;
+            if (!isExistingDocument)
+            {
+                ExecuteOn(tx,
+                    "UPDATE fabric_corpora SET updated_at = updated_at WHERE corpus_id = $corpus",
+                    ps => P(ps, "$corpus", document.CorpusId));
+
+                using var ordinal = CreateCmd(conn, tx, """
+                    SELECT COALESCE(MAX(version_ordinal), 0) + 1 AS next_version
+                    FROM fabric_documents
+                    WHERE corpus_id = $corpus
+                      AND display_name = $name
+                      AND media_type = $media
+                      AND parser_id = $parser
+                      AND parser_version = $version
+                    """);
+                P(ordinal.Parameters, "$corpus", document.CorpusId);
+                P(ordinal.Parameters, "$name", document.DisplayName);
+                P(ordinal.Parameters, "$media", document.MediaType);
+                P(ordinal.Parameters, "$parser", document.ParserId);
+                P(ordinal.Parameters, "$version", document.ParserVersion);
+                effectiveDocument = document with { VersionOrdinal = Convert.ToInt32(ordinal.ExecuteScalar()) };
+            }
+
             using (var cmd = CreateCmd(conn, tx, """
                 INSERT INTO fabric_documents
                     (document_id, corpus_id, source_digest, normalized_digest, display_name,
@@ -174,9 +173,9 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
                     status = excluded.status,
                     warnings_json = excluded.warnings_json,
                     updated_at = excluded.updated_at
-                """))
+            """))
             {
-                BindDocument(cmd.Parameters, document);
+                BindDocument(cmd.Parameters, effectiveDocument);
                 cmd.ExecuteNonQuery();
             }
 
@@ -200,18 +199,18 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
                     """,
                     ps =>
                     {
-                        P(ps, "$newDocument", document.DocumentId);
-                        P(ps, "$updated", document.UpdatedAt.ToString("O"));
-                        P(ps, "$corpus", document.CorpusId);
-                        P(ps, "$name", document.DisplayName);
-                        P(ps, "$media", document.MediaType);
-                        P(ps, "$parser", document.ParserId);
-                        P(ps, "$version", document.ParserVersion);
+                        P(ps, "$newDocument", effectiveDocument.DocumentId);
+                        P(ps, "$updated", effectiveDocument.UpdatedAt.ToString("O"));
+                        P(ps, "$corpus", effectiveDocument.CorpusId);
+                        P(ps, "$name", effectiveDocument.DisplayName);
+                        P(ps, "$media", effectiveDocument.MediaType);
+                        P(ps, "$parser", effectiveDocument.ParserId);
+                        P(ps, "$version", effectiveDocument.ParserVersion);
                     });
             }
 
             ExecuteOn(tx, "DELETE FROM fabric_segments WHERE document_id = $document",
-                ps => P(ps, "$document", document.DocumentId));
+                ps => P(ps, "$document", effectiveDocument.DocumentId));
 
             foreach (var segment in segments.OrderBy(item => item.Ordinal))
             {
@@ -227,7 +226,7 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
                     """))
                 {
                     P(cmd.Parameters, "$id", segment.SegmentId);
-                    P(cmd.Parameters, "$document", document.DocumentId);
+                    P(cmd.Parameters, "$document", effectiveDocument.DocumentId);
                     P(cmd.Parameters, "$ordinal", segment.Ordinal);
                     P(cmd.Parameters, "$heading", segment.HeadingPath);
                     P(cmd.Parameters, "$start", segment.CharStart);

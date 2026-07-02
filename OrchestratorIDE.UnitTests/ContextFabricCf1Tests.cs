@@ -447,6 +447,35 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public async Task RebuildDocumentAsync_Resets_Active_NeedsRebuild_Document_To_Ready()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Rebuild status");
+        var sourcePath = Path.Combine(harness.Root, "rebuild.txt");
+        await File.WriteAllTextAsync(sourcePath, "recoverable active document.\n");
+        var imported = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+        using (var connection = store.Open())
+        {
+            Execute(connection, $"""
+                UPDATE fabric_documents
+                SET status = 'needs_rebuild'
+                WHERE document_id = '{imported.Document.DocumentId}';
+                """);
+        }
+
+        var rebuilt = await harness.Service.RebuildDocumentAsync(imported.Document.DocumentId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(rebuilt.Rebuilt, Is.True);
+            Assert.That(rebuilt.Document.Status, Is.EqualTo("ready"));
+            Assert.That(rebuilt.Document.SupersededByDocumentId, Is.Null);
+            Assert.That(harness.Repository.GetDocument(imported.Document.DocumentId)!.Status, Is.EqualTo("ready"));
+        });
+    }
+
+    [Test]
     public async Task Library_Rejects_Oversized_Source_Without_Database_Rows()
     {
         var harness = NewHarness(maximumSourceBytes: 16);
@@ -872,8 +901,12 @@ public sealed class ContextFabricCf1Tests
                 (document_id, corpus_id, source_digest, normalized_digest, display_name,
                  media_type, parser_id, parser_version, status, warnings_json, created_at, updated_at)
             VALUES
-                ('document', 'corpus', 'source', 'normalized', 'Document', 'text/plain',
-                 'parser', '1', 'ready', '[]', 'now', 'now');
+                ('document-v1', 'corpus', 'source-1', 'normalized-1', 'Document', 'text/plain',
+                 'parser', '1', 'ready', '[]', '2026-01-01T00:00:00.0000000Z', '2026-01-01T00:00:00.0000000Z'),
+                ('document-v2', 'corpus', 'source-2', 'normalized-2', 'Document', 'text/plain',
+                 'parser', '1', 'ready', '[]', '2026-01-02T00:00:00.0000000Z', '2026-01-02T00:00:00.0000000Z'),
+                ('other-document', 'corpus', 'source-3', 'normalized-3', 'Other', 'text/plain',
+                 'parser', '1', 'ready', '[]', '2026-01-01T00:00:00.0000000Z', '2026-01-01T00:00:00.0000000Z');
             """);
 
         MigrationRunner.Apply(connection);
@@ -881,10 +914,16 @@ public sealed class ContextFabricCf1Tests
         Assert.Multiple(() =>
         {
             Assert.That(Scalar(connection, "SELECT COUNT(*) FROM schema_migrations WHERE version = 14"), Is.EqualTo(1));
-            Assert.That(Scalar(connection, "SELECT version_ordinal FROM fabric_documents WHERE document_id = 'document'"), Is.EqualTo(1));
-            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_documents WHERE document_id = 'document' AND superseded_by_document_id IS NULL"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT version_ordinal FROM fabric_documents WHERE document_id = 'document-v1'"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT version_ordinal FROM fabric_documents WHERE document_id = 'document-v2'"), Is.EqualTo(2));
+            Assert.That(Scalar(connection, "SELECT version_ordinal FROM fabric_documents WHERE document_id = 'other-document'"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_documents WHERE document_id = 'document-v1' AND status = 'superseded' AND superseded_by_document_id = 'document-v2'"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_documents WHERE document_id = 'document-v2' AND status = 'ready' AND superseded_by_document_id IS NULL"), Is.EqualTo(1));
             Assert.That(
-                () => Execute(connection, "UPDATE fabric_documents SET version_ordinal = 0 WHERE document_id = 'document'"),
+                () => Execute(connection, "UPDATE fabric_documents SET version_ordinal = 0 WHERE document_id = 'document-v2'"),
+                Throws.TypeOf<Microsoft.Data.Sqlite.SqliteException>());
+            Assert.That(
+                () => Execute(connection, "UPDATE fabric_documents SET version_ordinal = 2 WHERE document_id = 'document-v1'"),
                 Throws.TypeOf<Microsoft.Data.Sqlite.SqliteException>());
         });
     }

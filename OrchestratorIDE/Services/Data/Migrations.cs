@@ -556,7 +556,47 @@ internal static class Migrations
         ALTER TABLE fabric_documents ADD COLUMN version_ordinal INTEGER NOT NULL DEFAULT 1 CHECK (version_ordinal >= 1);
         ALTER TABLE fabric_documents ADD COLUMN superseded_by_document_id TEXT;
         ALTER TABLE fabric_documents ADD COLUMN superseded_at TEXT;
-        CREATE INDEX ix_fabric_documents_logical_version
+
+        WITH ranked AS (
+            SELECT
+                document_id,
+                ROW_NUMBER() OVER (
+                    PARTITION BY corpus_id, display_name, media_type, parser_id, parser_version
+                    ORDER BY updated_at, created_at, document_id
+                ) AS ordinal
+            FROM fabric_documents
+        )
+        UPDATE fabric_documents
+        SET version_ordinal = (
+            SELECT ordinal FROM ranked WHERE ranked.document_id = fabric_documents.document_id
+        );
+
+        WITH ranked AS (
+            SELECT
+                document_id,
+                FIRST_VALUE(document_id) OVER (
+                    PARTITION BY corpus_id, display_name, media_type, parser_id, parser_version
+                    ORDER BY updated_at DESC, created_at DESC, document_id DESC
+                ) AS latest_document_id,
+                FIRST_VALUE(updated_at) OVER (
+                    PARTITION BY corpus_id, display_name, media_type, parser_id, parser_version
+                    ORDER BY updated_at DESC, created_at DESC, document_id DESC
+                ) AS latest_updated_at
+            FROM fabric_documents
+        )
+        UPDATE fabric_documents
+        SET status = 'superseded',
+            superseded_by_document_id = (
+                SELECT latest_document_id FROM ranked WHERE ranked.document_id = fabric_documents.document_id
+            ),
+            superseded_at = (
+                SELECT latest_updated_at FROM ranked WHERE ranked.document_id = fabric_documents.document_id
+            )
+        WHERE document_id IN (
+            SELECT document_id FROM ranked WHERE document_id <> latest_document_id
+        );
+
+        CREATE UNIQUE INDEX ix_fabric_documents_logical_version
             ON fabric_documents(corpus_id, display_name, media_type, parser_id, parser_version, version_ordinal);
         CREATE INDEX ix_fabric_documents_superseded_by
             ON fabric_documents(superseded_by_document_id);
