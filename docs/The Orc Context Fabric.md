@@ -1,6 +1,6 @@
 # The Orc Context Fabric
 
-> Status: CF-0 native feasibility gate passed; CF-1 deterministic ingestion passed; CF-2 graph-backed retrieval passed; CF-3 and CF-4 framework gates passed; CF-5 framework/integration gate passed with real native-model product exit still pending; CF-6 distributed-reader work is active in PR #15 with live worker-death recovery evidence
+> Status: CF-0 native feasibility gate passed; CF-1 deterministic ingestion passed; CF-2 graph-backed retrieval passed; CF-3 and CF-4 framework gates passed; CF-5 framework/integration gate passed with real native-model product exit still pending; CF-6 distributed HIVE execution merged in PR #15 with live worker-death recovery evidence; CF-7 benchmark-gate work is active
 > Owner: TheOrc native runtime, OrcChat, CodeGraph, and HIVE MIND
 > Last updated: 2026-07-02
 > Product goal: make corpus size effectively independent of the active model context window while preserving source coverage, provenance, and reproducible answers on consumer hardware.
@@ -1368,13 +1368,13 @@ Implementation status (2026-06-29): **framework exit passed in focused headless/
 
 ### Phase CF-6: HIVE stage engine and distributed readers
 
-Implementation status (2026-07-02): **active in PR #15; branch evidence exists, not yet merged to master**.
+Implementation status (2026-07-02): **merged to master in PR #15**.
 
-- Branch `codex/context-fabric-cf6-readers` adds the CF-6 HIVE stage engine path for distributed Context Fabric work: campaign dependency barriers, native input artifact staging, Context Fabric campaign templates, reader/verifier/stitcher/reducer/exhaustive-query work-unit flow, generation-safe evidence import, and the `Tools/Cf6AcceptanceRunner` harness.
-- The pushed branch head `de3a3b76` passed GitHub's Windows build and CodeRabbit checks, and is current with `origin/master` at the time of this note. This is PR evidence, not landed master truth.
+- PR #15 added the CF-6 HIVE stage engine path for distributed Context Fabric work: campaign dependency barriers, native input artifact staging, Context Fabric campaign templates, reader/verifier/stitcher/reducer/exhaustive-query work-unit flow, generation-safe evidence import, and the `Tools/Cf6AcceptanceRunner` harness.
+- The merge commit `868a2eb5` contains the final branch head `7aff28e7`, including the CF-6 recovery harness hardening and the LLamaSharp CUDA backend-selection fix needed to prevent driver-only GPU nodes from silently falling back to CPU inference.
 - The live CF-6 worker-death exit evidence is recorded in `.orc/cf6-acceptance/cf6-death-test-EVIDENCE-20260702.md`: a 3-machine HIVE run suspended one worker mid-inference, the Warchief watchdog requeued the task after heartbeat loss, a different worker claimed the requeued unit, a stale attempt-1 completion probe was rejected with HTTP 409, the claim token rotated, and the campaign accepted exactly one final `task_complete`.
 - Caveat: the death-test harness report captured phases 1-3 automatically; phases 4-7 were completed and recorded manually because the original 10-minute reclaim window expired one second before the different worker reclaimed the unit. The branch has since widened that window to 20 minutes, but a fully automated rerun should remain the cleanest merge/readiness evidence.
-- A follow-up worker resiliency fix is in progress on the same branch: `HiveWorkerAgent` must distinguish an ordinary HTTP timeout from a real Stop/dispose cancellation so polling does not silently stop when the Warchief disappears mid-request.
+- Worker resiliency fix shipped with the merge: `HiveWorkerAgent` now distinguishes ordinary HTTP timeout from real Stop/dispose cancellation so polling does not silently stop when the Warchief disappears mid-request.
 
 Deliver:
 
@@ -1393,6 +1393,8 @@ Exit gate:
 - campaign paths never invoke Ollama.
 
 ### Phase CF-7: exhaustive mode and benchmark gate
+
+Implementation status (2026-07-02): **active next lane**. The first slice should freeze the benchmark-gate contract before expanding corpus scale: manifest shape, B0-B4 runner outputs, ablation result shape, JSON/Markdown report fields, and go/no-go evaluator semantics.
 
 Deliver:
 

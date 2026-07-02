@@ -78,3 +78,25 @@ Do not add these until tests actually consume them:
 - `AnswerKeyPolicy`
 
 Those are valid benchmark-program concerns, but today they belong in corpus-program docs rather than the pinned-fixture contract.
+
+## CF-7 Benchmark Gate Report
+
+CF-7 adds a separate machine-readable gate report; it does not change the pinned source-fixture manifest above.
+
+Current report schema: `cf7-benchmark-gate-1.0`.
+
+Required top-level fields:
+
+- `schemaVersion`
+- `generatedUtc`
+- `corpusId`
+- `generationId`
+- `sourceDigest`
+- `systems`
+- `metrics`
+- `gates`
+- `readyForExpansion`
+
+The `systems` array must include B0 through B4. Missing artifacts are explicit `Missing` entries, not omitted rows. This keeps the evaluator fail-closed until closed-book, truncated-prompt, top-k RAG, single-node Context Fabric, and HIVE Context Fabric runs are all present.
+
+The initial CF-7 slice may emit a `NO-GO` report with only B3 plus diagnostics populated. That is valid progress: it freezes the report shape and prevents partial benchmark evidence from being mistaken for an architecture pass.
