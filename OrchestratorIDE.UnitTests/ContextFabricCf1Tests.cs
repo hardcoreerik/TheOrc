@@ -416,6 +416,126 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public async Task ImportFileAsync_Creates_Immutable_Versions_And_Supersedes_Prior_Source()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Versioned source");
+        var sourcePath = Path.Combine(harness.Root, "versioned.txt");
+        await File.WriteAllTextAsync(sourcePath, "alpha old token.\n");
+        var first = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+        await File.WriteAllTextAsync(sourcePath, "beta new token.\n");
+
+        var second = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+
+        var firstPersisted = harness.Repository.GetDocument(first.Document.DocumentId)!;
+        var secondPersisted = harness.Repository.GetDocument(second.Document.DocumentId)!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(second.Document.DocumentId, Is.Not.EqualTo(first.Document.DocumentId));
+            Assert.That(firstPersisted.Status, Is.EqualTo("superseded"));
+            Assert.That(firstPersisted.SupersededByDocumentId, Is.EqualTo(second.Document.DocumentId));
+            Assert.That(firstPersisted.SupersededAt, Is.Not.Null);
+            Assert.That(firstPersisted.VersionOrdinal, Is.EqualTo(1));
+            Assert.That(secondPersisted.Status, Is.EqualTo("ready"));
+            Assert.That(secondPersisted.VersionOrdinal, Is.EqualTo(2));
+            Assert.That(secondPersisted.SupersededByDocumentId, Is.Null);
+            Assert.That(harness.Service.ListDocuments(corpus.CorpusId), Has.Count.EqualTo(2));
+            Assert.That(harness.Service.Search("alpha", corpus.CorpusId), Is.Empty);
+            Assert.That(harness.Service.Search("beta", corpus.CorpusId), Has.Count.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task ImportFileAsync_Reverted_Source_Creates_New_Visible_Version()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Reverted source");
+        var sourcePath = Path.Combine(harness.Root, "reverted.txt");
+        await File.WriteAllTextAsync(sourcePath, "alpha restored token.\n");
+        var first = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+        await File.WriteAllTextAsync(sourcePath, "beta middle token.\n");
+        var second = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+        await File.WriteAllTextAsync(sourcePath, "alpha restored token.\n");
+
+        var third = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+        var rebuiltThird = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(third.Document.DocumentId, Is.Not.EqualTo(first.Document.DocumentId));
+            Assert.That(third.Document.DocumentId, Is.Not.EqualTo(second.Document.DocumentId));
+            Assert.That(third.Document.VersionOrdinal, Is.EqualTo(3));
+            Assert.That(third.Document.Status, Is.EqualTo("ready"));
+            Assert.That(harness.Repository.GetDocument(first.Document.DocumentId)!.Status, Is.EqualTo("superseded"));
+            Assert.That(harness.Repository.GetDocument(second.Document.DocumentId)!.Status, Is.EqualTo("superseded"));
+            Assert.That(harness.Repository.GetDocument(first.Document.DocumentId)!.SupersededByDocumentId, Is.EqualTo(second.Document.DocumentId));
+            Assert.That(harness.Repository.GetDocument(second.Document.DocumentId)!.SupersededByDocumentId, Is.EqualTo(third.Document.DocumentId));
+            Assert.That(harness.Service.Search("alpha", corpus.CorpusId).Select(hit => hit.DocumentId), Is.EqualTo(new[] { third.Document.DocumentId }));
+            Assert.That(harness.Service.Search("beta", corpus.CorpusId), Is.Empty);
+            Assert.That(rebuiltThird.Rebuilt, Is.True);
+            Assert.That(rebuiltThird.Document.DocumentId, Is.EqualTo(third.Document.DocumentId));
+            Assert.That(rebuiltThird.Document.VersionOrdinal, Is.EqualTo(third.Document.VersionOrdinal));
+            Assert.That(harness.Service.ListDocuments(corpus.CorpusId), Has.Count.EqualTo(3));
+        });
+    }
+
+    [Test]
+    public async Task ImportFileAsync_Same_Bytes_With_Different_Names_Create_Distinct_Documents()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Same bytes");
+        var firstPath = Path.Combine(harness.Root, "first.txt");
+        var secondPath = Path.Combine(harness.Root, "second.txt");
+        await File.WriteAllTextAsync(firstPath, "shared source token.\n");
+        await File.WriteAllTextAsync(secondPath, "shared source token.\n");
+
+        var first = await harness.Service.ImportFileAsync(corpus.CorpusId, firstPath);
+        var second = await harness.Service.ImportFileAsync(corpus.CorpusId, secondPath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(second.Document.DocumentId, Is.Not.EqualTo(first.Document.DocumentId));
+            Assert.That(first.Document.SourceDigest, Is.EqualTo(second.Document.SourceDigest));
+            Assert.That(first.Document.Status, Is.EqualTo("ready"));
+            Assert.That(second.Document.Status, Is.EqualTo("ready"));
+            Assert.That(harness.Service.Search("shared", corpus.CorpusId).Select(hit => hit.DocumentId).Distinct(),
+                Is.EquivalentTo(new[] { first.Document.DocumentId, second.Document.DocumentId }));
+        });
+    }
+
+    [Test]
+    public async Task RebuildDocumentAsync_Resets_Active_NeedsRebuild_Document_To_Ready()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Rebuild status");
+        var sourcePath = Path.Combine(harness.Root, "rebuild.txt");
+        await File.WriteAllTextAsync(sourcePath, "recoverable active document.\n");
+        var imported = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+        using (var connection = store.Open())
+        {
+            Execute(connection, $"""
+                UPDATE fabric_documents
+                SET status = 'needs_rebuild'
+                WHERE document_id = '{imported.Document.DocumentId}';
+                """);
+        }
+
+        var rebuilt = await harness.Service.RebuildDocumentAsync(imported.Document.DocumentId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(rebuilt.Rebuilt, Is.True);
+            Assert.That(rebuilt.Document.Status, Is.EqualTo("ready"));
+            Assert.That(rebuilt.Document.SupersededByDocumentId, Is.Null);
+            Assert.That(harness.Repository.GetDocument(imported.Document.DocumentId)!.Status, Is.EqualTo("ready"));
+        });
+    }
+
+    [Test]
     public async Task Library_Rejects_Oversized_Source_Without_Database_Rows()
     {
         var harness = NewHarness(maximumSourceBytes: 16);
@@ -812,6 +932,58 @@ public sealed class ContextFabricCf1Tests
             Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_segments WHERE segment_id = 'segment' AND page_number IS NULL"), Is.EqualTo(1));
             Assert.That(
                 () => Execute(connection, "UPDATE fabric_segments SET confidence = 2.0 WHERE segment_id = 'segment'"),
+                Throws.TypeOf<Microsoft.Data.Sqlite.SqliteException>());
+        });
+    }
+
+    [Test]
+    public void MigrationV14_Adds_Document_Version_Columns_With_Defaults()
+    {
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection(
+            "Data Source=:memory:;Foreign Keys=True");
+        connection.Open();
+        Execute(connection, """
+            CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL,
+                description TEXT
+            );
+            """);
+        foreach (var migration in Migrations.All.Where(migration => migration.Version <= 13))
+        {
+            Execute(connection, migration.Sql);
+            Execute(connection, $"INSERT INTO schema_migrations VALUES ({migration.Version}, 'now', 'test')");
+        }
+
+        Execute(connection, """
+            INSERT INTO fabric_corpora VALUES ('corpus', 'Corpus', NULL, 'default', 'ready', 'now', 'now');
+            INSERT INTO fabric_documents
+                (document_id, corpus_id, source_digest, normalized_digest, display_name,
+                 media_type, parser_id, parser_version, status, warnings_json, created_at, updated_at)
+            VALUES
+                ('document-v1', 'corpus', 'source-1', 'normalized-1', 'Document', 'text/plain',
+                 'parser', '1', 'ready', '[]', '2026-01-01T00:00:00.0000000Z', '2026-01-01T00:00:00.0000000Z'),
+                ('document-v2', 'corpus', 'source-2', 'normalized-2', 'Document', 'text/plain',
+                 'parser', '1', 'ready', '[]', '2026-01-02T00:00:00.0000000Z', '2026-01-02T00:00:00.0000000Z'),
+                ('other-document', 'corpus', 'source-3', 'normalized-3', 'Other', 'text/plain',
+                 'parser', '1', 'ready', '[]', '2026-01-01T00:00:00.0000000Z', '2026-01-01T00:00:00.0000000Z');
+            """);
+
+        MigrationRunner.Apply(connection);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM schema_migrations WHERE version = 14"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT version_ordinal FROM fabric_documents WHERE document_id = 'document-v1'"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT version_ordinal FROM fabric_documents WHERE document_id = 'document-v2'"), Is.EqualTo(2));
+            Assert.That(Scalar(connection, "SELECT version_ordinal FROM fabric_documents WHERE document_id = 'other-document'"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_documents WHERE document_id = 'document-v1' AND status = 'superseded' AND superseded_by_document_id = 'document-v2'"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_documents WHERE document_id = 'document-v2' AND status = 'ready' AND superseded_by_document_id IS NULL"), Is.EqualTo(1));
+            Assert.That(
+                () => Execute(connection, "UPDATE fabric_documents SET version_ordinal = 0 WHERE document_id = 'document-v2'"),
+                Throws.TypeOf<Microsoft.Data.Sqlite.SqliteException>());
+            Assert.That(
+                () => Execute(connection, "UPDATE fabric_documents SET version_ordinal = 2 WHERE document_id = 'document-v1'"),
                 Throws.TypeOf<Microsoft.Data.Sqlite.SqliteException>());
         });
     }
