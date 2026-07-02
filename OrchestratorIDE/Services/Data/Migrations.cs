@@ -552,16 +552,245 @@ internal static class Migrations
     // New source bytes already produce a new content-addressed document_id. These columns
     // connect same-name imports into a logical version chain and mark stale rows superseded.
     private const string Sql014_ContextFabricDocumentVersions = """
-        ALTER TABLE fabric_documents ADD COLUMN version_ordinal INTEGER NOT NULL DEFAULT 1 CHECK (version_ordinal >= 1);
-        ALTER TABLE fabric_documents ADD COLUMN superseded_by_document_id TEXT;
-        ALTER TABLE fabric_documents ADD COLUMN superseded_at TEXT;
+        DROP TRIGGER fabric_segment_text_ai;
+        DROP TRIGGER fabric_segment_text_ad;
+        DROP TRIGGER fabric_segment_text_au;
+        DROP TRIGGER fabric_claims_ai;
+        DROP TRIGGER fabric_claims_ad;
+        DROP TRIGGER fabric_claims_au;
+        DROP TABLE fabric_segment_fts;
+        DROP TABLE fabric_claim_fts;
+
+        DROP INDEX ix_fabric_documents_corpus;
+        DROP INDEX ix_fabric_documents_source;
+        DROP INDEX ix_fabric_segments_document;
+        DROP INDEX ix_fabric_segments_document_page;
+        DROP INDEX ix_fabric_claims_corpus;
+        DROP INDEX ix_fabric_claims_segment;
+        DROP INDEX ix_fabric_claims_generation;
+        DROP INDEX ix_fabric_claim_citations_segment;
+        DROP INDEX ix_fabric_memory_nodes_document;
+        DROP INDEX ix_fabric_memory_nodes_corpus;
+        DROP INDEX ix_fabric_memory_memberships_parent;
+        DROP INDEX ix_fabric_memory_memberships_child;
+
+        ALTER TABLE fabric_memory_memberships RENAME TO fabric_memory_memberships_v13;
+        ALTER TABLE fabric_memory_nodes RENAME TO fabric_memory_nodes_v13;
+        ALTER TABLE fabric_claim_citations RENAME TO fabric_claim_citations_v13;
+        ALTER TABLE fabric_claims RENAME TO fabric_claims_v13;
+        ALTER TABLE fabric_segment_text RENAME TO fabric_segment_text_v13;
+        ALTER TABLE fabric_segments RENAME TO fabric_segments_v13;
+        ALTER TABLE fabric_documents RENAME TO fabric_documents_v13;
+
+        CREATE TABLE fabric_documents (
+            document_id               TEXT PRIMARY KEY,
+            corpus_id                 TEXT NOT NULL REFERENCES fabric_corpora(corpus_id) ON DELETE CASCADE,
+            source_digest             TEXT NOT NULL,
+            normalized_digest         TEXT NOT NULL,
+            display_name              TEXT NOT NULL,
+            media_type                TEXT NOT NULL,
+            parser_id                 TEXT NOT NULL,
+            parser_version            TEXT NOT NULL,
+            status                    TEXT NOT NULL,
+            warnings_json             TEXT NOT NULL,
+            created_at                TEXT NOT NULL,
+            updated_at                TEXT NOT NULL,
+            version_ordinal           INTEGER NOT NULL DEFAULT 1 CHECK (version_ordinal >= 1),
+            superseded_by_document_id TEXT,
+            superseded_at             TEXT
+        );
+        CREATE INDEX ix_fabric_documents_corpus ON fabric_documents(corpus_id, display_name);
+        CREATE INDEX ix_fabric_documents_source ON fabric_documents(source_digest);
+
+        INSERT INTO fabric_documents
+            (document_id, corpus_id, source_digest, normalized_digest, display_name,
+             media_type, parser_id, parser_version, status, warnings_json, created_at, updated_at)
+        SELECT document_id, corpus_id, source_digest, normalized_digest, display_name,
+               media_type, parser_id, parser_version, status, warnings_json, created_at, updated_at
+        FROM fabric_documents_v13;
+
+        CREATE TABLE fabric_segments (
+            segment_id          TEXT PRIMARY KEY,
+            document_id         TEXT NOT NULL REFERENCES fabric_documents(document_id) ON DELETE CASCADE,
+            ordinal             INTEGER NOT NULL CHECK (ordinal >= 0),
+            heading_path        TEXT,
+            char_start          INTEGER NOT NULL CHECK (char_start >= 0),
+            char_end            INTEGER NOT NULL CHECK (char_end >= char_start),
+            token_count         INTEGER NOT NULL CHECK (token_count >= 0),
+            text_digest         TEXT NOT NULL,
+            previous_segment_id TEXT,
+            next_segment_id     TEXT,
+            chunker_version     TEXT NOT NULL,
+            block_kind          TEXT NOT NULL DEFAULT 'text' CHECK (length(block_kind) > 0),
+            page_number         INTEGER CHECK (page_number IS NULL OR page_number >= 1),
+            source_locator      TEXT,
+            confidence          REAL CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0)),
+            UNIQUE(document_id, ordinal, chunker_version)
+        );
+        CREATE INDEX ix_fabric_segments_document ON fabric_segments(document_id, ordinal);
+        CREATE INDEX ix_fabric_segments_document_page ON fabric_segments(document_id, page_number);
+
+        INSERT INTO fabric_segments
+            (segment_id, document_id, ordinal, heading_path, char_start, char_end,
+             token_count, text_digest, previous_segment_id, next_segment_id, chunker_version,
+             block_kind, page_number, source_locator, confidence)
+        SELECT segment_id, document_id, ordinal, heading_path, char_start, char_end,
+               token_count, text_digest, previous_segment_id, next_segment_id, chunker_version,
+               block_kind, page_number, source_locator, confidence
+        FROM fabric_segments_v13;
+
+        CREATE TABLE fabric_segment_text (
+            segment_id      TEXT PRIMARY KEY REFERENCES fabric_segments(segment_id) ON DELETE CASCADE,
+            heading_path    TEXT,
+            normalized_text TEXT NOT NULL
+        );
+        INSERT INTO fabric_segment_text(segment_id, heading_path, normalized_text)
+        SELECT segment_id, heading_path, normalized_text FROM fabric_segment_text_v13;
+
+        CREATE TABLE fabric_claims (
+            claim_id             TEXT PRIMARY KEY,
+            corpus_id            TEXT NOT NULL REFERENCES fabric_corpora(corpus_id) ON DELETE CASCADE,
+            document_id          TEXT NOT NULL REFERENCES fabric_documents(document_id) ON DELETE CASCADE,
+            segment_id           TEXT NOT NULL REFERENCES fabric_segments(segment_id) ON DELETE CASCADE,
+            claim_type           TEXT NOT NULL,
+            claim_text           TEXT NOT NULL,
+            verification_status  TEXT NOT NULL CHECK (verification_status IN ('provisional', 'verified', 'rejected')),
+            confidence           REAL,
+            created_at           TEXT NOT NULL,
+            updated_at           TEXT NOT NULL,
+            generation_id        TEXT
+        );
+        CREATE INDEX ix_fabric_claims_corpus ON fabric_claims(corpus_id, claim_type, verification_status);
+        CREATE INDEX ix_fabric_claims_segment ON fabric_claims(segment_id);
+        CREATE INDEX ix_fabric_claims_generation ON fabric_claims(corpus_id, generation_id);
+
+        INSERT INTO fabric_claims
+            (claim_id, corpus_id, document_id, segment_id, claim_type, claim_text,
+             verification_status, confidence, created_at, updated_at, generation_id)
+        SELECT claim_id, corpus_id, document_id, segment_id, claim_type, claim_text,
+               verification_status, confidence, created_at, updated_at, generation_id
+        FROM fabric_claims_v13;
+
+        CREATE TABLE fabric_claim_citations (
+            claim_id      TEXT NOT NULL REFERENCES fabric_claims(claim_id) ON DELETE CASCADE,
+            ordinal       INTEGER NOT NULL CHECK (ordinal >= 0),
+            segment_id    TEXT NOT NULL REFERENCES fabric_segments(segment_id) ON DELETE CASCADE,
+            char_start    INTEGER NOT NULL CHECK (char_start >= 0),
+            char_end      INTEGER NOT NULL CHECK (char_end >= char_start),
+            quote_digest  TEXT NOT NULL,
+            quote_text    TEXT NOT NULL,
+            PRIMARY KEY (claim_id, ordinal)
+        );
+        CREATE INDEX ix_fabric_claim_citations_segment ON fabric_claim_citations(segment_id);
+        INSERT INTO fabric_claim_citations
+            (claim_id, ordinal, segment_id, char_start, char_end, quote_digest, quote_text)
+        SELECT claim_id, ordinal, segment_id, char_start, char_end, quote_digest, quote_text
+        FROM fabric_claim_citations_v13;
+
+        CREATE TABLE fabric_memory_nodes (
+            node_id               TEXT PRIMARY KEY,
+            corpus_id             TEXT NOT NULL REFERENCES fabric_corpora(corpus_id) ON DELETE CASCADE,
+            document_id           TEXT NOT NULL REFERENCES fabric_documents(document_id) ON DELETE CASCADE,
+            node_type             TEXT NOT NULL,
+            title                 TEXT NOT NULL,
+            summary_text          TEXT NOT NULL,
+            generation            INTEGER NOT NULL CHECK (generation >= 0),
+            fan_in                INTEGER NOT NULL CHECK (fan_in >= 2),
+            expected_child_count  INTEGER NOT NULL CHECK (expected_child_count >= 0),
+            covered_child_count   INTEGER NOT NULL CHECK (covered_child_count >= 0 AND covered_child_count <= expected_child_count),
+            coverage_status       TEXT NOT NULL CHECK (coverage_status IN ('complete', 'incomplete')),
+            reducer_version       TEXT NOT NULL,
+            created_at            TEXT NOT NULL,
+            updated_at            TEXT NOT NULL
+        );
+        CREATE INDEX ix_fabric_memory_nodes_document ON fabric_memory_nodes(document_id, generation DESC, node_id);
+        CREATE INDEX ix_fabric_memory_nodes_corpus ON fabric_memory_nodes(corpus_id, coverage_status, generation DESC);
+        INSERT INTO fabric_memory_nodes
+            (node_id, corpus_id, document_id, node_type, title, summary_text, generation,
+             fan_in, expected_child_count, covered_child_count, coverage_status,
+             reducer_version, created_at, updated_at)
+        SELECT node_id, corpus_id, document_id, node_type, title, summary_text, generation,
+               fan_in, expected_child_count, covered_child_count, coverage_status,
+               reducer_version, created_at, updated_at
+        FROM fabric_memory_nodes_v13;
+
+        CREATE TABLE fabric_memory_memberships (
+            parent_node_id   TEXT NOT NULL REFERENCES fabric_memory_nodes(node_id) ON DELETE CASCADE,
+            child_kind       TEXT NOT NULL CHECK (child_kind IN ('segment', 'memory')),
+            child_id         TEXT NOT NULL,
+            ordinal          INTEGER NOT NULL CHECK (ordinal >= 0),
+            is_covered       INTEGER NOT NULL CHECK (is_covered IN (0, 1)),
+            PRIMARY KEY (parent_node_id, child_kind, child_id),
+            UNIQUE (parent_node_id, ordinal)
+        );
+        CREATE INDEX ix_fabric_memory_memberships_parent ON fabric_memory_memberships(parent_node_id, ordinal);
+        CREATE INDEX ix_fabric_memory_memberships_child ON fabric_memory_memberships(child_kind, child_id);
+        INSERT INTO fabric_memory_memberships
+            (parent_node_id, child_kind, child_id, ordinal, is_covered)
+        SELECT parent_node_id, child_kind, child_id, ordinal, is_covered
+        FROM fabric_memory_memberships_v13;
+
+        DROP TABLE fabric_memory_memberships_v13;
+        DROP TABLE fabric_memory_nodes_v13;
+        DROP TABLE fabric_claim_citations_v13;
+        DROP TABLE fabric_claims_v13;
+        DROP TABLE fabric_segment_text_v13;
+        DROP TABLE fabric_segments_v13;
+        DROP TABLE fabric_documents_v13;
+
+        CREATE VIRTUAL TABLE fabric_segment_fts USING fts5(
+            heading_path,
+            normalized_text,
+            content='fabric_segment_text',
+            content_rowid='rowid',
+            tokenize='unicode61 remove_diacritics 2'
+        );
+        INSERT INTO fabric_segment_fts(rowid, heading_path, normalized_text)
+        SELECT rowid, heading_path, normalized_text FROM fabric_segment_text;
+        CREATE TRIGGER fabric_segment_text_ai AFTER INSERT ON fabric_segment_text BEGIN
+            INSERT INTO fabric_segment_fts(rowid, heading_path, normalized_text)
+            VALUES (new.rowid, new.heading_path, new.normalized_text);
+        END;
+        CREATE TRIGGER fabric_segment_text_ad AFTER DELETE ON fabric_segment_text BEGIN
+            INSERT INTO fabric_segment_fts(fabric_segment_fts, rowid, heading_path, normalized_text)
+            VALUES ('delete', old.rowid, old.heading_path, old.normalized_text);
+        END;
+        CREATE TRIGGER fabric_segment_text_au AFTER UPDATE ON fabric_segment_text BEGIN
+            INSERT INTO fabric_segment_fts(fabric_segment_fts, rowid, heading_path, normalized_text)
+            VALUES ('delete', old.rowid, old.heading_path, old.normalized_text);
+            INSERT INTO fabric_segment_fts(rowid, heading_path, normalized_text)
+            VALUES (new.rowid, new.heading_path, new.normalized_text);
+        END;
+
+        CREATE VIRTUAL TABLE fabric_claim_fts USING fts5(
+            claim_text,
+            content='fabric_claims',
+            content_rowid='rowid',
+            tokenize='unicode61 remove_diacritics 2'
+        );
+        INSERT INTO fabric_claim_fts(rowid, claim_text)
+        SELECT rowid, claim_text FROM fabric_claims;
+        CREATE TRIGGER fabric_claims_ai AFTER INSERT ON fabric_claims BEGIN
+            INSERT INTO fabric_claim_fts(rowid, claim_text)
+            VALUES (new.rowid, new.claim_text);
+        END;
+        CREATE TRIGGER fabric_claims_ad AFTER DELETE ON fabric_claims BEGIN
+            INSERT INTO fabric_claim_fts(fabric_claim_fts, rowid, claim_text)
+            VALUES ('delete', old.rowid, old.claim_text);
+        END;
+        CREATE TRIGGER fabric_claims_au AFTER UPDATE ON fabric_claims BEGIN
+            INSERT INTO fabric_claim_fts(fabric_claim_fts, rowid, claim_text)
+            VALUES ('delete', old.rowid, old.claim_text);
+            INSERT INTO fabric_claim_fts(rowid, claim_text)
+            VALUES (new.rowid, new.claim_text);
+        END;
 
         WITH ranked AS (
             SELECT
                 document_id,
                 ROW_NUMBER() OVER (
                     PARTITION BY corpus_id, display_name, media_type, parser_id, parser_version
-                    ORDER BY updated_at, created_at, document_id
+                    ORDER BY created_at, updated_at, document_id
                 ) AS ordinal
             FROM fabric_documents
         )
@@ -575,11 +804,11 @@ internal static class Migrations
                 document_id,
                 FIRST_VALUE(document_id) OVER (
                     PARTITION BY corpus_id, display_name, media_type, parser_id, parser_version
-                    ORDER BY updated_at DESC, created_at DESC, document_id DESC
+                    ORDER BY created_at DESC, updated_at DESC, document_id DESC
                 ) AS latest_document_id,
                 FIRST_VALUE(updated_at) OVER (
                     PARTITION BY corpus_id, display_name, media_type, parser_id, parser_version
-                    ORDER BY updated_at DESC, created_at DESC, document_id DESC
+                    ORDER BY created_at DESC, updated_at DESC, document_id DESC
                 ) AS latest_updated_at
             FROM fabric_documents
         )

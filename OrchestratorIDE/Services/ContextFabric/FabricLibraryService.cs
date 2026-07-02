@@ -155,11 +155,15 @@ public sealed class FabricLibraryService
         FabricDocumentEntry? existing;
         for (var revival = 0; ; revival++)
         {
-            var seed = revival == 0 ? documentIdSeed : $"{documentIdSeed}|revival|{revival}";
+            var seed = revival == 0 ? documentIdSeed : $"{documentIdSeed}|{displayName}|revival|{revival}";
             documentId = $"doc-{FabricHashing.Sha256(seed)[..24]}";
             existing = _repository.GetDocument(documentId);
-            if (existing is null || existing.SupersededByDocumentId is null)
+            if (existing is null ||
+                (existing.SupersededByDocumentId is null &&
+                 existing.DisplayName.Equals(displayName, StringComparison.Ordinal)))
+            {
                 break;
+            }
         }
 
         var segmenter = new FabricSegmenter(_options.EffectiveSegmenter);

@@ -470,11 +470,39 @@ public sealed class ContextFabricCf1Tests
             Assert.That(third.Document.Status, Is.EqualTo("ready"));
             Assert.That(harness.Repository.GetDocument(first.Document.DocumentId)!.Status, Is.EqualTo("superseded"));
             Assert.That(harness.Repository.GetDocument(second.Document.DocumentId)!.Status, Is.EqualTo("superseded"));
+            Assert.That(harness.Repository.GetDocument(first.Document.DocumentId)!.SupersededByDocumentId, Is.EqualTo(second.Document.DocumentId));
+            Assert.That(harness.Repository.GetDocument(second.Document.DocumentId)!.SupersededByDocumentId, Is.EqualTo(third.Document.DocumentId));
             Assert.That(harness.Service.Search("alpha", corpus.CorpusId).Select(hit => hit.DocumentId), Is.EqualTo(new[] { third.Document.DocumentId }));
             Assert.That(harness.Service.Search("beta", corpus.CorpusId), Is.Empty);
             Assert.That(rebuiltThird.Rebuilt, Is.True);
             Assert.That(rebuiltThird.Document.DocumentId, Is.EqualTo(third.Document.DocumentId));
+            Assert.That(rebuiltThird.Document.VersionOrdinal, Is.EqualTo(third.Document.VersionOrdinal));
             Assert.That(harness.Service.ListDocuments(corpus.CorpusId), Has.Count.EqualTo(3));
+        });
+    }
+
+    [Test]
+    public async Task ImportFileAsync_Same_Bytes_With_Different_Names_Create_Distinct_Documents()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Same bytes");
+        var firstPath = Path.Combine(harness.Root, "first.txt");
+        var secondPath = Path.Combine(harness.Root, "second.txt");
+        await File.WriteAllTextAsync(firstPath, "shared source token.\n");
+        await File.WriteAllTextAsync(secondPath, "shared source token.\n");
+
+        var first = await harness.Service.ImportFileAsync(corpus.CorpusId, firstPath);
+        var second = await harness.Service.ImportFileAsync(corpus.CorpusId, secondPath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(second.Document.DocumentId, Is.Not.EqualTo(first.Document.DocumentId));
+            Assert.That(first.Document.SourceDigest, Is.EqualTo(second.Document.SourceDigest));
+            Assert.That(first.Document.Status, Is.EqualTo("ready"));
+            Assert.That(second.Document.Status, Is.EqualTo("ready"));
+            Assert.That(harness.Service.Search("shared", corpus.CorpusId).Select(hit => hit.DocumentId).Distinct(),
+                Is.EquivalentTo(new[] { first.Document.DocumentId, second.Document.DocumentId }));
         });
     }
 
