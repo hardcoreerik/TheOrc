@@ -27,6 +27,7 @@ internal static class Migrations
         new Migration(10, "context fabric document graph and claim search", Sql010_ContextFabricDocumentGraph),
         new Migration(11, "context fabric hierarchy and cognitive paging", Sql011_ContextFabricHierarchyPaging),
         new Migration(12, "context fabric claims generation id", Sql012_ContextFabricClaimsGenerationId),
+        new Migration(13, "context fabric segment provenance", Sql013_ContextFabricSegmentProvenance),
     ];
 
     // ── v1 — Phase 1: captures + triage ─────────────────────────────────────────
@@ -534,6 +535,17 @@ internal static class Migrations
     private const string Sql012_ContextFabricClaimsGenerationId = """
         ALTER TABLE fabric_claims ADD COLUMN generation_id TEXT;
         CREATE INDEX ix_fabric_claims_generation ON fabric_claims(corpus_id, generation_id);
+        """;
+
+    // ── v13 — CF-8: segment-level parser provenance ─────────────────────────
+    // Adds nullable source locator metadata to segment rows. Existing rows keep the
+    // conservative text/default provenance and can be rebuilt from source artifacts.
+    private const string Sql013_ContextFabricSegmentProvenance = """
+        ALTER TABLE fabric_segments ADD COLUMN block_kind TEXT NOT NULL DEFAULT 'text' CHECK (length(block_kind) > 0);
+        ALTER TABLE fabric_segments ADD COLUMN page_number INTEGER CHECK (page_number IS NULL OR page_number >= 1);
+        ALTER TABLE fabric_segments ADD COLUMN source_locator TEXT;
+        ALTER TABLE fabric_segments ADD COLUMN confidence REAL CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0));
+        CREATE INDEX ix_fabric_segments_source_locator ON fabric_segments(document_id, page_number);
         """;
 
     // ── v5 — CodeGraph v1 (C# structure + search index) ─────────────────────────

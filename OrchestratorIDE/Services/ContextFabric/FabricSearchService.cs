@@ -26,7 +26,11 @@ public sealed class FabricSearchService(
                 "segment",
                 null,
                 null,
-                null));
+                null,
+                segmentHit.BlockKind,
+                segmentHit.PageNumber,
+                segmentHit.SourceLocator,
+                segmentHit.Confidence));
             seenSegments.Add(segmentHit.SegmentId);
             if (hits.Count >= limit)
                 return hits;
@@ -52,7 +56,11 @@ public sealed class FabricSearchService(
                 "claim",
                 claimHit.ClaimId,
                 claimHit.ClaimText,
-                claimHit.VerificationStatus));
+                claimHit.VerificationStatus,
+                segment.BlockKind,
+                segment.PageNumber,
+                segment.SourceLocator,
+                segment.Confidence));
             if (hits.Count >= limit)
                 break;
         }
