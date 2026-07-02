@@ -85,6 +85,22 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public void PdfTextParser_Preserves_Page_Number_After_Blank_Page()
+    {
+        var parser = new PdfTextFabricParser();
+
+        var parsed = parser.Parse(BuildTwoPagePdfWithBlankFirstPage(), "application/pdf");
+        var sentinel = parsed.Blocks.Single(block => block.Text.Contains("Second page sentinel", StringComparison.Ordinal));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sentinel.PageNumber, Is.EqualTo(2));
+            Assert.That(sentinel.SourceLocator, Is.EqualTo("page 2"));
+            Assert.That(parsed.NormalizedText[sentinel.CharStart..sentinel.CharEnd], Is.EqualTo(sentinel.Text));
+        });
+    }
+
+    [Test]
     public void TextMarkdownParser_Rejects_Invalid_Utf8_And_Nul()
     {
         var parser = new TextMarkdownFabricParser();
@@ -607,6 +623,38 @@ public sealed class ContextFabricCf1Tests
             FirstSegmentId = result.Segments[0].SegmentId,
             LastSegmentId = result.Segments[^1].SegmentId,
         });
+
+    private static byte[] BuildTwoPagePdfWithBlankFirstPage()
+    {
+        var body = "BT /F1 12 Tf 72 720 Td (Second page sentinel) Tj ET";
+        var objects = new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 6 0 R >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            $"<< /Length {body.Length} >>\nstream\n{body}\nendstream",
+        };
+        var bytes = new List<byte>();
+        void Append(string text) => bytes.AddRange(Encoding.ASCII.GetBytes(text));
+
+        Append("%PDF-1.4\n");
+        var offsets = new List<int> { 0 };
+        for (var index = 0; index < objects.Length; index++)
+        {
+            offsets.Add(bytes.Count);
+            Append($"{index + 1} 0 obj\n{objects[index]}\nendobj\n");
+        }
+
+        var xref = bytes.Count;
+        Append($"xref\n0 {offsets.Count}\n");
+        Append("0000000000 65535 f \n");
+        foreach (var offset in offsets.Skip(1))
+            Append($"{offset:0000000000} 00000 n \n");
+        Append($"trailer\n<< /Size {offsets.Count} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+        return bytes.ToArray();
+    }
 
     private async Task AssertFixtureImportsAndRebuildsReproducibly(
         DarwinFixtureManifest manifest,

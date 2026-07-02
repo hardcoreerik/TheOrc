@@ -105,13 +105,13 @@ public sealed class PdfTextFabricParser : IFabricDocumentParser
             throw new InvalidDataException("PDF contains no pages.");
 
         var pageTexts = pages
-            .Select(ExtractPageText)
-            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .Select((page, index) => (PageNumber: index + 1, Text: ExtractPageText(page)))
+            .Where(page => !string.IsNullOrWhiteSpace(page.Text))
             .ToArray();
         if (pageTexts.Length == 0)
             throw new InvalidDataException("PDF contains no extractable text.");
 
-        var normalized = FabricTextParsing.Normalize(string.Join("\n\n", pageTexts));
+        var normalized = FabricTextParsing.Normalize(string.Join("\n\n", pageTexts.Select(page => page.Text)));
         if (string.IsNullOrWhiteSpace(normalized))
             throw new InvalidDataException("PDF contains no parseable text.");
 
@@ -227,7 +227,7 @@ internal static class FabricTextParsing
     public static IReadOnlyList<FabricParsedBlock> AddPageLocators(
         IReadOnlyList<FabricParsedBlock> blocks,
         string normalized,
-        IReadOnlyList<string> pageTexts)
+        IReadOnlyList<(int PageNumber, string Text)> pageTexts)
     {
         if (blocks.Count == 0 || pageTexts.Count == 0)
             return blocks;
@@ -245,13 +245,13 @@ internal static class FabricTextParsing
 
     private static IReadOnlyList<(int PageNumber, int Start, int End)> BuildPageRanges(
         string normalized,
-        IReadOnlyList<string> pageTexts)
+        IReadOnlyList<(int PageNumber, string Text)> pageTexts)
     {
         var ranges = new List<(int PageNumber, int Start, int End)>();
         var cursor = 0;
         for (var index = 0; index < pageTexts.Count; index++)
         {
-            var page = Normalize(pageTexts[index]).Trim('\n');
+            var page = Normalize(pageTexts[index].Text).Trim('\n');
             if (page.Length == 0)
                 continue;
 
@@ -260,7 +260,7 @@ internal static class FabricTextParsing
                 continue;
 
             var end = start + page.Length;
-            ranges.Add((index + 1, start, end));
+            ranges.Add((pageTexts[index].PageNumber, start, end));
             cursor = end;
         }
 
