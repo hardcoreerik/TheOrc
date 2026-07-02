@@ -305,6 +305,107 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
             });
     }
 
+    public void UpsertSegmentEmbedding(string segmentId, string embeddingModelHash, IReadOnlyList<float> vector)
+    {
+        if (string.IsNullOrWhiteSpace(segmentId)) throw new ArgumentException("Segment ID is required.", nameof(segmentId));
+        if (string.IsNullOrWhiteSpace(embeddingModelHash)) throw new ArgumentException("Embedding model hash is required.", nameof(embeddingModelHash));
+        if (GetSegment(segmentId) is null) throw new KeyNotFoundException($"Context Fabric segment '{segmentId}' does not exist.");
+
+        var blob = EncodeVector(vector, out var norm);
+        var now = DateTimeOffset.UtcNow.ToString("O");
+        Execute(
+            """
+            INSERT INTO fabric_embeddings
+                (object_kind, object_id, embedding_model_hash, dimension, vector_blob, vector_norm, created_at, updated_at)
+            VALUES
+                ('segment', $segment, $model, $dimension, $vector, $norm, $created, $updated)
+            ON CONFLICT(object_kind, object_id, embedding_model_hash) DO UPDATE SET
+                dimension = excluded.dimension,
+                vector_blob = excluded.vector_blob,
+                vector_norm = excluded.vector_norm,
+                updated_at = excluded.updated_at
+            """,
+            ps =>
+            {
+                P(ps, "$segment", segmentId);
+                P(ps, "$model", embeddingModelHash.Trim());
+                P(ps, "$dimension", vector.Count);
+                P(ps, "$vector", blob);
+                P(ps, "$norm", norm);
+                P(ps, "$created", now);
+                P(ps, "$updated", now);
+            });
+    }
+
+    public IReadOnlyList<FabricSearchHit> SearchVector(
+        IReadOnlyList<float> queryVector,
+        string embeddingModelHash,
+        string? corpusId = null,
+        int limit = 50,
+        int candidateLimit = 500)
+    {
+        if (string.IsNullOrWhiteSpace(embeddingModelHash)) return [];
+        var queryBlob = EncodeVector(queryVector, out var queryNorm);
+        var dimension = queryBlob.Length / sizeof(float);
+        limit = Math.Clamp(limit, 1, 500);
+        candidateLimit = Math.Clamp(candidateLimit, limit, 5000);
+
+        var candidates = Query(
+            """
+            SELECT d.corpus_id, d.document_id, d.display_name,
+                   s.segment_id, s.ordinal, s.heading_path, t.normalized_text,
+                   s.block_kind, s.page_number, s.source_locator, s.confidence,
+                   e.vector_blob, e.vector_norm
+            FROM fabric_embeddings e
+            JOIN fabric_segments s ON s.segment_id = e.object_id
+            JOIN fabric_segment_text t ON t.segment_id = s.segment_id
+            JOIN fabric_documents d ON d.document_id = s.document_id
+            WHERE e.object_kind = 'segment'
+              AND e.embedding_model_hash = $model
+              AND e.dimension = $dimension
+              AND ($corpus IS NULL OR d.corpus_id = $corpus)
+              AND d.status <> 'superseded'
+            ORDER BY e.updated_at DESC, e.object_id
+            LIMIT $candidateLimit
+            """,
+            reader => new VectorSearchCandidate(
+                new FabricSearchHit(
+                    reader.GetString(reader.GetOrdinal("corpus_id")),
+                    reader.GetString(reader.GetOrdinal("document_id")),
+                    reader.GetString(reader.GetOrdinal("display_name")),
+                    reader.GetString(reader.GetOrdinal("segment_id")),
+                    reader.GetInt32(reader.GetOrdinal("ordinal")),
+                    GetStr(reader, "heading_path"),
+                    reader.GetString(reader.GetOrdinal("normalized_text")),
+                    0,
+                    reader.GetString(reader.GetOrdinal("block_kind")),
+                    GetInt(reader, "page_number"),
+                    GetStr(reader, "source_locator"),
+                    GetReal(reader, "confidence"),
+                    "vector"),
+                (byte[])reader["vector_blob"],
+                reader.GetDouble(reader.GetOrdinal("vector_norm"))),
+            ps =>
+            {
+                P(ps, "$model", embeddingModelHash.Trim());
+                P(ps, "$dimension", dimension);
+                P(ps, "$corpus", corpusId);
+                P(ps, "$candidateLimit", candidateLimit);
+            });
+
+        return candidates
+            .Select(candidate =>
+            {
+                var score = CosineScore(queryVector, queryNorm, candidate.VectorBlob, candidate.VectorNorm);
+                return candidate.Hit with { Rank = 1.0 - score };
+            })
+            .OrderBy(hit => hit.Rank)
+            .ThenBy(hit => hit.DocumentId, StringComparer.Ordinal)
+            .ThenBy(hit => hit.Ordinal)
+            .Take(limit)
+            .ToArray();
+    }
+
     public bool DeleteCorpus(string corpusId) => Execute(
         "DELETE FROM fabric_corpora WHERE corpus_id = $id",
         ps => P(ps, "$id", corpusId)) > 0;
@@ -329,9 +430,41 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
         return new HashSet<string>(digests, StringComparer.Ordinal);
     }
 
+    private sealed record VectorSearchCandidate(FabricSearchHit Hit, byte[] VectorBlob, double VectorNorm);
+
     private static string BuildFtsQuery(string query) => string.Join(" AND ", SearchTerms
         .Matches(query ?? "")
         .Select(match => $"\"{match.Value.Replace("\"", "\"\"")}\""));
+
+    private static byte[] EncodeVector(IReadOnlyList<float> vector, out double norm)
+    {
+        ArgumentNullException.ThrowIfNull(vector);
+        if (vector.Count == 0) throw new ArgumentException("Embedding vector cannot be empty.", nameof(vector));
+
+        var blob = new byte[checked(vector.Count * sizeof(float))];
+        var sum = 0.0;
+        for (var i = 0; i < vector.Count; i++)
+        {
+            var value = vector[i];
+            if (!float.IsFinite(value))
+                throw new ArgumentException("Embedding vector values must be finite.", nameof(vector));
+            BitConverter.GetBytes(value).CopyTo(blob, i * sizeof(float));
+            sum += value * value;
+        }
+
+        norm = Math.Sqrt(sum);
+        if (norm <= 0)
+            throw new ArgumentException("Embedding vector norm must be greater than zero.", nameof(vector));
+        return blob;
+    }
+
+    private static double CosineScore(IReadOnlyList<float> queryVector, double queryNorm, byte[] vectorBlob, double vectorNorm)
+    {
+        var dot = 0.0;
+        for (var i = 0; i < queryVector.Count; i++)
+            dot += queryVector[i] * BitConverter.ToSingle(vectorBlob, i * sizeof(float));
+        return dot / (queryNorm * vectorNorm);
+    }
 
     private static FabricCorpusEntry MapCorpus(SqliteDataReader reader) => new(
         reader.GetString(reader.GetOrdinal("corpus_id")),

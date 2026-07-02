@@ -50,6 +50,20 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public void MigrationV15_Creates_ContextFabric_Embeddings_Table()
+    {
+        using var store = new SqliteStore(":memory:");
+        store.Initialize();
+        using var connection = store.Open();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM schema_migrations WHERE version = 15"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'fabric_embeddings'"), Is.EqualTo(1));
+        });
+    }
+
+    [Test]
     public void TextMarkdownParser_Normalizes_Newlines_And_Tracks_Heading_Path()
     {
         var parser = new TextMarkdownFabricParser();
@@ -413,6 +427,51 @@ public sealed class ContextFabricCf1Tests
             Assert.That(harness.Repository.GetSegments(imported.Document.DocumentId), Is.Empty);
             Assert.That(harness.Service.Search("LANTERN", corpus.CorpusId), Is.Empty);
         });
+    }
+
+    [Test]
+    public void SearchWithVector_Uses_Stored_Embeddings_And_Lexical_Fallback()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Hybrid search");
+        var now = DateTimeOffset.UtcNow;
+        var document = new FabricDocumentEntry(
+            "doc-vector",
+            corpus.CorpusId,
+            FabricHashing.Sha256("vector-source"),
+            FabricHashing.Sha256("vector-normalized"),
+            "vectors.txt",
+            "text/plain",
+            "parser",
+            "1",
+            "ready",
+            [],
+            now,
+            now);
+        harness.Repository.ReplaceDocument(document, [
+            Draft("seg-alpha-vector", 0, "alpha semantic target"),
+            Draft("seg-beta-vector", 1, "beta lexical fallback"),
+        ]);
+        harness.Service.UpsertSegmentEmbedding("seg-alpha-vector", "model-a", [1, 0]);
+        harness.Service.UpsertSegmentEmbedding("seg-beta-vector", "model-a", [0, 1]);
+
+        var hybrid = harness.Service.SearchWithVector("beta", [1, 0], "model-a", corpus.CorpusId, 2);
+        var lexicalFallback = harness.Service.SearchWithVector("beta", [1, 0], "missing-model", corpus.CorpusId, 2);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(hybrid.Select(hit => hit.SegmentId), Is.EqualTo(new[] { "seg-alpha-vector", "seg-beta-vector" }));
+            Assert.That(hybrid[0].Rank, Is.EqualTo(0.0).Within(0.0001));
+            Assert.That(hybrid[0].RankSource, Is.EqualTo("vector"));
+            Assert.That(hybrid[1].RankSource, Is.EqualTo("vector"));
+            Assert.That(lexicalFallback.Select(hit => hit.SegmentId), Is.EqualTo(new[] { "seg-beta-vector" }));
+            Assert.That(lexicalFallback[0].RankSource, Is.EqualTo("lexical"));
+        });
+
+        Assert.That(harness.Service.DeleteCorpus(corpus.CorpusId), Is.True);
+        using var connection = store.Open();
+        Assert.That(Scalar(connection, "SELECT COUNT(*) FROM fabric_embeddings"), Is.EqualTo(0));
     }
 
     [Test]
