@@ -160,6 +160,34 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public void Segmenter_Aggregates_Page_Metadata_When_Segment_Spans_Multiple_Blocks()
+    {
+        var first = new string('a', 150);
+        var second = new string('b', 150);
+        var text = $"{first}\n\n{second}\n";
+        var parsed = new FabricParsedDocument(
+            "parser",
+            "version",
+            "application/pdf",
+            text,
+            [
+                new FabricParsedBlock(0, first.Length, "Manual", first, "text", 2, "page 2", 0.91),
+                new FabricParsedBlock(first.Length + 2, first.Length + 2 + second.Length, "Manual", second, "text", 3, "page 3", 0.73),
+            ],
+            []);
+
+        var segments = new FabricSegmenter(new FabricSegmenterOptions(64, 96, 0))
+            .Segment("doc-merged-pages", parsed);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(segments[0].PageNumber, Is.EqualTo(2));
+            Assert.That(segments[0].SourceLocator, Is.EqualTo("pages 2-3"));
+            Assert.That(segments[0].Confidence, Is.EqualTo(0.73));
+        });
+    }
+
+    [Test]
     public void TextMarkdownParser_Rejects_Invalid_Utf8_And_Nul()
     {
         var parser = new TextMarkdownFabricParser();
