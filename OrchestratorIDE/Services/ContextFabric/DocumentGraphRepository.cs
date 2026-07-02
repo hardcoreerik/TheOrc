@@ -308,6 +308,108 @@ public sealed class DocumentGraphRepository(SqliteStore store) : RepositoryBase(
             P(ps, "$limit", Math.Clamp(limit, 1, 500));
         });
 
+    public void UpsertGraphLink(FabricGraphLinkEntry link)
+    {
+        ArgumentNullException.ThrowIfNull(link);
+        if (string.IsNullOrWhiteSpace(link.LinkId))
+            throw new ArgumentException("Link id is required.", nameof(link));
+        if (string.IsNullOrWhiteSpace(link.LinkType))
+            throw new ArgumentException("Link type is required.", nameof(link));
+        ValidateLinkEndpoint(link.SourceKind, link.SourceId, link.SourceCorpusId, "source");
+        ValidateLinkEndpoint(link.TargetKind, link.TargetId, link.TargetCorpusId, "target");
+        if (link.EvidenceClaimId is not null &&
+            GetObjectCorpusId("claim", link.EvidenceClaimId) is null)
+            throw new InvalidDataException($"Graph link evidence claim '{link.EvidenceClaimId}' does not exist.");
+        if (link.Confidence is < 0.0 or > 1.0)
+            throw new ArgumentOutOfRangeException(nameof(link), "Link confidence must be between 0 and 1.");
+
+        Execute("""
+            INSERT INTO fabric_graph_links
+                (link_id, source_kind, source_id, source_corpus_id,
+                 target_kind, target_id, target_corpus_id, link_type,
+                 evidence_claim_id, confidence, created_at, updated_at)
+            VALUES
+                ($id, $sourceKind, $sourceId, $sourceCorpus,
+                 $targetKind, $targetId, $targetCorpus, $type,
+                 $evidenceClaim, $confidence, $created, $updated)
+            ON CONFLICT(link_id) DO UPDATE SET
+                source_kind = excluded.source_kind,
+                source_id = excluded.source_id,
+                source_corpus_id = excluded.source_corpus_id,
+                target_kind = excluded.target_kind,
+                target_id = excluded.target_id,
+                target_corpus_id = excluded.target_corpus_id,
+                link_type = excluded.link_type,
+                evidence_claim_id = excluded.evidence_claim_id,
+                confidence = excluded.confidence,
+                updated_at = excluded.updated_at
+            """,
+            ps =>
+            {
+                P(ps, "$id", link.LinkId);
+                P(ps, "$sourceKind", link.SourceKind);
+                P(ps, "$sourceId", link.SourceId);
+                P(ps, "$sourceCorpus", link.SourceCorpusId);
+                P(ps, "$targetKind", link.TargetKind);
+                P(ps, "$targetId", link.TargetId);
+                P(ps, "$targetCorpus", link.TargetCorpusId);
+                P(ps, "$type", link.LinkType);
+                P(ps, "$evidenceClaim", link.EvidenceClaimId);
+                P(ps, "$confidence", link.Confidence);
+                P(ps, "$created", link.CreatedAt.ToString("O"));
+                P(ps, "$updated", link.UpdatedAt.ToString("O"));
+            });
+    }
+
+    public IReadOnlyList<FabricGraphLinkEntry> ListGraphLinksForCorpus(
+        string corpusId,
+        bool includeInbound = true,
+        string? linkType = null,
+        int limit = 200) => Query(
+        """
+        SELECT *
+        FROM fabric_graph_links
+        WHERE (source_corpus_id = $corpus OR ($includeInbound = 1 AND target_corpus_id = $corpus))
+          AND ($type IS NULL OR link_type = $type)
+        ORDER BY updated_at DESC, link_id
+        LIMIT $limit
+        """,
+        MapGraphLink,
+        ps =>
+        {
+            P(ps, "$corpus", corpusId);
+            P(ps, "$includeInbound", includeInbound ? 1 : 0);
+            P(ps, "$type", linkType);
+            P(ps, "$limit", Math.Clamp(limit, 1, 1000));
+        });
+
+    public IReadOnlyList<FabricGraphLinkEntry> ListGraphLinksForObject(
+        string objectKind,
+        string objectId,
+        string? linkType = null,
+        int limit = 200) => Query(
+        """
+        SELECT *
+        FROM fabric_graph_links
+        WHERE ((source_kind = $kind AND source_id = $id)
+            OR (target_kind = $kind AND target_id = $id))
+          AND ($type IS NULL OR link_type = $type)
+        ORDER BY updated_at DESC, link_id
+        LIMIT $limit
+        """,
+        MapGraphLink,
+        ps =>
+        {
+            P(ps, "$kind", objectKind);
+            P(ps, "$id", objectId);
+            P(ps, "$type", linkType);
+            P(ps, "$limit", Math.Clamp(limit, 1, 1000));
+        });
+
+    public bool DeleteGraphLink(string linkId) => Execute(
+        "DELETE FROM fabric_graph_links WHERE link_id = $id",
+        ps => P(ps, "$id", linkId)) > 0;
+
     public void ReplaceMemoryNodesForDocument(
         string documentId,
         IReadOnlyList<FabricMemoryNodeEntry> nodes,
@@ -412,9 +514,79 @@ public sealed class DocumentGraphRepository(SqliteStore store) : RepositoryBase(
         DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("created_at"))),
         DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("updated_at"))));
 
+    private static FabricGraphLinkEntry MapGraphLink(SqliteDataReader reader) => new(
+        reader.GetString(reader.GetOrdinal("link_id")),
+        reader.GetString(reader.GetOrdinal("source_kind")),
+        reader.GetString(reader.GetOrdinal("source_id")),
+        GetStr(reader, "source_corpus_id"),
+        reader.GetString(reader.GetOrdinal("target_kind")),
+        reader.GetString(reader.GetOrdinal("target_id")),
+        GetStr(reader, "target_corpus_id"),
+        reader.GetString(reader.GetOrdinal("link_type")),
+        GetStr(reader, "evidence_claim_id"),
+        GetReal(reader, "confidence"),
+        DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("created_at"))),
+        DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("updated_at"))));
+
     private static string BuildFtsQuery(string query) => string.Join(" AND ", query
         .Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .Select(term => $"\"{term.Replace("\"", "\"\"")}\""));
+
+    private void ValidateLinkEndpoint(string objectKind, string objectId, string? expectedCorpusId, string endpointName)
+    {
+        if (string.IsNullOrWhiteSpace(objectKind))
+            throw new ArgumentException($"Graph link {endpointName} kind is required.");
+        if (string.IsNullOrWhiteSpace(objectId))
+            throw new ArgumentException($"Graph link {endpointName} id is required.");
+
+        var actualCorpusId = GetObjectCorpusId(objectKind, objectId);
+        if (objectKind == "codegraph_node")
+        {
+            if (actualCorpusId is null)
+                throw new InvalidDataException($"Graph link {endpointName} CodeGraph node '{objectId}' does not exist.");
+            if (expectedCorpusId is not null)
+                throw new InvalidDataException($"Graph link {endpointName} CodeGraph node cannot carry a Fabric corpus id.");
+            return;
+        }
+
+        if (actualCorpusId is null)
+            throw new InvalidDataException($"Graph link {endpointName} {objectKind} '{objectId}' does not exist.");
+        if (!string.Equals(actualCorpusId, expectedCorpusId, StringComparison.Ordinal))
+            throw new InvalidDataException($"Graph link {endpointName} corpus id '{expectedCorpusId}' does not match '{actualCorpusId}'.");
+    }
+
+    private string? GetObjectCorpusId(string objectKind, string objectId)
+    {
+        return objectKind switch
+        {
+            "corpus" => Query(
+                "SELECT corpus_id FROM fabric_corpora WHERE corpus_id = $id",
+                reader => reader.GetString(0),
+                ps => P(ps, "$id", objectId)).SingleOrDefault(),
+            "document" => Query(
+                "SELECT corpus_id FROM fabric_documents WHERE document_id = $id",
+                reader => reader.GetString(0),
+                ps => P(ps, "$id", objectId)).SingleOrDefault(),
+            "segment" => Query(
+                """
+                SELECT d.corpus_id
+                FROM fabric_segments s
+                JOIN fabric_documents d ON d.document_id = s.document_id
+                WHERE s.segment_id = $id
+                """,
+                reader => reader.GetString(0),
+                ps => P(ps, "$id", objectId)).SingleOrDefault(),
+            "claim" => Query(
+                "SELECT corpus_id FROM fabric_claims WHERE claim_id = $id",
+                reader => reader.GetString(0),
+                ps => P(ps, "$id", objectId)).SingleOrDefault(),
+            "codegraph_node" => Query(
+                "SELECT project FROM graph_nodes WHERE id = $id",
+                reader => reader.GetString(0),
+                ps => P(ps, "$id", objectId)).SingleOrDefault(),
+            _ => throw new InvalidDataException($"Graph link object kind '{objectKind}' is not supported.")
+        };
+    }
 
     private void ValidateMemoryMemberships(
         string documentId,

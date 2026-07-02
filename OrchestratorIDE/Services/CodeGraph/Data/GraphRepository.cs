@@ -106,6 +106,7 @@ public sealed class GraphRepository : RepositoryBase
         InTransaction((conn, tx) =>
         {
             // Full project wipe (edges + fts rows via cascade + delete triggers)
+            DeleteFabricGraphLinksForProject(tx, project);
             ExecuteOn(tx, "DELETE FROM graph_nodes WHERE project = $p",
                 ps => P(ps, "$p", project));
 
@@ -167,7 +168,12 @@ public sealed class GraphRepository : RepositoryBase
     /// <summary>Delete all nodes (and by cascade all edges + FTS entries) for a project.</summary>
     public void ClearProject(string project)
     {
-        Execute("DELETE FROM graph_nodes WHERE project = $p", ps => P(ps, "$p", project));
+        InTransaction((conn, tx) =>
+        {
+            DeleteFabricGraphLinksForProject(tx, project);
+            ExecuteOn(tx, "DELETE FROM graph_nodes WHERE project = $p",
+                ps => P(ps, "$p", project));
+        });
     }
 
     /// <summary>
@@ -183,6 +189,7 @@ public sealed class GraphRepository : RepositoryBase
         {
             foreach (var f in files)
             {
+                DeleteFabricGraphLinksForFile(tx, project, f);
                 ExecuteOn(tx,
                     "DELETE FROM graph_nodes WHERE project = $p AND file_path = $f",
                     ps =>
@@ -193,6 +200,40 @@ public sealed class GraphRepository : RepositoryBase
             }
             RecomputeProjectDegrees(tx, project);   // keep degrees correct for survivors (blocker fix)
         });
+    }
+
+    private static void DeleteFabricGraphLinksForProject(SqliteTransaction tx, string project)
+    {
+        ExecuteOn(tx,
+            """
+            DELETE FROM fabric_graph_links
+            WHERE (source_kind = 'codegraph_node' AND source_id IN (
+                    SELECT CAST(id AS TEXT) FROM graph_nodes WHERE project = $p
+                ))
+               OR (target_kind = 'codegraph_node' AND target_id IN (
+                    SELECT CAST(id AS TEXT) FROM graph_nodes WHERE project = $p
+                ))
+            """,
+            ps => P(ps, "$p", project));
+    }
+
+    private static void DeleteFabricGraphLinksForFile(SqliteTransaction tx, string project, string filePath)
+    {
+        ExecuteOn(tx,
+            """
+            DELETE FROM fabric_graph_links
+            WHERE (source_kind = 'codegraph_node' AND source_id IN (
+                    SELECT CAST(id AS TEXT) FROM graph_nodes WHERE project = $p AND file_path = $f
+                ))
+               OR (target_kind = 'codegraph_node' AND target_id IN (
+                    SELECT CAST(id AS TEXT) FROM graph_nodes WHERE project = $p AND file_path = $f
+                ))
+            """,
+            ps =>
+            {
+                P(ps, "$p", project);
+                P(ps, "$f", filePath);
+            });
     }
 
     /// <summary>Insert a single edge (idempotent via OR IGNORE). Used by tests / small updates.</summary>

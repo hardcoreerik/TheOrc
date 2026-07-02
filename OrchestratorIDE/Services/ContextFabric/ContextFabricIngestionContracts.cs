@@ -192,6 +192,20 @@ public sealed record FabricRelationEntry(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
 
+public sealed record FabricGraphLinkEntry(
+    string LinkId,
+    string SourceKind,
+    string SourceId,
+    string? SourceCorpusId,
+    string TargetKind,
+    string TargetId,
+    string? TargetCorpusId,
+    string LinkType,
+    string? EvidenceClaimId,
+    double? Confidence,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
+
 public sealed record FabricClaimSearchHit(
     string ClaimId,
     string CorpusId,

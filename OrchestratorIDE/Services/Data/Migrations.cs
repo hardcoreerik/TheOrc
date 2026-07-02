@@ -30,6 +30,7 @@ internal static class Migrations
         new Migration(13, "context fabric segment provenance", Sql013_ContextFabricSegmentProvenance),
         new Migration(14, "context fabric document versions", Sql014_ContextFabricDocumentVersions),
         new Migration(15, "context fabric embeddings", Sql015_ContextFabricEmbeddings),
+        new Migration(16, "context fabric graph links", Sql016_ContextFabricGraphLinks),
     ];
 
     // ── v1 — Phase 1: captures + triage ─────────────────────────────────────────
@@ -857,6 +858,53 @@ internal static class Migrations
             DELETE FROM fabric_embeddings
             WHERE object_kind = 'segment'
               AND object_id = old.segment_id;
+        END;
+        """;
+
+    // ── v16 — CF-8: cross-corpus and CodeGraph links ───────────────────────
+    // Polymorphic links connect Fabric evidence objects across corpora and to
+    // CodeGraph nodes without weakening the source tables' existing identities.
+    private const string Sql016_ContextFabricGraphLinks = """
+        CREATE TABLE fabric_graph_links (
+            link_id           TEXT PRIMARY KEY,
+            source_kind       TEXT NOT NULL CHECK (source_kind IN ('corpus', 'document', 'segment', 'claim', 'codegraph_node')),
+            source_id         TEXT NOT NULL,
+            source_corpus_id  TEXT REFERENCES fabric_corpora(corpus_id) ON DELETE CASCADE,
+            target_kind       TEXT NOT NULL CHECK (target_kind IN ('corpus', 'document', 'segment', 'claim', 'codegraph_node')),
+            target_id         TEXT NOT NULL,
+            target_corpus_id  TEXT REFERENCES fabric_corpora(corpus_id) ON DELETE CASCADE,
+            link_type         TEXT NOT NULL,
+            evidence_claim_id TEXT REFERENCES fabric_claims(claim_id) ON DELETE SET NULL,
+            confidence        REAL CHECK (confidence IS NULL OR (confidence >= 0.0 AND confidence <= 1.0)),
+            created_at        TEXT NOT NULL,
+            updated_at        TEXT NOT NULL,
+            UNIQUE(source_kind, source_id, target_kind, target_id, link_type)
+        );
+        CREATE INDEX ix_fabric_graph_links_source ON fabric_graph_links(source_kind, source_id, link_type);
+        CREATE INDEX ix_fabric_graph_links_target ON fabric_graph_links(target_kind, target_id, link_type);
+        CREATE INDEX ix_fabric_graph_links_corpus ON fabric_graph_links(source_corpus_id, target_corpus_id, link_type);
+
+        CREATE TRIGGER fabric_claims_graph_links_ad AFTER DELETE ON fabric_claims BEGIN
+            DELETE FROM fabric_graph_links
+            WHERE (source_kind = 'claim' AND source_id = old.claim_id)
+               OR (target_kind = 'claim' AND target_id = old.claim_id);
+        END;
+        CREATE TRIGGER fabric_segments_graph_links_ad AFTER DELETE ON fabric_segments BEGIN
+            DELETE FROM fabric_graph_links
+            WHERE (source_kind = 'segment' AND source_id = old.segment_id)
+               OR (target_kind = 'segment' AND target_id = old.segment_id);
+        END;
+        CREATE TRIGGER fabric_documents_graph_links_ad AFTER DELETE ON fabric_documents BEGIN
+            DELETE FROM fabric_graph_links
+            WHERE (source_kind = 'document' AND source_id = old.document_id)
+               OR (target_kind = 'document' AND target_id = old.document_id);
+        END;
+        CREATE TRIGGER fabric_corpora_graph_links_ad AFTER DELETE ON fabric_corpora BEGIN
+            DELETE FROM fabric_graph_links
+            WHERE (source_kind = 'corpus' AND source_id = old.corpus_id)
+               OR (target_kind = 'corpus' AND target_id = old.corpus_id)
+               OR source_corpus_id = old.corpus_id
+               OR target_corpus_id = old.corpus_id;
         END;
         """;
 

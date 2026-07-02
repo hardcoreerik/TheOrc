@@ -1,6 +1,8 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using NUnit.Framework;
+using OrchestratorIDE.Services.CodeGraph;
+using OrchestratorIDE.Services.CodeGraph.Data;
 using OrchestratorIDE.Services.ContextFabric;
 using OrchestratorIDE.Services.Data;
 
@@ -41,6 +43,21 @@ public sealed class ContextFabricCf2Tests
             Assert.That(Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'fabric_claims'"), Is.EqualTo(1));
             Assert.That(Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'fabric_claim_fts'"), Is.EqualTo(1));
             Assert.That(Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'fabric_relations'"), Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void MigrationV16_Creates_ContextFabric_Graph_Links_Table()
+    {
+        using var store = new SqliteStore(":memory:");
+        store.Initialize();
+        using var connection = store.Open();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM schema_migrations WHERE version = 16"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'fabric_graph_links'"), Is.EqualTo(1));
+            Assert.That(Scalar(connection, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'ix_fabric_graph_links_corpus'"), Is.EqualTo(1));
         });
     }
 
@@ -140,6 +157,144 @@ public sealed class ContextFabricCf2Tests
             Assert.That(relations[0].RelationType, Is.EqualTo("SUPPORTS"));
             Assert.That(relations[0].VerificationStatus, Is.EqualTo(FabricVerificationStatus.Provisional));
         });
+    }
+
+    [Test]
+    public void DocumentGraphRepository_Persists_CrossCorpus_And_CodeGraph_Links()
+    {
+        using var store = new SqliteStore(":memory:");
+        store.Initialize();
+        var library = new FabricLibraryRepository(store);
+        var graph = new DocumentGraphRepository(store);
+        var codeGraph = new GraphRepository(store);
+        var now = DateTimeOffset.UtcNow;
+
+        var first = SeedClaim(library, graph, "corpus-link-a", "doc-link-a", "seg-link-a", "claim-link-a", "Alpha source anchors a claim.", now);
+        var second = SeedClaim(library, graph, "corpus-link-b", "doc-link-b", "seg-link-b", "claim-link-b", "Beta source confirms a separate claim.", now);
+        var nodeId = codeGraph.UpsertNode(new CodeNode(
+            null,
+            "TheOrc",
+            "Method",
+            "SearchWithVector",
+            "OrchestratorIDE.Services.ContextFabric.FabricLibraryService.SearchWithVector",
+            "OrchestratorIDE/Services/ContextFabric/FabricLibraryService.cs",
+            47,
+            77,
+            null,
+            null,
+            null,
+            null,
+            null));
+
+        graph.UpsertGraphLink(new FabricGraphLinkEntry(
+            "link-cross-corpus",
+            "claim",
+            first.Claim.ClaimId,
+            first.Corpus.CorpusId,
+            "claim",
+            second.Claim.ClaimId,
+            second.Corpus.CorpusId,
+            "supports",
+            first.Claim.ClaimId,
+            0.82,
+            now,
+            now));
+        graph.UpsertGraphLink(new FabricGraphLinkEntry(
+            "link-claim-code",
+            "claim",
+            first.Claim.ClaimId,
+            first.Corpus.CorpusId,
+            "codegraph_node",
+            nodeId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            null,
+            "implemented-by",
+            first.Claim.ClaimId,
+            0.7,
+            now,
+            now));
+
+        var firstCorpusLinks = graph.ListGraphLinksForCorpus(first.Corpus.CorpusId, includeInbound: true);
+        var secondOutboundLinks = graph.ListGraphLinksForCorpus(second.Corpus.CorpusId, includeInbound: false);
+        var codeLinks = graph.ListGraphLinksForObject("codegraph_node", nodeId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(firstCorpusLinks.Select(item => item.LinkId), Is.EquivalentTo(new[] { "link-cross-corpus", "link-claim-code" }));
+            Assert.That(secondOutboundLinks, Is.Empty);
+            Assert.That(codeLinks, Has.Count.EqualTo(1));
+            Assert.That(codeLinks[0].SourceId, Is.EqualTo(first.Claim.ClaimId));
+            Assert.That(codeLinks[0].TargetCorpusId, Is.Null);
+        });
+
+        library.DeleteCorpus(first.Corpus.CorpusId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(graph.ListGraphLinksForObject("claim", first.Claim.ClaimId), Is.Empty);
+            Assert.That(graph.ListGraphLinksForCorpus(second.Corpus.CorpusId, includeInbound: true), Is.Empty);
+        });
+
+        var third = SeedClaim(library, graph, "corpus-link-c", "doc-link-c", "seg-link-c", "claim-link-c", "Gamma source points at code.", now);
+        var secondNodeId = codeGraph.UpsertNode(new CodeNode(
+            null,
+            "TheOrc",
+            "Method",
+            "DeleteGraphLink",
+            "OrchestratorIDE.Services.ContextFabric.DocumentGraphRepository.DeleteGraphLink",
+            "OrchestratorIDE/Services/ContextFabric/DocumentGraphRepository.cs",
+            380,
+            382,
+            null,
+            null,
+            null,
+            null,
+            null));
+        var secondNodeIdText = secondNodeId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        graph.UpsertGraphLink(new FabricGraphLinkEntry(
+            "link-code-clear",
+            "claim",
+            third.Claim.ClaimId,
+            third.Corpus.CorpusId,
+            "codegraph_node",
+            secondNodeIdText,
+            null,
+            "implemented-by",
+            third.Claim.ClaimId,
+            0.6,
+            now,
+            now));
+
+        codeGraph.ClearProject("TheOrc");
+
+        Assert.That(graph.ListGraphLinksForObject("codegraph_node", secondNodeIdText), Is.Empty);
+    }
+
+    [Test]
+    public void DocumentGraphRepository_Rejects_Link_With_Mismatched_Corpus()
+    {
+        using var store = new SqliteStore(":memory:");
+        store.Initialize();
+        var library = new FabricLibraryRepository(store);
+        var graph = new DocumentGraphRepository(store);
+        var now = DateTimeOffset.UtcNow;
+        var first = SeedClaim(library, graph, "corpus-mismatch-a", "doc-mismatch-a", "seg-mismatch-a", "claim-mismatch-a", "Alpha source.", now);
+        var second = SeedClaim(library, graph, "corpus-mismatch-b", "doc-mismatch-b", "seg-mismatch-b", "claim-mismatch-b", "Beta source.", now);
+
+        var ex = Assert.Throws<InvalidDataException>(() => graph.UpsertGraphLink(new FabricGraphLinkEntry(
+            "link-bad-corpus",
+            "claim",
+            first.Claim.ClaimId,
+            second.Corpus.CorpusId,
+            "claim",
+            second.Claim.ClaimId,
+            second.Corpus.CorpusId,
+            "supports",
+            null,
+            null,
+            now,
+            now)));
+
+        Assert.That(ex!.Message, Does.Contain("does not match"));
     }
 
     [Test]
@@ -737,6 +892,77 @@ public sealed class ContextFabricCf2Tests
             Assert.That(hits[0].RetrievalPath, Is.EqualTo("segment"));
         });
     }
+
+    private static SeededClaim SeedClaim(
+        FabricLibraryRepository library,
+        DocumentGraphRepository graph,
+        string corpusId,
+        string documentId,
+        string segmentId,
+        string claimId,
+        string text,
+        DateTimeOffset now)
+    {
+        var corpus = library.CreateCorpus(corpusId, corpusId);
+        var document = new FabricDocumentEntry(
+            documentId,
+            corpus.CorpusId,
+            $"{documentId}-source",
+            $"{documentId}-normalized",
+            documentId,
+            "text/plain",
+            FabricIngestionVersions.TextMarkdownParser,
+            FabricIngestionVersions.TextMarkdownParser,
+            "ready",
+            [],
+            now,
+            now);
+        library.ReplaceDocument(document,
+        [
+            new FabricSegmentDraft(
+                segmentId,
+                0,
+                null,
+                0,
+                text.Length,
+                8,
+                $"{segmentId}-digest",
+                text,
+                null,
+                null,
+                FabricIngestionVersions.Segmenter)
+        ]);
+
+        var claim = new FabricClaimEntry(
+            claimId,
+            corpus.CorpusId,
+            document.DocumentId,
+            segmentId,
+            "assertion",
+            text,
+            FabricVerificationStatus.Provisional,
+            0.75,
+            now,
+            now);
+        graph.UpsertClaim(claim,
+        [
+            new FabricClaimCitationEntry(
+                claim.ClaimId,
+                0,
+                segmentId,
+                0,
+                text.Length,
+                FabricHashing.Sha256(text),
+                text)
+        ]);
+
+        return new SeededClaim(corpus, document, claim);
+    }
+
+    private sealed record SeededClaim(
+        FabricCorpusEntry Corpus,
+        FabricDocumentEntry Document,
+        FabricClaimEntry Claim);
 
     private static int Scalar(Microsoft.Data.Sqlite.SqliteConnection connection, string sql)
     {
