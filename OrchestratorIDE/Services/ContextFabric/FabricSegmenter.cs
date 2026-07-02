@@ -72,7 +72,11 @@ public sealed class FabricSegmenter
                 text,
                 null,
                 null,
-                FabricIngestionVersions.Segmenter);
+                FabricIngestionVersions.Segmenter,
+                blocks[range.Start].BlockKind,
+                blocks[range.Start].PageNumber,
+                blocks[range.Start].SourceLocator,
+                blocks[range.Start].Confidence);
         }).ToArray();
 
         return drafts.Select((draft, index) => draft with

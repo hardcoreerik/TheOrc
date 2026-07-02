@@ -77,8 +77,8 @@ public sealed class ContextFabricCf1Tests
         Assert.Multiple(() =>
         {
             Assert.That(parsed.Blocks, Has.Count.GreaterThan(0));
-            Assert.That(parsed.Blocks, Has.Some.Matches<FabricParsedBlock>(block =>
-                block.PageNumber >= 1 && block.SourceLocator == $"page {block.PageNumber}"));
+            Assert.That(parsed.Blocks, Has.All.Matches<FabricParsedBlock>(block =>
+                block.PageNumber >= 1 && !string.IsNullOrWhiteSpace(block.SourceLocator)));
             Assert.That(parsed.Blocks, Has.All.Matches<FabricParsedBlock>(block =>
                 parsed.NormalizedText[block.CharStart..block.CharEnd] == block.Text));
         });
@@ -114,12 +114,48 @@ public sealed class ContextFabricCf1Tests
             (2, "continues on page two"),
         };
 
-        var located = AddPageLocatorsForTest(blocks, normalized, pageTexts);
+        var located = FabricTextParsing.AddPageLocators(blocks, normalized, pageTexts);
 
         Assert.Multiple(() =>
         {
             Assert.That(located[0].PageNumber, Is.EqualTo(1));
             Assert.That(located[0].SourceLocator, Is.EqualTo("pages 1-2"));
+        });
+    }
+
+    [Test]
+    public void Segmenter_Preserves_Block_Metadata_When_Splitting_Oversized_Blocks()
+    {
+        var text = string.Join(' ', Enumerable.Repeat("metadata-token", 180)) + "\n";
+        var parsed = new FabricParsedDocument(
+            "parser",
+            "version",
+            "application/pdf",
+            text,
+            [
+                new FabricParsedBlock(
+                    0,
+                    text.Length,
+                    "Manual",
+                    text.TrimEnd('\n'),
+                    "table",
+                    7,
+                    "pages 7-8",
+                    0.82),
+            ],
+            []);
+
+        var segments = new FabricSegmenter(new FabricSegmenterOptions(64, 96, 0))
+            .Segment("doc-metadata", parsed);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(segments, Has.Count.GreaterThan(1));
+            Assert.That(segments, Has.All.Matches<FabricSegmentDraft>(segment =>
+                segment.BlockKind == "table" &&
+                segment.PageNumber == 7 &&
+                segment.SourceLocator == "pages 7-8" &&
+                segment.Confidence == 0.82));
         });
     }
 
@@ -677,20 +713,6 @@ public sealed class ContextFabricCf1Tests
             Append($"{offset:0000000000} 00000 n \n");
         Append($"trailer\n<< /Size {offsets.Count} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
         return bytes.ToArray();
-    }
-
-    private static IReadOnlyList<FabricParsedBlock> AddPageLocatorsForTest(
-        IReadOnlyList<FabricParsedBlock> blocks,
-        string normalized,
-        IReadOnlyList<(int PageNumber, string Text)> pageTexts)
-    {
-        var type = typeof(PdfTextFabricParser).Assembly.GetType(
-            "OrchestratorIDE.Services.ContextFabric.FabricTextParsing",
-            throwOnError: true)!;
-        var method = type.GetMethod(
-            "AddPageLocators",
-            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!;
-        return (IReadOnlyList<FabricParsedBlock>)method.Invoke(null, [blocks, normalized, pageTexts])!;
     }
 
     private async Task AssertFixtureImportsAndRebuildsReproducibly(
