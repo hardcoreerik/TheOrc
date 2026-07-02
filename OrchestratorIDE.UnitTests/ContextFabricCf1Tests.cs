@@ -60,7 +60,27 @@ public sealed class ContextFabricCf1Tests
             Assert.That(parsed.Blocks, Has.Count.EqualTo(4));
             Assert.That(parsed.Blocks[1].HeadingPath, Is.EqualTo("Alpha"));
             Assert.That(parsed.Blocks[3].HeadingPath, Is.EqualTo("Alpha / Beta"));
+            Assert.That(parsed.Blocks[0].BlockKind, Is.EqualTo("heading"));
+            Assert.That(parsed.Blocks[1].BlockKind, Is.EqualTo("text"));
             Assert.That(parsed.NormalizedText[parsed.Blocks[3].CharStart..parsed.Blocks[3].CharEnd], Is.EqualTo("Second paragraph."));
+        });
+    }
+
+    [Test]
+    public async Task PdfTextParser_Attaches_Page_Locators_To_Blocks()
+    {
+        var parser = new PdfTextFabricParser();
+        var source = await File.ReadAllBytesAsync(GetDarwinPdfFixturePath());
+
+        var parsed = parser.Parse(source, "application/pdf");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed.Blocks, Has.Count.GreaterThan(0));
+            Assert.That(parsed.Blocks, Has.Some.Matches<FabricParsedBlock>(block =>
+                block.PageNumber >= 1 && block.SourceLocator == $"page {block.PageNumber}"));
+            Assert.That(parsed.Blocks, Has.All.Matches<FabricParsedBlock>(block =>
+                parsed.NormalizedText[block.CharStart..block.CharEnd] == block.Text));
         });
     }
 

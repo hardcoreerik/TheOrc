@@ -115,7 +115,10 @@ public sealed class PdfTextFabricParser : IFabricDocumentParser
         if (string.IsNullOrWhiteSpace(normalized))
             throw new InvalidDataException("PDF contains no parseable text.");
 
-        var blocks = FabricTextParsing.BuildBlocks(normalized, markdown: false);
+        var blocks = FabricTextParsing.AddPageLocators(
+            FabricTextParsing.BuildBlocks(normalized, markdown: false),
+            normalized,
+            pageTexts);
         if (blocks.Count == 0)
             throw new InvalidDataException("PDF contains no parseable blocks.");
 
@@ -206,16 +209,61 @@ internal static class FabricTextParsing
                 }
             }
 
-            var blockText = text[cursor..boundary];
             var headingPath = string.Join(" / ", headings.Where(value => !string.IsNullOrWhiteSpace(value))!);
+            var blockText = text[cursor..boundary];
+            var kind = heading.Success ? "heading" : "text";
             blocks.Add(new FabricParsedBlock(
                 cursor,
                 boundary,
                 headingPath.Length == 0 ? null : headingPath,
-                blockText));
+                blockText,
+                kind));
             cursor = boundary;
         }
 
         return blocks;
+    }
+
+    public static IReadOnlyList<FabricParsedBlock> AddPageLocators(
+        IReadOnlyList<FabricParsedBlock> blocks,
+        string normalized,
+        IReadOnlyList<string> pageTexts)
+    {
+        if (blocks.Count == 0 || pageTexts.Count == 0)
+            return blocks;
+
+        var ranges = BuildPageRanges(normalized, pageTexts);
+        return blocks.Select(block =>
+        {
+            var page = ranges.FirstOrDefault(range =>
+                block.CharStart >= range.Start && block.CharStart < range.End);
+            return page.PageNumber == 0
+                ? block
+                : block with { PageNumber = page.PageNumber, SourceLocator = $"page {page.PageNumber}" };
+        }).ToArray();
+    }
+
+    private static IReadOnlyList<(int PageNumber, int Start, int End)> BuildPageRanges(
+        string normalized,
+        IReadOnlyList<string> pageTexts)
+    {
+        var ranges = new List<(int PageNumber, int Start, int End)>();
+        var cursor = 0;
+        for (var index = 0; index < pageTexts.Count; index++)
+        {
+            var page = Normalize(pageTexts[index]).Trim('\n');
+            if (page.Length == 0)
+                continue;
+
+            var start = normalized.IndexOf(page, cursor, StringComparison.Ordinal);
+            if (start < 0)
+                continue;
+
+            var end = start + page.Length;
+            ranges.Add((index + 1, start, end));
+            cursor = end;
+        }
+
+        return ranges;
     }
 }

@@ -1,6 +1,6 @@
 # The Orc Context Fabric
 
-> Status: CF-0 native feasibility gate passed; CF-1 deterministic ingestion passed; CF-2 graph-backed retrieval passed; CF-3 and CF-4 framework gates passed; CF-5 framework/integration gate passed with real native-model product exit still pending; CF-6 distributed HIVE execution merged in PR #15 with live worker-death recovery evidence; CF-7 benchmark-gate work is active
+> Status: CF-0 native feasibility gate passed; CF-1 deterministic ingestion passed; CF-2 graph-backed retrieval passed; CF-3 and CF-4 framework gates passed; CF-5 framework/integration gate passed with real native-model product exit still pending; CF-6 distributed HIVE execution merged in PR #15 with live worker-death recovery evidence; CF-7 benchmark-gate contract merged in PR #16; CF-8 hard-ingestion groundwork is active
 > Owner: TheOrc native runtime, OrcChat, CodeGraph, and HIVE MIND
 > Last updated: 2026-07-02
 > Product goal: make corpus size effectively independent of the active model context window while preserving source coverage, provenance, and reproducible answers on consumer hardware.
@@ -1394,7 +1394,7 @@ Exit gate:
 
 ### Phase CF-7: exhaustive mode and benchmark gate
 
-Implementation status (2026-07-02): **active next lane**. The first slice should freeze the benchmark-gate contract before expanding corpus scale: manifest shape, B0-B4 runner outputs, ablation result shape, JSON/Markdown report fields, and go/no-go evaluator semantics.
+Implementation status (2026-07-02): **merged to master in PR #16**. The first slice froze the benchmark-gate contract before expanding corpus scale: manifest shape, B0-B4 system status shape, JSON/Markdown report fields, and go/no-go evaluator semantics.
 
 Deliver:
 
@@ -1412,7 +1412,9 @@ Exit gate:
 
 ### Phase CF-8: scale, multimodal documents, and hardening
 
-Deliver only after CF-7:
+Implementation status (2026-07-02): **active next lane**. The first slice pins parser block provenance needed by OCR, page-image, table, and multimodal evidence before adding new heavyweight parsers.
+
+Deliver:
 
 - EPUB and DOCX structure-aware ingestion;
 - OCR and page-image evidence;

@@ -43,7 +43,11 @@ public sealed record FabricParsedBlock(
     int CharStart,
     int CharEnd,
     string? HeadingPath,
-    string Text);
+    string Text,
+    string BlockKind = "text",
+    int? PageNumber = null,
+    string? SourceLocator = null,
+    double? Confidence = null);
 
 public sealed record FabricParsedDocument(
     string ParserId,

@@ -127,7 +127,11 @@ public sealed class FabricSegmenter
                 block.CharStart + offset,
                 block.CharStart + offset + length,
                 block.HeadingPath,
-                text);
+                text,
+                block.BlockKind,
+                block.PageNumber,
+                block.SourceLocator,
+                block.Confidence);
             offset += length;
         }
     }
