@@ -18,11 +18,15 @@ namespace Cf6AcceptanceRunner;
 /// benchmark's expected terms/segments/abstention, the citation-verifier's per-claim verdicts
 /// against an independently recomputed ground truth, the boundary-stitcher's output against
 /// DeterministicFabricCorpus.CreateBoundaryStitchFixture()'s expected facts/forbidden terms, and
-/// the reducer's coverage of every segment's and reader card's claims. Worker-death recovery and
-/// the Ollama-absence proof
-/// are likewise separate manual procedures this tool supports as a harness for, not something it
-/// runs itself. Run this directly against the Warchief's own loopback (no HMAC needed locally);
-/// the remote workers reached over the LAN/Tailscale are the ones that supply the second/third node.
+/// the reducer's coverage of every segment's and reader card's claims. The Ollama-absence proof
+/// is a separate manual procedure this tool supports as a harness for, not something it runs
+/// itself. Worker-death recovery IS runnable here via <c>--death-test</c> (see
+/// <see cref="RunDeathTestAsync"/>): it submits a single reader unit, suspends the claiming
+/// worker's process mid-execution through an operator-supplied fault script, and asserts the
+/// CheckTimeouts watchdog re-queues the unit to a different node, the stale claim token is
+/// rejected with 409, and the unit is accepted exactly once. Run this directly against the
+/// Warchief's own loopback (no HMAC needed locally); the remote workers reached over the
+/// LAN/Tailscale are the ones that supply the second/third node.
 /// </summary>
 internal static class Program
 {
@@ -39,7 +43,17 @@ internal static class Program
         var modelHash = GetArg(args, "--model-hash") ?? "";
         var minNodes = int.TryParse(GetArg(args, "--min-nodes"), out var mn) ? mn : 1;
         var resumeFrom = GetArg(args, "--resume-from");
+        var deathTest = Array.IndexOf(args, "--death-test") >= 0;
         Directory.CreateDirectory(outDir);
+        if (deathTest)
+        {
+            using var deathHttp = new HttpClient { BaseAddress = new Uri(warchief), Timeout = TimeSpan.FromMinutes(10) };
+            var faultScript = GetArg(args, "--fault-script")
+                ?? throw new InvalidOperationException(
+                    "--death-test requires --fault-script <path to a script taking -Action suspend|resume -Worker <id>>.");
+            return await RunDeathTestAsync(deathHttp, warchief, outDir, modelHash,
+                GetArg(args, "--warchief-db"), faultScript);
+        }
         if (minNodes <= 1)
             Console.WriteLine(
                 "NOTE: --min-nodes not set above 1 -- this run can PASS without proving multi-node " +
@@ -637,6 +651,366 @@ internal static class Program
         return errors;
     }
 
+    // ── Worker-death recovery test (CF-6 exit gate: "worker death is recovered without
+    //    duplicate accepted evidence") ─────────────────────────────────────────────────────
+    //
+    // Sequence, and the HiveTaskQueue mechanism each step exercises:
+    //   1. submit ONE reader work unit (real native execution, MaxAttempts=3);
+    //   2. wait for a worker (W1) to claim it, capture attempt 1's claim token from the
+    //      Warchief's durable hive_tasks row (best-effort — the in-memory token is never
+    //      exposed over HTTP, by design);
+    //   3. suspend W1's process via the fault script → heartbeats stop → CheckTimeouts
+    //      (HeartbeatTimeoutSec=45, 10s watchdog tick) re-queues the unit with a ROTATED token;
+    //   4. wait for a different worker (W2) to claim the re-queued unit;
+    //   5. while W2 holds the claim, POST /complete impersonating W1 with the captured
+    //      attempt-1 token — this is exactly the packet a zombie W1 would send, and must be
+    //      rejected 409 by the token-mismatch gate in HandleCompleteAsync;
+    //   6. resume W1 so its REAL late completion also fires organically (same gate rejects it);
+    //   7. wait for W2's completion, then soak and assert exactly ONE task_complete event and
+    //      a single accepted campaign_work_units row.
+    //
+    // Suspend-not-kill is deliberate: from the Warchief's side a suspended process is
+    // indistinguishable from a dead one (fail-stop), but a suspended worker can be resumed to
+    // play the "presumed-dead node comes back and submits" half of the gate — the half that
+    // actually threatens duplicate accepted evidence — and the fleet needs no manual relaunch.
+    private static async Task<int> RunDeathTestAsync(
+        HttpClient http, string warchief, string outDir, string modelHash, string? warchiefDb, string faultScript)
+    {
+        var report = new DeathTestReport
+        {
+            Warchief = warchief,
+            ModelHash = modelHash,
+            FaultScript = faultScript,
+            WarchiefDb = warchiefDb,
+            StartedAt = DateTimeOffset.UtcNow,
+        };
+        void Timeline(string what)
+        {
+            report.Timeline.Add($"{DateTime.UtcNow:O} {what}");
+            Console.WriteLine(what);
+        }
+        async Task<int> FinishAsync(int exitCode, string verdict)
+        {
+            report.Verdict = verdict;
+            report.FinishedAt = DateTimeOffset.UtcNow;
+            var outPath = Path.Combine(outDir, $"cf6-death-test-{DateTime.UtcNow:yyyyMMdd-HHmmss}.json");
+            await File.WriteAllTextAsync(outPath, JsonSerializer.Serialize(report,
+                new JsonSerializerOptions(JsonOptions) { WriteIndented = true }));
+            Console.WriteLine();
+            Console.WriteLine($"Verdict: {verdict}");
+            Console.WriteLine($"Evidence written: {outPath}");
+            return exitCode;
+        }
+
+        try
+        {
+            // Baseline the event ring so every assertion below only counts THIS test's events.
+            var baseline = await http.GetFromJsonAsync<List<HiveEventWire>>("/hive/events?since=0", JsonOptions) ?? [];
+            report.BaselineEventSeq = baseline.Count == 0 ? -1 : baseline.Max(e => e.Seq);
+
+            var fixture = DeterministicFabricCorpus.Create();
+            var corpus = fixture.Corpus;
+            // Largest segment = longest native inference = widest window between claim and
+            // completion for the suspension to land in.
+            var segment = corpus.Segments.OrderByDescending(s => s.Text.Length).First();
+            var single = corpus with { Segments = [segment], EstimatedSourceTokens = segment.EstimatedTokens };
+            var segRef = await StageArtifactAsync(http,
+                Encoding.UTF8.GetBytes(FabricJson.Serialize(single)), $"{segment.SegmentId}.corpus.json", "input");
+            report.SegmentId = segment.SegmentId;
+
+            var campaign = CampaignTemplates.ContextFabricReaders("cf6-death-test", [segRef], modelHash);
+            using (var resp = await http.PostAsJsonAsync("/hive/campaigns", campaign, JsonOptions))
+                resp.EnsureSuccessStatusCode();
+            var unit = campaign.WorkUnits[0];
+            var taskId = $"{campaign.CampaignId}-{unit.WorkUnitId}";
+            report.CampaignId = campaign.CampaignId;
+            report.TaskId = taskId;
+            Timeline($"Submitted 1-unit reader campaign {campaign.CampaignId} " +
+                     $"(task {taskId}, segment {segment.SegmentId}, maxAttempts={unit.MaxAttempts})");
+
+            // ── Phase 1: wait for the first claim ──
+            string? w1 = null;
+            var claimDeadline = DateTime.UtcNow.AddMinutes(10);
+            while (DateTime.UtcNow < claimDeadline)
+            {
+                var st = await GetTaskStatusAsync(http, taskId);
+                if (st is { Status: "completed" or "failed" or "timeout" })
+                {
+                    Timeline($"INVALID: task reached '{st.Status}' (by {st.ClaimedBy ?? "-"}) before any fault could be injected.");
+                    return await FinishAsync(4, "INVALID — unit finished before fault injection; re-run");
+                }
+                if (st is { Status: "claimed", ClaimedBy.Length: > 0 })
+                {
+                    w1 = st.ClaimedBy;
+                    break;
+                }
+                await Task.Delay(1000);
+            }
+            if (w1 is null)
+            {
+                await TryCancelCampaignAsync(http, campaign.CampaignId);
+                Timeline("INVALID: no worker claimed the unit within 10 minutes.");
+                return await FinishAsync(4, "INVALID — never claimed; check worker fleet");
+            }
+            report.FirstClaimant = w1;
+            Timeline($"Claimed by {w1} (attempt 1)");
+
+            // Never inject a fault into the machine this runner (and the Warchief) is on.
+            if (string.Equals(w1, Environment.MachineName, StringComparison.OrdinalIgnoreCase))
+            {
+                await TryCancelCampaignAsync(http, campaign.CampaignId);
+                Timeline($"INVALID: unit was claimed by this machine ({w1}) — cannot suspend the Warchief host. " +
+                         "Disable the local worker (Settings → HIVE MIND worker mode) and re-run.");
+                return await FinishAsync(4, "INVALID — claimed by Warchief host");
+            }
+
+            // Attempt-1 claim token, from the durable row PersistTask wrote on claim. Must be
+            // read NOW: the hive_tasks upsert overwrites claim_token when the re-claim happens.
+            report.FirstClaimToken = warchiefDb is null ? null : await TryReadClaimTokenAsync(warchiefDb, taskId);
+            Timeline(report.FirstClaimToken is null
+                ? "⚠ attempt-1 claim token unavailable (no --warchief-db or row not yet written) — stale probe will use a placeholder token"
+                : $"Captured attempt-1 claim token {report.FirstClaimToken[..Math.Min(6, report.FirstClaimToken.Length)]}… from durable history");
+
+            // ── Phase 2: suspend W1 mid-execution ──
+            var (suspendCode, suspendOut) = await RunFaultScriptAsync(faultScript, "suspend", w1);
+            report.SuspendOutput = suspendOut;
+            if (suspendCode != 0)
+            {
+                await TryCancelCampaignAsync(http, campaign.CampaignId);
+                Timeline($"INVALID: fault script suspend failed (exit {suspendCode}): {suspendOut}");
+                return await FinishAsync(4, "INVALID — fault injection failed");
+            }
+            report.SuspendedAt = DateTimeOffset.UtcNow;
+            Timeline($"Suspended {w1}'s worker process: {suspendOut}");
+
+            // ── Phase 3: watchdog re-queue (heartbeat timeout 45s + 10s watchdog tick) ──
+            var requeueDeadline = DateTime.UtcNow.AddSeconds(180);
+            HiveEventWire? requeueEvent = null;
+            while (DateTime.UtcNow < requeueDeadline && requeueEvent is null)
+            {
+                var events = await GetTaskEventsAsync(http, report.BaselineEventSeq, taskId);
+                requeueEvent = events.FirstOrDefault(e => e.Type == "task_requeued");
+                if (events.Any(e => e.Type == "task_complete"))
+                {
+                    Timeline("INVALID: unit completed before the suspension took effect (fault lost the race).");
+                    await RunFaultScriptAsync(faultScript, "resume", w1);
+                    return await FinishAsync(4, "INVALID — completed before suspension; re-run");
+                }
+                if (requeueEvent is null) await Task.Delay(2000);
+            }
+            if (requeueEvent is null)
+            {
+                Timeline("FAIL: no task_requeued event within 180s of suspension — watchdog did not recover the unit.");
+                await RunFaultScriptAsync(faultScript, "resume", w1);
+                return await FinishAsync(2, "FAIL — worker death was not recovered");
+            }
+            report.RequeueSeenAt = DateTimeOffset.UtcNow;
+            report.RequeueEventMsg = requeueEvent.Msg;
+            Timeline($"task_requeued observed ({(report.RequeueSeenAt - report.SuspendedAt)?.TotalSeconds:F0}s after suspension): {requeueEvent.Msg}");
+
+            // ── Phase 4: wait for the re-claim by a DIFFERENT worker ──
+            // 20 minutes, not 10: the surviving worker may legitimately be mid-inference on
+            // another unit when the re-queue lands (its lease loop is serial), and a large
+            // segment on a slow quant can run 13+ minutes — observed 2026-07-01, where a
+            // 10-minute window expired ONE second before the recovering claim arrived.
+            string? w2 = null;
+            var reclaimDeadline = DateTime.UtcNow.AddMinutes(20);
+            var probePhase = "during-second-claim";
+            while (DateTime.UtcNow < reclaimDeadline)
+            {
+                var st = await GetTaskStatusAsync(http, taskId);
+                if (st is { Status: "claimed", ClaimedBy.Length: > 0 })
+                {
+                    w2 = st.ClaimedBy;
+                    break;
+                }
+                if (st is { Status: "completed", ClaimedBy.Length: > 0 })
+                {
+                    // Claim window was shorter than our poll interval — task is already done.
+                    // The stale probe below then exercises the status-guard 409 instead of the
+                    // token-mismatch 409; both are rejection paths of the same endpoint.
+                    w2 = st.ClaimedBy;
+                    probePhase = "after-completion";
+                    break;
+                }
+                if (st is { Status: "failed" or "timeout" })
+                {
+                    Timeline($"FAIL: re-queued unit ended '{st.Status}' instead of being re-executed.");
+                    await RunFaultScriptAsync(faultScript, "resume", w1);
+                    return await FinishAsync(2, "FAIL — re-queued unit was not re-executed");
+                }
+                await Task.Delay(1000);
+            }
+            if (w2 is null)
+            {
+                Timeline("FAIL: no second claim within 10 minutes of the re-queue.");
+                await RunFaultScriptAsync(faultScript, "resume", w1);
+                return await FinishAsync(2, "FAIL — re-queued unit never re-claimed");
+            }
+            report.SecondClaimant = w2;
+            report.ReclaimSeenAt = DateTimeOffset.UtcNow;
+            Timeline($"Re-claimed by {w2} (attempt 2), status phase: {probePhase}");
+
+            // ── Phase 5: the zombie packet — W1's completion with the attempt-1 token ──
+            report.StaleProbeTokenUsed = report.FirstClaimToken ?? "death-test-unknown-token";
+            report.StaleProbePhase = probePhase;
+            var probe = new HiveTaskResult
+            {
+                TaskId = taskId,
+                WorkerId = w1,
+                Status = "completed",
+                Result = "CF-6 DEATH-TEST STALE PROBE — this result must be rejected, never accepted",
+                ClaimToken = report.StaleProbeTokenUsed,
+                Attempt = 1,
+            };
+            using (var probeResp = await http.PostAsJsonAsync($"/hive/tasks/{taskId}/complete", probe, JsonOptions))
+                report.StaleProbeHttpStatus = (int)probeResp.StatusCode;
+            Timeline($"Stale /complete probe (worker={w1}, attempt-1 token) → HTTP {report.StaleProbeHttpStatus}");
+
+            // ── Phase 6: resume W1 so its REAL late completion also fires organically ──
+            var (resumeCode, resumeOut) = await RunFaultScriptAsync(faultScript, "resume", w1);
+            report.ResumeOutput = resumeOut;
+            report.ResumedAt = DateTimeOffset.UtcNow;
+            Timeline(resumeCode == 0
+                ? $"Resumed {w1}'s worker process: {resumeOut}"
+                : $"⚠ resume failed (exit {resumeCode}) — resume {w1} manually: {resumeOut}");
+
+            // ── Phase 7: wait for terminal state, then soak for late/duplicate completions ──
+            HiveTaskStatusWire? final = null;
+            var finalDeadline = DateTime.UtcNow.AddMilliseconds(unit.TimeoutMs + 60_000);
+            while (DateTime.UtcNow < finalDeadline)
+            {
+                var st = await GetTaskStatusAsync(http, taskId);
+                if (st is { Status: "completed" or "failed" or "timeout" })
+                {
+                    final = st;
+                    break;
+                }
+                await Task.Delay(2000);
+            }
+            report.FinalStatus = final?.Status ?? "unknown";
+            report.FinalClaimedBy = final?.ClaimedBy;
+            Timeline($"Terminal status: {report.FinalStatus} (claimedBy {report.FinalClaimedBy ?? "-"})");
+
+            Timeline("Soaking 180s for W1's organic late completion / any duplicate accept…");
+            await Task.Delay(TimeSpan.FromSeconds(180));
+
+            report.TaskEvents = await GetTaskEventsAsync(http, report.BaselineEventSeq, taskId);
+            report.TaskCompleteEventCount = report.TaskEvents.Count(e => e.Type == "task_complete");
+
+            if (warchiefDb is not null)
+            {
+                report.FinalClaimToken = await TryReadClaimTokenAsync(warchiefDb, taskId);
+                report.DurableTaskRow = await TryReadDurableRowAsync(warchiefDb,
+                    "SELECT status || '|' || COALESCE(claimed_by_worker,'') || '|' || COALESCE(claim_token,'') " +
+                    "FROM hive_tasks WHERE task_id=$p1 ORDER BY updated_at DESC LIMIT 1", taskId);
+                report.DurableWorkUnitRow = await TryReadDurableRowAsync(warchiefDb,
+                    "SELECT status || '|attempt=' || attempt || '|' || COALESCE(claimed_by_node,'') " +
+                    "FROM campaign_work_units WHERE campaign_id=$p1 AND work_unit_id=$p2",
+                    campaign.CampaignId, unit.WorkUnitId);
+            }
+
+            // ── Verdicts ──
+            report.RecoveredOnOtherNode =
+                report.FinalStatus == "completed"
+                && !string.Equals(report.FinalClaimedBy, w1, StringComparison.OrdinalIgnoreCase);
+            report.StaleCompleteRejected = report.StaleProbeHttpStatus is >= 400 and < 500;
+            var tokenRotated = report.FirstClaimToken is null || report.FinalClaimToken is null
+                ? (bool?)null
+                : !string.Equals(report.FirstClaimToken, report.FinalClaimToken, StringComparison.Ordinal);
+            report.ClaimTokenRotated = tokenRotated;
+            report.AcceptedExactlyOnce =
+                report.TaskCompleteEventCount == 1
+                && report.StaleCompleteRejected
+                && tokenRotated != false;
+            report.Passed = report.RecoveredOnOtherNode && report.AcceptedExactlyOnce;
+
+            Console.WriteLine();
+            Console.WriteLine($"Recovered on another node:  {report.RecoveredOnOtherNode} ({w1} → {report.FinalClaimedBy})");
+            Console.WriteLine($"Stale complete rejected:    {report.StaleCompleteRejected} (HTTP {report.StaleProbeHttpStatus}, phase {probePhase})");
+            Console.WriteLine($"Claim token rotated:        {(tokenRotated.HasValue ? tokenRotated.ToString() : "unverified (no durable rows)")}");
+            Console.WriteLine($"task_complete events:       {report.TaskCompleteEventCount} (must be exactly 1)");
+            return await FinishAsync(report.Passed ? 0 : 2, report.Passed ? "PASS" : "FAIL");
+        }
+        catch (Exception ex)
+        {
+            report.Error = ex.ToString();
+            Timeline($"Run failed: {ex.Message}");
+            return await FinishAsync(1, "ERROR");
+        }
+    }
+
+    private static async Task<HiveTaskStatusWire?> GetTaskStatusAsync(HttpClient http, string taskId)
+    {
+        using var resp = await http.GetAsync($"/hive/tasks/{taskId}");
+        if (!resp.IsSuccessStatusCode) return null;
+        return await resp.Content.ReadFromJsonAsync<HiveTaskStatusWire>(JsonOptions);
+    }
+
+    private static async Task<List<HiveEventWire>> GetTaskEventsAsync(HttpClient http, long sinceSeq, string taskId)
+    {
+        var events = await http.GetFromJsonAsync<List<HiveEventWire>>($"/hive/events?since={sinceSeq}", JsonOptions) ?? [];
+        return events.Where(e => string.Equals(e.TaskId, taskId, StringComparison.Ordinal)).ToList();
+    }
+
+    private static async Task TryCancelCampaignAsync(HttpClient http, string campaignId)
+    {
+        try { using var _ = await http.PostAsync($"/hive/campaigns/{campaignId}/cancel", null); } catch { }
+    }
+
+    /// <summary>Runs the operator-supplied fault script:
+    /// <c>powershell -File {script} -Action suspend|resume -Worker {id}</c>. The script owns the
+    /// worker-id → machine mapping and MUST refuse ids it does not recognise (that refusal is the
+    /// safety net that keeps the fault away from the Warchief host and unknown machines).</summary>
+    private static async Task<(int Code, string Output)> RunFaultScriptAsync(string script, string action, string worker)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("powershell.exe",
+                $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\" -Action {action} -Worker \"{worker}\"")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            using var p = System.Diagnostics.Process.Start(psi)!;
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            var stdoutTask = p.StandardOutput.ReadToEndAsync(cts.Token);
+            var stderrTask = p.StandardError.ReadToEndAsync(cts.Token);
+            await p.WaitForExitAsync(cts.Token);
+            return (p.ExitCode, $"{(await stdoutTask).Trim()} {(await stderrTask).Trim()}".Trim());
+        }
+        catch (Exception ex)
+        {
+            return (-1, ex.Message);
+        }
+    }
+
+    private static Task<string?> TryReadClaimTokenAsync(string dbPath, string taskId) => TryReadDurableRowAsync(
+        dbPath, "SELECT claim_token FROM hive_tasks WHERE task_id=$p1 ORDER BY updated_at DESC LIMIT 1", taskId);
+
+    /// <summary>Single-value read-only query against the Warchief's durable theorc.db. Retries
+    /// briefly: the row is written best-effort by PersistTask moments after the transition, and
+    /// the app may hold the WAL mid-checkpoint. Null = evidence unavailable, never fatal.</summary>
+    private static async Task<string?> TryReadDurableRowAsync(string dbPath, string sql, params string[] args)
+    {
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            try
+            {
+                await using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Mode=ReadOnly");
+                await conn.OpenAsync();
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = sql;
+                for (var i = 0; i < args.Length; i++) cmd.Parameters.AddWithValue($"$p{i + 1}", args[i]);
+                if (await cmd.ExecuteScalarAsync() is string s && s.Length > 0) return s;
+            }
+            catch { /* retry */ }
+            await Task.Delay(500);
+        }
+        return null;
+    }
+
     private static FabricCorpus BuildSingleSegmentCorpus(string caseId, string side, string text)
     {
         var segmentId = $"{caseId}-{side}";
@@ -651,6 +1025,70 @@ internal static class Program
             [segment],
             segment.EstimatedTokens);
     }
+}
+
+/// <summary>Wire shape of GET /hive/events — HiveTaskQueue serves the HiveEventBus ring as a
+/// plain JSON array of HiveEvent.</summary>
+internal sealed class HiveEventWire
+{
+    public long Seq { get; set; }
+    public DateTime Ts { get; set; }
+    public string Type { get; set; } = "";
+    public string Msg { get; set; } = "";
+    public string TaskId { get; set; } = "";
+    public string WorkerId { get; set; } = "";
+}
+
+/// <summary>Evidence bundle for the --death-test worker-death recovery run. Everything needed to
+/// audit the CF-6 exit-gate claim afterwards: the full task event timeline, the fault-injection
+/// timestamps, the stale-probe HTTP result, and the durable claim-token rotation.</summary>
+internal sealed class DeathTestReport
+{
+    public string Warchief { get; set; } = "";
+    public string ModelHash { get; set; } = "";
+    public string FaultScript { get; set; } = "";
+    public string? WarchiefDb { get; set; }
+    public DateTimeOffset StartedAt { get; set; }
+    public DateTimeOffset FinishedAt { get; set; }
+    public string CampaignId { get; set; } = "";
+    public string TaskId { get; set; } = "";
+    public string SegmentId { get; set; } = "";
+    public long BaselineEventSeq { get; set; }
+    public string? FirstClaimant { get; set; }
+    /// <summary>Attempt-1 claim token captured from durable history while W1 held the claim.
+    /// Useless to an attacker after the rotation — recording it IS the point: the probe below
+    /// proves this exact token is refused once the unit is re-queued.</summary>
+    public string? FirstClaimToken { get; set; }
+    public DateTimeOffset? SuspendedAt { get; set; }
+    public string? SuspendOutput { get; set; }
+    public DateTimeOffset? RequeueSeenAt { get; set; }
+    public string? RequeueEventMsg { get; set; }
+    public string? SecondClaimant { get; set; }
+    public DateTimeOffset? ReclaimSeenAt { get; set; }
+    public string StaleProbeTokenUsed { get; set; } = "";
+    /// <summary>"during-second-claim" = probe hit the token-mismatch 409 (HandleCompleteAsync's
+    /// stale gate); "after-completion" = probe hit the status-guard 409. Both reject.</summary>
+    public string StaleProbePhase { get; set; } = "";
+    public int StaleProbeHttpStatus { get; set; }
+    public DateTimeOffset? ResumedAt { get; set; }
+    public string? ResumeOutput { get; set; }
+    public string FinalStatus { get; set; } = "";
+    public string? FinalClaimedBy { get; set; }
+    public string? FinalClaimToken { get; set; }
+    public int TaskCompleteEventCount { get; set; }
+    public List<HiveEventWire> TaskEvents { get; set; } = [];
+    public string? DurableTaskRow { get; set; }
+    public string? DurableWorkUnitRow { get; set; }
+    public List<string> Timeline { get; set; } = [];
+    public bool RecoveredOnOtherNode { get; set; }
+    public bool StaleCompleteRejected { get; set; }
+    /// <summary>Null = durable rows unavailable, rotation unverified (does not fail the gate on
+    /// its own; the 409 + single task_complete still hold). False = rotation DIDN'T happen — fail.</summary>
+    public bool? ClaimTokenRotated { get; set; }
+    public bool AcceptedExactlyOnce { get; set; }
+    public bool Passed { get; set; }
+    public string Verdict { get; set; } = "";
+    public string? Error { get; set; }
 }
 
 internal sealed class HiveTaskStatusWire

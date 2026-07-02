@@ -138,3 +138,6 @@ marketplace/
 # Codex local scratch/test sandboxes — regenerable build output and one-off probes.
 .codex-scratch-build/
 .codex-testenv/
+
+# Fleet-sync single-file publish output (sync-theorc-fleet); regenerable deploy artifact.
+_deploy/

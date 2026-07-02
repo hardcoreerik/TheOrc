@@ -96,6 +96,9 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
     public string        ResearcherModel { get; set; } = "";
     public TimeSpan DisposeWaitTimeout  { get; set; } = DefaultDisposeWaitTimeout;
 
+    /// <summary>HTTP timeout for lease polls. Internal so tests can simulate a timed-out poll quickly.</summary>
+    internal TimeSpan LeasePollTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
     // ── Events ────────────────────────────────────────────────────────────────
 
     public event Action<string>?       OnLog;
@@ -152,7 +155,10 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 Log($"🐝 Leased [{bundle.Role}] '{bundle.Title}' from Warchief");
                 await ClaimAndExecuteAsync(bundle, ct, lease.ClaimToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) { break; }
+            // HttpClient throws TaskCanceledException (an OperationCanceledException) on plain
+            // HTTP timeouts too — only exit the loop for a genuine Stop()/dispose cancellation,
+            // otherwise a single timed-out poll would silently kill the worker forever.
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception ex)
             {
                 Log($"⚠ Worker loop error: {ex.Message}");
@@ -296,7 +302,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             Log($"✅ Re-sync complete — now trusting Warchief {liveNodeId[..12]}… (stale entries pruned).");
             return true;
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             Log($"⚠ Re-sync failed: {ex.Message}");
@@ -342,7 +348,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
         SignIfPaired(req, body);
 
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        using var http = new HttpClient { Timeout = LeasePollTimeout };
         using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
         if (resp.StatusCode == System.Net.HttpStatusCode.NoContent) return null;
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -383,7 +389,10 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         {
             result = await ExecuteTaskAsync(bundle, ct).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) { throw; }
+        // Same distinction as RunLoopAsync: an HTTP-timeout TaskCanceledException is a task
+        // failure to report back to the Warchief, not a worker shutdown — rethrowing it would
+        // orphan the lease with no fail result posted.
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             status   = "failed";
