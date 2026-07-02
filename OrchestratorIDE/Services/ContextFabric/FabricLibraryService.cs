@@ -129,6 +129,33 @@ public sealed class FabricLibraryService
         }
     }
 
+    public int EvictRebuildableArtifacts(FabricCachePolicy? policy = null)
+    {
+        policy ??= new FabricCachePolicy();
+        if (!policy.PreserveSourceArtifacts)
+            throw new InvalidOperationException("Context Fabric source artifacts are source truth and cannot be evicted by cache policy.");
+        if (policy.PreserveNormalizedArtifacts)
+            return 0;
+
+        _mutationGate.Wait();
+        try
+        {
+            var sourceDigests = _repository.ListSourceArtifactDigests();
+            var deleted = 0;
+            foreach (var digest in _repository.ListNormalizedArtifactDigests())
+            {
+                if (!sourceDigests.Contains(digest) && _artifacts.DeleteIfPresent(digest))
+                    deleted++;
+            }
+
+            return deleted;
+        }
+        finally
+        {
+            _mutationGate.Release();
+        }
+    }
+
     private async Task<FabricImportResult> ImportBytesAsync(
         string corpusId,
         string displayName,

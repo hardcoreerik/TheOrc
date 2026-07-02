@@ -659,6 +659,68 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public async Task CachePolicy_Evicts_Rebuildable_Normalized_Artifacts_But_Preserves_Source_Truth()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Cold storage");
+        var sourcePath = Path.Combine(harness.Root, "cold.md");
+        await File.WriteAllTextAsync(sourcePath, "\uFEFF# Cold\r\n\r\nDerived cache can be rebuilt.\r\n");
+        var imported = await harness.Service.ImportFileAsync(corpus.CorpusId, sourcePath);
+
+        Assert.That(imported.Document.NormalizedDigest, Is.Not.EqualTo(imported.Document.SourceDigest));
+        Assert.That(harness.Service.EvictRebuildableArtifacts(new FabricCachePolicy(PreserveNormalizedArtifacts: true)), Is.EqualTo(0));
+
+        var deleted = harness.Service.EvictRebuildableArtifacts();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(deleted, Is.EqualTo(1));
+            Assert.That(harness.Artifacts.Has(imported.Document.SourceDigest), Is.True);
+            Assert.That(harness.Artifacts.Has(imported.Document.NormalizedDigest), Is.False);
+            Assert.That(
+                () => harness.Service.EvictRebuildableArtifacts(new FabricCachePolicy(PreserveSourceArtifacts: false)),
+                Throws.InvalidOperationException);
+        });
+
+        var rebuilt = await harness.Service.RebuildDocumentAsync(imported.Document.DocumentId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(rebuilt.Rebuilt, Is.True);
+            Assert.That(harness.Artifacts.Has(imported.Document.SourceDigest), Is.True);
+            Assert.That(harness.Artifacts.Has(imported.Document.NormalizedDigest), Is.True);
+            Assert.That(rebuilt.Document.NormalizedDigest, Is.EqualTo(imported.Document.NormalizedDigest));
+        });
+    }
+
+    [Test]
+    public async Task CachePolicy_Keeps_Normalized_Artifact_When_Another_Document_Uses_It_As_Source()
+    {
+        var harness = NewHarness();
+        using var store = harness.Store;
+        var corpus = harness.Service.CreateCorpus("Shared derived source");
+        var derivedSourcePath = Path.Combine(harness.Root, "derived.md");
+        var literalSourcePath = Path.Combine(harness.Root, "literal.md");
+        await File.WriteAllTextAsync(derivedSourcePath, "\uFEFF# Shared\r\n");
+        await File.WriteAllTextAsync(literalSourcePath, "# Shared\n");
+        var derived = await harness.Service.ImportFileAsync(corpus.CorpusId, derivedSourcePath);
+        var literal = await harness.Service.ImportFileAsync(corpus.CorpusId, literalSourcePath);
+
+        Assert.That(derived.Document.NormalizedDigest, Is.EqualTo(literal.Document.SourceDigest));
+
+        var deleted = harness.Service.EvictRebuildableArtifacts();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(deleted, Is.EqualTo(0));
+            Assert.That(harness.Artifacts.Has(derived.Document.SourceDigest), Is.True);
+            Assert.That(harness.Artifacts.Has(derived.Document.NormalizedDigest), Is.True);
+            Assert.That(harness.Artifacts.Has(literal.Document.SourceDigest), Is.True);
+        });
+    }
+
+    [Test]
     public async Task Library_Garbage_Collection_Keeps_Shared_Artifacts_Until_Last_Reference_Is_Gone()
     {
         var harness = NewHarness();

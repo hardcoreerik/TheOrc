@@ -353,3 +353,7 @@ public sealed record FabricLibraryOptions(
         EffectiveSegmenter.Validate();
     }
 }
+
+public sealed record FabricCachePolicy(
+    bool PreserveSourceArtifacts = true,
+    bool PreserveNormalizedArtifacts = false);
