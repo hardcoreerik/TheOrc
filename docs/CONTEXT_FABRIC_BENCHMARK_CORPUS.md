@@ -210,7 +210,7 @@ What it tests:
 distributed readers, recovery after worker loss, deterministic import, and generation-safe evidence merge.
 
 Acceptance note:
-Public language should emphasize coordinated reading and verified merge behavior, not vague swarm mystique.
+Public language should emphasize coordinated reading and verified merge behavior, not vague swarm mystique. As of 2026-07-02, PR #15 has branch-level CF-6 evidence for the worker-loss gate: a live 3-machine HIVE run recovered a suspended worker without duplicate accepted evidence, rejected a stale completion with HTTP 409, rotated the claim token, and produced exactly one accepted completion. Keep this framed as PR/branch evidence until merged, and note that the first death-test run required manual completion of phases 4-7 after the original harness reclaim window expired one second before the reclaim.
 
 Marketing line:
 One Orc reads. A Warband studies.

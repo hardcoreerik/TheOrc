@@ -1,8 +1,8 @@
 # The Orc Context Fabric
 
-> Status: CF-0 native feasibility gate passed; CF-1 deterministic-ingestion framework passed; CF-2 graph-backed retrieval passed in focused tests; CF-3 native reader framework passed in focused no-fallback tests
+> Status: CF-0 native feasibility gate passed; CF-1 deterministic ingestion passed; CF-2 graph-backed retrieval passed; CF-3 and CF-4 framework gates passed; CF-5 framework/integration gate passed with real native-model product exit still pending; CF-6 distributed-reader work is active in PR #15 with live worker-death recovery evidence
 > Owner: TheOrc native runtime, OrcChat, CodeGraph, and HIVE MIND
-> Last updated: 2026-06-28
+> Last updated: 2026-07-02
 > Product goal: make corpus size effectively independent of the active model context window while preserving source coverage, provenance, and reproducible answers on consumer hardware.
 
 ---
@@ -1367,6 +1367,14 @@ Implementation status (2026-06-29): **framework exit passed in focused headless/
 - This status is intentionally narrower than a real-model benchmark claim, same framing as CF-3/CF-4: it closes the framework/integration gate in code and tests (351 unit + 73 headless tests green, full solution builds clean), behind the existing `ExperimentalNativeMainChatEnabled` opt-in (off by default). The literal exit-gate scenario — add the real Darwin PDF, index it with a loaded native model, and get a cited cross-chapter answer — has not yet been run and remains the actual acceptance step before this phase is declared done.
 
 ### Phase CF-6: HIVE stage engine and distributed readers
+
+Implementation status (2026-07-02): **active in PR #15; branch evidence exists, not yet merged to master**.
+
+- Branch `codex/context-fabric-cf6-readers` adds the CF-6 HIVE stage engine path for distributed Context Fabric work: campaign dependency barriers, native input artifact staging, Context Fabric campaign templates, reader/verifier/stitcher/reducer/exhaustive-query work-unit flow, generation-safe evidence import, and the `Tools/Cf6AcceptanceRunner` harness.
+- The pushed branch head `de3a3b76` passed GitHub's Windows build and CodeRabbit checks, and is current with `origin/master` at the time of this note. This is PR evidence, not landed master truth.
+- The live CF-6 worker-death exit evidence is recorded in `.orc/cf6-acceptance/cf6-death-test-EVIDENCE-20260702.md`: a 3-machine HIVE run suspended one worker mid-inference, the Warchief watchdog requeued the task after heartbeat loss, a different worker claimed the requeued unit, a stale attempt-1 completion probe was rejected with HTTP 409, the claim token rotated, and the campaign accepted exactly one final `task_complete`.
+- Caveat: the death-test harness report captured phases 1-3 automatically; phases 4-7 were completed and recorded manually because the original 10-minute reclaim window expired one second before the different worker reclaimed the unit. The branch has since widened that window to 20 minutes, but a fully automated rerun should remain the cleanest merge/readiness evidence.
+- A follow-up worker resiliency fix is in progress on the same branch: `HiveWorkerAgent` must distinguish an ordinary HTTP timeout from a real Stop/dispose cancellation so polling does not silently stop when the Warchief disappears mid-request.
 
 Deliver:
 

@@ -297,7 +297,7 @@ native feasibility harness, deterministic corpus, strict host-side verifier,
 and report generator, and its real-model quality gate has passed. CF-1's
 deterministic-ingestion framework has now passed its focused test exit: migrations v8-v9 plus deterministic text/Markdown parsing, structural
 segmentation, content-addressed artifacts, transactional document replacement,
-segment FTS, the pinned Darwin text/PDF acceptance fixtures, the pinned Constitution and Federalist text fixtures, PDF text parsing, and artifact garbage collection are implemented. CF-2's focused exit now also passes: migration v10, the document graph repository, claim FTS, evidence-card import, provenance-carrying local retrieval, read-only library graph/search/open/list tools, and unchanged CodeGraph tests are implemented. HIVE execution and the OrcChat product surface remain proposed rather than shipped.
+segment FTS, the pinned Darwin text/PDF acceptance fixtures, the pinned Constitution and Federalist text fixtures, PDF text parsing, and artifact garbage collection are implemented. CF-2's focused exit now also passes: migration v10, the document graph repository, claim FTS, evidence-card import, provenance-carrying local retrieval, read-only library graph/search/open/list tools, and unchanged CodeGraph tests are implemented. CF-3 and CF-4 framework gates have passed in focused tests, CF-5 has framework/integration coverage with its real native-model product exit still pending, and CF-6 HIVE execution is active in PR #15 with branch-level live worker-death recovery evidence. Until that PR merges, HIVE execution remains PR evidence rather than master-shipped architecture.
 
 ---
 

@@ -1,6 +1,6 @@
 # TheOrc — Roadmap
 
-> Last updated: 2026-06-27 (Phase 3B native campaign foundation landed; Context Fabric CF-0 native gate passed; CF-1 ready to begin).
+> Last updated: 2026-07-02 (Context Fabric CF-6 distributed-reader PR is active with live worker-death recovery evidence; not yet merged).
 > This document is updated after every GitHub release. It reflects actual code state, not aspirations — features marked Shipped have been verified in the running app.
 
 ---
@@ -440,7 +440,7 @@ Commit `22db2ccf` landed the shared headless native loop, `native_agent` and `co
 
 This is not yet a finished Phase 3B product. The remaining release gates are dependency-aware campaign stages, native-agent input-artifact materialization, hostile-input hardening, complete campaign-control UX, and the planned multi-node acceptance run with worker loss, re-lease, stale-result rejection, pause/resume/cancel, artifact verification, and measured speedup.
 
-### The Orc Context Fabric — effectively unbounded source memory (CF-0 through CF-4 passed in focused tests; CF-5 framework done, real-model exit gate pending)
+### The Orc Context Fabric — effectively unbounded source memory (CF-0 through CF-4 passed in focused tests; CF-5 framework done, CF-6 active in PR)
 
 Full design: [The Orc Context Fabric.md](The%20Orc%20Context%20Fabric.md).
 
@@ -456,7 +456,7 @@ Delivery order:
 4. CF-3 native readers, boundary stitching, schema validation, and source verification. **Framework exit gate passed in focused no-fallback tests.**
 5. CF-4 hierarchical reducers, context budgeting, source rehydration, Quick and Study modes. **Framework exit gate passed in focused tests.**
 6. CF-5 OrcChat Library, corpus attachment, citations, coverage, and persistent cited notebook. **Framework/integration exit passed in focused headless/scripted-runtime tests (351 unit + 73 headless, all green); the real native-model end-to-end exit gate (index the real Darwin PDF, ask a cited cross-chapter question) has not yet been run.**
-7. CF-6 HIVE stage dependencies, native input staging, distributed readers/reducers/verifiers.
+7. CF-6 HIVE stage dependencies, native input staging, distributed readers/reducers/verifiers. **Active in PR #15:** branch `codex/context-fabric-cf6-readers` has passing Windows/CodeRabbit checks and recorded live 3-machine worker-death recovery evidence: heartbeat-loss requeue, different-node reclaim, stale completion rejected with HTTP 409, token rotation, and exactly one accepted completion. Caveat: the death-test harness report captured phases 1-3 automatically while phases 4-7 were completed manually after the original reclaim window expired one second early; a fully automated rerun remains the cleanest final evidence before treating this as landed.
 8. CF-7 Exhaustive mode and frozen B0-B4 benchmark gate.
 9. CF-8 multimodal documents, optional vector acceleration, and cross-CodeGraph links.
 
