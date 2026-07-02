@@ -142,6 +142,33 @@ public sealed class HiveService : BackgroundService
                 var budget = _cfg.NativeVramMb > 0
                     ? new VramBudget(_cfg.NativeVramMb * 1024L * 1024L, ReservedBytes: 0)
                     : null;
+                // ModelDepot.ResolveRole(role) alone (no workload kind) never consults
+                // ModelAdmissionGate, so it can hand the Researcher role a reasoning-tuned model
+                // (DeepSeek-R1-distill, Qwen3, etc.) whose <think> trace then consumes the whole
+                // CF-6 reader response budget -- observed in production as "Model response
+                // contained an unterminated JSON object." Pre-binding Researcher with the
+                // workload-aware overload (same one ContextFabricBench already uses) routes
+                // through EvaluateContextFabric's reasoning-tuned deprioritization instead.
+                var roleBindings = new Dictionary<RuntimeRole, RuntimeRoleBinding>();
+                if (depot.ResolveRole(RuntimeRole.Researcher, RuntimeWorkloadKind.ContextFabricReader) is { } researcherBinding)
+                    roleBindings[RuntimeRole.Researcher] = researcherBinding;
+
+                // Pin CUDA-preferring backend selection BEFORE any native load; ongoing native
+                // log lines (model-load progress) go to Debug. A CUDA-capable GPU landing on the
+                // CPU backend is a Warning with the full selection log — never silent.
+                var backend = NativeBackendBootstrap.EnsureConfigured(
+                    line => _log.LogDebug("[llama-native] {Line}", line));
+                if (backend.CudaCapableGpu && !backend.SelectedCuda)
+                {
+                    _log.LogWarning("Native backend: {Verdict}", backend.Verdict);
+                    foreach (var line in backend.Log)
+                        _log.LogWarning("[backend-selection] {Line}", line);
+                }
+                else
+                {
+                    _log.LogInformation("Native backend: {Verdict}", backend.Verdict);
+                }
+
                 var nativeRuntime = new NativeRoleRuntime(
                     depot,
                     new RuntimeOptions(
@@ -149,7 +176,8 @@ public sealed class HiveService : BackgroundService
                         GpuLayers: _cfg.NativeGpuLayers,
                         PreferGpu: _cfg.NativeGpuLayers != 0),
                     scheduler: budget is null ? null : new OrcScheduler(),
-                    budgetProvider: budget is null ? null : () => budget);
+                    budgetProvider: budget is null ? null : () => budget,
+                    roleBindings: roleBindings);
 
                 nativeExecutor = new HiveNativeRoleExecutorAdapter(nativeRuntime, _cfg.WorkspaceRoot);
             }
@@ -165,6 +193,7 @@ public sealed class HiveService : BackgroundService
                 WarchiefNodeId  = _cfg.WarchiefNodeId,
                 ModelStore      = _taskQueue.ModelStore,
             };
+            _worker.OnLog += msg => _log.LogInformation("[Worker] {Msg}", msg);
             var installedPacks = CampaignPackCatalog.ResolveInstalled(_cfg.AlienSearchImage);
             _worker.Capabilities = await WorkerCapabilityDetector.DetectAsync(
                 _cfg.NodeName, depot, _cfg.NativeVramMb, _taskQueue.ArtifactStore,

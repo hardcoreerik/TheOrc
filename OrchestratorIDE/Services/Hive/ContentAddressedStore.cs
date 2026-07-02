@@ -139,6 +139,11 @@ public sealed class ContentAddressedStore
         }
     }
 
+    /// <summary>Lowercase-hex SHA-256 of an in-memory buffer, matching the on-disk digest format
+    /// produced by <see cref="ComputeSha256Async"/> so callers can verify downloaded artifacts.</summary>
+    public static string ComputeSha256(ReadOnlySpan<byte> data) =>
+        Convert.ToHexString(SHA256.HashData(data)).ToLowerInvariant();
+
     public static async Task<string> ComputeSha256Async(string path, CancellationToken ct = default)
     {
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,

@@ -435,6 +435,41 @@ public sealed class HiveTaskQueue : IDisposable
 
     // ── Endpoint handlers ─────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Stage/dependency-barrier check (CF-6): a work unit with DependsOnWorkUnitIds is only
+    /// leasable once every dependency's task in the same campaign has reached "completed".
+    /// If any dependency is in a terminal failure state (failed/timeout/cancelled) the entry
+    /// is immediately marked "failed" so the campaign can reach a terminal state rather than
+    /// wedging in pending forever. Returns false whenever the entry is not yet ready to run.
+    /// </summary>
+    private bool AreDependenciesSatisfied(QueuedTask entry)
+    {
+        if (entry.Bundle.DependsOnWorkUnitIds.Length == 0) return true;
+        foreach (var depWorkUnitId in entry.Bundle.DependsOnWorkUnitIds)
+        {
+            var depTaskId = $"{entry.Bundle.CampaignId}-{depWorkUnitId}";
+            if (!_tasks.TryGetValue(depTaskId, out var dep)) return false;
+            if (dep.Status == "completed") continue;
+
+            // Cascade a terminal failure: a dependency that can never complete should not
+            // leave this entry pending forever.
+            if (dep.Status is "failed" or "timeout" or "cancelled")
+            {
+                if (entry.Status != "failed" && entry.Status != "cancelled")
+                {
+                    entry.Status = "failed";
+                    CampaignRepository?.UpdateWorkUnit(
+                        entry.Bundle.CampaignId, entry.Bundle.WorkUnitId,
+                        "failed", entry.Bundle.Attempt,
+                        error: $"Dependency '{depWorkUnitId}' reached terminal state '{dep.Status}'.");
+                    UpdateCampaignAfterTerminal(entry.Bundle.CampaignId);
+                }
+            }
+            return false;
+        }
+        return true;
+    }
+
     private Task HandleGetNextAsync(HttpListenerContext ctx)
     {
         var lanesParam = ctx.Request.QueryString["lanes"] ?? "";
@@ -448,6 +483,7 @@ public sealed class HiveTaskQueue : IDisposable
         {
             if (entry.Status != "pending") continue;
             if (lanes.Count > 0 && !lanes.Contains(entry.Bundle.Role.ToLower())) continue;
+            if (!AreDependenciesSatisfied(entry)) continue;
             found = entry;
             break;
         }
@@ -467,7 +503,8 @@ public sealed class HiveTaskQueue : IDisposable
         await _claimLock.WaitAsync();
         try
         {
-            if (!_tasks.TryGetValue(taskId, out var entry) || entry.Status != "pending")
+            if (!_tasks.TryGetValue(taskId, out var entry) || entry.Status != "pending" ||
+                !AreDependenciesSatisfied(entry))
             {
                 ctx.Response.StatusCode = 409;
                 return;
@@ -483,7 +520,7 @@ public sealed class HiveTaskQueue : IDisposable
             entry.ClaimedAt     = DateTime.UtcNow;
             entry.LastHeartbeat = DateTime.UtcNow;
 
-            Log($"🐝 [{entry.Bundle.Role}] '{entry.Bundle.Title}' claimed by {entry.ClaimedBy} (token={entry.ClaimToken})");
+            Log($"🐝 ↗ sent to {entry.ClaimedBy} — [{entry.Bundle.Role}] '{entry.Bundle.Title}' (token={entry.ClaimToken})");
             Events.Append("task_claimed",
                 $"[{entry.Bundle.Role}] {entry.Bundle.Title} → {entry.ClaimedBy}",
                 taskId, entry.ClaimedBy ?? "");
@@ -524,6 +561,7 @@ public sealed class HiveTaskQueue : IDisposable
                 .Where(kv => string.IsNullOrEmpty(kv.Value.Bundle.CampaignId) ||
                     !_campaigns.TryGetValue(kv.Value.Bundle.CampaignId, out var campaign) ||
                     campaign.Status == CampaignStates.Running)
+                .Where(kv => AreDependenciesSatisfied(kv.Value))
                 .Where(kv => lanes.Count == 0 || lanes.Contains(kv.Value.Bundle.Role.ToLowerInvariant()))
                 .Where(kv => CampaignCapabilityMatcher.IsEligible(kv.Value.Bundle, request.Capabilities))
                 .OrderByDescending(kv => CampaignCapabilityMatcher.Score(kv.Value.Bundle, request.Capabilities))
@@ -580,6 +618,21 @@ public sealed class HiveTaskQueue : IDisposable
         ArgumentNullException.ThrowIfNull(definition);
         if (string.IsNullOrWhiteSpace(definition.CampaignId) || definition.WorkUnits.Count == 0)
             throw new ArgumentException("Campaign id and at least one work unit are required.", nameof(definition));
+
+        // Reject any unit that references a DependsOn ID not present in this campaign — an unresolvable
+        // dependency would silently wedge the campaign forever in AreDependenciesSatisfied.
+        var unitIds = definition.WorkUnits.Select(u => u.WorkUnitId).ToHashSet(StringComparer.Ordinal);
+        foreach (var unit in definition.WorkUnits)
+        {
+            foreach (var dep in unit.DependsOn)
+            {
+                if (!unitIds.Contains(dep))
+                    throw new ArgumentException(
+                        $"Work unit '{unit.WorkUnitId}' depends on '{dep}' which does not exist in the campaign.",
+                        nameof(definition));
+            }
+        }
+
         if (!_campaigns.TryAdd(definition.CampaignId, (definition.Name, CampaignStates.Running)))
             throw new InvalidOperationException($"Campaign {definition.CampaignId} already exists.");
 
@@ -601,7 +654,7 @@ public sealed class HiveTaskQueue : IDisposable
                 WorkUnitId = unit.WorkUnitId,
                 PackId = unit.PackId.Length > 0 ? unit.PackId : definition.PackId,
                 PackVersion = unit.PackVersion.Length > 0 ? unit.PackVersion : definition.PackVersion,
-                NativeRole = unit.Role,
+                NativeRole = unit.NativeRole.Length > 0 ? unit.NativeRole : unit.Role,
                 Requirements = unit.Requirements,
                 Verification = unit.Verification,
                 Parameters = unit.Parameters,
@@ -609,6 +662,7 @@ public sealed class HiveTaskQueue : IDisposable
                 Attempt = 1,
                 MaxAttempts = Math.Max(1, unit.MaxAttempts),
                 WarchiefUrl = BaseUrl,
+                DependsOnWorkUnitIds = unit.DependsOn,
             };
             EnqueueCore(taskId, bundle, authenticated: false, authNode: null);
             CampaignRepository?.BindTask(definition.CampaignId, unit.WorkUnitId, taskId);
@@ -900,7 +954,7 @@ public sealed class HiveTaskQueue : IDisposable
         // Resolve TCS outside lock — continuations run inline and must not re-enter _claimLock.
         entry!.CompletionTcs.TrySetResult(result);
 
-        Log($"🐝 [{entry.Bundle.Role}] '{entry.Bundle.Title}' ✅ completed by {result!.WorkerId} " +
+        Log($"🐝 ↘ returned from {result!.WorkerId} — [{entry.Bundle.Role}] '{entry.Bundle.Title}' ✅ " +
             $"({result.DurationMs / 1000.0:F1}s, {result.Result.Length} chars)");
         Events.Append("task_complete",
             $"[{result.WorkerId}] {entry.Bundle.Title} ✓ {result.DurationMs / 1000.0:F1}s · {result.Result.Length} chars",
@@ -1108,6 +1162,7 @@ public sealed class HiveTaskQueue : IDisposable
             ClaimedAt = entry.ClaimedAt,
             Result    = entry.ResultText,
             ErrorMsg  = entry.ErrorMsg,
+            OutputArtifacts = entry.StructuredResult?.OutputArtifacts ?? [],
         });
     }
 
@@ -1188,9 +1243,18 @@ public sealed class HiveTaskQueue : IDisposable
                     case "completed":
                     case "failed":
                     case "timeout":
-                        // Evict from MEMORY after 5 min; the durable SQL row stays (that's the
-                        // whole point of Phase 4) and is removed later by the retention sweep.
-                        if (now - entry.EnqueuedAt > TimeSpan.FromMinutes(5))
+                        // Evict from MEMORY after InMemoryRetention; the durable SQL row stays
+                        // (that's the whole point of Phase 4) and is removed later by the retention
+                        // sweep. Measured from EnqueuedAt (campaign submission), not completion --
+                        // a multi-unit campaign whose units finish minutes apart can otherwise have
+                        // its LATER units evicted almost immediately after completing, since the
+                        // clock started when the whole batch was submitted. An external poller (e.g.
+                        // an acceptance-test orchestrator walking a 16-unit campaign sequentially)
+                        // can easily take several minutes to reach a later unit's GET, observed in
+                        // practice losing visibility into results 5 minutes after submission even
+                        // though the unit itself had only just completed. 30 minutes gives that
+                        // headroom without materially changing the memory-bound intent.
+                        if (now - entry.EnqueuedAt > TimeSpan.FromMinutes(30))
                             toEvict.Add(id);
                         break;
                 }

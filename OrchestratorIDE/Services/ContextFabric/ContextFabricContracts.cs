@@ -333,3 +333,43 @@ public sealed record FabricBoundaryStitchReport(
     IReadOnlyList<FabricCallMetrics> Calls);
 
 public sealed class FabricContextBudgetExceededException(string message) : InvalidOperationException(message);
+
+// ── CF-6: exhaustive-query contracts ──────────────────────────────────────────
+
+/// <summary>Input artifact for an exhaustive-query work unit: the question the worker must answer using
+/// only its assigned source segment.</summary>
+public sealed record FabricQueryQuestion(string QuestionId, string QuestionText);
+
+/// <summary>Draft output from an exhaustive-query worker: per-segment answer fragment.</summary>
+public sealed class FabricQueryFindingDraft
+{
+    public bool Relevant { get; init; } = false;
+    public string? FindingText { get; init; }
+    public List<FabricClaim> Claims { get; init; } = [];
+}
+
+/// <summary>Validated per-segment exhaustive-query finding after schema check.</summary>
+public sealed record FabricQueryFinding(
+    string QuestionId,
+    string SegmentId,
+    bool Relevant,
+    string? FindingText,
+    IReadOnlyList<FabricClaim> Claims,
+    FabricCallMetrics Metrics);
+
+// ── CF-6: citation-verifier contract ─────────────────────────────────────────
+
+/// <summary>Per-claim result from the HIVE citation verifier work unit.</summary>
+public sealed record FabricHiveVerificationItem(
+    string ClaimId,
+    string SegmentId,
+    bool Passed,
+    IReadOnlyList<string> Errors);
+
+/// <summary>Output artifact from a HIVE verifier work unit.</summary>
+public sealed record FabricHiveVerificationReport(
+    string CorpusId,
+    string DocumentId,
+    string SegmentId,
+    bool AllPassed,
+    IReadOnlyList<FabricHiveVerificationItem> Items);

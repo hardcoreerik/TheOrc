@@ -310,6 +310,16 @@ public partial class HivePanel : UserControl
             var prefix = ev.Ts.ToLocalTime().ToString("HH:mm:ss");
             var worker = ev.WorkerId.Length > 0 ? $" {ev.WorkerId} ·" : "";
             AddEvent($"[{prefix}]{worker} {ev.Msg}", color);
+
+            // Fire a directional constellation pulse so work is VISIBLE moving to/from the PC:
+            // claim = Warchief→worker (out), complete/failed = worker→Warchief (back).
+            if (ev.WorkerId.Length > 0)
+            {
+                if (ev.Type == "task_claimed")
+                    HiveView.PulseEdge(ev.WorkerId, inbound: false);
+                else if (ev.Type is "task_complete" or "task_failed")
+                    HiveView.PulseEdge(ev.WorkerId, inbound: true);
+            }
         }
     }
 
@@ -368,14 +378,38 @@ public partial class HivePanel : UserControl
                 warchiefIp = wcPeer.LastKnownAddress.Split(':')[0];
         }
 
-        var nodes = new List<HiveNodeVisual>
+        // The CENTER of the constellation is the WARCHIEF — not unconditionally "This PC". A
+        // worker/observer machine now shows the Warchief crowned in the middle and itself as a
+        // ring node, reflecting its ACTUAL role instead of every box crowning itself (user
+        // request 2026-07-01). IsLocal (This PC) is tracked separately from IsCenter (the
+        // Warchief) so the self-action menu + "this machine" label still follow the local node
+        // even when it's out on the ring.
+        var warchiefPeer = (!isLocalWarchief && warchiefIp is not null)
+            ? peers.FirstOrDefault(p => SafeUriHost(p.Url) == warchiefIp)
+            : null;
+
+        var nodes = new List<HiveNodeVisual>();
+        if (isLocalWarchief || warchiefPeer is null)
         {
-            MakeVisual(local, isCenter: true, role: ResolveLocalRole(identity, isLocalWarchief)),
-        };
-        foreach (var p in peers)
+            // This node is the Warchief, OR no remote Warchief is resolvable yet (a sovereign
+            // "boss" not in any hive still centers itself — there's no other authority to defer to).
+            nodes.Add(MakeVisual(local, isCenter: true, isLocal: true,
+                role: ResolveLocalRole(identity, isLocalWarchief)));
+            foreach (var p in peers)
+            {
+                bool wc = warchiefIp is not null && SafeUriHost(p.Url) == warchiefIp;
+                nodes.Add(MakeVisual(p, isCenter: false, isLocal: false, role: ResolvePeerRole(p, wc)));
+            }
+        }
+        else
         {
-            bool wc = warchiefIp is not null && SafeUriHost(p.Url) == warchiefIp;
-            nodes.Add(MakeVisual(p, isCenter: false, role: ResolvePeerRole(p, wc)));
+            // This node is NOT the Warchief: center the Warchief peer (crowned), and place
+            // THIS machine out on the ring with its real (non-warchief) role.
+            nodes.Add(MakeVisual(warchiefPeer, isCenter: true, isLocal: false, role: "warchief"));
+            nodes.Add(MakeVisual(local, isCenter: false, isLocal: true,
+                role: ResolveLocalRole(identity, isWarchief: false)));
+            foreach (var p in peers.Where(p => !ReferenceEquals(p, warchiefPeer)))
+                nodes.Add(MakeVisual(p, isCenter: false, isLocal: false, role: ResolvePeerRole(p, isWarchief: false)));
         }
 
         TbNoPeers.IsVisible = peers.Count == 0;
@@ -559,7 +593,7 @@ public partial class HivePanel : UserControl
 
     /// <summary>Builds the role-shaped node visual for an already-resolved role string (see
     /// ResolveLocalRole/ResolvePeerRole — role resolution itself lives there, not here).</summary>
-    private static HiveNodeVisual MakeVisual(HiveHost host, bool isCenter, string role)
+    private static HiveNodeVisual MakeVisual(HiveHost host, bool isCenter, bool isLocal, string role)
     {
         string state = host.Reachable == false ? "offline" : "online";
 
@@ -570,9 +604,9 @@ public partial class HivePanel : UserControl
             sub = role switch
             {
                 "boss"     => "boss · not in a hive",
-                "warchief" => "warchief",
-                "observer" => "observer",
-                "worker"   => isCenter ? "this machine" : "node",
+                "warchief" => isLocal ? "warchief · this machine" : "warchief",
+                "observer" => isLocal ? "observer · this machine" : "observer",
+                "worker"   => isLocal ? "worker · this machine" : "node",
                 _          => role,
             };
             if (host.VramFreeMb > 0) sub += $" · {host.VramFreeMb / 1024.0:F0}GB";
@@ -580,7 +614,8 @@ public partial class HivePanel : UserControl
 
         return new HiveNodeVisual
         {
-            Host = host, Name = host.Name, Role = role, IsCenter = isCenter, State = state, SubLabel = sub,
+            Host = host, Name = host.Name, Role = role, IsCenter = isCenter, IsLocal = isLocal,
+            State = state, SubLabel = sub,
         };
     }
 
@@ -607,19 +642,22 @@ public partial class HivePanel : UserControl
     /// pointer. (The menu content, including Declare Warchief, lives in BuildContextMenu.)</summary>
     private void ShowNodeMenu(HiveNodeVisual node)
     {
-        var menu = BuildContextMenu(node.Host, node.IsCenter);
+        // Self-action menu follows the LOCAL machine (IsLocal), not the centered Warchief —
+        // a worker out on the ring still gets "Declare this machine Warchief"/"Set my lanes",
+        // and a centered remote Warchief gets the peer menu (Pair/Route/Remove).
+        var menu = BuildContextMenu(node.Host, node.IsLocal);
         menu.Placement = PlacementMode.Pointer;
         menu.Open(HiveView);
     }
 
     // ── Context menu ──────────────────────────────────────────────────────────
 
-    private ContextMenu BuildContextMenu(HiveHost host, bool isCenter)
+    private ContextMenu BuildContextMenu(HiveHost host, bool isLocal)
     {
-        bool alive = host.Reachable == true || isCenter;
+        bool alive = host.Reachable == true || isLocal;
         var cm = new ContextMenu();
 
-        if (isCenter)
+        if (isLocal)
         {
             cm.Items.Add(CmItem("📋  Copy Warchief URL",  () => _ = CopyTextAsync(WarchiefBaseUrl ?? "")));
             cm.Items.Add(CmItem("📊  View queue status",  () => _ = ShowQueueStatusAsync(), WarchiefBaseUrl is not null));
@@ -639,7 +677,7 @@ public partial class HivePanel : UserControl
             cm.Items.Add(CmItem("🚪  Leave current hive", () => _ = LeaveHiveAsync(),
                 HiveIdentity.Load().HiveRole != HiveRole.Unset));
             cm.Items.Add(new Separator());
-            cm.Items.Add(BuildRoleSubmenu(host, isCenter: true));
+            cm.Items.Add(BuildRoleSubmenu(host, isLocal: true));
         }
         else
         {
@@ -661,7 +699,7 @@ public partial class HivePanel : UserControl
             var acceptMenu = BuildAcceptControlSubmenu(host);
             if (acceptMenu is not null) cm.Items.Add(acceptMenu);
             cm.Items.Add(new Separator());
-            cm.Items.Add(BuildRoleSubmenu(host, isCenter: false));
+            cm.Items.Add(BuildRoleSubmenu(host, isLocal: false));
             cm.Items.Add(new Separator());
             cm.Items.Add(CmItem("⟳  Probe now",           () => _ = ProbeOneAndDrawAsync(host)));
             cm.Items.Add(new Separator());
@@ -732,11 +770,11 @@ public partial class HivePanel : UserControl
     /// REMOTE node — a remote lane-assignment RPC is the documented next-release item
     /// (HIVE_VISUALS.md §11). Planned lanes are always disabled.
     /// </summary>
-    private MenuItem BuildRoleSubmenu(HiveHost host, bool isCenter)
+    private MenuItem BuildRoleSubmenu(HiveHost host, bool isLocal)
     {
         var menu = new MenuItem { Header = "⬡  Set role" };
 
-        if (isCenter)
+        if (isLocal)
         {
             menu.Items.Add(new MenuItem { Header = "Worker lanes (this machine)", IsEnabled = false });
             var set = OrchestratorIDE.Core.AppSettings.Load().HiveWorkerLanes

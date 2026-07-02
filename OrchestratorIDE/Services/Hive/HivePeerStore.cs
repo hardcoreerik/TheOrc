@@ -284,6 +284,40 @@ public sealed class HivePeerStore
     }
 
     /// <summary>
+    /// Drops every non-revoked peer that shares <paramref name="name"/> with a peer that just
+    /// (re)paired but carries a DIFFERENT NodeId than <paramref name="keepNodeId"/> — the stale
+    /// duplicates a machine leaves behind when it re-pairs under a rotated identity. Each such
+    /// entry holds a shared secret derived against that machine's OLD keys, so signing against
+    /// it produces exactly the HMAC mismatch the Warchief rejects as HTTP 401; leaving them in
+    /// the store lets <see cref="ResolveNodeIdForUrl"/> keep picking a dead one. Called from both
+    /// successful-pairing paths (<see cref="HiveNodeServer.ApprovePairing"/> responder side,
+    /// <see cref="HivePairingClient.ConfirmAndTrust"/> initiator side) so a re-pair is
+    /// self-cleaning: exactly one live entry per machine name survives. Matches on the human
+    /// machine NAME, not address/NodeId, precisely because the point is that the stale entries'
+    /// identities are dead — the name is the only stable thread tying "the box that just
+    /// re-paired" to its own predecessors. Returns the count removed; no-op for an empty name
+    /// (can't safely attribute predecessors to a nameless peer). Two physically distinct machines
+    /// sharing one name would collapse to one entry — acceptable for a dev fleet where names are
+    /// unique, and never worse than the manual "delete the stale ones by hand" this replaces.
+    /// </summary>
+    public int PruneSuperseded(string name, string keepNodeId)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return 0;
+        lock (_lock)
+        {
+            var stale = _peers
+                .Where(p => !p.Revoked
+                            && p.NodeId != keepNodeId
+                            && string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (stale.Count == 0) return 0;
+            foreach (var p in stale) _peers.Remove(p);
+            if (_persistToDisk) SaveToDisk(_peers);
+            return stale.Count;
+        }
+    }
+
+    /// <summary>
     /// Updates peer liveness. LastKnownAddress is persisted to disk when it changes
     /// so it survives restart. Other fields (LastHeartbeat, ActiveRole, VramFreeMb)
     /// are runtime-only.

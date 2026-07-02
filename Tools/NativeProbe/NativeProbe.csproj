@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>native-probe</AssemblyName>
+    <RootNamespace>NativeProbe</RootNamespace>
+  </PropertyGroup>
+
+  <!-- The probe must exercise the app's EXACT selection path: source-link the same
+       bootstrap the app/daemon call instead of re-implementing it here. -->
+  <ItemGroup>
+    <Compile Include="..\..\OrchestratorIDE\Core\Runtime\NativeBackendBootstrap.cs" Link="NativeBackendBootstrap.cs" />
+  </ItemGroup>
+
+  <!-- Same CUDA runtime redistributable bundling as OrchestratorIDE.NativeRuntime.csproj
+       (see the comment there): ggml-cuda.dll needs cudart/cublas, which driver-only fleet
+       machines don't have. The probe must ship them too or its CUDA verdict won't match a
+       correctly-packaged app build. -->
+  <PropertyGroup>
+    <TheOrcCudaRedistDir Condition="'$(TheOrcCudaRedistDir)' == '' And '$(CUDA_PATH)' != ''">$(CUDA_PATH)\bin\</TheOrcCudaRedistDir>
+    <TheOrcHasCudaRedist>false</TheOrcHasCudaRedist>
+    <TheOrcHasCudaRedist Condition="Exists('$(TheOrcCudaRedistDir)cudart64_12.dll') And Exists('$(TheOrcCudaRedistDir)cublas64_12.dll') And Exists('$(TheOrcCudaRedistDir)cublasLt64_12.dll')">true</TheOrcHasCudaRedist>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TheOrcHasCudaRedist)' == 'true' And ('$(RuntimeIdentifier)' == 'win-x64' Or ('$(RuntimeIdentifier)' == '' And $([MSBuild]::IsOSPlatform('Windows'))))">
+    <None Include="$(TheOrcCudaRedistDir)cudart64_12.dll" Link="runtimes\win-x64\native\cuda12\cudart64_12.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(TheOrcCudaRedistDir)cublas64_12.dll" Link="runtimes\win-x64\native\cuda12\cublas64_12.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(TheOrcCudaRedistDir)cublasLt64_12.dll" Link="runtimes\win-x64\native\cuda12\cublasLt64_12.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+  <!-- Mirror the exact LLamaSharp + backend package set the app/daemon use, so this probe
+       loads native libraries through the identical code path. -->
+  <ItemGroup>
+    <PackageReference Include="LLamaSharp" Version="0.27.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cuda12.Windows" Version="0.27.0"
+                      Condition="'$(RuntimeIdentifier)' == 'win-x64' Or ('$(RuntimeIdentifier)' == '' And $([MSBuild]::IsOSPlatform('Windows')))" />
+  </ItemGroup>
+
+</Project>

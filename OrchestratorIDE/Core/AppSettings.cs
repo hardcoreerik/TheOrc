@@ -254,6 +254,14 @@ public class AppSettings
     public string HiveWarchiefNodeId { get; set; } = "";
 
     /// <summary>
+    /// Dev opt-in: when true, a persistent HTTP 401 from the Warchief makes the worker
+    /// automatically re-sync (rediscover the Warchief's live identity and re-pair) instead of
+    /// just logging the rejection. Pairs with the Warchief-side time-boxed "Accept re-sync"
+    /// window for fully headless fleet recovery. Off by default. See HiveWorkerAgent.AutoResyncEnabled.
+    /// </summary>
+    public bool HiveDevAutoResyncEnabled { get; set; } = false;
+
+    /// <summary>
     /// Comma-separated task roles this worker accepts (e.g. "researcher,coder").
     /// Empty = accept all roles. Used by HiveWorkerAgent lane filter.
     /// </summary>

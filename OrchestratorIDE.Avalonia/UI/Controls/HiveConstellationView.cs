@@ -25,7 +25,9 @@ public sealed class HiveNodeVisual
     /// "observer" | "worker". "boss" = sovereign, not yet in any hive. "observer" = paired
     /// but holds no write/exec authority — both render as a hollow ring, see DrawNode.</summary>
     public string Role      { get; init; } = "worker";
-    public bool   IsCenter  { get; init; }   // the local "This PC" node
+    public bool   IsCenter  { get; init; }   // the centered/crowned node = the Warchief (whichever machine that is)
+    public bool   IsLocal   { get; init; }   // this is THIS machine ("This PC") — drives the self-action menu + label,
+                                             // independent of IsCenter (a worker sees the Warchief centered, itself on the ring)
     /// <summary>"online" | "offline" | "working" | "returning".</summary>
     public string State     { get; init; } = "online";
     public string SubLabel  { get; init; } = "";   // small line under the name (role · VRAM)
@@ -58,6 +60,51 @@ public sealed class HiveConstellationView : Control
     private readonly DispatcherTimer _anim;
     private double _t;          // particle phase (0..2, modulo)
     private double _breath;     // warchief breathing phase
+
+    // Directional work pulses: one bright particle per REAL task event, so you can see work
+    // actually move to/from a specific machine (claim = out to the worker, complete = back to
+    // the Warchief), distinct from the always-on ambient particles. Added on the UI thread from
+    // HivePanel.PollEvents and drained in Render — same thread, no locking needed.
+    private sealed class EdgePulse
+    {
+        public string Worker = "";
+        public bool   Inbound;      // true = worker→Warchief (result returning); false = Warchief→worker
+        public long   StartMs;
+    }
+    private readonly List<EdgePulse> _pulses = [];
+    private const double PulseDurationMs = 1150;
+
+    /// <summary>
+    /// Fires a one-shot directional pulse along the edge for <paramref name="workerName"/>.
+    /// inbound=false animates Warchief→worker (task just claimed); inbound=true animates
+    /// worker→Warchief (result just completed). No-op if the worker isn't a peer on the ring
+    /// (e.g. the Warchief executing its own unit has no edge to itself).
+    /// </summary>
+    public void PulseEdge(string workerName, bool inbound)
+    {
+        if (string.IsNullOrWhiteSpace(workerName)) return;
+        _pulses.Add(new EdgePulse { Worker = workerName, Inbound = inbound, StartMs = Environment.TickCount64 });
+        // Cap so a burst can't grow unbounded; oldest fade first anyway.
+        if (_pulses.Count > 96) _pulses.RemoveRange(0, _pulses.Count - 96);
+        if (!_liteMode && !_anim.IsEnabled && _nodes.Count > 0) _anim.Start();
+        InvalidateVisual();
+    }
+
+    // Exact case-insensitive match is the norm. The only reason to accept a prefix is NetBIOS
+    // truncation: WorkerId is Environment.MachineName, which the network layer caps at 15 chars,
+    // so a fuller node name (e.g. "hardcorelaptopmsi") can legitimately show up truncated
+    // ("HARDCORELAPTOPM"). Restrict the prefix path to that case only — the shorter side must be
+    // a FULL prefix of the longer AND be exactly 15 chars — so two distinct machines that merely
+    // share a stem (e.g. "HARDCOREPC"/"HARDCOREPI") never cross-match (Codex review MINOR).
+    private static bool WorkerMatchesNode(string nodeName, string worker)
+    {
+        if (string.IsNullOrEmpty(nodeName) || string.IsNullOrEmpty(worker)) return false;
+        if (nodeName.Equals(worker, StringComparison.OrdinalIgnoreCase)) return true;
+        var shorter = nodeName.Length <= worker.Length ? nodeName : worker;
+        var longer  = nodeName.Length <= worker.Length ? worker : nodeName;
+        return shorter.Length == 15 && longer.Length > 15
+            && longer.StartsWith(shorter, StringComparison.OrdinalIgnoreCase);
+    }
 
     public HiveConstellationView()
     {
@@ -160,6 +207,29 @@ public sealed class HiveConstellationView : Control
                     DrawGlowDot(ctx, x, y, 6, pColor, 0.5);
                     ctx.DrawEllipse(new SolidColorBrush(Color.FromRgb(0xea, 0xff, 0xf5)), null, new Point(x, y), 2, 2);
                 }
+            }
+        }
+
+        // Directional work pulses along a specific worker's edge (drawn over the ambient
+        // particles, under the nodes). This is the "see work moving to/from that PC" effect.
+        if (center is not null && _pulses.Count > 0 && !LiteMode)
+        {
+            long now = Environment.TickCount64;
+            _pulses.RemoveAll(pl => now - pl.StartMs > PulseDurationMs);
+            foreach (var pl in _pulses)
+            {
+                var peer = peers.FirstOrDefault(p => WorkerMatchesNode(p.Name, pl.Worker));
+                if (peer is null) continue;
+                double prog  = (now - pl.StartMs) / PulseDurationMs;       // 0..1 over lifetime
+                double frac  = pl.Inbound ? 1.0 - prog : prog;            // inbound rides peer→center
+                double x     = center.X + (peer.X - center.X) * frac;
+                double y     = center.Y + (peer.Y - center.Y) * frac;
+                double alpha = 1.0 - prog;                                // fade as it travels
+                var col      = pl.Inbound ? Returning : Working;          // blue back / amber out
+                // Bright comet: outer glow + a small white-hot core.
+                DrawGlowDot(ctx, x, y, 13, col, 0.6 * alpha);
+                ctx.DrawEllipse(new SolidColorBrush(Color.FromRgb(0xff, 0xff, 0xff), Math.Max(0, alpha)),
+                    null, new Point(x, y), 3.4, 3.4);
             }
         }
 

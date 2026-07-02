@@ -4,6 +4,23 @@ namespace OrchestratorIDE.Services.Hive;
 
 public static class CampaignPackCatalog
 {
+    /// <summary>CF-6: distributed Context Fabric readers. ExecutionKind is NativeAgent for
+    /// capability-matching purposes (needs a native model, no container), but dispatch bypasses
+    /// the generic agent/tool-call loop entirely -- see HiveWorkerAgent.ExecuteTaskAsync's
+    /// PackId check, which routes straight into ContextFabricFeasibilityRunner.ReadCorpusAsync
+    /// instead of HeadlessAgentLoop. The generic NativeAgent tool profile (read_file/write_file/
+    /// grep_code) doesn't fit the reader's deterministic, schema-constrained per-segment
+    /// evidence extraction.</summary>
+    public const string ContextFabricPackId = "theorc.context-fabric";
+    public const string ContextFabricPackVersion = "1.0.0";
+
+    /// <summary>NativeRole discriminators used inside the theorc.context-fabric pack to route tasks to
+    /// specific execution paths rather than the default single-segment reader path.</summary>
+    public const string ContextFabricReducerRole  = "cf-reducer";
+    public const string ContextFabricStitcherRole = "cf-stitcher";
+    public const string ContextFabricVerifierRole  = "cf-verifier";
+    public const string ContextFabricQueryRole     = "cf-query";
+
     public static IReadOnlyList<PackManifest> All { get; } =
     [
         new()
@@ -14,6 +31,15 @@ public static class CampaignPackCatalog
             ExecutionKind = HiveExecutionKinds.NativeAgent,
             MaxRuntimeSeconds = 1800,
             MaxOutputBytes = 64 * 1024 * 1024,
+        },
+        new()
+        {
+            PackId = ContextFabricPackId,
+            Version = ContextFabricPackVersion,
+            DisplayName = "Context Fabric Reader",
+            ExecutionKind = HiveExecutionKinds.NativeAgent,
+            MaxRuntimeSeconds = 1800,
+            MaxOutputBytes = 16 * 1024 * 1024,
         },
         new()
         {

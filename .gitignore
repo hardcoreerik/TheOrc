@@ -138,3 +138,10 @@ marketplace/
 # Codex local scratch/test sandboxes — regenerable build output and one-off probes.
 .codex-scratch-build/
 .codex-testenv/
+
+# Fleet-sync single-file publish output (sync-theorc-fleet); regenerable deploy artifact.
+_deploy/
+
+# Death-test worker-id -> ssh-target map: machine addresses are deliberately local-only
+# (see death-fault.ps1 header).
+Tools/Cf6AcceptanceRunner/worker-map.json

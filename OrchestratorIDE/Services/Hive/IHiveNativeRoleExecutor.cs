@@ -1,6 +1,7 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using OrchestratorIDE.Models;
+using OrchestratorIDE.Services.ContextFabric;
 
 namespace OrchestratorIDE.Services.Hive;
 
@@ -22,6 +23,63 @@ public interface IHiveNativeRoleExecutor : IAsyncDisposable
     Task<HiveNativeAgentExecution> ExecuteAgentAsync(
         HiveTaskBundle bundle,
         IReadOnlyList<AgentMessage> messages,
+        CancellationToken ct);
+
+    /// <summary>
+    /// CF-6: runs a single-segment Context Fabric read (ContextFabricFeasibilityRunner.ReadCorpusAsync)
+    /// instead of the generic agent/tool-call loop -- see CampaignPackCatalog.ContextFabricPackId's
+    /// doc comment for why ExecuteAgentAsync's tool profile doesn't fit this pack.
+    /// </summary>
+    Task<HiveNativeAgentExecution> ExecuteContextFabricReaderAsync(
+        HiveTaskBundle bundle,
+        FabricCorpus corpus,
+        CancellationToken ct);
+
+    /// <summary>
+    /// CF-6: runs the hierarchical reduction tree (ContextFabricFeasibilityRunner.ReduceEvidenceCardsAsync)
+    /// over pre-read evidence cards supplied as input artifacts -- the distributed fan-in step that follows
+    /// the reader fan-out. Outputs a serialized FabricCorpusReadReport to the output directory.
+    /// </summary>
+    Task<HiveNativeAgentExecution> ExecuteContextFabricReducerAsync(
+        HiveTaskBundle bundle,
+        FabricCorpus corpusMeta,
+        IReadOnlyList<FabricEvidenceCard> cards,
+        CancellationToken ct);
+
+    /// <summary>
+    /// CF-6: runs the boundary stitcher (FabricBoundaryStitcher.StitchAsync) on two adjacent single-segment
+    /// corpora to resolve cross-boundary duplicates, pronoun references, and heading transitions.
+    /// Outputs stitch-result.json to the output directory.
+    /// </summary>
+    Task<HiveNativeAgentExecution> ExecuteContextFabricStitcherAsync(
+        HiveTaskBundle bundle,
+        FabricCorpus leftCorpus,
+        FabricCorpus rightCorpus,
+        CancellationToken ct);
+
+    /// <summary>
+    /// CF-6: runs inline citation verification (no LLM) against the source corpus artifact.
+    /// Each claim's citations are checked for quote text, character offsets, and quote digest.
+    /// Outputs verification-result.json to the output directory.
+    /// </summary>
+    Task<HiveNativeAgentExecution> ExecuteContextFabricVerifierAsync(
+        HiveTaskBundle bundle,
+        FabricEvidenceCard card,
+        FabricCorpus sourceCorpus,
+        CancellationToken ct);
+
+    /// <summary>
+    /// CF-6: runs a per-segment query. When <paramref name="card"/> is supplied the result is
+    /// computed deterministically via BM25 claim-index lookup (no LLM call). Falls back to
+    /// <c>QuerySegmentAsync</c> (LLM) only when no pre-extracted card is available.
+    /// Outputs query-finding.json to the output directory.
+    /// </summary>
+    Task<HiveNativeAgentExecution> ExecuteContextFabricQueryAsync(
+        HiveTaskBundle bundle,
+        string questionId,
+        string questionText,
+        FabricCorpus corpus,
+        FabricEvidenceCard? card,
         CancellationToken ct);
 }
 

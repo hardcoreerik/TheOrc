@@ -28,6 +28,33 @@ public sealed class FabricEvidenceGraphImporter(
     /// re-reads (see FabricNativeReaderService.ReadSegmentsAsync) so a retry that returns
     /// fewer claims than the previous read doesn't leave the old ones orphaned in the graph.
     /// </summary>
+    /// <summary>
+    /// CF-6 overload: replaces one segment's claims tagged with the given <paramref name="generationId"/>.
+    /// Used by <see cref="FabricHiveCampaignImporter"/> so claims are traceable to a specific corpus
+    /// generation; a re-index (new generationId) produces distinct rows that can be swept independently.
+    /// </summary>
+    public int ReplaceSegmentEvidenceCard(
+        FabricEvidenceCard card,
+        string verificationStatus,
+        string? generationId)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        var imports = BuildClaimImports(card, verificationStatus, generationId);
+
+        graphRepository.ReplaceClaimsForSegment(
+            card.DocumentId,
+            card.SegmentId,
+            imports.Select(item => item.Claim).ToArray(),
+            imports.ToDictionary(
+                item => item.Claim.ClaimId,
+                item => (IReadOnlyList<FabricClaimCitationEntry>)item.Citations,
+                StringComparer.Ordinal));
+
+        if (imports.Count > 0)
+            UpsertEntities(imports[0].Document, verificationStatus, imports[0].Card.Entities);
+        return imports.Count;
+    }
+
     public int ReplaceSegmentEvidenceCard(
         FabricEvidenceCard card,
         string verificationStatus = FabricVerificationStatus.Provisional)
@@ -82,7 +109,8 @@ public sealed class FabricEvidenceGraphImporter(
 
     private IReadOnlyList<ClaimImport> BuildClaimImports(
         FabricEvidenceCard card,
-        string verificationStatus)
+        string verificationStatus,
+        string? generationId = null)
     {
         ArgumentNullException.ThrowIfNull(card);
         if (string.IsNullOrWhiteSpace(verificationStatus))
@@ -121,7 +149,8 @@ public sealed class FabricEvidenceGraphImporter(
                 verificationStatus,
                 claim.Confidence,
                 now,
-                now);
+                now,
+                GenerationId: generationId);
 
             var citations = (claim.Citations ?? [])
                 .Where(citation => citation is not null)

@@ -23,6 +23,7 @@
     <Compile Include="..\OrchestratorIDE\Core\Runtime\IModelRuntime.cs" Link="Runtime\IModelRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\IRoleRuntime.cs" Link="Runtime\IRoleRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\LLamaSharpRuntime.cs" Link="Runtime\LLamaSharpRuntime.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\NativeBackendBootstrap.cs" Link="Runtime\NativeBackendBootstrap.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\ModelAdmissionGate.cs" Link="Runtime\ModelAdmissionGate.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\NativePromptBuilder.cs" Link="Runtime\NativePromptBuilder.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\ModelDepot.cs" Link="Runtime\ModelDepot.cs" />
@@ -41,6 +42,29 @@
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricReportWriter.cs" Link="ContextFabric\ContextFabricReportWriter.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\FabricBoundaryStitcher.cs" Link="ContextFabric\FabricBoundaryStitcher.cs" />
   </ItemGroup>
+
+  <!-- LLamaSharp.Backend.Cuda12.Windows's ggml-cuda.dll dynamically imports cudart64_12.dll
+       and cublas64_12.dll (which itself needs cublasLt64_12.dll) — CUDA *toolkit* runtime
+       DLLs that NO fleet machine has (they run driver-only) and that the NuGet package does
+       not ship. Without them the cuda12 backend fails to load (Win32 error 126) and inference
+       silently lands on the avx2 CPU backend — observed live on hardcorelaptopmsi (RTX 4060,
+       1.7 tok/s). Bundle NVIDIA's redistributable runtime DLLs from the build box's CUDA
+       toolkit next to ggml-cuda.dll; LoadLibraryEx's altered search path resolves imports
+       from the parent DLL's directory, so cuda12\ is the right spot. -->
+  <PropertyGroup>
+    <TheOrcCudaRedistDir Condition="'$(TheOrcCudaRedistDir)' == '' And '$(CUDA_PATH)' != ''">$(CUDA_PATH)\bin\</TheOrcCudaRedistDir>
+    <TheOrcHasCudaRedist>false</TheOrcHasCudaRedist>
+    <TheOrcHasCudaRedist Condition="Exists('$(TheOrcCudaRedistDir)cudart64_12.dll') And Exists('$(TheOrcCudaRedistDir)cublas64_12.dll') And Exists('$(TheOrcCudaRedistDir)cublasLt64_12.dll')">true</TheOrcHasCudaRedist>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TheOrcHasCudaRedist)' == 'true' And ('$(RuntimeIdentifier)' == 'win-x64' Or ('$(RuntimeIdentifier)' == '' And $([MSBuild]::IsOSPlatform('Windows'))))">
+    <None Include="$(TheOrcCudaRedistDir)cudart64_12.dll" Link="runtimes\win-x64\native\cuda12\cudart64_12.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(TheOrcCudaRedistDir)cublas64_12.dll" Link="runtimes\win-x64\native\cuda12\cublas64_12.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(TheOrcCudaRedistDir)cublasLt64_12.dll" Link="runtimes\win-x64\native\cuda12\cublasLt64_12.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+  <Target Name="TheOrcWarnMissingCudaRedist" BeforeTargets="CoreCompile"
+          Condition="'$(TheOrcHasCudaRedist)' != 'true' And ('$(RuntimeIdentifier)' == 'win-x64' Or ('$(RuntimeIdentifier)' == '' And $([MSBuild]::IsOSPlatform('Windows'))))">
+    <Warning Text="CUDA runtime redistributables (cudart64_12/cublas64_12/cublasLt64_12) not found under '$(TheOrcCudaRedistDir)' — builds from this machine will CPU-fallback on driver-only GPU machines. Install the CUDA 12.x toolkit or set TheOrcCudaRedistDir." />
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="LLamaSharp" Version="0.27.0" />

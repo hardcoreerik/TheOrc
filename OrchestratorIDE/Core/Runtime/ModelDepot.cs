@@ -154,10 +154,15 @@ public sealed class ModelDepot
         var candidates = Assets.Where(a => a.Kind == RuntimeAssetKind.BaseModelGguf);
         if (workload is { } workloadKind)
         {
+            // IsReasoningTuned is checked right after Verdict, ahead of the role-tag tie-break:
+            // a reasoning-tuned model that happens to be tagged for this role must not beat a
+            // non-reasoning model tagged for a different role when both tie on Verdict -- visible
+            // <think> traces can consume the whole response budget before the required output
+            // (see EvaluateContextFabric's IsReasoningTuned branch and HiveDispatchOptions).
             candidates = candidates
                 .OrderByDescending(a => ModelAdmissionGate.Evaluate(a, workloadKind).Verdict)
-                .ThenByDescending(a => a.SuggestedRoles.Contains(role))
                 .ThenBy(a => ModelAdmissionGate.Fingerprint(a).IsReasoningTuned)
+                .ThenByDescending(a => a.SuggestedRoles.Contains(role))
                 .ThenByDescending(a => ModelAdmissionGate.Fingerprint(a).ParametersB ?? 0)
                 .ThenBy(a => LooksOpaqueName(a.DisplayName))
                 .ThenBy(a => a.Path, _pathComparer);

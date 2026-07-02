@@ -101,8 +101,14 @@ jobs:
         run: dotnet restore OrchestratorIDE.slnx --runtime ${{ matrix.rid }}
 
       # ── Publish OrchestratorIDE (Avalonia shell, self-contained single-file) ──
-      # win-x64: AssemblyName pinned to OrchestratorIDE so every downstream Windows step
-      # (zip, OrchestratorSetup's shortcut/launch logic, SelfUpdater) keeps working unchanged.
+      # AssemblyName is NOT overridden via -p: here -- OrchestratorIDE.Avalonia.csproj
+      # references OrchestratorIDE.NativeRuntime, which has its own explicit
+      # <AssemblyName>; a global -p:AssemblyName=OrchestratorIDE cascades into that
+      # ProjectReference during NuGet's static-graph restore (UndefineProperties on the
+      # reference doesn't fully suppress it) and fails with "Ambiguous project name
+      # 'OrchestratorIDE'". Instead we publish under the project's natural name
+      # (OrchestratorIDE.Avalonia[.exe]) and rename the output file below -- same final
+      # artifact name every downstream step (zip, OrchestratorSetup, SelfUpdater) expects.
       # -p:OutputType=WinExe avoids a flashing console window on Windows; on macOS there's no
       # such concern (and no .app bundle yet -- docs/MULTI_OS_RELEASE_SPEC.md Phase A explicitly
       # defers that -- so the binary stays console-attached, fine for a Terminal-launched app).
@@ -111,41 +117,49 @@ jobs:
         shell: pwsh
         run: |
           $ver = '${{ steps.ver.outputs.VERSION }}'
+          # IncludeAllContentForSelfExtract (NOT IncludeNativeLibrariesForSelfExtract): the latter
+          # leaves AppContext.BaseDirectory pointing at the exe dir while LLamaSharp's native DLLs
+          # extract to a temp dir, so its './'-relative backend probing finds nothing and every
+          # model load dies with TypeInitializationException on NativeApi. All-content makes the
+          # bundle run FROM the extraction dir, so BaseDirectory == where the natives are and the
+          # CUDA/CPU backends load. Verified 2026-06-30 with Tools/NativeProbe.
           dotnet publish OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj `
             --configuration Release `
             --runtime win-x64 `
             --self-contained `
             --no-restore `
             -p:PublishSingleFile=true `
-            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:IncludeAllContentForSelfExtract=true `
             -p:DebugType=none `
             -p:DebugSymbols=false `
             -p:Version=$ver `
             -p:AssemblyVersion=$ver `
             -p:FileVersion=$ver `
-            -p:AssemblyName=OrchestratorIDE `
             -p:OutputType=WinExe `
             --output publish/app
+          Move-Item publish/app/OrchestratorIDE.Avalonia.exe publish/app/OrchestratorIDE.exe -Force
 
       - name: Publish OrchestratorIDE (macOS)
         if: runner.os == 'macOS'
         shell: bash
         run: |
           ver='${{ steps.ver.outputs.VERSION }}'
+          # All-content (not native-only) self-extract so LLamaSharp's relative backend probing
+          # finds the extracted natives -- see the Windows app publish step above for why.
           dotnet publish OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj \
             --configuration Release \
             --runtime osx-arm64 \
             --self-contained \
             --no-restore \
             -p:PublishSingleFile=true \
-            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:IncludeAllContentForSelfExtract=true \
             -p:DebugType=none \
             -p:DebugSymbols=false \
             -p:Version=$ver \
             -p:AssemblyVersion=$ver \
             -p:FileVersion=$ver \
-            -p:AssemblyName=OrchestratorIDE \
             --output publish/app
+          mv publish/app/OrchestratorIDE.Avalonia publish/app/OrchestratorIDE
           chmod +x publish/app/OrchestratorIDE
 
       # ── Publish OrchestratorSetup (installer, self-contained single-file) ─────
@@ -469,13 +483,16 @@ jobs:
         shell: bash
         run: |
           ver='${{ steps.ver.outputs.VERSION }}'
+          # All-content (not native-only) self-extract -- the daemon runs CF-6 native worker tasks,
+          # so it hits the same LLamaSharp backend-probing issue as the app. See the Windows app
+          # publish step above for the full explanation.
           dotnet publish OrchestratorIDE.Daemon/OrchestratorIDE.Daemon.csproj \
             --configuration Release \
             --runtime ${{ matrix.rid }} \
             --self-contained \
             --no-restore \
             -p:PublishSingleFile=true \
-            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:IncludeAllContentForSelfExtract=true \
             -p:DebugType=none \
             -p:DebugSymbols=false \
             -p:Version=$ver \

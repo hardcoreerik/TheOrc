@@ -61,6 +61,10 @@ public sealed class HiveTaskBundle
     public int Attempt { get; set; } = 1;
     public int MaxAttempts { get; set; } = 3;
 
+    /// <summary>WorkUnitIds (within CampaignId) this task must wait on -- see WorkUnit.DependsOn
+    /// and HiveTaskQueue.AreDependenciesSatisfied for the lease-side barrier check.</summary>
+    public string[] DependsOnWorkUnitIds { get; set; } = [];
+
     /// <summary>Upstream research/task output included so workers have full context.</summary>
     public List<HiveArtifact> UpstreamArtifacts { get; set; } = [];
 }
@@ -157,6 +161,10 @@ public sealed class HiveTaskStatusResponse
     /// <summary>Populated once Status is "failed".</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string?   ErrorMsg  { get; set; }
+    /// <summary>Populated once Status is "completed" -- lets a polling orchestrator chain a
+    /// downstream campaign stage (e.g. CF-6 reducer) onto this unit's output digests without
+    /// needing in-process access to the queue.</summary>
+    public List<ArtifactRef> OutputArtifacts { get; set; } = [];
 }
 
 /// <summary>Response to GET /hive/tasks/status — full snapshot of queue state.</summary>

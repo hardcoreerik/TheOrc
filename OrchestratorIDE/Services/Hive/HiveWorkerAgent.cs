@@ -6,6 +6,7 @@ using System.Text.Json;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Models;
+using OrchestratorIDE.Services.ContextFabric;
 
 namespace OrchestratorIDE.Services.Hive;
 
@@ -34,6 +35,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
     private int _disposeState;
     private HiveNativeAgentExecution? _lastAgentExecution;
     private ContainerPackExecution? _lastContainerExecution;
+    private int _readerEvidenceCount;
     private static readonly JsonSerializerOptions _json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -60,6 +62,17 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
     /// <summary>Task roles this worker accepts. Empty = all roles.</summary>
     public string[] Lanes     { get; set; } = [];
+
+    /// <summary>
+    /// When true, a persistent HTTP 401 from the Warchief triggers an automatic re-sync
+    /// (<see cref="TryResyncWithWarchiefAsync"/>) instead of just being logged — the worker
+    /// half of headless fleet re-sync. The manual "Re-sync now" button works regardless of
+    /// this flag; this only governs the automatic-on-401 behaviour. Set from
+    /// AppSettings.HiveDevAutoResyncEnabled.
+    /// </summary>
+    public bool AutoResyncEnabled { get; set; }
+    private DateTime _lastResyncAttempt = DateTime.MinValue;
+    private static readonly TimeSpan ResyncCooldown = TimeSpan.FromSeconds(60);
     public WorkerCapabilities Capabilities { get; set; } = new();
     public IContainerPackRunner? ContainerRunner { get; set; }
     public ContentAddressedStore? ModelStore { get; set; }
@@ -82,6 +95,9 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
     public string        CoderModel     { get; set; } = "";
     public string        ResearcherModel { get; set; } = "";
     public TimeSpan DisposeWaitTimeout  { get; set; } = DefaultDisposeWaitTimeout;
+
+    /// <summary>HTTP timeout for lease polls. Internal so tests can simulate a timed-out poll quickly.</summary>
+    internal TimeSpan LeasePollTimeout { get; set; } = TimeSpan.FromSeconds(10);
 
     // ── Events ────────────────────────────────────────────────────────────────
 
@@ -139,7 +155,10 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 Log($"🐝 Leased [{bundle.Role}] '{bundle.Title}' from Warchief");
                 await ClaimAndExecuteAsync(bundle, ct, lease.ClaimToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) { break; }
+            // HttpClient throws TaskCanceledException (an OperationCanceledException) on plain
+            // HTTP timeouts too — only exit the loop for a genuine Stop()/dispose cancellation,
+            // otherwise a single timed-out poll would silently kill the worker forever.
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception ex)
             {
                 Log($"⚠ Worker loop error: {ex.Message}");
@@ -161,6 +180,17 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         if (!catalogResponse.IsSuccessStatusCode)
         {
             Log($"⚠ Approved-model catalog rejected by Warchief: HTTP {(int)catalogResponse.StatusCode}");
+            // A 401 here is the canonical "my trust for the Warchief went stale" signal (this
+            // runs once a minute, so it's a natural self-heal checkpoint). Auto-resync when the
+            // operator has opted in and the cooldown has elapsed — completes headlessly only if
+            // the Warchief's dev auto-approve window is open, otherwise it waits for a manual OK.
+            if (catalogResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized
+                && AutoResyncEnabled
+                && DateTime.UtcNow - _lastResyncAttempt > ResyncCooldown)
+            {
+                _lastResyncAttempt = DateTime.UtcNow;
+                await TryResyncWithWarchiefAsync(ct).ConfigureAwait(false);
+            }
             return;
         }
         var json = await catalogResponse.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
@@ -191,6 +221,92 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 offset += read;
             }
             Log($"🐝 Native model synced and verified: {model.DigestSha256[..12]}… Restart for native preflight.");
+        }
+    }
+
+    // ── Self-heal (headless fleet re-sync) ────────────────────────────────────
+
+    /// <summary>
+    /// Worker-side self-heal for the "HTTP 401 after the Warchief's identity rotated" failure
+    /// that otherwise needs a hand-edit of both machines' hive-peers.json plus a restart of
+    /// both apps. Discovers the Warchief's CURRENT NodeId via its unauthenticated
+    /// <c>/hive/update/version</c> endpoint (no trust required), and if this node doesn't
+    /// already hold a usable shared secret for that exact NodeId, re-initiates pairing. The
+    /// re-pair completes headlessly only while the Warchief has its dev auto-approve window
+    /// open (<see cref="HiveNodeServer.EnableDevAutoApprove"/>); otherwise it waits for a human
+    /// approve there. On success the fresh secret replaces the stale one, PruneSuperseded drops
+    /// the dead-identity duplicates, and <see cref="WarchiefNodeId"/> is pinned to the live id
+    /// so signing stops resolving to a stale entry by URL. Returns true when trust is healthy
+    /// (already, or after a completed re-pair). Never throws (except on cancellation).
+    /// </summary>
+    public async Task<bool> TryResyncWithWarchiefAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var host = Uri.TryCreate(WarchiefUrl, UriKind.Absolute, out var u) ? u.Host : "";
+            if (string.IsNullOrEmpty(host))
+            {
+                Log($"⚠ Re-sync: could not parse a host from Warchief URL '{WarchiefUrl}'.");
+                return false;
+            }
+
+            // 1. Discover the Warchief's live identity (unauthenticated — always answers even
+            //    when every signed request is being 401'd).
+            string liveNodeId;
+            using (var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) })
+            {
+                var versionUrl = $"http://{host}:{HiveNodeServer.ApiPort}/hive/update/version";
+                var json = await http.GetStringAsync(versionUrl, ct).ConfigureAwait(false);
+                using var doc = JsonDocument.Parse(json);
+                liveNodeId = doc.RootElement.TryGetProperty("nodeId", out var n) ? n.GetString() ?? "" : "";
+            }
+            if (string.IsNullOrEmpty(liveNodeId))
+            {
+                Log("⚠ Re-sync: Warchief did not report a NodeId — is its HIVE node server running?");
+                return false;
+            }
+
+            // 2. Already hold a usable secret for the live identity? Then the 401 is something
+            //    else; just make sure we TARGET that identity when signing and stop here.
+            var (trusted, secret) = HivePeerStore.Default.GetTrustedSecret(liveNodeId);
+            if (trusted && secret is not null)
+            {
+                WarchiefNodeId = liveNodeId;
+                Log("🔄 Re-sync: trust is already current for the live Warchief identity.");
+                return true;
+            }
+
+            // 3. Stale/missing trust → re-initiate pairing against the live host.
+            Log($"🔄 Re-sync: Warchief identity is {liveNodeId[..12]}… with no matching trust — re-pairing.");
+            var result = await HivePairingClient.PairAsync(host, timeoutSec: 60, ct: ct).ConfigureAwait(false);
+            if (result.Outcome != HivePairingClient.Outcome.Approved || result.Pending is null)
+            {
+                Log($"⚠ Re-sync pairing did not complete: {result.Outcome}" +
+                    (result.Message is null ? "" : $" — {result.Message}") +
+                    (result.Outcome == HivePairingClient.Outcome.TimedOut
+                        ? " (open the Warchief's \"Accept re-sync\" window and retry)" : ""));
+                return false;
+            }
+
+            // Defense against an on-path surprise: the identity we just paired with MUST be the
+            // one the version endpoint advertised. PairAsync already binds NodeId to the signing
+            // key; this additionally ties it to what we set out to trust.
+            if (!string.Equals(result.Pending.Peer.NodeId, liveNodeId, StringComparison.OrdinalIgnoreCase))
+            {
+                Log("⚠ Re-sync: the paired identity did not match the advertised Warchief NodeId — aborting, trusting nothing.");
+                return false;
+            }
+
+            HivePairingClient.ConfirmAndTrust(result.Pending);
+            WarchiefNodeId = liveNodeId;
+            Log($"✅ Re-sync complete — now trusting Warchief {liveNodeId[..12]}… (stale entries pruned).");
+            return true;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            Log($"⚠ Re-sync failed: {ex.Message}");
+            return false;
         }
     }
 
@@ -232,7 +348,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
         SignIfPaired(req, body);
 
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        using var http = new HttpClient { Timeout = LeasePollTimeout };
         using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
         if (resp.StatusCode == System.Net.HttpStatusCode.NoContent) return null;
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -261,6 +377,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         var startedAt = DateTime.UtcNow;
         _lastAgentExecution = null;
         _lastContainerExecution = null;
+        _readerEvidenceCount = 0;
         string? result   = null;
         string  status   = "completed";
         string? errorMsg = null;
@@ -272,7 +389,10 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         {
             result = await ExecuteTaskAsync(bundle, ct).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) { throw; }
+        // Same distinction as RunLoopAsync: an HTTP-timeout TaskCanceledException is a task
+        // failure to report back to the Warchief, not a worker shutdown — rethrowing it would
+        // orphan the lease with no fail result posted.
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             status   = "failed";
@@ -302,6 +422,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             taskResult.Metrics["steps"] = execution.Steps;
             taskResult.Metrics["prompt_tokens"] = execution.PromptTokens;
             taskResult.Metrics["completion_tokens"] = execution.CompletionTokens;
+            if (_readerEvidenceCount > 0) taskResult.Metrics["evidence_count"] = _readerEvidenceCount;
             taskResult.Attestation = new ExecutionAttestation
             {
                 RuntimeName = "NativeRoleRuntime",
@@ -473,6 +594,149 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         return artifacts;
     }
 
+    /// <summary>
+    /// CF-6: downloads the staged single-segment corpus for a Context Fabric reader task from the
+    /// Warchief's content-addressed store (GET /hive/artifacts/{digest}) and rebuilds the FabricCorpus.
+    /// The digest is re-verified locally so a corrupt or substituted artifact fails closed before the
+    /// reader ever sees untrusted bytes.
+    /// </summary>
+    private async Task<FabricCorpus> FetchReaderCorpusAsync(HiveTaskBundle bundle, CancellationToken ct)
+    {
+        var input = bundle.InputArtifacts.FirstOrDefault(a =>
+                        a.Name.EndsWith("corpus.json", StringComparison.OrdinalIgnoreCase))
+                    ?? bundle.InputArtifacts.FirstOrDefault()
+                    ?? throw new InvalidOperationException(
+                        "Context Fabric reader task has no input corpus artifact.");
+        if (string.IsNullOrWhiteSpace(input.DigestSha256))
+            throw new InvalidOperationException("Context Fabric reader input artifact has no digest.");
+
+        var url = $"{WarchiefUrl.TrimEnd('/')}/hive/artifacts/{input.DigestSha256}";
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        SignIfPaired(req, []);
+
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+        using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+        resp.EnsureSuccessStatusCode();
+        var bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+
+        var actual = ContentAddressedStore.ComputeSha256(bytes);
+        if (!string.Equals(actual, input.DigestSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"Context Fabric reader corpus digest mismatch: expected {input.DigestSha256}, got {actual}.");
+
+        var corpus = JsonSerializer.Deserialize<FabricCorpus>(Encoding.UTF8.GetString(bytes), FabricJson.Options)
+            ?? throw new InvalidOperationException("Context Fabric reader corpus artifact deserialized to null.");
+        if (corpus.Segments.Count != 1)
+            throw new InvalidOperationException(
+                $"Context Fabric reader expects a single-segment corpus, got {corpus.Segments.Count}.");
+        return corpus;
+    }
+
+    /// <summary>
+    /// CF-6: downloads and deserializes the reducer's inputs from the Warchief artifact store.
+    /// The first artifact named "corpus-meta.json" supplies structural metadata (CorpusId, DocumentId,
+    /// GenerationId); every remaining artifact named "*.evidence-card.json" is a reader output card.
+    private async Task<(FabricCorpus Left, FabricCorpus Right)>
+        FetchStitcherInputsAsync(HiveTaskBundle bundle, CancellationToken ct)
+    {
+        var corpora = bundle.InputArtifacts
+            .Where(a => a.Name.EndsWith(".corpus.json", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (corpora.Length < 2)
+            throw new InvalidOperationException(
+                $"Context Fabric stitcher task requires exactly 2 corpus artifacts, got {corpora.Length}.");
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        var left = await FetchAndVerifyJsonAsync<FabricCorpus>(http, corpora[0], ct).ConfigureAwait(false);
+        var right = await FetchAndVerifyJsonAsync<FabricCorpus>(http, corpora[1], ct).ConfigureAwait(false);
+        return (left, right);
+    }
+
+    private async Task<(FabricEvidenceCard Card, FabricCorpus SourceCorpus)>
+        FetchVerifierInputsAsync(HiveTaskBundle bundle, CancellationToken ct)
+    {
+        var cardArtifact = bundle.InputArtifacts.FirstOrDefault(a =>
+            a.Name.EndsWith(".evidence-card.json", StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("Verifier task has no '.evidence-card.json' input artifact.");
+        var corpusArtifact = bundle.InputArtifacts.FirstOrDefault(a =>
+            a.Name.EndsWith(".corpus.json", StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("Verifier task has no '.corpus.json' input artifact.");
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        var card = await FetchAndVerifyJsonAsync<FabricEvidenceCard>(http, cardArtifact, ct).ConfigureAwait(false);
+        var corpus = await FetchAndVerifyJsonAsync<FabricCorpus>(http, corpusArtifact, ct).ConfigureAwait(false);
+        return (card, corpus);
+    }
+
+    private async Task<(string QuestionId, string QuestionText, FabricCorpus Corpus, FabricEvidenceCard? Card)>
+        FetchQueryInputsAsync(HiveTaskBundle bundle, CancellationToken ct)
+    {
+        var questionArtifact = bundle.InputArtifacts.FirstOrDefault(a =>
+            a.Name.StartsWith("question-", StringComparison.OrdinalIgnoreCase) &&
+            a.Name.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("Query task has no 'question-*.json' input artifact.");
+        var corpusArtifact = bundle.InputArtifacts.FirstOrDefault(a =>
+            a.Name.EndsWith(".corpus.json", StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("Query task has no '.corpus.json' input artifact.");
+        var cardArtifact = bundle.InputArtifacts.FirstOrDefault(a =>
+            a.Name.EndsWith(".evidence-card.json", StringComparison.OrdinalIgnoreCase));
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        var question = await FetchAndVerifyJsonAsync<FabricQueryQuestion>(http, questionArtifact, ct).ConfigureAwait(false);
+        var corpus = await FetchAndVerifyJsonAsync<FabricCorpus>(http, corpusArtifact, ct).ConfigureAwait(false);
+        FabricEvidenceCard? card = null;
+        if (cardArtifact is not null)
+            card = await FetchAndVerifyJsonAsync<FabricEvidenceCard>(http, cardArtifact, ct).ConfigureAwait(false);
+        return (question.QuestionId, question.QuestionText, corpus, card);
+    }
+
+    /// All digests are re-verified locally before deserialization.
+    /// </summary>
+    private async Task<(FabricCorpus CorpusMeta, IReadOnlyList<FabricEvidenceCard> Cards)>
+        FetchReducerInputsAsync(HiveTaskBundle bundle, CancellationToken ct)
+    {
+        if (bundle.InputArtifacts.Count == 0)
+            throw new InvalidOperationException("Context Fabric reducer task has no input artifacts.");
+
+        var metaArtifact = bundle.InputArtifacts.FirstOrDefault(a =>
+            a.Name.EndsWith("corpus-meta.json", StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException(
+                "Context Fabric reducer task has no 'corpus-meta.json' input artifact.");
+        var cardArtifacts = bundle.InputArtifacts
+            .Where(a => a.Name.EndsWith(".evidence-card.json", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (cardArtifacts.Length == 0)
+            throw new InvalidOperationException(
+                "Context Fabric reducer task has no evidence-card input artifacts.");
+
+        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        var corpusMeta = await FetchAndVerifyJsonAsync<FabricCorpus>(http, metaArtifact, ct).ConfigureAwait(false);
+        if (corpusMeta.Segments.Count != 0)
+            throw new InvalidOperationException(
+                "Reducer corpus-meta artifact must have empty Segments; include only structural metadata.");
+
+        var cards = new List<FabricEvidenceCard>(cardArtifacts.Length);
+        foreach (var artifact in cardArtifacts)
+            cards.Add(await FetchAndVerifyJsonAsync<FabricEvidenceCard>(http, artifact, ct).ConfigureAwait(false));
+        return (corpusMeta, cards);
+    }
+
+    private async Task<T> FetchAndVerifyJsonAsync<T>(HttpClient http, ArtifactRef artifact, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(artifact.DigestSha256))
+            throw new InvalidOperationException($"Artifact '{artifact.Name}' has no digest.");
+        var url = $"{WarchiefUrl.TrimEnd('/')}/hive/artifacts/{artifact.DigestSha256}";
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        SignIfPaired(req, []);
+        using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+        resp.EnsureSuccessStatusCode();
+        var bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+        var actual = ContentAddressedStore.ComputeSha256(bytes);
+        if (!string.Equals(actual, artifact.DigestSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"Artifact '{artifact.Name}' digest mismatch: expected {artifact.DigestSha256}, got {actual}.");
+        return JsonSerializer.Deserialize<T>(Encoding.UTF8.GetString(bytes), FabricJson.Options)
+            ?? throw new InvalidOperationException($"Artifact '{artifact.Name}' deserialized to null.");
+    }
+
     private static string GuessMediaType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
     {
         ".json" => "application/json",
@@ -530,6 +794,12 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
         if (Runtime is null && NativeRoleExecutor is null)
             throw new InvalidOperationException("Worker: model runtime not configured");
+
+        // CF reader pack requires the native role executor — it has no generic-LLM fallback path.
+        if (string.Equals(bundle.PackId, CampaignPackCatalog.ContextFabricPackId, StringComparison.OrdinalIgnoreCase)
+            && NativeRoleExecutor is null)
+            throw new InvalidOperationException(
+                "Worker: Context Fabric reader tasks require a native role executor — this host has none configured.");
 
         var sysPrompt = BuildSystemPrompt(bundle.Role);
         var userMsg   = BuildUserMessage(bundle);
@@ -622,6 +892,77 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             $"⚡ {WorkerId} · [{bundle.Role}] {bundle.Title} · NativeRoleRuntime",
             bundle.TaskId,
             ct).ConfigureAwait(false);
+
+        // CF-6: the Context Fabric pack bypasses the generic agent/tool-call loop.
+        // Dispatch key: NativeRole discriminates reducer / stitcher / verifier / query / reader.
+        if (string.Equals(bundle.PackId, CampaignPackCatalog.ContextFabricPackId, StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.Equals(bundle.NativeRole, CampaignPackCatalog.ContextFabricReducerRole,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                var (corpusMeta, cards) = await FetchReducerInputsAsync(bundle, ct).ConfigureAwait(false);
+                _lastAgentExecution = await NativeRoleExecutor.ExecuteContextFabricReducerAsync(
+                    bundle, corpusMeta, cards, ct).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(_lastAgentExecution.Output))
+                    throw new InvalidOperationException("Context Fabric reducer emitted no reduction nodes.");
+                Log($"🐝 [{bundle.Role}] '{bundle.Title}' — Context Fabric reducer built {_lastAgentExecution.Steps} node(s){DescribeNativeRuntimeTelemetry(bundle.Role)}");
+                return _lastAgentExecution.Output;
+            }
+
+            if (string.Equals(bundle.NativeRole, CampaignPackCatalog.ContextFabricStitcherRole,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                var (leftCorpus, rightCorpus) = await FetchStitcherInputsAsync(bundle, ct).ConfigureAwait(false);
+                _lastAgentExecution = await NativeRoleExecutor.ExecuteContextFabricStitcherAsync(
+                    bundle, leftCorpus, rightCorpus, ct).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(_lastAgentExecution.Output))
+                    throw new InvalidOperationException("Context Fabric stitcher emitted no stitch result.");
+                Log($"🐝 [{bundle.Role}] '{bundle.Title}' — Context Fabric stitcher completed{DescribeNativeRuntimeTelemetry(bundle.Role)}");
+                return _lastAgentExecution.Output;
+            }
+
+            if (string.Equals(bundle.NativeRole, CampaignPackCatalog.ContextFabricVerifierRole,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                var (card, sourceCorpus) = await FetchVerifierInputsAsync(bundle, ct).ConfigureAwait(false);
+                _lastAgentExecution = await NativeRoleExecutor.ExecuteContextFabricVerifierAsync(
+                    bundle, card, sourceCorpus, ct).ConfigureAwait(false);
+                Log($"🐝 [{bundle.Role}] '{bundle.Title}' — Context Fabric verifier checked {_lastAgentExecution.Steps} claim(s){DescribeNativeRuntimeTelemetry(bundle.Role)}");
+                return _lastAgentExecution.Output;
+            }
+
+            if (string.Equals(bundle.NativeRole, CampaignPackCatalog.ContextFabricQueryRole,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                var (questionId, questionText, queryCorpus, evidenceCard) = await FetchQueryInputsAsync(bundle, ct).ConfigureAwait(false);
+                _lastAgentExecution = await NativeRoleExecutor.ExecuteContextFabricQueryAsync(
+                    bundle, questionId, questionText, queryCorpus, evidenceCard, ct).ConfigureAwait(false);
+                Log($"🐝 [{bundle.Role}] '{bundle.Title}' — Context Fabric query {(_lastAgentExecution.Steps > 0 ? "found evidence" : "no evidence")}{DescribeNativeRuntimeTelemetry(bundle.Role)}");
+                return _lastAgentExecution.Output;
+            }
+
+            var corpus = await FetchReaderCorpusAsync(bundle, ct).ConfigureAwait(false);
+            _lastAgentExecution = await NativeRoleExecutor.ExecuteContextFabricReaderAsync(bundle, corpus, ct)
+                .ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(_lastAgentExecution.Output))
+                throw new InvalidOperationException("Context Fabric reader emitted no evidence card.");
+
+            // Per-node telemetry: record the number of accepted claims so the Warchief's
+            // campaign dashboard can show evidence coverage without re-downloading the artifact.
+            try
+            {
+                var card = JsonSerializer.Deserialize<FabricEvidenceCard>(
+                    _lastAgentExecution.Output, FabricJson.Options);
+                if (card is not null)
+                {
+                    _readerEvidenceCount = card.Claims.Count;
+                }
+            }
+            catch { /* non-fatal: telemetry must not break task completion */ }
+
+            Log($"🐝 [{bundle.Role}] '{bundle.Title}' — Context Fabric reader accepted segment{DescribeNativeRuntimeTelemetry(bundle.Role)}");
+            return _lastAgentExecution.Output;
+        }
 
         if (bundle.ExecutionKind == HiveExecutionKinds.NativeAgent)
         {
