@@ -163,6 +163,35 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public void PdfTextParser_Rejects_ImageOnly_Pdf_Without_Ocr()
+    {
+        var parser = new PdfTextFabricParser();
+
+        Assert.That(
+            () => parser.Parse(BuildBlankPdf(), "application/pdf"),
+            Throws.TypeOf<InvalidDataException>());
+    }
+
+    [Test]
+    public void PdfTextParser_Uses_Configured_Ocr_For_ImageOnly_Pdf()
+    {
+        var parser = new PdfTextFabricParser(new FakeOcrEngine("OCR sentinel text.", 0.88, "synthetic warning"));
+
+        var parsed = parser.Parse(BuildBlankPdf(), "application/pdf");
+        var block = parsed.Blocks.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(block.BlockKind, Is.EqualTo("ocr"));
+            Assert.That(block.PageNumber, Is.EqualTo(1));
+            Assert.That(block.SourceLocator, Is.EqualTo("page 1"));
+            Assert.That(block.Confidence, Is.EqualTo(0.88));
+            Assert.That(block.Text, Is.EqualTo("OCR sentinel text."));
+            Assert.That(parsed.Warnings, Is.EqualTo(new[] { "page 1: synthetic warning" }));
+        });
+    }
+
+    [Test]
     public void PdfPageLocators_Mark_Blocks_Spanning_Multiple_Pages()
     {
         const string normalized = "Page one starts\n\ncontinues on page two\n";
@@ -885,6 +914,34 @@ public sealed class ContextFabricCf1Tests
         return bytes.ToArray();
     }
 
+    private static byte[] BuildBlankPdf()
+    {
+        var objects = new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>",
+        };
+        var bytes = new List<byte>();
+        void Append(string text) => bytes.AddRange(Encoding.ASCII.GetBytes(text));
+
+        Append("%PDF-1.4\n");
+        var offsets = new List<int> { 0 };
+        for (var index = 0; index < objects.Length; index++)
+        {
+            offsets.Add(bytes.Count);
+            Append($"{index + 1} 0 obj\n{objects[index]}\nendobj\n");
+        }
+
+        var xref = bytes.Count;
+        Append($"xref\n0 {offsets.Count}\n");
+        Append("0000000000 65535 f \n");
+        foreach (var offset in offsets.Skip(1))
+            Append($"{offset:0000000000} 00000 n \n");
+        Append($"trailer\n<< /Size {offsets.Count} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+        return bytes.ToArray();
+    }
+
     private static byte[] BuildDocxPackage()
     {
         using var stream = new MemoryStream();
@@ -997,6 +1054,12 @@ public sealed class ContextFabricCf1Tests
         FabricLibraryRepository Repository,
         ContentAddressedStore Artifacts,
         FabricLibraryService Service);
+
+    private sealed class FakeOcrEngine(string text, double? confidence, string? warning) : IFabricOcrEngine
+    {
+        public FabricOcrPageResult RecognizePdfPage(int pageNumber, ReadOnlyMemory<byte> pdfSource) =>
+            new(text, confidence, warning is null ? [] : [warning]);
+    }
 
     private sealed record DarwinFixtureManifest(
         string FixtureId,

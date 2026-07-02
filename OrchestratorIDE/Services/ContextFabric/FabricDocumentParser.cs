@@ -21,6 +21,16 @@ public interface IFabricDocumentParser
     FabricParsedDocument Parse(ReadOnlyMemory<byte> source, string mediaType);
 }
 
+public interface IFabricOcrEngine
+{
+    FabricOcrPageResult RecognizePdfPage(int pageNumber, ReadOnlyMemory<byte> pdfSource);
+}
+
+public sealed record FabricOcrPageResult(
+    string Text,
+    double? Confidence = null,
+    IReadOnlyList<string>? Warnings = null);
+
 public sealed class FabricDocumentParserRegistry
 {
     private readonly IReadOnlyList<IFabricDocumentParser> _parsers;
@@ -97,6 +107,13 @@ public sealed class TextMarkdownFabricParser : IFabricDocumentParser
 
 public sealed class PdfTextFabricParser : IFabricDocumentParser
 {
+    private readonly IFabricOcrEngine? _ocrEngine;
+
+    public PdfTextFabricParser(IFabricOcrEngine? ocrEngine = null)
+    {
+        _ocrEngine = ocrEngine;
+    }
+
     public string ParserId => "fabric-pdf-text";
     public string ParserVersion => FabricIngestionVersions.PdfTextParser;
 
@@ -115,12 +132,40 @@ public sealed class PdfTextFabricParser : IFabricDocumentParser
         if (pages.Length == 0)
             throw new InvalidDataException("PDF contains no pages.");
 
+        var warnings = new List<string>();
         var pageTexts = pages
             .Select((page, index) => (PageNumber: index + 1, Text: ExtractPageText(page)))
             .Where(page => !string.IsNullOrWhiteSpace(page.Text))
             .ToArray();
+        var usedOcr = false;
+        IReadOnlyList<(int PageNumber, double? Confidence)> pageConfidences = [];
         if (pageTexts.Length == 0)
-            throw new InvalidDataException("PDF contains no extractable text.");
+        {
+            if (_ocrEngine is null)
+                throw new InvalidDataException("PDF contains no extractable text; configure OCR to ingest scanned or image-only PDFs.");
+
+            usedOcr = true;
+            var ocrPages = pages
+                .Select((_, index) =>
+                {
+                    var pageNumber = index + 1;
+                    var result = _ocrEngine.RecognizePdfPage(pageNumber, source);
+                    foreach (var warning in result.Warnings ?? [])
+                    {
+                        if (!string.IsNullOrWhiteSpace(warning))
+                            warnings.Add($"page {pageNumber}: {warning.Trim()}");
+                    }
+
+                    return (PageNumber: pageNumber, result.Text, result.Confidence);
+                })
+                .Where(page => !string.IsNullOrWhiteSpace(page.Text))
+                .ToArray();
+            if (ocrPages.Length == 0)
+                throw new InvalidDataException("OCR produced no parseable text for PDF.");
+
+            pageTexts = ocrPages.Select(page => (page.PageNumber, page.Text)).ToArray();
+            pageConfidences = ocrPages.Select(page => (page.PageNumber, page.Confidence)).ToArray();
+        }
 
         var normalized = FabricTextParsing.Normalize(string.Join("\n\n", pageTexts.Select(page => page.Text)));
         if (string.IsNullOrWhiteSpace(normalized))
@@ -130,6 +175,8 @@ public sealed class PdfTextFabricParser : IFabricDocumentParser
             FabricTextParsing.BuildBlocks(normalized, markdown: false),
             normalized,
             pageTexts);
+        if (usedOcr)
+            blocks = AddOcrMetadata(blocks, pageConfidences);
         if (blocks.Count == 0)
             throw new InvalidDataException("PDF contains no parseable blocks.");
 
@@ -139,7 +186,7 @@ public sealed class PdfTextFabricParser : IFabricDocumentParser
             "application/pdf",
             normalized,
             blocks,
-            []);
+            warnings);
     }
 
     private static string ExtractPageText(Page page)
@@ -151,6 +198,24 @@ public sealed class PdfTextFabricParser : IFabricDocumentParser
             .Select(line => line.Trim())
             .Where(line => line.Length > 0);
         return string.Join('\n', lines);
+    }
+
+    private static IReadOnlyList<FabricParsedBlock> AddOcrMetadata(
+        IReadOnlyList<FabricParsedBlock> blocks,
+        IReadOnlyList<(int PageNumber, double? Confidence)> pageConfidences)
+    {
+        return blocks.Select(block =>
+        {
+            var confidence = pageConfidences
+                .Where(page => block.PageNumber == page.PageNumber)
+                .Select(page => page.Confidence)
+                .FirstOrDefault();
+            return block with
+            {
+                BlockKind = "ocr",
+                Confidence = confidence,
+            };
+        }).ToArray();
     }
 }
 
