@@ -935,7 +935,7 @@ public sealed class ContextFabricCf1Tests
                 """.Replace(
                     "DUPLICATE_MANIFEST_ITEM",
                     duplicateManifestId
-                        ? """<item id="chapter" href="chapter-copy.xhtml" media-type="application/xhtml+xml" />"""
+                        ? """<item id="chapter" href="cover.png" media-type="image/png" />"""
                         : ""));
             WriteZipEntry(archive, "OEBPS/chapter.xhtml", """
                 <?xml version="1.0" encoding="utf-8"?>
