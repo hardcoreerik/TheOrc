@@ -12,6 +12,7 @@ internal static class Program
         Cf0,
         QuoteAnchor,
         Stitch,
+        Cf7Gate,
     }
 
     public static async Task<int> Main(string[] args)
@@ -92,7 +93,9 @@ internal static class Program
 
             Console.WriteLine(options.Suite == BenchmarkSuite.Stitch
                 ? "Context Fabric boundary-stitch diagnostics"
-                : "Context Fabric CF-0 native feasibility run");
+                : options.Suite == BenchmarkSuite.Cf7Gate
+                    ? "Context Fabric CF-7 benchmark gate"
+                    : "Context Fabric CF-0 native feasibility run");
             Console.WriteLine($"Model root: {Path.GetFullPath(modelRoot)}");
             Console.WriteLine($"Context: {options.ContextLength:N0} tokens");
             Console.WriteLine(options.Suite == BenchmarkSuite.Stitch
@@ -126,6 +129,26 @@ internal static class Program
             {
                 Environment = benchmarkEnvironment,
             };
+            if (options.Suite == BenchmarkSuite.Cf7Gate)
+            {
+                var fixture = DeterministicFabricCorpus.Create();
+                var quoteReport = new ContextFabricBenchmarkExpansionRunner(runtime: null)
+                    .RunQuoteAnchoringDiagnostics(fixture);
+                var stitchReport = await new ContextFabricBenchmarkExpansionRunner(runtime, runOptions)
+                    .RunBoundaryStitchDiagnosticsAsync(DeterministicFabricCorpus.CreateBoundaryStitchFixture())
+                    .ConfigureAwait(false);
+                var gateReport = ContextFabricBenchmarkGateEvaluator.Evaluate(report, quoteReport, stitchReport);
+                var gatePaths = await ContextFabricBenchmarkGateWriter.WriteAsync(gateReport, output).ConfigureAwait(false);
+
+                Console.WriteLine();
+                Console.WriteLine($"Verdict: {(gateReport.ReadyForExpansion ? "GO" : "NO-GO")}");
+                Console.WriteLine($"JSON: {gatePaths.JsonPath}");
+                Console.WriteLine($"Markdown: {gatePaths.MarkdownPath}");
+                foreach (var gate in gateReport.Gates.Where(gate => !gate.Passed))
+                    Console.WriteLine($"FAILED {gate.Name}: {gate.Detail}");
+                return gateReport.ReadyForExpansion ? 0 : 2;
+            }
+
             var paths = await ContextFabricReportWriter.WriteAsync(report, output).ConfigureAwait(false);
 
             Console.WriteLine();
@@ -218,13 +241,14 @@ internal static class Program
         "cf0" => BenchmarkSuite.Cf0,
         "quote-anchor" => BenchmarkSuite.QuoteAnchor,
         "stitch" => BenchmarkSuite.Stitch,
-        _ => throw new ArgumentException("Unknown suite. Use cf0, quote-anchor, or stitch."),
+        "cf7-gate" => BenchmarkSuite.Cf7Gate,
+        _ => throw new ArgumentException("Unknown suite. Use cf0, quote-anchor, stitch, or cf7-gate."),
     };
 
     private static void PrintUsage()
     {
         Console.WriteLine("Usage: context-fabric-bench --model-root <folder> [options]");
-        Console.WriteLine("  --suite <name>            cf0 | quote-anchor | stitch (default cf0)");
+        Console.WriteLine("  --suite <name>            cf0 | quote-anchor | stitch | cf7-gate (default cf0)");
         Console.WriteLine("  --output <folder>          Report directory (default .orc/context-fabric/benchmarks)");
         Console.WriteLine("  --context <tokens>        Native context length (default 8192)");
         Console.WriteLine("  --response-reserve <n>    Reserved response tokens (default 1536)");

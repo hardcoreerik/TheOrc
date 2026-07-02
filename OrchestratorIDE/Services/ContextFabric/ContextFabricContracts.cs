@@ -14,6 +14,7 @@ public static class FabricSchemaVersions
     public const string Stitch = "cf0-stitch-1.0";
     public const string QuoteDiagnostics = "cf0-quote-diagnostics-1.0";
     public const string StitchDiagnostics = "cf0-stitch-diagnostics-1.0";
+    public const string BenchmarkGate = "cf7-benchmark-gate-1.0";
     public const string ReaderPrompt = "cf0-reader-1.2";
     public const string ReducerPrompt = "cf0-reducer-1.0";
     public const string AnswerPrompt = "cf0-answer-1.2";
@@ -331,6 +332,39 @@ public sealed record FabricBoundaryStitchReport(
     DateTimeOffset GeneratedUtc,
     IReadOnlyList<FabricBoundaryStitchResult> Results,
     IReadOnlyList<FabricCallMetrics> Calls);
+
+public enum FabricBenchmarkSystemStatus
+{
+    Passed,
+    Failed,
+    Missing,
+}
+
+public sealed record FabricBenchmarkSystemGate(
+    string SystemId,
+    string Label,
+    FabricBenchmarkSystemStatus Status,
+    string Detail);
+
+public sealed record FabricBenchmarkMetric(
+    string Name,
+    double Value,
+    double Target,
+    bool Passed,
+    string Detail);
+
+public sealed record FabricCf7BenchmarkGateReport(
+    string SchemaVersion,
+    DateTimeOffset GeneratedUtc,
+    string CorpusId,
+    string GenerationId,
+    string SourceDigest,
+    IReadOnlyList<FabricBenchmarkSystemGate> Systems,
+    IReadOnlyList<FabricBenchmarkMetric> Metrics,
+    IReadOnlyList<FabricGateResult> Gates)
+{
+    public bool ReadyForExpansion => Gates.Count > 0 && Gates.All(gate => gate.Passed);
+}
 
 public sealed class FabricContextBudgetExceededException(string message) : InvalidOperationException(message);
 
