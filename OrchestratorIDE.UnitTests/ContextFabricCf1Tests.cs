@@ -119,6 +119,16 @@ public sealed class ContextFabricCf1Tests
     }
 
     [Test]
+    public void EpubParser_Rejects_Duplicate_Manifest_Ids()
+    {
+        var parser = new EpubFabricParser();
+
+        Assert.That(
+            () => parser.Parse(BuildEpubPackage(encrypted: false, duplicateManifestId: true), "application/epub+zip"),
+            Throws.TypeOf<InvalidDataException>());
+    }
+
+    [Test]
     public async Task PdfTextParser_Attaches_Page_Locators_To_Blocks()
     {
         var parser = new PdfTextFabricParser();
@@ -895,11 +905,12 @@ public sealed class ContextFabricCf1Tests
         return stream.ToArray();
     }
 
-    private static byte[] BuildEpubPackage(bool encrypted)
+    private static byte[] BuildEpubPackage(bool encrypted, bool duplicateManifestId = false)
     {
         using var stream = new MemoryStream();
         using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
         {
+            archive.CreateEntry("OEBPS/");
             WriteZipEntry(archive, "META-INF/container.xml", """
                 <?xml version="1.0" encoding="utf-8"?>
                 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
@@ -915,12 +926,17 @@ public sealed class ContextFabricCf1Tests
                 <package version="3.0" xmlns="http://www.idpf.org/2007/opf">
                   <manifest>
                     <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml" />
+                    DUPLICATE_MANIFEST_ITEM
                   </manifest>
                   <spine>
                     <itemref idref="chapter" />
                   </spine>
                 </package>
-                """);
+                """.Replace(
+                    "DUPLICATE_MANIFEST_ITEM",
+                    duplicateManifestId
+                        ? """<item id="chapter" href="chapter-copy.xhtml" media-type="application/xhtml+xml" />"""
+                        : ""));
             WriteZipEntry(archive, "OEBPS/chapter.xhtml", """
                 <?xml version="1.0" encoding="utf-8"?>
                 <html xmlns="http://www.w3.org/1999/xhtml">

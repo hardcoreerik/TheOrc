@@ -261,6 +261,8 @@ public sealed class DocxFabricParser : IFabricDocumentParser
 
 public sealed class EpubFabricParser : IFabricDocumentParser
 {
+    private const long MaxXmlEntryBytes = 16L * 1024 * 1024;
+
     public string ParserId => "fabric-epub";
     public string ParserVersion => FabricIngestionVersions.EpubParser;
 
@@ -288,10 +290,10 @@ public sealed class EpubFabricParser : IFabricDocumentParser
             var packageEntry = GetSafeEntry(archive, packagePath)
                 ?? throw new InvalidDataException("EPUB package document is missing.");
             XDocument package;
-            using (var packageStream = packageEntry.Open())
+            using (var packageStream = OpenXmlEntry(packageEntry))
                 package = LoadXml(packageStream);
 
-            var manifest = package.Descendants()
+            var manifestItems = package.Descendants()
                 .Where(element => element.Name.LocalName == "item")
                 .Select(element => new
                 {
@@ -303,7 +305,14 @@ public sealed class EpubFabricParser : IFabricDocumentParser
                     !string.IsNullOrWhiteSpace(item.Id) &&
                     !string.IsNullOrWhiteSpace(item.Href) &&
                     item.MediaType is "application/xhtml+xml" or "text/html")
-                .ToDictionary(item => item.Id!, item => item.Href!, StringComparer.Ordinal);
+                .ToArray();
+            var duplicateManifestId = manifestItems
+                .GroupBy(item => item.Id!, StringComparer.Ordinal)
+                .FirstOrDefault(group => group.Count() > 1);
+            if (duplicateManifestId is not null)
+                throw new InvalidDataException($"EPUB manifest contains duplicate item id '{duplicateManifestId.Key}'.");
+
+            var manifest = manifestItems.ToDictionary(item => item.Id!, item => item.Href!, StringComparer.Ordinal);
 
             var packageDirectory = Path.GetDirectoryName(packagePath)?.Replace('\\', '/') ?? "";
             var blocks = new List<FabricStructuredBlock>();
@@ -319,7 +328,7 @@ public sealed class EpubFabricParser : IFabricDocumentParser
                 var contentEntry = GetSafeEntry(archive, contentPath)
                     ?? throw new InvalidDataException($"EPUB spine item '{contentPath}' is missing.");
                 XDocument content;
-                using (var contentStream = contentEntry.Open())
+                using (var contentStream = OpenXmlEntry(contentEntry))
                     content = LoadXml(contentStream);
 
                 blocks.AddRange(BuildXhtmlBlocks(content, contentEntry.FullName));
@@ -352,7 +361,7 @@ public sealed class EpubFabricParser : IFabricDocumentParser
         var container = archive.GetEntry("META-INF/container.xml")
             ?? throw new InvalidDataException("EPUB container.xml is missing.");
         XDocument document;
-        using (var stream = container.Open())
+        using (var stream = OpenXmlEntry(container))
             document = LoadXml(stream);
 
         var path = document.Descendants()
@@ -376,6 +385,9 @@ public sealed class EpubFabricParser : IFabricDocumentParser
             var localName = element.Name.LocalName;
             if (localName is "table")
             {
+                if (IsInsideStructuredContainer(element))
+                    continue;
+
                 var rows = element.Descendants()
                     .Where(row => row.Name.LocalName == "tr")
                     .Select(row => string.Join(" | ", row.Elements()
@@ -391,6 +403,9 @@ public sealed class EpubFabricParser : IFabricDocumentParser
 
             if (localName is "figure")
             {
+                if (IsInsideStructuredContainer(element))
+                    continue;
+
                 var text = TextOf(element);
                 yield return new FabricStructuredBlock(text.Length == 0 ? "[figure]" : text, "figure", null, sourceLocator);
                 continue;
@@ -399,7 +414,7 @@ public sealed class EpubFabricParser : IFabricDocumentParser
             if (localName is "p" or "li" or "blockquote" or "figcaption" ||
                 localName.Length == 2 && localName[0] == 'h' && char.IsAsciiDigit(localName[1]))
             {
-                if (element.Ancestors().Any(ancestor => ancestor.Name.LocalName is "table" or "figure"))
+                if (IsInsideStructuredContainer(element))
                     continue;
 
                 var text = TextOf(element);
@@ -412,6 +427,9 @@ public sealed class EpubFabricParser : IFabricDocumentParser
             }
         }
     }
+
+    private static bool IsInsideStructuredContainer(XElement element) =>
+        element.Ancestors().Any(ancestor => ancestor.Name.LocalName is "table" or "figure");
 
     private static string TextOf(XElement element) => string.Join(" ", element
             .DescendantNodes()
@@ -434,8 +452,23 @@ public sealed class EpubFabricParser : IFabricDocumentParser
     private static ZipArchiveEntry? GetSafeEntry(ZipArchive archive, string path)
     {
         path = NormalizeZipPath(path);
-        return archive.Entries.FirstOrDefault(entry =>
-            NormalizeZipPath(entry.FullName).Equals(path, StringComparison.Ordinal));
+        foreach (var entry in archive.Entries)
+        {
+            string normalizedEntryPath;
+            try
+            {
+                normalizedEntryPath = NormalizeZipPath(entry.FullName);
+            }
+            catch (InvalidDataException)
+            {
+                continue;
+            }
+
+            if (normalizedEntryPath.Equals(path, StringComparison.Ordinal))
+                return entry;
+        }
+
+        return null;
     }
 
     private static string ResolveZipPath(string directory, string href)
@@ -452,6 +485,13 @@ public sealed class EpubFabricParser : IFabricDocumentParser
         if (path.Split('/').Any(part => part is "" or "." or "..") || path.Contains(':', StringComparison.Ordinal))
             throw new InvalidDataException("EPUB contains an unsafe ZIP path.");
         return path;
+    }
+
+    private static Stream OpenXmlEntry(ZipArchiveEntry entry)
+    {
+        if (entry.Length > MaxXmlEntryBytes)
+            throw new InvalidDataException($"EPUB XML entry '{entry.FullName}' exceeds the supported size limit.");
+        return entry.Open();
     }
 }
 
