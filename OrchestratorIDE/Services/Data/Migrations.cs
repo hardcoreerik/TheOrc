@@ -29,6 +29,7 @@ internal static class Migrations
         new Migration(12, "context fabric claims generation id", Sql012_ContextFabricClaimsGenerationId),
         new Migration(13, "context fabric segment provenance", Sql013_ContextFabricSegmentProvenance),
         new Migration(14, "context fabric document versions", Sql014_ContextFabricDocumentVersions),
+        new Migration(15, "context fabric embeddings", Sql015_ContextFabricEmbeddings),
     ];
 
     // ── v1 — Phase 1: captures + triage ─────────────────────────────────────────
@@ -832,6 +833,26 @@ internal static class Migrations
             ON fabric_documents(corpus_id, display_name, media_type, parser_id, parser_version, version_ordinal);
         CREATE INDEX ix_fabric_documents_superseded_by
             ON fabric_documents(superseded_by_document_id);
+        """;
+
+    // ── v15 — CF-8: optional persisted embeddings ──────────────────────────
+    // Stores vectors as little-endian float32 blobs. Retrieval remains optional:
+    // lexical search works without these rows, and vector acceleration can score
+    // a bounded candidate set in memory without a native SQLite extension.
+    private const string Sql015_ContextFabricEmbeddings = """
+        CREATE TABLE fabric_embeddings (
+            object_kind          TEXT NOT NULL,
+            object_id            TEXT NOT NULL,
+            embedding_model_hash TEXT NOT NULL,
+            dimension            INTEGER NOT NULL CHECK (dimension > 0),
+            vector_blob          BLOB NOT NULL,
+            vector_norm          REAL NOT NULL CHECK (vector_norm > 0),
+            created_at           TEXT NOT NULL,
+            updated_at           TEXT NOT NULL,
+            PRIMARY KEY(object_kind, object_id, embedding_model_hash)
+        );
+        CREATE INDEX ix_fabric_embeddings_model_kind
+            ON fabric_embeddings(embedding_model_hash, object_kind);
         """;
 
     // ── v5 — CodeGraph v1 (C# structure + search index) ─────────────────────────

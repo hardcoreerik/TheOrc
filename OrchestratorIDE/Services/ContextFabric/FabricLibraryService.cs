@@ -41,6 +41,41 @@ public sealed class FabricLibraryService
     public IReadOnlyList<FabricSearchHit> Search(string query, string? corpusId = null, int limit = 50) =>
         _repository.Search(query, corpusId, limit);
 
+    public void UpsertSegmentEmbedding(string segmentId, string embeddingModelHash, IReadOnlyList<float> vector) =>
+        _repository.UpsertSegmentEmbedding(segmentId, embeddingModelHash, vector);
+
+    public IReadOnlyList<FabricSearchHit> SearchWithVector(
+        string query,
+        IReadOnlyList<float> queryVector,
+        string embeddingModelHash,
+        string? corpusId = null,
+        int limit = 50)
+    {
+        limit = Math.Clamp(limit, 1, 500);
+        var hits = new List<FabricSearchHit>(limit);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var hit in _repository.SearchVector(queryVector, embeddingModelHash, corpusId, limit))
+        {
+            hits.Add(hit);
+            seen.Add(hit.SegmentId);
+        }
+
+        if (hits.Count >= limit)
+            return hits;
+
+        foreach (var hit in _repository.Search(query, corpusId, limit))
+        {
+            if (!seen.Add(hit.SegmentId))
+                continue;
+
+            hits.Add(hit);
+            if (hits.Count >= limit)
+                break;
+        }
+
+        return hits;
+    }
+
     public async Task<FabricImportResult> ImportFileAsync(
         string corpusId,
         string path,
