@@ -73,7 +73,7 @@ The trends strip is a chronological visual history built from:
 - local capability tests
 - swarm runs involving that model
 
-It uses simple WPF shapes instead of a charting library and gives you a compact sense of whether results are improving, declining, or still too sparse to interpret.
+The retired WPF surface used simple shapes instead of a charting library and gave you a compact sense of whether results were improving, declining, or still too sparse to interpret.
 
 ---
 
@@ -81,7 +81,7 @@ It uses simple WPF shapes instead of a charting library and gives you a compact 
 
 Use the Compare action when you need a side-by-side decision.
 
-`ModelCompareWindow` currently compares:
+The retired `ModelCompareWindow` compared:
 
 - identity
 - role scores
