@@ -88,4 +88,4 @@ The current repository is therefore optimized for "practical local fine-tuning w
 
 If your local machine is good enough for the shell but not ideal for inference, the current app can still benefit from stronger hardware by pointing at another Ollama host in Settings.
 
-This is the simplest version of hardware separation already present today, and it is the architectural bridge toward the planned HIVE MIND layer.
+This is the simplest version of hardware separation already present today, and it is the architectural bridge into the shipped HIVE MIND layer.
