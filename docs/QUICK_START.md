@@ -112,16 +112,14 @@ If you want to test a model's tool-call ability, click the **Probe Now** button.
 
 ---
 
-## 9. Check the Model Wiki
+## 9. Model Wiki (retired UI, data still tracked)
 
-Go to **Models → Model Wiki / Lab...** and confirm you can see:
-
-- Model details and catalog scores
-- Local observations from your own runs
-- The trends strip (a history of test results)
-- Capability test and comparison options
-
-This is where TheOrc stores what it's learned about your models over time.
+The Model Wiki / Lab window (`Models → Model Wiki / Lab...`) was retired when WPF was
+deleted and has not been rebuilt for Avalonia — there is no menu item to click yet.
+The underlying data (model details, catalog scores, local observations, capability-test
+results) is still tracked in the background and drives runtime behavior; it's just not
+exposed in a window today. See [MODEL_WIKI_AND_LAB.md](MODEL_WIKI_AND_LAB.md) for what
+the rebuilt surface is planned to look like.
 
 ---
 

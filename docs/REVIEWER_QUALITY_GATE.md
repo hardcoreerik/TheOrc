@@ -26,6 +26,12 @@ causes confusion, so this section nails the distinction first.
 | Scope | One task's slice of the goal | The whole run's diff |
 | Authority | None special — just another task | **Blocks merge/apply if it fails** |
 
+"Blocks merge/apply" is the architectural rule, not a claim about automated CI
+enforcement today — no automatic gate execution is wired into the swarm run
+completion path yet (see "What This Changes Right Now" below). The human is
+the gate that enforces the rule right now, by not applying/merging work that
+hasn't passed review.
+
 This document is exclusively about the **second** one: the Quality Gate. The
 REVIEWER execution lane stays exactly as documented in
 [ROLE_ARCHITECTURE.md](../training_pit/ROLE_ARCHITECTURE.md) — aliased to

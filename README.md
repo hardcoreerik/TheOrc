@@ -27,6 +27,8 @@ TheOrc is created and maintained by [Erik / hardcoreerik](https://github.com/har
 | OpenAI Codex | Implementation support, adversarial review, verification |
 | Grok Build | Adversarial review, PROJECT_TRUTH audits, runtime critique |
 
+See [AI_DEVELOPMENT_DISCLOSURE.md](docs/AI_DEVELOPMENT_DISCLOSURE.md) for what "AI-assisted development" means in practice — what's verified, what isn't yet, and how to report a doc/code mismatch.
+
 ---
 
 ## What is this thing?
@@ -73,7 +75,7 @@ The current repo is no longer just a swarm experiment. Several big pieces are al
 - **Native runtime path**: local native inference is a first-class runtime lane, not just a side experiment.
 - **HIVE campaign engine**: distributed worker and campaign plumbing now exists as a real implementation path.
 - **ORC ACADEMY**: the shipped `theorc-boss:gemma4-ft` adapter proved the boss can improve from reviewed swarm plans.
-- **Context Fabric**: CF-0 passed its real-model evidence-card gate, and CF-1 now has deterministic ingestion, pinned Darwin, Constitution, and Federalist fixtures plus the Darwin primary PDF fixture, artifact GC, and reproducible rebuild tests.
+- **Context Fabric**: CF-0 through CF-4 passed their focused gates (native feasibility, deterministic ingestion, graph-backed retrieval, framework); CF-5 (OrcChat Library) has its framework/integration gate passed with the real native-model product exit still pending; CF-6 (distributed HIVE readers) and CF-7 (benchmark gate) are merged; CF-8 (multimodal ingestion hardening) is active. See [The Orc Context Fabric.md](docs/The%20Orc%20Context%20Fabric.md) for the authoritative per-phase status.
 
 The current direction is straightforward:
 
@@ -151,6 +153,10 @@ Current repo truth:
 
 - **CF-0 passed** with scripted and real native-model evidence-card verification.
 - **CF-1 passed its focused deterministic-ingestion exit**: stable import/rebuild, text and PDF parsing, lexical search, content-addressed artifacts, and pinned Darwin, Constitution, and Federalist fixtures.
+- **CF-2 through CF-4 passed** their focused gates: graph-backed retrieval, native boundary stitching, and hierarchical reduction/budgeting.
+- **CF-5 (OrcChat Library)** has its framework/integration gate passed in focused tests; the real native-model product exit — index the real Darwin PDF, ask a cited cross-chapter question — is still pending.
+- **CF-6 (distributed HIVE readers) and CF-7 (benchmark gate)** are merged to master.
+- **CF-8 (multimodal ingestion hardening)** is active.
 - The first branded benchmark lane now has a name: **The Independent Mind Corpus** — a public benchmark shelf built around works that stress evidence, liberty, literacy, institutional design, strategy, and source-grounded truth.
 
 This is where TheOrc starts to become more than "AI swarm for code." It becomes a local system for reading, checking, and reasoning across source material without pretending the model remembered the whole shelf.

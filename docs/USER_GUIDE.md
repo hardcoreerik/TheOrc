@@ -1,6 +1,6 @@
 # TheOrc — User Guide
 
-TheOrc is a Windows desktop app that lets you run AI coding assistants on your own PC. It works with local AI models (no cloud required), keeps you in control of every file change, and supports everything from a single AI helper to a full team of specialized AI workers running across multiple computers. This guide walks you through the main parts of the app.
+TheOrc is a desktop app (Avalonia, built for Windows, macOS, and Linux from one codebase — Windows is the primary tested platform today) that lets you run AI coding assistants on your own PC. It works with local AI models (no cloud required), keeps you in control of every file change, and supports everything from a single AI helper to a full team of specialized AI workers running across multiple computers. This guide walks you through the main parts of the app.
 
 For terminology, see [GLOSSARY.md](GLOSSARY.md). For a step-by-step first run, see [QUICK_START.md](QUICK_START.md).
 
