@@ -227,7 +227,7 @@ What it tests:
 coverage reporting, exhaustive retrieval, repeated concepts, clause-level checks, and benchmark go or no-go evaluation.
 
 Acceptance note:
-The standard here is measured coverage with publishable metrics, not confidence theater. The first CF-7 slice pins the benchmark-gate report contract before adding larger corpora: B0-B4 run identities, corpus/generation/source identity, answer/citation/coverage metrics, diagnostics presence, and an explicit automated go/no-go verdict.
+The standard here is measured coverage with publishable metrics, not confidence theater. The first CF-7 slice pins the benchmark-gate report contract before adding larger corpora: B0-B4 run identities, corpus/generation/source identity, answer/citation/coverage metrics, diagnostics presence, and an explicit automated go/no-go verdict. As of 2026-07-03 the gate has its first GO: live B0/B1/B2 baseline runs, the B3 single-node run, and a validated 3-node CF-6 HIVE artifact as B4, all passing on GPU-verified native inference, with baseline accuracy floors recorded so the architecture's margin over closed-book, truncated-prompt, and top-k RAG is measured rather than asserted.
 
 Marketing line:
 Context Fabric can report what it checked, not just what it guessed.
@@ -244,7 +244,7 @@ What it tests:
 OCR, table fidelity, scan resilience, multimodal evidence, and large mixed-source hardening.
 
 Acceptance note:
-This is the right home for the scan-heavy Darwin PDFs already pinned as future candidates. CF-8 now covers parser block provenance, DOCX/EPUB structure, table/figure blocks, optional OCR contracts with fake-engine CI coverage, immutable versions, cache policy, vector fallback, and cross-links. It should still not be oversold as full multimodal page understanding or unattended million-token benchmark completion.
+This is the right home for the scan-heavy Darwin PDFs already pinned as future candidates. CF-8 now covers parser block provenance, DOCX/EPUB structure, table/figure blocks, optional OCR contracts with fake-engine CI coverage, immutable versions, cache policy, vector fallback, and cross-links. The unattended million-token proof has now run and passed (2026-07-03: 1.82M-token deterministic corpus, 640/640 segments, 5/5 verified questions, 563x source-to-working-context ratio, single node, GPU-verified). It should still not be oversold as full multimodal page understanding or as standardized LongBench coverage — those remain future work.
 
 Marketing line:
 Books, manuals, standards, labels, and scans. One source-grounded memory fabric.

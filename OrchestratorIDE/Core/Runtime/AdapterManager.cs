@@ -45,6 +45,22 @@ public sealed class AdapterManager : IAsyncDisposable
     private int _lastSeenWeightsGeneration = -1;
     private bool _disposed;
 
+    // llama.cpp KV-cache sequence slots are finite (LLAMA_MAX_SEQ, 256 in current builds) and
+    // LLamaSharp 0.27's BatchedExecutor mints sequence ids monotonically with no recycling
+    // (GetNextSequenceId is a bare increment, even for disposed Conversations). Once an executor
+    // has handed out its last slot, the NEXT Conversation faults the native runtime with a
+    // GGML_ASSERT (llama-kv-cache.cpp seq_to_stream bounds) and kills the process — observed
+    // live on the first 1.8M-token unattended benchmark run, at exactly the 257th reader
+    // conversation (~45 min in). Recycle the role's executor at a safe idle point well before
+    // the cap; rebuilding costs one context allocation, not a weights reload.
+    internal const int SequenceRecycleThreshold = 128;
+
+    // Absolute refusal point: if outstanding conversations have kept the executor from recycling
+    // and it is now approaching the native slot cap, minting another conversation would trade a
+    // recoverable managed exception for a process-killing native assert. Below 256 so the throw
+    // always wins the race against the assert.
+    internal const int SequenceHardLimit = 240;
+
     public AdapterManager(LLamaSharpRuntime runtime) =>
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
 
@@ -82,7 +98,28 @@ public sealed class AdapterManager : IAsyncDisposable
                 _entries.TryGetValue(binding.Role, out var existing) &&
                 BindingMatches(existing.Binding, binding))
             {
-                return existing.CreateTrackedConversation();
+                // Serve from the existing executor unless it is approaching the native
+                // sequence-slot cap AND is idle enough to swap out. With outstanding
+                // conversations we keep serving (recycle is retried on the next idle call);
+                // the threshold's margin below the hard cap absorbs that delay — but only up
+                // to SequenceHardLimit, where we fail closed with a managed exception rather
+                // than letting the next mint trip the fatal native assert.
+                var minted = existing.ConversationsCreated;
+                if (minted < SequenceRecycleThreshold || existing.ActiveCount > 0)
+                {
+                    if (minted >= SequenceHardLimit)
+                        throw new InvalidOperationException(
+                            $"Role {binding.Role}'s executor has minted {minted} native sequence slots " +
+                            $"while {existing.ActiveCount} conversation(s) remain active, so it cannot " +
+                            "recycle and is about to exhaust the native sequence-slot cap. Dispose " +
+                            "outstanding conversations for this role and retry.");
+                    return existing.CreateTrackedConversation();
+                }
+
+                _entries.Remove(binding.Role);
+                // Best-effort, same contract as the stale-binding teardown below: the entry is
+                // already untracked, so a disposal fault must not block the replacement build.
+                try { existing.DisposeNative(); } catch { /* superseded entry — best effort only */ }
             }
 
             if (_entries.TryGetValue(binding.Role, out var stale))
@@ -207,9 +244,14 @@ public sealed class AdapterManager : IAsyncDisposable
     private sealed class RoleEntry(BatchedExecutor executor, LoraAdapter? lora, RuntimeRoleBinding binding)
     {
         private int _activeCount;
+        private int _conversationsCreated;
 
         public RuntimeRoleBinding Binding { get; } = binding;
         public int ActiveCount => Volatile.Read(ref _activeCount);
+
+        /// <summary>Total conversations ever minted by this entry's executor — each consumed a
+        /// native sequence slot that is never returned (see SequenceRecycleThreshold).</summary>
+        public int ConversationsCreated => Volatile.Read(ref _conversationsCreated);
 
         public TrackedConversation CreateTrackedConversation()
         {
@@ -218,6 +260,7 @@ public sealed class AdapterManager : IAsyncDisposable
             // (ActiveCount > 0 forever with no TrackedConversation able to decrement it).
             var conversation = executor.Create();
             Interlocked.Increment(ref _activeCount);
+            Interlocked.Increment(ref _conversationsCreated);
             return new TrackedConversation(conversation, () => Interlocked.Decrement(ref _activeCount));
         }
 

@@ -38,6 +38,7 @@
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricValidation.cs" Link="ContextFabric\ContextFabricValidation.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricBenchmarkExpansionRunner.cs" Link="ContextFabric\ContextFabricBenchmarkExpansionRunner.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricBenchmarkExpansionWriter.cs" Link="ContextFabric\ContextFabricBenchmarkExpansionWriter.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricBaselineRunner.cs" Link="ContextFabric\ContextFabricBaselineRunner.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricBenchmarkGateEvaluator.cs" Link="ContextFabric\ContextFabricBenchmarkGateEvaluator.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricBenchmarkGateWriter.cs" Link="ContextFabric\ContextFabricBenchmarkGateWriter.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricFeasibilityRunner.cs" Link="ContextFabric\ContextFabricFeasibilityRunner.cs" />

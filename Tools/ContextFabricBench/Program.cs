@@ -13,6 +13,7 @@ internal static class Program
         QuoteAnchor,
         Stitch,
         Cf7Gate,
+        Scale,
     }
 
     public static async Task<int> Main(string[] args)
@@ -57,7 +58,7 @@ internal static class Program
             var depot = ModelDepot.Scan(modelRoot);
             var researcher = depot.ResolveRole(RuntimeRole.Researcher, RuntimeWorkloadKind.ContextFabricReader);
             var reviewer = depot.ResolveRole(RuntimeRole.Reviewer, RuntimeWorkloadKind.ContextFabricReviewer);
-            var requiresReviewer = options.Suite is BenchmarkSuite.Cf0 or BenchmarkSuite.Cf7Gate;
+            var requiresReviewer = options.Suite is BenchmarkSuite.Cf0 or BenchmarkSuite.Cf7Gate or BenchmarkSuite.Scale;
             if (researcher is null || (reviewer is null && requiresReviewer))
             {
                 Console.Error.WriteLine($"No native base GGUF was resolved beneath '{Path.GetFullPath(modelRoot)}'.");
@@ -92,16 +93,21 @@ internal static class Program
                 ReductionFanIn: 4,
                 Temperature: 0.0);
 
-            Console.WriteLine(options.Suite == BenchmarkSuite.Stitch
-                ? "Context Fabric boundary-stitch diagnostics"
-                : options.Suite == BenchmarkSuite.Cf7Gate
-                    ? "Context Fabric CF-7 benchmark gate"
-                    : "Context Fabric CF-0 native feasibility run");
+            Console.WriteLine(options.Suite switch
+            {
+                BenchmarkSuite.Stitch => "Context Fabric boundary-stitch diagnostics",
+                BenchmarkSuite.Cf7Gate => "Context Fabric CF-7 benchmark gate",
+                BenchmarkSuite.Scale => "Context Fabric large-corpus scale run",
+                _ => "Context Fabric CF-0 native feasibility run",
+            });
             Console.WriteLine($"Model root: {Path.GetFullPath(modelRoot)}");
             Console.WriteLine($"Context: {options.ContextLength:N0} tokens");
-            Console.WriteLine(options.Suite == BenchmarkSuite.Stitch
-                ? "Fixture: deterministic boundary-stitch cases"
-                : "Corpus: deterministic 16-segment synthetic book");
+            Console.WriteLine(options.Suite switch
+            {
+                BenchmarkSuite.Stitch => "Fixture: deterministic boundary-stitch cases",
+                BenchmarkSuite.Scale => $"Corpus: deterministic synthetic book, {options.ScaleSegments} segments x {options.ScaleBackgroundLines} background lines",
+                _ => "Corpus: deterministic 16-segment synthetic book",
+            });
 
             await using var runtime = new NativeRoleRuntime(
                 depot,
@@ -125,8 +131,13 @@ internal static class Program
                 return stitchReport.Results.All(result => result.Passed) ? 0 : 2;
             }
 
+            var runFixture = options.Suite == BenchmarkSuite.Scale
+                ? DeterministicFabricCorpus.Create(options.ScaleSegments, options.ScaleBackgroundLines)
+                : DeterministicFabricCorpus.Create();
+            if (options.Suite == BenchmarkSuite.Scale)
+                Console.WriteLine($"Estimated source tokens: {runFixture.Corpus.EstimatedSourceTokens:N0}");
             var runner = new ContextFabricFeasibilityRunner(runtime, runOptions);
-            var report = (await runner.RunAsync(DeterministicFabricCorpus.Create()).ConfigureAwait(false)) with
+            var report = (await runner.RunAsync(runFixture).ConfigureAwait(false)) with
             {
                 Environment = benchmarkEnvironment,
             };
@@ -138,7 +149,31 @@ internal static class Program
                 var stitchReport = await new ContextFabricBenchmarkExpansionRunner(runtime, runOptions)
                     .RunBoundaryStitchDiagnosticsAsync(DeterministicFabricCorpus.CreateBoundaryStitchFixture())
                     .ConfigureAwait(false);
-                var gateReport = ContextFabricBenchmarkGateEvaluator.Evaluate(report, quoteReport, stitchReport);
+
+                var baselineRunner = new ContextFabricBaselineRunner(runtime, runOptions);
+                var frozenRuns = new List<FabricBenchmarkSystemGate>();
+                foreach (var (label, run) in new (string, Func<Task<FabricBaselineSystemReport>>)[]
+                {
+                    ("B0 closed-book", () => baselineRunner.RunClosedBookAsync(fixture)),
+                    ("B1 truncated-prompt", () => baselineRunner.RunTruncatedPromptAsync(fixture)),
+                    ("B2 top-k RAG", () => baselineRunner.RunTopKRagAsync(fixture)),
+                })
+                {
+                    Console.WriteLine($"Running {label} baseline...");
+                    var baselineReport = await run().ConfigureAwait(false);
+                    var baselinePath = await ContextFabricBaselineWriter
+                        .WriteAsync(baselineReport, output)
+                        .ConfigureAwait(false);
+                    Console.WriteLine($"  {baselineReport.Detail}");
+                    Console.WriteLine($"  JSON: {baselinePath}");
+                    frozenRuns.Add(ContextFabricBaselineRunner.ToSystemGate(baselineReport));
+                }
+
+                var b4Gate = ContextFabricBaselineRunner.LoadHiveAcceptanceGate(options.B4ArtifactPath);
+                Console.WriteLine($"B4 HIVE artifact: {b4Gate.Status} - {b4Gate.Detail}");
+                frozenRuns.Add(b4Gate);
+
+                var gateReport = ContextFabricBenchmarkGateEvaluator.Evaluate(report, quoteReport, stitchReport, frozenRuns);
                 var gatePaths = await ContextFabricBenchmarkGateWriter.WriteAsync(gateReport, output).ConfigureAwait(false);
 
                 Console.WriteLine();
@@ -191,7 +226,10 @@ internal static class Program
     {
         string? modelRoot = null;
         string? output = null;
+        string? b4Artifact = null;
         var context = 8192;
+        var scaleSegments = 640;
+        var scaleBackgroundLines = 60;
         var responseReserve = 1536;
         var readerMax = 1024;
         var reducerMax = 768;
@@ -220,11 +258,14 @@ internal static class Program
                 case "--answer-max": answerMax = ParsePositive(NextValue(), arg); break;
                 case "--gpu-layers": gpuLayers = ParseGpuLayers(NextValue(), arg); break;
                 case "--suite": suite = ParseSuite(NextValue()); break;
+                case "--b4-artifact": b4Artifact = NextValue(); break;
+                case "--segments": scaleSegments = ParsePositive(NextValue(), arg); break;
+                case "--background-lines": scaleBackgroundLines = ParsePositive(NextValue(), arg); break;
                 default: throw new ArgumentException($"Unknown option '{arg}'.");
             }
         }
 
-        return new CliOptions(modelRoot, output, context, responseReserve, readerMax, reducerMax, answerMax, gpuLayers, suite);
+        return new CliOptions(modelRoot, output, context, responseReserve, readerMax, reducerMax, answerMax, gpuLayers, suite, b4Artifact, scaleSegments, scaleBackgroundLines);
     }
 
     private static int ParsePositive(string value, string option) =>
@@ -243,13 +284,14 @@ internal static class Program
         "quote-anchor" => BenchmarkSuite.QuoteAnchor,
         "stitch" => BenchmarkSuite.Stitch,
         "cf7-gate" => BenchmarkSuite.Cf7Gate,
-        _ => throw new ArgumentException("Unknown suite. Use cf0, quote-anchor, stitch, or cf7-gate."),
+        "scale" => BenchmarkSuite.Scale,
+        _ => throw new ArgumentException("Unknown suite. Use cf0, quote-anchor, stitch, cf7-gate, or scale."),
     };
 
     private static void PrintUsage()
     {
         Console.WriteLine("Usage: context-fabric-bench --model-root <folder> [options]");
-        Console.WriteLine("  --suite <name>            cf0 | quote-anchor | stitch | cf7-gate (default cf0)");
+        Console.WriteLine("  --suite <name>            cf0 | quote-anchor | stitch | cf7-gate | scale (default cf0)");
         Console.WriteLine("  --output <folder>          Report directory (default .orc/context-fabric/benchmarks)");
         Console.WriteLine("  --context <tokens>        Native context length (default 8192)");
         Console.WriteLine("  --response-reserve <n>    Reserved response tokens (default 1536)");
@@ -257,6 +299,9 @@ internal static class Program
         Console.WriteLine("  --reducer-max <n>         Reducer output limit (default 768)");
         Console.WriteLine("  --answer-max <n>          Answer output limit (default 1536)");
         Console.WriteLine("  --gpu-layers <n>          LLamaSharp GPU layers; 0 forces CPU (default -1)");
+        Console.WriteLine("  --b4-artifact <path>      CF-6 HIVE acceptance JSON used as the frozen B4 run (cf7-gate suite)");
+        Console.WriteLine("  --segments <n>            Scale-suite segment count (default 640)");
+        Console.WriteLine("  --background-lines <n>    Scale-suite background lines per segment (default 60; 640x60 is ~1M source tokens)");
     }
 
     private static void PrintAdmission(string role, string modelName, ModelAdmissionDecision decision)
@@ -314,5 +359,8 @@ internal static class Program
         int ReducerMaxTokens,
         int AnswerMaxTokens,
         int GpuLayers,
-        BenchmarkSuite Suite);
+        BenchmarkSuite Suite,
+        string? B4ArtifactPath,
+        int ScaleSegments,
+        int ScaleBackgroundLines);
 }

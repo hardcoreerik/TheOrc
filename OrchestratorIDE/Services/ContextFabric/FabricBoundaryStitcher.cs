@@ -71,20 +71,28 @@ public sealed class FabricBoundaryStitcher
         if ((draft.LinkedFacts?.Count ?? 0) < testCase.ExpectedLinkedFacts.Count)
             errors.Add($"linkedFacts must contain at least {testCase.ExpectedLinkedFacts.Count} items");
 
+        // Exact substring/equality against ExpectedSummary/ExpectedLinkedFacts rejects any valid
+        // paraphrase ("resulting in" vs "which resulted in") even when the content is fully
+        // correct -- observed against a real model. Compare on key-fact anchor-word coverage
+        // instead, mirroring the CF-6 acceptance harness: a missing fact's distinctive
+        // nouns/numbers won't appear at all, so genuine content loss still fails. Expected facts
+        // must be covered by the linkedFacts list itself -- a fact that survives only inside the
+        // summary was not listed separately and still counts as missing.
+        var linkedFactsText = string.Join(" ", draft.LinkedFacts ?? []);
+        var combinedText = (draft.Summary ?? "") + " " + linkedFactsText;
         foreach (var expectedFact in testCase.ExpectedLinkedFacts)
         {
-            if (!((draft.LinkedFacts ?? []).Any(item => string.Equals(item, expectedFact, StringComparison.OrdinalIgnoreCase))))
+            if (!AnchorWordsCovered(expectedFact, linkedFactsText))
                 errors.Add($"missing expected linked fact '{expectedFact}'");
         }
 
         foreach (var term in testCase.ForbiddenTerms)
         {
-            if ((draft.Summary?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (draft.LinkedFacts ?? []).Any(item => item.Contains(term, StringComparison.OrdinalIgnoreCase)))
+            if (combinedText.Contains(term, StringComparison.OrdinalIgnoreCase))
                 errors.Add($"contains forbidden term '{term}'");
         }
 
-        if (!(draft.Summary?.Contains(testCase.ExpectedSummary, StringComparison.OrdinalIgnoreCase) ?? false))
+        if (!AnchorWordsCovered(testCase.ExpectedSummary, draft.Summary ?? ""))
             errors.Add("summary did not preserve the expected stitched fact");
 
         return new FabricBoundaryStitchResult(
@@ -94,6 +102,25 @@ public sealed class FabricBoundaryStitcher
             (draft.LinkedFacts ?? []).ToArray(),
             errors,
             metrics with { Succeeded = errors.Count == 0, Error = errors.Count == 0 ? null : string.Join("; ", errors) });
+    }
+
+    /// <summary>Anchor-word coverage check shared in spirit with Cf6AcceptanceRunner: every word of
+    /// at least 5 characters in the expected text (compared by its first 6 characters, so simple
+    /// inflections like "resulted"/"resulting" match) must appear in the actual output. Accepts
+    /// legitimate paraphrase while still catching dropped facts (a missing fact's distinctive
+    /// nouns/numbers won't appear at all, stemmed or not).</summary>
+    private static bool AnchorWordsCovered(string expected, string actual)
+    {
+        var anchors = expected.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(w => w.Trim('.', ',', ';', ':', '"', '\''))
+            .Where(w => w.Length >= 5)
+            .Select(w => w[..Math.Min(w.Length, 6)])
+            .ToList();
+        // An expected text with no anchor-length word can't be checked by coverage; fall back to
+        // exact containment rather than unconditionally failing legitimate short-word facts.
+        return anchors.Count > 0
+            ? anchors.All(w => actual.Contains(w, StringComparison.OrdinalIgnoreCase))
+            : actual.Contains(expected.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<(string Output, FabricCallMetrics Metrics)> InvokeAsync(

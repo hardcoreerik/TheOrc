@@ -15,6 +15,7 @@ public static class FabricSchemaVersions
     public const string QuoteDiagnostics = "cf0-quote-diagnostics-1.0";
     public const string StitchDiagnostics = "cf0-stitch-diagnostics-1.0";
     public const string BenchmarkGate = "cf7-benchmark-gate-1.0";
+    public const string Baseline = "cf7-baseline-1.0";
     public const string ReaderPrompt = "cf0-reader-1.2";
     public const string ReducerPrompt = "cf0-reducer-1.0";
     public const string AnswerPrompt = "cf0-answer-1.2";

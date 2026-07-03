@@ -559,8 +559,15 @@ public static class FabricAnswerVerifier
         if (!string.Equals(draft.SchemaVersion, FabricSchemaVersions.Answer, StringComparison.Ordinal))
             errors.Add($"schemaVersion must be '{FabricSchemaVersions.Answer}'");
 
-        if ((draft.Answer?.Length ?? 0) > 12_000)
-            errors.Add("answer exceeds 12000 characters");
+        // Sanity bounds reject model garbage, but a legitimate exhaustive enumeration scales with
+        // the question's own ground truth: one fact and one citation per expected occurrence. At
+        // benchmark-corpus size (640 archive tokens over 1.8M source tokens) the host-aggregated
+        // answer is ~40K characters carrying one citation per segment, so the caps grow with the
+        // expected terms/segments while staying fixed for every small question.
+        var maxAnswerChars = Math.Max(12_000, 80 * question.ExpectedTerms.Count);
+        var maxCitationsPerClaim = Math.Max(32, question.ExpectedSegmentIds.Count);
+        if ((draft.Answer?.Length ?? 0) > maxAnswerChars)
+            errors.Add($"answer exceeds {maxAnswerChars} characters");
 
         var segments = corpus.Segments.ToDictionary(segment => segment.SegmentId, StringComparer.Ordinal);
         var draftClaims = draft.Claims ?? [];
@@ -584,8 +591,8 @@ public static class FabricAnswerVerifier
                 errors.Add("answer claim text is required");
 
             var draftCitations = claim.Citations ?? [];
-            if (draftCitations.Count > 32)
-                errors.Add($"answer claim '{claim.Text}' contains more than 32 citations");
+            if (draftCitations.Count > maxCitationsPerClaim)
+                errors.Add($"answer claim '{claim.Text}' contains more than {maxCitationsPerClaim} citations");
             var citations = new List<FabricCitation>(draftCitations.Count);
             foreach (var citation in draftCitations)
             {

@@ -158,7 +158,9 @@ Current repo truth:
 - **CF-2 through CF-4 passed** their focused gates: graph-backed retrieval, native boundary stitching, and hierarchical reduction/budgeting.
 - **CF-5 (OrcChat Library)** is merged: corpus attachment, cited answers, citation popup/source opening, coverage status, and notebook persistence are in the app path.
 - **CF-6 through CF-8** are merged: distributed HIVE readers, benchmark-gate contracts, parser block provenance, DOCX/EPUB structure, OCR contracts, immutable versions, cache policy, vector fallback, and cross-corpus/CodeGraph links.
-- **Still not oversold:** unattended million-token/LongBench runs and full multimodal page understanding remain future benchmark/product work, not claims of this release.
+- **The CF-7 benchmark gate has its first GO verdict** (2026-07-03): live closed-book, truncated-prompt, and top-k RAG baselines plus the single-node and 3-node HIVE Context Fabric runs, all present and passed on GPU-verified native inference.
+- **The million-token product proof has run and passed**: a 1.82M-token deterministic corpus processed unattended on one node — 640/640 segments, 5/5 verified questions including a 640-citation exhaustive enumeration, 563x source-to-working-context ratio on an 8K native context, zero Ollama involvement.
+- **Still not oversold:** standardized LongBench/LongBench v2 subset runs and full multimodal page understanding remain future benchmark/product work, not claims of this release.
 - The first branded benchmark lane now has a name: **The Independent Mind Corpus** — a public benchmark shelf built around works that stress evidence, liberty, literacy, institutional design, strategy, and source-grounded truth.
 
 This is where TheOrc starts to become more than "AI swarm for code." It becomes a local system for reading, checking, and reasoning across source material without pretending the model remembered the whole shelf.
