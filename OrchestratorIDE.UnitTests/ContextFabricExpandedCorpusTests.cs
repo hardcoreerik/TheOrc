@@ -76,6 +76,27 @@ public sealed class ContextFabricExpandedCorpusTests
     }
 
     [Test]
+    public void Create_LongChains_DerivedAnswerTerms_MatchTheActualClosingStatement()
+    {
+        // Regression guard: an earlier version advanced the running reference one step past what
+        // the closing hop's own sentence stated, so the manifest's DerivedAnswerTerms referenced a
+        // value that never appeared anywhere in the rendered corpus. Create()'s own self-check
+        // would have caught this too, but this pins the specific failure mode directly.
+        var fixture = DeterministicExpandedFabricCorpus.Create();
+        var textBySegment = fixture.Corpus.Segments.ToDictionary(s => s.SegmentId, s => s.Text);
+
+        foreach (var chain in fixture.Manifest.MultiHopChains.Where(c => c.ChainId.StartsWith("chain-lh-", StringComparison.Ordinal)))
+        {
+            var closingStatement = chain.HopStatements[^1];
+            var closingSegmentText = textBySegment[chain.HopSegmentIds[^1]];
+            Assert.That(closingSegmentText, Does.Contain(closingStatement));
+            foreach (var term in chain.DerivedAnswerTerms)
+                Assert.That(closingStatement, Does.Contain(term),
+                    $"chain {chain.ChainId}'s derived term '{term}' must appear in its own closing statement");
+        }
+    }
+
+    [Test]
     public void Create_ExhaustiveCategories_HaveExactUniqueOccurrenceIds()
     {
         var fixture = DeterministicExpandedFabricCorpus.Create();

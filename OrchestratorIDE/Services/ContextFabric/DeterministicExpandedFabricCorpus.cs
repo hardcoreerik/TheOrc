@@ -192,15 +192,23 @@ public static class DeterministicExpandedFabricCorpus
             for (var hop = 0; hop < hopCount; hop++)
             {
                 var team = entityNames[(i * 7 + hop) % entityNames.Length];
-                var nextRef = $"{lastRef}-{hop}";
-                var statement = hop == 0
-                    ? $"{team} originated chain token {chainToken} and forwarded reference {nextRef}."
-                    : hop == hopCount - 1
-                        ? $"{team} closed the chain by confirming final reference {lastRef} with no further forwarding."
+                string statement;
+                if (hop == hopCount - 1)
+                {
+                    // The closing hop restates the current lastRef as-is -- it does not forward a
+                    // further reference, so lastRef must NOT advance past what this sentence says.
+                    statement = $"{team} closed the chain by confirming final reference {lastRef} with no further forwarding.";
+                }
+                else
+                {
+                    var nextRef = $"{lastRef}-{hop}";
+                    statement = hop == 0
+                        ? $"{team} originated chain token {chainToken} and forwarded reference {nextRef}."
                         : $"{team} received reference {lastRef} and forwarded the updated reference {nextRef}.";
+                    lastRef = nextRef;
+                }
                 hopStatements.Add(statement);
                 var seg = NextSegment(); slots.Add((seg, statement)); hopSlots.Add(slots.Count - 1);
-                lastRef = nextRef;
             }
             chains.Add(new FabricMultiHopChain(
                 $"chain-lh-{i:000}", [], hopStatements,

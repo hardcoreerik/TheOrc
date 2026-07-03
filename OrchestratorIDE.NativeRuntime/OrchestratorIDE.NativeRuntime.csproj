@@ -37,6 +37,8 @@
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\DeterministicFabricCorpus.cs" Link="ContextFabric\DeterministicFabricCorpus.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\DeterministicExpandedFabricCorpus.cs" Link="ContextFabric\DeterministicExpandedFabricCorpus.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ExpandedFabricQuestionGenerator.cs" Link="ContextFabric\ExpandedFabricQuestionGenerator.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ExpandedFabricLedgerExport.cs" Link="ContextFabric\ExpandedFabricLedgerExport.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ExpandedFabricAuthoredQuestionMerger.cs" Link="ContextFabric\ExpandedFabricAuthoredQuestionMerger.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricValidation.cs" Link="ContextFabric\ContextFabricValidation.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricBenchmarkExpansionRunner.cs" Link="ContextFabric\ContextFabricBenchmarkExpansionRunner.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricBenchmarkExpansionWriter.cs" Link="ContextFabric\ContextFabricBenchmarkExpansionWriter.cs" />

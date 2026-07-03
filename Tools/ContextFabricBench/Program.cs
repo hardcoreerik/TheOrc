@@ -14,6 +14,8 @@ internal static class Program
         Stitch,
         Cf7Gate,
         Scale,
+        ExportLedger,
+        MergeAuthored,
     }
 
     public static async Task<int> Main(string[] args)
@@ -33,6 +35,76 @@ internal static class Program
                 ".orc",
                 "context-fabric",
                 "benchmarks");
+            if (options.Suite == BenchmarkSuite.ExportLedger)
+            {
+                var expanded = DeterministicExpandedFabricCorpus.Create();
+                var grokPath = await ExpandedFabricLedgerExport
+                    .WriteAsync(ExpandedFabricLedgerExport.BuildGrokLedger(expanded.Manifest),
+                        Path.Combine(output, "grok-ledger.json"))
+                    .ConfigureAwait(false);
+                var codexPath = await ExpandedFabricLedgerExport
+                    .WriteAsync(ExpandedFabricLedgerExport.BuildCodexLedger(expanded.Manifest),
+                        Path.Combine(output, "codex-ledger.json"))
+                    .ConfigureAwait(false);
+                Console.WriteLine("Context Fabric expanded-corpus authoring ledgers prepared");
+                Console.WriteLine($"Grok ledger: {grokPath}");
+                Console.WriteLine($"Codex ledger: {codexPath}");
+                return 0;
+            }
+
+            if (options.Suite == BenchmarkSuite.MergeAuthored)
+            {
+                if (string.IsNullOrWhiteSpace(options.GrokAuthoredPath) || string.IsNullOrWhiteSpace(options.CodexAuthoredPath))
+                {
+                    Console.Error.WriteLine("merge-authored requires --grok-authored and --codex-authored paths.");
+                    return 64;
+                }
+
+                var expanded = DeterministicExpandedFabricCorpus.Create();
+                var hostQuestions = ExpandedFabricQuestionGenerator.GenerateHostTemplatedQuestions(expanded.Manifest);
+
+                var grokLedger = ExpandedFabricLedgerExport.BuildGrokLedger(expanded.Manifest);
+                var codexLedger = ExpandedFabricLedgerExport.BuildCodexLedger(expanded.Manifest);
+                var grokDrafts = ExpandedFabricAuthoredQuestionMerger.ParseDrafts(
+                    await File.ReadAllTextAsync(options.GrokAuthoredPath).ConfigureAwait(false));
+                var codexDrafts = ExpandedFabricAuthoredQuestionMerger.ParseDrafts(
+                    await File.ReadAllTextAsync(options.CodexAuthoredPath).ConfigureAwait(false));
+
+                var paraphraseQuestions = ExpandedFabricAuthoredQuestionMerger.MergeParaphraseQuestions(grokDrafts, grokLedger.ParaphraseTargets);
+                var grokMultiHop = ExpandedFabricAuthoredQuestionMerger.MergeMultiHopQuestions(grokDrafts, grokLedger.MultiHopTargets);
+                var codexMultiHop = ExpandedFabricAuthoredQuestionMerger.MergeMultiHopQuestions(codexDrafts, codexLedger.MultiHopTargets);
+                var synthesisQuestions = ExpandedFabricAuthoredQuestionMerger.MergeGlobalSynthesisQuestions(codexDrafts, codexLedger.GlobalSynthesisTargets);
+
+                var allCandidates = hostQuestions
+                    .Concat(paraphraseQuestions)
+                    .Concat(grokMultiHop)
+                    .Concat(codexMultiHop)
+                    .Concat(synthesisQuestions)
+                    .ToArray();
+
+                var (verified, failures) = ExpandedFabricAuthoredQuestionMerger.Verify(allCandidates, expanded.Corpus.Segments);
+
+                Console.WriteLine($"Candidates: {allCandidates.Length} (host {hostQuestions.Count}, paraphrase {paraphraseQuestions.Count}, " +
+                    $"multi-hop {grokMultiHop.Count + codexMultiHop.Count}, global synthesis {synthesisQuestions.Count})");
+                Console.WriteLine($"Verified: {verified.Count} / Rejected: {failures.Count}");
+                foreach (var failure in failures)
+                    Console.WriteLine($"REJECTED {failure.QuestionId}: {failure.Reason}");
+
+                var byKind = verified.GroupBy(q => q.Kind).ToDictionary(g => g.Key, g => g.Count());
+                foreach (FabricQuestionKind kind in Enum.GetValues<FabricQuestionKind>())
+                    Console.WriteLine($"  {kind}: {(byKind.TryGetValue(kind, out var n) ? n : 0)}");
+
+                Directory.CreateDirectory(output);
+                var manifestPath = Path.Combine(output, "expanded-question-suite.json");
+                await File.WriteAllTextAsync(manifestPath,
+                    System.Text.Json.JsonSerializer.Serialize(verified,
+                        new System.Text.Json.JsonSerializerOptions(FabricJson.Options) { WriteIndented = true }))
+                    .ConfigureAwait(false);
+                Console.WriteLine($"Verified suite: {manifestPath}");
+
+                return failures.Count == 0 ? 0 : 2;
+            }
+
             if (options.Suite == BenchmarkSuite.QuoteAnchor)
             {
                 var fixture = DeterministicFabricCorpus.Create();
@@ -227,6 +299,8 @@ internal static class Program
         string? modelRoot = null;
         string? output = null;
         string? b4Artifact = null;
+        string? grokAuthored = null;
+        string? codexAuthored = null;
         var context = 8192;
         var scaleSegments = 640;
         var scaleBackgroundLines = 60;
@@ -261,11 +335,13 @@ internal static class Program
                 case "--b4-artifact": b4Artifact = NextValue(); break;
                 case "--segments": scaleSegments = ParsePositive(NextValue(), arg); break;
                 case "--background-lines": scaleBackgroundLines = ParsePositive(NextValue(), arg); break;
+                case "--grok-authored": grokAuthored = NextValue(); break;
+                case "--codex-authored": codexAuthored = NextValue(); break;
                 default: throw new ArgumentException($"Unknown option '{arg}'.");
             }
         }
 
-        return new CliOptions(modelRoot, output, context, responseReserve, readerMax, reducerMax, answerMax, gpuLayers, suite, b4Artifact, scaleSegments, scaleBackgroundLines);
+        return new CliOptions(modelRoot, output, context, responseReserve, readerMax, reducerMax, answerMax, gpuLayers, suite, b4Artifact, scaleSegments, scaleBackgroundLines, grokAuthored, codexAuthored);
     }
 
     private static int ParsePositive(string value, string option) =>
@@ -285,7 +361,9 @@ internal static class Program
         "stitch" => BenchmarkSuite.Stitch,
         "cf7-gate" => BenchmarkSuite.Cf7Gate,
         "scale" => BenchmarkSuite.Scale,
-        _ => throw new ArgumentException("Unknown suite. Use cf0, quote-anchor, stitch, cf7-gate, or scale."),
+        "export-ledger" => BenchmarkSuite.ExportLedger,
+        "merge-authored" => BenchmarkSuite.MergeAuthored,
+        _ => throw new ArgumentException("Unknown suite. Use cf0, quote-anchor, stitch, cf7-gate, scale, export-ledger, or merge-authored."),
     };
 
     private static void PrintUsage()
@@ -362,5 +440,7 @@ internal static class Program
         BenchmarkSuite Suite,
         string? B4ArtifactPath,
         int ScaleSegments,
-        int ScaleBackgroundLines);
+        int ScaleBackgroundLines,
+        string? GrokAuthoredPath,
+        string? CodexAuthoredPath);
 }
