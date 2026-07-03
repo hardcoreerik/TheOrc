@@ -1,18 +1,18 @@
 # TheOrc — Installation
 
-> This guide covers the verified installation paths for the current Windows application and the minimum setup needed for local training. For architecture context, see [ARCHITECTURE.md](ARCHITECTURE.md). For operator workflow after install, see [QUICK_START.md](QUICK_START.md).
+> This guide covers the verified installation paths for the current Avalonia application and the minimum setup needed for local training. For architecture context, see [ARCHITECTURE.md](ARCHITECTURE.md). For operator workflow after install, see [QUICK_START.md](QUICK_START.md).
 
 ---
 
 ## Platform Reality
 
-The current app is Windows-only.
+The current desktop app is an Avalonia/.NET 10 app. Windows remains the primary tested operator platform; v1.11.2 also publishes macOS `osx-arm64` app/setup artifacts, and the headless Warband daemon publishes Linux and macOS archives. A full Linux desktop app release is still future work.
 
 - UI: Avalonia on .NET 10
 - test automation: Windows UI Automation via FlaUI
-- training GUI: integrated into the Windows shell
+- training GUI: integrated into the desktop shell
 
-The repository contains planned cross-platform direction, but this guide documents the current Windows implementation only.
+Use Windows for the most complete operator path today. Use macOS artifacts as current release outputs that still need more real-hardware soak, and use Warband archives for headless HIVE nodes.
 
 ---
 
@@ -59,7 +59,7 @@ Typical build commands:
 
 ```powershell
 dotnet build OrchestratorIDE.slnx
-dotnet run --project OrchestratorIDE/OrchestratorIDE.csproj
+dotnet run --project OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj
 ```
 
 If you are only checking compile health, you can build without a live model. If you are validating agent behavior, model surfaces, or swarm execution, you need a reachable backend.
@@ -136,7 +136,6 @@ After installation or build, verify:
 - `F1` opens the in-app Help window
 - the status bar shows a build stamp
 - a model can be selected
-- the Model Wiki / Lab window opens
 - the Swarm Board shows capability badges
 
 Those checks cover the shell, model services, and embedded docs in one pass.

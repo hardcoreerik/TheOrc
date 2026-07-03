@@ -10,11 +10,15 @@ Context Fabric is TheOrc's source-grounded memory system for working across corp
 
 It does not pretend a local model remembered the whole shelf. It preserves the source, reopens the right evidence when needed, and keeps accepted claims tied back to what was actually read.
 
+The consumer promise is a "huge context" feel without the dishonest claim that the model has literal huge-context attention. The corpus lives outside the prompt; Context Fabric gives the model the right working set, then reopens source evidence as needed.
+
 ## README Excerpt
 
 Context Fabric is how TheOrc approaches the "finite model, large corpus" problem.
 
 It builds a deterministic local source library: import the document, preserve the artifact, segment it reproducibly, reopen source evidence on demand, and keep answers tied to citations you can inspect yourself.
+
+In product terms, this is meant to feel like the model can work across a million-token shelf while still running on consumer hardware. Technically, it is not one giant prompt. It is indexed source truth, budgeted working memory, recursive reopening, and citation verification.
 
 The early benchmark shelf is called the **Independent Mind Corpus**. It starts with pinned public works like Darwin, the United States Constitution, and the Federalist Papers because those sources stress real capabilities: quote verification, hierarchy, cross-document retrieval, and source-grounded synthesis.
 
@@ -39,10 +43,12 @@ That means reproducible imports, durable artifacts, verified quotes, and a path 
 - Do not ask the machine to guess. Make it reopen the evidence.
 - Local AI for people who would rather own the machine than rent permission from one.
 - Corpus-scale memory, not context-window theater.
+- The feel of a giant context window, without the lie of one giant prompt.
 
 ## Guardrails
 
 - Do not say `infinite context`.
+- Do not say the model literally attends over a million tokens unless a benchmark proves that exact path.
 - Do not say the model was trained on the benchmark works unless that is separately true and licensed.
 - Do not imply professional legal or medical authority.
 - Prefer `source-grounded`, `deterministic`, `reproducible`, `verified`, and `local-first`.

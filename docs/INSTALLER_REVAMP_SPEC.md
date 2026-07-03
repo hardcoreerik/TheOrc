@@ -2,23 +2,18 @@
 
 > Status: Phases 1, 2, 4, 5 (§7) implemented 2026-06-21 — WPF→Avalonia UI port (Phase 3's
 >         page restructure folded in), the `IPlatformInstaller` extraction, and Windows/
->         Linux/macOS implementations all exist now. What's NOT done: the actual
->         cross-platform release pipeline -- `InstallOrchestrator`'s download/copy logic,
->         the model manifest's single OS-unaware `app.download_url` key, `release.yml`
->         (win-x64-only), and `LlamaCppResolver`'s filename-matching tables (hardcode "win"
->         in every variant) are all still Windows-only, so neither the main app binary nor
->         the llama.cpp runtime can actually be acquired on Linux or macOS yet regardless of
->         how correct the three platform-installer classes are. That's release-engineering
->         work on the main app and its dependencies, not something any `IPlatformInstaller`
->         implementation can close alone -- explicitly scoped as separate, not-yet-started
->         follow-up work. Page-by-page direction confirmed with the user 2026-06-21 via a
+>         Linux/macOS implementations all exist now. Follow-up release-engineering has since
+>         shipped macOS app/setup artifacts and Linux/macOS Warband archives in v1.11.2. What's
+>         still NOT done: full Linux desktop app publishing, non-Windows Ollama installation
+>         automation, packaging/notarization polish, and real cross-OS hardware soak.
+>         Page-by-page direction confirmed with the user 2026-06-21 via a
 >         structured walk-through of all 10 then-current pages.
 > Original scope: Rewrite `OrchestratorSetup` (then a Windows-only WPF wizard) as a cross-platform
 >        Avalonia GUI installer; abstract every Windows-coupled action (hardware detection,
 >        firewall, shortcuts, registry/uninstall) behind a per-OS layer; pivot runtime
 >        provisioning toward the native runtime (llama.cpp + GGUF via TheOrc's own internal
 >        downloaders) with Ollama demoted to an optional path.
-> Target release: not yet assigned (post-v1.9.4; larger than a point release).
+> Original target release: not assigned at writing time (post-v1.9.4; larger than a point release).
 > Builds on: the Avalonia migration (the app + `OrchestratorIDE.Daemon` are already
 >        cross-platform `net10.0`); this brings the *installer* to parity.
 > Author: Claude Sonnet 4.6 + Erik, based on codebase audit 2026-06-21.
@@ -319,15 +314,11 @@ throughout (no big-bang cutover).
   plus no timeout on calls invoked with `CancellationToken.None`; then an uncaught
   `Process.Start` throw when a probed command (`which`/`ufw`/`pkexec`) doesn't exist; then a
   `.desktop` quoting bug and an `XDG_CONFIG_HOME` miss.
-- **Does NOT yet make an end-to-end Linux install possible** — confirmed by reading the
-  surrounding pipeline, not just this diff. `InstallerState.AppExePath`/`PortableAppExePath`,
-  `InstallOrchestrator`'s download/copy logic, the single OS-unaware `app.download_url` key in
-  `Setup/model-manifest.json`, and `.github/workflows/release.yml` (win-x64-only, no Linux
-  publish job or release asset) are all untouched and Windows-only. A real Linux install today
-  fails at the download step before reaching `LinuxPlatformInstaller` at all. This is exactly
-  the gap Phase 5 below already names ("Per-OS publish RIDs + delivery wrappers") — closing it
-  is release-engineering work on the main app, not something Phase 4 alone can finish, and is
-  deliberately left as its own task rather than scope-crept into this one.
+- **Does NOT yet make an end-to-end Linux desktop install possible** — the Linux platform layer
+  exists, and Warband now ships a `linux-x64` archive, but the desktop app still lacks a Linux
+  release artifact and installer delivery path. That remaining gap is release-engineering work
+  on the main app, not something Phase 4 alone can finish, and is deliberately left as its own
+  task rather than scope-crept into this one.
 
 ### Phase 5 — macOS implementation — **Shipped 2026-06-21** (the `IPlatformInstaller` half).
 - `MacPlatformInstaller`: `system_profiler`+`uname`+`sysctl` detection (Apple Silicon vs Intel
@@ -346,17 +337,14 @@ throughout (no big-bang cutover).
   `LinuxPlatformInstaller`'s `removeUserData` step was deleting `~/.config/theorc`, which the
   main app never writes to (its real folder is `~/.config/OrchestratorIDE`) -- that uninstall
   checkbox silently did nothing on every real Linux install since Phase 4 shipped.
-- **NOT shipped**: "Per-OS publish RIDs + delivery wrappers" -- the actual cross-platform
-  release pipeline. `InstallOrchestrator`'s download/copy logic, the model manifest's single
-  OS-unaware `app.download_url` key, `release.yml` (win-x64-only, no Linux/macOS publish job
-  or release asset), and `LlamaCppResolver`'s filename-matching tables (hardcode `"win"` in
-  every variant: cuda12/cuda11/vulkan/avx2/cpu) are all untouched. Neither the main app binary
-  nor the llama.cpp runtime can actually be downloaded on Linux or macOS today -- a real
-  install on either OS fails at the download step before reaching any of the
-  `IPlatformInstaller` code Phases 4-5 shipped. AppImage/`.dmg` packaging and macOS
-  notarization (Section 8's Open Questions) are downstream of solving this first. This is
-  release-engineering work on the main app and its dependencies, not something either
-  platform-installer class could close alone -- intentionally a separate, not-yet-scoped task
+- **Now partly shipped**: "Per-OS publish RIDs + delivery wrappers" landed for the macOS app/setup
+  lane and raw Linux/macOS Warband archives. `InstallOrchestrator`, the OS-keyed app download
+  manifest, tarball extraction, Unix executable bits, and OS-aware llama.cpp filename matching
+  have all moved forward since this original spec. The remaining release gaps are Linux desktop
+  app publishing, packaging/notarization, non-Windows Ollama automation, and real cross-OS hardware
+  verification. AppImage/`.dmg` packaging and macOS notarization (Section 8's Open Questions)
+  remain downstream polish. This is release-engineering work on the main app and its dependencies,
+  not something either platform-installer class could close alone -- intentionally a separate task
   rather than folded into "the installer."
 
 ---
