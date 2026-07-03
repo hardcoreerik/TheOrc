@@ -12,7 +12,8 @@ public sealed record FabricPlantedFact(
     string SegmentId,
     string StatementText,
     IReadOnlyList<string> KeyTerms,
-    string Position);
+    string Position,
+    string QuestionText);
 
 /// <summary>A chain of 2-5 cross-segment hops whose statements must all be found and combined to
 /// derive the final answer. Two-hop and three-to-five-hop chains both use this shape.</summary>
@@ -21,7 +22,8 @@ public sealed record FabricMultiHopChain(
     IReadOnlyList<string> HopSegmentIds,
     IReadOnlyList<string> HopStatements,
     string DerivedAnswer,
-    IReadOnlyList<string> DerivedAnswerTerms);
+    IReadOnlyList<string> DerivedAnswerTerms,
+    string QuestionText);
 
 /// <summary>An earlier statement and a later, dated/scoped statement that supersedes it. The
 /// correct answer states both the current value and what it superseded.</summary>
@@ -33,7 +35,8 @@ public sealed record FabricContradictionPair(
     string LaterSegmentId,
     string LaterStatement,
     string LaterTerm,
-    string ResolutionScope);
+    string ResolutionScope,
+    string QuestionText);
 
 /// <summary>A topic mentioned in passing without ever being resolved -- the correct answer is
 /// abstention, not a guess.</summary>
@@ -41,7 +44,8 @@ public sealed record FabricUnanswerableGap(
     string GapId,
     string MentionSegmentId,
     string MentionText,
-    string UnresolvedTopic);
+    string UnresolvedTopic,
+    string QuestionText);
 
 /// <summary>A named, exactly-countable set of occurrences scattered across segments (e.g. case-ledger
 /// rows). The exhaustive question for this category must recover every OccurrenceId, no more, no less.</summary>
@@ -49,7 +53,8 @@ public sealed record FabricExhaustiveCategory(
     string CategoryId,
     string Description,
     IReadOnlyList<string> OccurrenceIds,
-    IReadOnlyList<string> OccurrenceSegmentIds);
+    IReadOnlyList<string> OccurrenceSegmentIds,
+    string QuestionText);
 
 /// <summary>A loose thematic grouping of segments for global-synthesis question authoring. Deliberately
 /// light on ground truth -- global synthesis is graded by rubric, not exact-term matching.</summary>
@@ -141,11 +146,17 @@ public static class DeterministicExpandedFabricCorpus
                 2 => $"According to the filed log, {entity}'s cycle code stands at {value}.",
                 _ => $"{entity} closed the cycle with the designation {value} entered on file.",
             };
+            var question = (i % 4) switch
+            {
+                0 => $"What base reading did {entity} report for this cycle?",
+                1 => $"What was the recorded designation for {entity} during this cycle?",
+                2 => $"According to the filed log, what is {entity}'s cycle code?",
+                _ => $"What designation did {entity} close the cycle with?",
+            };
             var segment = NextSegment();
             localFacts.Add(new FabricPlantedFact($"fact-{i:000}", "", statement, [value],
-                i % 3 == 0 ? "beginning" : i % 3 == 1 ? "middle" : "end"));
+                i % 3 == 0 ? "beginning" : i % 3 == 1 ? "middle" : "end", question));
             slots.Add((segment, statement));
-            localFacts[^1] = localFacts[^1] with { SegmentId = "" }; // segment id patched after segment IDs are assigned below
         }
 
         // ---- 30 two-hop chains + 15 three-to-five-hop chains ----
@@ -165,7 +176,8 @@ public static class DeterministicExpandedFabricCorpus
             var seg2 = NextSegment(); slots.Add((seg2, hop2)); hopSlots.Add(slots.Count - 1);
             chains.Add(new FabricMultiHopChain(
                 $"chain-2h-{i:000}", [], [hop1, hop2],
-                $"checksum {checksum} for report {reportId}", [reportId, checksum]));
+                $"checksum {checksum} for report {reportId}", [reportId, checksum],
+                $"{teamA} filed a report before transferring custody to {teamB}. What checksum did {teamB} confirm for that report, and what was the report's ID?"));
             chainSlotIndices.Add(hopSlots);
         }
 
@@ -176,6 +188,7 @@ public static class DeterministicExpandedFabricCorpus
             var hopSlots = new List<int>();
             var chainToken = $"CHN-{(i * 89 + 23) % 661:000}";
             var lastRef = chainToken;
+            var originatingTeam = entityNames[(i * 7) % entityNames.Length];
             for (var hop = 0; hop < hopCount; hop++)
             {
                 var team = entityNames[(i * 7 + hop) % entityNames.Length];
@@ -191,7 +204,8 @@ public static class DeterministicExpandedFabricCorpus
             }
             chains.Add(new FabricMultiHopChain(
                 $"chain-lh-{i:000}", [], hopStatements,
-                $"chain token {chainToken} closes at reference {lastRef}", [chainToken, lastRef]));
+                $"chain token {chainToken} closes at reference {lastRef}", [chainToken, lastRef],
+                $"Following the custody chain starting with the team that originated chain token {chainToken} (first forwarded by {originatingTeam}), what is the final reference the chain closes at?"));
             chainSlotIndices.Add(hopSlots);
         }
 
@@ -212,7 +226,8 @@ public static class DeterministicExpandedFabricCorpus
             var laterIdx = slots.Count - 1;
             contradictions.Add(new FabricContradictionPair(
                 $"contra-{i:000}", "", earlier, earlierValue, "", later, laterValue,
-                $"Revision {revision} supersedes the earlier note"));
+                $"Revision {revision} supersedes the earlier note",
+                $"What is {entity}'s currently approved rating, and what rating did the latest revision supersede?"));
             contradictionSlots.Add((earlierIdx, laterIdx));
         }
 
@@ -232,7 +247,7 @@ public static class DeterministicExpandedFabricCorpus
             var mention = $"{entity} predates most of the current filing system, and its earliest records were never digitized.";
             var seg = NextSegment(); slots.Add((seg, mention));
             gapSlots.Add(slots.Count - 1);
-            gaps.Add(new FabricUnanswerableGap($"gap-{i:000}", "", mention, topic));
+            gaps.Add(new FabricUnanswerableGap($"gap-{i:000}", "", mention, topic, $"What is {topic}?"));
         }
 
         // ---- 15 exhaustive categories, ~4 rows each, rendered as a small ledger line per row ----
@@ -253,7 +268,8 @@ public static class DeterministicExpandedFabricCorpus
                 rowSlots.Add(slots.Count - 1);
             }
             exhaustiveCategories.Add(new FabricExhaustiveCategory(categoryName,
-                $"Every case-file ID listed under ledger {categoryName}", occurrenceIds, []));
+                $"Every case-file ID listed under ledger {categoryName}", occurrenceIds, [],
+                $"List every case-file ID recorded under ledger {categoryName}, in any order."));
             exhaustiveRowSlots.Add(rowSlots);
         }
 
