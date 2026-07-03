@@ -13,7 +13,7 @@
 >         implementation can close alone -- explicitly scoped as separate, not-yet-started
 >         follow-up work. Page-by-page direction confirmed with the user 2026-06-21 via a
 >         structured walk-through of all 10 then-current pages.
-> Scope: Rewrite `OrchestratorSetup` (today a Windows-only WPF wizard) as a cross-platform
+> Original scope: Rewrite `OrchestratorSetup` (then a Windows-only WPF wizard) as a cross-platform
 >        Avalonia GUI installer; abstract every Windows-coupled action (hardware detection,
 >        firewall, shortcuts, registry/uninstall) behind a per-OS layer; pivot runtime
 >        provisioning toward the native runtime (llama.cpp + GGUF via TheOrc's own internal
@@ -27,11 +27,10 @@
 
 ## Section 1 — Why This Spec Exists
 
-`OrchestratorSetup` was built before the WPF→Avalonia migration. While the application
-(`OrchestratorIDE.Avalonia`) and the headless daemon (`OrchestratorIDE.Daemon`) are now
-cross-platform `net10.0`, the installer is still `net10.0-windows` with `<UseWPF>true</UseWPF>`
-and is deeply coupled to Windows-only facilities. It can only ever produce a Windows install,
-which now caps the entire product's reach regardless of the app being portable.
+`OrchestratorSetup` was built before the WPF→Avalonia migration. Before this revamp, the
+installer was still `net10.0-windows` with `<UseWPF>true</UseWPF>` and deeply coupled to
+Windows-only facilities. It could only ever produce a Windows install,
+which capped the entire product's reach regardless of the app being portable.
 
 This spec defines a from-the-studs rewrite that (a) runs on Windows, Linux, and macOS, and
 (b) modernizes the install flow to match the project's current reality — the native runtime
