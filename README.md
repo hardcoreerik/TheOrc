@@ -214,7 +214,7 @@ Everything below this line is preserved release history. The sections above desc
 v2.0's defining change: **Native Runtime becomes the default, Ollama becomes fully optional.** That flip is explicitly gated on multi-machine HIVE MIND validation of this release's native opt-in path across a real LAN/Tailscale network — not a fixed date. Also planned, not yet started:
 - Promoting the experimental `RuntimeOrchestrator`/`AdapterManager`/`OrcScheduler` layer out of opt-in status once the v1.9 HIVE testing round validates it under real concurrent multi-role load.
 - HIVE MIND Phase 3B — full multi-step `AgentLoop`-style tool execution on remote workers (file writes, shell commands, web search running on the worker machine itself), not just single-pass LLM calls.
-- A cross-platform CI publish matrix for `linux-x64`/`osx-arm64` Warband (daemon) binaries — the daemon itself is already cross-platform; nothing currently builds/ships those binaries automatically.
+- A first-class container/GHCR release lane for Warband deployments. The raw `linux-x64` and `osx-arm64` Warband binaries now ship in GitHub Releases; container publishing is the remaining deployment-product step.
 - A from-scratch, data-bound Avalonia rebuild of the Model Wiki/catalogue browsing experience retired in v1.9.0.
 
 ## What's new in v1.9.4

@@ -1,16 +1,17 @@
 # TheOrc — Multi-OS Release Pipeline Specification
 
-> Status: Phases A-D implemented 2026-06-21 (macOS only; Linux still has no release.yml
->         publish job — Phase A's matrix has one macOS leg added, no Linux leg yet). Phase E
->         (Linux/macOS Ollama install) and Phase F (real-hardware verification) not started —
->         this has only been cross-compiled and grok-reviewed, never run on an actual Mac.
+> Status: Phases A-D implemented for macOS app/setup publishing, and v1.11.2 also ships raw
+>         Warband daemon archives for `linux-x64` and `osx-arm64`. Linux desktop app publishing
+>         is still not wired. Phase E (Linux/macOS Ollama install) and Phase F (real-hardware
+>         verification) remain open; macOS still needs real-hardware soak beyond cross-compile
+>         and review evidence.
 >         Took five review rounds; see commit 659784a for the full list of what each one
 >         caught (a release-creation race between matrix legs, a nested-vs-flat archive
 >         mismatch, no tar.gz extraction support at all, no Unix executable bit anywhere in
 >         the download/copy/extract paths, and three separate spots in the RUNNING app —
 >         UpdateChecker, SelfUpdater, LlamaServerManager — that only ever recognized Windows
 >         binary names, which would have produced a Mac install that completes and then can't
->         update itself or find its own runtime). Target: **v1.9.5**.
+>         update itself or find its own runtime). Current release evidence: **v1.11.2**.
 > Depends on: `INSTALLER_REVAMP_SPEC.md` Phases 1/2/4/5 (all shipped 2026-06-21) — this spec
 >             closes the gap those phases explicitly left open: the platform-installer classes
 >             are correct, but nothing upstream of them can hand a Linux or macOS install an
@@ -22,11 +23,12 @@
 ## Section 1 — Why This Spec Exists
 
 `OrchestratorSetup` now has a working `IPlatformInstaller` for Windows, Linux, and macOS
-(hardware detection, firewall, launchers, uninstall — see `INSTALLER_REVAMP_SPEC.md`). None
-of that matters yet, because every step that *acquires a binary* — the main app, the llama.cpp
-runtime, optionally Ollama — only knows how to fetch a Windows artifact, and GitHub Releases
-only contains a Windows artifact to fetch. A real install on Linux or macOS today fails at the
-download step, before any of the new platform-installer code ever runs.
+(hardware detection, firewall, launchers, uninstall — see `INSTALLER_REVAMP_SPEC.md`). This
+spec existed because every step that *acquires a binary* — the main app, the llama.cpp runtime,
+optionally Ollama — originally only knew how to fetch a Windows artifact, and GitHub Releases
+only contained a Windows artifact to fetch. The macOS app/setup path is now represented in
+release artifacts; Linux desktop publishing and optional non-Windows Ollama installation remain
+the unfinished parts.
 
 This spec scopes exactly what has to change to close that gap. It does NOT cover packaging
 follow-ups (AppImage, `.dmg`, macOS notarization) — those are downstream of "can we produce a
