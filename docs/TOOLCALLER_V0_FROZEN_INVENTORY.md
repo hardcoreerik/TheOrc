@@ -91,6 +91,32 @@ The exact `name` / `description` / `parameters` / `required` fields for all 6 ar
 Any future edit to these tool registrations must be reflected there and the hash above
 recomputed before generating or accepting new dataset examples.
 
+## Coverage Strategy: Organic Capture First
+
+F-1 data generation for `theorc-toolcaller` uses TheOrc's own swarm as the primary source —
+real tool-call decisions from real swarm runs, captured as they happen, rather than
+synthetic-only authoring. `OrchestratorIDE/Services/Swarm/ToolcallerDatasetCapture.cs`
+stages two organic signals from `RunWorkerLoopAsync`'s real tool-execution loop:
+
+- **`call`** — every tool a worker actually proposes and dispatches, including `ask_user`
+  (a correct `ask_user` call is a `call` decision under this schema, not a separate
+  `clarify` type, since `ask_user` is itself one of the six frozen tools).
+- **`no_tool`** — a worker turn that produces a substantive answer with no tool call at all.
+
+This was a deliberate choice over scripting adversarial/near-match/unsupported-tool swarm
+tasks to bootstrap full category coverage faster. The tradeoff, recorded here rather than
+discovered later: organic capture alone will under-cover `clarify` (beyond `ask_user`) and
+`unsupported` — the current worker loop has no natural signal for either. Real usage may
+close that gap slowly, or a scripted bootstrap pass may be added later; that decision is
+open, not resolved by this document.
+
+Every organic capture still needs mechanical validation
+([Tools/ToolcallerBench](../Tools/ToolcallerBench)), the existing sanitizer
+(`training_pit/scripts/sanitize_dataset.py` — captures will contain real file paths and
+real repo content from whatever workspace the swarm ran in), and human review before any
+example is assigned a train/eval split. The capture hook stages pending/unreviewed
+examples only; it does not promote, split, or train anything.
+
 ## Relationship to Other F-1 Deliverables
 
 This document satisfies F-1 deliverable #1 ("frozen v0 tool/schema inventory") from
@@ -101,6 +127,8 @@ This document satisfies F-1 deliverable #1 ("frozen v0 tool/schema inventory") f
 - `Tools/ToolcallerBench` — the eval harness skeleton, which loads
   `toolcaller_v0_frozen_tools.json` as its fixture source of truth rather than
   hand-duplicating tool definitions.
+- `OrchestratorIDE/Services/Swarm/ToolcallerDatasetCapture.cs` — the live capture hook
+  described above, which stages examples against this frozen tool set and hash.
 
 Remaining F-1 deliverables (baseline report, development/sealed-test manifests,
 promotion margin, `run_manifest.json` contract, chat-template round-trip fixture) are not

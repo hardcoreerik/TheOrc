@@ -1,7 +1,16 @@
 # The Training Pit — Toolcaller Capture Schema
 
 > **Schema version:** toolcaller-v0
-> **Status:** Defined. Not yet auto-populated — no capture hook exists for this format.
+> **Status:** Defined and auto-populated. `OrchestratorIDE/Services/Swarm/ToolcallerDatasetCapture.cs`
+> stages real, organic "call" and "no_tool" examples from live swarm tool-call decisions to
+> `.orc/swarm/dataset-staging/toolcaller/`, called from `RunWorkerLoopAsync`'s tool-execution
+> loop. This is TheOrc generating its own F-1 training data from real usage rather than
+> synthetic-only authoring — see the coverage-strategy note in
+> [TOOLCALLER_V0_FROZEN_INVENTORY.md](../docs/TOOLCALLER_V0_FROZEN_INVENTORY.md).
+> Captures remain pending/unreviewed until mechanical validation
+> ([Tools/ToolcallerBench](../Tools/ToolcallerBench)), sanitization, and human review are
+> complete — no split is assigned at capture time.
+>
 > Neither `DATASET_SCHEMA.md` (chat-JSONL SFT format) nor `PLAN_CAPTURE_SCHEMA.md`
 > (boss plan-decomposition format) can hold a tool-call example: neither has
 > `available_tools`, a call/no_tool/clarify/unsupported decision enum, or a
@@ -194,9 +203,10 @@ individually before any export/conversion step produces a training-ready JSONL.
 | `PLAN_CAPTURE_SCHEMA.md` (plan capture) | Boss plan decomposition + quality rubric | Identity/versioning conventions (`schema_version`, `example_id` date-stamped ID), one-JSON-per-file staging, `annotator`/review fields |
 | `TOOLCALLER_CAPTURE_SCHEMA.md` (this doc) | Bounded tool-proposal decision + policy cross-check | — |
 
-No existing auto-capture hook targets this schema. Building one (e.g. a
-`ToolcallerDatasetCapture` mirroring `DatasetCapture.cs`) is F-2+ work, not authorized by
-this schema definition alone.
+`ToolcallerDatasetCapture` (`OrchestratorIDE/Services/Swarm/ToolcallerDatasetCapture.cs`)
+targets this schema, mirroring `DatasetCapture.cs`'s conventions. Building the hook was
+scoped as F-1 tooling to generate real F-1 data, not as F-2 training work — no model is
+trained or promoted by this capture pipeline alone.
 
 ---
 
