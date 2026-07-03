@@ -95,12 +95,21 @@ internal static class Program
                     Console.WriteLine($"  {kind}: {(byKind.TryGetValue(kind, out var n) ? n : 0)}");
 
                 Directory.CreateDirectory(output);
+                var jsonOptions = new System.Text.Json.JsonSerializerOptions(FabricJson.Options) { WriteIndented = true };
                 var manifestPath = Path.Combine(output, "expanded-question-suite.json");
-                await File.WriteAllTextAsync(manifestPath,
-                    System.Text.Json.JsonSerializer.Serialize(verified,
-                        new System.Text.Json.JsonSerializerOptions(FabricJson.Options) { WriteIndented = true }))
+                await File.WriteAllTextAsync(manifestPath, System.Text.Json.JsonSerializer.Serialize(verified, jsonOptions))
                     .ConfigureAwait(false);
                 Console.WriteLine($"Verified suite: {manifestPath}");
+
+                var split = ExpandedFabricQuestionSplitter.Split(verified);
+                var devPath = Path.Combine(output, "expanded-question-suite-dev.json");
+                var heldOutPath = Path.Combine(output, "expanded-question-suite-heldout.json");
+                await File.WriteAllTextAsync(devPath, System.Text.Json.JsonSerializer.Serialize(split.Development, jsonOptions))
+                    .ConfigureAwait(false);
+                await File.WriteAllTextAsync(heldOutPath, System.Text.Json.JsonSerializer.Serialize(split.HeldOut, jsonOptions))
+                    .ConfigureAwait(false);
+                Console.WriteLine($"Development set ({split.Development.Count}): {devPath}");
+                Console.WriteLine($"Held-out set ({split.HeldOut.Count}): {heldOutPath}");
 
                 return failures.Count == 0 ? 0 : 2;
             }
