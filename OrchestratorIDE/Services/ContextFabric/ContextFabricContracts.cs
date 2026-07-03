@@ -40,6 +40,7 @@ public sealed record FabricCorpus(
 
 public sealed record FabricCitation
 {
+    public string SourceLabel { get; init; } = "";
     public string SegmentId { get; init; } = "";
     public int CharStart { get; init; } = -1;
     public int CharEnd { get; init; } = -1;
@@ -143,7 +144,14 @@ public sealed record FabricRunOptions(
     FabricContextBudget ContextBudget,
     int ReaderMaxTokens = 1024,
     int ReducerMaxTokens = 768,
-    int AnswerMaxTokens = 1536,
+    // Observed live on the real Darwin PDF corpus: with genuine evidence in the prompt (as
+    // opposed to an empty-evidence abstain, which needs very few tokens), the Reviewer's answer
+    // -- prose explanation plus one citation object per claim -- routinely ran past 1536 tokens
+    // and got cut off mid-string, producing invalid JSON ("Answer schema parse failed"). Keep in
+    // sync with FabricQueryPlannerOptions.ResponseTokenReserve (EvidencePackBuilder's assumed
+    // response headroom) -- that value must stay >= this one or the evidence packer under-reserves
+    // room for the response the model is actually allowed to generate.
+    int AnswerMaxTokens = 2048,
     int ReductionFanIn = 4,
     double Temperature = 0.0)
 {

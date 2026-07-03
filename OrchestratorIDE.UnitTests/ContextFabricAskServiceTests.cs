@@ -46,6 +46,25 @@ public sealed class ContextFabricAskServiceTests
     }
 
     [Test]
+    public async Task AskAsync_Resolves_Source_Label_To_Segment_Id()
+    {
+        using var harness = NewHarness();
+        var quote = "LANTERN is the assigned call sign.";
+        var runtime = new FakeAskRuntime($$"""
+            {"schemaVersion":"cf0-answer-1.0","answer":"{{quote}}","abstained":false,"claims":[{"text":"{{quote}}","citations":[{"sourceLabel":"S1","charStart":0,"charEnd":{{quote.Length}},"quote":"{{quote}}","quoteDigest":""}]}]}
+            """);
+        var service = harness.NewAskService(runtime);
+
+        var result = await service.AskAsync("What is the call sign?", harness.Corpus.CorpusId, FabricQueryMode.Quick);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Claims[0].VerificationLabel, Is.EqualTo(FabricCitationVerificationLabel.Supported));
+            Assert.That(result.Claims[0].Citations[0].SegmentId, Is.EqualTo("seg-0"));
+        });
+    }
+
+    [Test]
     public async Task AskAsync_Surfaces_Abstention()
     {
         using var harness = NewHarness();
@@ -57,6 +76,34 @@ public sealed class ContextFabricAskServiceTests
         Assert.Multiple(() =>
         {
             Assert.That(result.Abstained, Is.True);
+            Assert.That(result.Claims, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task AskAsync_Parses_First_Object_When_Model_Rambles_Past_A_Complete_Answer()
+    {
+        // Reproduces a live CF-5 failure: the model closed a valid ```json answer, then kept
+        // generating -- a "<|channel>thought<channel|>" artifact followed by a near-duplicate
+        // JSON block -- until token budget cut it off. The naive first-'{'-to-last-'}' slice
+        // used to swallow all of that trailing noise as one (invalid) JSON blob.
+        using var harness = NewHarness();
+        const string rambling = """
+            ```json
+            {"schemaVersion":"cf0-answer-1.0","answer":"The provided sources do not contain sufficient evidence.","abstained":true,"claims":[]}
+            ```<|channel>thought
+            <channel|>```json
+            {"schemaVersion":"cf0-answer-1.0","answer":"The provided sources do not contain sufficient
+            """;
+        var runtime = new FakeAskRuntime(rambling);
+        var service = harness.NewAskService(runtime);
+
+        var result = await service.AskAsync("What is the call sign?", harness.Corpus.CorpusId, FabricQueryMode.Quick);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Abstained, Is.True);
+            Assert.That(result.Answer, Is.EqualTo("The provided sources do not contain sufficient evidence."));
             Assert.That(result.Claims, Is.Empty);
         });
     }

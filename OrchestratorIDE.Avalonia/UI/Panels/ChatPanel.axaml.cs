@@ -20,6 +20,7 @@ using OrchestratorIDE.Services.ContextFabric;
 using OrchestratorIDE.Services.Hive;
 using OrchestratorIDE.UI.Controls;
 using OrchestratorIDE.UI.ViewModels;
+using OrchestratorIDE.UI.Windows;
 
 namespace OrchestratorIDE.UI.Panels;
 
@@ -95,8 +96,6 @@ public partial class ChatPanel : UserControl
 
         LibraryDrawer.CorpusAttachRequested += OnCorpusAttachRequested;
         LibraryDrawer.CorpusDetachRequested += OnCorpusDetachRequested;
-        SourcePreviewPanel.CloseRequested += OnSourcePreviewClosed;
-        SourcePreviewPanel.SaveToNotebookRequested += OnSaveToNotebookRequested;
 
         // Auto-saves the system prompt on every edit -- including a preset button's
         // programmatic Text assignment, which also fires TextChanged. This is the actual
@@ -626,7 +625,7 @@ public partial class ChatPanel : UserControl
 
         stack.Children.Add(BuildCoverageLine(result, corpus));
 
-        var citations = BuildCitationViewModels(result, corpus.CorpusId);
+        var citations = BuildCitationViewModels(result);
         foreach (var cit in citations)
             stack.Children.Add(BuildFootnoteRow(cit));
 
@@ -688,7 +687,7 @@ public partial class ChatPanel : UserControl
         return row;
     }
 
-    private List<CitationViewModel> BuildCitationViewModels(FabricAskResult result, string corpusId)
+    private List<CitationViewModel> BuildCitationViewModels(FabricAskResult result)
     {
         var list = new List<CitationViewModel>();
         var seen = new HashSet<int>();
@@ -696,13 +695,19 @@ public partial class ChatPanel : UserControl
             foreach (var cit in claim.Citations)
             {
                 if (!seen.Add(cit.Index)) continue;
-                // FabricAskService leaves HeadingPath blank by design ("resolved from repo at
-                // render time in the UI layer" -- see FabricAskService.BuildCitationDetail).
+                // FabricAskService leaves HeadingPath and DocumentId blank by design ("resolved
+                // from repo at render time in the UI layer" -- see
+                // FabricAskService.BuildCitationDetail) -- both are resolved here from the
+                // segment lookup instead. Previously this passed corpusId in the DocumentId slot,
+                // which meant "Open source file" and the preview's document-name display always
+                // failed (GetDocument(corpusId) never matches a real document id).
+                var segment = _libraryVm?.Repository.GetSegment(cit.SegmentId);
                 var heading = string.IsNullOrWhiteSpace(cit.HeadingPath)
-                    ? _libraryVm?.Repository.GetSegment(cit.SegmentId)?.HeadingPath ?? ""
+                    ? segment?.HeadingPath ?? ""
                     : cit.HeadingPath;
+                var documentId = segment?.DocumentId ?? "";
                 list.Add(new CitationViewModel(
-                    cit.Index, cit.SegmentId, corpusId, heading,
+                    cit.Index, cit.SegmentId, documentId, heading,
                     cit.CharStart, cit.CharEnd, cit.Quote,
                     MapVerificationLabel(cit.VerificationLabel)));
             }
@@ -750,25 +755,35 @@ public partial class ChatPanel : UserControl
                     },
                     new TextBlock
                     {
+                        // cit.SegmentId already starts with "seg-" -- truncate the raw id
+                        // itself rather than prepending another "seg-" on top of it (was
+                        // rendering "seg-seg-f27c" instead of "seg-f27c").
                         Text = string.IsNullOrWhiteSpace(cit.HeadingPath)
-                            ? $"seg-{(cit.SegmentId.Length > 8 ? cit.SegmentId[..8] : cit.SegmentId)} · {cit.CharStart}-{cit.CharEnd} · {cit.VerificationLabel}"
-                            : $"{cit.HeadingPath} · seg-{(cit.SegmentId.Length > 8 ? cit.SegmentId[..8] : cit.SegmentId)} · {cit.CharStart}-{cit.CharEnd} · {cit.VerificationLabel}",
+                            ? $"{ShortSegmentId(cit.SegmentId)} · {cit.CharStart}-{cit.CharEnd} · {cit.VerificationLabel}"
+                            : $"{cit.HeadingPath} · {ShortSegmentId(cit.SegmentId)} · {cit.CharStart}-{cit.CharEnd} · {cit.VerificationLabel}",
                         FontFamily = new FontFamily("JetBrains Mono, Consolas, monospace"),
                         FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(0x8A, 0x9A, 0x84)),
                     },
                 },
             },
         };
+        Avalonia.Automation.AutomationProperties.SetAutomationId(row, $"OrcChat.Citation.{cit.Index}");
         row.PointerPressed += (_, _) => OpenSourcePreview(cit);
         return row;
     }
 
+    private static string ShortSegmentId(string segmentId) =>
+        segmentId.Length > 8 ? segmentId[..8] : segmentId;
+
     private void OpenSourcePreview(CitationViewModel cit)
     {
         if (_libraryVm is null) return;
-        SourcePreviewPanel.IsVisible = true;
-        SourcePreviewSplitter.IsVisible = true;
-        SourcePreviewPanel.LoadCitation(cit, _libraryVm);
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var dialog = new SourceCitationWindow(cit, _libraryVm, OnSaveToNotebookRequested);
+        if (owner is not null)
+            dialog.ShowDialog(owner);
+        else
+            dialog.Show();
     }
 
     // ── CF-5: library drawer / corpus bar event handlers ────────────────────
@@ -804,8 +819,6 @@ public partial class ChatPanel : UserControl
         BdrCorpusBadge.IsVisible = false;
         StackModeToggle.IsVisible = false;
         TxtModeHint.Text = "";
-        SourcePreviewPanel.IsVisible = false;
-        SourcePreviewSplitter.IsVisible = false;
         LibraryDrawer.SetAttachedCorpus(null);
     }
 
@@ -827,11 +840,6 @@ public partial class ChatPanel : UserControl
         TxtModeHint.Text = isQuick
             ? "hybrid retrieval over segments + summaries"
             : "iterative retrieval + targeted rereading";
-    }
-
-    private void OnSourcePreviewClosed()
-    {
-        SourcePreviewSplitter.IsVisible = false;
     }
 
     private void OnSaveToNotebookRequested(CitationViewModel cit)

@@ -160,9 +160,9 @@ public sealed class DocumentGraphRepository(SqliteStore store) : RepositoryBase(
             reader.GetString(reader.GetOrdinal("quote_text"))),
         ps => P(ps, "$claim", claimId));
 
-    public IReadOnlyList<FabricClaimSearchHit> SearchClaims(string query, string? corpusId = null, int limit = 50)
+    public IReadOnlyList<FabricClaimSearchHit> SearchClaims(string query, string? corpusId = null, int limit = 50, bool looseMatch = false)
     {
-        var ftsQuery = BuildFtsQuery(query);
+        var ftsQuery = BuildFtsQuery(query, looseMatch);
         if (ftsQuery.Length == 0) return [];
         return Query(
             """
@@ -528,9 +528,13 @@ public sealed class DocumentGraphRepository(SqliteStore store) : RepositoryBase(
         DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("created_at"))),
         DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("updated_at"))));
 
-    private static string BuildFtsQuery(string query) => string.Join(" AND ", query
-        .Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-        .Select(term => $"\"{term.Replace("\"", "\"\"")}\""));
+    // See FabricLibraryRepository.BuildFtsQuery for why looseMatch (OR-joined) exists --
+    // same conjunctive-AND-of-every-token problem applies to claim text search.
+    private static string BuildFtsQuery(string query, bool looseMatch = false) => string.Join(
+        looseMatch ? " OR " : " AND ",
+        query
+            .Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(term => $"\"{term.Replace("\"", "\"\"")}\""));
 
     private void ValidateLinkEndpoint(string objectKind, string objectId, string? expectedCorpusId, string endpointName)
     {
