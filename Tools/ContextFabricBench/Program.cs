@@ -16,6 +16,7 @@ internal static class Program
         Scale,
         ExportLedger,
         MergeAuthored,
+        Cf7GateExpanded,
     }
 
     public static async Task<int> Main(string[] args)
@@ -139,7 +140,7 @@ internal static class Program
             var depot = ModelDepot.Scan(modelRoot);
             var researcher = depot.ResolveRole(RuntimeRole.Researcher, RuntimeWorkloadKind.ContextFabricReader);
             var reviewer = depot.ResolveRole(RuntimeRole.Reviewer, RuntimeWorkloadKind.ContextFabricReviewer);
-            var requiresReviewer = options.Suite is BenchmarkSuite.Cf0 or BenchmarkSuite.Cf7Gate or BenchmarkSuite.Scale;
+            var requiresReviewer = options.Suite is BenchmarkSuite.Cf0 or BenchmarkSuite.Cf7Gate or BenchmarkSuite.Scale or BenchmarkSuite.Cf7GateExpanded;
             if (researcher is null || (reviewer is null && requiresReviewer))
             {
                 Console.Error.WriteLine($"No native base GGUF was resolved beneath '{Path.GetFullPath(modelRoot)}'.");
@@ -210,6 +211,95 @@ internal static class Program
                 foreach (var result in stitchReport.Results.Where(result => !result.Passed))
                     Console.WriteLine($"FAILED {result.CaseId}: {string.Join("; ", result.Errors)}");
                 return stitchReport.Results.All(result => result.Passed) ? 0 : 2;
+            }
+
+            if (options.Suite == BenchmarkSuite.Cf7GateExpanded)
+            {
+                if (string.IsNullOrWhiteSpace(options.HeldOutQuestionsPath) || !File.Exists(options.HeldOutQuestionsPath))
+                {
+                    Console.Error.WriteLine("cf7-gate-expanded requires --heldout-questions pointing at a verified question-suite JSON file.");
+                    return 64;
+                }
+
+                var expanded = DeterministicExpandedFabricCorpus.Create();
+                var heldOutQuestions = System.Text.Json.JsonSerializer.Deserialize<List<FabricBenchmarkQuestion>>(
+                    await File.ReadAllTextAsync(options.HeldOutQuestionsPath).ConfigureAwait(false), FabricJson.Options)
+                    ?? throw new InvalidOperationException("Held-out question file parsed to null.");
+                if (options.MaxQuestions is { } cap && cap < heldOutQuestions.Count)
+                    heldOutQuestions = heldOutQuestions.Take(cap).ToList();
+
+                Console.WriteLine($"Expanded corpus: {expanded.Corpus.Segments.Count} segments, {expanded.Corpus.EstimatedSourceTokens:N0} estimated source tokens");
+                Console.WriteLine($"Held-out questions: {heldOutQuestions.Count}");
+
+                var expandedFixture = new FabricBenchmarkFixture(expanded.Corpus, heldOutQuestions);
+                // Open-extraction reading has no fixed claim-count checklist to bound completion
+                // length the way the marked reader prompt's evidenceLines count does, so a segment
+                // with several genuine facts plus full citation quotes needs more headroom than the
+                // frozen fixture's 1024-token default before the model reliably finishes the JSON object.
+                var expandedRunOptions = runOptions with
+                {
+                    OpenExtractionReading = true,
+                    ReaderMaxTokens = Math.Max(runOptions.ReaderMaxTokens, 2048),
+                };
+
+                // Quote-anchor and boundary-stitch diagnostics test host-verification MECHANISM
+                // (does an exact/normalized quote anchor, does a stitch preserve linked facts) --
+                // corpus-agnostic checks, so these still run against the frozen fixture rather than
+                // requiring a second full diagnostic pass over the expanded corpus.
+                var frozenForDiagnostics = DeterministicFabricCorpus.Create();
+                var quoteReport = new ContextFabricBenchmarkExpansionRunner(runtime: null)
+                    .RunQuoteAnchoringDiagnostics(frozenForDiagnostics);
+                var stitchReport = await new ContextFabricBenchmarkExpansionRunner(runtime, runOptions)
+                    .RunBoundaryStitchDiagnosticsAsync(DeterministicFabricCorpus.CreateBoundaryStitchFixture())
+                    .ConfigureAwait(false);
+
+                Console.WriteLine("Running B3 single-node Context Fabric (open-extraction reading)...");
+                var expandedRunner = new ContextFabricFeasibilityRunner(runtime, expandedRunOptions);
+                var expandedReport = (await expandedRunner.RunAsync(expandedFixture).ConfigureAwait(false)) with
+                {
+                    Environment = benchmarkEnvironment,
+                };
+                var expandedReportPaths = await ContextFabricReportWriter.WriteAsync(expandedReport, output).ConfigureAwait(false);
+                Console.WriteLine($"  B3 verdict: {(expandedReport.Passed ? "PASS" : "FAIL")}, " +
+                    $"segments {expandedReport.Summary.AcceptedSegments}/{expandedReport.Summary.ExpectedSegments}, " +
+                    $"questions {expandedReport.Summary.PassedQuestions}/{expandedReport.Summary.TotalQuestions}");
+                Console.WriteLine($"  JSON: {expandedReportPaths.JsonPath}");
+
+                var expandedBaselineRunner = new ContextFabricBaselineRunner(runtime, expandedRunOptions);
+                var expandedFrozenRuns = new List<FabricBenchmarkSystemGate>();
+                foreach (var (label, run) in new (string, Func<Task<FabricBaselineSystemReport>>)[]
+                {
+                    ("B0 closed-book", () => expandedBaselineRunner.RunClosedBookAsync(expandedFixture)),
+                    ("B1 truncated-prompt", () => expandedBaselineRunner.RunTruncatedPromptAsync(expandedFixture)),
+                    ("B2 top-k RAG", () => expandedBaselineRunner.RunTopKRagAsync(expandedFixture)),
+                })
+                {
+                    Console.WriteLine($"Running {label} baseline against the expanded corpus...");
+                    var baselineReport = await run().ConfigureAwait(false);
+                    var baselinePath = await ContextFabricBaselineWriter.WriteAsync(baselineReport, output).ConfigureAwait(false);
+                    Console.WriteLine($"  {baselineReport.Detail}");
+                    Console.WriteLine($"  JSON: {baselinePath}");
+                    expandedFrozenRuns.Add(ContextFabricBaselineRunner.ToSystemGate(baselineReport));
+                }
+
+                // B4 remains the CF-6 distributed-HIVE evidence from its own prior run; re-validating
+                // distributed recovery against this new corpus is a separate, later undertaking, not
+                // re-run here -- reported as-is rather than silently assumed equivalent.
+                var expandedB4Gate = ContextFabricBaselineRunner.LoadHiveAcceptanceGate(options.B4ArtifactPath);
+                Console.WriteLine($"B4 HIVE artifact (frozen-corpus evidence, not re-validated against the expanded corpus this pass): " +
+                    $"{expandedB4Gate.Status} - {expandedB4Gate.Detail}");
+                expandedFrozenRuns.Add(expandedB4Gate);
+
+                var expandedGateReport = ContextFabricBenchmarkGateEvaluator.Evaluate(expandedReport, quoteReport, stitchReport, expandedFrozenRuns);
+                var expandedGatePaths = await ContextFabricBenchmarkGateWriter.WriteAsync(expandedGateReport, output).ConfigureAwait(false);
+
+                Console.WriteLine();
+                Console.WriteLine($"Verdict (expanded corpus, real held-out suite): {(expandedGateReport.ReadyForExpansion ? "GO" : "NO-GO")}");
+                Console.WriteLine($"JSON: {expandedGatePaths.JsonPath}");
+                Console.WriteLine($"Markdown: {expandedGatePaths.MarkdownPath}");
+                foreach (var gate in expandedGateReport.Gates.Where(gate => !gate.Passed))
+                    Console.WriteLine($"FAILED {gate.Name}: {gate.Detail}");
+                return expandedGateReport.ReadyForExpansion ? 0 : 2;
             }
 
             var runFixture = options.Suite == BenchmarkSuite.Scale
@@ -310,6 +400,8 @@ internal static class Program
         string? b4Artifact = null;
         string? grokAuthored = null;
         string? codexAuthored = null;
+        string? heldOutQuestions = null;
+        int? maxQuestions = null;
         var context = 8192;
         var scaleSegments = 640;
         var scaleBackgroundLines = 60;
@@ -346,11 +438,13 @@ internal static class Program
                 case "--background-lines": scaleBackgroundLines = ParsePositive(NextValue(), arg); break;
                 case "--grok-authored": grokAuthored = NextValue(); break;
                 case "--codex-authored": codexAuthored = NextValue(); break;
+                case "--heldout-questions": heldOutQuestions = NextValue(); break;
+                case "--max-questions": maxQuestions = ParsePositive(NextValue(), arg); break;
                 default: throw new ArgumentException($"Unknown option '{arg}'.");
             }
         }
 
-        return new CliOptions(modelRoot, output, context, responseReserve, readerMax, reducerMax, answerMax, gpuLayers, suite, b4Artifact, scaleSegments, scaleBackgroundLines, grokAuthored, codexAuthored);
+        return new CliOptions(modelRoot, output, context, responseReserve, readerMax, reducerMax, answerMax, gpuLayers, suite, b4Artifact, scaleSegments, scaleBackgroundLines, grokAuthored, codexAuthored, heldOutQuestions, maxQuestions);
     }
 
     private static int ParsePositive(string value, string option) =>
@@ -372,7 +466,8 @@ internal static class Program
         "scale" => BenchmarkSuite.Scale,
         "export-ledger" => BenchmarkSuite.ExportLedger,
         "merge-authored" => BenchmarkSuite.MergeAuthored,
-        _ => throw new ArgumentException("Unknown suite. Use cf0, quote-anchor, stitch, cf7-gate, scale, export-ledger, or merge-authored."),
+        "cf7-gate-expanded" => BenchmarkSuite.Cf7GateExpanded,
+        _ => throw new ArgumentException("Unknown suite. Use cf0, quote-anchor, stitch, cf7-gate, scale, export-ledger, merge-authored, or cf7-gate-expanded."),
     };
 
     private static void PrintUsage()
@@ -451,5 +546,7 @@ internal static class Program
         int ScaleSegments,
         int ScaleBackgroundLines,
         string? GrokAuthoredPath,
-        string? CodexAuthoredPath);
+        string? CodexAuthoredPath,
+        string? HeldOutQuestionsPath,
+        int? MaxQuestions);
 }

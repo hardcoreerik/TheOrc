@@ -306,8 +306,37 @@ public sealed class ContextFabricBaselineRunner
         {
             throw;
         }
+        catch (JsonException ex)
+        {
+            // The model produced output that could not be parsed as a valid answer — count the
+            // question as incorrect but do NOT abort the run. Baselines are designed to always
+            // complete; unparseable output is a measurement of model quality, not a harness
+            // failure, and the gate decision depends on RunCompleted being true.
+            stopwatch.Stop();
+            return new FabricBaselineQuestionResult(
+                question.QuestionId,
+                question.Kind.ToString(),
+                question.ExpectAbstention,
+                Abstained: false,
+                ContainsExpectedTerms: false,
+                Correct: false,
+                Succeeded: true,
+                Error: ex.Message,
+                Excerpt(output.ToString()),
+                new FabricCallMetrics(
+                    $"baseline-{systemId}",
+                    question.QuestionId,
+                    RuntimeRole.Reviewer,
+                    promptTokens,
+                    ContextManager.EstimateTokens(output.ToString()),
+                    _options.ContextBudget.ContextLimit,
+                    stopwatch.ElapsedMilliseconds,
+                    false,
+                    ex.Message));
+        }
         catch (Exception ex)
         {
+            // True runtime failure (executor crash, OOM, etc.) — the run is genuinely incomplete.
             stopwatch.Stop();
             return new FabricBaselineQuestionResult(
                 question.QuestionId,
@@ -317,7 +346,7 @@ public sealed class ContextFabricBaselineRunner
                 ContainsExpectedTerms: false,
                 Correct: false,
                 Succeeded: false,
-                ex.Message,
+                Error: ex.Message,
                 Excerpt(output.ToString()),
                 new FabricCallMetrics(
                     $"baseline-{systemId}",
