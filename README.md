@@ -60,7 +60,7 @@ TheOrc is going after a stranger and more useful target:
 
 - **Local-first orchestration**: the shell, runtime paths, approvals, artifacts, and training loop are designed around operator control.
 - **Warband execution**: one boss can route work to specialist agents and, increasingly, to other enrolled machines.
-- **Source-grounded memory**: Context Fabric is being built so finite-context local models can reopen verified source evidence instead of bluffing from summaries.
+- **Source-grounded memory**: Context Fabric lets finite-context local models work across a corpus-scale source library by reopening verified evidence instead of bluffing from summaries.
 - **Self-improvement on your hardware**: ORC ACADEMY closes the loop from reviewed swarm plans to a better boss adapter.
 
 If Copilot is a better autocomplete, TheOrc is trying to become a better local AI workbench.
@@ -148,6 +148,8 @@ TheOrc is not trying to replace your editor. It's the AI **project runner** that
 ## Current flagship system
 
 **Context Fabric is the most distinctive new system on the workbench.** It is TheOrc's answer to the "finite model, large corpus" problem: a source-grounded memory fabric that stores durable artifacts, reopens evidence on demand, and keeps every accepted claim tied back to source.
+
+The intended user experience is the part that matters: it should feel like OrcChat has a much larger memory than the active model's live context window. The source corpus stays on disk, parsed into stable addresses with hashes and provenance. The model gets a budgeted working set for the current question, and when the answer needs proof, Context Fabric reopens the original source, verifies the quote/range, and shows the citation instead of pretending the whole book was inside one prompt.
 
 Current repo truth:
 
