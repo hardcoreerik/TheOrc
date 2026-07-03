@@ -55,6 +55,12 @@ public sealed class AdapterManager : IAsyncDisposable
     // the cap; rebuilding costs one context allocation, not a weights reload.
     internal const int SequenceRecycleThreshold = 128;
 
+    // Absolute refusal point: if outstanding conversations have kept the executor from recycling
+    // and it is now approaching the native slot cap, minting another conversation would trade a
+    // recoverable managed exception for a process-killing native assert. Below 256 so the throw
+    // always wins the race against the assert.
+    internal const int SequenceHardLimit = 240;
+
     public AdapterManager(LLamaSharpRuntime runtime) =>
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
 
@@ -95,9 +101,20 @@ public sealed class AdapterManager : IAsyncDisposable
                 // Serve from the existing executor unless it is approaching the native
                 // sequence-slot cap AND is idle enough to swap out. With outstanding
                 // conversations we keep serving (recycle is retried on the next idle call);
-                // the threshold's margin below the hard cap absorbs that delay.
-                if (existing.ConversationsCreated < SequenceRecycleThreshold || existing.ActiveCount > 0)
+                // the threshold's margin below the hard cap absorbs that delay — but only up
+                // to SequenceHardLimit, where we fail closed with a managed exception rather
+                // than letting the next mint trip the fatal native assert.
+                var minted = existing.ConversationsCreated;
+                if (minted < SequenceRecycleThreshold || existing.ActiveCount > 0)
+                {
+                    if (minted >= SequenceHardLimit)
+                        throw new InvalidOperationException(
+                            $"Role {binding.Role}'s executor has minted {minted} native sequence slots " +
+                            $"while {existing.ActiveCount} conversation(s) remain active, so it cannot " +
+                            "recycle and is about to exhaust the native sequence-slot cap. Dispose " +
+                            "outstanding conversations for this role and retry.");
                     return existing.CreateTrackedConversation();
+                }
 
                 _entries.Remove(binding.Role);
                 // Best-effort, same contract as the stale-binding teardown below: the entry is

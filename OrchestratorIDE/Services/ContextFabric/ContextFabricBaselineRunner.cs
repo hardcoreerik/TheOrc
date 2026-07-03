@@ -109,9 +109,20 @@ public sealed class ContextFabricBaselineRunner
             return new FabricBenchmarkSystemGate("B4", label, FabricBenchmarkSystemStatus.Missing,
                 $"CF-6 HIVE acceptance artifact not found: {artifactPath}");
 
+        string artifactText;
         try
         {
-            using var document = JsonDocument.Parse(File.ReadAllText(artifactPath));
+            artifactText = File.ReadAllText(artifactPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new FabricBenchmarkSystemGate("B4", label, FabricBenchmarkSystemStatus.Failed,
+                $"CF-6 HIVE acceptance artifact could not be read: {ex.Message}");
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(artifactText);
             var root = document.RootElement;
             var errors = new List<string>();
 
@@ -165,7 +176,7 @@ public sealed class ContextFabricBaselineRunner
                         stitchValid++;
                 }
             }
-            if (stitchTotal > 0 && stitchValid != stitchTotal)
+            if (stitchTotal == 0 || stitchValid != stitchTotal)
                 errors.Add($"stitch cases validated {stitchValid}/{stitchTotal}");
 
             var workers = root.TryGetProperty("distinctWorkerIds", out var ids) && ids.ValueKind == JsonValueKind.Array

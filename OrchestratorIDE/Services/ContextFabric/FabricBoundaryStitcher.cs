@@ -116,7 +116,11 @@ public sealed class FabricBoundaryStitcher
             .Where(w => w.Length >= 5)
             .Select(w => w[..Math.Min(w.Length, 6)])
             .ToList();
-        return anchors.Count > 0 && anchors.All(w => actual.Contains(w, StringComparison.OrdinalIgnoreCase));
+        // An expected text with no anchor-length word can't be checked by coverage; fall back to
+        // exact containment rather than unconditionally failing legitimate short-word facts.
+        return anchors.Count > 0
+            ? anchors.All(w => actual.Contains(w, StringComparison.OrdinalIgnoreCase))
+            : actual.Contains(expected.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<(string Output, FabricCallMetrics Metrics)> InvokeAsync(
