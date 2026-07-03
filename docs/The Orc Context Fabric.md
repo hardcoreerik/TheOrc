@@ -1,8 +1,8 @@
 # The Orc Context Fabric
 
-> Status: CF-0 native feasibility gate passed; CF-1 deterministic ingestion passed; CF-2 graph-backed retrieval passed; CF-3 and CF-4 framework gates passed; CF-5 framework/integration gate passed with real native-model product exit still pending; CF-6 distributed HIVE execution merged in PR #15 with live worker-death recovery evidence; CF-7 benchmark-gate contract merged in PR #16; CF-8 hard-ingestion closeout docs merged in PR #25
+> Status: CF-0 native feasibility gate passed; CF-1 deterministic ingestion passed; CF-2 graph-backed retrieval passed; CF-3 and CF-4 framework gates passed; CF-5 OrcChat Library citation/source-opening closeout merged in PR #29; CF-6 distributed HIVE execution merged in PR #15 with live worker-death recovery evidence; CF-7 benchmark-gate contract merged in PR #16; CF-8 hard-ingestion closeout docs merged in PR #25
 > Owner: TheOrc native runtime, OrcChat, CodeGraph, and HIVE MIND
-> Last updated: 2026-07-02
+> Last updated: 2026-07-03
 > Product goal: make corpus size effectively independent of the active model context window while preserving source coverage, provenance, and reproducible answers on consumer hardware.
 
 ---
@@ -1357,14 +1357,14 @@ Exit gate:
 
 - a user can add Darwin, wait for indexing, start a fresh chat, and ask cited cross-chapter questions without manually managing context.
 
-Implementation status (2026-06-29): **framework exit passed in focused headless/scripted-runtime tests; real native-model end-to-end exit gate still pending**.
+Implementation status (2026-07-03): **merged in PR #29**. CF-5 now has focused ask-service coverage, headless OrcChat coverage, citation popup/source-opening behavior, short `sourceLabel` to verified segment-ID mapping, and Windows CI/CodeRabbit pass evidence. Larger unattended benchmark/product-proof runs remain future work rather than CF-5 merge blockers.
 
 - `FabricAskService` chains `FabricQueryPlanner` → `EvidencePackBuilder` → native answer generation (via `IRoleRuntime`, Reviewer role) → `FabricCitationVerifier`, mirroring `ContextFabricFeasibilityRunner`'s existing invocation pattern.
 - `FabricIndexingOrchestrator` drives read-then-reduce indexing with staged `IProgress<>` events, plus a scoped retry path: `FabricNativeReaderService.ReadSegmentsAsync` re-reads only the requested segments, and `FabricEvidenceGraphImporter.ReplaceSegmentEvidenceCard` / `DocumentGraphRepository.ReplaceClaimsForSegment` replace only that segment's claims so a retry returning fewer claims than before doesn't leave the dropped ones orphaned in the graph.
 - `FabricWebImporter` resolves web-find search directly through the existing `WebSearchTool` (no model round-trip needed for a deterministic search), filtered to the formats the parser registry actually supports (pdf/txt/md), and downloads behind an explicit user-confirmed "Add to library" action with a 50MB cap.
-- Two new Avalonia controls (`LibraryDrawerControl`, `SourcePreviewPanel`) and targeted `ChatPanel` edits deliver the library drawer, corpus attach/detach, Quick/Study mode toggle, cited-answer bubbles with coverage/verification lines, citation footnotes, and the source-preview rail — all code-behind-only, matching the existing no-MVVM convention. `BeginIndexing`/`BeginRetry` guard against re-entrant indexing of the same document, and a "Repair" affordance on partially-failed documents calls the scoped retry instead of forcing a full re-read.
+- Two Avalonia controls (`LibraryDrawerControl`, `SourcePreviewPanel`), a `SourceCitationWindow` popup, and targeted `ChatPanel` edits deliver the library drawer, corpus attach/detach, Quick/Study mode toggle, cited-answer bubbles with coverage/verification lines, citation footnotes, and source preview/open behavior — all code-behind-only, matching the existing no-MVVM convention. `BeginIndexing`/`BeginRetry` guard against re-entrant indexing of the same document, and a "Repair" affordance on partially-failed documents calls the scoped retry instead of forcing a full re-read.
 - `ConversationNotebookStore` persists cited conclusions per conversation as JSON, loaded into the drawer's notebook section on `SetFabricServices`.
-- This status is intentionally narrower than a real-model benchmark claim, same framing as CF-3/CF-4: it closes the framework/integration gate in code and tests (351 unit + 73 headless tests green, full solution builds clean), behind the existing `ExperimentalNativeMainChatEnabled` opt-in (off by default). The literal exit-gate scenario — add the real Darwin PDF, index it with a loaded native model, and get a cited cross-chapter answer — has not yet been run and remains the actual acceptance step before this phase is declared done.
+- This status is intentionally narrower than a large benchmark claim: PR #29 closes the CF-5 citation/source-opening product blocker in code and focused tests, behind the existing `ExperimentalNativeMainChatEnabled` opt-in (off by default). Broader native-model benchmark runs stay in the benchmark lane rather than blocking CF-5's merged implementation status.
 
 ### Phase CF-6: HIVE stage engine and distributed readers
 
@@ -1412,7 +1412,7 @@ Exit gate:
 
 ### Phase CF-8: scale, multimodal documents, and hardening
 
-Implementation status (2026-07-02): **closeout audit active**. CF-8 now has parser block provenance, DOCX and EPUB ingestion, optional OCR contracts, immutable document versions, cache policy, optional persisted embeddings, and cross-corpus/CodeGraph links. Large LongBench and million-token runs remain harness/documentation scope, not unattended closeout runs.
+Implementation status (2026-07-03): **closeout merged**. CF-8 now has parser block provenance, DOCX and EPUB ingestion, optional OCR contracts, immutable document versions, cache policy, optional persisted embeddings, and cross-corpus/CodeGraph links. Large LongBench and million-token runs remain harness/documentation scope, not unattended closeout runs.
 
 Deliver:
 

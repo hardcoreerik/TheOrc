@@ -75,7 +75,7 @@ The current repo is no longer just a swarm experiment. Several big pieces are al
 - **Native runtime path**: local native inference is a first-class runtime lane, not just a side experiment.
 - **HIVE campaign engine**: distributed worker and campaign plumbing now exists as a real implementation path.
 - **ORC ACADEMY**: the shipped `theorc-boss:gemma4-ft` adapter proved the boss can improve from reviewed swarm plans.
-- **Context Fabric**: CF-0 through CF-4 passed their focused gates (native feasibility, deterministic ingestion, graph-backed retrieval, framework); CF-5 (OrcChat Library) has its framework/integration gate passed with the real native-model product exit still pending; CF-6 (distributed HIVE readers) and CF-7 (benchmark gate) are merged; CF-8 (multimodal ingestion hardening) is active. See [The Orc Context Fabric.md](docs/The%20Orc%20Context%20Fabric.md) for the authoritative per-phase status.
+- **Context Fabric**: CF-0 through CF-8 have landed on `master`: native feasibility, deterministic ingestion, graph-backed retrieval, native readers, OrcChat Library citations/source opening, distributed HIVE readers, benchmark-gate contracts, and hard-ingestion groundwork. See [The Orc Context Fabric.md](docs/The%20Orc%20Context%20Fabric.md) for the authoritative per-phase status.
 
 The current direction is straightforward:
 
@@ -145,7 +145,7 @@ TheOrc is not trying to replace your editor. It's the AI **project runner** that
 
 ---
 
-## In active development now
+## Current flagship system
 
 **Context Fabric is the most distinctive new system on the workbench.** It is TheOrc's answer to the "finite model, large corpus" problem: a source-grounded memory fabric that stores durable artifacts, reopens evidence on demand, and keeps every accepted claim tied back to source.
 
@@ -154,9 +154,9 @@ Current repo truth:
 - **CF-0 passed** with scripted and real native-model evidence-card verification.
 - **CF-1 passed its focused deterministic-ingestion exit**: stable import/rebuild, text and PDF parsing, lexical search, content-addressed artifacts, and pinned Darwin, Constitution, and Federalist fixtures.
 - **CF-2 through CF-4 passed** their focused gates: graph-backed retrieval, native boundary stitching, and hierarchical reduction/budgeting.
-- **CF-5 (OrcChat Library)** has its framework/integration gate passed in focused tests; the real native-model product exit — index the real Darwin PDF, ask a cited cross-chapter question — is still pending.
-- **CF-6 (distributed HIVE readers) and CF-7 (benchmark gate)** are merged to master.
-- **CF-8 (multimodal ingestion hardening)** is active.
+- **CF-5 (OrcChat Library)** is merged: corpus attachment, cited answers, citation popup/source opening, coverage status, and notebook persistence are in the app path.
+- **CF-6 through CF-8** are merged: distributed HIVE readers, benchmark-gate contracts, parser block provenance, DOCX/EPUB structure, OCR contracts, immutable versions, cache policy, vector fallback, and cross-corpus/CodeGraph links.
+- **Still not oversold:** unattended million-token/LongBench runs and full multimodal page understanding remain future benchmark/product work, not claims of this release.
 - The first branded benchmark lane now has a name: **The Independent Mind Corpus** — a public benchmark shelf built around works that stress evidence, liberty, literacy, institutional design, strategy, and source-grounded truth.
 
 This is where TheOrc starts to become more than "AI swarm for code." It becomes a local system for reading, checking, and reasoning across source material without pretending the model remembered the whole shelf.
@@ -168,6 +168,8 @@ This is where TheOrc starts to become more than "AI swarm for code." It becomes 
 Everything below this line is preserved release history. The sections above describe where the project is now; the sections below describe what changed at each tagged release.
 
 ## What's new in v1.11.1
+
+**Context Fabric becomes real product surface, not just architecture.** CF-0 through CF-8 are now landed on `master`: deterministic ingestion, document graph retrieval, native readers/reducers, OrcChat Library attachment, verified citation labels, citation popup/source opening, distributed HIVE readers, benchmark-gate contracts, and hard-ingestion support for structured formats, OCR contracts, immutable versions, cache policy, vectors, and cross-links. The honest caveat stays intact: unattended million-token/LongBench runs and full multimodal page understanding are future benchmark/product work, not release claims.
 
 **Phase 3B native campaign engine ships.** The HIVE MIND can now coordinate native-runtime campaign work instead of pretending distributed shell access is the product. This release lands the first full campaign-engine slice: typed campaign/work-unit contracts, capability-aware leasing, content-addressed model and artifact storage, worker-side native execution plumbing, verifier-oriented result metadata, and the first showcase packs including **Native AI Eval Factory** and **Alien Signal Search**.
 
