@@ -1,7 +1,8 @@
-# The Training Pit — Safety and Privacy
+# The Training Pit — Training Data Safety and Privacy
 
-> **Status:** Phase 1 reference. These constraints are non-negotiable.
-> Run `scripts/sanitize_dataset.py` on every JSONL file before training.
+> **Status:** Phase 1 training-data reference. These constraints govern examples
+> and artifacts admitted to training, not ordinary source code or documentation.
+> Run `training_pit/scripts/sanitize_dataset.py` on every JSONL file before training.
 
 ---
 
@@ -9,7 +10,8 @@
 
 ### Hard Blockers — Reject Immediately
 
-These patterns cause `sanitize_dataset.py` to flag the example as `REJECT`.
+These patterns cause `training_pit/scripts/sanitize_dataset.py` to flag the
+training example as `REJECT`.
 Never commit an example containing these to the dataset, even if the surrounding
 context is training-valuable.
 
@@ -26,7 +28,8 @@ context is training-valuable.
 
 ### Soft Flags — Review Before Use
 
-These patterns cause `sanitize_dataset.py` to flag the example as `REVIEW`.
+These patterns cause `training_pit/scripts/sanitize_dataset.py` to flag the
+training example as `REVIEW`.
 A human annotator must review and redact before the example is used for training.
 
 | Category | Examples | Action |
@@ -70,7 +73,8 @@ Beyond privacy, some content degrades model quality or teaches wrong behaviors.
 
 ## Sanitizer Behavior
 
-`scripts/sanitize_dataset.py` applies the following checks to each JSONL line:
+`training_pit/scripts/sanitize_dataset.py` applies the following checks to each
+JSONL line:
 
 1. **API key scan** — regex patterns for common API key prefixes (`sk-`, `ghp_`, etc.)
 2. **Private IP scan** — RFC1918 address patterns
@@ -87,7 +91,7 @@ For each match:
 
 Running the sanitizer:
 ```bash
-python training_pit/scripts/sanitize_dataset.py datasets/train_v1.jsonl
+python training_pit/scripts/sanitize_dataset.py training_pit/datasets/train_v1.jsonl
 ```
 
 A clean file prints:
@@ -99,8 +103,9 @@ Sanitize complete: 0 rejects, 0 reviews. File is clean.
 
 ## Dataset Commit Policy
 
-- **Never commit `datasets/*.jsonl` to git.** Add to `.gitignore` when Phase 2 starts.
-  The dataset directory has a `.gitkeep` and `CONTRIBUTING.md` only.
+- **Never commit raw `training_pit/datasets/*.jsonl` files to git.** Dataset
+  manifests, progress metadata, registry metadata, and deliberately curated
+  examples under `training_pit/examples/` may be tracked after review.
 - **Adapter weights (`adapters/local/*.bin`, `*.safetensors`, `*.gguf`) are not committed.**
   Only `adapters/registry.json` and metadata are tracked.
 - **`swarm-metrics.json` is committed.** It contains only aggregate benchmark scores — no user data.
