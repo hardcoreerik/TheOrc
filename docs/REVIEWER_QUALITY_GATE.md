@@ -20,7 +20,7 @@ causes confusion, so this section nails the distinction first.
 | | **REVIEWER execution lane** | **Reviewer Quality Gate** |
 |---|---|---|
 | What it is | A task *within* a swarm run | A gate that runs on the *output of* a swarm run |
-| Who creates it | The boss, during decomposition | The orchestration layer, automatically |
+| Who creates it | The boss, during decomposition | The human, manually until automation is wired |
 | Current handling | Aliased to RESEARCHER (read-only investigation) | Runs the review pipeline (Codex / TheOrc) |
 | Example | "Review the proposed auth design and report risks" | "Has every file this run produced passed review before we apply it?" |
 | Scope | One task's slice of the goal | The whole run's diff |
