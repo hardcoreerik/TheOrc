@@ -60,10 +60,24 @@ public static class DeterministicFabricCorpus
         "during the afternoon review", "when no exception is active", "under ordinary test conditions",
     ];
 
-    public static FabricBenchmarkFixture Create()
+    /// <summary>
+    /// Builds the deterministic synthetic-book fixture. The default 16-segment/20-background-line
+    /// shape is the frozen CF-0/CF-7 corpus; larger values scale the same generator to
+    /// benchmark-corpus sizes (e.g. 640 segments x 60 background lines is roughly one million
+    /// source tokens) while keeping exact per-segment canary ground truth. Segments beyond the
+    /// first 16 carry a unique deterministic relay-checksum canary in place of the curated
+    /// special-evidence facts, so every question in the fixture remains answerable and the
+    /// exhaustive question still enumerates every archive token.
+    /// </summary>
+    public static FabricBenchmarkFixture Create(int segmentCount = 16, int backgroundLines = 20)
     {
-        var texts = Enumerable.Range(1, 16)
-            .Select(BuildSegmentText)
+        if (segmentCount < 16)
+            throw new ArgumentOutOfRangeException(nameof(segmentCount), "The fixture needs at least the 16 curated segments.");
+        if (backgroundLines < 1)
+            throw new ArgumentOutOfRangeException(nameof(backgroundLines), "At least one background line is required.");
+
+        var texts = Enumerable.Range(1, segmentCount)
+            .Select(ordinal => BuildSegmentText(ordinal, backgroundLines))
             .ToArray();
 
         var sourcePayload = string.Join("\n\n--- SEGMENT BOUNDARY ---\n\n", texts);
@@ -91,8 +105,11 @@ public static class DeterministicFabricCorpus
             FabricSchemaVersions.ReducerPrompt,
             FabricSchemaVersions.AnswerPrompt);
         var generationId = $"gen-{FabricHashing.Sha256(generationPayload)[..16]}";
+        var corpusId = segmentCount == 16 && backgroundLines == 20
+            ? CorpusId
+            : $"{CorpusId}-x{segmentCount}b{backgroundLines}";
         var corpus = new FabricCorpus(
-            CorpusId,
+            corpusId,
             documentId,
             generationId,
             sourceDigest,
@@ -101,7 +118,7 @@ public static class DeterministicFabricCorpus
             segments.Sum(segment => segment.EstimatedTokens));
 
         string SegmentId(int ordinal) => segments[ordinal - 1].SegmentId;
-        var archiveTokens = Enumerable.Range(1, 16).Select(ArchiveToken).ToArray();
+        var archiveTokens = Enumerable.Range(1, segmentCount).Select(ArchiveToken).ToArray();
 
         var questions = new FabricBenchmarkQuestion[]
         {
@@ -227,16 +244,23 @@ public static class DeterministicFabricCorpus
                     ]),
             ]);
 
-    private static string BuildSegmentText(int ordinal)
+    private static string BuildSegmentText(int ordinal, int backgroundLines = 20)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"SECTION {ordinal:00}: ARCHIVE FIELD NOTES");
         sb.AppendLine($"EVIDENCE: The archive token for section {ordinal:00} is {ArchiveToken(ordinal)}.");
-        foreach (var fact in _specialEvidence[ordinal - 1])
-            sb.AppendLine($"EVIDENCE: {fact}");
+        if (ordinal <= _specialEvidence.Length)
+        {
+            foreach (var fact in _specialEvidence[ordinal - 1])
+                sb.AppendLine($"EVIDENCE: {fact}");
+        }
+        else
+        {
+            sb.AppendLine($"EVIDENCE: The relay checksum for section {ordinal:000} is RELAY-{ordinal:000}-{(ordinal * 61) % 883:000}.");
+        }
 
         sb.AppendLine("BACKGROUND NOTES:");
-        for (var index = 0; index < 20; index++)
+        for (var index = 0; index < backgroundLines; index++)
         {
             var subject = _subjects[(ordinal + index) % _subjects.Length];
             var action = _actions[(ordinal * 3 + index) % _actions.Length];

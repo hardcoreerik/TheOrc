@@ -74,6 +74,30 @@ public sealed class ContextFabricCf7Tests
         });
     }
 
+    [Test]
+    public void ScaledCorpus_IsDeterministic_WithUniqueCanaries_AndFullExhaustiveGroundTruth()
+    {
+        var first = DeterministicFabricCorpus.Create(segmentCount: 24, backgroundLines: 30);
+        var second = DeterministicFabricCorpus.Create(segmentCount: 24, backgroundLines: 30);
+        var frozen = DeterministicFabricCorpus.Create();
+
+        var exhaustive = first.Questions.Single(question => question.QuestionId == "exhaustive-archive-tokens");
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.Corpus.Segments, Has.Count.EqualTo(24));
+            Assert.That(first.Corpus.SourceDigest, Is.EqualTo(second.Corpus.SourceDigest));
+            Assert.That(first.Corpus.CorpusId, Is.EqualTo("cf0-synthetic-book-v1-x24b30"));
+            Assert.That(frozen.Corpus.CorpusId, Is.EqualTo(DeterministicFabricCorpus.CorpusId),
+                "the frozen 16-segment fixture identity must not change");
+            Assert.That(exhaustive.ExpectedTerms, Has.Count.EqualTo(24));
+            Assert.That(exhaustive.ExpectedTerms, Is.Unique);
+            Assert.That(exhaustive.ExpectedSegmentIds, Has.Count.EqualTo(24));
+            Assert.That(first.Corpus.Segments[16].Text, Does.Contain("relay checksum for section 017"),
+                "segments beyond the curated 16 carry a unique deterministic canary");
+            Assert.That(first.Corpus.EstimatedSourceTokens, Is.GreaterThan(frozen.Corpus.EstimatedSourceTokens));
+        });
+    }
+
     private static FabricBenchmarkSystemGate PassedSystem(string systemId, string label) =>
         new(systemId, label, FabricBenchmarkSystemStatus.Passed, "Frozen run passed.");
 

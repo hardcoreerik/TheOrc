@@ -705,13 +705,16 @@ public sealed class ContextFabricFeasibilityRunner
         };
         var verified = FabricAnswerVerifier.NormalizeAndVerify(corpus, question, draft);
         var serialized = FabricJson.Serialize(draft);
+        // Host-deterministic aggregation never enters the model's context, so it reports the same
+        // unbounded-context metrics shape as QueryEvidenceCard; at benchmark-corpus scale the
+        // serialized aggregate legitimately exceeds any model context limit.
         var metrics = new FabricCallMetrics(
             "aggregate",
             question.QuestionId,
             RuntimeRole.Reviewer,
-            ContextManager.EstimateTokens(serialized),
+            PromptTokens: 0,
             ContextManager.EstimateTokens(answerText),
-            _options.ContextBudget.ContextLimit,
+            ContextLimit: int.MaxValue,
             0,
             verified.Verification.Passed,
             verified.Verification.Passed ? null : string.Join("; ", verified.Verification.Errors),
