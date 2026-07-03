@@ -8,7 +8,7 @@
 
 The current app is Windows-only.
 
-- UI: WPF on .NET 10
+- UI: Avalonia on .NET 10
 - test automation: Windows UI Automation via FlaUI
 - training GUI: integrated into the Windows shell
 
