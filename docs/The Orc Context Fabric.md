@@ -1,6 +1,6 @@
 # The Orc Context Fabric
 
-> Status: CF-0 native feasibility gate passed; CF-1 deterministic ingestion passed; CF-2 graph-backed retrieval passed; CF-3 and CF-4 framework gates passed; CF-5 framework/integration gate passed with real native-model product exit still pending; CF-6 distributed HIVE execution merged in PR #15 with live worker-death recovery evidence; CF-7 benchmark-gate contract merged in PR #16; CF-8 hard-ingestion groundwork is active
+> Status: CF-0 native feasibility gate passed; CF-1 deterministic ingestion passed; CF-2 graph-backed retrieval passed; CF-3 and CF-4 framework gates passed; CF-5 framework/integration gate passed with real native-model product exit still pending; CF-6 distributed HIVE execution merged in PR #15 with live worker-death recovery evidence; CF-7 benchmark-gate contract merged in PR #16; CF-8 hard-ingestion closeout docs merged in PR #25
 > Owner: TheOrc native runtime, OrcChat, CodeGraph, and HIVE MIND
 > Last updated: 2026-07-02
 > Product goal: make corpus size effectively independent of the active model context window while preserving source coverage, provenance, and reproducible answers on consumer hardware.
