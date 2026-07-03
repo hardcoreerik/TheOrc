@@ -167,7 +167,7 @@ This is where TheOrc starts to become more than "AI swarm for code." It becomes 
 
 Everything below this line is preserved release history. The sections above describe where the project is now; the sections below describe what changed at each tagged release.
 
-## What's new in v1.11.1
+## What's new in v1.11.2
 
 **Context Fabric becomes real product surface, not just architecture.** CF-0 through CF-8 are now landed on `master`: deterministic ingestion, document graph retrieval, native readers/reducers, OrcChat Library attachment, verified citation labels, citation popup/source opening, distributed HIVE readers, benchmark-gate contracts, and hard-ingestion support for structured formats, OCR contracts, immutable versions, cache policy, vectors, and cross-links. The honest caveat stays intact: unattended million-token/LongBench runs and full multimodal page understanding are future benchmark/product work, not release claims.
 
