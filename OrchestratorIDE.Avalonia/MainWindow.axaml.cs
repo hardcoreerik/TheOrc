@@ -2060,10 +2060,10 @@ public partial class MainWindow : Window
             : new OllamaRuntime(_ollama);
 
     private IRoleRuntime? BuildExperimentalNativeHiveWorkerRuntime() =>
-        BuildExperimentalNativeRoleRuntime("native HIVE worker", _settings.ExperimentalNativeHiveWorkerEnabled, forHiveWorker: true);
+        BuildExperimentalNativeRoleRuntime("native HIVE worker", _settings.ExperimentalNativeHiveWorkerEnabled);
 
     private IRoleRuntime? BuildRequiredNativeHiveWorkerRuntime() =>
-        BuildExperimentalNativeRoleRuntime("native HIVE worker", enabled: true, forHiveWorker: true);
+        BuildExperimentalNativeRoleRuntime("native HIVE worker", enabled: true);
 
     /// <summary>
     /// Mirrors <see cref="BuildExperimentalNativeHiveWorkerRuntime"/> exactly, but gated by
@@ -2072,7 +2072,7 @@ public partial class MainWindow : Window
     /// instance — see that setting's doc for the VRAM double-booking caveat if both are enabled.
     /// </summary>
     private IRoleRuntime? BuildExperimentalNativeMainChatRuntime() =>
-        BuildExperimentalNativeRoleRuntime("native main chat", _settings.ExperimentalNativeMainChatEnabled, forHiveWorker: false);
+        BuildExperimentalNativeRoleRuntime("native main chat", _settings.ExperimentalNativeMainChatEnabled);
 
     /// <summary>
     /// Shared scan/budget/construction logic extracted from the original HIVE-worker-only
@@ -2080,7 +2080,7 @@ public partial class MainWindow : Window
     /// is folded into every activity-log message so the two callers stay distinguishable in the
     /// log even though the underlying construction is identical.
     /// </summary>
-    private IRoleRuntime? BuildExperimentalNativeRoleRuntime(string featureLabel, bool enabled, bool forHiveWorker)
+    private IRoleRuntime? BuildExperimentalNativeRoleRuntime(string featureLabel, bool enabled)
     {
         if (!enabled)
             return null;
@@ -2125,18 +2125,22 @@ public partial class MainWindow : Window
                     DateTime.Now));
             }
 
-            // For the HIVE worker, pre-bind the Researcher role with a CF-6-aware workload kind so
+            // Pre-bind Researcher/Reviewer with Context-Fabric-aware workload kinds so
             // ModelDepot consults ModelAdmissionGate and deprioritizes reasoning-tuned models
             // (DeepSeek-R1-distill, Qwen3, etc.) -- their <think> traces break the reader's
             // structured evidence-card output ("summary is required" / unterminated JSON). Without
-            // this the worker's workload-agnostic ResolveRole(role) can pick a reasoning model and
-            // fail CF-6 reads (observed live, 2026-06-30, NEWCOREPC picking DeepSeek-R1-Distill).
-            // This mirrors the same fix in the daemon's HiveService. Main chat keeps the
-            // workload-agnostic default (forHiveWorker=false) -- a reasoning model is fine there.
+            // this the workload-agnostic ResolveRole(role) can pick a reasoning model and fail
+            // fabric reads (observed live, 2026-06-30, NEWCOREPC picking DeepSeek-R1-Distill).
+            // This mirrors the same fix in the daemon's HiveService. Originally HIVE-worker-only,
+            // but the CF-5 fabric services (FabricNativeReaderService reads via Researcher,
+            // FabricAskService answers via Reviewer) run on the main-chat runtime, so both callers
+            // need the bindings. Boss stays workload-agnostic -- a reasoning model is fine for the
+            // ordinary chat loop.
             var roleBindings = new Dictionary<RuntimeRole, RuntimeRoleBinding>();
-            if (forHiveWorker &&
-                depot.ResolveRole(RuntimeRole.Researcher, RuntimeWorkloadKind.ContextFabricReader) is { } researcherBinding)
+            if (depot.ResolveRole(RuntimeRole.Researcher, RuntimeWorkloadKind.ContextFabricReader) is { } researcherBinding)
                 roleBindings[RuntimeRole.Researcher] = researcherBinding;
+            if (depot.ResolveRole(RuntimeRole.Reviewer, RuntimeWorkloadKind.ContextFabricReviewer) is { } reviewerBinding)
+                roleBindings[RuntimeRole.Reviewer] = reviewerBinding;
 
             return new NativeRoleRuntime(
                 depot,

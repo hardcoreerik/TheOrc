@@ -81,6 +81,9 @@ public sealed class LibraryViewModel : System.ComponentModel.INotifyPropertyChan
         return ok;
     }
 
+    public string? TryStageSourceFileForOpen(string documentId) =>
+        _library.TryStageSourceFileForOpen(documentId);
+
     private void RefreshSearch()
     {
         SearchResults.Clear();

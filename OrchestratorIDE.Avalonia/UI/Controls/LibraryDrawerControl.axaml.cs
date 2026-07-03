@@ -33,12 +33,28 @@ public partial class LibraryDrawerControl : UserControl
     private IReadOnlyList<ConversationNotebookEntry> _notebookEntries = [];
     private string? _lastError;
 
+    // Spinner cycled while a document is in the Reading/Reducing stage -- native-model reads
+    // take 15-20s per segment, so the per-segment count alone can look hung to a user watching
+    // the card; this gives a cheap "still alive" cue independent of segment completion.
+    private static readonly string[] IndexingSpinnerGlyphs = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    private readonly DispatcherTimer _pulseTimer;
+    private int _pulseTick;
+
     public LibraryDrawerControl()
     {
         InitializeComponent();
         BuildHeader();
         BuildStorageFooter();
         Render();
+
+        _pulseTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        _pulseTimer.Tick += (_, _) =>
+        {
+            _pulseTick++;
+            if (_progressByDocument.Values.Any(p => p.Stage is IndexStageKind.Reading or IndexStageKind.Reducing))
+                Render();
+        };
+        _pulseTimer.Start();
     }
 
     public void Attach(LibraryViewModel vm, FabricIndexingOrchestrator orchestrator, FabricWebImporter? webImporter)
@@ -94,7 +110,9 @@ public partial class LibraryDrawerControl : UserControl
             Padding = new Thickness(9, 5),
             BorderThickness = new Thickness(1),
         };
+        Avalonia.Automation.AutomationProperties.SetAutomationId(addBtn, "OrcChat.Library.AddSource");
         var fromFile = new MenuItem { Header = "From file…" };
+        Avalonia.Automation.AutomationProperties.SetAutomationId(fromFile, "OrcChat.Library.AddFromFile");
         fromFile.Click += async (_, _) =>
         {
             try { await AddFromFileAsync(); }
@@ -434,6 +452,7 @@ public partial class LibraryDrawerControl : UserControl
                 BorderBrush = isAttached ? Brush(0x3A, 0x1E, 0x18) : Brush(0x2F, 0x4F, 0x2F),
                 Foreground = isAttached ? Brush(0xC0, 0x61, 0x4F) : Brush(0x9F, 0xD3, 0x7F),
             };
+            Avalonia.Automation.AutomationProperties.SetAutomationId(attachBtn, isAttached ? "OrcChat.Library.Detach" : "OrcChat.Library.Attach");
             attachBtn.Click += (_, _) =>
             {
                 if (isAttached) CorpusDetachRequested?.Invoke();
@@ -464,12 +483,24 @@ public partial class LibraryDrawerControl : UserControl
             p.Stage is not IndexStageKind.Complete and not IndexStageKind.Failed);
         if (activeProgress is not null)
         {
-            stack.Children.Add(new TextBlock
+            var progressRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5 };
+            if (activeProgress.Stage is IndexStageKind.Reading or IndexStageKind.Reducing)
+            {
+                progressRow.Children.Add(new TextBlock
+                {
+                    Text = IndexingSpinnerGlyphs[_pulseTick % IndexingSpinnerGlyphs.Length],
+                    FontFamily = new FontFamily("JetBrains Mono, Consolas, monospace"),
+                    FontSize = 10, Foreground = Brush(0x8A, 0x7E, 0x60),
+                    VerticalAlignment = VerticalAlignment.Center,
+                });
+            }
+            progressRow.Children.Add(new TextBlock
             {
                 Text = activeProgress.StageLabel,
                 FontFamily = new FontFamily("JetBrains Mono, Consolas, monospace"),
                 FontSize = 10, Foreground = Brush(0x8A, 0x7E, 0x60),
             });
+            stack.Children.Add(progressRow);
         }
 
         // A completed run can still have left some segments failed -- offer the scoped

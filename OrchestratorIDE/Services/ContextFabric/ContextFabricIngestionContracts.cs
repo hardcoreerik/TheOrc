@@ -282,7 +282,11 @@ public sealed record FabricQueryPlannerOptions(
     int MaxRounds = 2,
     int MaxSourceOpens = 6,
     int MaxPromptTokens = 8_192,
-    int ResponseTokenReserve = 1_024)
+    // Must stay >= FabricRunOptions.AnswerMaxTokens (the Reviewer's actual generation cap) --
+    // otherwise EvidencePackBuilder reserves less headroom than the model is allowed to spend
+    // on the response, letting packed evidence + a full-length answer exceed the real context
+    // window even though the evidence-side budget check reported WithinBudget.
+    int ResponseTokenReserve = 2_048)
 {
     public void Validate()
     {

@@ -27,14 +27,13 @@ public class OrcChatLibraryTests
         button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
     [AvaloniaTest]
-    public void LibraryDrawer_And_SourcePreview_AreHidden_ByDefault()
+    public void LibraryDrawer_IsHidden_ByDefault()
     {
         var panel = new ChatPanel();
 
         Assert.Multiple(() =>
         {
             Assert.That(Required<LibraryDrawerControl>(panel, "LibraryDrawer").IsVisible, Is.False);
-            Assert.That(Required<SourcePreviewPanel>(panel, "SourcePreviewPanel").IsVisible, Is.False);
             Assert.That(Required<Border>(panel, "BdrCorpusBadge").IsVisible, Is.False);
         });
     }
@@ -78,7 +77,7 @@ public class OrcChatLibraryTests
     }
 
     [AvaloniaTest]
-    public void DetachingCorpus_HidesBadgeAndSourcePreview()
+    public void DetachingCorpus_HidesBadgeAndModeToggle()
     {
         using var harness = Cf5TestHarness.Create();
         var panel = new ChatPanel();
@@ -91,7 +90,6 @@ public class OrcChatLibraryTests
 
         InvokeAttach(panel, harness.Corpus.CorpusId);
         Dispatcher.UIThread.RunJobs();
-        Required<SourcePreviewPanel>(panel, "SourcePreviewPanel").IsVisible = true;
 
         InvokeDetach(panel);
         Dispatcher.UIThread.RunJobs();
@@ -100,7 +98,6 @@ public class OrcChatLibraryTests
         {
             Assert.That(Required<Border>(panel, "BdrCorpusBadge").IsVisible, Is.False);
             Assert.That(Required<StackPanel>(panel, "StackModeToggle").IsVisible, Is.False);
-            Assert.That(Required<SourcePreviewPanel>(panel, "SourcePreviewPanel").IsVisible, Is.False);
         });
     }
 

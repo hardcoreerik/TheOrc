@@ -1,0 +1,17 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<Window x:Class="OrchestratorIDE.UI.Windows.SourceCitationWindow"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:OrchestratorIDE.UI.Controls"
+        Width="560"
+        Height="520"
+        MinWidth="420"
+        MinHeight="360"
+        Background="#111411"
+        WindowStartupLocation="CenterOwner"
+        Title="Source citation"
+        AutomationProperties.AutomationId="SourceCitationWindow.Root">
+
+    <controls:SourcePreviewPanel x:Name="Preview"
+                                  IsVisible="True"/>
+</Window>
