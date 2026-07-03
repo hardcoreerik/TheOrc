@@ -9,6 +9,11 @@
 
 TheOrc is a production local AI orchestrator. The core swarm, model intelligence, distributed HIVE MIND, and self-training loop are all shipped and running. The v1 adapter scores **99.3%** on structured planning evals and remains the production adapter. The **v2 adapter regressed** — a post-hoc suitability audit found 51.3% of its 1,784 examples assigned write tasks to TESTER-lane roles, dropping the structured-plan pass rate to 77.8% (perfect plans 71% → 54%); v2 was retired and its data repurposed. **ORC ACADEMY v3** completed on a clean 906 train / 87 eval set and beat base in A/B (94.7% vs 85.3%), but did **not** beat the v1 99.3% production baseline because of the `files_named` gap. v1 stays production; v3 is not registered.
 
+**Foundry status:** F-0 documentation only. No Foundry model has been trained,
+promoted, or wired into production. The first possible proof is
+`theorc-toolcaller`, and training is gated on a production-shaped baseline showing
+a measurable gap under the [Foundry Arena policy](FOUNDRY_ARENA.md).
+
 v1.8.0 ships the Avalonia MarkdownView (Phase 6), the full FlaUI + Avalonia test suite (Phase 7, 23 tests), and the Grok toolchain integration. CodeGraph v1 — a Roslyn + SQLite code knowledge graph that lets the agent query graph structure instead of grepping files — is fully implemented and committed, targeting v1.9.
 
 **HIVE MIND node startup was broken on every normal-user install until 2026-06-20** — `HiveNodeServer.Start()` silently aborted (no error, no log line, nothing listening) on any non-elevated machine, because a failed wildcard `HttpListener` bind left the listener disposed internally and the fallback cleanup code's own property access threw a second, masking exception inside an unobserved `Task.Run`. Found via a pre-release smoke test specifically because nothing in automated test coverage exercises real socket binding. Fixed — verified `localhost:7078/hive/info` returns 200 and UDP 7077 beacon listens. This was a hard release blocker for any LAN/Tailscale HIVE MIND testing; not caught by `dotnet test` since the unit/headless suites mock or don't reach real listener startup.
@@ -474,6 +479,26 @@ Wire `EVAL_RUBRIC.md` into a UI-driven automated model regression test. After ea
 ### HIVE MIND: remote harvest and academy execution
 Allow a HIVE worker node to run GOBLIN HARVEST overnight and return captures to the boss node's Training Pit. Remote adapter training (via HIVE) is further out — needs Phase 3B first.
 
+### TheOrc Foundry — custom local model program (strategy only)
+
+Canonical strategy: [THEORC_FOUNDRY.md](THEORC_FOUNDRY.md). Evaluation and
+promotion policy: [FOUNDRY_ARENA.md](FOUNDRY_ARENA.md). First proposed proof:
+[THEORC_TOOLCALLER_V0.md](THEORC_TOOLCALLER_V0.md).
+
+TheOrc Foundry is the planned program for creating TheOrc-native specialists on
+locally controlled consumer hardware. It joins the existing Training Pit and ORC
+ACADEMY data/training foundation to Native Runtime deployment and eventual
+HIVE/Warband distribution. Candidate models must beat the current baseline on a
+frozen rubric without safety regressions before promotion.
+
+**Current status:** documentation/F-0 only. No Foundry model family, Dataset
+Doctor, Foundry Arena automation, autonomous promotion, or distributed training
+is claimed as implemented. `theorc-toolcaller` is the first planned proof;
+dataset, baseline, evaluation, and promotion contracts must be accepted before
+training begins. ORCISH TONGUE remains the planned universal tool-caller
+rename/runtime direction; existing prompt-layer adaptation remains under current
+code names.
+
 ### HIVE MIND: hive identity, membership certs, auto-promotion — v1.9.4 (all 4 phases shipped 2026-06-21)
 Spec: [`HIVE_MEMBERSHIP_SPEC.md`](HIVE_MEMBERSHIP_SPEC.md). Adds a hive-wide `HiveId` (survives Warchief elections, unlike per-node identity), membership certificates so a node can prove hive membership to a peer it never directly paired with (avoids O(n²) manual-approval pairing at "100s of nodes" scale), an authenticated `/hive/mesh/role-assign` RPC + "👑 Declare this machine Warchief" UI action (first real consumer of the long-dormant `HiveAcceptControlPolicy` enum), and a first-run/repair discovery wizard (`HiveDiscoveryWizard`: scan LAN → join existing hive or found a new one, with three trigger sites). All four phases landed same day, each build+test+grok-review-CLEAN before commit; full swarmcli parity (`--list-peers`, `--declare-warchief`, `--set-accept-control`). Also fixed a naming collision: the pre-existing "🎯 Set as Warchief" menu item was an unrelated swarm-task-routing preference, renamed to "📤 Route my swarm tasks here". One deferred remainder: presenting a membership cert at the request-time auth gate needs its own subject-proves-key signature scheme (issuance + verification shipped; wire-gate consumption intentionally not bolted on).
 
@@ -634,7 +659,7 @@ Reference points: [Playwright docs](https://playwright.dev/docs/intro),
 | **HIVE MIND C2 (RPC model chain)** | Groundwork laid | llama.cpp RPC plumbing exists; full SwarmSession routing to RPC workers not wired; blocked on Phase 3B |
 | **"Zero idle chatter" message discipline** | Not implemented | Good spec hygiene; no user-visible impact currently; revisit when HIVE worker verbosity becomes a real problem |
 | **Cross-platform desktop (Mac / Linux)** | WPF deleted 2026-06-20, Avalonia is the only desktop shell | macOS `osx-arm64` app/setup artifacts ship in v1.11.2; full Linux desktop publishing and real cross-OS hardware soak remain open. ScreenRecorder degrades gracefully (SharpAVI Windows-only). Warband (daemon) ships Linux/macOS artifacts — see WARBANDS above. |
-| **On-platform self-improvement (TheOrc trains itself)** | Partial | Pit Boss + Cerebras pipeline makes the dataset side nearly free; the gap is auto-generating and auto-judging training goals without human input; deferred until v2 adapter proves out the data quality |
+| **On-platform self-improvement (TheOrc trains itself)** | Reframed under TheOrc Foundry; not implemented | Training Pit and ORC ACADEMY provide existing capture/training foundations. Foundry F-4 through F-6 now define the planned gated path from local data generation to independently evaluated candidates; see [THEORC_FOUNDRY.md](THEORC_FOUNDRY.md). |
 | **Reviewer adapter (local model trained to review TheOrc's own code, replacing Codex)** | PARKED 2026-06-13 — investigation concluded, build not started | B-3/B-4 baseline series proved prompt-engineering alone has a hard ceiling on `qwen2.5-coder:14b` (0/3 Codex catches); Stage 1 SFT needs off-machine compute that went to ORC ACADEMY training instead. Still considered valuable — not cancelled. See [`reviewer-adapter/00-index.md`](reviewer-adapter/00-index.md) for the resume plan and phase gate. |
 
 ---

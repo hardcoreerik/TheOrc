@@ -3,9 +3,10 @@
 New to TheOrc? Start with [QUICK_START.md](QUICK_START.md) for your first run, then
 [USER_GUIDE.md](USER_GUIDE.md) to understand the app. The guides below cover every feature in depth.
 
-For the authoritative "what is shipped vs planned" status, [ROADMAP.md](ROADMAP.md) and
-[`../.grok/PROJECT_TRUTH.md`](../.grok/PROJECT_TRUTH.md) are the source of truth — when a guide and
-the roadmap disagree, the roadmap wins.
+For the authoritative public "what is shipped vs planned" status, use
+[ROADMAP.md](ROADMAP.md); when a guide and the roadmap disagree, the roadmap
+wins. [`../.grok/PROJECT_TRUTH.md`](../.grok/PROJECT_TRUTH.md) is retained as
+adversarial-review context and may contain deeper implementation notes.
 
 ---
 
@@ -60,6 +61,17 @@ the roadmap disagree, the roadmap wins.
   ORC ACADEMY, NIGHT HARVEST, the v1 adapter)
 - [DATASET_REVIEW_WORKFLOW.md](DATASET_REVIEW_WORKFLOW.md) — capture review, manifest decisions,
   exports, the preflight safety gate
+
+---
+
+## TheOrc Foundry
+
+- [THEORC_FOUNDRY.md](THEORC_FOUNDRY.md) — planned custom-model strategy, model family, local
+  self-improvement boundaries, hardware hypotheses, and delivery phases
+- [FOUNDRY_ARENA.md](FOUNDRY_ARENA.md) — planned dataset admission, baseline comparison, promotion,
+  quarantine, and rollback policy
+- [THEORC_TOOLCALLER_V0.md](THEORC_TOOLCALLER_V0.md) — documentation-only contract for the first
+  proposed Foundry proof model
 
 ---
 
