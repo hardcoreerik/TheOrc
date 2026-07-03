@@ -120,6 +120,7 @@
                               FontSize="11" Padding="8,4"
                               Background="Transparent" BorderBrush="#2A3A2A"
                               Foreground="#9FB890"
+                              AutomationProperties.AutomationId="OrcChat.Library.Toggle"
                               Click="BtnToggleLibrary_Click"/>
 
                 <Border x:Name="BdrCorpusBadge"
@@ -288,9 +289,9 @@
             </StackPanel>
         </Border>
 
-        <!-- ── Chat area + CF-5 library drawer / source preview rails ─ -->
+        <!-- ── Chat area + CF-5 library drawer ─ -->
         <Grid x:Name="LibraryLayoutGrid"
-              ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+              ColumnDefinitions="Auto,Auto,*">
 
             <controls:LibraryDrawerControl x:Name="LibraryDrawer"
                                             Grid.Column="0"
@@ -343,14 +344,6 @@
 
                 </StackPanel>
             </ScrollViewer>
-
-            <GridSplitter x:Name="SourcePreviewSplitter"
-                          Grid.Column="3"
-                          Width="3" Background="#1E2E1E"
-                          IsVisible="False"/>
-            <controls:SourcePreviewPanel x:Name="SourcePreviewPanel"
-                                          Grid.Column="4"
-                                          IsVisible="False"/>
         </Grid>
 
     </DockPanel>

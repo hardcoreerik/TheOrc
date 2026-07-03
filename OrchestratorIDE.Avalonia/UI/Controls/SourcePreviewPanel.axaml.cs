@@ -19,6 +19,7 @@ public partial class SourcePreviewPanel : UserControl
     public event Action<CitationViewModel>? SaveToNotebookRequested;
 
     private CitationViewModel? _citation;
+    private LibraryViewModel? _libraryVm;
 
     public SourcePreviewPanel()
     {
@@ -30,6 +31,7 @@ public partial class SourcePreviewPanel : UserControl
     public void LoadCitation(CitationViewModel citation, LibraryViewModel libraryVm)
     {
         _citation = citation;
+        _libraryVm = libraryVm;
         IsVisible = true;
 
         var document = libraryVm.Repository.GetDocument(citation.DocumentId);
@@ -45,7 +47,7 @@ public partial class SourcePreviewPanel : UserControl
         });
         meta.Children.Add(new TextBlock
         {
-            Text = $"{(string.IsNullOrWhiteSpace(citation.HeadingPath) ? segment?.HeadingPath ?? "" : citation.HeadingPath)} · seg-{Short(citation.SegmentId)} · {citation.CharStart}-{citation.CharEnd}",
+            Text = $"{(string.IsNullOrWhiteSpace(citation.HeadingPath) ? segment?.HeadingPath ?? "" : citation.HeadingPath)} · {Short(citation.SegmentId)} · {citation.CharStart}-{citation.CharEnd}",
             FontFamily = new FontFamily("JetBrains Mono, Consolas, monospace"),
             FontSize = 10, Foreground = Brush(0x6E, 0x80, 0x68), LineHeight = 16,
         });
@@ -60,7 +62,7 @@ public partial class SourcePreviewPanel : UserControl
 
         BodyStack.Children.Add(BuildSourceText(segment?.Text ?? citation.Quote, citation));
 
-        _headerLabel.Text = $"📄 Source · seg-{Short(citation.SegmentId)}";
+        _headerLabel.Text = $"📄 Source · {Short(citation.SegmentId)}";
     }
 
     private TextBlock _headerLabel = new();
@@ -98,10 +100,11 @@ public partial class SourcePreviewPanel : UserControl
         FooterBorder.BorderThickness = new Thickness(0, 1, 0, 0);
         FooterBorder.Padding = new Thickness(14, 10);
 
+        var stack = new StackPanel { Spacing = 6 };
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         var openBtn = new Button
         {
-            Content = "Open full segment", FontSize = 10.5, Padding = new Thickness(8, 4),
+            Content = "Open source file", FontSize = 10.5, Padding = new Thickness(8, 4),
             Background = Brush(0x0E, 0x16, 0x0E), BorderBrush = Brush(0x1E, 0x2E, 0x1E), Foreground = Brush(0x9F, 0xB8, 0x90),
         };
         var saveBtn = new Button
@@ -109,13 +112,59 @@ public partial class SourcePreviewPanel : UserControl
             Content = "Save to notebook", FontSize = 10.5, Padding = new Thickness(8, 4),
             Background = Brush(0x0E, 0x16, 0x0E), BorderBrush = Brush(0x1E, 0x2E, 0x1E), Foreground = Brush(0x9F, 0xB8, 0x90),
         };
+        var openErrorText = new TextBlock
+        {
+            FontSize = 10, Foreground = Brush(0xC0, 0x61, 0x4F), TextWrapping = TextWrapping.Wrap, IsVisible = false,
+        };
+        openBtn.Click += (_, _) =>
+        {
+            var opened = TryOpenSourceFile(out var error);
+            openErrorText.Text = opened ? "" : error;
+            openErrorText.IsVisible = !opened;
+        };
         saveBtn.Click += (_, _) =>
         {
             if (_citation is not null) SaveToNotebookRequested?.Invoke(_citation);
         };
         row.Children.Add(openBtn);
         row.Children.Add(saveBtn);
-        FooterBorder.Child = row;
+        stack.Children.Add(row);
+        stack.Children.Add(openErrorText);
+        FooterBorder.Child = stack;
+    }
+
+    /// <summary>
+    /// Opens the citation's original source document (PDF, DOCX, etc.) via the OS default
+    /// handler -- the CF-5 "source preview/open behavior" exit-gate requirement. Stages a
+    /// properly-extensioned temp copy first since the content-addressed store keeps artifacts
+    /// as ".blob", which the OS shell can't associate with any application.
+    /// </summary>
+    private bool TryOpenSourceFile(out string error)
+    {
+        error = "";
+        if (_citation is null || _libraryVm is null)
+        {
+            error = "No citation loaded.";
+            return false;
+        }
+
+        var stagedPath = _libraryVm.TryStageSourceFileForOpen(_citation.DocumentId);
+        if (stagedPath is null)
+        {
+            error = "Source file is no longer available.";
+            return false;
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(stagedPath) { UseShellExecute = true });
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"Could not open source file: {ex.Message}";
+            return false;
+        }
     }
 
     private static Control BuildVerificationBadge(CitationViewModel citation)

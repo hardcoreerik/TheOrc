@@ -263,9 +263,9 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
         });
     }
 
-    public IReadOnlyList<FabricSearchHit> Search(string query, string? corpusId = null, int limit = 50)
+    public IReadOnlyList<FabricSearchHit> Search(string query, string? corpusId = null, int limit = 50, bool looseMatch = false)
     {
-        var ftsQuery = BuildFtsQuery(query);
+        var ftsQuery = BuildFtsQuery(query, looseMatch);
         if (ftsQuery.Length == 0) return [];
         limit = Math.Clamp(limit, 1, 500);
         return Query(
@@ -432,9 +432,14 @@ public sealed class FabricLibraryRepository(SqliteStore store) : RepositoryBase(
 
     private sealed record VectorSearchCandidate(FabricSearchHit Hit, byte[] VectorBlob, double VectorNorm);
 
-    private static string BuildFtsQuery(string query) => string.Join(" AND ", SearchTerms
-        .Matches(query ?? "")
-        .Select(match => $"\"{match.Value.Replace("\"", "\"\"")}\""));
+    // looseMatch=false (default) ANDs every token -- exact-phrase-ish lookup, used by CF-1/CF-2's
+    // short keyword searches. A realistic multi-word natural-language question (CF-5's actual
+    // input shape) would require every single token, including "the"/"how"/"using", to co-occur
+    // in one segment, which never happens -- FabricSearchService falls back to looseMatch=true
+    // (OR-joined, bm25-ranked) only when the strict pass finds nothing.
+    private static string BuildFtsQuery(string query, bool looseMatch = false) => string.Join(
+        looseMatch ? " OR " : " AND ",
+        SearchTerms.Matches(query ?? "").Select(match => $"\"{match.Value.Replace("\"", "\"\"")}\""));
 
     private static byte[] EncodeVector(IReadOnlyList<float> vector, out double norm)
     {

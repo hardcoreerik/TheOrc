@@ -190,15 +190,41 @@ public sealed class PdfTextFabricParser : IFabricDocumentParser
             warnings);
     }
 
+    /// <summary>
+    /// PdfPig's raw Page.Text concatenates each text-showing content-stream operator's string
+    /// with no separator -- PDFs commonly render adjacent words via horizontal glyph-advance
+    /// positioning instead of an embedded space character, so Page.Text on a real book PDF comes
+    /// out as one unreadable run-on string per page (observed live on the real Darwin PDF fixture:
+    /// "Darwin'sOntheOriginofSpecies455Struggleforexistence..."). GetWords() segments text into
+    /// individual words using glyph spacing/bounding boxes instead, so grouping those words into
+    /// lines by vertical position and joining with real spaces reconstructs readable prose --
+    /// the same shape (space-joined words, newline-joined lines) the old code assumed Page.Text
+    /// already had.
+    /// </summary>
     private static string ExtractPageText(Page page)
     {
-        var lines = page.Text
-            .Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace('\r', '\n')
-            .Split('\n')
-            .Select(line => line.Trim())
-            .Where(line => line.Length > 0);
-        return string.Join('\n', lines);
+        var words = page.GetWords()
+            .OrderByDescending(word => word.BoundingBox.Bottom)
+            .ThenBy(word => word.BoundingBox.Left)
+            .ToList();
+        if (words.Count == 0)
+            return "";
+
+        const double lineTolerance = 3.0;
+        var lines = new List<List<Word>> { new() { words[0] } };
+        for (var index = 1; index < words.Count; index++)
+        {
+            var word = words[index];
+            var currentLine = lines[^1];
+            if (Math.Abs(currentLine[0].BoundingBox.Bottom - word.BoundingBox.Bottom) <= lineTolerance)
+                currentLine.Add(word);
+            else
+                lines.Add([word]);
+        }
+
+        return string.Join('\n', lines
+            .Select(line => string.Join(" ", line.Select(word => word.Text)).Trim())
+            .Where(line => line.Length > 0));
     }
 
     private static IReadOnlyList<FabricParsedBlock> AddOcrMetadata(

@@ -297,7 +297,7 @@ native feasibility harness, deterministic corpus, strict host-side verifier,
 and report generator, and its real-model quality gate has passed. CF-1's
 deterministic-ingestion framework has now passed its focused test exit: migrations v8-v9 plus deterministic text/Markdown parsing, structural
 segmentation, content-addressed artifacts, transactional document replacement,
-segment FTS, the pinned Darwin text/PDF acceptance fixtures, the pinned Constitution and Federalist text fixtures, PDF text parsing, and artifact garbage collection are implemented. CF-2's focused exit now also passes: migration v10, the document graph repository, claim FTS, evidence-card import, provenance-carrying local retrieval, read-only library graph/search/open/list tools, and unchanged CodeGraph tests are implemented. CF-3 and CF-4 framework gates have passed in focused tests, CF-5 has framework/integration coverage with its real native-model product exit still pending, CF-6 HIVE execution is merged in PR #15 with live worker-death recovery evidence and CPU-fallback prevention for LLamaSharp CUDA nodes, and CF-7's benchmark-gate contract is merged in PR #16. CF-8 is now the hard-ingestion lane for OCR, page-image, table, and multimodal evidence without regressing frozen CF-7 metrics.
+segment FTS, the pinned Darwin text/PDF acceptance fixtures, the pinned Constitution and Federalist text fixtures, PDF text parsing, and artifact garbage collection are implemented. CF-2's focused exit now also passes: migration v10, the document graph repository, claim FTS, evidence-card import, provenance-carrying local retrieval, read-only library graph/search/open/list tools, and unchanged CodeGraph tests are implemented. CF-3 and CF-4 framework gates have passed in focused tests, CF-5 has framework/integration coverage with its real native-model product exit still pending, CF-6 HIVE execution is merged in PR #15 with live worker-death recovery evidence and CPU-fallback prevention for LLamaSharp CUDA nodes, CF-7's benchmark-gate contract is merged in PR #16, and CF-8's hard-ingestion closeout docs merged in PR #25.
 
 ---
 
@@ -436,5 +436,5 @@ control.
 
 ---
 
-*Last updated: 2026-06-27 — architecture refreshed for Phase 3B native campaign
-groundwork, CodeGraph lifecycle, and the proposed Orc Context Fabric.*
+*Last updated: 2026-07-03 — architecture refreshed for Context Fabric CF-8
+closeout status, Phase 3B native campaign groundwork, and CodeGraph lifecycle.*

@@ -74,7 +74,7 @@ Stage 1 needs an H100-class GPU and is run off-machine (rented compute or a down
 
 ### Stage 2 — TheOrc captures LoRA
 
-**Purpose:** adapt the base reviewer to TheOrc's conventions: WPF/.NET 10 patterns, `AutomationProperties.AutomationId` enforcement, NUnit `T##_*.cs` naming, FlaUI testability, our file layout.
+**Purpose:** adapt the base reviewer to TheOrc's conventions: Avalonia/.NET 10 patterns, `AutomationProperties.AutomationId` enforcement, NUnit `T##_*.cs` naming, FlaUI testability, our file layout.
 
 Runs on the same trainer as the boss adapter (`train_lora.py`) with the base swapped to the Stage 1 checkpoint.
 

@@ -9,9 +9,9 @@
   "ParserVersion": "fabric-pdf-text-1.0",
   "SegmenterVersion": "fabric-segmenter-1.0",
   "ExpectedDocumentId": "doc-d7f81a1aedeaec9fe462fed2",
-  "ExpectedNormalizedSha256": "c24e505c56ceca987fc79b789fb0e67b7ab3cad3d6074010cf191d76c223b2ff",
-  "ExpectedSegmentCount": 1824,
-  "ExpectedSegmentIdsSha256": "1b4b614f1cd907cb0f7a52bb153b896761360c1992864a2cf5b9bc5569177332",
-  "ExpectedFirstSegmentId": "seg-b7a6bc51d9753f49e762f6e3",
-  "ExpectedLastSegmentId": "seg-11c4d0668f42c4c0dec8c74c"
+  "ExpectedNormalizedSha256": "76a89151b5973a71d59d938b07ca4df127f38a43a239f2af876f97bb3009122c",
+  "ExpectedSegmentCount": 2239,
+  "ExpectedSegmentIdsSha256": "88de5a16f0ff1eaa167f1a132d38b387fb8157ba6b19f971d5dedb7762616ad3",
+  "ExpectedFirstSegmentId": "seg-7d66f35177ebe6170fa2f006",
+  "ExpectedLastSegmentId": "seg-c6ebe36cba5dae1a14a232e1"
 }

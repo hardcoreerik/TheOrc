@@ -41,6 +41,42 @@ public sealed class FabricLibraryService
     public IReadOnlyList<FabricSearchHit> Search(string query, string? corpusId = null, int limit = 50) =>
         _repository.Search(query, corpusId, limit);
 
+    /// <summary>
+    /// Stages the document's original source artifact as a temp file with a real extension
+    /// (".pdf", ".docx", etc.) so the OS shell can find a handler for it -- the content
+    /// -addressed store keeps everything as ".blob" (see ContentAddressedStore's default
+    /// fileExtension), which the shell can't associate with any app. The temp path is
+    /// deterministic (named after the digest) so repeated "open source" clicks on the same
+    /// document reuse the same staged copy instead of piling up duplicates. Returns null if
+    /// the document or its source artifact can no longer be found.
+    /// </summary>
+    public string? TryStageSourceFileForOpen(string documentId)
+    {
+        var document = _repository.GetDocument(documentId);
+        if (document is null) return null;
+
+        string blobPath;
+        try { blobPath = _artifacts.GetPath(document.SourceDigest); }
+        catch (FileNotFoundException) { return null; }
+
+        var extension = ExtensionForMediaType(document.MediaType);
+        var stagedPath = Path.Combine(Path.GetTempPath(), "TheOrc-source-preview", document.SourceDigest + extension);
+        Directory.CreateDirectory(Path.GetDirectoryName(stagedPath)!);
+        if (!File.Exists(stagedPath))
+            File.Copy(blobPath, stagedPath, overwrite: false);
+        return stagedPath;
+    }
+
+    private static string ExtensionForMediaType(string mediaType) => mediaType.ToLowerInvariant() switch
+    {
+        "application/pdf" => ".pdf",
+        "text/plain" => ".txt",
+        "text/markdown" => ".md",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => ".docx",
+        "application/epub+zip" => ".epub",
+        _ => ".txt",
+    };
+
     public void UpsertSegmentEmbedding(string segmentId, string embeddingModelHash, IReadOnlyList<float> vector) =>
         _repository.UpsertSegmentEmbedding(segmentId, embeddingModelHash, vector);
 
