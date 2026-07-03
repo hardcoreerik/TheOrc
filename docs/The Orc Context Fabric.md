@@ -1375,6 +1375,7 @@ Implementation status (2026-07-02): **merged to master in PR #15**.
 - The live CF-6 worker-death exit evidence is recorded in `.orc/cf6-acceptance/cf6-death-test-EVIDENCE-20260702.md`: a 3-machine HIVE run suspended one worker mid-inference, the Warchief watchdog requeued the task after heartbeat loss, a different worker claimed the requeued unit, a stale attempt-1 completion probe was rejected with HTTP 409, the claim token rotated, and the campaign accepted exactly one final `task_complete`.
 - Caveat: the death-test harness report captured phases 1-3 automatically; phases 4-7 were completed and recorded manually because the original 10-minute reclaim window expired one second before the different worker reclaimed the unit. The branch has since widened that window to 20 minutes, but a fully automated rerun should remain the cleanest merge/readiness evidence.
 - Worker resiliency fix shipped with the merge: `HiveWorkerAgent` now distinguishes ordinary HTTP timeout from real Stop/dispose cancellation so polling does not silently stop when the Warchief disappears mid-request.
+- Exit-gate closure (2026-07-03): all three exit-gate bullets below are now closed. The 3-node synthetic-book acceptance passed on 2026-07-01 (archived at `.orc/cf6-acceptance/cf6-acceptance-20260701-161235.json`), the worker-death recovery evidence is recorded above, and the Ollama-absence proof is documented in `.orc/cf6-acceptance/cf6-ollama-absence-EVIDENCE-20260703.md` (structural fail-closed campaign paths, `native-no-fallback` report gates on every real run, and 300+ live netstat samples showing zero connections to a listening Ollama on all three nodes during multi-hour Context Fabric runs).
 
 Deliver:
 
@@ -1396,6 +1397,8 @@ Exit gate:
 
 Implementation status (2026-07-02): **merged to master in PR #16**. The first slice froze the benchmark-gate contract before expanding corpus scale: manifest shape, B0-B4 system status shape, JSON/Markdown report fields, and go/no-go evaluator semantics.
 
+Benchmark-gate closure (2026-07-03): **first GO verdict recorded.** Live B0 (closed-book), B1 (truncated-prompt), and B2 (lexical top-k RAG) baseline runners now run against the same admitted native model and question ground truth as the B3 architecture run, and the frozen B4 slot is filled by a validated CF-6 3-node HIVE acceptance artifact. All five systems present and passed, all metric thresholds passed, on GPU-verified native inference (RTX 5070 Ti, sustained 93% utilization, sampled). Evidence: `.orc/context-fabric/benchmarks/cf7_gate_20260703_*.json/.md` plus per-baseline `cf7_baseline_b0/b1/b2_*.json` artifacts. Baseline floors recorded: B0 0/5, B1 2/5, B2 2/5 versus B3 passing all internal gates — the architecture beats its baselines rather than merely completing.
+
 Deliver:
 
 - Exhaustive query planner;
@@ -1412,7 +1415,9 @@ Exit gate:
 
 ### Phase CF-8: scale, multimodal documents, and hardening
 
-Implementation status (2026-07-03): **closeout merged**. CF-8 now has parser block provenance, DOCX and EPUB ingestion, optional OCR contracts, immutable document versions, cache policy, optional persisted embeddings, and cross-corpus/CodeGraph links. Large LongBench and million-token runs remain harness/documentation scope, not unattended closeout runs.
+Implementation status (2026-07-03): **closeout merged**. CF-8 now has parser block provenance, DOCX and EPUB ingestion, optional OCR contracts, immutable document versions, cache policy, optional persisted embeddings, and cross-corpus/CodeGraph links.
+
+Million-token product proof (2026-07-03): **passed.** The `scale` suite of `Tools/ContextFabricBench` ran the deterministic synthetic corpus at 640 segments (1.82M estimated source tokens) unattended on a single node: 640/640 segments accepted, 5/5 questions verified — including a 640-item exhaustive enumeration with 640 host-verified citations and a correct abstention — at a 563x source-to-working-context ratio on an 8,192-token native context, GPU-verified throughout, zero Ollama connections in 150 one-minute samples. Evidence: `.orc/context-fabric/benchmarks/cf0_20260703_133526_489_*.json/.md` plus GPU/netstat sample logs. The run also did its disproving job: the first attempts exposed and fixed a native sequence-slot exhaustion crash (LLamaSharp BatchedExecutor ids are never recycled; llama.cpp caps at 256 — any native workload beyond 256 calls per role died) and two small-corpus-sized verifier caps. Standardized LongBench/LongBench v2 subset runs (Corpus C) remain future benchmark work.
 
 Deliver:
 
