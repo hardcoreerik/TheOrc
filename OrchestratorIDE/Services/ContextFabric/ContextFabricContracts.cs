@@ -93,7 +93,9 @@ public sealed record FabricReductionNode(
 public enum FabricQuestionKind
 {
     LocalFact,
+    Paraphrased,
     MultiHop,
+    GlobalSynthesis,
     Contradiction,
     Exhaustive,
     Unanswerable,
@@ -154,7 +156,14 @@ public sealed record FabricRunOptions(
     // room for the response the model is actually allowed to generate.
     int AnswerMaxTokens = 2048,
     int ReductionFanIn = 4,
-    double Temperature = 0.0)
+    double Temperature = 0.0,
+    // The frozen fixture marks every scored fact with a literal "EVIDENCE:" line, and the reader
+    // is told to emit exactly one claim per marked line and nothing else. That checklist has no
+    // equivalent in an ordinary, un-marked corpus (DeterministicExpandedFabricCorpus) -- followed
+    // literally there, it would instruct the model to extract zero claims from every segment.
+    // When true, the reader is instead told to find and cite every distinct factual claim it can
+    // in ordinary prose, with no predefined line list to satisfy or fail against.
+    bool OpenExtractionReading = false)
 {
     public static FabricRunOptions Default { get; } = new(new FabricContextBudget());
 

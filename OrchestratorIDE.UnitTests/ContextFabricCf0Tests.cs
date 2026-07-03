@@ -22,8 +22,18 @@ public sealed class ContextFabricCf0Tests
             Assert.That(first.Corpus.GenerationId, Is.EqualTo(second.Corpus.GenerationId));
             Assert.That(first.Corpus.Segments.Select(segment => segment.SegmentId),
                 Is.EqualTo(second.Corpus.Segments.Select(segment => segment.SegmentId)));
-            Assert.That(first.Questions.Select(question => question.Kind),
-                Is.EquivalentTo(Enum.GetValues<FabricQuestionKind>()));
+            // The frozen 5-question fixture predates the Paraphrased/GlobalSynthesis kinds added
+            // for the expanded corpus's question suite (docs' 7-category, 150-question spec) --
+            // it only ever needs to cover its own 5 hardcoded kinds, not every enum value.
+            Assert.That(first.Questions.Select(question => question.Kind), Is.EquivalentTo(
+                new[]
+                {
+                    FabricQuestionKind.LocalFact,
+                    FabricQuestionKind.MultiHop,
+                    FabricQuestionKind.Contradiction,
+                    FabricQuestionKind.Exhaustive,
+                    FabricQuestionKind.Unanswerable,
+                }));
         });
     }
 
