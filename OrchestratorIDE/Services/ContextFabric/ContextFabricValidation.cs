@@ -462,7 +462,7 @@ public static class FabricEvidenceProcessor
         }
         if (string.Equals(exactError, "exact quote is ambiguous", StringComparison.Ordinal))
         {
-            return new FabricQuoteAnchorResult("", segment.SegmentId, quote, FabricAnchorMode.None, false, null, null, 0, [exactError]);
+            return new FabricQuoteAnchorResult("", segment.SegmentId, quote, FabricAnchorMode.None, false, null, null, 0, [exactError!]);
         }
 
         if (TryFindUniqueNormalized(segment.Text, quote, out var normalizedStart, out var normalizedEnd, out var normalizedError))
@@ -471,7 +471,7 @@ public static class FabricEvidenceProcessor
         }
         if (string.Equals(normalizedError, "normalized quote is ambiguous", StringComparison.Ordinal))
         {
-            return new FabricQuoteAnchorResult("", segment.SegmentId, quote, FabricAnchorMode.None, false, null, null, 0, [normalizedError]);
+            return new FabricQuoteAnchorResult("", segment.SegmentId, quote, FabricAnchorMode.None, false, null, null, 0, [normalizedError!]);
         }
 
         var soft = FindSoftAnchorCandidate(segment.Text, quote);
