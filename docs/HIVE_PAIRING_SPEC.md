@@ -10,6 +10,15 @@
 > Author: Claude Sonnet 4.6 + Erik, based on codebase audit 2026-06-14  
 > Updated: 2026-06-14 (v1.6 implementation pass)
 
+> **This document is frozen as of the v1.6 implementation pass and is now stale as a
+> status source.** Section 1's "Auth today: None" findings and Section 12's implementation
+> table describe the *pre-v1.6 gap analysis and the v1.6 snapshot* — they motivated and
+> tracked the design in Sections 2-11, which remain accurate as design/protocol reference.
+> They do **not** reflect current auth coverage: as of a later release, ROADMAP.md records
+> port 7079 HMAC enforcement as shipped with `GracePeriodActive=false` (fail-closed) across
+> all `HiveTaskQueue` endpoints. For current security status, see [ROADMAP.md](ROADMAP.md)
+> and [SECURITY.md](../SECURITY.md), not the findings/status tables below.
+
 ---
 
 ## Section 1 — Current-State Findings

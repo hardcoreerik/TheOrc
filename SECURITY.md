@@ -21,7 +21,7 @@ Only the **latest release** receives security fixes. Older versions are not patc
 
 | Version | Supported |
 |---|---|
-| Latest (v1.6.x) | ✅ |
+| Latest published release | ✅ |
 | Older versions | ❌ |
 
 ---

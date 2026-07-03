@@ -20,11 +20,17 @@ causes confusion, so this section nails the distinction first.
 | | **REVIEWER execution lane** | **Reviewer Quality Gate** |
 |---|---|---|
 | What it is | A task *within* a swarm run | A gate that runs on the *output of* a swarm run |
-| Who creates it | The boss, during decomposition | The orchestration layer, automatically |
+| Who creates it | The boss, during decomposition | The human, manually until automation is wired |
 | Current handling | Aliased to RESEARCHER (read-only investigation) | Runs the review pipeline (Codex / TheOrc) |
 | Example | "Review the proposed auth design and report risks" | "Has every file this run produced passed review before we apply it?" |
 | Scope | One task's slice of the goal | The whole run's diff |
 | Authority | None special — just another task | **Blocks merge/apply if it fails** |
+
+"Blocks merge/apply" is the architectural rule, not a claim about automated CI
+enforcement today — no automatic gate execution is wired into the swarm run
+completion path yet (see "What This Changes Right Now" below). The human is
+the gate that enforces the rule right now, by not applying/merging work that
+hasn't passed review.
 
 This document is exclusively about the **second** one: the Quality Gate. The
 REVIEWER execution lane stays exactly as documented in
