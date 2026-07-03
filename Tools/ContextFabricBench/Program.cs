@@ -473,7 +473,7 @@ internal static class Program
     private static void PrintUsage()
     {
         Console.WriteLine("Usage: context-fabric-bench --model-root <folder> [options]");
-        Console.WriteLine("  --suite <name>            cf0 | quote-anchor | stitch | cf7-gate | scale (default cf0)");
+        Console.WriteLine("  --suite <name>            cf0 | quote-anchor | stitch | cf7-gate | cf7-gate-expanded | scale (default cf0)");
         Console.WriteLine("  --output <folder>          Report directory (default .orc/context-fabric/benchmarks)");
         Console.WriteLine("  --context <tokens>        Native context length (default 8192)");
         Console.WriteLine("  --response-reserve <n>    Reserved response tokens (default 1536)");
@@ -482,6 +482,8 @@ internal static class Program
         Console.WriteLine("  --answer-max <n>          Answer output limit (default 1536)");
         Console.WriteLine("  --gpu-layers <n>          LLamaSharp GPU layers; 0 forces CPU (default -1)");
         Console.WriteLine("  --b4-artifact <path>      CF-6 HIVE acceptance JSON used as the frozen B4 run (cf7-gate suite)");
+        Console.WriteLine("  --heldout-questions <p>   Path to held-out question JSON (required for cf7-gate-expanded)");
+        Console.WriteLine("  --max-questions <n>       Cap questions processed (useful for smoke tests; default: all)");
         Console.WriteLine("  --segments <n>            Scale-suite segment count (default 640)");
         Console.WriteLine("  --background-lines <n>    Scale-suite background lines per segment (default 60; 640x60 is ~1M source tokens)");
     }
