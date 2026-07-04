@@ -655,12 +655,12 @@ public sealed class ContextFabricFeasibilityRunner
         IReadOnlyList<FabricEvidenceCard> cards,
         FabricReductionNode? root)
     {
-        var terms = Tokenize(question.Question);
-        terms.ExceptWith(_evidencePackStopwords);
+        var terms = TokenizeForScoring(question.Question);
+        terms.ExceptWith(_scoringStopwords);
 
         var documentFrequency = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var card in cards)
-            foreach (var term in Tokenize(CardHaystack(card)))
+            foreach (var term in TokenizeForScoring(CardHaystack(card)))
                 documentFrequency[term] = documentFrequency.GetValueOrDefault(term) + 1;
 
         var ordered = cards
@@ -703,24 +703,87 @@ public sealed class ContextFabricFeasibilityRunner
         return new EvidencePack(evidence, included);
     }
 
-    private FabricQuestionRunResult BuildExhaustiveAnswer(
+    /// <summary>
+    /// Builds an Exhaustive answer by scanning every card for its best-matching claim and keeping
+    /// claims whose match is genuinely about the question's subject, not just incidental overlap.
+    /// Internal (not private) so unit tests can exercise Exhaustive selection directly.
+    ///
+    /// The prior implementation accepted a claim if it shared ANY word with the question
+    /// (`Tokenize(claim.Text).Any(terms.Contains)`). For a question like "list every case-file ID
+    /// under ledger case-ledger-01", corpus-idiomatic filler words ("ledger", "recorded") appear
+    /// in nearly every claim across all ledgers, not just case-ledger-01's -- so that filter
+    /// pulled in matching claims from every unrelated ledger in the corpus, producing an answer
+    /// with dozens of citations that then tripped FabricAnswerVerifier's runaway-answer sanity cap
+    /// (`maxCitationsPerClaim`) and failed outright. All 12 Exhaustive failures in the CF-7 gate
+    /// run hit exactly this "more than N citations" error.
+    ///
+    /// First attempt at a fix summed IDF-weighted term overlap and thresholded relative to the
+    /// single best-scoring claim -- verified against a hand-built test fixture to NOT work: with
+    /// ~15 ledgers of similar size, "case-ledger-01"'s distinguishing suffix and "case-ledger-09"'s
+    /// are each about equally rare corpus-wide (each appears in only a handful of cards), so their
+    /// aggregate IDF scores come out identical and both clear any relative threshold equally. IDF
+    /// alone measures overall rarity, not "is this the specific entity the question names" --
+    /// useless when many different entities are all comparably rare.
+    ///
+    /// Actual fix: identify the question's rarest present term(s) (ties broken by keeping all
+    /// tied terms). If that rarest term still appears in a majority of cards, the question has no
+    /// specific instance to filter on -- it names a broad category ("list every archive token"),
+    /// and every non-stopword overlap should count, same as the original behavior. Only when the
+    /// rarest term is a genuine minority (appears in under half the cards) does it indicate a
+    /// specific named instance ("case-ledger-01" among many ledgers) worth requiring as a hard
+    /// filter, directly targeting that entity rather than relying on an aggregate score that can't
+    /// distinguish it from other similarly-rare alternatives.
+    /// </summary>
+    internal FabricQuestionRunResult BuildExhaustiveAnswer(
         FabricCorpus corpus,
         FabricBenchmarkQuestion question,
         IReadOnlyList<FabricEvidenceCard> cards)
     {
-        var terms = Tokenize(question.Question);
+        var terms = TokenizeForScoring(question.Question);
+        terms.ExceptWith(_scoringStopwords);
+
+        var documentFrequency = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var card in cards)
+            foreach (var term in TokenizeForScoring(CardHaystack(card)))
+                documentFrequency[term] = documentFrequency.GetValueOrDefault(term) + 1;
+
+        // Exhaustive questions come in two shapes that need different filters:
+        //   (a) entity-scoped -- "list every case-file ID under ledger case-ledger-01" -- where a
+        //       question term names one specific instance among several similar ones, and only
+        //       cards about that instance should match.
+        //   (b) category-wide -- "list every archive token in section order" -- where the
+        //       question names a broad category that is genuinely present across most/all cards,
+        //       and requiring a "rare" term would incorrectly exclude the correct answer (there
+        //       is no rare instance-identifier to find; the category name itself is the match).
+        // Distinguish them by whether the question's rarest present term is still rare relative to
+        // the corpus: if it appears in a minority of cards, it's naming a specific instance (a);
+        // if even the rarest term is common to most cards, there is no such instance to filter on,
+        // and every non-stopword overlap should count, matching (b)'s broad-category intent.
+        var termsPresentInCorpus = terms.Where(term => documentFrequency.ContainsKey(term)).ToArray();
+        var minDocumentFrequency = termsPresentInCorpus.Length == 0
+            ? 0
+            : termsPresentInCorpus.Min(term => documentFrequency[term]);
+        var isEntityScoped = termsPresentInCorpus.Length > 0 && minDocumentFrequency < cards.Count / 2.0;
+        var mostDistinctiveTerms = isEntityScoped
+            ? termsPresentInCorpus.Where(term => documentFrequency[term] == minDocumentFrequency).ToHashSet(StringComparer.Ordinal)
+            : terms;
+
         var selected = cards
             .OrderBy(card => corpus.Segments.First(segment => segment.SegmentId == card.SegmentId).Ordinal)
             .Select(card => new
             {
                 Card = card,
                 Claim = card.Claims
-                    .OrderByDescending(claim => Tokenize(claim.Text).Count(terms.Contains))
+                    .Select(claim => (claim, matchesDistinctiveTerm: TokenizeForScoring(claim.Text).Overlaps(mostDistinctiveTerms)))
+                    .Where(pair => pair.matchesDistinctiveTerm)
+                    .OrderByDescending(pair => ScoreTextIdf(pair.claim.Text, terms, documentFrequency))
+                    .Select(pair => pair.claim)
                     .FirstOrDefault(),
             })
-            .Where(item => item.Claim is not null && Tokenize(item.Claim.Text).Any(terms.Contains))
+            .Where(item => item.Claim is not null)
+            .Select(item => (item.Card, Claim: item.Claim!))
             .ToArray();
-        var answerText = string.Join(' ', selected.Select(item => item.Claim!.Text));
+        var answerText = string.Join(' ', selected.Select(item => item.Claim.Text));
         var draft = new FabricAnswerDraft
         {
             SchemaVersion = FabricSchemaVersions.Answer,
@@ -731,7 +794,7 @@ public sealed class ContextFabricFeasibilityRunner
                 new FabricAnswerClaim
                 {
                     Text = answerText,
-                    Citations = selected.SelectMany(item => item.Claim!.Citations).ToList(),
+                    Citations = selected.SelectMany(item => item.Claim.Citations).ToList(),
                 },
             ],
         };
@@ -923,12 +986,14 @@ public sealed class ContextFabricFeasibilityRunner
     private static string CardHaystack(FabricEvidenceCard card) =>
         string.Join(' ', card.Claims.Select(claim => claim.Text).Prepend(card.Summary));
 
-    // Small, standard English stopword list. Excluding these from BuildEvidencePack's scoring
-    // keeps the ranking signal driven by distinctive words (names, codes, values) rather than
-    // diluted by words that appear in almost every card regardless of topical relevance. Mirrors
-    // the identical list in ContextFabricBaselineRunner (kept local rather than shared, since the
+    // Small, standard English stopword list, PLUS common 2-letter words (only relevant to
+    // TokenizeForScoring below, which -- unlike Tokenize -- keeps 2-character tokens). Excluding
+    // these from scoring keeps the ranking signal driven by distinctive words (names, codes,
+    // values) rather than diluted by words that appear in almost every card regardless of
+    // topical relevance. Shared by BuildEvidencePack and BuildExhaustiveAnswer (kept local to
+    // this class rather than shared with ContextFabricBaselineRunner's identical list, since the
     // two classes are otherwise independent and this is a small constant).
-    private static readonly HashSet<string> _evidencePackStopwords = new(StringComparer.Ordinal)
+    private static readonly HashSet<string> _scoringStopwords = new(StringComparer.Ordinal)
     {
         "the", "and", "for", "are", "was", "were", "this", "that", "these", "those", "with",
         "from", "into", "onto", "than", "then", "there", "here", "when", "where", "what",
@@ -936,6 +1001,8 @@ public sealed class ContextFabricFeasibilityRunner
         "has", "have", "had", "will", "would", "should", "can", "could", "may", "might",
         "shall", "must", "its", "his", "her", "their", "our", "your", "you", "she", "him",
         "they", "them", "been", "being", "any", "all", "each", "some", "such", "own", "same",
+        "is", "at", "to", "of", "in", "on", "by", "no", "an", "we", "it", "as", "or", "be", "do",
+        "every", "list", "order",
     };
 
     /// <summary>
@@ -947,12 +1014,34 @@ public sealed class ContextFabricFeasibilityRunner
     private static double ScoreIdf(
         FabricEvidenceCard card,
         HashSet<string> terms,
+        IReadOnlyDictionary<string, int> documentFrequency) =>
+        ScoreTextIdf(CardHaystack(card), terms, documentFrequency);
+
+    private static double ScoreTextIdf(
+        string text,
+        HashSet<string> terms,
         IReadOnlyDictionary<string, int> documentFrequency)
     {
-        var cardTerms = Tokenize(CardHaystack(card));
-        return terms.Where(cardTerms.Contains)
+        var textTerms = TokenizeForScoring(text);
+        return terms.Where(textTerms.Contains)
             .Sum(term => 1.0 / documentFrequency.GetValueOrDefault(term, 1));
     }
+
+    /// <summary>
+    /// Like <see cref="Tokenize"/> but keeps 2-character tokens (Tokenize drops anything under 3
+    /// characters). Used only by the IDF-weighted scoring path above, not by Tokenize's other
+    /// callers in this file. This matters concretely: identifiers in this corpus like
+    /// "case-ledger-01" split on the hyphen into "case", "ledger", "01" -- Tokenize's length>=3
+    /// filter would drop "01", the one token that actually distinguishes ledger 01 from ledger 09,
+    /// leaving scoring unable to tell them apart at all. "_scoringStopwords" adds back the common
+    /// 2-letter English words ("is", "at", "to", ...) that this lower threshold now admits.
+    /// </summary>
+    private static HashSet<string> TokenizeForScoring(string value) => value
+        .Split([' ', '\t', '\r', '\n', '.', ',', ':', ';', '?', '!', '\'', '"', '(', ')', '-', '/'],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Where(token => token.Length >= 2)
+        .Select(token => token.ToLowerInvariant())
+        .ToHashSet(StringComparer.Ordinal);
 
     private static string[] GetEvidenceLines(string text) => text
         .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
