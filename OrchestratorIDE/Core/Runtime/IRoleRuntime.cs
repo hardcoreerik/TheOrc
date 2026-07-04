@@ -328,10 +328,16 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
                 // again." A few cells may free up as other conversations finish disposing --
                 // give that a bounded chance before failing hard. This is defense-in-depth only;
                 // it cannot rescue a conversation whose own prompt alone overflows the KV pool
-                // (see docs/CONTEXT_FABRIC_TEST_HARNESS.md §7).
-                if (++noKvSlotRetries > 8)
+                // (see docs/CONTEXT_FABRIC_TEST_HARNESS.md §7) -- that case is expected to still
+                // fail here after exhausting retries, just ~1.8s later with a diagnostic trail
+                // (THEORC_KVCACHE_DIAGNOSTICS=1) instead of silently on the first hit.
+                const int maxNoKvSlotRetries = 8;
+                if (noKvSlotRetries >= maxNoKvSlotRetries)
                     throw new InvalidOperationException(
                         $"Native inference failed while draining a prompt batch: {result} (gave up after {noKvSlotRetries} retries).");
+                noKvSlotRetries++;
+                if (Environment.GetEnvironmentVariable("THEORC_KVCACHE_DIAGNOSTICS") == "1")
+                    Console.WriteLine($"[KV-DIAG] NoKvSlot retry {noKvSlotRetries}/{maxNoKvSlotRetries}");
                 await Task.Delay(TimeSpan.FromMilliseconds(50 * noKvSlotRetries), ct).ConfigureAwait(false);
                 continue;
             }

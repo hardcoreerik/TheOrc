@@ -223,8 +223,12 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
                 // reserve a full-context KV cache instead of a window-sized one -- on
                 // Gemma-3-class architectures (40/48 layers are SWA) that inflates the KV
                 // pool ~6x for no accuracy benefit, since SWA layers only ever attend within
-                // their window regardless of how much cache is reserved. Root-caused during
-                // the NoKvSlot investigation (docs/CONTEXT_FABRIC_TEST_HARNESS.md §7).
+                // their window regardless of how much cache is reserved (swa_full governs
+                // allocation size, not the attention window itself, which is architectural).
+                // For non-SWA architectures this is a no-op: swa_full only affects models that
+                // define SWA layers at all. Root-caused during the NoKvSlot investigation
+                // (docs/CONTEXT_FABRIC_TEST_HARNESS.md §7); still pending an empirical CF-7
+                // gate re-run to confirm no output-quality regression on the live model.
                 SwaFull = false,
             };
 

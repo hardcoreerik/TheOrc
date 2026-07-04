@@ -11,6 +11,12 @@ namespace OrchestratorIDE.Services.ContextFabric;
 public sealed class FabricBoundaryStitcher
 {
     private const int MaxRawOutputExcerptChars = 400;
+
+    // Same under-counting risk and fix as ContextFabricFeasibilityRunner.EvidenceTokenSafetyMargin
+    // (NoKvSlot investigation, docs/CONTEXT_FABRIC_TEST_HARNESS.md §7) -- this gate shares the
+    // identical unmargined ContextManager.EstimateTokens pattern and sits on the same B-system
+    // gate-run crash surface.
+    private const double TokenSafetyMargin = 1.15;
     private readonly IRoleRuntime _runtime;
     private readonly FabricRunOptions _options;
 
@@ -145,10 +151,11 @@ public sealed class FabricBoundaryStitcher
             UserMessage(FabricJson.Serialize(input)),
         };
 
-        var promptTokens = messages.Sum(message => ContextManager.EstimateTokens(message.Content));
+        var promptTokens = (int)Math.Ceiling(
+            messages.Sum(message => ContextManager.EstimateTokens(message.Content)) * TokenSafetyMargin);
         if (promptTokens + _options.ReaderMaxTokens > _options.ContextBudget.ContextLimit)
             throw new FabricContextBudgetExceededException(
-                $"stitch/{testCase.CaseId} requires up to {promptTokens + _options.ReaderMaxTokens} tokens, exceeding {_options.ContextBudget.ContextLimit}.");
+                $"stitch/{testCase.CaseId} requires up to {promptTokens + _options.ReaderMaxTokens} tokens (margin-adjusted), exceeding {_options.ContextBudget.ContextLimit}.");
 
         var stopwatch = Stopwatch.StartNew();
         var output = new StringBuilder();
