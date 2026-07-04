@@ -140,7 +140,7 @@ $B4Artifact = Get-ChildItem $B4ArtifactDir -Filter "cf6-acceptance-*.json" -Erro
 # Pre-flight checks
 # ---------------------------------------------------------------------------
 Write-Host ""
-Write-Host "=== CF-7 Gate Expanded — Re-run Script ===" -ForegroundColor Cyan
+Write-Host "=== CF-7 Gate Expanded - Re-run Script ===" -ForegroundColor Cyan
 Write-Host "Repo root  : $RepoRoot"
 Write-Host "Model root : $ModelRoot"
 Write-Host "Output dir : $OutputDir"
