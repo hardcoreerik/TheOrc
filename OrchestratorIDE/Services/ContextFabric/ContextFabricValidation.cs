@@ -28,11 +28,14 @@ public static class FabricJson
     private static readonly string[] s_jsonKeywords = ["false", "true", "null"];
 
     /// <summary>
-    /// Extracts and deserializes the first JSON object from raw model output. Applies three
-    /// recovery passes before giving up: (1) lenient parse that tolerates trailing commas and
-    /// inline comments; (2) keyword-suffix sanitization that fixes token-boundary artifacts such
-    /// as "falseC" or "trueX" that models produce when the literal token runs into the next
-    /// word; (3) combined sanitize + lenient parse. Any remaining failure throws JsonException.
+    /// Extracts and deserializes the first JSON object from raw model output. Applies recovery
+    /// passes before giving up: (1) lenient parse that tolerates trailing commas and inline
+    /// comments; (2) keyword-suffix sanitization that fixes token-boundary artifacts such as
+    /// "falseC" or "trueX" that models produce when the literal token runs into the next word;
+    /// (3) unescaped-quote sanitization that fixes models quoting a term (e.g. "Chapter Alpha")
+    /// inside a string value without escaping it, which otherwise truncates the string at the
+    /// first embedded quote; (4) combinations of the above. Any remaining failure throws
+    /// JsonException.
     /// </summary>
     public static T ParseModelObject<T>(string output)
     {
@@ -58,6 +61,13 @@ public static class FabricJson
             if (TryDeserialize<T>(sanitized, s_lenientOptions, out result))
                 return result;
         }
+
+        // Escape unescaped inner quotes ("Chapter Alpha" written without \") and retry, both on
+        // the original JSON and on top of the keyword-suffix pass in case both artifacts appear.
+        if (TryQuoteSanitizeAndDeserialize<T>(json, out result))
+            return result;
+        if (sanitized is not null && TryQuoteSanitizeAndDeserialize<T>(sanitized, out result))
+            return result;
 
         throw new JsonException(
             $"Model response could not be parsed as {typeof(T).Name}. " +
@@ -126,6 +136,21 @@ public static class FabricJson
         }
 
         json = "";
+        return false;
+    }
+
+    private static bool TryQuoteSanitizeAndDeserialize<T>(string json, out T result)
+    {
+        var quoteSanitized = TrySanitizeUnescapedQuotes(json);
+        if (quoteSanitized is not null)
+        {
+            if (TryDeserialize(quoteSanitized, Options, out result))
+                return true;
+            if (TryDeserialize(quoteSanitized, s_lenientOptions, out result))
+                return true;
+        }
+
+        result = default!;
         return false;
     }
 
@@ -200,6 +225,84 @@ public static class FabricJson
             }
 
             sb.Append(ch);
+        }
+
+        if (!changed) return null;
+
+        var result = sb.ToString();
+        try
+        {
+            using var _ = JsonDocument.Parse(result);
+            return result;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Walks the JSON and escapes quote characters found inside a string value that are not
+    /// genuine terminators — the artifact where a model quotes a term (e.g. "Chapter Alpha")
+    /// inline without escaping it, which otherwise ends the JSON string at the first embedded
+    /// quote and corrupts everything after it. A quote is treated as a real terminator only when
+    /// the next non-whitespace character is a JSON structural character (<c>,</c> <c>:</c>
+    /// <c>}</c> <c>]</c>) or end of input; any other in-string quote is escaped instead.
+    /// Returns null if no change was made or if the result still does not parse as JSON.
+    /// </summary>
+    internal static string? TrySanitizeUnescapedQuotes(string json)
+    {
+        var sb = new StringBuilder(json.Length + 16);
+        var inString = false;
+        var escaped = false;
+        var changed = false;
+
+        for (var i = 0; i < json.Length; i++)
+        {
+            var ch = json[i];
+
+            if (!inString)
+            {
+                sb.Append(ch);
+                if (ch == '"') inString = true;
+                continue;
+            }
+
+            if (escaped)
+            {
+                sb.Append(ch);
+                escaped = false;
+                continue;
+            }
+
+            if (ch == '\\')
+            {
+                sb.Append(ch);
+                escaped = true;
+                continue;
+            }
+
+            if (ch != '"')
+            {
+                sb.Append(ch);
+                continue;
+            }
+
+            var next = i + 1;
+            while (next < json.Length && char.IsWhiteSpace(json[next]))
+                next++;
+            var isTerminator = next >= json.Length || json[next] is ',' or ':' or '}' or ']';
+
+            if (isTerminator)
+            {
+                sb.Append(ch);
+                inString = false;
+            }
+            else
+            {
+                sb.Append('\\').Append(ch);
+                changed = true;
+            }
         }
 
         if (!changed) return null;

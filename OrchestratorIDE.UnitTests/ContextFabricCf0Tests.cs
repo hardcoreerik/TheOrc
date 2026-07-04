@@ -243,6 +243,30 @@ public sealed class ContextFabricCf0Tests
     }
 
     [Test]
+    public void JsonParser_SanitizesUnescapedInnerQuotes()
+    {
+        // Reproduces the exact CF-7 HARDCOREPC smoke2 B0 failure (local-fact-008): the model
+        // quoted a term ("Chapter Alpha") inline inside the answer string without escaping it,
+        // which otherwise truncates the JSON string at the first embedded quote and corrupts
+        // everything after it ("'C' is invalid after a value...").
+        var parsed = FabricJson.ParseModelObject<FabricAnswerDraft>(
+            "{\"schemaVersion\":\"cf0-answer-1.0\",\"answer\":\"I do not have information regarding a " +
+            "\"Chapter Alpha\" or its reported base reading.\",\"abstained\":true,\"claims\":[]}");
+
+        Assert.That(parsed.Answer, Is.EqualTo(
+            "I do not have information regarding a \"Chapter Alpha\" or its reported base reading."));
+        Assert.That(parsed.Abstained, Is.True);
+    }
+
+    [Test]
+    public void JsonParser_TrySanitizeUnescapedQuotes_ReturnsNullWhenNothingChanged()
+    {
+        // If the input JSON is already clean, the sanitizer must return null (no copy allocated).
+        var clean = "{\"schemaVersion\":\"cf0-answer-1.0\",\"answer\":\"ok\",\"abstained\":false,\"claims\":[]}";
+        Assert.That(FabricJson.TrySanitizeUnescapedQuotes(clean), Is.Null);
+    }
+
+    [Test]
     public void ContextBudget_RejectsImpossibleConfiguration()
     {
         Assert.That(
