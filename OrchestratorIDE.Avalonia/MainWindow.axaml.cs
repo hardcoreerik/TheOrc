@@ -122,6 +122,9 @@ public partial class MainWindow : Window
             SetStatus("Recording saved — F12 to record again");
         });
 
+        Services.Swarm.ToolcallerDatasetCapture.IsEnabled = _settings.ToolcallerDatasetCaptureEnabled;
+        BdrDatasetCapture.IsVisible = _settings.ToolcallerDatasetCaptureEnabled;
+
         _approvals = new ApprovalQueue();
         _registry  = new ToolRegistry(_approvals);
         _context   = new ContextManager(32_768);
@@ -1994,6 +1997,11 @@ public partial class MainWindow : Window
         if (_hiveWorkerAgent is not null)
             _hiveWorkerAgent.AutoResyncEnabled = newSettings.HiveDevAutoResyncEnabled;
 
+        // Dataset capture is opt-in and must never be silent -- flip the static flag and the
+        // status bar pill together, immediately, whenever the setting changes.
+        Services.Swarm.ToolcallerDatasetCapture.IsEnabled = newSettings.ToolcallerDatasetCaptureEnabled;
+        BdrDatasetCapture.IsVisible = newSettings.ToolcallerDatasetCaptureEnabled;
+
         if (newSettings.Backend != oldBackend ||
             (newSettings.Backend == InferenceBackend.LlamaCpp &&
              _llamaServer != null &&
@@ -2348,6 +2356,9 @@ public partial class MainWindow : Window
 
     private void BdrUpdateBadge_Click(object? sender, PointerPressedEventArgs e)
         => OpenSelfUpdateDialog(_settings.LastKnownLatestVersion ?? "");
+
+    private void BdrDatasetCapture_Click(object? sender, PointerPressedEventArgs e)
+        => BtnSettings_Click(this, new RoutedEventArgs());
 
     private void OpenSelfUpdateDialog(string latestVersion)
     {

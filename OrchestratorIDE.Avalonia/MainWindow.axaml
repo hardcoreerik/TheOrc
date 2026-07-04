@@ -586,6 +586,24 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Dataset gathering indicator — visible only while Foundry F-1 capture is on -->
+                <Border x:Name="BdrDatasetCapture"
+                        DockPanel.Dock="Right"
+                        Background="#2A1E00"
+                        CornerRadius="3" Padding="6,0" Margin="4,2,4,2"
+                        Cursor="Hand" IsVisible="False"
+                        ToolTip.Tip="Foundry F-1 dataset capture is on — real tool-call decisions are being staged locally. Click to open Settings."
+                        PointerPressed="BdrDatasetCapture_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Width="7" Height="7" Fill="#E0A030"
+                                 VerticalAlignment="Center" Margin="0,0,5,0"/>
+                        <TextBlock Text="Dataset Gathering Active"
+                                   Foreground="#E0C080"
+                                   FontSize="13" FontWeight="SemiBold"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- Update badge — collapsed until newer release detected -->
                 <Border x:Name="BdrUpdateBadge"
                         DockPanel.Dock="Right"

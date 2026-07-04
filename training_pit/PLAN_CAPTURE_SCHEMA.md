@@ -6,7 +6,9 @@
 > corpus to Avalonia is a separate, deliberate decision.
 
 > **Schema version:** 1.0
-> **Status:** Defined. Not yet auto-populated (DatasetCapture.cs not built).
+> **Status:** Defined and auto-populated. `OrchestratorIDE/Services/Swarm/DatasetCapture.cs`
+> stages qualifying boss plans to `.orc/swarm/dataset-staging/`, called from
+> `SwarmSession.RunInternalAsync()` after every swarm run.
 >
 > This is a **specialized** format for capturing boss/swarm planning outputs, plan quality
 > scores, failure modes, and DPO/ORPO contrastive pairs.
@@ -110,21 +112,24 @@ They serve three purposes:
 
 ---
 
-## Auto-Capture Hook (Phase 2)
+## Auto-Capture Hook (Built)
 
-When Phase 2 starts, add to `SwarmSession.RunBossDecomposeAsync`:
+Wired into `SwarmSession.RunInternalAsync()`, called after `Tasks` is populated:
 
 ```csharp
-// After ParseBossPlan() succeeds:
-// File: OrchestratorIDE/Services/Swarm/DatasetCapture.cs (NOT BUILT YET)
-var score = EvalRubric.Score(tasks, userGoal).Composite;
-if (score >= AutoCaptureThreshold || score <= NegativeCaptureThreshold)
-    await DatasetCapture.StageExampleAsync(runId, userGoal, raw, tasks, score);
+// File: OrchestratorIDE/Services/Swarm/DatasetCapture.cs
+await DatasetCapture.StageAsync(runId, userGoal, bossRaw, tasks, bossModel, stagingDir);
 ```
 
-Constants (planned, not enforced yet):
-- `AutoCaptureThreshold = 70` — stages as positive example
-- `NegativeCaptureThreshold = 39` — stages as negative example
+`StageAsync` scores the plan with `EvalRubric.Score`, then stages only if the composite
+score clears a threshold (marginal 40–69 is silently skipped — see `EvalRubric.PositiveThreshold`
+/ `EvalRubric.NegativeThreshold` for current values):
+- `Composite >= PositiveThreshold` — stages as `plan_capture_good_{runId}_{score:D3}.json`
+- `Composite <= NegativeThreshold` — stages as `plan_capture_bad_{runId}_{score:D3}.json`
+
+Capture is best-effort: parse or write failures are swallowed so a capture problem never
+disrupts the swarm run. A Phase 1 SQL dual-write also indexes the capture in
+`CaptureRepository` when configured; the JSON file remains the canonical record.
 
 ---
 

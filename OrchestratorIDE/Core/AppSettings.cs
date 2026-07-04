@@ -284,6 +284,16 @@ public class AppSettings
     public bool ExperimentalNativeMainChatEnabled { get; set; } = false;
 
     /// <summary>
+    /// Foundry F-1 dataset capture opt-in. When true, ToolcallerDatasetCapture stages real
+    /// swarm tool-call decisions (tool name, arguments, policy outcome) as theorc-toolcaller-v0
+    /// training examples in .orc/swarm/dataset-staging/toolcaller/. Off by default: captures are
+    /// local-only and gitignored but NOT sanitized, so they can contain real file paths, shell
+    /// commands, and file contents. Surfaced in the status bar ("Dataset Gathering Active")
+    /// whenever true, so capture is never silent.
+    /// </summary>
+    public bool ToolcallerDatasetCaptureEnabled { get; set; } = false;
+
+    /// <summary>
     /// Root folder scanned by ModelDepot for native HIVE worker models/adapters.
     /// Empty = use ResolvedModelStoragePath.
     /// </summary>

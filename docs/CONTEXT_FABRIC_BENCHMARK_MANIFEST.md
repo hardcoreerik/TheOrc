@@ -100,3 +100,11 @@ Required top-level fields:
 The `systems` array must include B0 through B4. Missing artifacts are explicit `Missing` entries, not omitted rows. This keeps the evaluator fail-closed until closed-book, truncated-prompt, top-k RAG, single-node Context Fabric, and HIVE Context Fabric runs are all present.
 
 The initial CF-7 slice may emit a `NO-GO` report with only B3 plus diagnostics populated. That is valid progress: it freezes the report shape and prevents partial benchmark evidence from being mistaken for an architecture pass.
+
+### Re-Running The Expanded 120-Question Gate
+
+[`Tools/ContextFabricBench/Run-CF7GateExpanded.ps1`](../Tools/ContextFabricBench/Run-CF7GateExpanded.ps1)
+is the canonical recipe for re-running the `cf7-gate-expanded` suite (128-segment
+un-marked corpus, 120 held-out questions) on any machine. It auto-locates the frozen B4
+artifact, validates prerequisites, builds from source, and prints a GO/NO-GO summary.
+Use `-MaxQuestions 3` for a quick smoke test before committing GPU time to a full run.

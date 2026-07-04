@@ -1,0 +1,115 @@
+[
+  {
+    "description": "Read the contents of a file.",
+    "name": "read_file",
+    "parameters": {
+      "path": {
+        "description": "File path relative to workspace root, or absolute.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ]
+  },
+  {
+    "description": "List files in a directory (recursive, respects .gitignore-style skips).",
+    "name": "list_files",
+    "parameters": {
+      "depth": {
+        "description": "Max recursion depth (default 3).",
+        "type": "integer"
+      },
+      "path": {
+        "description": "Directory path. Defaults to workspace root.",
+        "type": "string"
+      }
+    },
+    "required": []
+  },
+  {
+    "description": "Search code for a pattern. Uses ripgrep if available, falls back to built-in.",
+    "name": "grep_code",
+    "parameters": {
+      "glob": {
+        "description": "File glob filter (e.g. '*.cs', '*.py'). Optional.",
+        "type": "string"
+      },
+      "path": {
+        "description": "Directory to search. Defaults to workspace root.",
+        "type": "string"
+      },
+      "pattern": {
+        "description": "Regex pattern to search for.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "pattern"
+    ]
+  },
+  {
+    "description": "Write content to a file. Shows a diff preview before writing.",
+    "name": "write_file",
+    "parameters": {
+      "content": {
+        "description": "Complete new file content.",
+        "type": "string"
+      },
+      "path": {
+        "description": "File path relative to workspace root.",
+        "type": "string"
+      },
+      "reason": {
+        "description": "Why this change is being made.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path",
+      "content"
+    ]
+  },
+  {
+    "description": "Run a PowerShell command in the workspace. Use env_setup to source an environment script BEFORE the command -- both run in the same process so variables like IDF_PATH survive. Example: env_setup=\". C:\\esp-idf\\export.ps1\", command=\"idf.py build\". Blocked: destructive commands.",
+    "name": "run_shell",
+    "parameters": {
+      "command": {
+        "description": "The PowerShell command to run.",
+        "type": "string"
+      },
+      "cwd": {
+        "description": "Working directory (default: workspace root).",
+        "type": "string"
+      },
+      "env_setup": {
+        "description": "Optional. A PowerShell snippet run BEFORE command in the same process. Use this to source environment scripts (e.g. \". C:\\esp-idf\\export.ps1\"). The environment it sets is visible to command.",
+        "type": "string"
+      },
+      "reason": {
+        "description": "Why this command needs to run.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "command"
+    ]
+  },
+  {
+    "description": "Pause your task and ask the user a question. Use when you genuinely need user input to proceed -- e.g. ambiguous requirements, a critical design choice, or needing credentials/paths you can't infer. Keep it rare: ask at most once per task.",
+    "name": "ask_user",
+    "parameters": {
+      "options": {
+        "description": "Optional JSON array of suggested answer strings, e.g. [\"Option A\",\"Option B\"]. Omit if open-ended.",
+        "type": "string"
+      },
+      "question": {
+        "description": "Clear, specific question to ask the user.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "question"
+    ]
+  }
+]

@@ -22,8 +22,18 @@ public sealed class ContextFabricCf0Tests
             Assert.That(first.Corpus.GenerationId, Is.EqualTo(second.Corpus.GenerationId));
             Assert.That(first.Corpus.Segments.Select(segment => segment.SegmentId),
                 Is.EqualTo(second.Corpus.Segments.Select(segment => segment.SegmentId)));
-            Assert.That(first.Questions.Select(question => question.Kind),
-                Is.EquivalentTo(Enum.GetValues<FabricQuestionKind>()));
+            // The frozen 5-question fixture predates the Paraphrased/GlobalSynthesis kinds added
+            // for the expanded corpus's question suite (docs' 7-category, 150-question spec) --
+            // it only ever needs to cover its own 5 hardcoded kinds, not every enum value.
+            Assert.That(first.Questions.Select(question => question.Kind), Is.EquivalentTo(
+                new[]
+                {
+                    FabricQuestionKind.LocalFact,
+                    FabricQuestionKind.MultiHop,
+                    FabricQuestionKind.Contradiction,
+                    FabricQuestionKind.Exhaustive,
+                    FabricQuestionKind.Unanswerable,
+                }));
         });
     }
 
@@ -159,6 +169,77 @@ public sealed class ContextFabricCf0Tests
             "{\"schemaVersion\":\"cf0-reduction-1.0\",\"summary\":\"ok\",\"claimIds\":[],\"conflicts\":[]");
 
         Assert.That(parsed.Summary, Is.EqualTo("ok"));
+    }
+
+    [Test]
+    public void JsonParser_SanitizesKeywordSuffixArtifact_FalseC()
+    {
+        // "falseC" is the classic token-boundary artifact: the literal token "false" immediately
+        // followed by the first character of the next word token (e.g. "Charles"). The sanitizer
+        // must strip the suffix without touching "false" inside string values.
+        var parsed = FabricJson.ParseModelObject<FabricAnswerDraft>(
+            "{\"schemaVersion\":\"cf0-answer-1.0\",\"answer\":\"ok\",\"abstained\":falseC,\"claims\":[]}");
+
+        Assert.That(parsed.Answer, Is.EqualTo("ok"));
+        Assert.That(parsed.Abstained, Is.False);
+    }
+
+    [Test]
+    public void JsonParser_SanitizesKeywordSuffixArtifact_TrueX()
+    {
+        // "trueX" outside a string should collapse to the keyword "true".
+        var parsed = FabricJson.ParseModelObject<FabricAnswerDraft>(
+            "{\"schemaVersion\":\"cf0-answer-1.0\",\"answer\":\"ok\",\"abstained\":trueX,\"claims\":[]}");
+        Assert.That(parsed.Abstained, Is.True);
+    }
+
+    [Test]
+    public void JsonParser_SanitizesKeywordSuffixArtifact_NullValue()
+    {
+        // "nullValue" outside a string should collapse to "null". Test via a nullable string field
+        // because null → non-nullable bool is a deserializer type error, not a JSON syntax error.
+        var parsed = FabricJson.ParseModelObject<FabricAnswerDraft>(
+            "{\"schemaVersion\":\"cf0-answer-1.0\",\"answer\":nullValue,\"abstained\":false,\"claims\":[]}");
+        Assert.That(parsed.Answer, Is.Null);
+    }
+
+    [Test]
+    public void JsonParser_SanitizesKeywordSuffix_DoesNotCorruptStringContents()
+    {
+        // "falsehood" and "trueColor" inside JSON string values must be preserved verbatim —
+        // the sanitizer is only allowed to modify tokens that appear outside string boundaries.
+        var parsed = FabricJson.ParseModelObject<FabricAnswerDraft>(
+            "{\"schemaVersion\":\"cf0-answer-1.0\",\"answer\":\"falsehood is trueColor nullValue\",\"abstained\":false,\"claims\":[]}");
+
+        Assert.That(parsed.Answer, Is.EqualTo("falsehood is trueColor nullValue"));
+        Assert.That(parsed.Abstained, Is.False);
+    }
+
+    [Test]
+    public void JsonParser_HandlesTrailingCommaInObject()
+    {
+        // Models sometimes emit a trailing comma after the last key-value pair.
+        var parsed = FabricJson.ParseModelObject<FabricReductionDraft>(
+            "{\"schemaVersion\":\"cf0-reduction-1.0\",\"summary\":\"ok\",\"claimIds\":[],\"conflicts\":[],}");
+
+        Assert.That(parsed.Summary, Is.EqualTo("ok"));
+    }
+
+    [Test]
+    public void JsonParser_HandlesTrailingCommaInArray()
+    {
+        var parsed = FabricJson.ParseModelObject<FabricReductionDraft>(
+            "{\"schemaVersion\":\"cf0-reduction-1.0\",\"summary\":\"ok\",\"claimIds\":[\"a\",\"b\",],\"conflicts\":[]}");
+
+        Assert.That(parsed.ClaimIds, Is.EqualTo(new[] { "a", "b" }));
+    }
+
+    [Test]
+    public void JsonParser_TrySanitizeLiteralSuffixes_ReturnsNullWhenNothingChanged()
+    {
+        // If the input JSON is already clean, the sanitizer must return null (no copy allocated).
+        var clean = "{\"schemaVersion\":\"cf0-reduction-1.0\",\"summary\":\"ok\",\"claimIds\":[],\"conflicts\":[]}";
+        Assert.That(FabricJson.TrySanitizeLiteralSuffixes(clean), Is.Null);
     }
 
     [Test]
