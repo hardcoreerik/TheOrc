@@ -81,7 +81,7 @@ public sealed class ContextFabricBaselineRunner
             FabricSchemaVersions.Baseline,
             question.QuestionId,
             question.Question,
-            TruncateToBudget(BuildTopKText(fix, question), question),
+            BuildTopKText(fix, question),
             "top-k-rag"), ct);
 
     public static FabricBenchmarkSystemGate ToSystemGate(FabricBaselineSystemReport report)
@@ -366,25 +366,96 @@ public sealed class ContextFabricBaselineRunner
             .OrderBy(segment => segment.Ordinal)
             .Select(segment => segment.Text));
 
-    private string BuildTopKText(FabricBenchmarkFixture fixture, FabricBenchmarkQuestion question)
+    // Small, standard English stopword list. Excluding these from term-frequency scoring keeps
+    // the ranking signal driven by distinctive words (names, codes, values) rather than diluted
+    // by words that appear in almost every segment regardless of topical relevance.
+    private static readonly HashSet<string> _stopwords = new(StringComparer.Ordinal)
+    {
+        "the", "and", "for", "are", "was", "were", "this", "that", "these", "those", "with",
+        "from", "into", "onto", "than", "then", "there", "here", "when", "where", "what",
+        "which", "who", "whom", "whose", "why", "how", "not", "nor", "but", "does", "did",
+        "has", "have", "had", "will", "would", "should", "can", "could", "may", "might",
+        "shall", "must", "its", "his", "her", "their", "our", "your", "you", "she", "him",
+        "they", "them", "been", "being", "any", "all", "each", "some", "such", "own", "same",
+    };
+
+    // Cache the corpus-wide document-frequency table per CorpusId so it is computed once, not
+    // once per question — the corpus is constant across all 120 questions in a single B2 run.
+    private readonly Dictionary<string, IReadOnlyDictionary<string, int>> _documentFrequencyCache = new();
+
+    private IReadOnlyDictionary<string, int> GetOrBuildDocumentFrequency(FabricCorpus corpus)
+    {
+        if (_documentFrequencyCache.TryGetValue(corpus.CorpusId, out var cached))
+            return cached;
+
+        var df = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var segment in corpus.Segments)
+            foreach (var term in Tokenize(segment.Text))
+                df[term] = df.GetValueOrDefault(term) + 1;
+
+        _documentFrequencyCache[corpus.CorpusId] = df;
+        return df;
+    }
+
+    /// <summary>
+    /// Conventional top-k RAG: score every segment by inverse-document-frequency-weighted term
+    /// overlap with the question (rare, distinctive terms count for more than common words), then
+    /// greedily take ranked segments — as many as fit the same finite-context budget B1 uses —
+    /// rather than a fixed segment count. A fixed count structurally cannot answer questions whose
+    /// evidence spans more segments than that count, regardless of how good the ranking is; filling
+    /// the actual budget gives this baseline a fair chance at multi-segment questions.
+    /// Internal (not private) so unit tests can exercise the selection logic directly without a
+    /// live model runtime.
+    /// </summary>
+    internal string BuildTopKText(FabricBenchmarkFixture fixture, FabricBenchmarkQuestion question)
     {
         var terms = Tokenize(question.Question);
-        var ranked = fixture.Corpus.Segments
-            .OrderByDescending(segment => Tokenize(segment.Text).Count(terms.Contains))
-            .ThenBy(segment => segment.Ordinal)
-            .Take(4)
-            .OrderBy(segment => segment.Ordinal);
-        return string.Join("\n\n", ranked.Select(segment => segment.Text));
+        terms.ExceptWith(_stopwords);
+        if (terms.Count == 0)
+            return "";
+
+        var documentFrequency = GetOrBuildDocumentFrequency(fixture.Corpus);
+        var budget = ComputeBudget(question);
+        if (budget <= 0)
+            return "";
+
+        var scored = fixture.Corpus.Segments
+            .Select(segment =>
+            {
+                var segmentTerms = Tokenize(segment.Text);
+                var score = terms.Where(segmentTerms.Contains)
+                    .Sum(term => 1.0 / documentFrequency.GetValueOrDefault(term, 1));
+                return (segment, score);
+            })
+            .Where(pair => pair.score > 0)
+            .OrderByDescending(pair => pair.score)
+            .ThenBy(pair => pair.segment.Ordinal);
+
+        var selected = new List<FabricSegment>();
+        var usedTokens = 0;
+        foreach (var (segment, _) in scored)
+        {
+            if (usedTokens + segment.EstimatedTokens > budget)
+                continue; // skip, but keep checking lower-ranked (shorter) segments that might still fit
+            selected.Add(segment);
+            usedTokens += segment.EstimatedTokens;
+        }
+
+        return string.Join("\n\n", selected.OrderBy(segment => segment.Ordinal).Select(segment => segment.Text));
     }
+
+    private int ComputeBudget(FabricBenchmarkQuestion question) =>
+        // Reserve room for the JSON envelope, system prompt, and the response itself.
+        _options.ContextBudget.ContextLimit
+            - _options.AnswerMaxTokens
+            - ContextManager.EstimateTokens(question.Question)
+            - 512;
 
     private string TruncateToBudget(string text, FabricBenchmarkQuestion question)
     {
         // Reserve room for the JSON envelope, system prompt, and the response itself; everything
         // beyond the front of the source is dropped — that IS the finite-context floor being measured.
-        var budget = _options.ContextBudget.ContextLimit
-            - _options.AnswerMaxTokens
-            - ContextManager.EstimateTokens(question.Question)
-            - 512;
+        var budget = ComputeBudget(question);
         if (budget <= 0)
             return "";
         while (text.Length > 0 && ContextManager.EstimateTokens(text) > budget)
