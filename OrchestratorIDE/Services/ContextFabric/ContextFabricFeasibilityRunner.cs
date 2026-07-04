@@ -11,6 +11,14 @@ namespace OrchestratorIDE.Services.ContextFabric;
 public sealed class ContextFabricFeasibilityRunner
 {
     private const int MaxRawOutputExcerptChars = 400;
+
+    // Matches EvidenceTokenSafetyMargin (kept as a local constant rather than
+    // a cross-project reference -- EvidencePackBuilder.cs isn't compiled into
+    // OrchestratorIDE.NativeRuntime). ContextManager.EstimateTokens (chars/4) under-counts
+    // token-dense, JSON-structured evidence prompts; this file's two token-budget gates were
+    // found unmargined during the NoKvSlot investigation (docs/CONTEXT_FABRIC_TEST_HARNESS.md §7)
+    // -- a real contributor to prompts silently exceeding the native KV pool.
+    private const double EvidenceTokenSafetyMargin = 1.15;
     private readonly IRoleRuntime _runtime;
     private readonly FabricRunOptions _options;
 
@@ -693,7 +701,11 @@ public sealed class ContextFabricFeasibilityRunner
                 question.Question,
                 root?.Summary ?? "",
                 projected);
-            var projectedTokens = ContextManager.EstimateTokens(FabricJson.Serialize(input));
+            // Margin-adjusted for the same under-counting reason as InvokeAsync's gate above --
+            // this was previously the one unmargined check on the live NoKvSlot crash path
+            // (EvidencePackBuilder, a separate class, already applied this margin).
+            var projectedTokens = (int)Math.Ceiling(
+                ContextManager.EstimateTokens(FabricJson.Serialize(input)) * EvidenceTokenSafetyMargin);
             if (projectedTokens > _options.ContextBudget.EvidenceLimit)
                 continue;
             evidence.Add(candidate);
@@ -852,10 +864,16 @@ public sealed class ContextFabricFeasibilityRunner
         int maxTokens,
         CancellationToken ct)
     {
-        var promptTokens = messages.Sum(message => ContextManager.EstimateTokens(message.Content));
+        // EstimateTokens is a crude chars/4 heuristic (ContextManager.cs) that under-counts
+        // token-dense text such as this evidence-heavy, JSON-structured prompt. Applying the
+        // same safety margin EvidencePackBuilder already uses (EvidenceTokenSafetyMargin) so
+        // this gate can't silently pass a prompt that actually overflows the native KV pool --
+        // root-caused as a real contributor to NoKvSlot crashes (docs/CONTEXT_FABRIC_TEST_HARNESS.md §7).
+        var promptTokens = (int)Math.Ceiling(
+            messages.Sum(message => ContextManager.EstimateTokens(message.Content)) * EvidenceTokenSafetyMargin);
         if (promptTokens + maxTokens > _options.ContextBudget.ContextLimit)
             throw new FabricContextBudgetExceededException(
-                $"{stage}/{itemId} requires up to {promptTokens + maxTokens} tokens, exceeding {_options.ContextBudget.ContextLimit}.");
+                $"{stage}/{itemId} requires up to {promptTokens + maxTokens} tokens (margin-adjusted), exceeding {_options.ContextBudget.ContextLimit}.");
 
         var stopwatch = Stopwatch.StartNew();
         var output = new StringBuilder();

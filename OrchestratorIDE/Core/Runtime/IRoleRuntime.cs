@@ -316,9 +316,25 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
     private static async Task InferUntilReadyAsync(LLama.Batched.Conversation conversation, CancellationToken ct)
     {
         var passes = 0;
+        var noKvSlotRetries = 0;
         while (conversation.RequiresInference)
         {
             var result = await conversation.Executor.Infer(ct).ConfigureAwait(false);
+            if (result == DecodeResult.NoKvSlot)
+            {
+                // LLamaSharp documents this as retryable (BatchedExecutor.Infer requeues the
+                // batch internally rather than consuming it): "there is not enough memory for
+                // inference, try disposing some conversation threads and running inference
+                // again." A few cells may free up as other conversations finish disposing --
+                // give that a bounded chance before failing hard. This is defense-in-depth only;
+                // it cannot rescue a conversation whose own prompt alone overflows the KV pool
+                // (see docs/CONTEXT_FABRIC_TEST_HARNESS.md §7).
+                if (++noKvSlotRetries > 8)
+                    throw new InvalidOperationException(
+                        $"Native inference failed while draining a prompt batch: {result} (gave up after {noKvSlotRetries} retries).");
+                await Task.Delay(TimeSpan.FromMilliseconds(50 * noKvSlotRetries), ct).ConfigureAwait(false);
+                continue;
+            }
             if (result != DecodeResult.Ok)
                 throw new InvalidOperationException($"Native inference failed while draining a prompt batch: {result}.");
             if (++passes > 1024)

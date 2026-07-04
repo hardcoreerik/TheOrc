@@ -219,6 +219,13 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             {
                 ContextSize   = (uint)_options.ContextLength,
                 GpuLayerCount = _options.GpuLayers,
+                // Native default is true, which forces sliding-window-attention layers to
+                // reserve a full-context KV cache instead of a window-sized one -- on
+                // Gemma-3-class architectures (40/48 layers are SWA) that inflates the KV
+                // pool ~6x for no accuracy benefit, since SWA layers only ever attend within
+                // their window regardless of how much cache is reserved. Root-caused during
+                // the NoKvSlot investigation (docs/CONTEXT_FABRIC_TEST_HARNESS.md §7).
+                SwaFull = false,
             };
 
             if (!string.IsNullOrEmpty(adapterPath))
