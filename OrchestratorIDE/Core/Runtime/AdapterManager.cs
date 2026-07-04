@@ -53,44 +53,13 @@ public sealed class AdapterManager : IAsyncDisposable
     // live on the first 1.8M-token unattended benchmark run, at exactly the 257th reader
     // conversation (~45 min in). Recycle the role's executor at a safe idle point well before
     // the cap; rebuilding costs one context allocation, not a weights reload.
-    //
-    // This threshold bounds sequence-ID *count*, not KV-cache *memory* — a distinct exhaustion
-    // mode that shares the same "disposed conversations aren't reclaimed" root cause. The
-    // 2026-07-04 CF-7 gate run hit native NoKvSlot decode failures (docs/CONTEXT_FABRIC_TEST_HARNESS.md
-    // §7) well under the old threshold of 128, because BuildEvidencePack's uncapped evidence
-    // packs (up to ~26 segments/6.3K tokens per question, versus 1-4 before) consume far more of
-    // the shared KV pool per conversation than this threshold was calibrated for. Lowered as a
-    // conservative stopgap pending a real fix (recycling by cumulative prompt tokens instead of
-    // conversation count, which is what actually correlates with KV-cache pressure now that
-    // evidence-pack size varies per question). Do not raise this back toward 128 until that
-    // token-based recycle trigger lands and is validated against a full gate run.
-    internal const int SequenceRecycleThreshold = 24;
+    internal const int SequenceRecycleThreshold = 128;
 
     // Absolute refusal point: if outstanding conversations have kept the executor from recycling
     // and it is now approaching the native slot cap, minting another conversation would trade a
     // recoverable managed exception for a process-killing native assert. Below 256 so the throw
     // always wins the race against the assert.
     internal const int SequenceHardLimit = 240;
-
-    // Opt-in, zero-cost-by-default diagnostic for the open KV-cache exhaustion investigation
-    // (docs/CONTEXT_FABRIC_TEST_HARNESS.md §7): a threshold change alone was tried and had no
-    // measurable effect on the failure trace, so the next step is confirming or ruling out
-    // whether ActiveCount is ever actually reaching zero (which would explain why recycling
-    // never engages regardless of the threshold value). Set THEORC_KVCACHE_DIAGNOSTICS=1 to
-    // print one line per recycle-eligibility check to stderr; unset, this is a single cached
-    // bool read with no other behavior change.
-    private static readonly bool s_kvDiagnosticsEnabled =
-        Environment.GetEnvironmentVariable("THEORC_KVCACHE_DIAGNOSTICS") == "1";
-
-    private static void LogKvDiagnostic(string message)
-    {
-        if (s_kvDiagnosticsEnabled)
-            // stdout, not stderr: Run-CF7GateExpanded.ps1 pipes the benchmark exe through
-            // `2>&1 | Tee-Object`, and PowerShell treats any native-process stderr output as a
-            // NativeCommandError under $ErrorActionPreference = 'Stop', aborting the whole run
-            // after the first diagnostic line (observed directly — fixed same session).
-            Console.WriteLine($"[KvCacheDiag] {message}");
-    }
 
     public AdapterManager(LLamaSharpRuntime runtime) =>
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
@@ -144,16 +113,9 @@ public sealed class AdapterManager : IAsyncDisposable
                             $"while {existing.ActiveCount} conversation(s) remain active, so it cannot " +
                             "recycle and is about to exhaust the native sequence-slot cap. Dispose " +
                             "outstanding conversations for this role and retry.");
-                    LogKvDiagnostic(
-                        $"role={binding.Role} served-without-recycle minted={minted} " +
-                        $"activeCount={existing.ActiveCount} threshold={SequenceRecycleThreshold} " +
-                        $"reason={(minted < SequenceRecycleThreshold ? "under-threshold" : "active-conversations-outstanding")}");
                     return existing.CreateTrackedConversation();
                 }
 
-                LogKvDiagnostic(
-                    $"role={binding.Role} RECYCLING minted={minted} activeCount={existing.ActiveCount} " +
-                    $"threshold={SequenceRecycleThreshold}");
                 _entries.Remove(binding.Role);
                 // Best-effort, same contract as the stale-binding teardown below: the entry is
                 // already untracked, so a disposal fault must not block the replacement build.

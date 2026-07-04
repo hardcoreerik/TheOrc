@@ -34,11 +34,10 @@ public sealed class InstallOrchestrator : IDisposable
 
     // ── State ─────────────────────────────────────────────────────────────────
 
-    private readonly InstallerState               _state;
-    private readonly InstallerViewModel            _vm;
-    private readonly DownloadService               _dl;
-    private readonly ZipExtractService             _zip;
-    private readonly CudaRedistributableInstaller  _cudaRedist;
+    private readonly InstallerState     _state;
+    private readonly InstallerViewModel _vm;
+    private readonly DownloadService    _dl;
+    private readonly ZipExtractService  _zip;
 
     private int    _totalSteps;
     private int    _stepsDone;
@@ -46,12 +45,10 @@ public sealed class InstallOrchestrator : IDisposable
 
     public InstallOrchestrator(InstallerViewModel vm)
     {
-        _vm         = vm;
-        _state      = vm.State;
-        _dl         = new DownloadService();
-        _zip        = new ZipExtractService();
-        _cudaRedist = new CudaRedistributableInstaller(_dl, _zip);
-        _cudaRedist.OnLog += msg => Log($"  {msg}");
+        _vm    = vm;
+        _state = vm.State;
+        _dl    = new DownloadService();
+        _zip   = new ZipExtractService();
 
         _dl.OnProgress += p =>
         {
@@ -60,26 +57,6 @@ public sealed class InstallOrchestrator : IDisposable
                 Log($"  ✓ {p.ItemName} — {p.TotalDisplay}");
         };
     }
-
-    /// <summary>
-    /// True only when this install actually needs OrchestratorIDE's in-process cuda12 backend
-    /// working -- an NVIDIA GPU was detected AND we're installing on Windows (the only OS the
-    /// packaged cuda12 backend and NVIDIA's redistributable feed both target). Gates the new
-    /// step so AMD/Intel/CPU-only/macOS/Linux installs never pay for a download they can't use.
-    /// </summary>
-    private bool NeedsCudaRedistributables =>
-        OperatingSystem.IsWindows() && _state.DetectedGpuVendor == "nvidia";
-
-    /// <summary>
-    /// Must match OrchestratorIDE.Core.Runtime.NativeBackendBootstrap.StableRedistDir exactly --
-    /// this project deliberately does not reference OrchestratorIDE.NativeRuntime (no LLamaSharp
-    /// dependency in the installer), so the path is duplicated here rather than shared via a
-    /// project reference. See that class's own doc comment for why this location (outside any
-    /// app-install or self-extraction directory) was chosen.
-    /// </summary>
-    private static readonly string StableCudaRedistDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "TheOrc", "CudaRedist");
 
     // ── Main entry point ──────────────────────────────────────────────────────
 
@@ -255,24 +232,6 @@ public sealed class InstallOrchestrator : IDisposable
             else
             {
                 Log("⚠ App download URL not found in manifest — exe must be placed manually.");
-            }
-
-            // ── CUDA runtime redistributables (in-process backend, NVIDIA only) ─
-            // Independent of the Ollama/llama.cpp backend choice below -- this is specifically
-            // for OrchestratorIDE.exe's own in-process LLamaSharp cuda12 backend (Context
-            // Fabric and other native-runtime features), which needs cudart64_12.dll/
-            // cublas64_12.dll/cublasLt64_12.dll regardless of which external inference backend
-            // the user also sets up. Non-fatal: a failure here disables CUDA acceleration for
-            // the in-process backend only (it falls back to CPU) and does not abort the
-            // install, matching how model download failures are already handled below.
-            if (NeedsCudaRedistributables)
-            {
-                await Step("Fetching CUDA runtime redistributables", async () =>
-                {
-                    var ok = await _cudaRedist.InstallAsync(StableCudaRedistDir, ct);
-                    if (!ok)
-                        Log("  ⚠ CUDA redistributables unavailable — in-process native features will use CPU.");
-                }, ct);
             }
 
             // ── Backend-specific steps ─────────────────────────────────────
@@ -535,9 +494,6 @@ public sealed class InstallOrchestrator : IDisposable
         // once that branch was wrapped in its own Step too (Grok CLI MINOR, 2026-06-21).
         if (File.Exists(_state.PortableAppExePath) || !string.IsNullOrEmpty(_state.AppDownloadUrl))
             n += 1;
-
-        if (NeedsCudaRedistributables)
-            n += 1;  // Fetching CUDA runtime redistributables
 
         if (_state.InstallOllama)
         {

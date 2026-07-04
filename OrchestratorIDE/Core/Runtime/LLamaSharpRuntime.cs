@@ -201,9 +201,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     {
         // Pin backend selection (CUDA preference on driver-only machines) before the first
         // NativeApi touch. Idempotent — callers that already surfaced the report pay nothing.
-        // Captured (not discarded) so a load failure below can report exactly what the backend
-        // pre-flight found/tried, instead of only the generic NativeApi TypeInitializationException.
-        var backendReport = NativeBackendBootstrap.EnsureConfigured();
+        NativeBackendBootstrap.EnsureConfigured();
 
         await DisposeAsync();  // unload previous model
 
@@ -250,15 +248,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         }
         catch (Exception ex)
         {
-            // Append the backend-selection report (CUDA-driver detection, cuda12 DLL pre-flight
-            // results, which backend was actually selected) — it was already computed above and
-            // previously discarded. On a native-load failure this is exactly the detail needed
-            // to tell "no CUDA-capable driver" from "packaged cuda12 DLL chain rejected" from
-            // "selection succeeded but the real load still failed anyway".
-            var backendDetail = $"backend: {backendReport.Verdict}" +
-                (backendReport.Log.Count > 0 ? $" [{string.Join("; ", backendReport.Log)}]" : "");
-            return new ModelLoadResult(false, RuntimeName, baseGgufPath,
-                $"{FormatLoadFailure(ex)} | {backendDetail}");
+            return new ModelLoadResult(false, RuntimeName, baseGgufPath, FormatLoadFailure(ex));
         }
     }
 
@@ -395,16 +385,11 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
 
     private static string FormatLoadFailure(Exception ex)
     {
-        // Walk the FULL chain, not just one level. A TypeInitializationException's
-        // InnerException is often itself a wrapper (e.g. LLamaSharp's RuntimeError) with its
-        // own InnerException carrying the actual root cause — truncating at one level silently
-        // dropped exactly the detail needed to diagnose a native-library load failure (observed
-        // 2026-07-04 on HARDCOREPC: every failure showed only "RuntimeError: Failed to load the
-        // native library. Please check the log for more information." with the real reason cut off).
-        var parts = new List<string>();
-        for (var current = ex; current is not null; current = current.InnerException)
-            parts.Add($"{current.GetType().Name}: {current.Message}");
-        return string.Join(" | Inner: ", parts);
+        var message = $"{ex.GetType().Name}: {ex.Message}";
+        if (ex.InnerException is null)
+            return message;
+
+        return $"{message} | Inner: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}";
     }
 
     private static List<ToolCall> ParseToolCalls(string text) => ToolCallTextParser.Parse(text);

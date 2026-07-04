@@ -1,52 +1,9 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Runtime.InteropServices;
-using LLama.Abstractions;
 using LLama.Native;
 
 namespace OrchestratorIDE.Core.Runtime;
-
-/// <summary>
-/// Overrides LLamaSharp's own CUDA-candidate construction so it always falls back to the
-/// packaged cuda12 backend (then cuda11) instead of only trying a folder matching whatever
-/// CUDA *toolkit* version <see cref="SystemInfo.CudaMajorVersion"/> happens to detect via
-/// CUDA_PATH/version.json.
-///
-/// Why this exists: <c>NativeLibraryWithCuda.Prepare</c> only takes the "try cuda12, then
-/// cuda11" fallback path when its majorCudaVersion is exactly -1 (the driver-only, no-toolkit
-/// case this fleet was built around — see <see cref="NativeBackendBootstrap"/>'s own class
-/// doc). When a real CUDA toolkit is installed, LLamaSharp's toolkit detection succeeds and
-/// returns that toolkit's major version instead, and the class then ONLY tries that one exact
-/// version's folder with no fallback at all. We only ever ship a cuda12 backend, so a machine
-/// with e.g. CUDA 13.3 installed (toolkit present, but only for other work — the driver alone
-/// is sufficient for a statically-linked cuda12 backend) ends up trying a nonexistent cuda13
-/// folder and failing outright, even though the working cuda12 folder is sitting right there.
-/// Confirmed live on HARDCOREPC (RTX 3050, driver-only originally; installing the CUDA 13.3
-/// SDK the same night broke native library loading entirely — LLamaSharp's own log showed it
-/// trying "runtimes\win-x64\native\cuda13\ggml-base.dll" and failing, never attempting cuda12).
-///
-/// Forcing majorCudaVersion back to -1 for CUDA candidates makes toolkit version irrelevant —
-/// exactly the "no user interaction, works regardless of what's installed" behavior wanted.
-/// If a genuine cuda13 (or other version) backend is ever packaged, extend this policy to try
-/// it first and fall back to cuda12, rather than relying on LLamaSharp's toolkit sniffing.
-/// </summary>
-internal sealed class Cuda12FallbackSelectingPolicy : INativeLibrarySelectingPolicy
-{
-    private readonly DefaultNativeLibrarySelectingPolicy _default = new();
-
-    public IEnumerable<INativeLibrary> Apply(
-        NativeLibraryConfig.Description description,
-        SystemInfo systemInfo,
-        NativeLogConfig.LLamaLogCallback? logCallback = null)
-    {
-        foreach (var library in _default.Apply(description, systemInfo, logCallback))
-        {
-            yield return library is NativeLibraryWithCuda
-                ? new NativeLibraryWithCuda(-1, description.Library, description.AvxLevel, description.SkipCheck)
-                : library;
-        }
-    }
-}
 
 /// <summary>
 /// Result of the one-time native backend selection. <see cref="SelectedCuda"/> false while
@@ -89,17 +46,6 @@ public sealed record NativeBackendReport(
 /// </summary>
 public static class NativeBackendBootstrap
 {
-    // Must match OrchestratorSetup/Services/CudaRedistributableInstaller.cs's install target
-    // exactly -- the two projects don't reference each other (the installer stays lightweight,
-    // no LLamaSharp dependency), so this path is duplicated by design, not shared code. Outside
-    // any app-install or self-extraction directory on purpose: the installer runs before the
-    // app has ever launched once, so it cannot predict where a self-extracting single-file
-    // bundle will land its own temp extraction dir, and %LOCALAPPDATA% is guaranteed
-    // per-user-writable without elevation, unlike Program Files-style install locations.
-    public static readonly string StableRedistDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "TheOrc", "CudaRedist");
-
     private static readonly object Gate = new();
     private static NativeBackendReport? _report;
     private static Action<string>? _ongoingSink;
@@ -146,9 +92,7 @@ public static class NativeBackendBootstrap
                     });
 
                 if (forceCuda)
-                    NativeLibraryConfig.All
-                        .WithCuda(true).SkipCheck(true).WithAutoFallback(false)
-                        .WithSelectingPolicy(new Cuda12FallbackSelectingPolicy());
+                    NativeLibraryConfig.All.WithCuda(true).SkipCheck(true).WithAutoFallback(false);
                 else
                     NativeLibraryConfig.All.WithAutoFallback(true);
             }
@@ -236,33 +180,6 @@ public static class NativeBackendBootstrap
         {
             log.Add($"cuda12 backend directory not packaged ({cudaDir}) — not forcing CUDA.");
             return false;
-        }
-
-        // The three CUDA runtime redistributables (cudart64_12/cublas64_12/cublasLt64_12) are
-        // not part of LLamaSharp.Backend.Cuda12.Windows's own NuGet content -- see this
-        // project's csproj comment on TheOrcCudaRedistDir. A published app bundle only has them
-        // in cudaDir if the machine that ran `dotnet publish` had a CUDA Toolkit (build-time
-        // fix landed 2026-07-04 in Tools/Get-CudaRedistributables.ps1 for the release CI
-        // build). For an *installed* app, OrchestratorSetup's CudaRedistributableInstaller
-        // fetches the same three files (from NVIDIA's own official redistributable feed) into
-        // StableRedistDir at install time instead -- a location outside wherever this
-        // single-file bundle's own self-extraction happens to land, which an installer running
-        // before the app has ever launched cannot predict or write into. Pre-loading them here
-        // from an absolute path (Windows-only; Linux never hits this branch, see the
-        // RID switch above) works regardless of which of the two directories actually has them:
-        // once a DLL is loaded into the process under a given name, any other code's later load
-        // of that same name (here, ggml-cuda.dll's own import of cudart64_12.dll) resolves to
-        // the already-loaded module, not wherever ggml-cuda.dll's own directory-relative search
-        // would have looked. A miss in both locations is not fatal here -- ggml-cuda.dll's own
-        // load attempt below will fail with a clear reason if these are genuinely unavailable.
-        foreach (var redist in new[] { "cudart64_12.dll", "cublas64_12.dll", "cublasLt64_12.dll" })
-        {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) &&
-                !File.Exists(Path.Combine(cudaDir, redist)) &&
-                File.Exists(Path.Combine(StableRedistDir, redist)))
-            {
-                TryLoadFrom(StableRedistDir, redist, log);
-            }
         }
 
         if (!TryLoadFrom(cudaDir, $"{prefix}ggml-base{ext}", log))

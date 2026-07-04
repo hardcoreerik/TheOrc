@@ -101,12 +101,6 @@ The `systems` array must include B0 through B4. Missing artifacts are explicit `
 
 The initial CF-7 slice may emit a `NO-GO` report with only B3 plus diagnostics populated. That is valid progress: it freezes the report shape and prevents partial benchmark evidence from being mistaken for an architecture pass.
 
-For a full walkthrough of how an answer gets built and graded — evidence
-selection, JSON recovery, verification rules, and the known residual risks in
-each — see [CONTEXT_FABRIC_TEST_HARNESS.md](CONTEXT_FABRIC_TEST_HARNESS.md).
-That document exists specifically so the scoring logic can be reviewed
-independently of any one run's result.
-
 ### Re-Running The Expanded 120-Question Gate
 
 [`Tools/ContextFabricBench/Run-CF7GateExpanded.ps1`](../Tools/ContextFabricBench/Run-CF7GateExpanded.ps1)

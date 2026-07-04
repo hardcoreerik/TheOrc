@@ -85,13 +85,6 @@ adversarial-review context and may contain deeper implementation notes.
   the gate sits in the run lifecycle and how Off/Advisory/Gated modes behave
 - [REVIEWER_ADAPTER_GUIDE.md](REVIEWER_ADAPTER_GUIDE.md) — plan to train a local reviewer model
   (**parked** since 2026-06-13; see [reviewer-adapter/00-index.md](reviewer-adapter/00-index.md))
-- [CONTEXT_FABRIC_TEST_HARNESS.md](CONTEXT_FABRIC_TEST_HARNESS.md) — how the CF-7 benchmark grades
-  answers: evidence selection, JSON recovery, verification rules, and known residual risks, kept
-  independent of any single run's result so the scoring logic itself can be reviewed
-- [CONTEXT_FABRIC_BENCHMARK_MANIFEST.md](CONTEXT_FABRIC_BENCHMARK_MANIFEST.md) — pinned fixture
-  manifest shape and the CF-7 gate report schema, plus the re-run recipe
-- [CONTEXT_FABRIC_BENCHMARK_CORPUS.md](CONTEXT_FABRIC_BENCHMARK_CORPUS.md) — public benchmark shelf,
-  private/licensed corpus rules, phase-to-corpus mapping
 
 ---
 
