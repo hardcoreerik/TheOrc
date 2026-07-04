@@ -768,8 +768,13 @@ public sealed class ContextFabricFeasibilityRunner
             ? termsPresentInCorpus.Where(term => documentFrequency[term] == minDocumentFrequency).ToHashSet(StringComparer.Ordinal)
             : terms;
 
+        var segmentsById = corpus.Segments.ToDictionary(segment => segment.SegmentId, StringComparer.Ordinal);
         var selected = cards
-            .OrderBy(card => corpus.Segments.First(segment => segment.SegmentId == card.SegmentId).Ordinal)
+            // Cards for a segment absent from this corpus can't be ordered or cited -- skip rather
+            // than throw. RunAsync's real call path always keeps cards and corpus in sync; this
+            // guard only matters because BuildExhaustiveAnswer is internal for direct unit testing.
+            .Where(card => segmentsById.ContainsKey(card.SegmentId))
+            .OrderBy(card => segmentsById[card.SegmentId].Ordinal)
             .Select(card => new
             {
                 Card = card,
@@ -980,9 +985,6 @@ public sealed class ContextFabricFeasibilityRunner
         ];
     }
 
-    private static int Score(FabricEvidenceCard card, HashSet<string> terms) =>
-        Tokenize(CardHaystack(card)).Count(terms.Contains);
-
     private static string CardHaystack(FabricEvidenceCard card) =>
         string.Join(' ', card.Claims.Select(claim => claim.Text).Prepend(card.Summary));
 
@@ -1036,12 +1038,7 @@ public sealed class ContextFabricFeasibilityRunner
     /// leaving scoring unable to tell them apart at all. "_scoringStopwords" adds back the common
     /// 2-letter English words ("is", "at", "to", ...) that this lower threshold now admits.
     /// </summary>
-    private static HashSet<string> TokenizeForScoring(string value) => value
-        .Split([' ', '\t', '\r', '\n', '.', ',', ':', ';', '?', '!', '\'', '"', '(', ')', '-', '/'],
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-        .Where(token => token.Length >= 2)
-        .Select(token => token.ToLowerInvariant())
-        .ToHashSet(StringComparer.Ordinal);
+    private static HashSet<string> TokenizeForScoring(string value) => TokenizeWithMinLength(value, 2);
 
     private static string[] GetEvidenceLines(string text) => text
         .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
@@ -1049,10 +1046,12 @@ public sealed class ContextFabricFeasibilityRunner
         .Select(line => line["EVIDENCE:".Length..].Trim())
         .ToArray();
 
-    private static HashSet<string> Tokenize(string value) => value
+    private static HashSet<string> Tokenize(string value) => TokenizeWithMinLength(value, 3);
+
+    private static HashSet<string> TokenizeWithMinLength(string value, int minLength) => value
         .Split([' ', '\t', '\r', '\n', '.', ',', ':', ';', '?', '!', '\'', '"', '(', ')', '-', '/'],
             StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-        .Where(token => token.Length >= 3)
+        .Where(token => token.Length >= minLength)
         .Select(token => token.ToLowerInvariant())
         .ToHashSet(StringComparer.Ordinal);
 
