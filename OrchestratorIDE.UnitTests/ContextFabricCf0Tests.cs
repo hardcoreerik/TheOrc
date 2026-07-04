@@ -243,6 +243,59 @@ public sealed class ContextFabricCf0Tests
     }
 
     [Test]
+    public void JsonParser_SanitizesUnescapedInnerQuotes()
+    {
+        // Reproduces the exact CF-7 HARDCOREPC smoke2 B0 failure (local-fact-008): the model
+        // quoted a term ("Chapter Alpha") inline inside the answer string without escaping it,
+        // which otherwise truncates the JSON string at the first embedded quote and corrupts
+        // everything after it ("'C' is invalid after a value...").
+        var parsed = FabricJson.ParseModelObject<FabricAnswerDraft>(
+            "{\"schemaVersion\":\"cf0-answer-1.0\",\"answer\":\"I do not have information regarding a " +
+            "\"Chapter Alpha\" or its reported base reading.\",\"abstained\":true,\"claims\":[]}");
+
+        Assert.That(parsed.Answer, Is.EqualTo(
+            "I do not have information regarding a \"Chapter Alpha\" or its reported base reading."));
+        Assert.That(parsed.Abstained, Is.True);
+    }
+
+    [Test]
+    public void JsonParser_TrySanitizeUnescapedQuotes_ReturnsNullWhenNothingChanged()
+    {
+        // If the input JSON is already clean, the sanitizer must return null (no copy allocated).
+        var clean = "{\"schemaVersion\":\"cf0-answer-1.0\",\"answer\":\"ok\",\"abstained\":false,\"claims\":[]}";
+        Assert.That(FabricJson.TrySanitizeUnescapedQuotes(clean), Is.Null);
+    }
+
+    [Test]
+    public void JsonParser_SanitizesUnescapedQuoteFollowedByColon_InValueString()
+    {
+        // CodeRabbit PR #37 finding: a colon is only a real string terminator for object *keys*.
+        // A value can legitimately contain a quoted term immediately followed by a colon (e.g.
+        // "...called it "Chapter Alpha": a fitting name..."); treating every in-string quote
+        // followed by ':' as a terminator would wrongly cut the value there.
+        var parsed = FabricJson.ParseModelObject<FabricAnswerDraft>(
+            "{\"schemaVersion\":\"cf0-answer-1.0\",\"answer\":\"The crew called it " +
+            "\"Chapter Alpha\": a fitting name.\",\"abstained\":false,\"claims\":[]}");
+
+        Assert.That(parsed.Answer, Is.EqualTo(
+            "The crew called it \"Chapter Alpha\": a fitting name."));
+    }
+
+    [Test]
+    public void JsonParser_SanitizesUnescapedQuote_CombinedWithKeywordSuffixArtifact()
+    {
+        // CodeRabbit PR #37 finding: quote repair and keyword-suffix repair must both be
+        // attempted regardless of which artifact appears first, since a single response can
+        // carry both (an unescaped inner quote plus a keyword run into the next token).
+        var parsed = FabricJson.ParseModelObject<FabricAnswerDraft>(
+            "{\"schemaVersion\":\"cf0-answer-1.0\",\"answer\":\"I found " +
+            "\"Chapter Alpha\" in the log.\",\"abstained\":trueX,\"claims\":[]}");
+
+        Assert.That(parsed.Answer, Is.EqualTo("I found \"Chapter Alpha\" in the log."));
+        Assert.That(parsed.Abstained, Is.True);
+    }
+
+    [Test]
     public void ContextBudget_RejectsImpossibleConfiguration()
     {
         Assert.That(

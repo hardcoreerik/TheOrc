@@ -28,11 +28,14 @@ public static class FabricJson
     private static readonly string[] s_jsonKeywords = ["false", "true", "null"];
 
     /// <summary>
-    /// Extracts and deserializes the first JSON object from raw model output. Applies three
-    /// recovery passes before giving up: (1) lenient parse that tolerates trailing commas and
-    /// inline comments; (2) keyword-suffix sanitization that fixes token-boundary artifacts such
-    /// as "falseC" or "trueX" that models produce when the literal token runs into the next
-    /// word; (3) combined sanitize + lenient parse. Any remaining failure throws JsonException.
+    /// Extracts and deserializes the first JSON object from raw model output. Applies recovery
+    /// passes before giving up: (1) lenient parse that tolerates trailing commas and inline
+    /// comments; (2) keyword-suffix sanitization that fixes token-boundary artifacts such as
+    /// "falseC" or "trueX" that models produce when the literal token runs into the next word;
+    /// (3) unescaped-quote sanitization that fixes models quoting a term (e.g. "Chapter Alpha")
+    /// inside a string value without escaping it, which otherwise truncates the string at the
+    /// first embedded quote; (4) combinations of the above. Any remaining failure throws
+    /// JsonException.
     /// </summary>
     public static T ParseModelObject<T>(string output)
     {
@@ -49,19 +52,45 @@ public static class FabricJson
         if (TryDeserialize<T>(json, s_lenientOptions, out result))
             return result;
 
-        // Strip keyword-suffix artifacts ("falseC" → "false", "trueX" → "true") and retry
-        var sanitized = TrySanitizeLiteralSuffixes(json);
-        if (sanitized is not null)
+        // Strip keyword-suffix artifacts ("falseC" → "false", "trueX" → "true") and/or escape
+        // unescaped inner quotes ("Chapter Alpha" written without \"), and retry. A single
+        // response can carry either artifact alone or both at once, and each repair pass can only
+        // recognize its own artifact correctly when the other has already been fixed (e.g. the
+        // quote repair's string-boundary tracking gets confused by a stray keyword token, and vice
+        // versa), so both orders are attempted on the raw (unvalidated) intermediate text before
+        // the final deserialize attempt actually validates it.
+        var (keywordFixed, keywordChanged) = SanitizeLiteralSuffixesRaw(json);
+        var (quoteFixed, quoteChanged) = SanitizeUnescapedQuotesRaw(json);
+
+        if (keywordChanged && TryDeserializeEither<T>(keywordFixed, out result))
+            return result;
+        if (quoteChanged && TryDeserializeEither<T>(quoteFixed, out result))
+            return result;
+
+        if (keywordChanged)
         {
-            if (TryDeserialize<T>(sanitized, Options, out result))
+            var (keywordThenQuote, changedFurther) = SanitizeUnescapedQuotesRaw(keywordFixed);
+            if (changedFurther && TryDeserializeEither<T>(keywordThenQuote, out result))
                 return result;
-            if (TryDeserialize<T>(sanitized, s_lenientOptions, out result))
+        }
+
+        if (quoteChanged)
+        {
+            var (quoteThenKeyword, changedFurther) = SanitizeLiteralSuffixesRaw(quoteFixed);
+            if (changedFurther && TryDeserializeEither<T>(quoteThenKeyword, out result))
                 return result;
         }
 
         throw new JsonException(
             $"Model response could not be parsed as {typeof(T).Name}. " +
             $"Extracted: {json[..Math.Min(json.Length, 200)]}");
+    }
+
+    private static bool TryDeserializeEither<T>(string json, out T result)
+    {
+        if (TryDeserialize(json, Options, out result))
+            return true;
+        return TryDeserialize(json, s_lenientOptions, out result);
     }
 
     public static string Serialize<T>(T value) => JsonSerializer.Serialize(value, Options);
@@ -154,6 +183,25 @@ public static class FabricJson
     /// </summary>
     internal static string? TrySanitizeLiteralSuffixes(string json)
     {
+        var (result, changed) = SanitizeLiteralSuffixesRaw(json);
+        if (!changed) return null;
+
+        try
+        {
+            using var _ = JsonDocument.Parse(result);
+            return result;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    // Core scan for TrySanitizeLiteralSuffixes, without the standalone-validity check, so callers
+    // composing it with another repair pass (see ParseModelObject) can chain both passes before
+    // validating the final result instead of being blocked by an intermediate invalid state.
+    private static (string Text, bool Changed) SanitizeLiteralSuffixesRaw(string json)
+    {
         var sb = new StringBuilder(json.Length);
         var inString = false;
         var escaped = false;
@@ -202,9 +250,25 @@ public static class FabricJson
             sb.Append(ch);
         }
 
+        return (sb.ToString(), changed);
+    }
+
+    /// <summary>
+    /// Walks the JSON and escapes quote characters found inside a string value that are not
+    /// genuine terminators — the artifact where a model quotes a term (e.g. "Chapter Alpha")
+    /// inline without escaping it, which otherwise ends the JSON string at the first embedded
+    /// quote and corrupts everything after it. A quote is treated as a real terminator only when
+    /// the next non-whitespace character confirms it: <c>:</c> for an object-key string (keys are
+    /// always followed by a colon), or <c>,</c> <c>}</c> <c>]</c> or end of input for a value
+    /// string — <c>:</c> is never a value-string terminator, since a value can legitimately
+    /// contain a quoted term immediately followed by a colon. Any other in-string quote is escaped
+    /// instead. Returns null if no change was made or if the result still does not parse as JSON.
+    /// </summary>
+    internal static string? TrySanitizeUnescapedQuotes(string json)
+    {
+        var (result, changed) = SanitizeUnescapedQuotesRaw(json);
         if (!changed) return null;
 
-        var result = sb.ToString();
         try
         {
             using var _ = JsonDocument.Parse(result);
@@ -214,6 +278,106 @@ public static class FabricJson
         {
             return null;
         }
+    }
+
+    // Core scan for TrySanitizeUnescapedQuotes, without the standalone-validity check, so callers
+    // composing it with another repair pass (see ParseModelObject) can chain both passes before
+    // validating the final result instead of being blocked by an intermediate invalid state.
+    private static (string Text, bool Changed) SanitizeUnescapedQuotesRaw(string json)
+    {
+        var sb = new StringBuilder(json.Length + 16);
+        var inString = false;
+        var escaped = false;
+        var changed = false;
+        var isKeyString = false;
+
+        // Tracks, per open container, whether the container is an object ('{') or array ('[')
+        // and — for objects — whether the next string is expected to be a key or a value. Array
+        // elements are always values; object members alternate key, value, key, value, ...
+        var containers = new List<(char Kind, bool ExpectingKey)>();
+
+        for (var i = 0; i < json.Length; i++)
+        {
+            var ch = json[i];
+
+            if (!inString)
+            {
+                if (ch == '"')
+                {
+                    inString = true;
+                    isKeyString = containers.Count > 0
+                        && containers[^1].Kind == '{'
+                        && containers[^1].ExpectingKey;
+                    sb.Append(ch);
+                    continue;
+                }
+
+                switch (ch)
+                {
+                    case '{':
+                        containers.Add(('{', true));
+                        break;
+                    case '[':
+                        containers.Add(('[', false));
+                        break;
+                    case '}':
+                    case ']':
+                        if (containers.Count > 0)
+                            containers.RemoveAt(containers.Count - 1);
+                        break;
+                    case ':' when containers.Count > 0 && containers[^1].Kind == '{':
+                        containers[^1] = ('{', false);
+                        break;
+                    case ',' when containers.Count > 0 && containers[^1].Kind == '{':
+                        containers[^1] = ('{', true);
+                        break;
+                }
+
+                sb.Append(ch);
+                continue;
+            }
+
+            if (escaped)
+            {
+                sb.Append(ch);
+                escaped = false;
+                continue;
+            }
+
+            if (ch == '\\')
+            {
+                sb.Append(ch);
+                escaped = true;
+                continue;
+            }
+
+            if (ch != '"')
+            {
+                sb.Append(ch);
+                continue;
+            }
+
+            var next = i + 1;
+            while (next < json.Length && char.IsWhiteSpace(json[next]))
+                next++;
+            var nextChar = next < json.Length ? json[next] : '\0';
+            var isTerminator = next >= json.Length
+                || (isKeyString && nextChar == ':')
+                || (!isKeyString && nextChar is ',' or '}' or ']');
+
+            if (isTerminator)
+            {
+                sb.Append(ch);
+                inString = false;
+            }
+            else
+            {
+                sb.Append('\\').Append(ch);
+                changed = true;
+            }
+        }
+
+        return (sb.ToString(), changed);
     }
 
     private static string? TryRepairUnterminatedObject(string fragment)
