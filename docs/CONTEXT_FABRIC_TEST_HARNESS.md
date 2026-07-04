@@ -300,15 +300,27 @@ design, but it's moot until whatever is keeping `ActiveCount` from reaching
 zero (if that's really what's happening) is found and fixed; a threshold
 adjustment of any kind cannot help if the recycle branch is never reached.
 
-**Next investigation step (not started):** instrument or step through
+**Next investigation step:** instrument or step through
 `ActiveCount`/`ConversationsCreated` for the shared role executor across a
 run — confirmed via `Program.cs:194` that B0-B3 all share one
 `NativeRoleRuntime`/`AdapterManager` instance for the whole `cf7-gate-expanded`
 suite, so the cumulative-pressure theory itself still holds; what's now in
-question is only why recycling isn't relieving that pressure. This needs
-actual debugging (a debugger attached, or temporary logging inside
-`AdapterManager`), not another guess — two single-constant changes have now
-been tried and evidence suggests the recycle path may not run at all.
+question is only why recycling isn't relieving that pressure. Two
+single-constant changes have now been tried and evidence suggests the recycle
+path may not run at all — that needs actual data, not another guess.
+
+Added an opt-in diagnostic for exactly this (`AdapterManager.cs`, purely
+additive, zero behavior change unless enabled): set
+`THEORC_KVCACHE_DIAGNOSTICS=1` before a run and every recycle-eligibility check
+prints one line to stderr — `role=... served-without-recycle
+minted=... activeCount=... threshold=... reason=under-threshold|
+active-conversations-outstanding` or `role=... RECYCLING minted=...
+activeCount=...`. Grep the next run's console log for
+`reason=active-conversations-outstanding` — if that's the reason on every
+single check (never `under-threshold`), it confirms `ActiveCount` never
+reaches zero and recycling truly never fires, regardless of the threshold.
+This has **not** been run yet — the next full 120-question run should be
+launched with this env var set before drawing further conclusions.
 
 **What this means for reading any prior or future run's B3/B0 numbers:** check
 `verification.errors` in the raw JSON, not just the summary line, before
