@@ -268,21 +268,26 @@ slots...") never appeared in the log — only the native `NoKvSlot` — confirmi
 the existing protection's own counters never tripped even though the native
 pool was already exhausted.
 
-**Recommended fix direction (not yet implemented — needs testing time this
-doesn't have tonight):** recycle based on cumulative *prompt tokens* consumed
-per role's executor, not conversation *count* — token usage is what actually
-correlates with KV-cache pressure now that evidence-pack size varies per
-question instead of being capped. A blind lower `SequenceRecycleThreshold`
-would be a guess without knowing the real memory-per-token relationship for the
-model/context combination in use; a token-budget-based recycle trigger would
-be exact.
+**Stopgap applied 2026-07-04:** `SequenceRecycleThreshold` lowered from 128 to
+24 (`AdapterManager.cs`) — a one-constant, zero-logic-change conservative
+tightening, not the real fix. This bounds how many conversations can
+accumulate uncollected KV-cache pressure before a forced executor rebuild, at
+the cost of more frequent context reallocation. It has **not** been validated
+against a full 120-question run yet (that takes ~2-3 hours; not done as part
+of this stopgap). The real fix — recycle based on cumulative *prompt tokens*
+consumed per role's executor, not conversation *count*, since token usage is
+what actually correlates with KV-cache pressure now that evidence-pack size
+varies per question instead of being capped — is still not implemented. Do not
+raise `SequenceRecycleThreshold` back toward 128 until that token-based trigger
+lands and is validated.
 
 **What this means for reading any prior or future run's B3/B0 numbers:** check
 `verification.errors` in the raw JSON, not just the summary line, before
 trusting a low pass count as a real capability result — grep for `NoKvSlot`
 across `cf0_*.json` and `cf7_baseline_b0_*.json`. If present in more than a
-handful of entries, the run needs to be redone after this is fixed, not
-interpreted as-is.
+handful of entries, the run needs to be redone, not interpreted as-is — even
+after the stopgap above, since it has not yet been confirmed to actually
+prevent the failure at full 120-question scale.
 
 ## 8. Known fleet/environment issues (not scoring-logic bugs)
 
