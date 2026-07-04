@@ -14,14 +14,54 @@ public static class FabricJson
         WriteIndented = false,
     };
 
+    // Recovery-only options: let trailing commas and inline comments through without
+    // rejecting the whole response. Only used when the strict parse fails.
+    private static readonly JsonSerializerOptions s_lenientOptions = new(Options)
+    {
+        AllowTrailingCommas = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
+    };
+
+    // JSON keyword tokens that models sometimes emit with garbage word-characters appended,
+    // e.g. "falseC" (false + first char of the next word) or "trueX". Listed longest-first
+    // so that an exact match is not accidentally trimmed by a shorter prefix.
+    private static readonly string[] s_jsonKeywords = ["false", "true", "null"];
+
+    /// <summary>
+    /// Extracts and deserializes the first JSON object from raw model output. Applies three
+    /// recovery passes before giving up: (1) lenient parse that tolerates trailing commas and
+    /// inline comments; (2) keyword-suffix sanitization that fixes token-boundary artifacts such
+    /// as "falseC" or "trueX" that models produce when the literal token runs into the next
+    /// word; (3) combined sanitize + lenient parse. Any remaining failure throws JsonException.
+    /// </summary>
     public static T ParseModelObject<T>(string output)
     {
         if (string.IsNullOrWhiteSpace(output))
             throw new JsonException("Model returned an empty response.");
 
         var json = ExtractFirstObject(output);
-        return JsonSerializer.Deserialize<T>(json, Options)
-            ?? throw new JsonException($"Model response did not contain a {typeof(T).Name} object.");
+
+        // Fast path: strict parse
+        if (TryDeserialize<T>(json, Options, out var result))
+            return result;
+
+        // Allow trailing commas and inline comments that models sometimes emit
+        if (TryDeserialize<T>(json, s_lenientOptions, out result))
+            return result;
+
+        // Strip keyword-suffix artifacts ("falseC" → "false", "trueX" → "true") and retry
+        var sanitized = TrySanitizeLiteralSuffixes(json);
+        if (sanitized is not null)
+        {
+            if (TryDeserialize<T>(sanitized, Options, out result))
+                return result;
+            if (TryDeserialize<T>(sanitized, s_lenientOptions, out result))
+                return result;
+        }
+
+        throw new JsonException(
+            $"Model response could not be parsed as {typeof(T).Name}. " +
+            $"Extracted: {json[..Math.Min(json.Length, 200)]}");
     }
 
     public static string Serialize<T>(T value) => JsonSerializer.Serialize(value, Options);
@@ -87,6 +127,93 @@ public static class FabricJson
 
         json = "";
         return false;
+    }
+
+    private static bool TryDeserialize<T>(string json, JsonSerializerOptions opts, out T result)
+    {
+        try
+        {
+            var value = JsonSerializer.Deserialize<T>(json, opts);
+            if (value is not null)
+            {
+                result = value;
+                return true;
+            }
+        }
+        catch (JsonException) { }
+        result = default!;
+        return false;
+    }
+
+    /// <summary>
+    /// Walks the JSON character-by-character (correctly skipping over string values) and strips
+    /// word-character suffixes from JSON keyword tokens. This repairs the token-boundary artifact
+    /// where autoregressive models emit e.g. "falseC" (the literal token "false" immediately
+    /// followed by a partial next token starting with "C"). String contents are never modified.
+    /// Returns null if no change was made or if the result still does not parse as JSON.
+    /// </summary>
+    internal static string? TrySanitizeLiteralSuffixes(string json)
+    {
+        var sb = new StringBuilder(json.Length);
+        var inString = false;
+        var escaped = false;
+        var changed = false;
+
+        for (var i = 0; i < json.Length; i++)
+        {
+            var ch = json[i];
+
+            if (inString)
+            {
+                sb.Append(ch);
+                if (escaped) { escaped = false; continue; }
+                if (ch == '\\') { escaped = true; continue; }
+                if (ch == '"') inString = false;
+                continue;
+            }
+
+            if (ch == '"') { inString = true; sb.Append(ch); continue; }
+
+            // Outside strings: scan the full word token and strip any garbage suffix that
+            // starts after a known JSON keyword (false/true/null).
+            if (char.IsLetter(ch))
+            {
+                var wordStart = i;
+                while (i < json.Length && (char.IsLetterOrDigit(json[i]) || json[i] == '_'))
+                    i++;
+                var word = json[wordStart..i];
+                i--; // for-loop will increment
+
+                var clipped = false;
+                foreach (var keyword in s_jsonKeywords)
+                {
+                    if (word.Length > keyword.Length && word.StartsWith(keyword, StringComparison.Ordinal))
+                    {
+                        sb.Append(keyword);
+                        changed = true;
+                        clipped = true;
+                        break;
+                    }
+                }
+                if (!clipped) sb.Append(word);
+                continue;
+            }
+
+            sb.Append(ch);
+        }
+
+        if (!changed) return null;
+
+        var result = sb.ToString();
+        try
+        {
+            using var _ = JsonDocument.Parse(result);
+            return result;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static string? TryRepairUnterminatedObject(string fragment)
@@ -335,7 +462,7 @@ public static class FabricEvidenceProcessor
         }
         if (string.Equals(exactError, "exact quote is ambiguous", StringComparison.Ordinal))
         {
-            return new FabricQuoteAnchorResult("", segment.SegmentId, quote, FabricAnchorMode.None, false, null, null, 0, [exactError]);
+            return new FabricQuoteAnchorResult("", segment.SegmentId, quote, FabricAnchorMode.None, false, null, null, 0, [exactError!]);
         }
 
         if (TryFindUniqueNormalized(segment.Text, quote, out var normalizedStart, out var normalizedEnd, out var normalizedError))
@@ -344,7 +471,7 @@ public static class FabricEvidenceProcessor
         }
         if (string.Equals(normalizedError, "normalized quote is ambiguous", StringComparison.Ordinal))
         {
-            return new FabricQuoteAnchorResult("", segment.SegmentId, quote, FabricAnchorMode.None, false, null, null, 0, [normalizedError]);
+            return new FabricQuoteAnchorResult("", segment.SegmentId, quote, FabricAnchorMode.None, false, null, null, 0, [normalizedError!]);
         }
 
         var soft = FindSoftAnchorCandidate(segment.Text, quote);

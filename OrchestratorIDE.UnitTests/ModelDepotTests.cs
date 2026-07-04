@@ -159,6 +159,33 @@ public sealed class ModelDepotTests
         Assert.That(binding!.BaseModel.Path, Is.EqualTo(Path.GetFullPath(admitted)));
     }
 
+    [Test]
+    public void AdmissionGate_ContextFabricReader_GrantsProvisionalForCompact3to7BModel()
+    {
+        // A 4B model must NOT be hard-rejected — it is admitted provisionally so the benchmark
+        // run can determine actual fitness. Parameter count alone is not sufficient evidence.
+        var root = NewTempRoot();
+        WriteFile(root, "Qwen3.5-4B-Q8_0.gguf");
+        var asset = ModelDepot.Scan(root).Assets.Single();
+
+        var decision = ModelAdmissionGate.Evaluate(asset, RuntimeWorkloadKind.ContextFabricReader);
+
+        Assert.That(decision.Verdict, Is.EqualTo(ModelAdmissionVerdict.Provisional));
+    }
+
+    [Test]
+    public void AdmissionGate_ContextFabricReader_RejectsSubThreeBModel()
+    {
+        // The hard floor is 3B — models below this are never usable for CF citation work.
+        var root = NewTempRoot();
+        WriteFile(root, "smollm2-360m-instruct-q8_0.gguf");
+        var asset = ModelDepot.Scan(root).Assets.Single();
+
+        var decision = ModelAdmissionGate.Evaluate(asset, RuntimeWorkloadKind.ContextFabricReader);
+
+        Assert.That(decision.Verdict, Is.EqualTo(ModelAdmissionVerdict.Rejected));
+    }
+
     private string NewTempRoot()
     {
         var root = Path.Combine(Path.GetTempPath(), "orc-model-depot-" + Guid.NewGuid().ToString("N"));

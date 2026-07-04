@@ -2044,7 +2044,13 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
             });
 
             if (pendingTcs.Count == 0)
+            {
+                // Organic Foundry F-1 "no_tool" signal — worker answered without a tool call.
+                // Best-effort: StageNoToolAsync swallows all exceptions internally.
+                await Services.Swarm.ToolcallerDatasetCapture.StageNoToolAsync(
+                    _runId, task, model, content, tools, DatasetStagingDir);
                 break;
+            }
 
             // ── Execute each tool call ────────────────────────────────────
             foreach (var tc in pendingTcs)
@@ -2056,6 +2062,11 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
                         return $"{kv.Key}={v[..Math.Min(30, v.Length)]}";
                     }));
                 Activity($"🔧 {tc.Name}({argSummary})", agentKey);
+
+                // Organic Foundry F-1 "call" signal — the worker's real, proposed tool call.
+                // Best-effort: StageCallAsync swallows all exceptions internally.
+                await Services.Swarm.ToolcallerDatasetCapture.StageCallAsync(
+                    _runId, task, model, tc, tools, _workspaceRoot, DatasetStagingDir);
 
                 string result;
 

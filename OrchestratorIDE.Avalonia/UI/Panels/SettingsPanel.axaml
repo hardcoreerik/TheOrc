@@ -548,6 +548,20 @@
                     </DockPanel>
                 </Border>
 
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <ToggleButton x:Name="TglToolcallerDatasetCapture"
+                                      DockPanel.Dock="Right"
+                                      Theme="{StaticResource ToggleStyle}"
+                                      IsChecked="False"/>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Foundry F-1 dataset capture" Classes="SettingLabel"/>
+                            <TextBlock Text="Opt-in, off by default. When on, stages real swarm tool-call decisions (tool name, arguments, policy outcome) as theorc-toolcaller-v0 training examples in .orc/swarm/dataset-staging/toolcaller/. This is local-only and gitignored, but captures are NOT sanitized -- they can contain real file paths, shell commands, and file contents. Never share raw captures; review before using them to train anything. Shown as &quot;Dataset Gathering Active&quot; in the status bar while on."
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
                 <StackPanel Classes="SettingRow">
                     <TextBlock Text="Native Model Root" Classes="SettingLabel"/>
                     <TextBlock Text="Folder scanned for GGUF/LoRA role bindings. Empty uses the normal model storage folder."

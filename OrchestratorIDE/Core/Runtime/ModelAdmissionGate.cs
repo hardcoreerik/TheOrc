@@ -188,8 +188,17 @@ public static class ModelAdmissionGate
 
     private static ModelAdmissionDecision EvaluateContextFabric(RuntimeModelFingerprint fp, RuntimeWorkloadKind workload)
     {
-        if (fp.ParametersB is null or < 7)
+        // Hard floor: anything under 3B is too small to produce coherent JSON citations at all.
+        if (fp.ParametersB is null or < 3)
             return Reject(workload, fp, "Model is too small for Context Fabric evidence extraction and verification.");
+
+        // 3B–6.9B: allowed for benchmark verification only. The benchmark run IS the gate.
+        // Promotion requires passing CF-0 and CF-1 gate runs — parameter count alone cannot
+        // establish that a compact model is citation-safe.
+        if (fp.ParametersB < 7)
+            return Provisional(workload, fp,
+                "Compact model admitted for benchmark verification only; must pass CF-0 and CF-1 gate runs before any production promotion.",
+                "Sub-7B models are borderline for citation-safe evidence work. Run the benchmark suite to establish whether this model meets the accuracy bar.");
 
         if (fp.Family == RuntimeModelFamily.Gemma &&
             (fp.NormalizedName.Contains("gemma-4-e4b", StringComparison.Ordinal) ||

@@ -72,6 +72,10 @@ adversarial-review context and may contain deeper implementation notes.
   quarantine, and rollback policy
 - [THEORC_TOOLCALLER_V0.md](THEORC_TOOLCALLER_V0.md) — documentation-only contract for the first
   proposed Foundry proof model
+- [TOOLCALLER_V0_FROZEN_INVENTORY.md](TOOLCALLER_V0_FROZEN_INVENTORY.md) — F-1: the toolcaller-v0
+  tool universe, verified against live code and frozen with a checked-in schema hash
+- [`../training_pit/TOOLCALLER_CAPTURE_SCHEMA.md`](../training_pit/TOOLCALLER_CAPTURE_SCHEMA.md) —
+  F-1: the dataset capture schema and mechanical admission gates for toolcaller-v0 examples
 
 ---
 

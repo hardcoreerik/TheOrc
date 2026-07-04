@@ -269,6 +269,7 @@
 
     <!-- Services / Swarm -->
     <Compile Include="..\OrchestratorIDE\Services\Swarm\DatasetCapture.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Swarm\ToolcallerDatasetCapture.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Swarm\EvalRubric.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Swarm\FileOwnershipLedger.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Swarm\OllamaReviewService.cs" />
