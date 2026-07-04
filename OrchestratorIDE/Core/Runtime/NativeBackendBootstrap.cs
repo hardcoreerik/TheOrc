@@ -89,6 +89,17 @@ public sealed record NativeBackendReport(
 /// </summary>
 public static class NativeBackendBootstrap
 {
+    // Must match OrchestratorSetup/Services/CudaRedistributableInstaller.cs's install target
+    // exactly -- the two projects don't reference each other (the installer stays lightweight,
+    // no LLamaSharp dependency), so this path is duplicated by design, not shared code. Outside
+    // any app-install or self-extraction directory on purpose: the installer runs before the
+    // app has ever launched once, so it cannot predict where a self-extracting single-file
+    // bundle will land its own temp extraction dir, and %LOCALAPPDATA% is guaranteed
+    // per-user-writable without elevation, unlike Program Files-style install locations.
+    public static readonly string StableRedistDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "TheOrc", "CudaRedist");
+
     private static readonly object Gate = new();
     private static NativeBackendReport? _report;
     private static Action<string>? _ongoingSink;
@@ -225,6 +236,33 @@ public static class NativeBackendBootstrap
         {
             log.Add($"cuda12 backend directory not packaged ({cudaDir}) — not forcing CUDA.");
             return false;
+        }
+
+        // The three CUDA runtime redistributables (cudart64_12/cublas64_12/cublasLt64_12) are
+        // not part of LLamaSharp.Backend.Cuda12.Windows's own NuGet content -- see this
+        // project's csproj comment on TheOrcCudaRedistDir. A published app bundle only has them
+        // in cudaDir if the machine that ran `dotnet publish` had a CUDA Toolkit (build-time
+        // fix landed 2026-07-04 in Tools/Get-CudaRedistributables.ps1 for the release CI
+        // build). For an *installed* app, OrchestratorSetup's CudaRedistributableInstaller
+        // fetches the same three files (from NVIDIA's own official redistributable feed) into
+        // StableRedistDir at install time instead -- a location outside wherever this
+        // single-file bundle's own self-extraction happens to land, which an installer running
+        // before the app has ever launched cannot predict or write into. Pre-loading them here
+        // from an absolute path (Windows-only; Linux never hits this branch, see the
+        // RID switch above) works regardless of which of the two directories actually has them:
+        // once a DLL is loaded into the process under a given name, any other code's later load
+        // of that same name (here, ggml-cuda.dll's own import of cudart64_12.dll) resolves to
+        // the already-loaded module, not wherever ggml-cuda.dll's own directory-relative search
+        // would have looked. A miss in both locations is not fatal here -- ggml-cuda.dll's own
+        // load attempt below will fail with a clear reason if these are genuinely unavailable.
+        foreach (var redist in new[] { "cudart64_12.dll", "cublas64_12.dll", "cublasLt64_12.dll" })
+        {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) &&
+                !File.Exists(Path.Combine(cudaDir, redist)) &&
+                File.Exists(Path.Combine(StableRedistDir, redist)))
+            {
+                TryLoadFrom(StableRedistDir, redist, log);
+            }
         }
 
         if (!TryLoadFrom(cudaDir, $"{prefix}ggml-base{ext}", log))
