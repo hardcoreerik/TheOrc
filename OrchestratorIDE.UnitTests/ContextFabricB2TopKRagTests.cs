@@ -113,18 +113,29 @@ public sealed class ContextFabricB2TopKRagTests
     {
         // The highest-scoring segment is too large to fit; a shorter, lower-scoring but still
         // relevant segment should still be included rather than leaving the budget unused.
+        //
+        // "big" must genuinely outrank "small" via IDF, not just repeat one term -- Tokenize()
+        // returns a per-segment HashSet, so repeated mentions of the same word don't increase a
+        // segment's score, only distinct-term presence does (CodeRabbit finding, 2026-07-04: the
+        // original fixture repeated "checksum"/"CK-777" three times each, which scored no higher
+        // than mentioning them once, so this test never actually exercised the ranking it
+        // claimed to). Here "big" additionally matches "batch" and "inspector", which "small"
+        // doesn't -- those two terms are rarer (df=1 vs df=2 for the shared terms), so "big"
+        // scores strictly higher while still being too large to fit the budget.
         var big = new FabricSegment("seg-big", 1, "Big",
-            "checksum CK-777 checksum CK-777 checksum CK-777 padding padding padding padding padding padding padding",
+            "checksum CK-777 batch B-42 inspector J. Doe noted this shipment. padding padding padding padding padding padding padding padding padding padding",
             FabricHashing.Sha256("big"), 500);
         var small = new FabricSegment("seg-small", 2, "Small", "checksum CK-777 noted briefly.",
             FabricHashing.Sha256("small"), 15);
         var corpus = new FabricCorpus("corpus-5", "doc-5", "gen-5", "digest-5", "1.0", [big, small], 515);
         var question = new FabricBenchmarkQuestion(
-            "q-5", FabricQuestionKind.LocalFact, "What checksum was noted?", ["CK-777"], ["seg-small"]);
+            "q-5", FabricQuestionKind.LocalFact,
+            "What checksum, batch, and inspector noted CK-777?", ["CK-777"], ["seg-small"]);
         var fixture = new FabricBenchmarkFixture(corpus, [question]);
 
         // AnswerMaxTokens tuned so the effective budget (~50 tokens) fits "small" (15 tokens) but
-        // not "big" (500 tokens), even though "big" scores higher (three checksum mentions).
+        // not "big" (500 tokens), even though "big" scores higher (matches two additional rare
+        // terms "batch" and "inspector" that "small" doesn't).
         var runner = new ContextFabricBaselineRunner(new ScriptedFabricRuntime(), Options(answerMaxTokens: 1632));
         var text = runner.BuildTopKText(fixture, question);
 
