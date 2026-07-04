@@ -179,7 +179,7 @@ if (-not (Test-Path $ModelRoot)) {
     exit 1
 }
 
-$GgufCount = (Get-ChildItem $ModelRoot -Filter "*.gguf" -Recurse -ErrorAction SilentlyContinue).Count
+$GgufCount = @(Get-ChildItem $ModelRoot -Filter "*.gguf" -Recurse -ErrorAction SilentlyContinue).Count
 if ($GgufCount -eq 0) {
     Write-Error ("No .gguf files found under: $ModelRoot`n" +
                 "The CF gate requires at least one 7B+ Admitted model (e.g. gemma-4-12B-it-qat-q4_0.gguf).")
