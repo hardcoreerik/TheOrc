@@ -228,7 +228,63 @@ known-buggy evidence selection. It is not yet known what B3 scores with the
 current, fixed code; that is the open item this document supports reviewing
 before the next run.
 
-## 7. Known fleet/environment issues (not scoring-logic bugs)
+## 7. Open bug: KV-cache exhaustion invalidates most of a full 120-question run
+
+**Status as of 2026-07-04: unresolved, high priority.** This is not a fleet
+quirk like section 8 below — it reproduced on NEWCOREPC, the machine with the
+most headroom, and it likely invalidates most B0/B3 results from any full run
+since the `BuildEvidencePack`/`BuildTopKText` fixes landed.
+
+The 2026-07-04 02:44:29-elapsed full 120-question run on NEWCOREPC (Gemma-4-12B,
+8192 context) reported B3 at 12/120 — *worse* than the pre-fix NO-GO's 56/120.
+Inspecting the raw result JSON showed why: 216 of B3's 223 failed
+question-attempts had `verification.errors: ["Native inference failed while
+draining a prompt batch: NoKvSlot."]` — a native KV-cache exhaustion, not a
+wrong answer. Only 7 failures were genuine (6 "reducer output references
+claims outside its children", 1 unterminated-JSON). B0 (closed-book) then
+failed near-identically once B3 had already burned through the shared KV pool.
+**The 12/120 and B0's failure are not meaningful capability measurements** —
+they're an infrastructure crash wearing a NO-GO costume.
+
+Root cause, traced through the code: `AdapterManager.cs` already documents and
+guards against a *related* but distinct problem — llama.cpp's KV-cache sequence
+IDs are minted monotonically and never recycled, even after a `Conversation` is
+`Dispose()`d (see the comment at `AdapterManager.cs:48-56`, referencing a prior
+crash "at exactly the 257th reader conversation"). The existing fix,
+`SequenceRecycleThreshold = 128` (rebuild the role's executor — a fresh native
+context — every 128 minted conversations, at an idle point) and
+`SequenceHardLimit = 240` (fail closed with a managed exception rather than let
+the native assert kill the process), protects against exhausting the *count* of
+sequence IDs. **It does not protect against exhausting actual KV-cache
+*memory*, which is a function of prompt size × live-but-unrecycled sequences,
+not conversation count.** Since `BuildEvidencePack`'s fix removed the
+`maxCards` cap, a single LocalFact question observed in this run's JSON pulled
+in **26 segments** (6,309 prompt tokens) where the old, capped code would have
+used 1-4 cards — meaning each conversation now reserves far more of the shared
+KV pool before being abandoned. `NoKvSlot` is reachable well before the
+128-conversation recycle point fires, and indeed did: the managed hard-limit
+exception (which has its own distinct message, "has minted N native sequence
+slots...") never appeared in the log — only the native `NoKvSlot` — confirming
+the existing protection's own counters never tripped even though the native
+pool was already exhausted.
+
+**Recommended fix direction (not yet implemented — needs testing time this
+doesn't have tonight):** recycle based on cumulative *prompt tokens* consumed
+per role's executor, not conversation *count* — token usage is what actually
+correlates with KV-cache pressure now that evidence-pack size varies per
+question instead of being capped. A blind lower `SequenceRecycleThreshold`
+would be a guess without knowing the real memory-per-token relationship for the
+model/context combination in use; a token-budget-based recycle trigger would
+be exact.
+
+**What this means for reading any prior or future run's B3/B0 numbers:** check
+`verification.errors` in the raw JSON, not just the summary line, before
+trusting a low pass count as a real capability result — grep for `NoKvSlot`
+across `cf0_*.json` and `cf7_baseline_b0_*.json`. If present in more than a
+handful of entries, the run needs to be redone after this is fixed, not
+interpreted as-is.
+
+## 8. Known fleet/environment issues (not scoring-logic bugs)
 
 These are infrastructure problems observed while running the gate on specific
 machines. They affect whether a run *executes*, not whether the grading logic
@@ -271,7 +327,7 @@ a scoring bug or a model capability gap.
   via `CreateProcess`, not a shell — `>`/`2>&1` redirection syntax is silently
   ignored unless wrapped in a `.bat` file or `cmd /c "..."`.
 
-## 8. Re-running
+## 9. Re-running
 
 See [CONTEXT_FABRIC_BENCHMARK_MANIFEST.md § Re-Running The Expanded 120-Question Gate](CONTEXT_FABRIC_BENCHMARK_MANIFEST.md#re-running-the-expanded-120-question-gate)
 for the canonical recipe (`Tools/ContextFabricBench/Run-CF7GateExpanded.ps1`).
