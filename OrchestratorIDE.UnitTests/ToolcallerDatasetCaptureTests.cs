@@ -16,7 +16,13 @@ public sealed class ToolcallerDatasetCaptureTests
     private bool _originalIsEnabled;
 
     [SetUp]
-    public void SetUp() => _originalIsEnabled = ToolcallerDatasetCapture.IsEnabled;
+    public void SetUp()
+    {
+        _originalIsEnabled = ToolcallerDatasetCapture.IsEnabled;
+        // Tests exercise the enabled-capture behavior explicitly; the production default is
+        // now off (opt-in), so force it on here rather than relying on that default.
+        ToolcallerDatasetCapture.IsEnabled = true;
+    }
 
     [TearDown]
     public void TearDown()

@@ -42,8 +42,13 @@ public static class ToolcallerDatasetCapture
     private const string FrozenToolSchemaHash =
         "c456ca416882788664b14ea332aa968de76735171a2e53a76eac7c4c6e2bfefd";
 
-    /// <summary>Set false to disable toolcaller capture without recompiling. Default: true.</summary>
-    public static bool IsEnabled { get; set; } = true;
+    /// <summary>
+    /// Opt-in, off by default. Driven by AppSettings.ToolcallerDatasetCaptureEnabled (see
+    /// SettingsPanel's "Foundry F-1 dataset capture" toggle), which also drives the status
+    /// bar's "Dataset Gathering Active" indicator so capture is never silent. Set directly only
+    /// in tests.
+    /// </summary>
+    public static bool IsEnabled { get; set; } = false;
 
     private static int _sequence;
 
