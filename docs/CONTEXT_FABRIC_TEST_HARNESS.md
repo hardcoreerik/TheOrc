@@ -241,8 +241,15 @@ Inspecting the raw result JSON showed why: 216 of B3's 223 failed
 question-attempts had `verification.errors: ["Native inference failed while
 draining a prompt batch: NoKvSlot."]` — a native KV-cache exhaustion, not a
 wrong answer. Only 7 failures were genuine (6 "reducer output references
-claims outside its children", 1 unterminated-JSON). B0 (closed-book) then
-failed near-identically once B3 had already burned through the shared KV pool.
+claims outside its children", 1 unterminated-JSON) — these are the
+`ContextFabricFeasibilityRunner.cs:515` reducer-validation gate correctly
+catching Gemma-4-12B inventing a claim ID not present in its supplied
+children, which the reducer prompt explicitly forbids ("claimIds may contain
+only IDs present in the input"). That's the harness's honesty check working as
+designed, not a harness bug — a real, if small, model hallucination rate worth
+tracking separately from the infrastructure noise below, but not something to
+"fix" in the scoring logic. B0 (closed-book) then failed near-identically once
+B3 had already burned through the shared KV pool.
 **The 12/120 and B0's failure are not meaningful capability measurements** —
 they're an infrastructure crash wearing a NO-GO costume.
 
