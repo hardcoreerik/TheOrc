@@ -85,7 +85,11 @@ public sealed class AdapterManager : IAsyncDisposable
     private static void LogKvDiagnostic(string message)
     {
         if (s_kvDiagnosticsEnabled)
-            Console.Error.WriteLine($"[KvCacheDiag] {message}");
+            // stdout, not stderr: Run-CF7GateExpanded.ps1 pipes the benchmark exe through
+            // `2>&1 | Tee-Object`, and PowerShell treats any native-process stderr output as a
+            // NativeCommandError under $ErrorActionPreference = 'Stop', aborting the whole run
+            // after the first diagnostic line (observed directly — fixed same session).
+            Console.WriteLine($"[KvCacheDiag] {message}");
     }
 
     public AdapterManager(LLamaSharpRuntime runtime) =>
