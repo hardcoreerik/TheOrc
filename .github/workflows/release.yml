@@ -100,6 +100,27 @@ jobs:
       - name: Restore
         run: dotnet restore OrchestratorIDE.slnx --runtime ${{ matrix.rid }}
 
+      # ── Fetch CUDA redistributables (Windows only) ────────────────────────────
+      # This runner has no CUDA Toolkit installed (stock windows-latest, no GPU), so
+      # OrchestratorIDE.NativeRuntime.csproj's TheOrcCudaRedistDir default (derived from
+      # $(CUDA_PATH)) resolves to nothing here -- meaning every past release build has
+      # silently shipped WITHOUT cudart64_12.dll/cublas64_12.dll/cublasLt64_12.dll, so the
+      # official Windows build CPU-falls-back for every real end user with an NVIDIA GPU
+      # (root-caused 2026-07-04, see docs/CONTEXT_FABRIC_TEST_HARNESS.md and
+      # NativeBackendBootstrap.cs's class doc). Fetches just the ~3 files needed directly
+      # from NVIDIA's own official redistributable feed (SHA-256 verified), not a full
+      # toolkit install and not a third-party NuGet repackaging.
+      - name: Fetch CUDA redistributables (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $cudaRedistDir = & Tools\Get-CudaRedistributables.ps1 | Select-Object -Last 1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Failed to fetch CUDA redistributables - release build would silently CPU-fallback for GPU users." -ForegroundColor Red
+            exit 1
+          }
+          echo "THEORC_CUDA_REDIST_DIR=$cudaRedistDir\" >> $env:GITHUB_ENV
+
       # ── Publish OrchestratorIDE (Avalonia shell, self-contained single-file) ──
       # AssemblyName is NOT overridden via -p: here -- OrchestratorIDE.Avalonia.csproj
       # references OrchestratorIDE.NativeRuntime, which has its own explicit
@@ -136,6 +157,7 @@ jobs:
             -p:AssemblyVersion=$ver `
             -p:FileVersion=$ver `
             -p:OutputType=WinExe `
+            -p:TheOrcCudaRedistDir="$env:THEORC_CUDA_REDIST_DIR" `
             --output publish/app
           Move-Item publish/app/OrchestratorIDE.Avalonia.exe publish/app/OrchestratorIDE.exe -Force
 
