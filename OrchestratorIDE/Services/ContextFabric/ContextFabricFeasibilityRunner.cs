@@ -639,22 +639,36 @@ public sealed class ContextFabricFeasibilityRunner
         calls[index] = calls[index] with { Succeeded = false, Error = error };
     }
 
-    private EvidencePack BuildEvidencePack(
+    /// <summary>
+    /// Builds the evidence pack sent to the answerer for a question. Ranks every evidence card by
+    /// IDF-weighted term overlap (rare, distinctive terms count more than common words) and greedily
+    /// fills the actual context budget, rather than a fixed per-question-kind card count. A fixed
+    /// count is structurally unable to answer questions whose evidence spans more cards than that
+    /// count regardless of ranking quality -- GlobalSynthesis questions can need up to 8 segments'
+    /// worth of evidence, and the old hardcoded caps (1/2/4) had no documented latency or cost
+    /// justification. This mirrors the same fix already applied to the B2 benchmark baseline
+    /// (ContextFabricBaselineRunner.BuildTopKText).
+    /// </summary>
+    /// <summary>Internal (not private) so unit tests can exercise evidence selection directly.</summary>
+    internal EvidencePack BuildEvidencePack(
         FabricBenchmarkQuestion question,
         IReadOnlyList<FabricEvidenceCard> cards,
         FabricReductionNode? root)
     {
         var terms = Tokenize(question.Question);
-        var maxCards = question.Kind switch
-        {
-            FabricQuestionKind.LocalFact => 1,
-            FabricQuestionKind.MultiHop or FabricQuestionKind.Contradiction => 2,
-            _ => 4,
-        };
+        terms.ExceptWith(_evidencePackStopwords);
+
+        var documentFrequency = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var card in cards)
+            foreach (var term in Tokenize(CardHaystack(card)))
+                documentFrequency[term] = documentFrequency.GetValueOrDefault(term) + 1;
+
         var ordered = cards
-            .OrderByDescending(card => Score(card, terms))
-            .ThenBy(card => card.SegmentId, StringComparer.Ordinal)
-            .Take(maxCards);
+            .Select(card => (card, score: ScoreIdf(card, terms, documentFrequency)))
+            .Where(pair => pair.score > 0)
+            .OrderByDescending(pair => pair.score)
+            .ThenBy(pair => pair.card.SegmentId, StringComparer.Ordinal)
+            .Select(pair => pair.card);
         var evidence = new List<AnswerEvidence>();
         var included = new List<string>();
 
@@ -903,10 +917,41 @@ public sealed class ContextFabricFeasibilityRunner
         ];
     }
 
-    private static int Score(FabricEvidenceCard card, HashSet<string> terms)
+    private static int Score(FabricEvidenceCard card, HashSet<string> terms) =>
+        Tokenize(CardHaystack(card)).Count(terms.Contains);
+
+    private static string CardHaystack(FabricEvidenceCard card) =>
+        string.Join(' ', card.Claims.Select(claim => claim.Text).Prepend(card.Summary));
+
+    // Small, standard English stopword list. Excluding these from BuildEvidencePack's scoring
+    // keeps the ranking signal driven by distinctive words (names, codes, values) rather than
+    // diluted by words that appear in almost every card regardless of topical relevance. Mirrors
+    // the identical list in ContextFabricBaselineRunner (kept local rather than shared, since the
+    // two classes are otherwise independent and this is a small constant).
+    private static readonly HashSet<string> _evidencePackStopwords = new(StringComparer.Ordinal)
     {
-        var haystack = string.Join(' ', card.Claims.Select(claim => claim.Text).Prepend(card.Summary));
-        return Tokenize(haystack).Count(terms.Contains);
+        "the", "and", "for", "are", "was", "were", "this", "that", "these", "those", "with",
+        "from", "into", "onto", "than", "then", "there", "here", "when", "where", "what",
+        "which", "who", "whom", "whose", "why", "how", "not", "nor", "but", "does", "did",
+        "has", "have", "had", "will", "would", "should", "can", "could", "may", "might",
+        "shall", "must", "its", "his", "her", "their", "our", "your", "you", "she", "him",
+        "they", "them", "been", "being", "any", "all", "each", "some", "such", "own", "same",
+    };
+
+    /// <summary>
+    /// IDF-weighted match score: each matching term contributes 1/documentFrequency(term), so a
+    /// term appearing in only one or two cards (a name, code, or value) counts for far more than
+    /// one appearing in most cards. Stopwords are excluded from <paramref name="terms"/> by the
+    /// caller before this is invoked.
+    /// </summary>
+    private static double ScoreIdf(
+        FabricEvidenceCard card,
+        HashSet<string> terms,
+        IReadOnlyDictionary<string, int> documentFrequency)
+    {
+        var cardTerms = Tokenize(CardHaystack(card));
+        return terms.Where(cardTerms.Contains)
+            .Sum(term => 1.0 / documentFrequency.GetValueOrDefault(term, 1));
     }
 
     private static string[] GetEvidenceLines(string text) => text
@@ -961,7 +1006,7 @@ public sealed class ContextFabricFeasibilityRunner
     }
 
     private sealed record InvocationResult(string Output, FabricCallMetrics Metrics);
-    private sealed record EvidencePack(
+    internal sealed record EvidencePack(
         IReadOnlyList<AnswerEvidence> Evidence,
         IReadOnlyList<string> IncludedSegmentIds);
     private sealed record ReaderInput(
@@ -1003,14 +1048,14 @@ public sealed class ContextFabricFeasibilityRunner
         string Question,
         string RootSummary,
         IReadOnlyList<AnswerEvidence> Evidence);
-    private sealed record AnswerEvidence(
+    internal sealed record AnswerEvidence(
         string SegmentId,
         string Summary,
         IReadOnlyList<AnswerEvidenceClaim> Claims,
         IReadOnlyList<string> Conflicts);
-    private sealed record AnswerEvidenceClaim(
+    internal sealed record AnswerEvidenceClaim(
         string ClaimId,
         string Text,
         IReadOnlyList<AnswerEvidenceCitation> Citations);
-    private sealed record AnswerEvidenceCitation(string SegmentId, string Quote);
+    internal sealed record AnswerEvidenceCitation(string SegmentId, string Quote);
 }
