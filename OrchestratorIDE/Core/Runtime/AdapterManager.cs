@@ -53,7 +53,18 @@ public sealed class AdapterManager : IAsyncDisposable
     // live on the first 1.8M-token unattended benchmark run, at exactly the 257th reader
     // conversation (~45 min in). Recycle the role's executor at a safe idle point well before
     // the cap; rebuilding costs one context allocation, not a weights reload.
-    internal const int SequenceRecycleThreshold = 128;
+    //
+    // This threshold bounds sequence-ID *count*, not KV-cache *memory* — a distinct exhaustion
+    // mode that shares the same "disposed conversations aren't reclaimed" root cause. The
+    // 2026-07-04 CF-7 gate run hit native NoKvSlot decode failures (docs/CONTEXT_FABRIC_TEST_HARNESS.md
+    // §7) well under the old threshold of 128, because BuildEvidencePack's uncapped evidence
+    // packs (up to ~26 segments/6.3K tokens per question, versus 1-4 before) consume far more of
+    // the shared KV pool per conversation than this threshold was calibrated for. Lowered as a
+    // conservative stopgap pending a real fix (recycling by cumulative prompt tokens instead of
+    // conversation count, which is what actually correlates with KV-cache pressure now that
+    // evidence-pack size varies per question). Do not raise this back toward 128 until that
+    // token-based recycle trigger lands and is validated against a full gate run.
+    internal const int SequenceRecycleThreshold = 24;
 
     // Absolute refusal point: if outstanding conversations have kept the executor from recycling
     // and it is now approaching the native slot cap, minting another conversation would trade a
