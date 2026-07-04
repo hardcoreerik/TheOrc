@@ -1,0 +1,234 @@
+# Context Fabric CF-7 Test Harness — How It Grades Answers
+
+This document explains, end to end, how the `cf7-gate-expanded` benchmark decides
+whether an answer is right or wrong. It exists so the scoring logic itself can be
+reviewed independently of any particular run's result — a NO-GO should mean "the
+model got it wrong," not "the harness has a bug."
+
+Companion docs: [CONTEXT_FABRIC_BENCHMARK_MANIFEST.md](CONTEXT_FABRIC_BENCHMARK_MANIFEST.md)
+(report schema, re-run recipe), [CONTEXT_FABRIC_BENCHMARK_CORPUS.md](CONTEXT_FABRIC_BENCHMARK_CORPUS.md)
+(public/private corpus rules).
+
+## 1. What's being tested
+
+Four live systems plus one frozen artifact answer the same 120 held-out questions
+against the same 128-segment, un-marked expanded corpus (43,968 estimated source
+tokens):
+
+| System | What it is | Code |
+|---|---|---|
+| B0 | Closed-book — no corpus access at all | `ContextFabricBaselineRunner` |
+| B1 | Truncated prompt — corpus crammed in until it runs out of budget, no ranking | `ContextFabricBaselineRunner` |
+| B2 | Conventional top-k RAG — IDF-ranked segment retrieval | `ContextFabricBaselineRunner.BuildTopKText` |
+| B3 | Single-node Context Fabric — the actual product answering path | `ContextFabricFeasibilityRunner` |
+| B4 | HIVE Context Fabric — frozen multi-node acceptance artifact, not re-run per gate | `cf6-acceptance-*.json` |
+
+The corpus is deliberately **un-marked**: facts are embedded in ordinary prose, not
+flagged with an `EVIDENCE:` line. That's a load-bearing property — an earlier
+"GO" verdict was invalidated by an adversarial review that found the old fixture
+let the model pattern-match markup instead of reading. See `DeterministicExpandedFabricCorpus`
+and its `OpenExtractionReading` reader-prompt mode.
+
+The held-out set is 120 of a 150-question suite (30 held back as a dev set for
+prompt tuning — see `docs/The Orc Context Fabric.md:963`). Categories and minimum
+counts: Needle/local fact (40), Unanswerable (20), Multi-hop — two-hop + three-to-
+five-hop chains (30), Exhaustive enumeration (15), Contradiction/change (10),
+Global synthesis (15), Paraphrased retrieval (20). Every question was mechanically
+verified against the *rendered* corpus text before being frozen — the verifier
+checks that every `ExpectedTerm` actually appears in its claimed `ExpectedSegmentId`,
+which caught a real generator bug during authoring (see commit `dcffd05e`).
+
+## 2. How an answer gets built (the part that can introduce false failures)
+
+This is the part worth reviewing hardest, because a bug here produces a wrong
+*grade*, not a wrong *answer* — the model could be right and the harness could
+still mark it failed, or vice versa.
+
+### B3 — `BuildEvidencePack` (`ContextFabricFeasibilityRunner.cs`)
+
+This is not benchmark-only code — it's the same evidence selection used by
+`FabricNativeReaderService` and `HiveNativeRoleExecutorAdapter` in the real
+product. Given a question and the corpus's evidence cards:
+
+1. Compute IDF (inverse document frequency) per term across the supplied cards,
+   after tokenizing with a 2-character minimum (`TokenizeForScoring`) — short
+   enough to keep 2-digit identifiers like `01` in `case-ledger-01`, since the
+   3-character-minimum `Tokenize` would silently split that on the hyphen and
+   destroy the exact signal needed to tell `ledger-01` from `ledger-09`.
+2. Exclude English stopwords entirely from scoring (`the`, `and`, `this`, ...),
+   so common words don't dilute the ranking signal that should come from
+   distinctive terms.
+3. Score every card via `ScoreTextIdf` and greedily fill the evidence budget
+   (6,144 tokens by default, 3,072 for HIVE) in ranked order — **no fixed card
+   count cap**. Cards scoring 0 are excluded outright.
+
+**What was wrong before (fixed in commit `c68e01cf`):** `BuildEvidencePack` used
+to hard-cap at 1/2/4 cards by question kind, with no documented cost/latency
+justification. Global-synthesis questions need evidence from up to 8 segments —
+capped at 4, the method was *structurally* incapable of answering them correctly
+regardless of how good the ranking was. Comparing `ExpectedSegmentIds` against
+`IncludedSegmentIds` on failing questions in the NO-GO run showed this was
+exactly what was happening: CF frequently never gathered the segment containing
+the answer. That's an evidence-*selection* bug, not a reasoning failure — and it
+was inflating the failure count with cases where the model was never given a
+chance to be right.
+
+### B2 — `BuildTopKText` (`ContextFabricBaselineRunner.cs`)
+
+Same fix, same reasoning, applied to the "conventional RAG" comparison baseline
+(commit `c55e5058`). Before the fix, B2 used `Take(4)` with raw term-overlap
+counting and no stopword filtering — it actually scored *worse* (21%) than the
+dumber truncated-prompt baseline B1 (26%), which was itself a strong signal the
+implementation was broken rather than that top-k RAG is inherently worse than
+truncation. If B2 isn't fixed too, "B3 beats B2" isn't a fair claim — B2 would be
+losing by construction, not by a real retrieval contest.
+
+### Exhaustive-category answers — `BuildExhaustiveAnswer` (`ContextFabricFeasibilityRunner.cs:~740`)
+
+Exhaustive questions ("list every case-file ID under ledger X") do **not** go
+through `BuildEvidencePack` — they hit this separate method, because the goal
+isn't "the top-N most relevant cards," it's "every card that actually belongs to
+the named category." All 12 Exhaustive failures in the NO-GO run hit the same
+error: the answer over-included claims from unrelated categories because the old
+filter accepted a claim if it shared *any* word with the question — and corpus-
+idiomatic filler words ("ledger", "recorded") appear in nearly every claim across
+all 15 ledgers.
+
+Current logic (commit `3ef5fb0b`, line ~763):
+
+1. Tokenize the question, find which of its terms are actually present in the
+   corpus's cards, and compute each one's document frequency.
+2. Classify the question as **entity-scoped** if its rarest present term appears
+   in fewer than half the cards (`minDocumentFrequency < cards.Count / 2.0`) —
+   e.g. `"case-ledger-01"` is genuinely rare relative to the corpus, so hard-
+   require that term.
+3. Otherwise classify as **category-wide** (e.g. `"archive token"`, where every
+   segment is genuinely relevant) and fall back to "any non-stopword term
+   matches."
+
+This went through two earlier failed attempts (a pure IDF aggregate score
+couldn't discriminate between two equally-rare ledger IDs; hard-requiring the
+single rarest term broke a case where *every* segment is relevant) before landing
+on the entity-scoped/category-wide split — both failure modes now have dedicated
+regression tests.
+
+**Known residual risk, explicitly not fixed:** this classification is a
+heuristic (`minDocumentFrequency < cards.Count / 2.0`), not a proof. A genuinely
+category-wide question whose real content terms happen to have <50% document
+frequency by corpus coincidence would still be mis-classified as entity-scoped.
+Grok's adversarial review of this fix (`.orc/reviews/grok_20260703_185505.md`)
+flagged this explicitly. Both real scenarios uncovered so far (ledger-scoped,
+archive-token-wide) have tests; the boundary case does not. **If a future run
+produces a new Exhaustive-category failure, check this heuristic first before
+assuming it's a model capability gap.**
+
+## 3. How an answer gets graded — `FabricAnswerVerifier.NormalizeAndVerify`
+
+(`ContextFabricValidation.cs:838`)
+
+Given the model's raw JSON answer, corpus, and the question's ground truth:
+
+- **Structural sanity caps**, scaled to the question's own ground truth rather
+  than fixed globally — `maxAnswerChars = max(12000, 80 * ExpectedTerms.Count)`,
+  `maxCitationsPerClaim = max(32, ExpectedSegmentIds.Count)`. These exist to
+  reject genuine model garbage (runaway repetition, hallucinated citation
+  floods) without penalizing a legitimately large exhaustive enumeration, which
+  scales with the question's own expected-term count.
+- Every citation must reference a real segment ID and pass
+  `FabricEvidenceProcessor.NormalizeCitation` (the quote must actually appear in
+  that segment — this is what makes `citation_precision` meaningful rather than
+  just "the model said a segment ID").
+- For non-abstention questions: every term in `question.ExpectedTerms` must
+  appear somewhere in the answer text or a citation quote, and every segment in
+  `question.ExpectedSegmentIds` must have been actually cited
+  (`verifiedSegments`) — not just any correct-sounding text, but evidence from
+  the *specific* segments the question was authored against.
+- For `ExpectAbstention` questions: the model must abstain and say the corpus
+  doesn't establish the answer, and must not smuggle in factual claims anyway.
+
+`citation_precision` = valid citations / total citations attempted. A question
+only "passes" (`Verification.Passed`) if `errors.Count == 0` — all of the above
+in one gate, not a partial-credit score.
+
+## 4. JSON recovery — why answers don't get graded "wrong" for formatting noise
+
+(`FabricJson.ParseModelObject<T>` in `ContextFabricValidation.cs`)
+
+Autoregressive models emit two specific token-boundary artifacts that would
+otherwise turn a correct answer into an unparseable one and grade it as failed
+for the wrong reason:
+
+1. **Keyword-suffix runs** — `falseC`, `trueX`, `nullValue` — where a JSON
+   keyword token runs directly into the next word token with no boundary.
+   `TrySanitizeLiteralSuffixes` walks the string state-aware and strips only
+   out-of-string garbage suffixes.
+2. **Unescaped inner quotes** — a model quotes a term inline (`called it
+   "Chapter Alpha" a fitting name`) without escaping it, which otherwise
+   terminates the JSON string early and corrupts everything after. This
+   sanitizer tracks whether the current string is an object key vs. a value
+   before deciding whether a `:` or `,`/`}`/`]` is a real terminator — a value
+   string containing a quoted term immediately followed by `:` must not be cut
+   there (only key strings terminate on `:`).
+
+The parser tries, in order: strict parse → lenient parse (trailing
+commas/comments) → both sanitizer orders composed together (`keyword→quote` and
+`quote→keyword`, since either artifact can appear first and partially block the
+other's own internal validity check) → throw. Composing both orders required
+splitting each sanitizer into a raw scanning core (no internal validation) plus
+a validated public wrapper, because a partially-repaired intermediate result
+(quotes fixed, keyword suffix still broken) would otherwise be rejected by the
+quote-sanitizer's own `JsonDocument.Parse` check before the keyword-fix pass ever
+got a chance to run on it.
+
+Separately, `ContextFabricBaselineRunner` splits its catch into `JsonException`
+(counts as `Succeeded=true`, incorrect-answer-recorded) vs. any other `Exception`
+(counts as `Succeeded=false`, a genuine runtime failure) — so a run of B0/B1/B2
+always reaches `RunCompleted=true` unless the executor itself actually crashes,
+rather than an unparseable answer masquerading as an infrastructure failure.
+
+## 5. The gate report — `ContextFabricBenchmarkGateEvaluator`
+
+Five metrics, each with a hardcoded target:
+
+| Metric | Target | What it means if it fails |
+|---|---|---|
+| `segment_terminal_coverage` | 1.0 | Not every segment was accepted during ingestion — an ingestion bug, not a model problem |
+| `question_pass_rate` | **1.0** | At least one held-out question failed verification |
+| `citation_precision` | 0.90 | The model is citing segments that don't actually support its claims |
+| `max_prompt_tokens` | ≤ context limit | The evidence pack overflowed the context budget |
+| `boundary_stitch_pass_rate` | 1.0 | A question spanning a segment boundary wasn't stitched correctly |
+
+**Important interpretation note:** `question_pass_rate`'s target is 1.0 — literal
+100%. As configured, the gate reports `NO-GO` unless *every one* of 120
+held-out questions passes verification exactly. This is a deliberate fail-closed
+design (see `docs/CONTEXT_FABRIC_BENCHMARK_MANIFEST.md`'s "explicit `Missing`
+entries, not omitted rows" philosophy for the same pattern elsewhere), but it
+also means B3 can substantially outscore every baseline (56/120 vs. B1's 31/120,
+B2's 25/120 in the last run) and the gate will still say `NO-GO`. When reviewing
+a gate report, look at the `systems` table's raw pass counts, not just the
+top-line verdict, to judge whether a NO-GO reflects "close but not perfect" or
+"still fundamentally broken."
+
+## 6. Change history relevant to grading correctness
+
+| Date | Commit / PR | What changed |
+|---|---|---|
+| 2026-07-03 | `01f3fd09` (PR #34) | JSON recovery pipeline (keyword-suffix sanitizer), `ModelAdmissionGate` 3B floor |
+| 2026-07-04 00:21 | `c55e5058` (PR #34) | B2 `BuildTopKText` rewrite: IDF-weighted, budget-fill, no fixed `Take(4)` |
+| 2026-07-04 01:23 | `c68e01cf` (PR #34) | B3 `BuildEvidencePack` fix: same IDF-weighted/budget-fill approach, removes the 1/2/4 `maxCards` cap — **the diagnosed root cause of the 56/120 NO-GO** |
+| 2026-07-04 01:54 | `3ef5fb0b` (PR #34) | `BuildExhaustiveAnswer` entity-scoped vs. category-wide term filtering — fixes all 12 Exhaustive-category failures from the NO-GO run |
+| 2026-07-04 02:00 | `40d79e1b` (PR #34) | Grok adversarial review of the Exhaustive fix: fixed a segment-lookup crash risk, documented the heuristic's known residual risk (section 2 above) |
+| 2026-07-04 04:25 | PR #37 | Unescaped-inner-quote JSON sanitizer + key-vs-value colon handling, composed with the keyword-suffix sanitizer |
+| 2026-07-04 04:46 | PR #38 | PowerShell 5.1 compatibility fixes in `Run-CF7GateExpanded.ps1` (re-run tooling only, not scoring logic) |
+| 2026-07-04 | Grok review, `.orc/reviews/grok_20260703_223402.md` | Independent review of the full fix set above (36 files, 5,099 insertions), focused specifically on false-failure/false-pass risk in the scoring/parsing paths. Verdict: **CLEAN**, no findings. |
+
+**The 120-question NO-GO run on record (2026-07-04T00:36:28Z, B3 56/120) predates
+the `BuildEvidencePack` and `BuildExhaustiveAnswer` fixes** — it measured the old,
+known-buggy evidence selection. It is not yet known what B3 scores with the
+current, fixed code; that is the open item this document supports reviewing
+before the next run.
+
+## 7. Re-running
+
+See [CONTEXT_FABRIC_BENCHMARK_MANIFEST.md § Re-Running The Expanded 120-Question Gate](CONTEXT_FABRIC_BENCHMARK_MANIFEST.md#re-running-the-expanded-120-question-gate)
+for the canonical recipe (`Tools/ContextFabricBench/Run-CF7GateExpanded.ps1`).
