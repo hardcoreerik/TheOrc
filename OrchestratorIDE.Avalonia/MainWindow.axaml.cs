@@ -532,6 +532,7 @@ public partial class MainWindow : Window
             name, ollamaUrlForPeers, [.. models], vramMb, vramMb, lanes, rpcPort);
 
         _hiveNodeServer = new Services.Hive.HiveNodeServer();
+        _hiveNodeServer.ControlApprovals = _approvals;
         if (Enum.TryParse<Services.Hive.HiveAcceptControlPolicy>(
                 _settings.HiveDefaultAcceptControlFrom, ignoreCase: true, out var defaultPolicy))
             _hiveNodeServer.DefaultAcceptControlFrom = defaultPolicy;

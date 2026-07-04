@@ -310,6 +310,9 @@ public sealed class HiveTaskQueue : IDisposable
             var method = req.HttpMethod.ToUpperInvariant();
             var path   = req.Url?.AbsolutePath.TrimEnd('/') ?? "";
 
+            AddCompanionCors(req, ctx.Response);
+            if (method == "OPTIONS") { ctx.Response.StatusCode = 204; return; }
+
             // Read body once with a 1 MB hard cap (prevents oversized-body DoS).
             const int MaxBodyBytes = ContentAddressedStore.MaxChunkBytes;
             byte[] body;
@@ -431,6 +434,16 @@ public sealed class HiveTaskQueue : IDisposable
             Interlocked.Decrement(ref _inFlight);
             try { ctx.Response.Close(); } catch { }
         }
+    }
+
+    private static void AddCompanionCors(HttpListenerRequest req, HttpListenerResponse resp)
+    {
+        var origin = req.Headers["Origin"];
+        if (origin is not ("https://localhost" or "http://localhost" or "capacitor://localhost")) return;
+        resp.Headers["Access-Control-Allow-Origin"] = origin;
+        resp.Headers["Vary"] = "Origin";
+        resp.Headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, HEAD, OPTIONS";
+        resp.Headers["Access-Control-Allow-Headers"] = "Content-Type, X-Hive-Node-Id, X-Hive-Nonce, X-Hive-Ts, X-Hive-Sig, X-Hive-Offset, X-Hive-Total-Bytes";
     }
 
     // ── Endpoint handlers ─────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using OrchestratorIDE.Trust;
 
 namespace OrchestratorIDE.Services.Hive;
 
@@ -23,6 +24,7 @@ namespace OrchestratorIDE.Services.Hive;
 ///   POST /hive/mesh/election/stepdown     — authenticated election: temp Warchief stepping down
 ///   GET  /hive/update/version             — this node's installed version (unauthenticated)
 ///   POST /hive/update/deploy              — Warchief-authenticated remote update trigger
+///   *    /hive/control/*                   — paired-mobile encrypted control surface
 ///
 /// Auth: all /hive/mesh/* endpoints validate HMAC headers via HiveAuthMiddleware.
 /// /hive/tasks/* endpoints (port 7079, HiveTaskQueue) are wired separately and
@@ -47,10 +49,31 @@ public sealed class HiveNodeServer : IDisposable
     // "node" persistence key survives the nonce cache across restart (replay protection).
     private readonly HiveAuthMiddleware     _strictAuth   = new("node");
     private readonly HivePeerStore          _peers    = HivePeerStore.Default;
+    private ApprovalQueue                   _controlApprovals = new();
+    private HiveRemoteControlService        _remoteControl;
+
+    public HiveNodeServer()
+    {
+        _remoteControl = new(_controlApprovals);
+        _peers.PeerRevoked += OnPeerRevoked;
+    }
+
+    private void OnPeerRevoked(string nodeId) => _remoteControl.RevokeOwner(nodeId);
 
     // Injected by the app after construction
     public HiveMeshHeartbeat?   MeshHeartbeat    { get; set; }
     public HiveElectionService? ElectionService  { get; set; }
+    /// <summary>Uses the desktop's normal approval queue when hosted by the GUI.</summary>
+    public ApprovalQueue ControlApprovals
+    {
+        get => _controlApprovals;
+        set
+        {
+            _remoteControl.Dispose();
+            _controlApprovals = value ?? throw new ArgumentNullException(nameof(value));
+            _remoteControl = new(_controlApprovals);
+        }
+    }
     /// <summary>
     /// HIVE_MEMBERSHIP_SPEC.md §6.4 — applied to newly paired (non-mobile) peers at
     /// approval time instead of the previously hardcoded Ask. Set from AppSettings.
@@ -406,6 +429,9 @@ public sealed class HiveNodeServer : IDisposable
             var path = req.Url?.AbsolutePath?.TrimEnd('/') ?? "";
             var method = req.HttpMethod.ToUpperInvariant();
 
+            AddCompanionCors(req, resp);
+            if (method == "OPTIONS") { resp.StatusCode = 204; return; }
+
             // Read body once with a hard size cap to prevent oversized-body DoS.
             const int MaxBodyBytes = 1 * 1024 * 1024; // 1 MB
             byte[] body;
@@ -482,9 +508,18 @@ public sealed class HiveNodeServer : IDisposable
 
             if (!authResult.Ok)
             {
+                if (path.StartsWith("/hive/control", StringComparison.Ordinal)
+                    && req.Headers["X-Hive-Node-Id"] is { Length: > 0 } rejectedNodeId
+                    && _peers.Find(rejectedNodeId) is { Revoked: true })
+                    _remoteControl.RevokeOwner(rejectedNodeId);
                 resp.StatusCode = 401;
                 Error(resp, authResult.Reason ?? "unauthorized");
                 return;
+            }
+
+            if (path.StartsWith("/hive/control", StringComparison.Ordinal))
+            {
+                await HandleControlAsync(method, path, req, resp, body, authResult.NodeId); return;
             }
 
             // Mesh heartbeat
@@ -540,6 +575,130 @@ public sealed class HiveNodeServer : IDisposable
             Interlocked.Decrement(ref _inFlight);
             try { ctx.Response.Close(); } catch { }
         }
+    }
+
+    private Task HandleControlAsync(string method, string path, HttpListenerRequest req,
+        HttpListenerResponse resp, byte[] body, string nodeId)
+    {
+        var peer = _peers.Find(nodeId);
+        var secret = _peers.GetSharedSecret(nodeId);
+        if (peer is not { IsMobile: true, Revoked: false } || secret is null)
+        {
+            resp.StatusCode = 403;
+            Error(resp, "control access requires a directly paired mobile peer");
+            return Task.CompletedTask;
+        }
+
+        // A successfully authenticated mobile control call is its heartbeat.
+        _peers.UpdateLiveness(nodeId, req.RemoteEndPoint?.Address?.ToString() ?? "", peer.Role, 0);
+
+        try
+        {
+            var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (method == "DELETE" && parts.Length == 3 && parts[2] == "pairing")
+            {
+                EncryptedOk(resp, secret, new { status = "revoked" });
+                _peers.Revoke(nodeId);
+            }
+            else if (method == "GET" && parts.Length == 2)
+            {
+                var identity = HiveIdentity.Load();
+                var peers = _peers.All().Where(p => !p.Revoked).Select(p => new
+                {
+                    p.NodeId,
+                    p.Name,
+                    role = (p.LastHeartbeat.HasValue ? p.ActiveRole : p.Role).ToString().ToLowerInvariant(),
+                    state = p.LastHeartbeat > DateTime.UtcNow.AddSeconds(-30) ? "online" : "offline",
+                    p.IsMobile,
+                }).ToArray();
+                EncryptedOk(resp, secret, new
+                {
+                    nodeName = _info.Name,
+                    info = _info,
+                    topology = new
+                    {
+                        center = new { nodeId = identity.NodeId, name = _info.Name, role = "warchief", state = "online", isMobile = false },
+                        peers,
+                    },
+                    timestamp = DateTime.UtcNow,
+                });
+            }
+            else if (parts.Length >= 3 && parts[2] == "commands")
+            {
+                if (method == "POST" && parts.Length == 3)
+                    EncryptedOk(resp, secret, _remoteControl.CreateCommand(nodeId,
+                        HiveControlCrypto.Decrypt<HiveRemoteControlService.CommandRequest>(secret, body)));
+                else if (method == "GET" && parts.Length == 4)
+                    EncryptedResult(resp, secret, _remoteControl.GetCommand(nodeId, parts[3]));
+                else if (method == "DELETE" && parts.Length == 4)
+                    EncryptedFound(resp, secret, _remoteControl.CancelCommand(nodeId, parts[3]));
+                else NotFound(resp);
+            }
+            else if (parts.Length >= 3 && parts[2] == "terminals")
+            {
+                if (method == "POST" && parts.Length == 3)
+                    EncryptedOk(resp, secret, _remoteControl.CreateTerminal(nodeId,
+                        HiveControlCrypto.Decrypt<HiveRemoteControlService.TerminalRequest>(secret, body)));
+                else if (method == "GET" && parts.Length == 4)
+                {
+                    _ = int.TryParse(req.QueryString["offset"], out var offset);
+                    EncryptedResult(resp, secret, _remoteControl.GetTerminal(nodeId, parts[3], offset));
+                }
+                else if (method == "POST" && parts.Length == 5 && parts[4] == "input")
+                    EncryptedFound(resp, secret, _remoteControl.WriteTerminal(nodeId, parts[3],
+                        HiveControlCrypto.Decrypt<HiveRemoteControlService.TerminalInput>(secret, body)));
+                else if (method == "DELETE" && parts.Length == 4)
+                    EncryptedFound(resp, secret, _remoteControl.CloseTerminal(nodeId, parts[3]));
+                else NotFound(resp);
+            }
+            else if (parts.Length >= 3 && parts[2] == "approvals")
+            {
+                if (method == "GET" && parts.Length == 3)
+                    EncryptedOk(resp, secret, _remoteControl.GetApprovals(nodeId));
+                else if (method == "POST" && parts.Length == 5 && parts[4] == "decision")
+                    EncryptedFound(resp, secret, _remoteControl.DecideApproval(nodeId, parts[3],
+                        HiveControlCrypto.Decrypt<HiveRemoteControlService.ApprovalDecision>(secret, body)));
+                else NotFound(resp);
+            }
+            else NotFound(resp);
+        }
+        catch (Exception ex) when (ex is CryptographicException or JsonException or ArgumentException)
+        {
+            resp.StatusCode = 400;
+            Error(resp, ex.Message);
+        }
+        return Task.CompletedTask;
+    }
+
+    private static void EncryptedResult<T>(HttpListenerResponse resp, byte[] secret, T? value)
+    {
+        if (value is null) { NotFound(resp); return; }
+        EncryptedOk(resp, secret, value);
+    }
+
+    private static void EncryptedFound(HttpListenerResponse resp, byte[] secret, bool found)
+    {
+        if (!found) { NotFound(resp); return; }
+        EncryptedOk(resp, secret, new { status = "ok" });
+    }
+
+    private static void EncryptedOk<T>(HttpListenerResponse resp, byte[] secret, T value) =>
+        Ok(resp, JsonSerializer.Serialize(HiveControlCrypto.Encrypt(secret, value), _jsonOut));
+
+    private static void NotFound(HttpListenerResponse resp)
+    {
+        resp.StatusCode = 404;
+        Error(resp, "not found");
+    }
+
+    private static void AddCompanionCors(HttpListenerRequest req, HttpListenerResponse resp)
+    {
+        var origin = req.Headers["Origin"];
+        if (origin is not ("https://localhost" or "http://localhost" or "capacitor://localhost")) return;
+        resp.Headers["Access-Control-Allow-Origin"] = origin;
+        resp.Headers["Vary"] = "Origin";
+        resp.Headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS";
+        resp.Headers["Access-Control-Allow-Headers"] = "Content-Type, X-Hive-Node-Id, X-Hive-Nonce, X-Hive-Ts, X-Hive-Sig";
     }
 
     // ── /hive/pair — initiate ─────────────────────────────────────────────────
@@ -620,6 +779,13 @@ public sealed class HiveNodeServer : IDisposable
             if (DevAutoApproveActive)
             {
                 OnLog?.Invoke($"DEV re-sync: re-pairing already-trusted {req.InitiatorName} to refresh its shared secret.");
+            }
+            else if (req.IsMobileClient)
+            {
+                // Mobile may have lost its locally encrypted peer secret after the host
+                // committed pairing. Require the normal approval card again, but let the
+                // proven hardware identity recover without hand-editing either peer store.
+                OnLog?.Invoke($"Mobile re-pair requested by already-trusted {req.InitiatorName}; requiring approval.");
             }
             else
             {
@@ -1035,6 +1201,8 @@ public sealed class HiveNodeServer : IDisposable
         MeshHeartbeat?.Stop();
         try { _listener?.Stop(); } catch { }
         _listener?.Close();
+        _peers.PeerRevoked -= OnPeerRevoked;
+        _remoteControl.Dispose();
         // Without this, IsListening/IsRemoteReachable keep reporting true after shutdown --
         // a caller checking health post-Dispose would be lied to (Codex CLI MINOR, 2026-06-21).
         _bound     = false;

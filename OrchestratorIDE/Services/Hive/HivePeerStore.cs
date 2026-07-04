@@ -72,6 +72,7 @@ public sealed class HivePeer
 /// </summary>
 public sealed class HivePeerStore
 {
+    public event Action<string>? PeerRevoked;
     private static readonly string PeersPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "TheOrc", "hive-peers.json");
@@ -273,6 +274,7 @@ public sealed class HivePeerStore
 
     public void Revoke(string nodeId)
     {
+        var revoked = false;
         lock (_lock)
         {
             var peer = _peers.FirstOrDefault(p => p.NodeId == nodeId);
@@ -280,7 +282,9 @@ public sealed class HivePeerStore
             peer.Revoked   = true;
             peer.RevokedAt = DateTime.UtcNow;
             if (_persistToDisk) SaveToDisk(_peers);
+            revoked = true;
         }
+        if (revoked) PeerRevoked?.Invoke(nodeId);
     }
 
     /// <summary>

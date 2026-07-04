@@ -56,6 +56,8 @@
     <Compile Include="..\OrchestratorIDE\Services\Hive\CampaignTemplates.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveEventBus.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveTaskQueue.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveControlCrypto.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\HiveRemoteControlService.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveNodeServer.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HivePairingClient.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveElectionService.cs" />
@@ -76,6 +78,7 @@
     <Compile Include="..\OrchestratorIDE\Services\Data\SqliteStore.cs" />
     <!-- Trust level (needed by AppSettings) -->
     <Compile Include="..\OrchestratorIDE\Trust\TrustLevel.cs" />
+    <Compile Include="..\OrchestratorIDE\Trust\ApprovalQueue.cs" />
     <!-- Core utilities -->
     <Compile Include="..\OrchestratorIDE\Core\AppSettings.cs" />
     <Compile Include="..\OrchestratorIDE\Core\UpdateChecker.cs" />
