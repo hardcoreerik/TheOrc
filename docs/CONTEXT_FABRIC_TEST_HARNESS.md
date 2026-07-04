@@ -275,26 +275,48 @@ slots...") never appeared in the log — only the native `NoKvSlot` — confirmi
 the existing protection's own counters never tripped even though the native
 pool was already exhausted.
 
-**Stopgap applied 2026-07-04:** `SequenceRecycleThreshold` lowered from 128 to
-24 (`AdapterManager.cs`) — a one-constant, zero-logic-change conservative
-tightening, not the real fix. This bounds how many conversations can
-accumulate uncollected KV-cache pressure before a forced executor rebuild, at
-the cost of more frequent context reallocation. It has **not** been validated
-against a full 120-question run yet (that takes ~2-3 hours; not done as part
-of this stopgap). The real fix — recycle based on cumulative *prompt tokens*
-consumed per role's executor, not conversation *count*, since token usage is
-what actually correlates with KV-cache pressure now that evidence-pack size
-varies per question instead of being capped — is still not implemented. Do not
-raise `SequenceRecycleThreshold` back toward 128 until that token-based trigger
-lands and is validated.
+**Stopgap attempted 2026-07-04, empirically DID NOT WORK — root cause is
+narrower than first diagnosed.** `SequenceRecycleThreshold` was lowered from
+128 to 24 (`AdapterManager.cs`) on the theory that conversation *count* was the
+gating factor. A second full 120-question run with this change produced a
+**byte-for-byte identical** question-pass/fail trace to the pre-fix run — same
+33 failures, same 12 successes, same 75 failures after, in the exact same
+positions. A 5x lower threshold changing literally nothing about the outcome
+means conversation-count-based recycling was never the actual mechanism in
+play here, or recycling isn't firing at all regardless of the threshold value.
+
+Re-reading `AdapterManager.GetOrCreateConversationAsync`: the recycle-eligible
+branch only runs when `existing.ActiveCount == 0` — the check is
+`if (minted < SequenceRecycleThreshold || existing.ActiveCount > 0) { serve
+without recycling }`. If `ActiveCount` is stuck above zero for some reason
+(a `TrackedConversation` not being disposed/decremented correctly somewhere in
+the call chain), this condition is true unconditionally regardless of `minted`
+or the threshold — recycling would never trigger no matter how low the
+threshold is set, which fully explains the null result observed. **This has
+not been proven, only inferred from the identical-trace result** — it's the
+most defensible next hypothesis, not a confirmed diagnosis. The original
+"recycle by tokens not count" idea may still be correct as a longer-term
+design, but it's moot until whatever is keeping `ActiveCount` from reaching
+zero (if that's really what's happening) is found and fixed; a threshold
+adjustment of any kind cannot help if the recycle branch is never reached.
+
+**Next investigation step (not started):** instrument or step through
+`ActiveCount`/`ConversationsCreated` for the shared role executor across a
+run — confirmed via `Program.cs:194` that B0-B3 all share one
+`NativeRoleRuntime`/`AdapterManager` instance for the whole `cf7-gate-expanded`
+suite, so the cumulative-pressure theory itself still holds; what's now in
+question is only why recycling isn't relieving that pressure. This needs
+actual debugging (a debugger attached, or temporary logging inside
+`AdapterManager`), not another guess — two single-constant changes have now
+been tried and evidence suggests the recycle path may not run at all.
 
 **What this means for reading any prior or future run's B3/B0 numbers:** check
 `verification.errors` in the raw JSON, not just the summary line, before
 trusting a low pass count as a real capability result — grep for `NoKvSlot`
 across `cf0_*.json` and `cf7_baseline_b0_*.json`. If present in more than a
-handful of entries, the run needs to be redone, not interpreted as-is — even
-after the stopgap above, since it has not yet been confirmed to actually
-prevent the failure at full 120-question scale.
+handful of entries, the run needs to be redone once the above is actually
+root-caused and fixed, not interpreted as-is — the `SequenceRecycleThreshold`
+change alone is confirmed **not** to resolve this.
 
 ## 8. Known fleet/environment issues (not scoring-logic bugs)
 
