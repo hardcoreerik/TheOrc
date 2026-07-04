@@ -774,19 +774,16 @@ public sealed class ContextFabricFeasibilityRunner
             // than throw. RunAsync's real call path always keeps cards and corpus in sync; this
             // guard only matters because BuildExhaustiveAnswer is internal for direct unit testing.
             .Where(card => segmentsById.ContainsKey(card.SegmentId))
-            .OrderBy(card => segmentsById[card.SegmentId].Ordinal)
-            .Select(card => new
-            {
-                Card = card,
-                Claim = card.Claims
-                    .Select(claim => (claim, matchesDistinctiveTerm: TokenizeForScoring(claim.Text).Overlaps(mostDistinctiveTerms)))
-                    .Where(pair => pair.matchesDistinctiveTerm)
-                    .OrderByDescending(pair => ScoreTextIdf(pair.claim.Text, terms, documentFrequency))
-                    .Select(pair => pair.claim)
-                    .FirstOrDefault(),
-            })
-            .Where(item => item.Claim is not null)
-            .Select(item => (item.Card, Claim: item.Claim!))
+            // Every matching claim on a card is kept, not just the single highest-scoring one --
+            // a card whose text genuinely lists several distinct entries (e.g. multiple case IDs
+            // under the same ledger) must surface all of them, not silently drop the rest
+            // (CodeRabbit finding, 2026-07-04: the prior FirstOrDefault() under-included).
+            .SelectMany(card => card.Claims
+                .Where(claim => TokenizeForScoring(claim.Text).Overlaps(mostDistinctiveTerms))
+                .Select(claim => (Card: card, Claim: claim, Ordinal: segmentsById[card.SegmentId].Ordinal)))
+            .OrderBy(item => item.Ordinal)
+            .ThenByDescending(item => ScoreTextIdf(item.Claim.Text, terms, documentFrequency))
+            .Select(item => (item.Card, item.Claim))
             .ToArray();
         var answerText = string.Join(' ', selected.Select(item => item.Claim.Text));
         var draft = new FabricAnswerDraft
@@ -824,7 +821,7 @@ public sealed class ContextFabricFeasibilityRunner
             question,
             verified.Answer,
             verified.Verification,
-            selected.Select(item => item.Card.SegmentId).ToArray(),
+            selected.Select(item => item.Card.SegmentId).Distinct(StringComparer.Ordinal).ToArray(),
             metrics);
     }
 
@@ -1004,7 +1001,12 @@ public sealed class ContextFabricFeasibilityRunner
         "shall", "must", "its", "his", "her", "their", "our", "your", "you", "she", "him",
         "they", "them", "been", "being", "any", "all", "each", "some", "such", "own", "same",
         "is", "at", "to", "of", "in", "on", "by", "no", "an", "we", "it", "as", "or", "be", "do",
-        "every", "list", "order",
+        // "every"/"list"/"order" are generic exhaustive-question quantifiers (see
+        // BuildExhaustiveAnswer). "under" is the same class of problem: "list every X under
+        // ledger Y" -- if an unrelated card happens to contain "under" once, it can look rarer
+        // than the actual distinguishing identifier and wrongly become mostDistinctiveTerms,
+        // excluding the real target cards (CodeRabbit finding, 2026-07-04).
+        "every", "list", "order", "under",
     };
 
     /// <summary>

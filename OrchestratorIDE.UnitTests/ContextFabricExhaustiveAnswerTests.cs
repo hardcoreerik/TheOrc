@@ -76,15 +76,24 @@ public sealed class ContextFabricExhaustiveAnswerTests
             .ToArray();
         var segmentIds = cards.Select(c => c.SegmentId).ToArray();
         var corpus = Corpus(segmentIds);
+        // Expectations cover all 5 entries, not just the first -- a fixture that only declares
+        // one expected answer/segment can't catch a regression that silently drops entries 2-5
+        // (CodeRabbit finding, 2026-07-04).
+        var expectedAnswers = Enumerable.Range(0, 5).Select(i => $"CASE-01-{i}").ToArray();
         var question = new FabricBenchmarkQuestion(
             "q-2", FabricQuestionKind.Exhaustive,
             "List every case-file ID recorded under ledger case-ledger-01, in any order.",
-            ["CASE-01-0"], [segmentIds[0]]);
+            expectedAnswers, segmentIds);
 
         var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), FabricRunOptions.Default);
         var result = runner.BuildExhaustiveAnswer(corpus, question, cards);
 
-        Assert.That(result.IncludedSegmentIds, Has.Count.EqualTo(5));
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.IncludedSegmentIds, Is.EquivalentTo(segmentIds));
+            foreach (var expected in expectedAnswers)
+                Assert.That(result.Answer?.Answer, Does.Contain(expected));
+        });
     }
 
     [Test]
@@ -110,5 +119,37 @@ public sealed class ContextFabricExhaustiveAnswerTests
         var result = runner.BuildExhaustiveAnswer(corpus, question, allCards);
 
         Assert.That(result.IncludedSegmentIds, Is.EquivalentTo(new[] { "seg-l01-a" }));
+    }
+
+    [Test]
+    public void BuildExhaustiveAnswer_IncludesEveryMatchingClaim_WhenOneCardListsMultipleEntries()
+    {
+        // A single card whose claims list two distinct case IDs under the same ledger -- the
+        // prior FirstOrDefault() kept only the highest-scoring claim and silently dropped the
+        // rest (CodeRabbit finding, 2026-07-04). Both must appear now.
+        var card = new FabricEvidenceCard
+        {
+            SegmentId = "seg-l01-multi",
+            Summary = "Ledger case-ledger-01 entries.",
+            Claims =
+            [
+                new FabricClaim { ClaimId = "seg-l01-multi-c1", Text = "Ledger case-ledger-01 lists entry CASE-01-0 as an open case file." },
+                new FabricClaim { ClaimId = "seg-l01-multi-c2", Text = "Ledger case-ledger-01 lists entry CASE-01-1 as an open case file." },
+            ],
+        };
+        var corpus = Corpus(card.SegmentId);
+        var question = new FabricBenchmarkQuestion(
+            "q-4", FabricQuestionKind.Exhaustive,
+            "List every case-file ID recorded under ledger case-ledger-01, in any order.",
+            ["CASE-01-0", "CASE-01-1"], [card.SegmentId]);
+
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), FabricRunOptions.Default);
+        var result = runner.BuildExhaustiveAnswer(corpus, question, [card]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Answer?.Answer, Does.Contain("CASE-01-0"));
+            Assert.That(result.Answer?.Answer, Does.Contain("CASE-01-1"));
+        });
     }
 }
