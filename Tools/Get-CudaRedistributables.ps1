@@ -30,6 +30,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# Invoke-WebRequest renders a progress bar by default, which materially slows large downloads
+# on some PowerShell hosts (noticeable here: multi-hundred-MB CUDA archives on every cache-miss
+# CI run).
+$ProgressPreference = "SilentlyContinue"
 
 if (-not $OutputDir) {
     $OutputDir = Join-Path $env:TEMP "theorc-cuda-redist-$Version"
@@ -53,7 +57,7 @@ foreach ($dll in $neededDlls) {
 }
 if ($allPresent) {
     Write-Host "All CUDA redistributables already present in '$OutputDir' - skipping download." -ForegroundColor DarkGray
-    Write-Host $OutputDir
+    Write-Output $OutputDir
     exit 0
 }
 
@@ -100,19 +104,24 @@ foreach ($component in $components) {
     Write-Host "  Verified SHA-256 for $component." -ForegroundColor DarkGray
 
     $extractDir = Join-Path $workDir ([System.IO.Path]::GetFileNameWithoutExtension($relativePath))
-    Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+    try {
+        Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
 
-    $binDir = Get-ChildItem -Path $extractDir -Directory -Recurse -Filter "bin" | Select-Object -First 1
-    if (-not $binDir) {
-        Write-Host "Could not find a 'bin' directory inside the extracted $component archive." -ForegroundColor Red
-        exit 1
-    }
-
-    foreach ($dll in Get-ChildItem -Path $binDir.FullName -Filter "*.dll") {
-        if ($neededDlls -contains $dll.Name) {
-            Copy-Item -Path $dll.FullName -Destination (Join-Path $OutputDir $dll.Name) -Force
-            Write-Host "  Extracted $($dll.Name)" -ForegroundColor DarkGray
+        $binDir = Get-ChildItem -Path $extractDir -Directory -Recurse -Filter "bin" | Select-Object -First 1
+        if (-not $binDir) {
+            Write-Host "Could not find a 'bin' directory inside the extracted $component archive." -ForegroundColor Red
+            exit 1
         }
+
+        foreach ($dll in Get-ChildItem -Path $binDir.FullName -Filter "*.dll") {
+            if ($neededDlls -contains $dll.Name) {
+                Copy-Item -Path $dll.FullName -Destination (Join-Path $OutputDir $dll.Name) -Force
+                Write-Host "  Extracted $($dll.Name)" -ForegroundColor DarkGray
+            }
+        }
+    } catch {
+        Write-Host "Failed to extract or copy $component : $($_.Exception.Message)" -ForegroundColor Red
+        exit 1
     }
 }
 
@@ -125,5 +134,5 @@ if ($missing.Count -gt 0) {
 }
 
 Write-Host "All CUDA redistributables ready in '$OutputDir'." -ForegroundColor Green
-Write-Host $OutputDir
+Write-Output $OutputDir
 exit 0

@@ -312,15 +312,29 @@ path may not run at all — that needs actual data, not another guess.
 Added an opt-in diagnostic for exactly this (`AdapterManager.cs`, purely
 additive, zero behavior change unless enabled): set
 `THEORC_KVCACHE_DIAGNOSTICS=1` before a run and every recycle-eligibility check
-prints one line to stderr — `role=... served-without-recycle
+prints one line to **stdout** (not stderr — `Run-CF7GateExpanded.ps1` pipes the
+benchmark exe through `2>&1 | Tee-Object`, and PowerShell treats native stderr
+output as a terminating `NativeCommandError`, which killed the run on first use
+before this was caught) — `role=... served-without-recycle
 minted=... activeCount=... threshold=... reason=under-threshold|
 active-conversations-outstanding` or `role=... RECYCLING minted=...
-activeCount=...`. Grep the next run's console log for
+activeCount=...`. Grep the run's console log for
 `reason=active-conversations-outstanding` — if that's the reason on every
-single check (never `under-threshold`), it confirms `ActiveCount` never
+single check (never `under-threshold`), it would confirm `ActiveCount` never
 reaches zero and recycling truly never fires, regardless of the threshold.
-This has **not** been run yet — the next full 120-question run should be
-launched with this env var set before drawing further conclusions.
+
+**Result from the first real run with this enabled:** `ActiveCount` was 0 on
+every single check (hundreds of checks, zero `active-conversations-outstanding`
+occurrences) and recycling fired correctly at every threshold crossing — yet
+`NoKvSlot` still occurred. **This rules out the stuck-`ActiveCount` hypothesis
+entirely.** The recycle mechanism (both the count threshold and the
+`ActiveCount` gate) works exactly as designed; the actual root cause is
+something recycling doesn't address at all — most likely that rebuilding the
+executor doesn't fully reclaim the previous one's native KV-cache memory
+before the new one starts allocating, or that a single oversized evidence pack
+can exhaust the pool on its own regardless of recycling frequency. Still
+unresolved; this narrows the next investigation to executor-disposal memory
+reclamation rather than conversation-count bookkeeping.
 
 **What this means for reading any prior or future run's B3/B0 numbers:** check
 `verification.errors` in the raw JSON, not just the summary line, before

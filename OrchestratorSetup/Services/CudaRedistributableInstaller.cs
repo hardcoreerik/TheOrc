@@ -47,12 +47,16 @@ public sealed class CudaRedistributableInstaller
     }
 
     /// <summary>
-    /// Ensures all three redistributable DLLs exist in <paramref name="targetDir"/> (the
-    /// in-process runtime's expected "runtimes/win-x64/native/cuda12" directory, relative to
-    /// the installed app). Idempotent: a re-run (repair install, upgrade) with all three DLLs
-    /// already present skips the network entirely. Returns false (non-fatal to the overall
-    /// install -- callers should log a warning and continue, matching how model download
-    /// failures are already handled) if the manifest, download, or extraction fails.
+    /// Ensures all three redistributable DLLs exist in <paramref name="targetDir"/>. Callers
+    /// pass the stable CUDA redistributable cache directory (InstallOrchestrator's
+    /// StableCudaRedistDir, %LOCALAPPDATA%\TheOrc\CudaRedist) -- deliberately NOT the app's own
+    /// "runtimes/win-x64/native/cuda12" bundle folder, since a self-extracting single-file
+    /// install can't predict that path before the app has ever launched. See
+    /// NativeBackendBootstrap.StableRedistDir/PreflightCudaBackend for how the in-process
+    /// runtime finds files placed here. Idempotent: a re-run (repair install, upgrade) with all
+    /// three DLLs already present skips the network entirely. Returns false (non-fatal to the
+    /// overall install -- callers should log a warning and continue, matching how model
+    /// download failures are already handled) if the manifest, download, or extraction fails.
     /// </summary>
     public async Task<bool> InstallAsync(string targetDir, CancellationToken ct)
     {
@@ -68,15 +72,17 @@ public sealed class CudaRedistributableInstaller
 
         try
         {
-            JsonElement manifest;
+            string manifestJson;
             using (var http = new HttpClient())
             {
                 http.DefaultRequestHeaders.UserAgent.ParseAdd("OrchestratorSetup/1.0");
                 var manifestUrl = $"{RedistBaseUrl}/redistrib_{ManifestVersion}.json";
                 Log($"Fetching NVIDIA CUDA redistributable manifest ({ManifestVersion})...");
-                var manifestJson = await http.GetStringAsync(manifestUrl, ct);
-                manifest = JsonDocument.Parse(manifestJson).RootElement;
+                manifestJson = await http.GetStringAsync(manifestUrl, ct);
             }
+
+            using var manifestDoc = JsonDocument.Parse(manifestJson);
+            var manifest = manifestDoc.RootElement;
 
             foreach (var component in Components)
             {
