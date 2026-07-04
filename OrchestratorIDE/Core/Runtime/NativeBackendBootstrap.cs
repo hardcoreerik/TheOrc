@@ -1,9 +1,52 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Runtime.InteropServices;
+using LLama.Abstractions;
 using LLama.Native;
 
 namespace OrchestratorIDE.Core.Runtime;
+
+/// <summary>
+/// Overrides LLamaSharp's own CUDA-candidate construction so it always falls back to the
+/// packaged cuda12 backend (then cuda11) instead of only trying a folder matching whatever
+/// CUDA *toolkit* version <see cref="SystemInfo.CudaMajorVersion"/> happens to detect via
+/// CUDA_PATH/version.json.
+///
+/// Why this exists: <c>NativeLibraryWithCuda.Prepare</c> only takes the "try cuda12, then
+/// cuda11" fallback path when its majorCudaVersion is exactly -1 (the driver-only, no-toolkit
+/// case this fleet was built around — see <see cref="NativeBackendBootstrap"/>'s own class
+/// doc). When a real CUDA toolkit is installed, LLamaSharp's toolkit detection succeeds and
+/// returns that toolkit's major version instead, and the class then ONLY tries that one exact
+/// version's folder with no fallback at all. We only ever ship a cuda12 backend, so a machine
+/// with e.g. CUDA 13.3 installed (toolkit present, but only for other work — the driver alone
+/// is sufficient for a statically-linked cuda12 backend) ends up trying a nonexistent cuda13
+/// folder and failing outright, even though the working cuda12 folder is sitting right there.
+/// Confirmed live on HARDCOREPC (RTX 3050, driver-only originally; installing the CUDA 13.3
+/// SDK the same night broke native library loading entirely — LLamaSharp's own log showed it
+/// trying "runtimes\win-x64\native\cuda13\ggml-base.dll" and failing, never attempting cuda12).
+///
+/// Forcing majorCudaVersion back to -1 for CUDA candidates makes toolkit version irrelevant —
+/// exactly the "no user interaction, works regardless of what's installed" behavior wanted.
+/// If a genuine cuda13 (or other version) backend is ever packaged, extend this policy to try
+/// it first and fall back to cuda12, rather than relying on LLamaSharp's toolkit sniffing.
+/// </summary>
+internal sealed class Cuda12FallbackSelectingPolicy : INativeLibrarySelectingPolicy
+{
+    private readonly DefaultNativeLibrarySelectingPolicy _default = new();
+
+    public IEnumerable<INativeLibrary> Apply(
+        NativeLibraryConfig.Description description,
+        SystemInfo systemInfo,
+        NativeLogConfig.LLamaLogCallback? logCallback = null)
+    {
+        foreach (var library in _default.Apply(description, systemInfo, logCallback))
+        {
+            yield return library is NativeLibraryWithCuda
+                ? new NativeLibraryWithCuda(-1, description.Library, description.AvxLevel, description.SkipCheck)
+                : library;
+        }
+    }
+}
 
 /// <summary>
 /// Result of the one-time native backend selection. <see cref="SelectedCuda"/> false while
@@ -92,7 +135,9 @@ public static class NativeBackendBootstrap
                     });
 
                 if (forceCuda)
-                    NativeLibraryConfig.All.WithCuda(true).SkipCheck(true).WithAutoFallback(false);
+                    NativeLibraryConfig.All
+                        .WithCuda(true).SkipCheck(true).WithAutoFallback(false)
+                        .WithSelectingPolicy(new Cuda12FallbackSelectingPolicy());
                 else
                     NativeLibraryConfig.All.WithAutoFallback(true);
             }
