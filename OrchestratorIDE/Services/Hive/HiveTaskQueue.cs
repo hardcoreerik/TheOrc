@@ -444,6 +444,7 @@ public sealed class HiveTaskQueue : IDisposable
         resp.Headers["Vary"] = "Origin";
         resp.Headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, HEAD, OPTIONS";
         resp.Headers["Access-Control-Allow-Headers"] = "Content-Type, X-Hive-Node-Id, X-Hive-Nonce, X-Hive-Ts, X-Hive-Sig, X-Hive-Offset, X-Hive-Total-Bytes";
+        resp.Headers["Access-Control-Expose-Headers"] = "Content-Range, X-Hive-Stored-Bytes, X-Hive-Complete";
     }
 
     // ── Endpoint handlers ─────────────────────────────────────────────────────

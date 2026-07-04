@@ -12,6 +12,9 @@ namespace OrchestratorIDE.Services.Hive;
 public sealed class HiveRemoteControlService : IDisposable
 {
     private const int MaxOutputChars = 1_000_000;
+    private const int MaxCommandsPerOwner = 20;
+    private const int MaxTerminalsPerOwner = 2;
+    private static readonly TimeSpan CommandRetention = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan TerminalIdleTimeout = TimeSpan.FromMinutes(30);
     private readonly ApprovalQueue _approvals;
     private readonly Dictionary<string, CommandRun> _commands = [];
@@ -38,11 +41,17 @@ public sealed class HiveRemoteControlService : IDisposable
     public CommandSnapshot CreateCommand(string ownerNodeId, CommandRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Command)) throw new ArgumentException("Command is required.");
+        PruneCommands();
         var id = Guid.NewGuid().ToString("N");
         var call = NewApproval(id, "remote_shell", request.Command, request.Cwd, request.Reason);
         var run = new CommandRun(id, ownerNodeId, call);
-        Audit("command_requested", ownerNodeId, id, new { request.Command, request.Cwd, request.Reason });
-        lock (_lock) _commands[id] = run;
+        lock (_lock)
+        {
+            if (_commands.Values.Count(x => x.OwnerNodeId == ownerNodeId) >= MaxCommandsPerOwner)
+                throw new ArgumentException("Too many retained remote commands.");
+            _commands[id] = run;
+        }
+        Audit("command_requested", ownerNodeId, id, new { commandLength = request.Command.Length });
         _ = RunCommandAfterApprovalAsync(run, request);
         return Snapshot(run);
     }
@@ -70,8 +79,13 @@ public sealed class HiveRemoteControlService : IDisposable
         var id = Guid.NewGuid().ToString("N");
         var call = NewApproval(id, "remote_terminal", "Open interactive PowerShell terminal", request.Cwd, request.Reason);
         var run = new TerminalRun(id, ownerNodeId, call);
+        lock (_lock)
+        {
+            if (_terminals.Values.Count(x => x.OwnerNodeId == ownerNodeId) >= MaxTerminalsPerOwner)
+                throw new ArgumentException("Too many remote terminal sessions.");
+            _terminals[id] = run;
+        }
         Audit("terminal_requested", ownerNodeId, id, new { request.Cwd, request.Reason });
-        lock (_lock) _terminals[id] = run;
         _ = StartTerminalAfterApprovalAsync(run, request);
         return Snapshot(run, 0);
     }
@@ -89,17 +103,25 @@ public sealed class HiveRemoteControlService : IDisposable
 
     public bool WriteTerminal(string ownerNodeId, string id, TerminalInput input)
     {
-        if (input.Input.Length > 32_768) throw new ArgumentException("Terminal input is too large.");
+        if (input?.Input is not { } terminalInput) throw new ArgumentException("Terminal input is required.");
+        if (terminalInput.Length > 32_768) throw new ArgumentException("Terminal input is too large.");
+        Process process;
         lock (_lock)
         {
             if (!_terminals.TryGetValue(id, out var run) || run.OwnerNodeId != ownerNodeId
                 || run.Process is not { HasExited: false }) return false;
-            Audit("terminal_input", ownerNodeId, id, new { input.Input });
-            run.Process.StandardInput.WriteLine(input.Input);
-            run.Process.StandardInput.Flush();
+            process = run.Process;
             run.LastActivity = DateTime.UtcNow;
+        }
+        Audit("terminal_input", ownerNodeId, id, new { length = terminalInput.Length });
+        try
+        {
+            process.StandardInput.WriteLine(terminalInput);
+            process.StandardInput.Flush();
             return true;
         }
+        catch (InvalidOperationException) { return false; }
+        catch (IOException) { return false; }
     }
 
     public bool CloseTerminal(string ownerNodeId, string id)
@@ -263,6 +285,21 @@ public sealed class HiveRemoteControlService : IDisposable
         }
     }
 
+    private void PruneCommands()
+    {
+        lock (_lock)
+        {
+            var cutoff = DateTime.UtcNow - CommandRetention;
+            var expired = _commands.Values.Where(x => x.CreatedAt < cutoff
+                && x.Status is not ("pending" or "awaiting_approval" or "running")).ToArray();
+            foreach (var run in expired)
+            {
+                _commands.Remove(run.Id);
+                run.Cancellation.Dispose();
+            }
+        }
+    }
+
     private void Audit(string eventType, string nodeId, string id, object? detail)
     {
         var line = JsonSerializer.Serialize(new { timestamp = DateTime.UtcNow, eventType, nodeId, id, detail });
@@ -288,6 +325,7 @@ public sealed class HiveRemoteControlService : IDisposable
     {
         public string Id { get; } = id; public string OwnerNodeId { get; } = ownerNodeId; public ToolCall Approval { get; } = approval;
         public CancellationTokenSource Cancellation { get; } = new(); public Process? Process { get; set; }
+        public DateTime CreatedAt { get; } = DateTime.UtcNow;
         public string Status { get; set; } = "pending"; public string Output { get; set; } = "";
         public int? ExitCode { get; set; } public string? Error { get; set; }
     }

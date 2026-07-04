@@ -506,9 +506,12 @@ public sealed class HiveNodeServer : IDisposable
             // of its own, not a bolt-on here. Tracked as the explicit remainder of Phase 2.
             var authResult = _strictAuth.Validate(req, body);
 
+            static bool IsControlPath(string p) =>
+                p == "/hive/control" || p.StartsWith("/hive/control/", StringComparison.Ordinal);
+
             if (!authResult.Ok)
             {
-                if (path.StartsWith("/hive/control", StringComparison.Ordinal)
+                if (IsControlPath(path)
                     && req.Headers["X-Hive-Node-Id"] is { Length: > 0 } rejectedNodeId
                     && _peers.Find(rejectedNodeId) is { Revoked: true })
                     _remoteControl.RevokeOwner(rejectedNodeId);
@@ -517,7 +520,7 @@ public sealed class HiveNodeServer : IDisposable
                 return;
             }
 
-            if (path.StartsWith("/hive/control", StringComparison.Ordinal))
+            if (IsControlPath(path))
             {
                 await HandleControlAsync(method, path, req, resp, body, authResult.NodeId); return;
             }
@@ -590,19 +593,23 @@ public sealed class HiveNodeServer : IDisposable
         }
 
         // A successfully authenticated mobile control call is its heartbeat.
-        _peers.UpdateLiveness(nodeId, req.RemoteEndPoint?.Address?.ToString() ?? "", peer.Role, 0);
+        var remoteHost = req.RemoteEndPoint?.Address?.ToString() ?? "";
+        _peers.UpdateLiveness(nodeId, string.IsNullOrEmpty(remoteHost) ? "" : $"{remoteHost}:{ApiPort}", peer.Role, 0);
 
         try
         {
             var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
             if (method == "DELETE" && parts.Length == 3 && parts[2] == "pairing")
             {
-                EncryptedOk(resp, secret, new { status = "revoked" });
                 _peers.Revoke(nodeId);
+                EncryptedOk(resp, secret, new { status = "revoked" });
             }
             else if (method == "GET" && parts.Length == 2)
             {
                 var identity = HiveIdentity.Load();
+                var localRole = ElectionService?.WarchiefNodeId == identity.NodeId
+                    ? "warchief"
+                    : identity.SelfRole.ToString().ToLowerInvariant();
                 var peers = _peers.All().Where(p => !p.Revoked).Select(p => new
                 {
                     p.NodeId,
@@ -617,7 +624,7 @@ public sealed class HiveNodeServer : IDisposable
                     info = _info,
                     topology = new
                     {
-                        center = new { nodeId = identity.NodeId, name = _info.Name, role = "warchief", state = "online", isMobile = false },
+                        center = new { nodeId = identity.NodeId, name = _info.Name, role = localRole, state = "online", isMobile = false },
                         peers,
                     },
                     timestamp = DateTime.UtcNow,

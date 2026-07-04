@@ -24,6 +24,12 @@ public sealed class HiveControlTests
             new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
         Assert.That(() => HiveControlCrypto.Decrypt<Dictionary<string, string>>(secret, tamperedJson),
             Throws.InstanceOf<CryptographicException>());
+
+        var malformed = envelope with { Nonce = "not-base64" };
+        var malformedJson = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(malformed,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.That(() => HiveControlCrypto.Decrypt<Dictionary<string, string>>(secret, malformedJson),
+            Throws.InstanceOf<CryptographicException>());
     }
 
     [Test]
@@ -47,6 +53,7 @@ public sealed class HiveControlTests
             Assert.That(snapshot!.Status, Is.EqualTo("complete"));
             Assert.That(snapshot.Output, Does.Contain("hive-control-ok"));
             Assert.That(service.GetCommand("different-peer", created.Id), Is.Null);
+            Assert.That(File.ReadAllText(auditPath), Does.Not.Contain("Write-Output hive-control-ok"));
         });
         File.Delete(auditPath);
     }

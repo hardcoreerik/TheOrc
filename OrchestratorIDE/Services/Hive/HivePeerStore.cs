@@ -284,7 +284,12 @@ public sealed class HivePeerStore
             if (_persistToDisk) SaveToDisk(_peers);
             revoked = true;
         }
-        if (revoked) PeerRevoked?.Invoke(nodeId);
+        if (!revoked) return;
+        foreach (Action<string> handler in PeerRevoked?.GetInvocationList() ?? [])
+        {
+            try { handler(nodeId); }
+            catch { /* durable revocation must not depend on cleanup observers */ }
+        }
     }
 
     /// <summary>
