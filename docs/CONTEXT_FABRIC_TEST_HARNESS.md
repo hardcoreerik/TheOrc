@@ -228,7 +228,50 @@ known-buggy evidence selection. It is not yet known what B3 scores with the
 current, fixed code; that is the open item this document supports reviewing
 before the next run.
 
-## 7. Re-running
+## 7. Known fleet/environment issues (not scoring-logic bugs)
+
+These are infrastructure problems observed while running the gate on specific
+machines. They affect whether a run *executes*, not whether the grading logic
+above is correct — recorded here so a future NO-GO or crash isn't mistaken for
+a scoring bug or a model capability gap.
+
+- **HARDCOREPC (RTX 3050, 6GB VRAM) native-library load regression, 2026-07-04.**
+  After a clean rebuild (`rmdir` of `bin`/`obj`/`publish` followed by
+  `dotnet publish -r win-x64 --self-contained true`), every model load on this
+  machine fails immediately with `TypeInitializationException: The type
+  initializer for 'LLama.Native.NativeApi' threw an exception. | Inner:
+  RuntimeError: Failed to load the native library.` — before any inference is
+  attempted (`segments 0/128, questions 0/N`). Confirmed **not** model-specific:
+  reproduced identically with both `Qwen3.5-4B-Q8_0.gguf` and
+  `qwen2.5-coder-7b-instruct-q5_k_m.gguf` (the latter had loaded and run
+  successfully on this same machine earlier in the same session, before the
+  clean rebuild). Native DLLs in `publish/runtimes/win-x64/native/*` are
+  present at expected file sizes across all variants (avx/avx2/avx512/cuda12/
+  noavx), so this isn't a missing- or truncated-file problem — the underlying
+  first-chance exception is being swallowed by .NET's cached
+  `TypeInitializationException` behavior (a static constructor's exception is
+  saved and rethrown verbatim on every later access), so the *real* root cause
+  is not yet visible from application logs alone. **Not yet resolved** —
+  needs investigation with a debugger attached or `COMPlus_LegacyExceptionHandling`/
+  first-chance-exception logging enabled, ideally comparing against
+  NEWCOREPC and HARDCORELAPTOPMSI where the identical `dotnet publish -r
+  win-x64 --self-contained true` recipe succeeded the same night. HARDCOREPC
+  was left idle (no benchmark process running) pending this investigation.
+
+- **Windows/OpenSSH process detachment.** A benchmark launched via
+  `ssh host "start /b ... "` does **not** survive the SSH session closing —
+  Windows' OpenSSH server tears down the whole console process tree when the
+  channel closes, killing detached children too. Two working alternatives:
+  keep the `ssh host "long-running command"` invocation itself running under
+  the orchestrating side's own background-task mechanism (simplest, used for
+  NEWCOREPC/HARDCOREPC runs), or register a Task Scheduler job
+  (`schtasks /create ... /tr <path-to-a-.bat-wrapper>`) and trigger it with
+  `schtasks /run` (works even if the orchestrating side disconnects, used for
+  the HARDCORELAPTOPMSI run). When using `schtasks`, the `/tr` command runs
+  via `CreateProcess`, not a shell — `>`/`2>&1` redirection syntax is silently
+  ignored unless wrapped in a `.bat` file or `cmd /c "..."`.
+
+## 8. Re-running
 
 See [CONTEXT_FABRIC_BENCHMARK_MANIFEST.md § Re-Running The Expanded 120-Question Gate](CONTEXT_FABRIC_BENCHMARK_MANIFEST.md#re-running-the-expanded-120-question-gate)
 for the canonical recipe (`Tools/ContextFabricBench/Run-CF7GateExpanded.ps1`).
