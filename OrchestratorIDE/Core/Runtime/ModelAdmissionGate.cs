@@ -205,6 +205,25 @@ public static class ModelAdmissionGate
              fp.NormalizedName.Contains("gemma4-e4b", StringComparison.Ordinal)))
             return Reject(workload, fp, "This Gemma 4 E4B variant is not a current Context Fabric candidate in the native runtime.", "The local GGUF is recognized as 8B, but the current LLamaSharp stack fails to load it before any evidence pass can begin.");
 
+        // Gemma 4's "shared KV cache" architecture (some layers reuse another layer's K/V
+        // tensors instead of computing their own) breaks assumptions in llama.cpp's generic
+        // KV-cache management code -- confirmed via two upstream issues describing the same
+        // class of failure (ggml-org/llama.cpp#21468, #23720). Empirically root-caused here
+        // (docs/CONTEXT_FABRIC_TEST_HARNESS.md §7a) after ruling out our own SwaFull setting
+        // and conversation-recycling logic via direct A/B tests at 100-question scale: Gemma
+        // 4 hits native NoKvSlot on the very first conversation of a completely fresh, empty
+        // KV pool, while non-Gemma-4 models of similar size (Llama 3.1 8B, Qwen2.5 Coder 7B)
+        // ran the same evidence-heavy prompts with zero crashes. The upstream fix
+        // (ggml-org/llama.cpp#23981) postdates every LLamaSharp version available as of this
+        // writing, including their unreleased development branch -- not fixable on our end
+        // yet. Provisional rather than Reject: this is a real, currently-broken risk for
+        // Context Fabric's evidence-heavy prompts specifically, not a blanket "this model
+        // doesn't work" statement -- it may still be fine for lighter native workloads.
+        if (fp.Family == RuntimeModelFamily.Gemma && fp.NormalizedName.Contains("gemma-4", StringComparison.Ordinal))
+            return Provisional(workload, fp,
+                "Gemma 4's shared KV-cache architecture has a known, currently-unpatched upstream llama.cpp incompatibility that causes native NoKvSlot crashes on Context Fabric's evidence-heavy prompts.",
+                "See docs/CONTEXT_FABRIC_TEST_HARNESS.md §7a -- ggml-org/llama.cpp#21468 and #23720 document the same class of failure; the fix (#23981) is not yet in any available LLamaSharp release. Prefer a non-Gemma-4 model (e.g. Llama 3.1, Qwen) for this workload until that changes.");
+
         if (fp.IsUncensoredStyle)
             return Reject(workload, fp, "Context Fabric should not default to uncensored-style chat finetunes.");
 

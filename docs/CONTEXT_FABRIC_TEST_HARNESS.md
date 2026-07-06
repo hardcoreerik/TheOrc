@@ -344,6 +344,83 @@ handful of entries, the run needs to be redone once the above is actually
 root-caused and fixed, not interpreted as-is — the `SequenceRecycleThreshold`
 change alone is confirmed **not** to resolve this.
 
+### 7a. Resolution (2026-07-06): root-caused as a Gemma-4-specific upstream limitation, not a bug in our code
+
+Three further fixes landed on `fix/nokvslot-cache-exhaustion` (PR #40) and were each
+validated (or disproven) against real 100+-question runs on real hardware, not assumed:
+
+1. `LLamaSharpRuntime.cs`: margin-adjusted the two unmargined token-budget gates in
+   `ContextFabricFeasibilityRunner.cs` and `FabricBoundaryStitcher.cs` (Grok adversarial
+   review finding) — a real, still-valid fix, independent of everything below.
+2. `AdapterManager.cs`: added `RoleEntry.ForceRecycle`, set by a new
+   `AdapterManager.MarkForRecycle` as soon as `IRoleRuntime` observes *any* `NoKvSlot`
+   (whether the bounded retry recovers or gives up) — the next conversation request for
+   that role tears down and rebuilds its executor (a genuinely empty KV pool) instead of
+   waiting for `SequenceRecycleThreshold`. **Empirically disproved as the fix**: a
+   100-question run showed the Reviewer role force-recycling after *every single*
+   conversation (confirmed via `THEORC_KVCACHE_DIAGNOSTICS=1`), yet the very first
+   conversation on the resulting fresh, empty pool still hit `NoKvSlot` every time. This
+   conclusively rules out cumulative cross-conversation exhaustion as the mechanism — the
+   fix is harmless and still worth keeping as defense-in-depth for genuine sustained-load
+   scenarios, but it was never the cause here.
+3. `SwaFull = false` (originally landed, then reverted): the theory was that
+   `swa_full=true`'s native default forces SWA layers to reserve full-context KV cache
+   instead of a window-sized one — 6x more than Gemma-3's architecture needs. **Empirically
+   disproved via direct A/B test**: two 100-question runs, identical in every respect
+   except `SwaFull` true vs. false, produced **byte-for-byte identical** results (same
+   12/100 pass count, same 51/51 citations, same 704 `NoKvSlot` occurrences) — impossible
+   unless `SwaFull` has zero effect on this failure, given `temperature=0` determinism.
+   Confirmed directly from llama.cpp's own native log (`llama_kv_cache_iswa: creating SWA
+   KV cache, size = 8192 cells` — full-size, not the ~1536-cell window-sized allocation the
+   theory predicted). Reverted to the native default.
+
+**What actually distinguishes the failure, proven by direct comparison at 100+-question
+scale:** it is specific to **Gemma-4-12B**, not a general Context Fabric or LLamaSharp
+integration bug. `qwen2.5-coder-7b-instruct` (100 questions, HARDCOREPC) and
+`Meta-Llama-3.1-8B-Instruct` (30 and 100 questions, NEWCOREPC) both ran their full B0-B4
+pipelines with **zero** `NoKvSlot` occurrences — `Meta-Llama-3.1-8B` in particular reached
+99.1% citation precision (113/114) with zero crashes, proving Context Fabric's own
+mechanics work well once a compatible model is used.
+
+**Root cause: an upstream `llama.cpp`/Gemma-4 limitation, not our code.** Gemma-4 uses a
+["shared KV cache" architecture](https://huggingface.co/blog/gemma4#shared-kv-cache) where
+some layers reuse another layer's K/V tensors instead of computing their own — a departure
+from the "every layer independently owns its KV state" assumption baked into much of
+llama.cpp's generic cache-management code. Two upstream issues document exactly this class
+of breakage: [ggml-org/llama.cpp#21468](https://github.com/ggml-org/llama.cpp/issues/21468)
+("cache reuse is not supported for Gemma 4 models despite... `--swa-full`") and
+[#23720](https://github.com/ggml-org/llama.cpp/issues/23720) ("Backend crash due to
+fragmented unified KV cache", Gemma-4 MoE + `kv-unified`, fixed only by a dedicated
+upstream PR). The relevant fix,
+[ggml-org/llama.cpp#23981](https://github.com/ggml-org/llama.cpp/pull/23981) ("kv-cache:
+SWA checkpoints store only non-masked cells"), merged **2026-06-02** — after the llama.cpp
+commit pinned by LLamaSharp 0.27.0 (2026-03-13, currently the latest official release) *and*
+after the commit pinned by LLamaSharp's own unreleased `master` branch as of this writing
+(2026-05-23). There is no LLamaSharp version — released or in-development — that includes
+this fix yet.
+
+**Practical guidance until LLamaSharp bumps past this fix:** avoid Gemma-4-class models
+(any architecture using the shared-KV-cache design) for Context Fabric's Reviewer/heavy-
+prompt roles. `Meta-Llama-3.1-8B-Instruct` is confirmed working well; `qwen2.5-coder-7b`
+works without crashing but has real (separate, non-infrastructure) citation-discipline
+gaps at scale (25-31/100 pass rate, ~76-99% citation precision depending on run — see the
+`ModelAdmissionGate.EvaluateContextFabric`'s Gemma-4 check for the in-app warning). Re-check this
+section once LLamaSharp releases a version pinning a llama.cpp commit after 2026-06-02.
+
+**Separately, a real but unrelated bug found on `Meta-Llama-3.1-8B`:**
+`boundary_stitch_pass_rate` failed 0/2 in both the 30- and 100-question runs. Initially
+misdiagnosed as a token-budget truncation (fixed by bumping the stitch prompt's
+`ReaderMaxTokens`, `Tools/ContextFabricBench/Program.cs` — a reasonable improvement on its
+own, consistent with the same headroom fix already applied to expanded-corpus reading, but
+confirmed **not** the actual cause here: `completionTokens` on the failing call was 276,
+nowhere near either the 1024 or 2048 token budget). The real cause is that
+`ContextFabricValidation.FabricJson.ParseModelObject`'s error message truncates its
+*displayed* preview to 200 characters, which looks like generation truncation but isn't —
+the full extracted JSON fails deserialization to `FabricBoundaryStitchDraft` for a schema
+reason not yet identified (only a short raw-output excerpt is persisted, not the full
+response, so this needs a fresh instrumented run to pin down further). Not yet fixed;
+tracked here as a known, low-priority, separate gap.
+
 ## 8. Known fleet/environment issues (not scoring-logic bugs)
 
 These are infrastructure problems observed while running the gate on specific

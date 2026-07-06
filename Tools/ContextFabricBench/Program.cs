@@ -197,7 +197,13 @@ internal static class Program
                 roleBindings: BuildRoleBindings(researcher, reviewer));
             if (options.Suite == BenchmarkSuite.Stitch)
             {
-                var stitchReport = await new ContextFabricBenchmarkExpansionRunner(runtime, runOptions)
+                // Same reasoning as the expanded reader's ReaderMaxTokens bump above: the stitch
+                // prompt asks for a full JSON summary plus every linked fact from both segments,
+                // which needs more headroom than the frozen fixture's 1024-token default before
+                // the model reliably finishes the JSON object instead of truncating mid-response
+                // (observed live: a stitch call cut off mid-sentence, producing invalid JSON).
+                var stitchRunOptions = runOptions with { ReaderMaxTokens = Math.Max(runOptions.ReaderMaxTokens, 2048) };
+                var stitchReport = await new ContextFabricBenchmarkExpansionRunner(runtime, stitchRunOptions)
                     .RunBoundaryStitchDiagnosticsAsync(DeterministicFabricCorpus.CreateBoundaryStitchFixture())
                     .ConfigureAwait(false);
                 var stitchPaths = await ContextFabricBenchmarkExpansionWriter
@@ -249,7 +255,13 @@ internal static class Program
                 var frozenForDiagnostics = DeterministicFabricCorpus.Create();
                 var quoteReport = new ContextFabricBenchmarkExpansionRunner(runtime: null)
                     .RunQuoteAnchoringDiagnostics(frozenForDiagnostics);
-                var stitchReport = await new ContextFabricBenchmarkExpansionRunner(runtime, runOptions)
+                // Same reasoning as the expanded reader's ReaderMaxTokens bump above: the stitch
+                // prompt asks for a full JSON summary plus every linked fact from both segments,
+                // which needs more headroom than the frozen fixture's 1024-token default before
+                // the model reliably finishes the JSON object instead of truncating mid-response
+                // (observed live: a stitch call cut off mid-sentence, producing invalid JSON).
+                var stitchRunOptions = runOptions with { ReaderMaxTokens = Math.Max(runOptions.ReaderMaxTokens, 2048) };
+                var stitchReport = await new ContextFabricBenchmarkExpansionRunner(runtime, stitchRunOptions)
                     .RunBoundaryStitchDiagnosticsAsync(DeterministicFabricCorpus.CreateBoundaryStitchFixture())
                     .ConfigureAwait(false);
 
@@ -317,7 +329,13 @@ internal static class Program
                 var fixture = DeterministicFabricCorpus.Create();
                 var quoteReport = new ContextFabricBenchmarkExpansionRunner(runtime: null)
                     .RunQuoteAnchoringDiagnostics(fixture);
-                var stitchReport = await new ContextFabricBenchmarkExpansionRunner(runtime, runOptions)
+                // Same reasoning as the expanded reader's ReaderMaxTokens bump above: the stitch
+                // prompt asks for a full JSON summary plus every linked fact from both segments,
+                // which needs more headroom than the frozen fixture's 1024-token default before
+                // the model reliably finishes the JSON object instead of truncating mid-response
+                // (observed live: a stitch call cut off mid-sentence, producing invalid JSON).
+                var stitchRunOptions = runOptions with { ReaderMaxTokens = Math.Max(runOptions.ReaderMaxTokens, 2048) };
+                var stitchReport = await new ContextFabricBenchmarkExpansionRunner(runtime, stitchRunOptions)
                     .RunBoundaryStitchDiagnosticsAsync(DeterministicFabricCorpus.CreateBoundaryStitchFixture())
                     .ConfigureAwait(false);
 
