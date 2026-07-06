@@ -219,17 +219,19 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             {
                 ContextSize   = (uint)_options.ContextLength,
                 GpuLayerCount = _options.GpuLayers,
-                // Native default is true, which forces sliding-window-attention layers to
-                // reserve a full-context KV cache instead of a window-sized one -- on
-                // Gemma-3-class architectures (40/48 layers are SWA) that inflates the KV
-                // pool ~6x for no accuracy benefit, since SWA layers only ever attend within
-                // their window regardless of how much cache is reserved (swa_full governs
-                // allocation size, not the attention window itself, which is architectural).
-                // For non-SWA architectures this is a no-op: swa_full only affects models that
-                // define SWA layers at all. Root-caused during the NoKvSlot investigation
-                // (docs/CONTEXT_FABRIC_TEST_HARNESS.md §7); still pending an empirical CF-7
-                // gate re-run to confirm no output-quality regression on the live model.
-                SwaFull = false,
+                // SwaFull deliberately left at its native default (true). false was tried during
+                // the NoKvSlot investigation to shrink SWA-layer cache 6x on Gemma-3-class
+                // architectures, but that shrinks the SWA cache to min(fullContext, n_swa +
+                // UBatchSize) -- with the default UBatchSize=512, that's ~1536 cells, not 8192.
+                // Context Fabric's Reviewer/Answer-stage prompts routinely run 6,000+ tokens
+                // (they re-include the evidence pack plus the Researcher's draft for review),
+                // so every one of those calls failed NoKvSlot outright -- a single prompt too
+                // large for the undersized SWA window, not a cumulative-pressure problem
+                // (confirmed live: force-recycling to a fresh, empty pool before each call did
+                // not help even one call succeed). Making UBatchSize large enough to cover these
+                // prompts would erase most of the intended memory saving anyway, since Context
+                // Fabric's prompts are designed to use most of the context budget. Reverted;
+                // see docs/CONTEXT_FABRIC_TEST_HARNESS.md §7.
             };
 
             if (!string.IsNullOrEmpty(adapterPath))
