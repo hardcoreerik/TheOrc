@@ -184,6 +184,14 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
     }
 
     /// <summary>
+    /// Forwards to <see cref="AdapterManager.MarkForRecycle"/> — see that method's doc comment.
+    /// Exposed here because callers (IRoleRuntime) only hold a RuntimeOrchestrator reference,
+    /// not the AdapterManager directly.
+    /// </summary>
+    public Task MarkRoleDegraded(RuntimeRole role, CancellationToken ct = default) =>
+        _adapterManager.MarkForRecycle(role, ct);
+
+    /// <summary>
     /// Pure check, no bookkeeping write — the caller (<see cref="GetConversationForBindingAsync"/>,
     /// holding <see cref="_admissionGate"/> for the whole pipeline) only commits a reservation
     /// after the load and conversation build both succeed. Throws

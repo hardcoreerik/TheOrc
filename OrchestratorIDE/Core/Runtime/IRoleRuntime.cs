@@ -245,7 +245,7 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
         var outputBuilder = new StringBuilder();
 
         conversation.Prompt(prompt, addBos: true, special: true);
-        await InferUntilReadyAsync(conversation, ct).ConfigureAwait(false);
+        await InferUntilReadyAsync(conversation, role, ct).ConfigureAwait(false);
 
         for (var i = 0; i < Math.Max(0, maxTokens); i++)
         {
@@ -272,7 +272,7 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
             }
 
             conversation.Prompt(token);
-            await InferUntilReadyAsync(conversation, ct).ConfigureAwait(false);
+            await InferUntilReadyAsync(conversation, role, ct).ConfigureAwait(false);
         }
 
         var elapsed = DateTime.UtcNow - started;
@@ -313,7 +313,8 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
                 onToolCall(tc);
     }
 
-    private static async Task InferUntilReadyAsync(LLama.Batched.Conversation conversation, CancellationToken ct)
+    private async Task InferUntilReadyAsync(
+        LLama.Batched.Conversation conversation, RuntimeRole role, CancellationToken ct)
     {
         var passes = 0;
         var noKvSlotRetries = 0;
@@ -322,15 +323,24 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
             var result = await conversation.Executor.Infer(ct).ConfigureAwait(false);
             if (result == DecodeResult.NoKvSlot)
             {
+                // A 100-question CF-7 gate run (docs/CONTEXT_FABRIC_TEST_HARNESS.md §7) showed
+                // NoKvSlot recurring on ~all subsequent conversations once it first occurred on a
+                // role's executor -- evidence the pool stays degraded rather than a single
+                // oversized prompt being the whole story. Mark the role for AdapterManager to
+                // recycle its executor at the next opportunity (fresh, empty pool) as soon as
+                // NoKvSlot is seen at all, not just when we give up retrying -- even a
+                // retry-recovered hit is evidence of degradation worth not compounding further.
+                await _orchestrator.MarkRoleDegraded(role, ct).ConfigureAwait(false);
+
                 // LLamaSharp documents this as retryable (BatchedExecutor.Infer requeues the
                 // batch internally rather than consuming it): "there is not enough memory for
                 // inference, try disposing some conversation threads and running inference
                 // again." A few cells may free up as other conversations finish disposing --
                 // give that a bounded chance before failing hard. This is defense-in-depth only;
-                // it cannot rescue a conversation whose own prompt alone overflows the KV pool
-                // (see docs/CONTEXT_FABRIC_TEST_HARNESS.md §7) -- that case is expected to still
-                // fail here after exhausting retries, just ~1.8s later with a diagnostic trail
-                // (THEORC_KVCACHE_DIAGNOSTICS=1) instead of silently on the first hit.
+                // it cannot rescue a conversation whose own prompt alone overflows the KV pool --
+                // that case is expected to still fail here after exhausting retries, just ~1.8s
+                // later with a diagnostic trail (THEORC_KVCACHE_DIAGNOSTICS=1) instead of
+                // silently on the first hit.
                 const int maxNoKvSlotRetries = 8;
                 if (noKvSlotRetries >= maxNoKvSlotRetries)
                     throw new InvalidOperationException(
