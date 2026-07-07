@@ -1,16 +1,15 @@
 # Context Fabric Retrieval Improvement Plan
 
-**Status: Tier 1 landed (`5fd6ad30`) and validated 2026-07-07.** Result: 31/100 → 45/100
-pass rate (B3 now beats the B2 RAG baseline for the first time), citation precision held
-at 99.1%, retrieval misses cut from 69 (100% of failures) to 45, and the first-ever
-genuine model failures (10) became measurable. The dominant remaining pure-miss bucket is
-Paraphrased questions with INVERTED entity word order ("the Meridian relay point" vs
-corpus "Relay Meridian") — contiguous anchors can't match those; candidates are an
-unordered-proximity anchor variant (a cheap "Tier 1.5") or Tier 2 embeddings. Exhaustive
-partial-misses (10) also persist despite Tier 1c and need their own failure analysis.
-This document is the durable reference for the retrieval-quality work that follows the
-NoKvSlot investigation ([CONTEXT_FABRIC_TEST_HARNESS.md §7a](CONTEXT_FABRIC_TEST_HARNESS.md));
-per-run results land in [CF_TEST_RESULTS.md](CF_TEST_RESULTS.md).
+**Status: Tier 1 (`5fd6ad30`) and Tier 1.5 (`6d280717`) both landed and validated
+2026-07-07.** Cumulative result across three deterministic lexical fixes: pass rate
+**31 → 45 → 56**, pure retrieval misses **49 → 21 → 10**, citation precision held at
+99.1% throughout, B3 now clearly beats the B2 RAG baseline (44). The partial-miss bucket
+(24 multi-segment questions: MultiHop 9, Contradiction 5, Exhaustive 10) is now the
+largest failure class and the current work target; 10 genuine model failures remain the
+model-capability signal. This document is the durable reference for the retrieval-quality
+work that follows the NoKvSlot investigation
+([CONTEXT_FABRIC_TEST_HARNESS.md §7a](CONTEXT_FABRIC_TEST_HARNESS.md)); per-run results
+land in [CF_TEST_RESULTS.md](CF_TEST_RESULTS.md).
 
 ---
 
@@ -131,7 +130,14 @@ measurements this benchmark has ever produced for B3.
 
 ---
 
-## 2b. Tier 1.5 — Unordered proximity pairs — **IMPLEMENTED, validation pending**
+## 2b. Tier 1.5 — Unordered proximity pairs — **VALIDATED 2026-07-07**
+
+Validation result (100Q, Meta-Llama, NEWCOREPC, `6d280717`): **45/100 → 56/100**, and the
+focus metric — Paraphrased pure-misses — dropped **13 → 3**. Citation precision held at
+99.1%; zero NoKvSlot. Remaining failures: 10 pure retrieval (LocalFact 6, Paraphrased 3,
+MultiHop 1), 24 partial (unchanged — the multi-segment bucket this tier never targeted),
+10 genuine model failures (unchanged). The partial bucket is now the largest and is the
+next target; see CF_TEST_RESULTS.md row 8 for the full breakdown.
 
 Targets the dominant residual bucket from the Tier 1 validation run: Paraphrased
 questions that invert an entity's word order ("the Meridian relay point" vs the corpus's
