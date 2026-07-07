@@ -504,6 +504,7 @@ public partial class TrainingPitPanel : UserControl
     {
         if (HarvestRunning) return;
         if (ForgeRunning)   { OnActivity?.Invoke("Not starting harvest — Forge is using the GPU."); return; }
+        if (FoundryRunning) { OnActivity?.Invoke("Not starting harvest — Foundry is using the GPU."); return; }
         if (ReviewRunning)  { OnActivity?.Invoke("Not starting harvest — a review is using the GPU."); return; }
         if (_liveActive)    { OnActivity?.Invoke("Not starting harvest — captures already arriving."); return; }
 
@@ -1252,7 +1253,7 @@ public partial class TrainingPitPanel : UserControl
                 : $"{info.Count} of {ReviewExperimentalGate} toward an experimental adapter";
         ReviewLatest.Text = info.LatestSummary.Length > 0 ? $"latest: {info.LatestSummary}" : "";
 
-        var gpuFree = !ReviewRunning && !HarvestRunning && !ForgeRunning;
+        var gpuFree = !ReviewRunning && !HarvestRunning && !ForgeRunning && !FoundryRunning;
         BtnReviewNow.IsEnabled        = gpuFree;
         BtnCaptureIncrement.IsEnabled = gpuFree;
         if (!gpuFree)
@@ -1319,7 +1320,7 @@ public partial class TrainingPitPanel : UserControl
 
     private void BtnReviewNow_Click(object? s, RoutedEventArgs e)
     {
-        if (ReviewRunning || HarvestRunning || ForgeRunning)
+        if (ReviewRunning || HarvestRunning || ForgeRunning || FoundryRunning)
         {
             OnActivity?.Invoke("🔍 Review refused — GPU is in use.");
             return;
@@ -1366,7 +1367,7 @@ public partial class TrainingPitPanel : UserControl
 
     private void BtnCaptureIncrement_Click(object? s, RoutedEventArgs e)
     {
-        if (ReviewRunning || HarvestRunning || ForgeRunning)
+        if (ReviewRunning || HarvestRunning || ForgeRunning || FoundryRunning)
         {
             OnActivity?.Invoke("⬇ Capture refused — GPU is in use.");
             return;
@@ -1583,6 +1584,8 @@ public partial class TrainingPitPanel : UserControl
         var scriptPath = Path.Combine(FoundryDir, "scripts", "train_foundry.py");
         Directory.CreateDirectory(FoundryOutDir);
         try { File.Delete(FoundryProgressPath); } catch { }
+        // A stale summary would repaint over this run's blocked/failed status in FoundryDone()
+        try { File.Delete(FoundrySummaryPath); } catch { }
 
         File.WriteAllText(FoundryLogPath,
             $"=== foundry run {DateTime.Now:yyyy-MM-dd HH:mm} (dry={dryRun}) ===\n");

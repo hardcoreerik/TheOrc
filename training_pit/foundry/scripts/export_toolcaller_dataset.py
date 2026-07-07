@@ -130,8 +130,11 @@ def run_validator(files: list[Path], out_dir: Path) -> str:
     bench = next((p for p in BENCH_CANDIDATES if p.exists()), None)
     tmp = Path(tempfile.mkdtemp(prefix="toolcaller_export_"))
     try:
-        for f in files:
-            shutil.copy2(f, tmp / f.name)
+        # Index-prefix the copies: same-named captures from different source dirs
+        # must not collapse into one file, or the validator sees fewer examples
+        # than the exporter writes.
+        for idx, f in enumerate(files):
+            shutil.copy2(f, tmp / f"{idx:06d}_{f.name}")
         if bench is not None:
             cmd = [str(bench)]
         else:
@@ -212,6 +215,7 @@ def main():
 
     out_dir = REPO_ROOT / "training_pit" / "outputs" / f"foundry_{args.out_key}"
     out_dir.mkdir(parents=True, exist_ok=True)
+    DATASETS_DIR.mkdir(parents=True, exist_ok=True)
 
     if args.skip_validator:
         verdict = "skipped"

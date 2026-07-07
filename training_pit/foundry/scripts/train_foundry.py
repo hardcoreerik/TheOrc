@@ -61,15 +61,17 @@ def write_run_manifest(cfg: dict, config_path: Path, out_dir: Path, args) -> Pat
         prior = json.loads(manifest_path.read_text(encoding="utf-8"))
         immutable = {k: v for k, v in manifest.items() if k not in ("command", "created", "dry_run")}
         prior_cmp = {k: prior.get(k) for k in immutable}
-        if prior.get("dry_run") and not args.dry_run:
-            pass  # a dry-run record may be superseded by the real run
-        elif prior_cmp != immutable and not args.resume:
+        if prior_cmp != immutable:
+            # Applies to --resume too: resuming an output dir under a different
+            # config/dataset/base/seed would falsify the recorded experiment.
             print(f"[MANIFEST] {manifest_path} already records a different run "
-                  "(config/dataset/base/seed changed). Pick a new --out name or pass --resume "
-                  "to continue the recorded run. Refusing to overwrite an immutable record.")
+                  "(config/dataset/base/seed changed). Pick a new --out name. "
+                  "Refusing to overwrite or resume against an immutable record.")
             raise SystemExit(1)
-        elif args.resume:
-            return manifest_path  # keep the original record intact
+        if not (prior.get("dry_run") and not args.dry_run):
+            # Same run identity: keep the original record. Only a real run may
+            # supersede a dry-run record — never the other way around.
+            return manifest_path
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     return manifest_path
 
@@ -111,6 +113,14 @@ def main():
 
     # ── Gates before VRAM ─────────────────────────────────────────────────────
     if args.skip_gates:
+        # The dataset-quality gates are skippable; track authorization is not.
+        # A template track has no frozen contract to train against.
+        if cfg["status"] != "active":
+            print(f"[GATES] {cfg['foundry_track']} is a template track — "
+                  f"{cfg['gates'].get('blocked_reason', 'not authorized to train')}. "
+                  "--skip-gates does not override track authorization.")
+            beat("blocked_preflight")
+            raise SystemExit(1)
         print("[GATES] SKIPPED by flag — this run cannot feed an Arena promotion")
     else:
         findings = run_preflight(cfg)
@@ -158,8 +168,10 @@ def main():
             beat("evaluating", step=state.global_step, max_steps=state.max_steps,
                  eval_loss=(metrics or {}).get("eval_loss"))
 
-    assert torch.cuda.is_available(), \
-        "CUDA unavailable — install the cu128 torch build before training."
+    if not torch.cuda.is_available():
+        print("CUDA unavailable — install the cu128 torch build before training.")
+        beat("blocked_no_cuda")
+        raise SystemExit(1)
     total_gb = torch.cuda.get_device_properties(0).total_memory / 2**30
     print(f"GPU: {torch.cuda.get_device_name(0)} ({total_gb:.0f} GB)")
 
@@ -240,7 +252,14 @@ def main():
         callbacks=[HeartbeatCallback()])
 
     ckpt_dir = out_dir / "checkpoints"
-    resume = args.resume and ckpt_dir.exists() and any(ckpt_dir.glob("checkpoint-*"))
+    resume = args.resume
+    if resume and not (ckpt_dir.exists() and any(ckpt_dir.glob("checkpoint-*"))):
+        # Silently starting fresh here would overwrite the adapter/summary of the
+        # run the user thinks they are resuming.
+        print(f"[RESUME] no checkpoint found under {ckpt_dir} — start without --resume "
+              "or pick a new --out.")
+        beat("blocked_resume")
+        raise SystemExit(1)
 
     t0 = time.time()
     result = trainer.train(resume_from_checkpoint=resume or None)
