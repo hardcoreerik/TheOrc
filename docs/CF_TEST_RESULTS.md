@@ -116,7 +116,8 @@ output (only a short excerpt is persisted today) to pin down the schema issue pr
 | 3 | Gemma-4-12B | 100 | + `SwaFull` reverted (`d2d5219c`) | 12/100 | 128/128 | 51/51 | 704 | Byte-identical to #2 — disproves the SWA-cache-sizing theory |
 | 4 | Gemma-4-12B | 1 | + native log sink, minimal repro | fail (1Q) | n/a | n/a | 1 (on first-ever fresh conversation) | Native log confirmed full 8192-cell caches genuinely allocated for both SWA and non-SWA layers; no extra native diagnostic text on the `NoKvSlot` itself |
 | 5 | Meta-Llama-3.1-8B-Instruct | 30 | current | 12/30 (40%) | 105/128 (82%) | 30/30 (100%) | **0** | First non-Gemma data point — proves the crash is Gemma-specific |
-| 6 | Meta-Llama-3.1-8B-Instruct | 100 | current | 31/100 (31%) | 105/128 (82%) | 113/114 (99.1%) | **0** | Confirms #5 at full scale; `boundary_stitch_pass_rate` 0/2 (see §5) |
+| 6 | Meta-Llama-3.1-8B-Instruct | 100 | current | 31/100 (31%) | 105/128 (82%) | 113/114 (99.1%) | **0** | Confirms #5 at full scale; `boundary_stitch_pass_rate` 0/2 (see §5). Failure categorization: **100% retrieval misses** (49 total-miss + 20 partial, 0 model failures) — the finding behind CF_RETRIEVAL_IMPROVEMENT_PLAN.md |
+| 7 | Meta-Llama-3.1-8B-Instruct | 100 | Tier 1 retrieval fix (`5fd6ad30`) | **45/100 (45%)** | 105/128 (82%) | 116/117 (99.1%) | **0** | **Tier 1 validation: B3 beats the B2 RAG baseline (44/100) for the first time.** Failure mix shifted from 69 all-retrieval to 55: 21 pure retrieval + 24 partial + **10 genuine model failures (first ever measured)**. Biggest remaining pure-miss bucket is Paraphrased questions with INVERTED entity word order ("the Meridian relay point" vs corpus "Relay Meridian") — contiguous phrase anchors can't match, exactly the paraphrase gap the plan defers to Tier 2 (or an unordered-proximity anchor variant). Exhaustive partials (10) persist despite Tier 1c. `boundary_stitch` still 0/2 (known separate bug) |
 
 ### HARDCOREPC
 

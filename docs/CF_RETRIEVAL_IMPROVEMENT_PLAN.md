@@ -1,9 +1,16 @@
 # Context Fabric Retrieval Improvement Plan
 
-**Status: Tier 1 in implementation as of 2026-07-07.** This document is the durable
-reference for the retrieval-quality work that follows the NoKvSlot investigation
-([CONTEXT_FABRIC_TEST_HARNESS.md §7a](CONTEXT_FABRIC_TEST_HARNESS.md)); per-run results
-land in [CF_TEST_RESULTS.md](CF_TEST_RESULTS.md).
+**Status: Tier 1 landed (`5fd6ad30`) and validated 2026-07-07.** Result: 31/100 → 45/100
+pass rate (B3 now beats the B2 RAG baseline for the first time), citation precision held
+at 99.1%, retrieval misses cut from 69 (100% of failures) to 45, and the first-ever
+genuine model failures (10) became measurable. The dominant remaining pure-miss bucket is
+Paraphrased questions with INVERTED entity word order ("the Meridian relay point" vs
+corpus "Relay Meridian") — contiguous anchors can't match those; candidates are an
+unordered-proximity anchor variant (a cheap "Tier 1.5") or Tier 2 embeddings. Exhaustive
+partial-misses (10) also persist despite Tier 1c and need their own failure analysis.
+This document is the durable reference for the retrieval-quality work that follows the
+NoKvSlot investigation ([CONTEXT_FABRIC_TEST_HARNESS.md §7a](CONTEXT_FABRIC_TEST_HARNESS.md));
+per-run results land in [CF_TEST_RESULTS.md](CF_TEST_RESULTS.md).
 
 ---
 
