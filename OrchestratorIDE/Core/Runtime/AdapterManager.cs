@@ -278,9 +278,14 @@ public sealed class AdapterManager : IAsyncDisposable
     /// nothing degraded left to mark. Fire-and-forget from the caller's perspective is fine:
     /// this only ever narrows a future recycle decision, never anything already in flight.
     /// </summary>
-    public async Task MarkForRecycle(RuntimeRole role, CancellationToken ct = default)
+    public async Task MarkForRecycle(RuntimeRole role)
     {
-        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        // No CancellationToken by design: the observation "this executor produced a NoKvSlot"
+        // remains true whether or not the observing request is being cancelled, and honoring a
+        // cancelled token here would let the degraded executor be silently reused by the NEXT
+        // request (CodeRabbit finding, 2026-07-06). The gate wait is bounded in practice by the
+        // longest gate hold (one executor build, seconds at worst).
+        await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
             if (_entries.TryGetValue(role, out var entry))

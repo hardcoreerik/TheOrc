@@ -330,7 +330,11 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
                 // recycle its executor at the next opportunity (fresh, empty pool) as soon as
                 // NoKvSlot is seen at all, not just when we give up retrying -- even a
                 // retry-recovered hit is evidence of degradation worth not compounding further.
-                await _orchestrator.MarkRoleDegraded(role, ct).ConfigureAwait(false);
+                // Deliberately NOT passed this request's cancellation token: the mark must
+                // survive the request being cancelled, or the degraded executor gets reused by
+                // the next request (CodeRabbit finding, 2026-07-06). Cancellation still
+                // propagates promptly via the Task.Delay below.
+                await _orchestrator.MarkRoleDegraded(role).ConfigureAwait(false);
 
                 // LLamaSharp documents this as retryable (BatchedExecutor.Infer requeues the
                 // batch internally rather than consuming it): "there is not enough memory for
@@ -353,6 +357,10 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
             }
             if (result != DecodeResult.Ok)
                 throw new InvalidOperationException($"Native inference failed while draining a prompt batch: {result}.");
+            // A successful decode ends the current NoKvSlot episode: the cap bounds CONSECUTIVE
+            // failures, not the lifetime total, so a long drain with separately-recovered
+            // episodes isn't failed by their sum (CodeRabbit finding, 2026-07-04).
+            noKvSlotRetries = 0;
             if (++passes > 1024)
                 throw new InvalidOperationException("Native inference did not drain the pending prompt batch.");
         }

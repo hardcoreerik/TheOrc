@@ -188,8 +188,8 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
     /// Exposed here because callers (IRoleRuntime) only hold a RuntimeOrchestrator reference,
     /// not the AdapterManager directly.
     /// </summary>
-    public Task MarkRoleDegraded(RuntimeRole role, CancellationToken ct = default) =>
-        _adapterManager.MarkForRecycle(role, ct);
+    public Task MarkRoleDegraded(RuntimeRole role) =>
+        _adapterManager.MarkForRecycle(role);
 
     /// <summary>
     /// Pure check, no bookkeeping write — the caller (<see cref="GetConversationForBindingAsync"/>,
