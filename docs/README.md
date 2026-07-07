@@ -92,6 +92,8 @@ adversarial-review context and may contain deeper implementation notes.
   manifest shape and the CF-7 gate report schema, plus the re-run recipe
 - [CONTEXT_FABRIC_BENCHMARK_CORPUS.md](CONTEXT_FABRIC_BENCHMARK_CORPUS.md) — public benchmark shelf,
   private/licensed corpus rules, phase-to-corpus mapping
+- [CF_TEST_RESULTS.md](CF_TEST_RESULTS.md) — results log for every real CF-7 gate run: method, bugs
+  found, and per-machine/per-model results, from the NoKvSlot investigation onward
 
 ---
 

@@ -116,4 +116,109 @@ public sealed class ContextFabricEvidencePackTests
 
         Assert.That(pack.IncludedSegmentIds, Does.Contain("seg-a"));
     }
+
+    // ── Tier 1 anchor-phrase retrieval (CF_RETRIEVAL_IMPROVEMENT_PLAN.md) ────────────────────
+
+    [Test]
+    public void BuildEvidencePack_PrefersPhraseMatch_OverUnigramEntityCollision()
+    {
+        // The measured production failure mode: 63/105 cards contained both "station" and
+        // "alpha" as separate words for a question about Station Alpha, tying on unigram score
+        // with the 3 cards containing the contiguous phrase. Segment IDs are chosen so the OLD
+        // ordinal tie-break would pick a collision card -- only phrase-aware ranking passes.
+        var collision1 = Card("seg-aaa", "Routine checks.",
+            "Station Cairn was inspected and no unusual activity was noted near Chapter Alpha.");
+        var collision2 = Card("seg-bbb", "Routine checks.",
+            "Station Kestrel closed its entry while Beacon Alpha reported scheduled maintenance.");
+        var target = Card("seg-zzz", "Designation noted.",
+            "The recorded designation for Station Alpha was BR-048.");
+        var question = new FabricBenchmarkQuestion(
+            "q-anchor-1", FabricQuestionKind.LocalFact,
+            "What was the recorded designation for Station Alpha during this cycle?",
+            ["BR-048"], ["seg-zzz"]);
+
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), FabricRunOptions.Default);
+        var pack = runner.BuildEvidencePack(question, [collision1, collision2, target], null);
+
+        Assert.That(pack.IncludedSegmentIds[0], Is.EqualTo("seg-zzz"),
+            "the card containing the literal phrase 'Station Alpha' must rank first");
+    }
+
+    [Test]
+    public void BuildEvidencePack_PrefersVerbatimIdentifier_OverIdentifierFragments()
+    {
+        // The tokenizer splits "BR-048" into {br, 048}, so a card mentioning a DIFFERENT BR
+        // identifier plus the number 048 in another role ties with the real match on unigrams.
+        // Segment IDs chosen so the old tie-break picks the fragment card.
+        var fragments = Card("seg-aaa", "Side note.",
+            "Registry BR-121 logged the value 048 in a side note for the recorded designation file.");
+        var target = Card("seg-zzz", "Designation noted.",
+            "The recorded designation was BR-048 for this cycle.");
+        var question = new FabricBenchmarkQuestion(
+            "q-anchor-2", FabricQuestionKind.LocalFact,
+            "What was recorded for designation BR-048?", ["BR-048"], ["seg-zzz"]);
+
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), FabricRunOptions.Default);
+        var pack = runner.BuildEvidencePack(question, [fragments, target], null);
+
+        Assert.That(pack.IncludedSegmentIds[0], Is.EqualTo("seg-zzz"),
+            "the card containing the verbatim identifier 'BR-048' must rank first");
+    }
+
+    [Test]
+    public void BuildEvidencePack_CoversSecondEntity_BeforeStackingDuplicatesOfFirst()
+    {
+        // Coverage-aware fill: a MultiHop question naming two identifiers must include a card
+        // for EACH before a near-duplicate of the higher-scoring one. IncludedSegmentIds is in
+        // pick order, so the second pick must be the second entity's card even though the
+        // duplicate of the first entity has a higher standalone score.
+        var ck1 = Card("seg-ck1", "Checksum.", "Checksum CK-086 matched the shipment ledger record.");
+        var ck2 = Card("seg-ck2", "Checksum.", "Checksum CK-086 was archived after the shipment closed.");
+        var rpt = Card("seg-rpt", "Report.", "Report RPT-064 was filed covering the shipment.");
+        var question = new FabricBenchmarkQuestion(
+            "q-anchor-3", FabricQuestionKind.MultiHop,
+            "How does report RPT-064 relate to checksum CK-086?", ["RPT-064", "CK-086"],
+            ["seg-rpt", "seg-ck1"]);
+
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), FabricRunOptions.Default);
+        var pack = runner.BuildEvidencePack(question, [ck1, ck2, rpt], null);
+
+        Assert.That(pack.IncludedSegmentIds.Take(2), Is.EquivalentTo(new[] { "seg-ck1", "seg-rpt" }),
+            "the first two picks must cover both question entities, not duplicate one");
+    }
+
+    [Test]
+    public void ExtractAnchorPhrases_FindsIdentifiersAndProperNounRuns_TrimmingQuestionOpeners()
+    {
+        var anchors = ContextFabricFeasibilityRunner.ExtractAnchorPhrases(
+            "Which Depot Fathom entries reference case-ledger-01 or CHN-112-0-1-2?");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(anchors, Does.Contain("Depot Fathom"),
+                "the question opener 'Which' must be trimmed, not swallow the entity run");
+            Assert.That(anchors, Does.Contain("case-ledger-01"));
+            Assert.That(anchors, Does.Contain("CHN-112-0-1-2"));
+            Assert.That(anchors, Does.Not.Contain("Which Depot Fathom"));
+        });
+    }
+
+    [Test]
+    public void BuildEvidencePack_WithNoExtractableAnchors_StillRanksByUnigramIdf()
+    {
+        // Questions with no identifiers or proper-noun runs must degrade exactly to the prior
+        // unigram-IDF behavior (anchor keys all zero).
+        var target = Card("seg-target", "Checksum recorded.",
+            "The archive recorded the checksum for this unusual shipment yesterday.");
+        var distractor = Card("seg-distractor", "General narration.",
+            "The depot log was reviewed and the records were unchanged.");
+        var question = new FabricBenchmarkQuestion(
+            "q-anchor-4", FabricQuestionKind.LocalFact,
+            "What checksum was recorded for the unusual shipment?", ["checksum"], ["seg-target"]);
+
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), FabricRunOptions.Default);
+        var pack = runner.BuildEvidencePack(question, [target, distractor], null);
+
+        Assert.That(pack.IncludedSegmentIds[0], Is.EqualTo("seg-target"));
+    }
 }
