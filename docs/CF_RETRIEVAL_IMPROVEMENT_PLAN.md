@@ -131,6 +131,35 @@ measurements this benchmark has ever produced for B3.
 
 ---
 
+## 2b. Tier 1.5 — Unordered proximity pairs — **IMPLEMENTED, validation pending**
+
+Targets the dominant residual bucket from the Tier 1 validation run: Paraphrased
+questions that invert an entity's word order ("the Meridian relay point" vs the corpus's
+"Relay Meridian"). Contiguous anchors fail twice there — matching can't bridge the
+inversion, and extraction produces no anchor at all because only "Meridian" is
+capitalized (no 2+ word proper-noun run exists in the question).
+
+Design (`ExtractProximityPairs` / `ProximityMatch` in `ContextFabricFeasibilityRunner.cs`):
+
+- Every mid-sentence capitalized word (not sentence-initial, not a stopword/question
+  opener) is an **entity head**; it pairs with its nearest non-stopword neighbor within
+  two positions on each side — ("meridian", "relay") from the example.
+- A card matches a pair when both words occur within a **2-token window in any order**
+  in its haystack ("Relay Meridian", "Meridian relay checkpoint", even "relay point
+  Meridian").
+- Pairs contribute to the same lexicographic anchor key as verbatim anchors but at
+  **half weight** (`0.5/df`), so a contiguous phrase match still outranks an
+  inverted/nearby one wherever both exist. Pairs also participate in the Tier 1b
+  coverage bookkeeping.
+- Questions yielding no pairs behave exactly as Tier 1.
+
+Precision consideration: a pair is looser than a phrase, but the ±2 window plus
+nearest-neighbor pairing keeps it far tighter than bag-of-words — "Ledger Meridian"
+does not match ("meridian", "relay") unless "relay" happens to sit within two tokens.
+
+Validation gate: same as Tier 1 (100Q, Meta-Llama, NEWCOREPC, categorization script).
+Focus metric: the Paraphrased pure-miss count (was 13/21 pure misses post-Tier-1).
+
 ## 3. Tier 2 — Embedding-based retrieval (deliberately deferred)
 
 The conventional next step — rank cards by cosine similarity from a small embedding

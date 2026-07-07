@@ -203,6 +203,69 @@ public sealed class ContextFabricEvidencePackTests
         });
     }
 
+    // ── Tier 1.5 proximity pairs (CF_RETRIEVAL_IMPROVEMENT_PLAN.md) ──────────────────────────
+
+    [Test]
+    public void ExtractProximityPairs_PairsMidSentenceCapitalizedWord_WithNearestNeighbor()
+    {
+        // The measured Tier-1 residual failure shape: only "Meridian" is capitalized, so no
+        // proper-noun run exists; the pair (meridian, relay) is the recoverable signal.
+        var pairs = ContextFabricFeasibilityRunner.ExtractProximityPairs(
+            "What code was assigned to the Meridian relay point in the current interval?");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(pairs, Does.Contain(("meridian", "relay")));
+            Assert.That(pairs.Select(p => p.A).Concat(pairs.Select(p => p.B)), Does.Not.Contain("what"),
+                "sentence-initial question words must not become pair members");
+        });
+    }
+
+    [Test]
+    public void BuildEvidencePack_MatchesInvertedEntityWordOrder_ViaProximityPair()
+    {
+        // Question says "the Meridian relay point"; the corpus entity is "Relay Meridian".
+        // The distractor contains both words far apart (and shares every question unigram the
+        // target does), with segment IDs chosen so the old ordering would pick it first.
+        // Distractor shares MORE question unigrams than the target (code, assigned, relay,
+        // current, meridian, interval vs the target's five) so plain unigram IDF provably
+        // prefers it -- only the proximity pair can rescue the target.
+        var distractor = Card("seg-aaa", "Routine.",
+            "The relay tower code was assigned during the current maintenance and the weather near Ledger Meridian was unremarkable for the interval.");
+        var target = Card("seg-zzz", "Designation.",
+            "The recorded code for Relay Meridian in the current interval was BR-868.");
+        var question = new FabricBenchmarkQuestion(
+            "q-pair-1", FabricQuestionKind.Paraphrased,
+            "What code was assigned to the Meridian relay point in the current interval?",
+            ["BR-868"], ["seg-zzz"]);
+
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), FabricRunOptions.Default);
+        var pack = runner.BuildEvidencePack(question, [distractor, target], null);
+
+        Assert.That(pack.IncludedSegmentIds[0], Is.EqualTo("seg-zzz"),
+            "the card where 'relay' and 'meridian' are adjacent must rank first");
+    }
+
+    [Test]
+    public void BuildEvidencePack_VerbatimPhrase_OutranksProximityOnlyMatch()
+    {
+        // Both cards match the pair (relay, meridian); only one contains the contiguous phrase
+        // the question uses. Verbatim must win (proximity pairs carry half weight).
+        var proximityOnly = Card("seg-aaa", "Inverted.",
+            "The Meridian relay checkpoint recorded designation BR-111 for the interval.");
+        var verbatim = Card("seg-zzz", "Exact.",
+            "The recorded designation for Relay Meridian was BR-868 in this interval.");
+        var question = new FabricBenchmarkQuestion(
+            "q-pair-2", FabricQuestionKind.LocalFact,
+            "What designation was recorded for Relay Meridian in the interval?",
+            ["BR-868"], ["seg-zzz"]);
+
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), FabricRunOptions.Default);
+        var pack = runner.BuildEvidencePack(question, [proximityOnly, verbatim], null);
+
+        Assert.That(pack.IncludedSegmentIds[0], Is.EqualTo("seg-zzz"));
+    }
+
     [Test]
     public void BuildEvidencePack_WithNoExtractableAnchors_StillRanksByUnigramIdf()
     {

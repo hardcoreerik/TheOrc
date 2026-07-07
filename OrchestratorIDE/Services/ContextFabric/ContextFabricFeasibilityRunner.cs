@@ -667,6 +667,7 @@ public sealed class ContextFabricFeasibilityRunner
         var terms = TokenizeForScoring(question.Question);
         terms.ExceptWith(_scoringStopwords);
         var anchors = ExtractAnchorPhrases(question.Question);
+        var proximityPairs = ExtractProximityPairs(question.Question);
 
         var documentFrequency = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var card in cards)
@@ -678,12 +679,35 @@ public sealed class ContextFabricFeasibilityRunner
             anchor => cards.Count(card => ContainsAnchor(CardHaystack(card), anchor)),
             StringComparer.OrdinalIgnoreCase);
 
-        // Anchor score is ordered LEXICOGRAPHICALLY above unigram score (not blended with a
-        // weight constant): a card containing the question's literal entity phrase must outrank
-        // any accumulation of common-word overlap, because in an entity-dense corpus dozens of
-        // cards tie on unigrams (measured: 63/105 cards matched both "station" and "alpha" for a
-        // question about Station Alpha; 3 contained the phrase). Questions with no extractable
-        // anchors order exactly as before (anchor keys all zero).
+        // Per-card proximity-pair matches, computed once (they feed both pair document
+        // frequency and per-candidate scoring below).
+        var pairMatchesByCard = cards.ToDictionary(
+            card => card.SegmentId,
+            card =>
+            {
+                var ordered = TokenizeOrderedLower(CardHaystack(card));
+                return proximityPairs.Where(pair => ProximityMatch(ordered, pair.A, pair.B)).ToHashSet();
+            },
+            StringComparer.Ordinal);
+        var pairDocumentFrequency = proximityPairs.ToDictionary(
+            pair => pair,
+            pair => pairMatchesByCard.Values.Count(matches => matches.Contains(pair)));
+
+        // Proximity pairs (Tier 1.5) contribute at HALF a verbatim anchor's weight, so a card
+        // containing the contiguous phrase still outranks an inverted/nearby occurrence
+        // wherever both exist.
+        const double proximityPairWeight = 0.5;
+        double PairScore(HashSet<(string A, string B)> matched, HashSet<(string A, string B)>? onlyUncovered = null) =>
+            matched.Where(pair => onlyUncovered is null || onlyUncovered.Contains(pair))
+                .Sum(pair => proximityPairWeight / Math.Max(1, pairDocumentFrequency[pair]));
+
+        // Anchor score (verbatim anchors + proximity pairs) is ordered LEXICOGRAPHICALLY above
+        // unigram score (not blended with a weight constant): a card matching the question's
+        // entity must outrank any accumulation of common-word overlap, because in an
+        // entity-dense corpus dozens of cards tie on unigrams (measured: 63/105 cards matched
+        // both "station" and "alpha" for a question about Station Alpha; 3 contained the
+        // phrase). Questions with no extractable anchors or pairs order exactly as before
+        // (anchor keys all zero).
         var candidates = cards
             .Select(card =>
             {
@@ -691,14 +715,17 @@ public sealed class ContextFabricFeasibilityRunner
                 var cardAnchors = anchors
                     .Where(anchor => ContainsAnchor(haystack, anchor))
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var cardPairs = pairMatchesByCard[card.SegmentId];
                 var cardTerms = TokenizeForScoring(haystack);
                 cardTerms.IntersectWith(terms);
                 return new
                 {
                     Card = card,
                     Anchors = cardAnchors,
+                    Pairs = cardPairs,
                     Terms = cardTerms,
-                    AnchorScore = cardAnchors.Sum(a => 1.0 / Math.Max(1, anchorDocumentFrequency[a])),
+                    AnchorScore = cardAnchors.Sum(a => 1.0 / Math.Max(1, anchorDocumentFrequency[a]))
+                        + PairScore(cardPairs),
                     TermScore = cardTerms.Sum(t => 1.0 / documentFrequency.GetValueOrDefault(t, 1)),
                 };
             })
@@ -715,6 +742,9 @@ public sealed class ContextFabricFeasibilityRunner
         var uncoveredAnchors = anchors
             .Where(anchor => anchorDocumentFrequency[anchor] > 0)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var uncoveredPairs = proximityPairs
+            .Where(pair => pairDocumentFrequency[pair] > 0)
+            .ToHashSet();
         var uncoveredTerms = new HashSet<string>(terms, StringComparer.Ordinal);
 
         var evidence = new List<AnswerEvidence>();
@@ -725,7 +755,8 @@ public sealed class ContextFabricFeasibilityRunner
             var best = candidates
                 .OrderByDescending(c => c.Anchors
                     .Where(uncoveredAnchors.Contains)
-                    .Sum(a => 1.0 / Math.Max(1, anchorDocumentFrequency[a])))
+                    .Sum(a => 1.0 / Math.Max(1, anchorDocumentFrequency[a]))
+                    + PairScore(c.Pairs, uncoveredPairs))
                 .ThenByDescending(c => c.Terms
                     .Where(uncoveredTerms.Contains)
                     .Sum(t => 1.0 / documentFrequency.GetValueOrDefault(t, 1)))
@@ -765,6 +796,7 @@ public sealed class ContextFabricFeasibilityRunner
             evidence.Add(candidateEvidence);
             included.Add(card.SegmentId);
             uncoveredAnchors.ExceptWith(best.Anchors);
+            uncoveredPairs.ExceptWith(best.Pairs);
             uncoveredTerms.ExceptWith(best.Terms);
         }
 
@@ -1161,6 +1193,77 @@ public sealed class ContextFabricFeasibilityRunner
     private static bool ContainsAnchor(string haystack, string anchor) =>
         haystack.Contains(anchor, StringComparison.OrdinalIgnoreCase);
 
+    // ── Proximity pairs (CF_RETRIEVAL_IMPROVEMENT_PLAN.md Tier 1.5) ──────────────────────────
+    //
+    // The Tier 1 validation run's dominant remaining pure-miss bucket was Paraphrased questions
+    // that INVERT an entity's word order: the question says "the Meridian relay point" while the
+    // corpus says "Relay Meridian". Contiguous anchors can't match that -- and extraction fails
+    // too, because only "Meridian" is capitalized (no 2+ word proper-noun run exists). Proximity
+    // pairs recover the signal: each mid-sentence capitalized word is treated as an entity head
+    // and paired with its nearest non-stopword neighbor; a card matches when both words appear
+    // within a 2-token window in ANY order. Weighted at half a verbatim anchor so a contiguous
+    // phrase match still outranks an inverted/nearby one wherever both exist.
+
+    /// <summary>
+    /// Extracts unordered proximity pairs from a question: (entity-head word, nearest
+    /// non-stopword neighbor). Pairs are lowercase and canonically ordered for dedupe.
+    /// Internal (not private) so unit tests can exercise extraction directly.
+    /// </summary>
+    internal static IReadOnlyList<(string A, string B)> ExtractProximityPairs(string question)
+    {
+        var words = question.Split(_tokenSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var pairs = new List<(string A, string B)>();
+        // Index 0 is skipped: sentence-initial capitalization carries no entity signal.
+        for (var i = 1; i < words.Length; i++)
+        {
+            var word = words[i];
+            if (word.Length < 3 || !char.IsUpper(word[0]))
+                continue;
+            var head = word.ToLowerInvariant();
+            if (_scoringStopwords.Contains(head) || _anchorLeadingNoise.Contains(head))
+                continue;
+
+            foreach (var direction in (ReadOnlySpan<int>)[-1, +1])
+            {
+                for (var step = 1; step <= 2; step++)
+                {
+                    var index = i + direction * step;
+                    if (index < 0 || index >= words.Length)
+                        break;
+                    var neighbor = words[index].ToLowerInvariant();
+                    if (neighbor.Length < 3 || _scoringStopwords.Contains(neighbor) || neighbor == head)
+                        continue;
+                    pairs.Add(string.CompareOrdinal(head, neighbor) <= 0 ? (head, neighbor) : (neighbor, head));
+                    break;  // nearest qualifying neighbor only, per side
+                }
+            }
+        }
+        return pairs.Distinct().ToArray();
+    }
+
+    /// <summary>True when both words occur within two token positions of each other, any order.</summary>
+    private static bool ProximityMatch(IReadOnlyList<string> orderedTokens, string a, string b)
+    {
+        var lastA = -1;
+        var lastB = -1;
+        for (var i = 0; i < orderedTokens.Count; i++)
+        {
+            if (orderedTokens[i] == a) lastA = i;
+            else if (orderedTokens[i] == b) lastB = i;
+            else continue;
+            if (lastA >= 0 && lastB >= 0 && Math.Abs(lastA - lastB) <= 2)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>Ordered lowercase tokens of a haystack, for proximity-window matching.</summary>
+    private static List<string> TokenizeOrderedLower(string value) => value
+        .Split(_tokenSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Where(token => token.Length >= 2)
+        .Select(token => token.ToLowerInvariant())
+        .ToList();
+
     /// <summary>
     /// IDF-weighted match score: each matching term contributes 1/documentFrequency(term), so a
     /// term appearing in only one or two cards (a name, code, or value) counts for far more than
@@ -1198,9 +1301,11 @@ public sealed class ContextFabricFeasibilityRunner
 
     private static HashSet<string> Tokenize(string value) => TokenizeWithMinLength(value, 3);
 
+    private static readonly char[] _tokenSeparators =
+        [' ', '\t', '\r', '\n', '.', ',', ':', ';', '?', '!', '\'', '"', '(', ')', '-', '/'];
+
     private static HashSet<string> TokenizeWithMinLength(string value, int minLength) => value
-        .Split([' ', '\t', '\r', '\n', '.', ',', ':', ';', '?', '!', '\'', '"', '(', ')', '-', '/'],
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Split(_tokenSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .Where(token => token.Length >= minLength)
         .Select(token => token.ToLowerInvariant())
         .ToHashSet(StringComparer.Ordinal);
