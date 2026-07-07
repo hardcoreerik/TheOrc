@@ -1,0 +1,82 @@
+{
+  "_comment": "TheOrc Foundry recipe TEMPLATE — smaller/next-generation theorc-boss. Follow-on #5, last in the docs' order. The CURRENT boss adapter pipeline (Gemma 4 12B QLoRA via ORC ACADEMY / train_lora.py) stays authoritative and is NOT replaced by this template.",
+  "foundry_schema_version": "1.0",
+  "foundry_track": "theorc-boss",
+  "display_name": "Boss (next-gen, smaller)",
+  "status": "template",
+  "phase": "pre-F-1 (current 12B adapter is the baseline to beat)",
+
+  "job": {
+    "name": "theorc-boss-qwen25-3b-lora-v2",
+    "description": "Plan, decompose, assign roles, and name expected files — at a fraction of the current 12B boss's footprint. Unique among templates: reviewed datasets already exist (train/eval v4gold, PLAN_CAPTURE_SCHEMA.md pipeline), so only the baseline comparison is missing.",
+    "created": "2026-07-07"
+  },
+
+  "size_hypothesis": "3B-12B (this template probes the small end)",
+  "base_model": {
+    "hf_repo": "Qwen/Qwen2.5-3B-Instruct",
+    "license": "qwen-research (verify redistribution terms before promotion)",
+    "alternates": ["Qwen/Qwen2.5-1.5B-Instruct", "google/gemma-4-12b-it (current baseline)"],
+    "quantization": "none",
+    "dtype": "bfloat16"
+  },
+
+  "adapter": {
+    "type": "lora",
+    "rank": 16,
+    "alpha": 32,
+    "dropout": 0.05,
+    "bias": "none",
+    "task_type": "CAUSAL_LM",
+    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+  },
+
+  "dataset": {
+    "format": "chat",
+    "train_path": "training_pit/datasets/train_v4gold_merged.jsonl",
+    "eval_path": "training_pit/datasets/eval_v4gold_merged.jsonl",
+    "meta_path": "training_pit/datasets/v4gold_merged.meta.json",
+    "exporter": "training_pit/scripts/review_captures.py (existing boss pipeline)",
+    "capture_schema": "training_pit/PLAN_CAPTURE_SCHEMA.md"
+  },
+
+  "hyperparams": {
+    "learning_rate": 1e-4,
+    "num_epochs": 3,
+    "per_device_train_batch_size": 2,
+    "gradient_accumulation_steps": 4,
+    "warmup_steps": 10,
+    "weight_decay": 0.01,
+    "optimizer": "adamw_8bit",
+    "lr_scheduler": "cosine",
+    "gradient_checkpointing": true,
+    "max_seq_length": 1536,
+    "logging_steps": 10,
+    "eval_steps": 50,
+    "save_steps": 50,
+    "metric_for_best_model": "eval_loss"
+  },
+
+  "gates": {
+    "min_train_examples": 900,
+    "min_eval_examples": 87,
+    "require_validator_pass": true,
+    "require_lineage_split_isolation": true,
+    "reject_pending_review": true,
+    "baseline_report": null,
+    "blocked_reason": "Per docs/THEORC_FOUNDRY.md this is the LAST follow-on track. Baseline = the live theorc-boss:gemma4-ft adapter scored with the existing plan rubric (EVAL_RUBRIC.md); a 3B candidate must match its rubric pass-rate to justify the footprint win."
+  },
+
+  "promotion": {
+    "primary_metric": "plan_rubric_pass_rate_vs_12b_adapter",
+    "margin": null,
+    "arena_policy": "docs/FOUNDRY_ARENA.md"
+  },
+
+  "output": {
+    "dir": "training_pit/outputs/foundry_boss_v2",
+    "ollama_tag_hypothesis": "theorc-boss:qwen25-3b-ft"
+  },
+
+  "stop_rule": "If the 3B candidate cannot match the 12B adapter's rubric pass-rate within the predeclared tolerance, keep the 12B adapter — smaller only wins when quality holds."
+}

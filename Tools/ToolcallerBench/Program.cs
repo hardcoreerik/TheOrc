@@ -31,7 +31,10 @@ try
     }
 
     var toolsBytes = await File.ReadAllBytesAsync(toolsPath);
-    var toolsHash = Convert.ToHexString(SHA256.HashData(toolsBytes)).ToLowerInvariant();
+    // The canonical frozen-inventory hash is the LF (git blob) form. core.autocrlf
+    // checkouts materialize CRLF on disk — normalize before hashing so a Windows
+    // checkout doesn't reject every capture as stale-hash.
+    var toolsHash = Convert.ToHexString(SHA256.HashData(NormalizeLineEndings(toolsBytes))).ToLowerInvariant();
 
     var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
     var frozenTools = JsonSerializer.Deserialize<List<FrozenTool>>(toolsBytes, jsonOptions)
@@ -84,6 +87,18 @@ catch (Exception ex)
 {
     Console.Error.WriteLine($"[ERROR] {ex.Message}");
     return 1;
+}
+
+static byte[] NormalizeLineEndings(byte[] bytes)
+{
+    var result = new List<byte>(bytes.Length);
+    for (var i = 0; i < bytes.Length; i++)
+    {
+        if (bytes[i] == (byte)'\r' && i + 1 < bytes.Length && bytes[i + 1] == (byte)'\n')
+            continue;
+        result.Add(bytes[i]);
+    }
+    return result.ToArray();
 }
 
 static void PrintUsage()

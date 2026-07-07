@@ -1,0 +1,88 @@
+{
+  "_comment": "TheOrc Foundry recipe TEMPLATE — theorc-reviewer v0. Follow-on #4: requires a stable gold finding set first (docs/THEORC_FOUNDRY.md).",
+  "foundry_schema_version": "1.0",
+  "foundry_track": "theorc-reviewer",
+  "display_name": "Reviewer",
+  "status": "template",
+  "phase": "pre-F-1 (no gold finding set, no baseline report)",
+
+  "job": {
+    "name": "theorc-reviewer-qwen25-7b-qlora-v0",
+    "description": "Review diffs and emit evidence-backed findings. Depends on the Reviewer Quality Gate trust pattern (docs/REVIEWER_QUALITY_GATE.md) and a stable gold finding set to score recall/precision and false-CLEAN rate against.",
+    "created": "2026-07-07"
+  },
+
+  "size_hypothesis": "3B-14B",
+  "base_model": {
+    "hf_repo": "Qwen/Qwen2.5-7B-Instruct",
+    "license": "apache-2.0",
+    "alternates": ["Qwen/Qwen2.5-3B-Instruct", "Qwen/Qwen2.5-14B-Instruct"],
+    "quantization": "4bit",
+    "quantization_config": {
+      "load_in_4bit": true,
+      "bnb_4bit_compute_dtype": "bfloat16",
+      "bnb_4bit_quant_type": "nf4",
+      "bnb_4bit_use_double_quant": true
+    },
+    "dtype": "bfloat16"
+  },
+
+  "adapter": {
+    "type": "qlora",
+    "rank": 16,
+    "alpha": 32,
+    "dropout": 0.05,
+    "bias": "none",
+    "task_type": "CAUSAL_LM",
+    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+  },
+
+  "dataset": {
+    "format": "chat",
+    "train_path": null,
+    "eval_path": null,
+    "meta_path": null,
+    "exporter": null,
+    "_dataset_note": "Task universe not frozen. Candidate shape: diff + context → findings list with evidence. Capture points: reviewer-adapter investigation docs (docs/reviewer-adapter/) and Reviewer Quality Gate outcomes."
+  },
+
+  "hyperparams": {
+    "learning_rate": 1e-4,
+    "num_epochs": 2,
+    "per_device_train_batch_size": 1,
+    "gradient_accumulation_steps": 8,
+    "warmup_steps": 10,
+    "weight_decay": 0.01,
+    "optimizer": "paged_adamw_8bit",
+    "lr_scheduler": "cosine",
+    "gradient_checkpointing": true,
+    "max_seq_length": 4096,
+    "logging_steps": 10,
+    "eval_steps": 50,
+    "save_steps": 50,
+    "metric_for_best_model": "eval_loss"
+  },
+
+  "gates": {
+    "min_train_examples": 300,
+    "min_eval_examples": 60,
+    "require_validator_pass": true,
+    "require_lineage_split_isolation": true,
+    "reject_pending_review": true,
+    "baseline_report": null,
+    "blocked_reason": "Per docs/THEORC_FOUNDRY.md this track starts after a stable gold finding set exists. The B-3 reviewer-adapter results (docs/reviewer-adapter/) are prior art for why an unmeasured reviewer adapter is not promotable."
+  },
+
+  "promotion": {
+    "primary_metric": "finding_recall_precision_and_false_clean_rate",
+    "margin": null,
+    "arena_policy": "docs/FOUNDRY_ARENA.md"
+  },
+
+  "output": {
+    "dir": "training_pit/outputs/foundry_reviewer_v0",
+    "ollama_tag_hypothesis": "theorc-reviewer:qwen25-7b-ft"
+  },
+
+  "stop_rule": "If the current general-model reviewer with the Quality Gate already achieves the target false-CLEAN rate, retain it — a specialist must beat it on the gold finding set."
+}

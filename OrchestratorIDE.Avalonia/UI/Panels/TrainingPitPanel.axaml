@@ -23,8 +23,9 @@
             <RowDefinition Height="Auto"/>    <!-- 3 review captures  -->
             <RowDefinition Height="Auto"/>    <!-- 4 generate dataset -->
             <RowDefinition Height="Auto"/>    <!-- 5 FORGE expander   -->
-            <RowDefinition Height="Auto"/>    <!-- 6 queue header     -->
-            <RowDefinition Height="*"/>       <!-- 7 review queue     -->
+            <RowDefinition Height="Auto"/>    <!-- 6 FOUNDRY expander -->
+            <RowDefinition Height="Auto"/>    <!-- 7 queue header     -->
+            <RowDefinition Height="*"/>       <!-- 8 review queue     -->
         </Grid.RowDefinitions>
 
         <!-- ── Header ─────────────────────────────────────────────── -->
@@ -610,8 +611,113 @@
             </Border>
         </Expander>
 
+        <!-- ── THE FOUNDRY (specialist models) ─────────────────────── -->
+        <Expander Grid.Row="6" x:Name="ExpFoundry" Margin="0,0,0,12"
+                  Expanded="ExpFoundry_Expanded">
+            <Expander.Header>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="⚒" FontSize="14" VerticalAlignment="Center"/>
+                    <TextBlock Text="THE FOUNDRY" FontSize="12" FontWeight="Bold"
+                               Foreground="#E06040" Margin="8,0,10,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Train TheOrc's own specialist models — smallest safe model wins"
+                               FontSize="11" Foreground="#999999" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="FoundryBadge" Text="" FontSize="11" FontWeight="SemiBold"
+                               Foreground="#76B900" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Expander.Header>
+
+            <Border Background="#140E0A" BorderBrush="#3A2018" BorderThickness="1"
+                    CornerRadius="6" Padding="12,10" Margin="0,6,0,0">
+                <StackPanel>
+                    <!-- Model family tracks (from training_pit/foundry/configs) -->
+                    <ItemsControl x:Name="FoundryTrackList" Margin="0,0,0,10">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="local:FoundryTrackAva">
+                                <Border Background="#0E0C0A" BorderBrush="#2A2A2A" BorderThickness="1"
+                                        CornerRadius="3" Padding="8,5" Margin="0,0,0,4">
+                                    <DockPanel>
+                                        <Border Background="{Binding StatusBg}" CornerRadius="2"
+                                                Padding="6,1" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding StatusLabel}" FontSize="9"
+                                                       Foreground="{Binding StatusFg}"/>
+                                        </Border>
+                                        <TextBlock Text="{Binding Name}" FontSize="11" FontWeight="SemiBold"
+                                                   Foreground="#E0A080" Margin="8,0,0,0"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding SizeHypothesis}" FontSize="10"
+                                                   Foreground="#80A0B0" FontFamily="Consolas"
+                                                   HorizontalAlignment="Right" DockPanel.Dock="Right"
+                                                   VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding BaseModel}" FontSize="10"
+                                                   Foreground="#777777" Margin="10,0,10,0"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </DockPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- Toolcaller pipeline: captures → validate → export → train -->
+                    <DockPanel Margin="0,0,0,8">
+                        <TextBlock x:Name="FoundryCounts" Text="toolcaller: counting captures…"
+                                   FontSize="11" Foreground="#999999" VerticalAlignment="Center"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
+                            <CheckBox x:Name="ChkFoundryDryRun" Content="Dry run" IsChecked="True"
+                                      FontSize="11" Foreground="#999999" VerticalAlignment="Center"
+                                      Margin="0,0,10,0"
+                                      ToolTip.Tip="Validate gates + model/data load without a real training run. A real run is the explicit approval for ONE training experiment."/>
+                            <Button x:Name="BtnFoundryValidate" Content="✔ Validate captures"
+                                    Click="BtnFoundryValidate_Click"
+                                    Padding="10,4"
+                                    Background="#0A1A2A" BorderBrush="#406080" Foreground="#80A0C0"
+                                    BorderThickness="1" FontSize="11"
+                                    ToolTip.Tip="Run the ToolcallerBench mechanical admission gate over staged captures"/>
+                            <Button x:Name="BtnFoundryExport" Content="🧪 Export dataset"
+                                    Click="BtnFoundryExport_Click"
+                                    Padding="10,4" Margin="8,0,0,0"
+                                    Background="#0A2A1A" BorderBrush="#40A070" Foreground="#80C0A0"
+                                    BorderThickness="1" FontSize="11"
+                                    ToolTip.Tip="Validate + convert accepted toolcaller captures into train/eval JSONL"/>
+                            <Button x:Name="BtnFoundryTrain" Content="⚒ Train toolcaller"
+                                    Click="BtnFoundryTrain_Click"
+                                    Padding="10,4" Margin="8,0,0,0"
+                                    Background="#2A1408" BorderBrush="#E06040" Foreground="#E0A080"
+                                    BorderThickness="1" FontSize="11"
+                                    ToolTip.Tip="Gated LoRA run per training_pit/foundry/configs/toolcaller_v0.json — preflight blocks until the dataset passes every gate"/>
+                            <Button x:Name="BtnFoundryStop" Content="⏹ Stop"
+                                    Click="BtnFoundryStop_Click"
+                                    Padding="10,4" Margin="8,0,0,0"
+                                    Background="#2A0A0A" BorderBrush="#F44747" Foreground="#F09090"
+                                    BorderThickness="1" FontSize="11" IsEnabled="False"/>
+                            <Button x:Name="BtnFoundryFolder" Content="📁"
+                                    Click="BtnFoundryFolder_Click"
+                                    Padding="8,4" Margin="8,0,0,0"
+                                    Background="#111111" BorderBrush="#2A2A2A" Foreground="#999999"
+                                    BorderThickness="1" FontSize="11"
+                                    ToolTip.Tip="Open training_pit/foundry"/>
+                        </StackPanel>
+                    </DockPanel>
+
+                    <!-- Live status -->
+                    <DockPanel>
+                        <Ellipse x:Name="FoundryDot" Width="9" Height="9" Fill="#E06040"
+                                 VerticalAlignment="Center" IsVisible="False" Margin="0,0,8,0"/>
+                        <TextBlock x:Name="FoundryStatus" Text="Idle — no specialist trained yet"
+                                   FontSize="11" Foreground="#999999" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="FoundryMetrics" Text="" FontSize="11" Foreground="#E0A080"
+                                   FontFamily="Consolas" HorizontalAlignment="Right"
+                                   DockPanel.Dock="Right"/>
+                    </DockPanel>
+                    <ProgressBar x:Name="FoundryBar" Height="8" Margin="0,6,0,0"
+                                 BorderThickness="0" Background="#111111" Foreground="#E06040"
+                                 Maximum="100"/>
+                </StackPanel>
+            </Border>
+        </Expander>
+
         <!-- ── Queue header ───────────────────────────────────────── -->
-        <DockPanel Grid.Row="6" Margin="0,0,0,6">
+        <DockPanel Grid.Row="7" Margin="0,0,0,6">
             <TextBlock Text="Your review queue" FontSize="12" FontWeight="SemiBold"
                        Foreground="#D4D4D4"/>
             <TextBlock Text="  — riskiest first. You make the final call."
@@ -622,7 +728,7 @@
         </DockPanel>
 
         <!-- ── Review queue ───────────────────────────────────────── -->
-        <Border Grid.Row="7" BorderBrush="#2A2A2A" BorderThickness="1" CornerRadius="6">
+        <Border Grid.Row="8" BorderBrush="#2A2A2A" BorderThickness="1" CornerRadius="6">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="QueueList">
                     <ItemsControl.ItemTemplate>

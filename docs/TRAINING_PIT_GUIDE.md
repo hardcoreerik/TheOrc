@@ -169,6 +169,35 @@ You can pull it and use it as the boss model in Swarm mode to see the difference
 
 ---
 
+## The Foundry — Specialist Models
+
+The newest Training Pit section. While ORC ACADEMY trains the boss adapter, THE
+FOUNDRY is where TheOrc's *small specialist* models are trained — narrow models
+for jobs like tool-call proposal, dataset screening, and routing, per the
+[Foundry strategy](THEORC_FOUNDRY.md).
+
+What's in the panel section:
+
+- The six planned specialist tracks with their status (only `theorc-toolcaller`
+  is active; the other five are gated templates that refuse to train until their
+  baseline evidence exists)
+- Live counts of toolcaller captures: staged → accepted → exported
+- **Validate captures** — runs the mechanical admission gate (ToolcallerBench)
+- **Export dataset** — converts accepted captures into train/eval JSONL
+- **Train toolcaller** — a gated LoRA run; a preflight blocks it until the
+  dataset passes every gate. Dry run is the default; a real run is one explicit
+  training experiment.
+
+Everything the section does is also runnable from the command line — see
+[training_pit/foundry/README.md](../training_pit/foundry/README.md) for the
+pipeline, gates, and per-track recipes.
+
+Organic toolcaller captures are staged automatically during swarm runs once you
+enable the capture setting (`ToolcallerDatasetCaptureEnabled`) — this is TheOrc
+generating its own training data from real usage.
+
+---
+
 ## NIGHT HARVEST
 
 NIGHT HARVEST is an unattended run mode that collects more training examples while you sleep. You set it going before bed, and by morning you have a batch of new captures waiting for review.

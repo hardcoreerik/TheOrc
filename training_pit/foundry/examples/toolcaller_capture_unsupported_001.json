@@ -1,0 +1,38 @@
+{
+  "schema_version": "toolcaller-v0",
+  "tool_schema_hash": "c456ca416882788664b14ea332aa968de76735171a2e53a76eac7c4c6e2bfefd",
+  "example_id": "tc_20260707_004",
+  "lineage_group_id": "tc_lg_ex004",
+  "captured_at": "2026-07-07T12:03:00Z",
+  "provenance": {
+    "source_type": "human-authored",
+    "producing_model": null,
+    "teacher_model": null,
+    "prompt_or_recipe_id": null,
+    "derived_from_example_id": null
+  },
+  "role": "tester",
+  "request": "Open a browser and take a screenshot of the deployed landing page.",
+  "available_tools": ["read_file", "list_files", "grep_code", "run_shell"],
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "unsupported",
+    "tool": null,
+    "arguments": null,
+    "reason_code": "no_matching_tool"
+  },
+  "policy_outcome": {
+    "evaluated": false,
+    "risk_level": null,
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": false
+  },
+  "review_status": "accepted",
+  "reviewer": "human:hce",
+  "split": "eval",
+  "notes": "Foundry suite reference example — no browser/screenshot tool exists in the frozen v0 universe.",
+  "tags": ["reference"]
+}

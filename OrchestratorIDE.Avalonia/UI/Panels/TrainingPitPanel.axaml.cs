@@ -698,6 +698,7 @@ public partial class TrainingPitPanel : UserControl
         if (ForgeRunning) return;
         if (HarvestRunning || _liveActive) { OnActivity?.Invoke("🏛 Academy refused: harvest owns the GPU."); return; }
         if (ReviewRunning)                  { OnActivity?.Invoke("🏛 Academy refused: review owns the GPU."); return; }
+        if (FoundryRunning)                 { OnActivity?.Invoke("🏛 Academy refused: Foundry owns the GPU."); return; }
 
         var hfRepo = TbHfRepo.Text?.Trim() ?? "";
         if (hfRepo.Length == 0) { OnActivity?.Invoke("🏛 Academy refused: HF repo is empty."); return; }
@@ -957,7 +958,8 @@ public partial class TrainingPitPanel : UserControl
     private void BtnGenStart_Click(object? s, RoutedEventArgs e)
     {
         if (GenRunning) return;
-        if (ForgeRunning) { OnActivity?.Invoke("🧪 Generator refused: Forge is using the GPU."); return; }
+        if (ForgeRunning)   { OnActivity?.Invoke("🧪 Generator refused: Forge is using the GPU."); return; }
+        if (FoundryRunning) { OnActivity?.Invoke("🧪 Generator refused: Foundry is using the GPU."); return; }
 
         var model = (CbGenDatasetModel.SelectedItem as HarvestModelOptionAva)?.Name ?? "";
         if (model.Length == 0) { OnActivity?.Invoke("🧪 Generator: select a model first."); return; }
@@ -1422,6 +1424,362 @@ public partial class TrainingPitPanel : UserControl
         });
     }
 
+    // ── THE FOUNDRY (specialist model training suite) ─────────────────────────
+    // Wraps training_pit/foundry/: per-specialist recipe configs + gated scripts.
+    // First proof track: theorc-toolcaller (docs/THEORC_TOOLCALLER_V0.md).
+
+    private Process?         _foundryProcess;
+    private DispatcherTimer? _foundryTimer;
+    private bool _foundryDotOn;
+
+    private string FoundryDir          => Path.Combine(_pitRoot, "training_pit", "foundry");
+    private string FoundryConfigPath   => Path.Combine(FoundryDir, "configs", "toolcaller_v0.json");
+    private string FoundryOutDir       => Path.Combine(_pitRoot, "training_pit", "outputs", "foundry_toolcaller_v0");
+    private string FoundryProgressPath => Path.Combine(FoundryOutDir, "progress.json");
+    private string FoundrySummaryPath  => Path.Combine(FoundryOutDir, "training_summary.json");
+    private string FoundryLogPath      => Path.Combine(FoundryOutDir, "foundry.log");
+    private string ToolcallerStagingDir  => Path.Combine(_pitRoot, ".orc", "swarm", "dataset-staging", "toolcaller");
+    private string ToolcallerAcceptedDir => Path.Combine(_pitRoot, "training_pit", "datasets", "toolcaller");
+    private bool   FoundryRunning => _foundryProcess is { HasExited: false };
+
+    private void ExpFoundry_Expanded(object? s, RoutedEventArgs e) => RefreshFoundry();
+
+    private void RefreshFoundry()
+    {
+        // Track list from the recipe configs — the configs are the registry.
+        var configsDir = Path.Combine(FoundryDir, "configs");
+        var tracks = new List<FoundryTrackAva>();
+        if (Directory.Exists(configsDir))
+        {
+            foreach (var file in Directory.GetFiles(configsDir, "*.json"))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(File.ReadAllText(file));
+                    var root = doc.RootElement;
+                    tracks.Add(FoundryTrackAva.From(
+                        root.TryGetProperty("display_name", out var n) ? n.GetString() ?? "" : Path.GetFileNameWithoutExtension(file),
+                        root.TryGetProperty("foundry_track", out var t) ? t.GetString() ?? "" : "",
+                        root.TryGetProperty("status", out var st) ? st.GetString() ?? "" : "",
+                        root.TryGetProperty("size_hypothesis", out var sz) ? sz.GetString() ?? "" : "",
+                        root.TryGetProperty("base_model", out var bm) &&
+                        bm.TryGetProperty("hf_repo", out var hf) ? hf.GetString() ?? "" : ""));
+                }
+                catch { /* an unparseable recipe just doesn't render */ }
+            }
+        }
+        // docs/THEORC_FOUNDRY.md follow-on order, active tracks first within it
+        string[] order = ["theorc-toolcaller", "theorc-dataset-judge", "theorc-fabric",
+                          "theorc-router", "theorc-reviewer", "theorc-boss"];
+        FoundryTrackList.ItemsSource = tracks
+            .OrderBy(t => { var i = Array.IndexOf(order, t.Track); return i < 0 ? order.Length : i; })
+            .ToList();
+        FoundryBadge.Text = tracks.Count(t => t.IsActive) is var active && active > 0
+            ? $"{active} active / {tracks.Count} tracks" : "";
+
+        // Toolcaller pipeline counts
+        int staged   = Directory.Exists(ToolcallerStagingDir)  ? Directory.GetFiles(ToolcallerStagingDir,  "*.json").Length : 0;
+        int accepted = Directory.Exists(ToolcallerAcceptedDir) ? Directory.GetFiles(ToolcallerAcceptedDir, "*.json").Length : 0;
+        var exported = "not exported";
+        var metaPath = Path.Combine(_pitRoot, "training_pit", "datasets", "toolcaller_v0.meta.json");
+        if (File.Exists(metaPath))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(metaPath));
+                var m = doc.RootElement;
+                exported = $"exported train {m.GetProperty("train_count").GetInt32()} / " +
+                           $"eval {m.GetProperty("eval_count").GetInt32()}";
+            }
+            catch { exported = "meta unreadable"; }
+        }
+        FoundryCounts.Text = $"toolcaller: {staged} staged · {accepted} accepted · {exported}";
+
+        if (!FoundryRunning && File.Exists(FoundrySummaryPath))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(FoundrySummaryPath));
+                var sum = doc.RootElement;
+                var dry = sum.TryGetProperty("dry_run", out var d) && d.GetBoolean();
+                FoundryStatus.Text = (dry ? "Dry run verified " : "Adapter trained ") +
+                                     sum.GetProperty("finished").GetString() +
+                                     $" — eval_loss {sum.GetProperty("eval_loss").GetDouble():0.####}";
+            }
+            catch { }
+        }
+    }
+
+    private async void BtnFoundryValidate_Click(object? s, RoutedEventArgs e)
+    {
+        var capturesDir = Directory.Exists(ToolcallerStagingDir) &&
+                          Directory.GetFiles(ToolcallerStagingDir, "*.json").Length > 0
+            ? ToolcallerStagingDir
+            : ToolcallerAcceptedDir;
+        if (!Directory.Exists(capturesDir) || Directory.GetFiles(capturesDir, "*.json").Length == 0)
+        {
+            FoundryStatus.Text = "No toolcaller captures found — run swarm sessions to stage organic captures first.";
+            return;
+        }
+
+        var bench = new[]
+        {
+            Path.Combine(_pitRoot, "Tools", "ToolcallerBench", "bin", "Release", "net10.0", "toolcaller-bench.exe"),
+            Path.Combine(_pitRoot, "Tools", "ToolcallerBench", "bin", "Debug",   "net10.0", "toolcaller-bench.exe"),
+        }.FirstOrDefault(File.Exists);
+        if (bench is null)
+        {
+            FoundryStatus.Text = "toolcaller-bench not built — run: dotnet build Tools/ToolcallerBench -c Release";
+            return;
+        }
+
+        BtnFoundryValidate.IsEnabled = false;
+        FoundryStatus.Text = "Validating captures against the frozen inventory…";
+        var tools = Path.Combine(_pitRoot, "training_pit", "schemas", "toolcaller_v0_frozen_tools.json");
+        var (code, output) = await RunProcessAsync(bench,
+            $"--suite validate --captures \"{capturesDir}\" --tools \"{tools}\"");
+        BtnFoundryValidate.IsEnabled = true;
+
+        var verdictLine = output.Split('\n').FirstOrDefault(l => l.StartsWith("Verdict:"))?.Trim();
+        FoundryStatus.Text = code switch
+        {
+            0 => $"✔ {verdictLine ?? "PASS"} — captures satisfy every mechanical admission gate.",
+            2 => $"✗ {verdictLine ?? "FAIL"} — see report under .orc/toolcaller-bench.",
+            _ => Truncate($"Validator error (exit {code}) — {output}", 160),
+        };
+        OnActivity?.Invoke($"⚒ Foundry validate: {(code == 0 ? "PASS" : code == 2 ? "FAIL" : "error")}");
+    }
+
+    private async void BtnFoundryExport_Click(object? s, RoutedEventArgs e)
+    {
+        var script = Path.Combine(FoundryDir, "scripts", "export_toolcaller_dataset.py");
+        if (!File.Exists(script)) { FoundryStatus.Text = $"Exporter not found: {script}"; return; }
+
+        BtnFoundryExport.IsEnabled = false;
+        FoundryStatus.Text = "Exporting accepted captures (validator gate runs first)…";
+        var (code, output) = await RunProcessAsync("python", $"-u \"{script}\"");
+        BtnFoundryExport.IsEnabled = true;
+
+        var tail = output.Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.Length > 0) ?? "";
+        FoundryStatus.Text = code == 0
+            ? "✔ Export complete — dataset appears in the FORGE picker after refresh."
+            : Truncate($"Export blocked (exit {code}) — {tail}", 160);
+        OnActivity?.Invoke($"⚒ Foundry export: {(code == 0 ? "done" : "blocked")}");
+        RefreshFoundry();
+        if (code == 0) Refresh();
+    }
+
+    private void BtnFoundryTrain_Click(object? s, RoutedEventArgs e)
+    {
+        if (FoundryRunning) return;
+        if (ForgeRunning)                  { OnActivity?.Invoke("⚒ Foundry refused: ORC ACADEMY owns the GPU."); return; }
+        if (GenRunning)                    { OnActivity?.Invoke("⚒ Foundry refused: generator owns the GPU."); return; }
+        if (HarvestRunning || _liveActive) { OnActivity?.Invoke("⚒ Foundry refused: harvest owns the GPU."); return; }
+        if (ReviewRunning)                 { OnActivity?.Invoke("⚒ Foundry refused: review owns the GPU."); return; }
+        if (!File.Exists(FoundryConfigPath))
+        { FoundryStatus.Text = $"Recipe not found: {FoundryConfigPath}"; return; }
+
+        var dryRun = ChkFoundryDryRun.IsChecked == true;
+        var scriptPath = Path.Combine(FoundryDir, "scripts", "train_foundry.py");
+        Directory.CreateDirectory(FoundryOutDir);
+        try { File.Delete(FoundryProgressPath); } catch { }
+
+        File.WriteAllText(FoundryLogPath,
+            $"=== foundry run {DateTime.Now:yyyy-MM-dd HH:mm} (dry={dryRun}) ===\n");
+
+        ProcessStartInfo psi;
+        string? tmpScript = null;
+#if WINDOWS
+        {
+            var winArgs = $"-u \"{scriptPath}\" --config \"{FoundryConfigPath}\"" +
+                          (dryRun ? " --dry-run" : " --confirm-experiment");
+            psi = new ProcessStartInfo
+            {
+                FileName         = "cmd.exe",
+                Arguments        = $"/c python {winArgs} >> \"{FoundryLogPath}\" 2>&1",
+                WorkingDirectory = _pitRoot, UseShellExecute = false, CreateNoWindow = true,
+            };
+        }
+#else
+        try
+        {
+            static string ShQ(string v) => "'" + v.Replace("'", "'\\''") + "'";
+            var python = Environment.GetEnvironmentVariable("PYTHON") ?? "python3";
+            tmpScript = Path.Combine(Path.GetTempPath(), $"orc_foundry_{DateTime.Now:yyyyMMdd_HHmmss}.sh");
+            var sb = new System.Text.StringBuilder("#!/bin/sh\n");
+            sb.Append(ShQ(python)).Append(" -u ").Append(ShQ(scriptPath));
+            sb.Append(" --config ").Append(ShQ(FoundryConfigPath));
+            sb.Append(dryRun ? " --dry-run" : " --confirm-experiment");
+            sb.Append(" >> ").Append(ShQ(FoundryLogPath)).Append(" 2>&1\n");
+            File.WriteAllText(tmpScript, sb.ToString());
+            psi = new ProcessStartInfo
+            {
+                FileName = "/bin/sh", WorkingDirectory = _pitRoot,
+                UseShellExecute = false, CreateNoWindow = true,
+            };
+            psi.ArgumentList.Add(tmpScript);
+        }
+        catch (Exception ex)
+        {
+            if (tmpScript is not null) try { File.Delete(tmpScript); } catch { }
+            OnActivity?.Invoke($"⚒ Foundry launch failed: {ex.Message}");
+            return;
+        }
+#endif
+        try { _foundryProcess = Process.Start(psi); }
+        catch (Exception ex)
+        {
+            if (tmpScript is not null) try { File.Delete(tmpScript); } catch { }
+            _foundryProcess = null;
+            FoundryStatus.Text = $"Failed to launch the trainer ({ex.Message})";
+            return;
+        }
+        if (_foundryProcess is null)
+        {
+            if (tmpScript is not null) try { File.Delete(tmpScript); } catch { }
+            FoundryStatus.Text = "Failed to launch the trainer.";
+            return;
+        }
+        if (tmpScript is not null)
+        {
+            var ts = tmpScript;
+            _foundryProcess.EnableRaisingEvents = true;
+            _foundryProcess.Exited += (_, _) => { try { File.Delete(ts); } catch { } };
+        }
+
+        OnActivity?.Invoke($"⚒ Foundry {(dryRun ? "dry run" : "training experiment")} started — theorc-toolcaller");
+        FoundryStatus.Text         = "Launching gated trainer…";
+        FoundryBar.Value           = 0;
+        FoundryBar.IsIndeterminate = true;
+        FoundryDot.IsVisible       = true;
+        BtnFoundryTrain.IsEnabled  = false;
+        BtnFoundryStop.IsEnabled   = true;
+
+        _foundryTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _foundryTimer.Tick -= FoundryTimer_Tick;
+        _foundryTimer.Tick += FoundryTimer_Tick;
+        _foundryTimer.Start();
+    }
+
+    private void BtnFoundryStop_Click(object? s, RoutedEventArgs e)
+    {
+        if (!FoundryRunning) return;
+        try { _foundryProcess!.Kill(entireProcessTree: true); _foundryProcess.WaitForExit(5000); } catch { }
+        OnActivity?.Invoke("⚒ Foundry stopped — checkpoints kept.");
+        FoundryStatus.Text = "Stopped. Checkpoints kept under outputs/foundry_toolcaller_v0.";
+        FoundryDone();
+    }
+
+    private void FoundryTimer_Tick(object? s, EventArgs e)
+    {
+        if (!FoundryRunning)
+        {
+            // Read the final heartbeat before declaring the outcome
+            var status = "";
+            try
+            {
+                if (File.Exists(FoundryProgressPath))
+                {
+                    using var doc = JsonDocument.Parse(File.ReadAllText(FoundryProgressPath));
+                    status = doc.RootElement.GetProperty("status").GetString() ?? "";
+                }
+            }
+            catch { }
+            if (status == "done")
+            {
+                OnActivity?.Invoke("⚒ Foundry run finished.");
+            }
+            else if (status.StartsWith("blocked"))
+            {
+                var tail = File.Exists(FoundryLogPath)
+                    ? string.Join(" ", File.ReadLines(FoundryLogPath)
+                        .Where(l => l.Contains("[x]") || l.Contains("BLOCKED")).Take(3)) : "";
+                FoundryStatus.Text = Truncate($"Blocked by the Foundry gate — {tail}", 200);
+                OnActivity?.Invoke("⚒ Foundry blocked by preflight — see foundry.log");
+            }
+            else
+            {
+                var tail = File.Exists(FoundryLogPath)
+                    ? string.Join(" ", File.ReadLines(FoundryLogPath).TakeLast(2)) : "no log";
+                FoundryStatus.Text = Truncate($"Trainer exited unexpectedly — {tail}", 200);
+                OnActivity?.Invoke("⚒ Foundry exited unexpectedly — check foundry.log");
+            }
+            FoundryDone();
+            return;
+        }
+
+        _foundryDotOn = !_foundryDotOn;
+        FoundryDot.Opacity = _foundryDotOn ? 1.0 : 0.35;
+
+        if (!File.Exists(FoundryProgressPath)) return;
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(FoundryProgressPath));
+            var p    = doc.RootElement;
+            var sts  = p.GetProperty("status").GetString() ?? "?";
+            var step = p.TryGetProperty("step",      out var st) ? st.GetInt32() : 0;
+            var max  = p.TryGetProperty("max_steps", out var mx) ? mx.GetInt32() : 0;
+            var loss = p.TryGetProperty("loss", out var lo) && lo.ValueKind == JsonValueKind.Number
+                       ? lo.GetDouble() : (double?)null;
+
+            FoundryBar.IsIndeterminate = max <= 0;
+            if (max > 0) FoundryBar.Value = Math.Min(100.0, step * 100.0 / max);
+
+            FoundryStatus.Text = sts switch
+            {
+                "starting"      => "Running preflight gates…",
+                "loading_model" => "Loading base model…",
+                "training"      => $"Training step {step}/{max}",
+                "evaluating"    => $"Evaluating at step {step}…",
+                "final_eval"    => "Final evaluation…",
+                "saving"        => "Saving adapter…",
+                "done"          => "Done.",
+                _               => sts,
+            };
+            FoundryMetrics.Text = loss is not null ? $"loss {loss:0.####}" : "";
+        }
+        catch { }
+    }
+
+    private void FoundryDone()
+    {
+        _foundryTimer?.Stop();
+        _foundryProcess?.Dispose();
+        _foundryProcess = null;
+        FoundryBar.IsIndeterminate = false;
+        FoundryDot.IsVisible       = false;
+        BtnFoundryTrain.IsEnabled  = true;
+        BtnFoundryStop.IsEnabled   = false;
+        RefreshFoundry();
+    }
+
+    private void BtnFoundryFolder_Click(object? s, RoutedEventArgs e)
+    {
+        if (Directory.Exists(FoundryDir))
+            Process.Start(new ProcessStartInfo(FoundryDir) { UseShellExecute = true })?.Dispose();
+    }
+
+    private static Task<(int Code, string Output)> RunProcessAsync(string fileName, string args) =>
+        Task.Run(async () =>
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = fileName, Arguments = args,
+                UseShellExecute = false, RedirectStandardOutput = true,
+                RedirectStandardError = true, CreateNoWindow = true,
+            };
+            using var p = Process.Start(psi)!;
+            var stdout = p.StandardOutput.ReadToEndAsync();
+            var stderr = p.StandardError.ReadToEndAsync();
+            if (!p.WaitForExit(120_000))
+            {
+                try { p.Kill(entireProcessTree: true); } catch { }
+                return (-1, "process timed out after 120s");
+            }
+            p.WaitForExit();
+            return (p.ExitCode, await stdout + await stderr);
+        });
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private Task<(int Code, string Output)> RunPythonAsync(string args) => Task.Run(async () =>
@@ -1492,6 +1850,35 @@ public partial class TrainingPitPanel : UserControl
 }
 
 // ── View-model types (Avalonia versions — use IBrush instead of WPF Brush) ───
+
+public sealed class FoundryTrackAva
+{
+    public string Name           { get; init; } = "";
+    public string Track          { get; init; } = "";
+    public bool   IsActive       { get; init; }
+    public string StatusLabel    { get; init; } = "";
+    public string SizeHypothesis { get; init; } = "";
+    public string BaseModel      { get; init; } = "";
+    public IBrush StatusBg       { get; init; } = Brushes.Transparent;
+    public IBrush StatusFg       { get; init; } = Brushes.Gray;
+
+    public static FoundryTrackAva From(string name, string track, string status,
+                                       string sizeHypothesis, string baseModel)
+    {
+        var active = status == "active";
+        return new FoundryTrackAva
+        {
+            Name           = name,
+            Track          = track,
+            IsActive       = active,
+            StatusLabel    = active ? "ACTIVE" : "TEMPLATE",
+            SizeHypothesis = sizeHypothesis,
+            BaseModel      = baseModel,
+            StatusBg       = new SolidColorBrush(Color.Parse(active ? "#1F3D00" : "#1A1A1A")),
+            StatusFg       = new SolidColorBrush(Color.Parse(active ? "#76B900" : "#777777")),
+        };
+    }
+}
 
 public sealed class DatasetInfoAva
 {
