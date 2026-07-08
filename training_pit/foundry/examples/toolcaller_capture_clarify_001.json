@@ -1,0 +1,38 @@
+{
+  "schema_version": "toolcaller-v0",
+  "tool_schema_hash": "c456ca416882788664b14ea332aa968de76735171a2e53a76eac7c4c6e2bfefd",
+  "example_id": "tc_20260707_003",
+  "lineage_group_id": "tc_lg_ex003",
+  "captured_at": "2026-07-07T12:02:00Z",
+  "provenance": {
+    "source_type": "human-authored",
+    "producing_model": null,
+    "teacher_model": null,
+    "prompt_or_recipe_id": null,
+    "derived_from_example_id": null
+  },
+  "role": "coder",
+  "request": "Write the fix to the file.",
+  "available_tools": ["read_file", "list_files", "grep_code", "write_file", "run_shell"],
+  "approval_state": "pending",
+  "expected": {
+    "decision": "clarify",
+    "tool": null,
+    "arguments": null,
+    "reason_code": "missing_required_argument"
+  },
+  "policy_outcome": {
+    "evaluated": false,
+    "risk_level": null,
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": false
+  },
+  "review_status": "accepted",
+  "reviewer": "human:hce",
+  "split": "eval",
+  "notes": "Foundry suite reference example — which file? what fix? Never fabricate arguments.",
+  "tags": ["reference"]
+}

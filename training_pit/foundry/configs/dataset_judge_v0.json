@@ -1,0 +1,82 @@
+{
+  "_comment": "TheOrc Foundry recipe TEMPLATE — theorc-dataset-judge v0. Follow-on #1 after the toolcaller proof (docs/THEORC_FOUNDRY.md, Follow-On Order).",
+  "foundry_schema_version": "1.0",
+  "foundry_track": "theorc-dataset-judge",
+  "display_name": "Dataset Judge",
+  "status": "template",
+  "phase": "pre-F-1 (no frozen task universe, no baseline report)",
+
+  "job": {
+    "name": "theorc-dataset-judge-qwen25-0.5b-lora-v0",
+    "description": "Screen Training Pit captures for contamination, leakage, and suitability — protects the data flywheel. Candidate labels already exist: human accept/reject decisions in training_pit/datasets/manifests/reviewed_v1.json plus prescreen/judge script outcomes.",
+    "created": "2026-07-07"
+  },
+
+  "size_hypothesis": "300M-3B",
+  "base_model": {
+    "hf_repo": "Qwen/Qwen2.5-0.5B-Instruct",
+    "license": "apache-2.0",
+    "alternates": ["HuggingFaceTB/SmolLM2-360M-Instruct", "Qwen/Qwen2.5-1.5B-Instruct"],
+    "quantization": "none",
+    "dtype": "bfloat16"
+  },
+
+  "adapter": {
+    "type": "lora",
+    "rank": 16,
+    "alpha": 32,
+    "dropout": 0.05,
+    "bias": "none",
+    "task_type": "CAUSAL_LM",
+    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+  },
+
+  "dataset": {
+    "format": "chat",
+    "train_path": null,
+    "eval_path": null,
+    "meta_path": null,
+    "exporter": null,
+    "_dataset_note": "Task universe not frozen. The natural source is the review record (reviewed_v1.json accept/reject + prescreen_captures.py findings) rendered as capture → suitability verdict examples — build that exporter as this track's first F-1 deliverable."
+  },
+
+  "hyperparams": {
+    "learning_rate": 1e-4,
+    "num_epochs": 3,
+    "per_device_train_batch_size": 4,
+    "gradient_accumulation_steps": 2,
+    "warmup_steps": 10,
+    "weight_decay": 0.01,
+    "optimizer": "adamw_8bit",
+    "lr_scheduler": "cosine",
+    "gradient_checkpointing": true,
+    "max_seq_length": 2048,
+    "logging_steps": 10,
+    "eval_steps": 25,
+    "save_steps": 25,
+    "metric_for_best_model": "eval_loss"
+  },
+
+  "gates": {
+    "min_train_examples": 300,
+    "min_eval_examples": 60,
+    "require_validator_pass": true,
+    "require_lineage_split_isolation": true,
+    "reject_pending_review": true,
+    "baseline_report": null,
+    "blocked_reason": "Per docs/THEORC_FOUNDRY.md, follow-on tracks start only after the toolcaller proof completes and this track's own baseline comparison (prescreen_captures.py + judge_captures.py ARE the baseline) identifies a measurable gap."
+  },
+
+  "promotion": {
+    "primary_metric": "recall_precision_vs_reviewed_decisions",
+    "margin": null,
+    "arena_policy": "docs/FOUNDRY_ARENA.md"
+  },
+
+  "output": {
+    "dir": "training_pit/outputs/foundry_dataset_judge_v0",
+    "ollama_tag_hypothesis": "theorc-dataset-judge:qwen25-0.5b-ft"
+  },
+
+  "stop_rule": "If deterministic prescreen + the existing judge-triage script already match human review decisions within tolerance, do not train — the rules win."
+}

@@ -1,0 +1,38 @@
+{
+  "schema_version": "toolcaller-v0",
+  "tool_schema_hash": "c456ca416882788664b14ea332aa968de76735171a2e53a76eac7c4c6e2bfefd",
+  "example_id": "tc_20260707_002",
+  "lineage_group_id": "tc_lg_ex002",
+  "captured_at": "2026-07-07T12:01:00Z",
+  "provenance": {
+    "source_type": "human-authored",
+    "producing_model": null,
+    "teacher_model": null,
+    "prompt_or_recipe_id": null,
+    "derived_from_example_id": null
+  },
+  "role": "researcher",
+  "request": "Summarize the difference between LoRA and QLoRA in two sentences based on what you already know.",
+  "available_tools": ["read_file", "list_files", "grep_code", "run_shell", "ask_user"],
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "no_tool",
+    "tool": null,
+    "arguments": null,
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": false,
+    "risk_level": null,
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": false
+  },
+  "review_status": "accepted",
+  "reviewer": "human:hce",
+  "split": "train",
+  "notes": "Foundry suite reference example — answerable without any v0 tool.",
+  "tags": ["reference"]
+}
