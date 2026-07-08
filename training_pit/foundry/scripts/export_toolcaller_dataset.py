@@ -26,9 +26,11 @@ DEFAULT_SOURCES = [
     REPO_ROOT / ".orc" / "swarm" / "dataset-staging" / "toolcaller",
     REPO_ROOT / "training_pit" / "datasets" / "toolcaller",
 ]
+# The apphost is .exe on Windows and extensionless elsewhere
+_BENCH_EXE = "toolcaller-bench.exe" if sys.platform == "win32" else "toolcaller-bench"
 BENCH_CANDIDATES = [
-    REPO_ROOT / "Tools" / "ToolcallerBench" / "bin" / "Release" / "net10.0" / "toolcaller-bench.exe",
-    REPO_ROOT / "Tools" / "ToolcallerBench" / "bin" / "Debug" / "net10.0" / "toolcaller-bench.exe",
+    REPO_ROOT / "Tools" / "ToolcallerBench" / "bin" / "Release" / "net10.0" / _BENCH_EXE,
+    REPO_ROOT / "Tools" / "ToolcallerBench" / "bin" / "Debug" / "net10.0" / _BENCH_EXE,
 ]
 
 SYSTEM_TEMPLATE = """You are theorc-toolcaller, TheOrc's tool-proposal specialist.
@@ -115,13 +117,10 @@ def capture_to_chat(cap: dict, frozen: dict[str, dict]) -> dict:
     }
 
 
-def assign_split(cap: dict, eval_frac: float) -> str:
-    explicit = cap.get("split")
-    if explicit in ("train", "eval"):
-        return explicit
-    # Deterministic lineage-group split: every sibling of a group lands on the
-    # same side, and re-running the exporter never reshuffles history.
-    group = cap.get("lineage_group_id") or cap.get("example_id", "")
+def hash_split(group: str, eval_frac: float) -> str:
+    """Deterministic split for fully unannotated lineage groups: every sibling
+    lands on the same side, and re-running the exporter never reshuffles
+    history. Groups with an explicit annotation never reach this function."""
     bucket = int(hashlib.sha256(group.encode("utf-8")).hexdigest()[:8], 16) % 100
     return "eval" if bucket < int(eval_frac * 100) else "train"
 
@@ -138,7 +137,7 @@ def run_validator(files: list[Path], out_dir: Path) -> str:
         if bench is not None:
             cmd = [str(bench)]
         else:
-            print("[validator] no built toolcaller-bench.exe found — using 'dotnet run' (slower)")
+            print("[validator] no built toolcaller-bench binary found — using 'dotnet run' (slower)")
             cmd = ["dotnet", "run", "--project",
                    str(REPO_ROOT / "Tools" / "ToolcallerBench"), "--"]
         cmd += ["--suite", "validate", "--captures", str(tmp),
@@ -175,8 +174,10 @@ def main():
         print("No capture directories found. Expected captures under:")
         for d in DEFAULT_SOURCES:
             print(f"  {d}")
-        print("Run swarm sessions to stage organic captures (ToolcallerDatasetCapture is on by "
-              "default), or author examples per training_pit/TOOLCALLER_CAPTURE_SCHEMA.md.")
+        print("Enable ToolcallerDatasetCaptureEnabled in Settings first (off by default for "
+              "safety — captures contain unsanitized paths/commands), then run swarm sessions "
+              "to stage organic captures. Or author examples per "
+              "training_pit/TOOLCALLER_CAPTURE_SCHEMA.md.")
         raise SystemExit(1)
 
     frozen_list, tools_hash = load_frozen_tools()
@@ -227,17 +228,30 @@ def main():
                   "and re-export. Nothing was written.")
             raise SystemExit(2)
 
-    rows = {"train": [], "eval": []}
-    group_split: dict[str, str] = {}
+    # Pass 1: collect explicit split annotations per lineage group. Two siblings
+    # with CONFLICTING explicit splits is the hard admission failure
+    # (TOOLCALLER_CAPTURE_SCHEMA.md); a partially annotated group is fine — the
+    # unannotated siblings inherit the group's explicit split in pass 2 rather
+    # than getting an independent hash split that could straddle the boundary.
+    explicit_split: dict[str, str] = {}
     for cap, _status in captures:
-        split = assign_split(cap, args.eval_frac)
+        annotated = cap.get("split")
+        if annotated not in ("train", "eval"):
+            continue
         group = cap.get("lineage_group_id") or cap.get("example_id", "")
-        prior = group_split.setdefault(group, split)
-        if prior != split:
-            print(f"[split] lineage group '{group}' straddles train/eval via preassigned splits — "
-                  "hard admission failure (TOOLCALLER_CAPTURE_SCHEMA.md). Nothing was written.")
+        prior = explicit_split.setdefault(group, annotated)
+        if prior != annotated:
+            print(f"[split] lineage group '{group}' has two siblings with conflicting "
+                  f"preassigned splits ('{prior}' vs '{annotated}') — annotate the group "
+                  "uniformly (TOOLCALLER_CAPTURE_SCHEMA.md). Nothing was written.")
             raise SystemExit(2)
-        rows[prior].append(capture_to_chat(cap, frozen))
+
+    # Pass 2: explicit group split wins; fully unannotated groups hash.
+    rows = {"train": [], "eval": []}
+    for cap, _status in captures:
+        group = cap.get("lineage_group_id") or cap.get("example_id", "")
+        split = explicit_split.get(group) or hash_split(group, args.eval_frac)
+        rows[split].append(capture_to_chat(cap, frozen))
 
     train_path = DATASETS_DIR / f"train_{args.out_key}.jsonl"
     eval_path = DATASETS_DIR / f"eval_{args.out_key}.jsonl"

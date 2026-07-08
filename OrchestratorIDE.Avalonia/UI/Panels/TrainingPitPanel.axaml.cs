@@ -1523,10 +1523,12 @@ public partial class TrainingPitPanel : UserControl
             return;
         }
 
+        // The apphost is platform-specific: .exe on Windows, extensionless elsewhere
+        var benchExe = OperatingSystem.IsWindows() ? "toolcaller-bench.exe" : "toolcaller-bench";
         var bench = new[]
         {
-            Path.Combine(_pitRoot, "Tools", "ToolcallerBench", "bin", "Release", "net10.0", "toolcaller-bench.exe"),
-            Path.Combine(_pitRoot, "Tools", "ToolcallerBench", "bin", "Debug",   "net10.0", "toolcaller-bench.exe"),
+            Path.Combine(_pitRoot, "Tools", "ToolcallerBench", "bin", "Release", "net10.0", benchExe),
+            Path.Combine(_pitRoot, "Tools", "ToolcallerBench", "bin", "Debug",   "net10.0", benchExe),
         }.FirstOrDefault(File.Exists);
         if (bench is null)
         {
@@ -1558,7 +1560,9 @@ public partial class TrainingPitPanel : UserControl
 
         BtnFoundryExport.IsEnabled = false;
         FoundryStatus.Text = "Exporting accepted captures (validator gate runs first)…";
-        var (code, output) = await RunProcessAsync("python", $"-u \"{script}\"");
+        var python = OperatingSystem.IsWindows()
+            ? "python" : Environment.GetEnvironmentVariable("PYTHON") ?? "python3";
+        var (code, output) = await RunProcessAsync(python, $"-u \"{script}\"");
         BtnFoundryExport.IsEnabled = true;
 
         var tail = output.Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.Length > 0) ?? "";
@@ -1762,16 +1766,23 @@ public partial class TrainingPitPanel : UserControl
             Process.Start(new ProcessStartInfo(FoundryDir) { UseShellExecute = true })?.Dispose();
     }
 
-    private static Task<(int Code, string Output)> RunProcessAsync(string fileName, string args) =>
+    private Task<(int Code, string Output)> RunProcessAsync(string fileName, string args) =>
         Task.Run(async () =>
         {
             var psi = new ProcessStartInfo
             {
                 FileName = fileName, Arguments = args,
+                // toolcaller-bench defaults its report dir to CWD/.orc/toolcaller-bench —
+                // it must land under the pit root, not wherever the app was launched from
+                WorkingDirectory = _pitRoot,
                 UseShellExecute = false, RedirectStandardOutput = true,
                 RedirectStandardError = true, CreateNoWindow = true,
             };
-            using var p = Process.Start(psi)!;
+            Process? p;
+            try { p = Process.Start(psi); }
+            catch (Exception ex) { return (-1, $"failed to launch {fileName}: {ex.Message}"); }
+            if (p is null) return (-1, $"failed to launch {fileName}");
+            using var _ = p;
             var stdout = p.StandardOutput.ReadToEndAsync();
             var stderr = p.StandardError.ReadToEndAsync();
             if (!p.WaitForExit(120_000))
