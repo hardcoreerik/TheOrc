@@ -256,6 +256,7 @@
     <Compile Include="..\OrchestratorIDE\Services\Models\ModelSearchService.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Models\ModelStatusService.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Models\ModelWarmUpService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Models\ModelBenchmarkRecord.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Models\ModelWikiEntry.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Models\ModelWikiExporter.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Models\ModelWikiService.cs" />
