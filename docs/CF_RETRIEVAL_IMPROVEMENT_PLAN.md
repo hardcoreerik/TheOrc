@@ -228,6 +228,49 @@ and the loop continues until the model asserts sufficiency or a budget cap hits.
 
 ---
 
+## 2c. Tier 2 — Reader-rejection fix (FabricEvidenceProcessor) — **IMPLEMENTED, AWAITING VALIDATION**
+
+Targets the 19 reader rejections from the post-Tier-1.5 run (11 from summary/claims limits,
+some from duplicate canonical claimIds). Changes in `ContextFabricValidation.cs`:
+
+### What changed
+
+1. **Summary truncation**: `FabricEvidenceProcessor` previously rejected any evidence card whose
+   `summary` exceeded `MaxSummaryChars = 2_000` characters. The expanded corpus's 128 dense
+   segments cause Meta-Llama to produce longer summaries. Instead of outright rejection (which
+   removes the card entirely from the evidence pack), the summary is now silently truncated to
+   2 000 characters with a trailing ellipsis (`…`) and the card is accepted.
+
+2. **Claims truncation**: Similarly, cards with more than `MaxClaims = 64` claims were rejected.
+   Dense segments prompt the model to produce more granular claims. Now the first 64 claims are
+   kept and excess claims are silently discarded. The model outputs its highest-priority claims
+   first by convention, so the most relevant facts are preserved.
+
+3. **Duplicate canonical claimId dedup**: After the repair-pass concatenation (original claims +
+   repair claims), two claims can hash to the same canonical ID when they cover the same fact
+   with the same citation. Previously this added an error and caused card rejection; now the
+   duplicate is silently dropped and the card is accepted with the first occurrence kept.
+
+### Expected effect
+
+Each of the 19 rejected cards becomes an accepted card (or at worst a partial card, if e.g. a
+citation anchoring failure also fires). For the 11 summary/claims rejections and some of the
+dedup cases, this converts segment-level failure into segment-level success — directly unblocking
+the partial-miss questions that needed those segments.
+
+Cards that fail for other reasons (unanchored citations, wrong segmentId) still fail — those are
+genuine model-output problems, not limits.
+
+### Validation gate
+
+Same as Tier 1/1.5 (100Q, Meta-Llama, NEWCOREPC). Focus metrics:
+- `segment_terminal_coverage` rises toward 128/128 (was 105/128 = 82%)
+- Reader-rejection count drops from 19 toward zero (measurable via `expectedSegmentIds` script)
+- `question_pass_rate` rises from 56/100 — magnitude depends on how many partial-miss questions
+  were blocked by the rejections
+
+---
+
 ## 5. Cross-cutting: measurement discipline
 
 Every tier's claim gets validated the same way, no exceptions (lesson from this
