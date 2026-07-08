@@ -753,7 +753,11 @@ public sealed class ContextFabricFeasibilityRunner
         // Margin-adjusted for the same under-counting reason as InvokeAsync's gate above --
         // this was previously the one unmargined check on the live NoKvSlot crash path
         // (EvidencePackBuilder, a separate class, already applied this margin).
-        bool TryInclude(FabricEvidenceCard card)
+        //
+        // budgetLimit is a parameter (not always _options.ContextBudget.EvidenceLimit) because
+        // MultiHop's greedy fill deliberately runs against a REDUCED limit -- see
+        // GreedyFillBudgetLimit below for why.
+        bool TryIncludeWithLimit(FabricEvidenceCard card, int budgetLimit)
         {
             var candidateEvidence = new AnswerEvidence(
                 card.SegmentId,
@@ -776,12 +780,27 @@ public sealed class ContextFabricFeasibilityRunner
                 projected);
             var projectedTokens = (int)Math.Ceiling(
                 ContextManager.EstimateTokens(FabricJson.Serialize(input)) * EvidenceTokenSafetyMargin);
-            if (projectedTokens > _options.ContextBudget.EvidenceLimit)
+            if (projectedTokens > budgetLimit)
                 return false;
             evidence.Add(candidateEvidence);
             included.Add(card.SegmentId);
             return true;
         }
+        bool TryInclude(FabricEvidenceCard card) =>
+            TryIncludeWithLimit(card, _options.ContextBudget.EvidenceLimit);
+
+        // MultiHop's greedy anchor-fill deliberately stops short of the full budget (Tier 2.5
+        // fix, CF_RETRIEVAL_IMPROVEMENT_PLAN.md §3c): this corpus reuses entity names across
+        // unrelated chains as distractors, so an unrestricted greedy fill happily spends the
+        // whole budget on segments that share a NAME with the question but belong to a
+        // different chain, leaving no room for ChaseTrackedReferences to add the segments that
+        // actually share the question's identifier. Reserving 30% for the chase phase measured
+        // (CF_TEST_RESULTS.md #12) as enough headroom for a 5-hop chain's remaining links.
+        // Scoped to MultiHop only -- other kinds keep the full budget the greedy fill always had.
+        const double MultiHopGreedyFillFraction = 0.7;
+        var greedyFillLimit = question.Kind == FabricQuestionKind.MultiHop
+            ? (int)(_options.ContextBudget.EvidenceLimit * MultiHopGreedyFillFraction)
+            : _options.ContextBudget.EvidenceLimit;
 
         while (candidates.Count > 0)
         {
@@ -799,7 +818,7 @@ public sealed class ContextFabricFeasibilityRunner
                 .First();
             candidates.Remove(best);
 
-            if (!TryInclude(best.Card))
+            if (!TryIncludeWithLimit(best.Card, greedyFillLimit))
                 continue;  // skipped for size: its anchors/terms stay uncovered for later picks
             uncoveredAnchors.ExceptWith(best.Anchors);
             uncoveredPairs.ExceptWith(best.Pairs);

@@ -383,7 +383,36 @@ public sealed class ContextFabricEvidencePackTests
 
         Assert.That(pack.IncludedSegmentIds, Does.Contain("seg-seed"));
         // Filler cards may enter via normal term scoring, but the chase must not add all of
-        // them: the identifier occurs in 7 cards, above the cap of 4.
+        // them: the identifier occurs in 7 cards, above the cap of 6.
         Assert.That(pack.IncludedSegmentIds.Count, Is.LessThan(7));
+    }
+
+    [Test]
+    public void BuildEvidencePack_MultiHopReservesGreedyFillBudget_UnlikeOtherQuestionKinds()
+    {
+        // Direct regression guard for the budget-reservation fix (CF_TEST_RESULTS.md #12): a
+        // full corpus-scale reproduction of the distractor-starvation scenario was attempted and
+        // found too fragile for a unit fixture (the greedy loop tries every candidate regardless
+        // of processing order, so undersized synthetic distractors don't reliably starve the real
+        // segments the way the dense live corpus does) -- the fix is validated live instead. This
+        // test guards the mechanism itself: MultiHop's greedy fill must accept strictly fewer
+        // cards than an otherwise-identical GlobalSynthesis question given the same budget, cards,
+        // and scoring, proving the kind-conditional reservation is wired up and would regress
+        // loudly (not silently) if removed.
+        var cards = Enumerable.Range(1, 8)
+            .Select(i => Card($"seg-{i}", $"Reading {i}.",
+                $"Station Bravo logged a distinct reading labeled MARK-{i:D3} during this cycle."))
+            .ToArray();
+        FabricBenchmarkQuestion Question(FabricQuestionKind kind) => new(
+            "q-budget-1", kind, "What readings did Station Bravo log across the cycle?",
+            ["MARK-001"], ["seg-1"]);
+
+        // EvidenceLimit tuned so all 8 cards fit the full budget but not the 70% reservation.
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), Options(evidenceLimit: 500));
+        var multiHopPack = runner.BuildEvidencePack(Question(FabricQuestionKind.MultiHop), cards, null);
+        var synthesisPack = runner.BuildEvidencePack(Question(FabricQuestionKind.GlobalSynthesis), cards, null);
+
+        Assert.That(multiHopPack.IncludedSegmentIds.Count,
+            Is.LessThan(synthesisPack.IncludedSegmentIds.Count));
     }
 }
