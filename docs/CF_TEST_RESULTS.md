@@ -135,6 +135,7 @@ output (only a short excerpt is persisted today) to pin down the schema issue pr
 | 2 | gemma-4-12B (wrong user profile) | 100 | pre-fix | n/a | 114/128 | n/a | some | Model file was in the `hardcoreerik` SSH profile, invisible to the `hardc` RDP session that actually ran the test — confounded result, not directly comparable |
 | 3 | gemma-4-12B (correct `hardc` profile) | 100 | stale (`28f881f`, missing the doc/gate-flag commit) | 12/100 | ~127/128 | n/a | heavy, same pattern as NEWCOREPC | Confirms the same Gemma-4 failure on a third, independent machine/VRAM budget |
 | 4 | qwen2.5-coder-7b-instruct-q5_k_m | 100 | current (`6e1f1a86`) | 26/100 (26%) | 114/128 (89.1%) | 62/80 (77.5%) | **0** | Consistent with HARDCOREPC's qwen result (#2 in that table). `boundary_stitch_pass_rate` 2/2 PASS — unlike Meta-Llama's 0/2, suggesting that bug is Llama-specific, not universal |
+| 5 | qwen2.5-coder-7b-instruct-q5_k_m | 100 | Tier 2 truncation fix (`9d71c5ad`) | **30/100 (30%)** | 114/128 (89.1%) | 67/76 (88.2%) | **0** | **Tier 2 validation on a second model family**: pass rate 26 → 30, citation precision 77.5% → 88.2% (fewer, better-supported citations: 80 → 76 attempted). Coverage unchanged. `boundary_stitch` still 2/2 PASS. B2 RAG baseline 49/100 remains above B3 for qwen — unlike Meta-Llama on NEWCOREPC, the fabric does not yet beat RAG on this smaller model (gate `cf7_gate_20260708_041100_770`) |
 
 ## 7. Bottom line
 
