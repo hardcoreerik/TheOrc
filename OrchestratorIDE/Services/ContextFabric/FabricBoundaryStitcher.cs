@@ -242,7 +242,9 @@ public sealed class FabricBoundaryStitcher
             {
                 if (fact is System.Text.Json.Nodes.JsonObject obj)
                 {
-                    var text = obj["text"]?.GetValue<string>() ?? obj["fact"]?.GetValue<string>();
+                    var text = obj["text"]?.GetValue<string>();
+                    if (string.IsNullOrWhiteSpace(text))
+                        text = obj["fact"]?.GetValue<string>();
                     if (!string.IsNullOrWhiteSpace(text))
                         flattened.Add(text);
                 }

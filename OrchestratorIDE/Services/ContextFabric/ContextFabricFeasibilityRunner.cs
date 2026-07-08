@@ -882,8 +882,12 @@ public sealed class ContextFabricFeasibilityRunner
             {
                 if (chased >= MaxChasedCards)
                     break;
+                // Exact identifier membership, not substring containment: ContainsAnchor would
+                // treat "RPT-1000" as a carrier for "RPT-100" (CodeRabbit, PR #42), pulling an
+                // unrelated card into the chain.
                 var carriers = cards
-                    .Where(c => ContainsAnchor(ChaseHaystack(c), identifier))
+                    .Where(c => ExtractTrackedIdentifiers(ChaseHaystack(c))
+                        .Contains(identifier, StringComparer.OrdinalIgnoreCase))
                     .ToArray();
                 if (carriers.Length > ChaseDocFrequencyCap)
                     continue;  // corpus-filler identifier, not a chain link
