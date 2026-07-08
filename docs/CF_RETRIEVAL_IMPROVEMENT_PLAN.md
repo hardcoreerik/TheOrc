@@ -189,6 +189,40 @@ existing LLamaSharp embedding API; admission via `ModelAdmissionGate` with a new
 
 ---
 
+## 3c. Tier 2.5 — Reference chasing: landed, budget-ordering fix still needed
+
+**Status: chase mechanism implemented and unit-tested, but held back by a budget-ordering
+bug that keeps MultiHop flat at 0/24 across four live 120-question cycles
+(CF_TEST_RESULTS.md #10-12).** `BuildEvidencePack` now follows tracked identifiers
+(`RPT-064`-style tokens) from included cards into the segments that share them
+(`ChaseTrackedReferences`), fixing two real bugs along the way: the chase was originally
+reading the wrong text field (fixed `7d9e3b85`), and its doc-frequency filter excluded
+legitimate 4-5-hop chains as corpus filler (fixed `0f8338ab`, cap 4→6).
+
+Neither fix moved the score. Direct inspection of `multihop-chain-lh-002` (CF_TEST_RESULTS.md
+#12) found the chase's own logic is correct — the real problem is **execution order**. The
+corpus deliberately reuses entity names across unrelated facts as distractors (by
+construction: `entityNames` is a small shared pool, indexed by `i * 7 % length` per hop).
+`BuildEvidencePack`'s greedy anchor-fill runs to *completion* before `ChaseTrackedReferences`
+gets a turn, so when a question names "Cache Alpha" (a real chain hop), the greedy fill
+happily fills the evidence budget with *any* segment mentioning "Cache Alpha" — including
+ones from a completely different, unrelated chain — before the chase can add the segment
+that actually carries the shared chain token. Measured: only ~800 tokens of headroom
+remained (5689 used / ~6528 limit) by the time chase ran, not enough for the missing hops.
+
+**Two candidate fixes, not yet attempted (needs its own validation cycle):**
+1. **Reserve budget for the chase.** Cap the greedy fill's own budget at some fraction of
+   `EvidenceLimit` (e.g. 80%) so headroom is guaranteed to remain when `ChaseTrackedReferences`
+   runs. Simple, low-risk, but may starve legitimately budget-hungry non-MultiHop questions.
+2. **Run identifier-linking before the generic anchor fill**, scoring cards that share an
+   identifier with an already-strong anchor match higher than cards that only coincidentally
+   share an entity name. More correct (fixes the distractor-preference problem directly, not
+   just its budget symptom) but is a genuine restructuring of `BuildEvidencePack`'s scoring
+   pass, not a parameter tweak — needs care not to regress Tiers 1/1.5/2's validated behavior.
+
+Recommend (1) first as a cheap experiment (one constant + one `TryInclude` budget-fraction
+check), falling back to (2) if MultiHop still doesn't move.
+
 ## 4. Tier 3 — Agentic retrieval (the strategic direction)
 
 Two escalating designs, both aligned with TheOrc's long-term goal of a **tiny custom
