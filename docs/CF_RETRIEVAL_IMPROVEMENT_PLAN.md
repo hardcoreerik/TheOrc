@@ -189,39 +189,42 @@ existing LLamaSharp embedding API; admission via `ModelAdmissionGate` with a new
 
 ---
 
-## 3c. Tier 2.5 — Reference chasing: landed, budget-ordering fix still needed
+## 3c. Tier 2.5 — Reference chasing: retrieval side DONE, remaining gap is model compliance
 
-**Status: chase mechanism implemented and unit-tested, but held back by a budget-ordering
-bug that keeps MultiHop flat at 0/24 across four live 120-question cycles
-(CF_TEST_RESULTS.md #10-12).** `BuildEvidencePack` now follows tracked identifiers
-(`RPT-064`-style tokens) from included cards into the segments that share them
-(`ChaseTrackedReferences`), fixing two real bugs along the way: the chase was originally
-reading the wrong text field (fixed `7d9e3b85`), and its doc-frequency filter excluded
-legitimate 4-5-hop chains as corpus filler (fixed `0f8338ab`, cap 4→6).
+**Status: CLOSED as a retrieval problem.** `BuildEvidencePack` now follows tracked
+identifiers (`RPT-064`-style tokens) from included cards into the segments that share them
+(`ChaseTrackedReferences`), and reserves 30% of the evidence budget for MultiHop questions
+specifically so the chase always has room to run (`a30229aa`) — fixing, along the way, two
+real bugs (the chase originally read the wrong text field, `7d9e3b85`; its doc-frequency
+filter excluded legitimate 4-5-hop chains as corpus filler, `0f8338ab`) and one genuine
+architectural gap (the greedy anchor-fill was consuming the whole budget on distractor
+segments — this corpus reuses entity names across unrelated chains by construction — before
+the chase ever got a turn).
 
-Neither fix moved the score. Direct inspection of `multihop-chain-lh-002` (CF_TEST_RESULTS.md
-#12) found the chase's own logic is correct — the real problem is **execution order**. The
-corpus deliberately reuses entity names across unrelated facts as distractors (by
-construction: `entityNames` is a small shared pool, indexed by `i * 7 % length` per hop).
-`BuildEvidencePack`'s greedy anchor-fill runs to *completion* before `ChaseTrackedReferences`
-gets a turn, so when a question names "Cache Alpha" (a real chain hop), the greedy fill
-happily fills the evidence budget with *any* segment mentioning "Cache Alpha" — including
-ones from a completely different, unrelated chain — before the chase can add the segment
-that actually carries the shared chain token. Measured: only ~800 tokens of headroom
-remained (5689 used / ~6528 limit) by the time chase ran, not enough for the missing hops.
+**The budget-reservation fix worked, measurably** (CF_TEST_RESULTS.md #13): MultiHop's
+full-retrieval count rose 6 → 9/24, the first change in the retrieval distribution across 5
+live cycles. But the pass rate stayed flat at 0/24 anyway — because **every one of those 9
+now-fully-retrieved cases fails on an identical, separate gap**: the model attaches only 1 of
+the 2 (or 0 of 4) citations the stricter multi-hop answer prompt requires, despite the prompt
+explicitly stating "cite at least one quote from each contributing card." This is not a
+retrieval or code defect — it is Meta-Llama-3.1-8B not reliably complying with a multi-part
+citation instruction.
 
-**Two candidate fixes, not yet attempted (needs its own validation cycle):**
-1. **Reserve budget for the chase.** Cap the greedy fill's own budget at some fraction of
-   `EvidenceLimit` (e.g. 80%) so headroom is guaranteed to remain when `ChaseTrackedReferences`
-   runs. Simple, low-risk, but may starve legitimately budget-hungry non-MultiHop questions.
-2. **Run identifier-linking before the generic anchor fill**, scoring cards that share an
-   identifier with an already-strong anchor match higher than cards that only coincidentally
-   share an entity name. More correct (fixes the distractor-preference problem directly, not
-   just its budget symptom) but is a genuine restructuring of `BuildEvidencePack`'s scoring
-   pass, not a parameter tweak — needs care not to regress Tiers 1/1.5/2's validated behavior.
+**Retrieval-side work on MultiHop is done.** Further gains require one of:
+1. **Few-shot examples** in the answer prompt showing a correctly multi-cited chain answer —
+   cheapest to try, no code change, but 8B models are inconsistent few-shot followers.
+2. **Schema-enforced citation count**: change the answer JSON schema to require a
+   `citations` array with exactly one entry per evidence card ID actually included in the
+   pack for MultiHop questions, and reject/retry answers that don't satisfy it structurally
+   (forcing compliance via validation rather than instruction).
+3. **Defer to a larger/Tier-3 agentic model** — this may simply be outside an 8B model's
+   reliable instruction-following capacity; the CF_TEST_RESULTS.md HARDCOREPC/laptop qwen-7b
+   data point (also weaker on citation discipline than Meta-Llama) is consistent with this
+   being a capability floor, not a fixable prompt-engineering gap.
 
-Recommend (1) first as a cheap experiment (one constant + one `TryInclude` budget-fraction
-check), falling back to (2) if MultiHop still doesn't move.
+Recommend (2) if pursued further, since (1) has already been tried once (the original
+multi-hop prompt update) with only partial compliance, and schema enforcement is the only
+option that doesn't depend on the model choosing to comply.
 
 ## 4. Tier 3 — Agentic retrieval (the strategic direction)
 
