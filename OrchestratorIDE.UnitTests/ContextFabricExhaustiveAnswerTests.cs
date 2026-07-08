@@ -152,4 +152,35 @@ public sealed class ContextFabricExhaustiveAnswerTests
             Assert.That(result.Answer?.Answer, Does.Contain("CASE-01-1"));
         });
     }
+
+    [Test]
+    public void BuildExhaustiveAnswer_MatchesIdentifierVerbatim_NotItsNumericFragment()
+    {
+        // Tier 1c (CF_RETRIEVAL_IMPROVEMENT_PLAN.md): "grade-20" tokenizes to {grade, 20}, and
+        // the rarest-unigram heuristic then admits ANY claim containing the token "20" -- here, a
+        // decoy about "20 crates" under a different grade. Verbatim identifier matching must
+        // include only the true grade-20 claims.
+        var target1 = Card("seg-g20-a", "Outpost Vantage was assigned grade-20 with marker G20A in the survey.");
+        var target2 = Card("seg-g20-b", "Outpost Thistle was assigned grade-20 with marker G20B in the survey.");
+        var decoy = Card("seg-dec", "Outpost Marrow was assigned grade-4 and stored 20 crates with marker DECOY in the survey.");
+        var fillers = Enumerable.Range(5, 5)
+            .Select(i => Card($"seg-g{i}", $"Outpost Grove was assigned grade-{i} with marker G{i}X in the survey."))
+            .ToArray();
+        var allCards = new[] { target1, target2, decoy }.Concat(fillers).ToArray();
+        var corpus = Corpus(allCards.Select(c => c.SegmentId).ToArray());
+        var question = new FabricBenchmarkQuestion(
+            "q-5", FabricQuestionKind.Exhaustive,
+            "List every outpost assigned grade-20 in the survey.",
+            ["G20A", "G20B"], ["seg-g20-a", "seg-g20-b"]);
+
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), FabricRunOptions.Default);
+        var result = runner.BuildExhaustiveAnswer(corpus, question, allCards);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Answer?.Answer, Does.Contain("G20A"));
+            Assert.That(result.Answer?.Answer, Does.Contain("G20B"));
+            Assert.That(result.Answer?.Answer, Does.Not.Contain("DECOY"));
+        });
+    }
 }

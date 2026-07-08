@@ -135,8 +135,21 @@ public sealed class AdapterManager : IAsyncDisposable
                 // the threshold's margin below the hard cap absorbs that delay — but only up
                 // to SequenceHardLimit, where we fail closed with a managed exception rather
                 // than letting the next mint trip the fatal native assert.
+                //
+                // ForceRecycle overrides the threshold entirely: a NoKvSlot on this role (see
+                // MarkForRecycle) is evidence the pool is already degraded (100-question CF-7
+                // runs showed near-universal NoKvSlot failure after the first one on an
+                // executor, not a slow climb toward SequenceRecycleThreshold — consistent with
+                // disposed conversations not fully returning their cells before the next one
+                // claims them). Recycling immediately, rather than waiting up to 23 more
+                // conversations, gives every subsequent conversation a genuinely empty pool
+                // instead of one still degraded by the conversation that just failed.
                 var minted = existing.ConversationsCreated;
-                if (minted < SequenceRecycleThreshold || existing.ActiveCount > 0)
+                var recycleNow = existing.ForceRecycle
+                    ? existing.ActiveCount == 0
+                    : minted >= SequenceRecycleThreshold && existing.ActiveCount == 0;
+
+                if (!recycleNow)
                 {
                     if (minted >= SequenceHardLimit)
                         throw new InvalidOperationException(
@@ -147,13 +160,14 @@ public sealed class AdapterManager : IAsyncDisposable
                     LogKvDiagnostic(
                         $"role={binding.Role} served-without-recycle minted={minted} " +
                         $"activeCount={existing.ActiveCount} threshold={SequenceRecycleThreshold} " +
-                        $"reason={(minted < SequenceRecycleThreshold ? "under-threshold" : "active-conversations-outstanding")}");
+                        $"forceRecycle={existing.ForceRecycle} reason=" +
+                        $"{(existing.ForceRecycle ? "force-recycle-deferred-active" : minted < SequenceRecycleThreshold ? "under-threshold" : "active-conversations-outstanding")}");
                     return existing.CreateTrackedConversation();
                 }
 
                 LogKvDiagnostic(
                     $"role={binding.Role} RECYCLING minted={minted} activeCount={existing.ActiveCount} " +
-                    $"threshold={SequenceRecycleThreshold}");
+                    $"threshold={SequenceRecycleThreshold} forced={existing.ForceRecycle}");
                 _entries.Remove(binding.Role);
                 // Best-effort, same contract as the stale-binding teardown below: the entry is
                 // already untracked, so a disposal fault must not block the replacement build.
@@ -254,6 +268,35 @@ public sealed class AdapterManager : IAsyncDisposable
         string.Equals(a.BaseModel.Path, b.BaseModel.Path, StringComparison.OrdinalIgnoreCase) &&
         string.Equals(a.Adapter?.Path, b.Adapter?.Path, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Marks the given role's current executor (if any) as degraded, so the next
+    /// GetOrCreateConversationAsync call for it recycles as soon as the role is idle
+    /// (ActiveCount == 0) instead of waiting for SequenceRecycleThreshold. Called by
+    /// IRoleRuntime as soon as it observes a NoKvSlot on a role's conversation — see the
+    /// ForceRecycle doc comment on RoleEntry for why. A no-op if the role has no tracked entry
+    /// (already recycled/never built) or the binding has since changed; either way there is
+    /// nothing degraded left to mark. Fire-and-forget from the caller's perspective is fine:
+    /// this only ever narrows a future recycle decision, never anything already in flight.
+    /// </summary>
+    public async Task MarkForRecycle(RuntimeRole role)
+    {
+        // No CancellationToken by design: the observation "this executor produced a NoKvSlot"
+        // remains true whether or not the observing request is being cancelled, and honoring a
+        // cancelled token here would let the degraded executor be silently reused by the NEXT
+        // request (CodeRabbit finding, 2026-07-06). The gate wait is bounded in practice by the
+        // longest gate hold (one executor build, seconds at worst).
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_entries.TryGetValue(role, out var entry))
+                entry.ForceRecycle = true;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _gate.WaitAsync().ConfigureAwait(false);
@@ -283,9 +326,20 @@ public sealed class AdapterManager : IAsyncDisposable
     {
         private int _activeCount;
         private int _conversationsCreated;
+        private volatile bool _forceRecycle;
 
         public RuntimeRoleBinding Binding { get; } = binding;
         public int ActiveCount => Volatile.Read(ref _activeCount);
+
+        /// <summary>Set by <see cref="AdapterManager.MarkForRecycle"/> when a NoKvSlot on this
+        /// role's executor indicated the pool is already degraded. Read by the recycle check in
+        /// GetOrCreateConversationAsync; never cleared explicitly — recycling replaces the whole
+        /// RoleEntry, so a fresh one always starts false.</summary>
+        public bool ForceRecycle
+        {
+            get => _forceRecycle;
+            set => _forceRecycle = value;
+        }
 
         /// <summary>Total conversations ever minted by this entry's executor — each consumed a
         /// native sequence slot that is never returned (see SequenceRecycleThreshold).</summary>

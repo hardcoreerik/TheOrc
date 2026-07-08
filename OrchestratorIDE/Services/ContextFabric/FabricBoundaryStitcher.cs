@@ -11,6 +11,9 @@ namespace OrchestratorIDE.Services.ContextFabric;
 public sealed class FabricBoundaryStitcher
 {
     private const int MaxRawOutputExcerptChars = 400;
+
+    // Single source of truth lives in FabricContextBudget; see comment there for rationale.
+    private const double TokenSafetyMargin = FabricContextBudget.TokenSafetyMargin;
     private readonly IRoleRuntime _runtime;
     private readonly FabricRunOptions _options;
 
@@ -145,10 +148,11 @@ public sealed class FabricBoundaryStitcher
             UserMessage(FabricJson.Serialize(input)),
         };
 
-        var promptTokens = messages.Sum(message => ContextManager.EstimateTokens(message.Content));
-        if (promptTokens + _options.ReaderMaxTokens > _options.ContextBudget.ContextLimit)
+        var rawPromptTokens = messages.Sum(message => ContextManager.EstimateTokens(message.Content));
+        var gatePromptTokens = (int)Math.Ceiling(rawPromptTokens * TokenSafetyMargin);
+        if (gatePromptTokens + _options.ReaderMaxTokens > _options.ContextBudget.ContextLimit)
             throw new FabricContextBudgetExceededException(
-                $"stitch/{testCase.CaseId} requires up to {promptTokens + _options.ReaderMaxTokens} tokens, exceeding {_options.ContextBudget.ContextLimit}.");
+                $"stitch/{testCase.CaseId} requires up to {gatePromptTokens + _options.ReaderMaxTokens} tokens (margin-adjusted), exceeding {_options.ContextBudget.ContextLimit}.");
 
         var stopwatch = Stopwatch.StartNew();
         var output = new StringBuilder();
@@ -178,7 +182,7 @@ public sealed class FabricBoundaryStitcher
                     "stitch",
                     testCase.CaseId,
                     RuntimeRole.Researcher,
-                    reportedPrompt > 0 ? reportedPrompt : promptTokens,
+                    reportedPrompt > 0 ? reportedPrompt : rawPromptTokens,
                     reportedCompletion > 0 ? reportedCompletion : ContextManager.EstimateTokens(output.ToString()),
                     _options.ContextBudget.ContextLimit,
                     stopwatch.ElapsedMilliseconds,
@@ -195,7 +199,7 @@ public sealed class FabricBoundaryStitcher
                     "stitch",
                     testCase.CaseId,
                     RuntimeRole.Researcher,
-                    reportedPrompt > 0 ? reportedPrompt : promptTokens,
+                    reportedPrompt > 0 ? reportedPrompt : rawPromptTokens,
                     reportedCompletion > 0 ? reportedCompletion : ContextManager.EstimateTokens(output.ToString()),
                     _options.ContextBudget.ContextLimit,
                     stopwatch.ElapsedMilliseconds,

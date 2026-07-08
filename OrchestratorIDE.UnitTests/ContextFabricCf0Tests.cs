@@ -139,18 +139,74 @@ public sealed class ContextFabricCf0Tests
     }
 
     [Test]
-    public void EvidenceProcessor_RejectsCanonicalClaimIdCollision()
+    public void EvidenceProcessor_DeduplicatesCanonicalClaimIdCollision_SilentlyKeepsFirst()
     {
         var fixture = DeterministicFabricCorpus.Create();
         var segment = fixture.Corpus.Segments[0];
         const string quote = "Observatory Seven's assigned call sign is LANTERN.";
         var draft = CardFor(fixture.Corpus, segment, quote);
+        // Two claims with identical content+citations will produce the same canonical claimId.
+        // The second is silently dropped; the card is accepted with one claim.
         draft = draft with { Claims = [draft.Claims[0], draft.Claims[0] with { ClaimId = "different-input-id" }] };
 
         var result = FabricEvidenceProcessor.NormalizeAndValidate(fixture.Corpus, segment, draft);
 
-        Assert.That(result.IsValid, Is.False);
-        Assert.That(result.Errors, Has.Some.Contains("normalized claimId"));
+        Assert.That(result.IsValid, Is.True, string.Join("; ", result.Errors));
+        Assert.That(result.Card!.Claims, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void EvidenceProcessor_TruncatesSummary_InsteadOfRejectingCard()
+    {
+        var fixture = DeterministicFabricCorpus.Create();
+        var corpus = fixture.Corpus;
+        var segment = corpus.Segments[0];
+        const string quote = "Observatory Seven's assigned call sign is LANTERN.";
+        // Build a summary that exceeds the 2 000-character limit.
+        var longSummary = new string('x', 2100);
+        var draft = CardFor(corpus, segment, quote) with { Summary = longSummary };
+
+        var result = FabricEvidenceProcessor.NormalizeAndValidate(corpus, segment, draft);
+
+        Assert.That(result.IsValid, Is.True, string.Join("; ", result.Errors));
+        Assert.That(result.Card!.Summary, Has.Length.LessThanOrEqualTo(2001)); // 2000 + ellipsis char
+        Assert.That(result.Card!.Summary, Does.EndWith("…"));
+    }
+
+    [Test]
+    public void EvidenceProcessor_TruncatesExcessClaims_InsteadOfRejectingCard()
+    {
+        var fixture = DeterministicFabricCorpus.Create();
+        var corpus = fixture.Corpus;
+
+        // Build a segment whose text contains 70 uniquely identifiable fact sentences.
+        var lines = Enumerable.Range(1, 70).Select(i => $"Fact {i:D3} is confirmed here.").ToList();
+        var text = string.Join(" ", lines);
+        var segment = new FabricSegment("trunc-test", 99, "Truncation Test", text, FabricHashing.Sha256(text), 1);
+        var syntheticCorpus = corpus with { Segments = [segment] };
+
+        // 70 distinct claims, each citing a different fact sentence.
+        var claims = lines.Select((line, i) => new FabricClaim
+        {
+            ClaimId = $"c{i + 1}",
+            Text = line,
+            Confidence = 1.0,
+            Citations = [new FabricCitation { SegmentId = segment.SegmentId, CharStart = -1, CharEnd = -1, Quote = line }],
+        }).ToList();
+
+        var draft = new FabricEvidenceCard
+        {
+            CorpusId = corpus.CorpusId,
+            DocumentId = corpus.DocumentId,
+            SegmentId = segment.SegmentId,
+            Summary = "Test summary with 70 distinct claims.",
+            Claims = claims,
+        };
+
+        var result = FabricEvidenceProcessor.NormalizeAndValidate(syntheticCorpus, segment, draft);
+
+        Assert.That(result.IsValid, Is.True, string.Join("; ", result.Errors));
+        Assert.That(result.Card!.Claims, Has.Count.EqualTo(64));
     }
 
     [Test]

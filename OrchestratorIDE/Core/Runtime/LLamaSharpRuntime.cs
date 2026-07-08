@@ -203,7 +203,16 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         // NativeApi touch. Idempotent — callers that already surfaced the report pay nothing.
         // Captured (not discarded) so a load failure below can report exactly what the backend
         // pre-flight found/tried, instead of only the generic NativeApi TypeInitializationException.
-        var backendReport = NativeBackendBootstrap.EnsureConfigured();
+        //
+        // Opt-in native log sink for the Gemma-specific NoKvSlot investigation
+        // (docs/CONTEXT_FABRIC_TEST_HARNESS.md §7): llama.cpp emits its own WARN/ERROR lines
+        // right when a decode fails to find a KV slot (e.g. cell-count or batch-size detail our
+        // managed DecodeResult enum doesn't carry). Reuses THEORC_KVCACHE_DIAGNOSTICS so a single
+        // env var turns on every diagnostic this investigation has added. stdout, not stderr --
+        // same PowerShell/Tee-Object hazard as AdapterManager's LogKvDiagnostic.
+        var backendReport = Environment.GetEnvironmentVariable("THEORC_KVCACHE_DIAGNOSTICS") == "1"
+            ? NativeBackendBootstrap.EnsureConfigured(line => Console.WriteLine($"[NativeLog] {line}"))
+            : NativeBackendBootstrap.EnsureConfigured();
 
         await DisposeAsync();  // unload previous model
 
@@ -219,6 +228,19 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             {
                 ContextSize   = (uint)_options.ContextLength,
                 GpuLayerCount = _options.GpuLayers,
+                // SwaFull deliberately left at its native default (true). false was tried during
+                // the NoKvSlot investigation to shrink SWA-layer cache 6x on Gemma-3-class
+                // architectures, but that shrinks the SWA cache to min(fullContext, n_swa +
+                // UBatchSize) -- with the default UBatchSize=512, that's ~1536 cells, not 8192.
+                // Context Fabric's Reviewer/Answer-stage prompts routinely run 6,000+ tokens
+                // (they re-include the evidence pack plus the Researcher's draft for review),
+                // so every one of those calls failed NoKvSlot outright -- a single prompt too
+                // large for the undersized SWA window, not a cumulative-pressure problem
+                // (confirmed live: force-recycling to a fresh, empty pool before each call did
+                // not help even one call succeed). Making UBatchSize large enough to cover these
+                // prompts would erase most of the intended memory saving anyway, since Context
+                // Fabric's prompts are designed to use most of the context budget. Reverted;
+                // see docs/CONTEXT_FABRIC_TEST_HARNESS.md §7.
             };
 
             if (!string.IsNullOrEmpty(adapterPath))

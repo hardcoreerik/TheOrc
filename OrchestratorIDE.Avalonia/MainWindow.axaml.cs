@@ -2561,6 +2561,9 @@ public partial class MainWindow : Window
     private void Menu_ModelLibrary(object? sender, RoutedEventArgs e)
         => RunMenuTask(ShowModelLibraryAsync(), "Model library failed to open");
 
+    private void Menu_ModelBenchmark(object? sender, RoutedEventArgs e)
+        => RunMenuTask(ShowModelBenchmarkAsync(), "Model benchmark window failed to open");
+
     private async Task ShowModelDownloaderAsync()
     {
         var win = new ModelDownloaderWindow(_settings);
@@ -2570,6 +2573,12 @@ public partial class MainWindow : Window
     private async Task ShowModelLibraryAsync()
     {
         var win = new ModelLibraryWindow(_settings);
+        await win.ShowDialog(this);
+    }
+
+    private async Task ShowModelBenchmarkAsync()
+    {
+        var win = new ModelBenchmarkWindow(_settings);
         await win.ShowDialog(this);
     }
 

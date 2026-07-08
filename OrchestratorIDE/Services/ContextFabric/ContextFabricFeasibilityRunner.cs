@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Diagnostics;
 using System.Text;
+using System.Text.RegularExpressions;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Models;
@@ -11,6 +12,10 @@ namespace OrchestratorIDE.Services.ContextFabric;
 public sealed class ContextFabricFeasibilityRunner
 {
     private const int MaxRawOutputExcerptChars = 400;
+
+    // Single source of truth for the token-safety margin lives in FabricContextBudget
+    // (ContextFabricContracts.cs), which compiles into NativeRuntime unlike EvidencePackBuilder.cs.
+    private const double EvidenceTokenSafetyMargin = FabricContextBudget.TokenSafetyMargin;
     private readonly IRoleRuntime _runtime;
     private readonly FabricRunOptions _options;
 
@@ -657,24 +662,108 @@ public sealed class ContextFabricFeasibilityRunner
     {
         var terms = TokenizeForScoring(question.Question);
         terms.ExceptWith(_scoringStopwords);
+        var anchors = ExtractAnchorPhrases(question.Question);
+        var proximityPairs = ExtractProximityPairs(question.Question);
 
         var documentFrequency = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var card in cards)
             foreach (var term in TokenizeForScoring(CardHaystack(card)))
                 documentFrequency[term] = documentFrequency.GetValueOrDefault(term) + 1;
 
-        var ordered = cards
-            .Select(card => (card, score: ScoreIdf(card, terms, documentFrequency)))
-            .Where(pair => pair.score > 0)
-            .OrderByDescending(pair => pair.score)
-            .ThenBy(pair => pair.card.SegmentId, StringComparer.Ordinal)
-            .Select(pair => pair.card);
+        var anchorDocumentFrequency = anchors.ToDictionary(
+            anchor => anchor,
+            anchor => cards.Count(card => ContainsAnchor(CardHaystack(card), anchor)),
+            StringComparer.OrdinalIgnoreCase);
+
+        // Per-card proximity-pair matches, computed once (they feed both pair document
+        // frequency and per-candidate scoring below).
+        var pairMatchesByCard = cards.ToDictionary(
+            card => card.SegmentId,
+            card =>
+            {
+                var ordered = TokenizeOrderedLower(CardHaystack(card));
+                return proximityPairs.Where(pair => ProximityMatch(ordered, pair.A, pair.B)).ToHashSet();
+            },
+            StringComparer.Ordinal);
+        var pairDocumentFrequency = proximityPairs.ToDictionary(
+            pair => pair,
+            pair => pairMatchesByCard.Values.Count(matches => matches.Contains(pair)));
+
+        // Proximity pairs (Tier 1.5) contribute at HALF a verbatim anchor's weight, so a card
+        // containing the contiguous phrase still outranks an inverted/nearby occurrence
+        // wherever both exist.
+        const double proximityPairWeight = 0.5;
+        double PairScore(HashSet<(string A, string B)> matched, HashSet<(string A, string B)>? onlyUncovered = null) =>
+            matched.Where(pair => onlyUncovered is null || onlyUncovered.Contains(pair))
+                .Sum(pair => proximityPairWeight / Math.Max(1, pairDocumentFrequency[pair]));
+
+        // Anchor score (verbatim anchors + proximity pairs) is ordered LEXICOGRAPHICALLY above
+        // unigram score (not blended with a weight constant): a card matching the question's
+        // entity must outrank any accumulation of common-word overlap, because in an
+        // entity-dense corpus dozens of cards tie on unigrams (measured: 63/105 cards matched
+        // both "station" and "alpha" for a question about Station Alpha; 3 contained the
+        // phrase). Questions with no extractable anchors or pairs order exactly as before
+        // (anchor keys all zero).
+        var candidates = cards
+            .Select(card =>
+            {
+                var haystack = CardHaystack(card);
+                var cardAnchors = anchors
+                    .Where(anchor => ContainsAnchor(haystack, anchor))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var cardPairs = pairMatchesByCard[card.SegmentId];
+                var cardTerms = TokenizeForScoring(haystack);
+                cardTerms.IntersectWith(terms);
+                return new
+                {
+                    Card = card,
+                    Anchors = cardAnchors,
+                    Pairs = cardPairs,
+                    Terms = cardTerms,
+                    AnchorScore = cardAnchors.Sum(a => 1.0 / Math.Max(1, anchorDocumentFrequency[a]))
+                        + PairScore(cardPairs),
+                    TermScore = cardTerms.Sum(t => 1.0 / documentFrequency.GetValueOrDefault(t, 1)),
+                };
+            })
+            .Where(candidate => candidate.AnchorScore > 0 || candidate.TermScore > 0)
+            .ToList();
+
+        // Coverage-aware greedy fill (CF_RETRIEVAL_IMPROVEMENT_PLAN.md Tier 1b): each pick is
+        // ranked first by how much of the question's NOT-YET-COVERED anchors/terms it adds, so a
+        // MultiHop question naming both RPT-064 and CK-086 spends its budget covering both
+        // entities instead of stacking near-duplicates of whichever ranked first. Once every
+        // question anchor/term is covered, the uncovered keys are zero for all remaining cards
+        // and ordering falls back to the base scores -- preserving the old "fill remaining
+        // budget with the globally best cards" behavior for GlobalSynthesis-style questions.
+        var uncoveredAnchors = anchors
+            .Where(anchor => anchorDocumentFrequency[anchor] > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var uncoveredPairs = proximityPairs
+            .Where(pair => pairDocumentFrequency[pair] > 0)
+            .ToHashSet();
+        var uncoveredTerms = new HashSet<string>(terms, StringComparer.Ordinal);
+
         var evidence = new List<AnswerEvidence>();
         var included = new List<string>();
 
-        foreach (var card in ordered)
+        while (candidates.Count > 0)
         {
-            var candidate = new AnswerEvidence(
+            var best = candidates
+                .OrderByDescending(c => c.Anchors
+                    .Where(uncoveredAnchors.Contains)
+                    .Sum(a => 1.0 / Math.Max(1, anchorDocumentFrequency[a]))
+                    + PairScore(c.Pairs, uncoveredPairs))
+                .ThenByDescending(c => c.Terms
+                    .Where(uncoveredTerms.Contains)
+                    .Sum(t => 1.0 / documentFrequency.GetValueOrDefault(t, 1)))
+                .ThenByDescending(c => c.AnchorScore)
+                .ThenByDescending(c => c.TermScore)
+                .ThenBy(c => c.Card.SegmentId, StringComparer.Ordinal)
+                .First();
+            candidates.Remove(best);
+
+            var card = best.Card;
+            var candidateEvidence = new AnswerEvidence(
                 card.SegmentId,
                 card.Summary,
                 card.Claims.Select(claim => new AnswerEvidenceClaim(
@@ -684,7 +773,7 @@ public sealed class ContextFabricFeasibilityRunner
                         citation.SegmentId,
                         citation.Quote)).ToArray())).ToArray(),
                 card.Conflicts);
-            var projected = evidence.Append(candidate).ToArray();
+            var projected = evidence.Append(candidateEvidence).ToArray();
             var input = new AnswerInput(
                 FabricSchemaVersions.Answer,
                 "corpus",
@@ -693,11 +782,18 @@ public sealed class ContextFabricFeasibilityRunner
                 question.Question,
                 root?.Summary ?? "",
                 projected);
-            var projectedTokens = ContextManager.EstimateTokens(FabricJson.Serialize(input));
+            // Margin-adjusted for the same under-counting reason as InvokeAsync's gate above --
+            // this was previously the one unmargined check on the live NoKvSlot crash path
+            // (EvidencePackBuilder, a separate class, already applied this margin).
+            var projectedTokens = (int)Math.Ceiling(
+                ContextManager.EstimateTokens(FabricJson.Serialize(input)) * EvidenceTokenSafetyMargin);
             if (projectedTokens > _options.ContextBudget.EvidenceLimit)
-                continue;
-            evidence.Add(candidate);
+                continue;  // skipped for size: its anchors/terms stay uncovered for later picks
+            evidence.Add(candidateEvidence);
             included.Add(card.SegmentId);
+            uncoveredAnchors.ExceptWith(best.Anchors);
+            uncoveredPairs.ExceptWith(best.Pairs);
+            uncoveredTerms.ExceptWith(best.Terms);
         }
 
         return new EvidencePack(evidence, included);
@@ -768,6 +864,27 @@ public sealed class ContextFabricFeasibilityRunner
             ? termsPresentInCorpus.Where(term => documentFrequency[term] == minDocumentFrequency).ToHashSet(StringComparer.Ordinal)
             : terms;
 
+        // Tier 1c (CF_RETRIEVAL_IMPROVEMENT_PLAN.md): when the question names a hyphenated
+        // identifier ("case-ledger-01", "grade-20"), match it VERBATIM in claim text instead of
+        // relying on the rarest-unigram heuristic above. The tokenizer splits identifiers into
+        // corpus-common fragments ("case", "ledger", "01"), so unigram rarity can tie between
+        // different instances ("case-ledger-01" vs "case-ledger-09" — the exact failure the doc
+        // comment above records); the contiguous string cannot. Identifiers appearing in a
+        // majority of cards are category names, not instances, and get no special treatment —
+        // same rationale as isEntityScoped. Proper-noun anchors are deliberately NOT used as a
+        // hard filter here: category-wide questions legitimately name entities that should not
+        // exclude other cards.
+        var scopedIdentifierAnchors = ExtractAnchorPhrases(question.Question)
+            .Where(anchor => anchor.Contains('-'))
+            .Select(anchor => (Anchor: anchor, Df: cards.Count(card => ContainsAnchor(CardHaystack(card), anchor))))
+            .Where(pair => pair.Df > 0 && pair.Df < cards.Count / 2.0)
+            .Select(pair => pair.Anchor)
+            .ToArray();
+
+        bool ClaimMatches(FabricClaim claim) => scopedIdentifierAnchors.Length > 0
+            ? scopedIdentifierAnchors.Any(anchor => ContainsAnchor(claim.Text, anchor))
+            : TokenizeForScoring(claim.Text).Overlaps(mostDistinctiveTerms);
+
         var segmentsById = corpus.Segments.ToDictionary(segment => segment.SegmentId, StringComparer.Ordinal);
         var selected = cards
             // Cards for a segment absent from this corpus can't be ordered or cited -- skip rather
@@ -779,7 +896,7 @@ public sealed class ContextFabricFeasibilityRunner
             // under the same ledger) must surface all of them, not silently drop the rest
             // (CodeRabbit finding, 2026-07-04: the prior FirstOrDefault() under-included).
             .SelectMany(card => card.Claims
-                .Where(claim => TokenizeForScoring(claim.Text).Overlaps(mostDistinctiveTerms))
+                .Where(ClaimMatches)
                 .Select(claim => (Card: card, Claim: claim, Ordinal: segmentsById[card.SegmentId].Ordinal)))
             .OrderBy(item => item.Ordinal)
             .ThenByDescending(item => ScoreTextIdf(item.Claim.Text, terms, documentFrequency))
@@ -852,10 +969,14 @@ public sealed class ContextFabricFeasibilityRunner
         int maxTokens,
         CancellationToken ct)
     {
-        var promptTokens = messages.Sum(message => ContextManager.EstimateTokens(message.Content));
-        if (promptTokens + maxTokens > _options.ContextBudget.ContextLimit)
+        // EstimateTokens is a crude chars/4 heuristic that under-counts token-dense prompts.
+        // The margin-adjusted value is used only for the budget gate; the raw estimate is used
+        // as the reporting fallback so FabricCallMetrics don't show inflated prompt-token counts.
+        var rawPromptTokens = messages.Sum(message => ContextManager.EstimateTokens(message.Content));
+        var gatePromptTokens = (int)Math.Ceiling(rawPromptTokens * EvidenceTokenSafetyMargin);
+        if (gatePromptTokens + maxTokens > _options.ContextBudget.ContextLimit)
             throw new FabricContextBudgetExceededException(
-                $"{stage}/{itemId} requires up to {promptTokens + maxTokens} tokens, exceeding {_options.ContextBudget.ContextLimit}.");
+                $"{stage}/{itemId} requires up to {gatePromptTokens + maxTokens} tokens (margin-adjusted), exceeding {_options.ContextBudget.ContextLimit}.");
 
         var stopwatch = Stopwatch.StartNew();
         var output = new StringBuilder();
@@ -888,7 +1009,7 @@ public sealed class ContextFabricFeasibilityRunner
                     stage,
                     itemId,
                     role,
-                    reportedPrompt > 0 ? reportedPrompt : promptTokens,
+                    reportedPrompt > 0 ? reportedPrompt : rawPromptTokens,
                     completionTokens,
                     _options.ContextBudget.ContextLimit,
                     stopwatch.ElapsedMilliseconds,
@@ -909,7 +1030,7 @@ public sealed class ContextFabricFeasibilityRunner
                     stage,
                     itemId,
                     role,
-                    promptTokens,
+                    rawPromptTokens,
                     ContextManager.EstimateTokens(output.ToString()),
                     _options.ContextBudget.ContextLimit,
                     stopwatch.ElapsedMilliseconds,
@@ -1009,18 +1130,142 @@ public sealed class ContextFabricFeasibilityRunner
         "every", "list", "order", "under",
     };
 
+    // ── Anchor phrases (CF_RETRIEVAL_IMPROVEMENT_PLAN.md Tier 1a) ────────────────────────────
+    //
+    // Unigram scoring dissolves exactly the parts of a question that identify WHICH entity it
+    // asks about: TokenizeForScoring splits on spaces and hyphens, so "Station Alpha" becomes
+    // {station, alpha} (63 of 105 cards in the expanded corpus contain both, vs 3 containing the
+    // contiguous phrase) and "case-ledger-01" becomes {case, ledger, 01} (all corpus-common).
+    // Anchor phrases are the contiguous strings that survive: hyphenated identifiers and
+    // multi-word proper-noun runs, matched verbatim (case-insensitive substring) against the
+    // card haystack so they cannot collide with a different entity that merely shares words.
+
+    // Hyphenated identifiers: "BR-048", "case-ledger-01", "CHN-112-0-1-2". Substring matching
+    // means "CHN-201" also matches cards containing chain extensions like "CHN-201-0-1" -- which
+    // is desirable for chain-tracing questions (those cards ARE about that chain).
+    private static readonly Regex _identifierAnchorPattern =
+        new(@"\b\w+(?:-\w+)+\b", RegexOptions.Compiled);
+
+    // Two or more consecutive capitalized words: "Station Alpha", "Depot Fathom". Question
+    // openers get trimmed below ("Which Depot Fathom..." must yield "Depot Fathom", and because
+    // regex matches are non-overlapping, the untrimmed match would otherwise swallow the anchor).
+    private static readonly Regex _properNounRunPattern =
+        new(@"\b[A-Z][a-z0-9]*(?: [A-Z][a-z0-9]*)+\b", RegexOptions.Compiled);
+
+    // Words that legitimately start a question in title case but are never part of an entity
+    // name. Trimmed from the LEFT of proper-noun runs only.
+    private static readonly HashSet<string> _anchorLeadingNoise = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "what", "which", "who", "whom", "whose", "when", "where", "why", "how",
+        "was", "were", "is", "are", "did", "does", "do", "the", "a", "an",
+        "list", "name", "trace", "give", "state", "identify", "describe", "according", "per",
+    };
+
+    /// <summary>
+    /// Extracts anchor phrases (hyphenated identifiers and multi-word proper-noun runs) from a
+    /// question. Internal (not private) so unit tests can exercise extraction directly.
+    /// </summary>
+    internal static IReadOnlyList<string> ExtractAnchorPhrases(string question)
+    {
+        var anchors = new List<string>();
+        foreach (Match match in _identifierAnchorPattern.Matches(question))
+            anchors.Add(match.Value);
+
+        foreach (Match match in _properNounRunPattern.Matches(question))
+        {
+            var words = match.Value.Split(' ');
+            var start = 0;
+            while (start < words.Length && _anchorLeadingNoise.Contains(words[start]))
+                start++;
+            if (words.Length - start >= 2)
+                anchors.Add(string.Join(' ', words[start..]));
+        }
+
+        return anchors.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static bool ContainsAnchor(string haystack, string anchor) =>
+        haystack.Contains(anchor, StringComparison.OrdinalIgnoreCase);
+
+    // ── Proximity pairs (CF_RETRIEVAL_IMPROVEMENT_PLAN.md Tier 1.5) ──────────────────────────
+    //
+    // The Tier 1 validation run's dominant remaining pure-miss bucket was Paraphrased questions
+    // that INVERT an entity's word order: the question says "the Meridian relay point" while the
+    // corpus says "Relay Meridian". Contiguous anchors can't match that -- and extraction fails
+    // too, because only "Meridian" is capitalized (no 2+ word proper-noun run exists). Proximity
+    // pairs recover the signal: each mid-sentence capitalized word is treated as an entity head
+    // and paired with its nearest non-stopword neighbor; a card matches when both words appear
+    // within a 2-token window in ANY order. Weighted at half a verbatim anchor so a contiguous
+    // phrase match still outranks an inverted/nearby one wherever both exist.
+
+    /// <summary>
+    /// Extracts unordered proximity pairs from a question: (entity-head word, nearest
+    /// non-stopword neighbor). Pairs are lowercase and canonically ordered for dedupe.
+    /// Internal (not private) so unit tests can exercise extraction directly.
+    /// </summary>
+    internal static IReadOnlyList<(string A, string B)> ExtractProximityPairs(string question)
+    {
+        var words = question.Split(_tokenSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var pairs = new List<(string A, string B)>();
+        // Index 0 is skipped: sentence-initial capitalization carries no entity signal.
+        for (var i = 1; i < words.Length; i++)
+        {
+            var word = words[i];
+            if (word.Length < 3 || !char.IsUpper(word[0]))
+                continue;
+            var head = word.ToLowerInvariant();
+            if (_scoringStopwords.Contains(head) || _anchorLeadingNoise.Contains(head))
+                continue;
+
+            foreach (var direction in (ReadOnlySpan<int>)[-1, +1])
+            {
+                for (var step = 1; step <= 2; step++)
+                {
+                    var index = i + direction * step;
+                    if (index < 0 || index >= words.Length)
+                        break;
+                    var neighbor = words[index].ToLowerInvariant();
+                    if (neighbor.Length < 3 || _scoringStopwords.Contains(neighbor) || neighbor == head)
+                        continue;
+                    pairs.Add(string.CompareOrdinal(head, neighbor) <= 0 ? (head, neighbor) : (neighbor, head));
+                    break;  // nearest qualifying neighbor only, per side
+                }
+            }
+        }
+        return pairs.Distinct().ToArray();
+    }
+
+    /// <summary>True when both words occur within two token positions of each other, any order.</summary>
+    private static bool ProximityMatch(IReadOnlyList<string> orderedTokens, string a, string b)
+    {
+        var lastA = -1;
+        var lastB = -1;
+        for (var i = 0; i < orderedTokens.Count; i++)
+        {
+            if (orderedTokens[i] == a) lastA = i;
+            else if (orderedTokens[i] == b) lastB = i;
+            else continue;
+            if (lastA >= 0 && lastB >= 0 && Math.Abs(lastA - lastB) <= 2)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>Ordered lowercase tokens of a haystack, for proximity-window matching.</summary>
+    private static List<string> TokenizeOrderedLower(string value) => value
+        .Split(_tokenSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Where(token => token.Length >= 2)
+        .Select(token => token.ToLowerInvariant())
+        .ToList();
+
     /// <summary>
     /// IDF-weighted match score: each matching term contributes 1/documentFrequency(term), so a
     /// term appearing in only one or two cards (a name, code, or value) counts for far more than
     /// one appearing in most cards. Stopwords are excluded from <paramref name="terms"/> by the
-    /// caller before this is invoked.
+    /// caller before this is invoked. (BuildEvidencePack inlines this arithmetic into its
+    /// coverage-aware selection; this standalone form remains for BuildExhaustiveAnswer's
+    /// claim-level tie-break.)
     /// </summary>
-    private static double ScoreIdf(
-        FabricEvidenceCard card,
-        HashSet<string> terms,
-        IReadOnlyDictionary<string, int> documentFrequency) =>
-        ScoreTextIdf(CardHaystack(card), terms, documentFrequency);
-
     private static double ScoreTextIdf(
         string text,
         HashSet<string> terms,
@@ -1050,9 +1295,11 @@ public sealed class ContextFabricFeasibilityRunner
 
     private static HashSet<string> Tokenize(string value) => TokenizeWithMinLength(value, 3);
 
+    private static readonly char[] _tokenSeparators =
+        [' ', '\t', '\r', '\n', '.', ',', ':', ';', '?', '!', '\'', '"', '(', ')', '-', '/'];
+
     private static HashSet<string> TokenizeWithMinLength(string value, int minLength) => value
-        .Split([' ', '\t', '\r', '\n', '.', ',', ':', ';', '?', '!', '\'', '"', '(', ')', '-', '/'],
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Split(_tokenSeparators, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .Where(token => token.Length >= minLength)
         .Select(token => token.ToLowerInvariant())
         .ToHashSet(StringComparer.Ordinal);

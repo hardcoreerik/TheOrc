@@ -144,6 +144,7 @@ internal static class Program
             if (researcher is null || (reviewer is null && requiresReviewer))
             {
                 Console.Error.WriteLine($"No native base GGUF was resolved beneath '{Path.GetFullPath(modelRoot)}'.");
+                PrintDepotDiagnostics(depot, modelRoot);
                 return 65;
             }
 
@@ -160,6 +161,7 @@ internal static class Program
                 if (reviewerAdmission is not null && reviewer is not null)
                     PrintAdmission("Reviewer", reviewer.BaseModel.DisplayName, reviewerAdmission);
                 Console.Error.WriteLine("Choose a stronger admitted or provisional GGUF for Context Fabric workloads.");
+                PrintDepotDiagnostics(depot, modelRoot);
                 return 66;
             }
 
@@ -197,7 +199,13 @@ internal static class Program
                 roleBindings: BuildRoleBindings(researcher, reviewer));
             if (options.Suite == BenchmarkSuite.Stitch)
             {
-                var stitchReport = await new ContextFabricBenchmarkExpansionRunner(runtime, runOptions)
+                // Same reasoning as the expanded reader's ReaderMaxTokens bump above: the stitch
+                // prompt asks for a full JSON summary plus every linked fact from both segments,
+                // which needs more headroom than the frozen fixture's 1024-token default before
+                // the model reliably finishes the JSON object instead of truncating mid-response
+                // (observed live: a stitch call cut off mid-sentence, producing invalid JSON).
+                var stitchRunOptions = runOptions with { ReaderMaxTokens = Math.Max(runOptions.ReaderMaxTokens, 2048) };
+                var stitchReport = await new ContextFabricBenchmarkExpansionRunner(runtime, stitchRunOptions)
                     .RunBoundaryStitchDiagnosticsAsync(DeterministicFabricCorpus.CreateBoundaryStitchFixture())
                     .ConfigureAwait(false);
                 var stitchPaths = await ContextFabricBenchmarkExpansionWriter
@@ -249,7 +257,13 @@ internal static class Program
                 var frozenForDiagnostics = DeterministicFabricCorpus.Create();
                 var quoteReport = new ContextFabricBenchmarkExpansionRunner(runtime: null)
                     .RunQuoteAnchoringDiagnostics(frozenForDiagnostics);
-                var stitchReport = await new ContextFabricBenchmarkExpansionRunner(runtime, runOptions)
+                // Same reasoning as the expanded reader's ReaderMaxTokens bump above: the stitch
+                // prompt asks for a full JSON summary plus every linked fact from both segments,
+                // which needs more headroom than the frozen fixture's 1024-token default before
+                // the model reliably finishes the JSON object instead of truncating mid-response
+                // (observed live: a stitch call cut off mid-sentence, producing invalid JSON).
+                var stitchRunOptions = runOptions with { ReaderMaxTokens = Math.Max(runOptions.ReaderMaxTokens, 2048) };
+                var stitchReport = await new ContextFabricBenchmarkExpansionRunner(runtime, stitchRunOptions)
                     .RunBoundaryStitchDiagnosticsAsync(DeterministicFabricCorpus.CreateBoundaryStitchFixture())
                     .ConfigureAwait(false);
 
@@ -317,7 +331,13 @@ internal static class Program
                 var fixture = DeterministicFabricCorpus.Create();
                 var quoteReport = new ContextFabricBenchmarkExpansionRunner(runtime: null)
                     .RunQuoteAnchoringDiagnostics(fixture);
-                var stitchReport = await new ContextFabricBenchmarkExpansionRunner(runtime, runOptions)
+                // Same reasoning as the expanded reader's ReaderMaxTokens bump above: the stitch
+                // prompt asks for a full JSON summary plus every linked fact from both segments,
+                // which needs more headroom than the frozen fixture's 1024-token default before
+                // the model reliably finishes the JSON object instead of truncating mid-response
+                // (observed live: a stitch call cut off mid-sentence, producing invalid JSON).
+                var stitchRunOptions = runOptions with { ReaderMaxTokens = Math.Max(runOptions.ReaderMaxTokens, 2048) };
+                var stitchReport = await new ContextFabricBenchmarkExpansionRunner(runtime, stitchRunOptions)
                     .RunBoundaryStitchDiagnosticsAsync(DeterministicFabricCorpus.CreateBoundaryStitchFixture())
                     .ConfigureAwait(false);
 
@@ -486,6 +506,38 @@ internal static class Program
         Console.WriteLine("  --max-questions <n>       Cap questions processed (useful for smoke tests; default: all)");
         Console.WriteLine("  --segments <n>            Scale-suite segment count (default 640)");
         Console.WriteLine("  --background-lines <n>    Scale-suite background lines per segment (default 60; 640x60 is ~1M source tokens)");
+    }
+
+    private static void PrintDepotDiagnostics(ModelDepot depot, string modelRoot)
+    {
+        Console.Error.WriteLine();
+        Console.Error.WriteLine($"Model depot scan of '{Path.GetFullPath(modelRoot)}':");
+        var baseModels = depot.Assets.Where(a => a.Kind == RuntimeAssetKind.BaseModelGguf).ToArray();
+        if (baseModels.Length == 0)
+        {
+            Console.Error.WriteLine("  (no active base-model .gguf files found)");
+        }
+        foreach (var asset in baseModels)
+        {
+            var verdict = ModelAdmissionGate.Evaluate(asset, RuntimeWorkloadKind.ContextFabricReader).Verdict;
+            Console.Error.WriteLine($"  {asset.DisplayName}  ->  {verdict} for ContextFabricReader");
+        }
+
+        string[] disabled;
+        try
+        {
+            disabled = Directory.GetFiles(modelRoot, "*.gguf.disabled", SearchOption.AllDirectories);
+        }
+        catch
+        {
+            disabled = [];
+        }
+        if (disabled.Length > 0)
+        {
+            Console.Error.WriteLine($"  {disabled.Length} disabled model file(s) were skipped (rename to .gguf to enable):");
+            foreach (var file in disabled)
+                Console.Error.WriteLine($"    {Path.GetFileName(file)}");
+        }
     }
 
     private static void PrintAdmission(string role, string modelName, ModelAdmissionDecision decision)

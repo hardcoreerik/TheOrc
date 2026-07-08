@@ -474,19 +474,32 @@ public static class FabricEvidenceProcessor
         CheckIdentity(draft.SegmentId, segment.SegmentId, "segmentId", errors);
         CheckIdentity(draft.PromptVersion, FabricSchemaVersions.ReaderPrompt, "promptVersion", errors);
 
+        string normalizedSummary;
         if (string.IsNullOrWhiteSpace(draft.Summary))
+        {
             errors.Add("summary is required");
-        else if (draft.Summary.Length > MaxSummaryChars)
-            errors.Add($"summary exceeds {MaxSummaryChars} characters");
+            normalizedSummary = "";
+        }
+        else
+        {
+            // Truncate rather than reject: expanded-corpus segments are denser and Meta-Llama
+            // generates longer summaries; outright rejection loses the card entirely.
+            normalizedSummary = draft.Summary.Length > MaxSummaryChars
+                ? draft.Summary[..MaxSummaryChars].TrimEnd() + "…"
+                : draft.Summary.Trim();
+        }
 
         var draftClaims = draft.Claims ?? [];
-        if (draftClaims.Count is 0 or > MaxClaims)
-            errors.Add($"claims must contain between 1 and {MaxClaims} items");
+        if (draftClaims.Count == 0)
+            errors.Add("claims must contain at least 1 item");
+        // Truncate excess claims rather than reject the card; the first MaxClaims claims cover
+        // the most-prominent facts (model outputs primary claims first by convention).
+        var claimsToProcess = draftClaims.Count > MaxClaims ? draftClaims.Take(MaxClaims).ToList() : draftClaims;
 
         var claimIds = new HashSet<string>(StringComparer.Ordinal);
         var normalizedClaimIds = new HashSet<string>(StringComparer.Ordinal);
-        var normalizedClaims = new List<FabricClaim>(draftClaims.Count);
-        foreach (var claim in draftClaims)
+        var normalizedClaims = new List<FabricClaim>(claimsToProcess.Count);
+        foreach (var claim in claimsToProcess)
         {
             if (claim is null)
             {
@@ -522,11 +535,10 @@ public static class FabricEvidenceProcessor
                 ? claim.ClaimId
                 : $"claim-{segment.SegmentId}-{FabricHashing.DigestOrdered(
                     citations.Select(item => item.QuoteDigest).Prepend(claim.Text ?? ""))[..12]}";
+            // Silently dedup: two claims can hash to the same canonical ID when the model
+            // emits the same fact twice (common after the repair pass concatenation).
             if (!normalizedClaimIds.Add(canonicalClaimId))
-            {
-                errors.Add($"normalized claimId '{canonicalClaimId}' is duplicated");
                 continue;
-            }
             normalizedClaims.Add(claim with { ClaimId = canonicalClaimId, Citations = citations });
         }
 
@@ -556,7 +568,7 @@ public static class FabricEvidenceProcessor
             DocumentId = corpus.DocumentId,
             SegmentId = segment.SegmentId,
             PromptVersion = FabricSchemaVersions.ReaderPrompt,
-            Summary = draft.Summary.Trim(),
+            Summary = normalizedSummary,
             Claims = normalizedClaims,
             Entities = CleanStrings(draft.Entities ?? [], 64, 256),
             Conflicts = CleanStrings(draft.Conflicts ?? [], 32, 1_000),
