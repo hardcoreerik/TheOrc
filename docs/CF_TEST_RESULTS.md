@@ -127,6 +127,7 @@ output (only a short excerpt is persisted today) to pin down the schema issue pr
 |---|---|---|---|---|---|---|---|---|
 | 1 | qwen2.5-coder-7b-instruct-q5_k_m | 3 | early (pre-margin-fix) | 0/3 | n/a | n/a | 0 | Small-sample noise — see #2 |
 | 2 | qwen2.5-coder-7b-instruct-q5_k_m | 100 | current | 25/100 (25%) | 121/128 (94.5%) | 64/84 (76.2%) | **0** | Real, moderate citation-discipline gap — a model-quality question, unrelated to the infra bug |
+| 3 | qwen2.5-coder-7b-instruct-q5_k_m | 100 | Tier 2 truncation fix (`9d71c5ad`) | 26/100 (26%) | 121/128 (94.5%) | 68/81 (84.0%) | **0** | Tier 2 validation, third machine: pass rate flat (25 → 26) but citation precision 76.2% → 84.0% — same direction as the laptop's 77.5% → 88.2%, confirming the truncation fix mainly buys citation discipline on qwen, not retrieval wins. `boundary_stitch` 2/2 PASS again on qwen. B2 RAG (49/100) still above B3 on this model (gate `cf7_gate_20260708`, ran overnight 9:09 PM → 1:13 AM) |
 
 ### HARDCORELAPTOPMSI
 
