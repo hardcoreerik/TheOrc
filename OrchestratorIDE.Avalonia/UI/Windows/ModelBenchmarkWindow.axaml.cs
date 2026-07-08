@@ -340,7 +340,7 @@ public partial class ModelBenchmarkWindow : Window
     {
         var dir = _settings.ResolvedModelStoragePath;
         if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir)) return [];
-        return [.. Directory.GetFiles(dir, "*.gguf")];
+        return [.. Directory.GetFiles(dir, "*.gguf", SearchOption.AllDirectories)];
     }
 
     private static string ResolveRepoRoot()

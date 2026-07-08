@@ -144,6 +144,7 @@ internal static class Program
             if (researcher is null || (reviewer is null && requiresReviewer))
             {
                 Console.Error.WriteLine($"No native base GGUF was resolved beneath '{Path.GetFullPath(modelRoot)}'.");
+                PrintDepotDiagnostics(depot, modelRoot);
                 return 65;
             }
 
@@ -160,6 +161,7 @@ internal static class Program
                 if (reviewerAdmission is not null && reviewer is not null)
                     PrintAdmission("Reviewer", reviewer.BaseModel.DisplayName, reviewerAdmission);
                 Console.Error.WriteLine("Choose a stronger admitted or provisional GGUF for Context Fabric workloads.");
+                PrintDepotDiagnostics(depot, modelRoot);
                 return 66;
             }
 
@@ -504,6 +506,38 @@ internal static class Program
         Console.WriteLine("  --max-questions <n>       Cap questions processed (useful for smoke tests; default: all)");
         Console.WriteLine("  --segments <n>            Scale-suite segment count (default 640)");
         Console.WriteLine("  --background-lines <n>    Scale-suite background lines per segment (default 60; 640x60 is ~1M source tokens)");
+    }
+
+    private static void PrintDepotDiagnostics(ModelDepot depot, string modelRoot)
+    {
+        Console.Error.WriteLine();
+        Console.Error.WriteLine($"Model depot scan of '{Path.GetFullPath(modelRoot)}':");
+        var baseModels = depot.Assets.Where(a => a.Kind == RuntimeAssetKind.BaseModelGguf).ToArray();
+        if (baseModels.Length == 0)
+        {
+            Console.Error.WriteLine("  (no active base-model .gguf files found)");
+        }
+        foreach (var asset in baseModels)
+        {
+            var verdict = ModelAdmissionGate.Evaluate(asset, RuntimeWorkloadKind.ContextFabricReader).Verdict;
+            Console.Error.WriteLine($"  {asset.DisplayName}  ->  {verdict} for ContextFabricReader");
+        }
+
+        string[] disabled;
+        try
+        {
+            disabled = Directory.GetFiles(modelRoot, "*.gguf.disabled", SearchOption.AllDirectories);
+        }
+        catch
+        {
+            disabled = [];
+        }
+        if (disabled.Length > 0)
+        {
+            Console.Error.WriteLine($"  {disabled.Length} disabled model file(s) were skipped (rename to .gguf to enable):");
+            foreach (var file in disabled)
+                Console.Error.WriteLine($"    {Path.GetFileName(file)}");
+        }
     }
 
     private static void PrintAdmission(string role, string modelName, ModelAdmissionDecision decision)
