@@ -847,7 +847,7 @@ public sealed class ContextFabricFeasibilityRunner
         {
             var frontier = included
                 .Where(cardsBySegment.ContainsKey)
-                .SelectMany(id => ExtractTrackedIdentifiers(CardHaystack(cardsBySegment[id])))
+                .SelectMany(id => ExtractTrackedIdentifiers(ChaseHaystack(cardsBySegment[id])))
                 .Where(visitedIdentifiers.Add)
                 .ToArray();
             if (frontier.Length == 0)
@@ -859,7 +859,7 @@ public sealed class ContextFabricFeasibilityRunner
                 if (chased >= MaxChasedCards)
                     break;
                 var carriers = cards
-                    .Where(c => ContainsAnchor(CardHaystack(c), identifier))
+                    .Where(c => ContainsAnchor(ChaseHaystack(c), identifier))
                     .ToArray();
                 if (carriers.Length > ChaseDocFrequencyCap)
                     continue;  // corpus-filler identifier, not a chain link
@@ -879,6 +879,16 @@ public sealed class ContextFabricFeasibilityRunner
                 break;
         }
     }
+
+    // Chase-only haystack: CardHaystack (Summary + Claims.Text) is the READER MODEL's own
+    // paraphrase of the segment and frequently drops or reword tracked identifiers verbatim.
+    // The identifiers survive in FabricCitation.Quote (the exact source text the reader cited),
+    // which CardHaystack deliberately excludes to keep the shared scoring signal (anchor/term
+    // matching, tuned across Tiers 1/1.5/2) unaffected by citation-quote noise. The chase needs
+    // exactly the opposite: verbatim text is the whole point, so it gets its own haystack.
+    private static string ChaseHaystack(FabricEvidenceCard card) =>
+        CardHaystack(card) + " " +
+        string.Join(' ', card.Claims.SelectMany(claim => claim.Citations.Select(citation => citation.Quote)));
 
     // Tracked identifiers are the corpus's cross-segment reference tokens (RPT-064, CK-086,
     // BR-048): an uppercase code, a dash, digits. Deliberately narrower than
