@@ -570,9 +570,12 @@ public sealed class ContextFabricFeasibilityRunner
             SystemMessage(
                 "[FABRIC_ANSWER] Answer only from supplied evidence. Return one JSON object only. Every factual answer claim " +
                 "must cite exact quotes and segment IDs from the evidence. Set citation offsets to -1 and quoteDigest empty. " +
-                "For multi-hop questions, state and cite every premise as well as the conclusion. For contradiction questions, include " +
-                "both the current and superseded facts. For exhaustive questions, include every matching item and preserve segment IDs exactly. " +
-                "For multi-hop and contradiction questions, every supplied evidence card is required; cite at least one quote from each card. " +
+                "For multi-hop questions the answer sentence MUST spell out the full chain, naming every identifier from every link " +
+                "verbatim (never just the final value), and the claim's citations array MUST contain one exact quote from every " +
+                "evidence card that contributes a link — an answer with fewer citations than chain links is invalid. " +
+                "For contradiction questions, include " +
+                "both the current and superseded facts and cite at least one quote from each card. " +
+                "For exhaustive questions, include every matching item and preserve segment IDs exactly. " +
                 "When not abstaining, return exactly one claim whose text equals the answer and attach every supporting citation to it. " +
                 "If evidence is insufficient, set abstained=true, use no claims, and say that the corpus does not establish the answer. " +
                 "Output shape: {\"schemaVersion\":\"cf0-answer-1.0\",\"answer\":\"...\",\"abstained\":false,\"claims\":[{\"text\":\"...\", " +
@@ -746,23 +749,12 @@ public sealed class ContextFabricFeasibilityRunner
         var evidence = new List<AnswerEvidence>();
         var included = new List<string>();
 
-        while (candidates.Count > 0)
+        // Shared by the greedy fill and the reference chase below: budget-checked include.
+        // Margin-adjusted for the same under-counting reason as InvokeAsync's gate above --
+        // this was previously the one unmargined check on the live NoKvSlot crash path
+        // (EvidencePackBuilder, a separate class, already applied this margin).
+        bool TryInclude(FabricEvidenceCard card)
         {
-            var best = candidates
-                .OrderByDescending(c => c.Anchors
-                    .Where(uncoveredAnchors.Contains)
-                    .Sum(a => 1.0 / Math.Max(1, anchorDocumentFrequency[a]))
-                    + PairScore(c.Pairs, uncoveredPairs))
-                .ThenByDescending(c => c.Terms
-                    .Where(uncoveredTerms.Contains)
-                    .Sum(t => 1.0 / documentFrequency.GetValueOrDefault(t, 1)))
-                .ThenByDescending(c => c.AnchorScore)
-                .ThenByDescending(c => c.TermScore)
-                .ThenBy(c => c.Card.SegmentId, StringComparer.Ordinal)
-                .First();
-            candidates.Remove(best);
-
-            var card = best.Card;
             var candidateEvidence = new AnswerEvidence(
                 card.SegmentId,
                 card.Summary,
@@ -782,22 +774,121 @@ public sealed class ContextFabricFeasibilityRunner
                 question.Question,
                 root?.Summary ?? "",
                 projected);
-            // Margin-adjusted for the same under-counting reason as InvokeAsync's gate above --
-            // this was previously the one unmargined check on the live NoKvSlot crash path
-            // (EvidencePackBuilder, a separate class, already applied this margin).
             var projectedTokens = (int)Math.Ceiling(
                 ContextManager.EstimateTokens(FabricJson.Serialize(input)) * EvidenceTokenSafetyMargin);
             if (projectedTokens > _options.ContextBudget.EvidenceLimit)
-                continue;  // skipped for size: its anchors/terms stay uncovered for later picks
+                return false;
             evidence.Add(candidateEvidence);
             included.Add(card.SegmentId);
+            return true;
+        }
+
+        while (candidates.Count > 0)
+        {
+            var best = candidates
+                .OrderByDescending(c => c.Anchors
+                    .Where(uncoveredAnchors.Contains)
+                    .Sum(a => 1.0 / Math.Max(1, anchorDocumentFrequency[a]))
+                    + PairScore(c.Pairs, uncoveredPairs))
+                .ThenByDescending(c => c.Terms
+                    .Where(uncoveredTerms.Contains)
+                    .Sum(t => 1.0 / documentFrequency.GetValueOrDefault(t, 1)))
+                .ThenByDescending(c => c.AnchorScore)
+                .ThenByDescending(c => c.TermScore)
+                .ThenBy(c => c.Card.SegmentId, StringComparer.Ordinal)
+                .First();
+            candidates.Remove(best);
+
+            if (!TryInclude(best.Card))
+                continue;  // skipped for size: its anchors/terms stay uncovered for later picks
             uncoveredAnchors.ExceptWith(best.Anchors);
             uncoveredPairs.ExceptWith(best.Pairs);
             uncoveredTerms.ExceptWith(best.Terms);
         }
 
+        ChaseTrackedReferences(cards, evidence, included, TryInclude);
+
         return new EvidencePack(evidence, included);
     }
+
+    /// <summary>
+    /// Tier 2.5 (CF_RETRIEVAL_IMPROVEMENT_PLAN.md): reference-chasing for multi-hop chains.
+    ///
+    /// Chain questions link segments through shared tracked identifiers the QUESTION never
+    /// names: "Outpost Alpha passed custody of RPT-064" lives in one segment, "Bureau Alpha
+    /// confirmed RPT-064 matched checksum CK-086" in another. Anchor retrieval only sees
+    /// entities named in the question, so it finds the endpoint segments and misses the
+    /// intermediate hops (measured: 18/24 MultiHop misses on the first full 120-question run
+    /// were partial retrieval — some chain segments found, the linked ones absent).
+    ///
+    /// This pass follows rare tracked identifiers (RPT-064-style tokens) found in
+    /// already-included cards into the other cards that contain them, iterating so a 5-hop
+    /// chain is walked link by link. Guards against corpus-filler identifiers: an identifier
+    /// occurring in more than <see cref="ChaseDocFrequencyCap"/> cards is treated as noise and
+    /// never chased, and the pass adds at most <see cref="MaxChasedCards"/> cards, all subject
+    /// to the same token-budget check as the greedy fill.
+    /// </summary>
+    private const int MaxChasedCards = 8;
+    private const int MaxChaseRounds = 4;
+    private const int ChaseDocFrequencyCap = 4;
+
+    private static void ChaseTrackedReferences(
+        IReadOnlyList<FabricEvidenceCard> cards,
+        List<AnswerEvidence> evidence,
+        List<string> included,
+        Func<FabricEvidenceCard, bool> tryInclude)
+    {
+        var cardsBySegment = cards.ToDictionary(c => c.SegmentId, StringComparer.Ordinal);
+        var includedSet = included.ToHashSet(StringComparer.Ordinal);
+        var visitedIdentifiers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var chased = 0;
+
+        for (var round = 0; round < MaxChaseRounds && chased < MaxChasedCards; round++)
+        {
+            var frontier = included
+                .Where(cardsBySegment.ContainsKey)
+                .SelectMany(id => ExtractTrackedIdentifiers(CardHaystack(cardsBySegment[id])))
+                .Where(visitedIdentifiers.Add)
+                .ToArray();
+            if (frontier.Length == 0)
+                break;
+
+            var progressed = false;
+            foreach (var identifier in frontier)
+            {
+                if (chased >= MaxChasedCards)
+                    break;
+                var carriers = cards
+                    .Where(c => ContainsAnchor(CardHaystack(c), identifier))
+                    .ToArray();
+                if (carriers.Length > ChaseDocFrequencyCap)
+                    continue;  // corpus-filler identifier, not a chain link
+                foreach (var card in carriers.Where(c => !includedSet.Contains(c.SegmentId))
+                    .OrderBy(c => c.SegmentId, StringComparer.Ordinal))
+                {
+                    if (chased >= MaxChasedCards)
+                        break;
+                    if (!tryInclude(card))
+                        continue;
+                    includedSet.Add(card.SegmentId);
+                    chased++;
+                    progressed = true;
+                }
+            }
+            if (!progressed)
+                break;
+        }
+    }
+
+    // Tracked identifiers are the corpus's cross-segment reference tokens (RPT-064, CK-086,
+    // BR-048): an uppercase code, a dash, digits. Deliberately narrower than
+    // _identifierAnchorPattern (which also matches lowercase compounds like "case-ledger-01")
+    // so the chase only follows explicit record references, not prose hyphenations.
+    private static readonly Regex _trackedIdentifierPattern =
+        new(@"\b[A-Z]{2,6}-\d{2,}\b", RegexOptions.Compiled);
+
+    private static IEnumerable<string> ExtractTrackedIdentifiers(string text) =>
+        _trackedIdentifierPattern.Matches(text).Select(match => match.Value);
 
     /// <summary>
     /// Builds an Exhaustive answer by scanning every card for its best-matching claim and keeping

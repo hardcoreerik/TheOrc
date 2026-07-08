@@ -110,7 +110,10 @@ param(
     [int]   $Context      = 8192,
     [int]   $GpuLayers    = -1,
     [switch]$SkipBuild,
-    [string]$LogFile      = ""
+    [string]$LogFile      = "",
+    # Pin role resolution to a GGUF whose filename contains this substring (e.g. "Meta-Llama").
+    # Protects the run from other models being added/disabled in a shared depot mid-run.
+    [string]$Model        = ""
 )
 
 Set-StrictMode -Version Latest
@@ -241,6 +244,10 @@ if ($MaxQuestions -gt 0) {
 
 if ($GpuLayers -ne -1) {
     $Args += @("--gpu-layers", $GpuLayers)
+}
+
+if ($Model) {
+    $Args += @("--model", $Model)
 }
 
 # ---------------------------------------------------------------------------

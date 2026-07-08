@@ -82,6 +82,23 @@ public sealed class ModelDepot
 
     public IReadOnlyList<RuntimeModelAsset> Assets { get; }
 
+    /// <summary>
+    /// Returns a depot whose BASE MODEL candidates are restricted to those whose display name
+    /// contains <paramref name="nameSubstring"/> (case-insensitive). Adapters are kept as-is.
+    /// Used to pin role resolution to a specific model (e.g. a benchmark run that must not be
+    /// affected by other models being added to or removed from a shared depot). Returns an
+    /// empty-candidate depot if nothing matches — callers surface that as "not resolved".
+    /// </summary>
+    public ModelDepot WithBaseModelFilter(string nameSubstring)
+    {
+        if (string.IsNullOrWhiteSpace(nameSubstring))
+            return this;
+        return new ModelDepot(Root, Assets
+            .Where(a => a.Kind != RuntimeAssetKind.BaseModelGguf ||
+                        a.DisplayName.Contains(nameSubstring, StringComparison.OrdinalIgnoreCase))
+            .ToArray());
+    }
+
     public static ModelDepot Scan(string root)
     {
         if (string.IsNullOrWhiteSpace(root))

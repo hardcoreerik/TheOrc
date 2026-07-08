@@ -212,4 +212,46 @@ public sealed class ContextFabricCf3Tests
         public RuntimeStats GetStats(RuntimeRole? role = null) => new(RuntimeName, "scripted.gguf");
         public string? GetLastPromptPath(RuntimeRole role) => "Scripted";
     }
+
+    // ── linkedFacts object-shape recovery (CF_TEST_RESULTS.md §5 root cause) ────────────────
+
+    [Test]
+    public void NormalizeLinkedFactObjects_FlattensObjectShapedFacts_ToTheirTextProperty()
+    {
+        // Verbatim shape Meta-Llama-3.1-8B produced on cross-clause-result: objects with
+        // factId/text/type instead of plain strings, wrapped in prose + a code fence.
+        const string raw = """
+            Here is the JSON object:
+            ```
+            {"schemaVersion":"cf0-stitch-1.0","caseId":"cross-clause-result",
+             "summary":"The council approved the delta route.",
+             "linkedFacts":[
+               {"factId":"left_fact_1","text":"The council approved the delta route.","type":"statement"},
+               {"factId":"right_fact_1","text":"A forty percent reduction followed.","type":"result"}]}
+            ```
+            """;
+
+        var normalized = FabricBoundaryStitcher.NormalizeLinkedFactObjects(raw);
+        var draft = FabricJson.ParseModelObject<FabricBoundaryStitchDraft>(normalized);
+
+        Assert.That(draft.LinkedFacts, Is.EqualTo(new[]
+        {
+            "The council approved the delta route.",
+            "A forty percent reduction followed.",
+        }));
+    }
+
+    [Test]
+    public void NormalizeLinkedFactObjects_LeavesStringShapedOutput_Untouched()
+    {
+        const string raw = """{"schemaVersion":"cf0-stitch-1.0","caseId":"c1","summary":"S.","linkedFacts":["A.","B."]}""";
+        Assert.That(FabricBoundaryStitcher.NormalizeLinkedFactObjects(raw), Is.EqualTo(raw));
+    }
+
+    [Test]
+    public void NormalizeLinkedFactObjects_ReturnsInputUnchanged_WhenOutputIsNotJson()
+    {
+        const string raw = "The model refused to produce JSON entirely.";
+        Assert.That(FabricBoundaryStitcher.NormalizeLinkedFactObjects(raw), Is.EqualTo(raw));
+    }
 }

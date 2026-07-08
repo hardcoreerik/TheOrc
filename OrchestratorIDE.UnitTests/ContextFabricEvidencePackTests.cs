@@ -284,4 +284,71 @@ public sealed class ContextFabricEvidencePackTests
 
         Assert.That(pack.IncludedSegmentIds[0], Is.EqualTo("seg-target"));
     }
+
+    // ── Tier 2.5: reference chasing ───────────────────────────────────────────────────────────
+
+    [Test]
+    public void BuildEvidencePack_ChasesTrackedIdentifier_IntoLinkedSegmentTheQuestionNeverNames()
+    {
+        // The question names only "Outpost Alpha". The custody segment mentions RPT-064; the
+        // checksum segment (which the verifier requires) shares that identifier but matches no
+        // question anchor or term. The chase must follow RPT-064 into it.
+        var custody = Card("seg-custody", "Custody transfer.",
+            "Outpost Alpha passed custody of submission RPT-064 to the bureau.");
+        var checksum = Card("seg-checksum", "Checksum confirmation.",
+            "Bureau confirmed RPT-064 matched checksum CK-086.");
+        var unrelated = Card("seg-noise", "Weather notes.",
+            "Routine weather observation logged, skies clear, winds calm.");
+        var question = new FabricBenchmarkQuestion(
+            "q-chase-1", FabricQuestionKind.MultiHop,
+            "What matching checksum was recorded once Outpost Alpha had passed custody of its submission?",
+            ["RPT-064", "CK-086"], ["seg-custody", "seg-checksum"]);
+
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), FabricRunOptions.Default);
+        var pack = runner.BuildEvidencePack(question, [custody, checksum, unrelated], null);
+
+        Assert.That(pack.IncludedSegmentIds, Does.Contain("seg-custody"));
+        Assert.That(pack.IncludedSegmentIds, Does.Contain("seg-checksum"));
+    }
+
+    [Test]
+    public void BuildEvidencePack_ChasesMultiLinkChain_AcrossSuccessiveHops()
+    {
+        // 3-hop chain: question names only the first station; each hop shares one identifier
+        // with the next. Every hop must be walked (rounds > 1).
+        var hop1 = Card("seg-hop1", "Dispatch.", "Station Vantage dispatched parcel RPT-100 downstream.");
+        var hop2 = Card("seg-hop2", "Relay.", "Relay received RPT-100 and forwarded it as RPT-200.");
+        var hop3 = Card("seg-hop3", "Receipt.", "Terminal logged RPT-200 with final checksum CK-300.");
+        var question = new FabricBenchmarkQuestion(
+            "q-chase-2", FabricQuestionKind.MultiHop,
+            "What final checksum did the parcel dispatched by Station Vantage receive?",
+            ["CK-300"], ["seg-hop1", "seg-hop2", "seg-hop3"]);
+
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), FabricRunOptions.Default);
+        var pack = runner.BuildEvidencePack(question, [hop1, hop2, hop3], null);
+
+        Assert.That(pack.IncludedSegmentIds, Is.EquivalentTo(new[] { "seg-hop1", "seg-hop2", "seg-hop3" }));
+    }
+
+    [Test]
+    public void BuildEvidencePack_DoesNotChaseHighFrequencyFillerIdentifiers()
+    {
+        // An identifier appearing in many cards is corpus filler, not a chain link: chasing it
+        // would flood the pack. Doc frequency above the cap must stop the chase.
+        var seed = Card("seg-seed", "Seed.", "Station Harrow logged the shared code FILL-01 today.");
+        var fillers = Enumerable.Range(1, 6)
+            .Select(i => Card($"seg-fill-{i}", $"Filler {i}.", $"Routine note {i} also carries FILL-01 in passing."))
+            .ToArray();
+        var question = new FabricBenchmarkQuestion(
+            "q-chase-3", FabricQuestionKind.LocalFact,
+            "What did Station Harrow log today?", ["FILL-01"], ["seg-seed"]);
+
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), FabricRunOptions.Default);
+        var pack = runner.BuildEvidencePack(question, [seed, .. fillers], null);
+
+        Assert.That(pack.IncludedSegmentIds, Does.Contain("seg-seed"));
+        // Filler cards may enter via normal term scoring, but the chase must not add all of
+        // them: the identifier occurs in 7 cards, above the cap of 4.
+        Assert.That(pack.IncludedSegmentIds.Count, Is.LessThan(7));
+    }
 }

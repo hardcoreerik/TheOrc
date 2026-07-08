@@ -30,6 +30,7 @@ public sealed class FabricBoundaryStitcher
     {
         ArgumentNullException.ThrowIfNull(testCase);
         var invocation = await InvokeAsync(testCase, ct).ConfigureAwait(false);
+        PersistRawOutputIfRequested(testCase.CaseId, invocation.Output);
         if (!invocation.Metrics.Succeeded)
         {
             return new FabricBoundaryStitchResult(
@@ -43,7 +44,8 @@ public sealed class FabricBoundaryStitcher
 
         try
         {
-            var draft = FabricJson.ParseModelObject<FabricBoundaryStitchDraft>(invocation.Output);
+            var draft = FabricJson.ParseModelObject<FabricBoundaryStitchDraft>(
+                NormalizeLinkedFactObjects(invocation.Output));
             return ValidateDraft(testCase, draft, invocation.Metrics);
         }
         catch (Exception ex) when (ex is System.Text.Json.JsonException or NotSupportedException)
@@ -142,9 +144,10 @@ public sealed class FabricBoundaryStitcher
                 "the two neighboring segments: when a pronoun, clause, or reference in one segment points to something " +
                 "in the other, resolve it to the exact entity and keep BOTH the referring fact AND the fact it refers " +
                 "to -- never drop the referenced fact (e.g. the statement an unresolved pronoun points back to). Do NOT " +
-                "restate unrelated facts, do not invent facts, and do not rewrite supported values. List each linked " +
-                "fact separately in linkedFacts. Output shape: " +
-                "{\"schemaVersion\":\"cf0-stitch-1.0\",\"caseId\":\"...\",\"summary\":\"...\",\"linkedFacts\":[\"...\"]}"),
+                "restate unrelated facts, do not invent facts, and do not rewrite supported values. linkedFacts MUST be " +
+                "an array of PLAIN STRINGS — complete sentences, never objects — and MUST include the complete referenced " +
+                "fact restated as its own entry (not only inside the summary). Output shape: " +
+                "{\"schemaVersion\":\"cf0-stitch-1.0\",\"caseId\":\"...\",\"summary\":\"...\",\"linkedFacts\":[\"full sentence\",\"full sentence\"]}"),
             UserMessage(FabricJson.Serialize(input)),
         };
 
@@ -214,6 +217,68 @@ public sealed class FabricBoundaryStitcher
         _runtime is IRoleRuntimeDiagnostics diagnostics
             ? diagnostics.GetLastPromptPath(role)
             : null;
+
+    // Root cause of the long-standing cross-clause-result stitch failure (CF_TEST_RESULTS.md §5,
+    // diagnosed 2026-07-08 from the full raw output): Meta-Llama emits linkedFacts as an array of
+    // OBJECTS ({"factId":...,"text":...,"type":...}) instead of plain strings, so deserialization
+    // to FabricBoundaryStitchDraft's List<string> throws. The content is correct — only the shape
+    // is wrong — so flatten each object to its "text"/"fact" property before parsing. Anything
+    // already string-shaped passes through untouched; content validation still runs unchanged.
+    internal static string NormalizeLinkedFactObjects(string output)
+    {
+        try
+        {
+            var start = output.IndexOf('{');
+            var end = output.LastIndexOf('}');
+            if (start < 0 || end <= start)
+                return output;
+            var node = System.Text.Json.Nodes.JsonNode.Parse(output[start..(end + 1)]);
+            if (node?["linkedFacts"] is not System.Text.Json.Nodes.JsonArray facts ||
+                !facts.Any(f => f is System.Text.Json.Nodes.JsonObject))
+                return output;
+
+            var flattened = new System.Text.Json.Nodes.JsonArray();
+            foreach (var fact in facts)
+            {
+                if (fact is System.Text.Json.Nodes.JsonObject obj)
+                {
+                    var text = obj["text"]?.GetValue<string>() ?? obj["fact"]?.GetValue<string>();
+                    if (!string.IsNullOrWhiteSpace(text))
+                        flattened.Add(text);
+                }
+                else if (fact is not null)
+                {
+                    flattened.Add(fact.DeepClone());
+                }
+            }
+            node["linkedFacts"] = flattened;
+            return node.ToJsonString();
+        }
+        catch
+        {
+            return output;  // let the normal parse/recovery path report the real error
+        }
+    }
+
+    // The persisted RawOutputExcerpt caps at 400 chars, which has proven too short to diagnose
+    // JSON deserialization failures (the cross-clause-result schema mismatch, CF_TEST_RESULTS.md
+    // §5). Setting THEORC_STITCH_RAW_DIR to a directory writes each case's COMPLETE raw model
+    // output there — diagnostic-only, off unless the variable is set.
+    private static void PersistRawOutputIfRequested(string caseId, string output)
+    {
+        var dir = Environment.GetEnvironmentVariable("THEORC_STITCH_RAW_DIR");
+        if (string.IsNullOrWhiteSpace(dir))
+            return;
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var safeCaseId = string.Join("_", caseId.Split(Path.GetInvalidFileNameChars()));
+            File.WriteAllText(
+                Path.Combine(dir, $"stitch_{safeCaseId}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.txt"),
+                output);
+        }
+        catch { /* diagnostics must never fail the run */ }
+    }
 
     private static string? BuildRawOutputExcerpt(string output)
     {

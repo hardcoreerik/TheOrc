@@ -138,6 +138,15 @@ internal static class Program
             }
 
             var depot = ModelDepot.Scan(modelRoot);
+            // --model pins role resolution to a specific GGUF by name substring, so a shared
+            // depot changing underneath the run (models added/disabled by other work) can't
+            // silently swap the benchmarked model. THEORC_CF_MODEL is the env-var equivalent.
+            var modelPin = options.ModelPin ?? Environment.GetEnvironmentVariable("THEORC_CF_MODEL");
+            if (!string.IsNullOrWhiteSpace(modelPin))
+            {
+                depot = depot.WithBaseModelFilter(modelPin);
+                Console.WriteLine($"Model pin: '{modelPin}'");
+            }
             var researcher = depot.ResolveRole(RuntimeRole.Researcher, RuntimeWorkloadKind.ContextFabricReader);
             var reviewer = depot.ResolveRole(RuntimeRole.Reviewer, RuntimeWorkloadKind.ContextFabricReviewer);
             var requiresReviewer = options.Suite is BenchmarkSuite.Cf0 or BenchmarkSuite.Cf7Gate or BenchmarkSuite.Scale or BenchmarkSuite.Cf7GateExpanded;
@@ -422,6 +431,7 @@ internal static class Program
         string? codexAuthored = null;
         string? heldOutQuestions = null;
         int? maxQuestions = null;
+        string? modelPin = null;
         var context = 8192;
         var scaleSegments = 640;
         var scaleBackgroundLines = 60;
@@ -460,11 +470,12 @@ internal static class Program
                 case "--codex-authored": codexAuthored = NextValue(); break;
                 case "--heldout-questions": heldOutQuestions = NextValue(); break;
                 case "--max-questions": maxQuestions = ParsePositive(NextValue(), arg); break;
+                case "--model": modelPin = NextValue(); break;
                 default: throw new ArgumentException($"Unknown option '{arg}'.");
             }
         }
 
-        return new CliOptions(modelRoot, output, context, responseReserve, readerMax, reducerMax, answerMax, gpuLayers, suite, b4Artifact, scaleSegments, scaleBackgroundLines, grokAuthored, codexAuthored, heldOutQuestions, maxQuestions);
+        return new CliOptions(modelRoot, output, context, responseReserve, readerMax, reducerMax, answerMax, gpuLayers, suite, b4Artifact, scaleSegments, scaleBackgroundLines, grokAuthored, codexAuthored, heldOutQuestions, maxQuestions, modelPin);
     }
 
     private static int ParsePositive(string value, string option) =>
@@ -602,5 +613,6 @@ internal static class Program
         string? GrokAuthoredPath,
         string? CodexAuthoredPath,
         string? HeldOutQuestionsPath,
-        int? MaxQuestions);
+        int? MaxQuestions,
+        string? ModelPin);
 }
