@@ -830,7 +830,12 @@ public sealed class ContextFabricFeasibilityRunner
     /// </summary>
     private const int MaxChasedCards = 8;
     private const int MaxChaseRounds = 4;
-    private const int ChaseDocFrequencyCap = 4;
+    // The corpus's longest chains are 5 hops (DeterministicExpandedFabricCorpus), and a legitimate
+    // N-hop chain's shared token appears in exactly N segments by construction -- so a cap of 4
+    // was excluding real 4- and 5-hop chains as "filler" (measured 2026-07-08: lh chains stayed
+    // partially retrieved after the first live fix, e.g. 1/5, 2/4 hits). 6 keeps real corpus-wide
+    // filler (measured at 7+ cards) excluded while covering every legitimate chain length.
+    private const int ChaseDocFrequencyCap = 6;
 
     private static void ChaseTrackedReferences(
         IReadOnlyList<FabricEvidenceCard> cards,
