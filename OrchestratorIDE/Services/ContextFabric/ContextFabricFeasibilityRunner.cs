@@ -13,13 +13,9 @@ public sealed class ContextFabricFeasibilityRunner
 {
     private const int MaxRawOutputExcerptChars = 400;
 
-    // Matches EvidenceTokenSafetyMargin (kept as a local constant rather than
-    // a cross-project reference -- EvidencePackBuilder.cs isn't compiled into
-    // OrchestratorIDE.NativeRuntime). ContextManager.EstimateTokens (chars/4) under-counts
-    // token-dense, JSON-structured evidence prompts; this file's two token-budget gates were
-    // found unmargined during the NoKvSlot investigation (docs/CONTEXT_FABRIC_TEST_HARNESS.md §7)
-    // -- a real contributor to prompts silently exceeding the native KV pool.
-    private const double EvidenceTokenSafetyMargin = 1.15;
+    // Single source of truth for the token-safety margin lives in FabricContextBudget
+    // (ContextFabricContracts.cs), which compiles into NativeRuntime unlike EvidencePackBuilder.cs.
+    private const double EvidenceTokenSafetyMargin = FabricContextBudget.TokenSafetyMargin;
     private readonly IRoleRuntime _runtime;
     private readonly FabricRunOptions _options;
 
@@ -973,16 +969,14 @@ public sealed class ContextFabricFeasibilityRunner
         int maxTokens,
         CancellationToken ct)
     {
-        // EstimateTokens is a crude chars/4 heuristic (ContextManager.cs) that under-counts
-        // token-dense text such as this evidence-heavy, JSON-structured prompt. Applying the
-        // same safety margin EvidencePackBuilder already uses (EvidenceTokenSafetyMargin) so
-        // this gate can't silently pass a prompt that actually overflows the native KV pool --
-        // root-caused as a real contributor to NoKvSlot crashes (docs/CONTEXT_FABRIC_TEST_HARNESS.md §7).
-        var promptTokens = (int)Math.Ceiling(
-            messages.Sum(message => ContextManager.EstimateTokens(message.Content)) * EvidenceTokenSafetyMargin);
-        if (promptTokens + maxTokens > _options.ContextBudget.ContextLimit)
+        // EstimateTokens is a crude chars/4 heuristic that under-counts token-dense prompts.
+        // The margin-adjusted value is used only for the budget gate; the raw estimate is used
+        // as the reporting fallback so FabricCallMetrics don't show inflated prompt-token counts.
+        var rawPromptTokens = messages.Sum(message => ContextManager.EstimateTokens(message.Content));
+        var gatePromptTokens = (int)Math.Ceiling(rawPromptTokens * EvidenceTokenSafetyMargin);
+        if (gatePromptTokens + maxTokens > _options.ContextBudget.ContextLimit)
             throw new FabricContextBudgetExceededException(
-                $"{stage}/{itemId} requires up to {promptTokens + maxTokens} tokens (margin-adjusted), exceeding {_options.ContextBudget.ContextLimit}.");
+                $"{stage}/{itemId} requires up to {gatePromptTokens + maxTokens} tokens (margin-adjusted), exceeding {_options.ContextBudget.ContextLimit}.");
 
         var stopwatch = Stopwatch.StartNew();
         var output = new StringBuilder();
@@ -1015,7 +1009,7 @@ public sealed class ContextFabricFeasibilityRunner
                     stage,
                     itemId,
                     role,
-                    reportedPrompt > 0 ? reportedPrompt : promptTokens,
+                    reportedPrompt > 0 ? reportedPrompt : rawPromptTokens,
                     completionTokens,
                     _options.ContextBudget.ContextLimit,
                     stopwatch.ElapsedMilliseconds,
@@ -1036,7 +1030,7 @@ public sealed class ContextFabricFeasibilityRunner
                     stage,
                     itemId,
                     role,
-                    promptTokens,
+                    rawPromptTokens,
                     ContextManager.EstimateTokens(output.ToString()),
                     _options.ContextBudget.ContextLimit,
                     stopwatch.ElapsedMilliseconds,
