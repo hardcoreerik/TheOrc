@@ -189,6 +189,43 @@ existing LLamaSharp embedding API; admission via `ModelAdmissionGate` with a new
 
 ---
 
+## 3c. Tier 2.5 — Reference chasing: retrieval side DONE, remaining gap is model compliance
+
+**Status: CLOSED as a retrieval problem.** `BuildEvidencePack` now follows tracked
+identifiers (`RPT-064`-style tokens) from included cards into the segments that share them
+(`ChaseTrackedReferences`), and reserves 30% of the evidence budget for MultiHop questions
+specifically so the chase always has room to run (`a30229aa`) — fixing, along the way, two
+real bugs (the chase originally read the wrong text field, `7d9e3b85`; its doc-frequency
+filter excluded legitimate 4-5-hop chains as corpus filler, `0f8338ab`) and one genuine
+architectural gap (the greedy anchor-fill was consuming the whole budget on distractor
+segments — this corpus reuses entity names across unrelated chains by construction — before
+the chase ever got a turn).
+
+**The budget-reservation fix worked, measurably** (CF_TEST_RESULTS.md #13): MultiHop's
+full-retrieval count rose 6 → 9/24, the first change in the retrieval distribution across 5
+live cycles. But the pass rate stayed flat at 0/24 anyway — because **every one of those 9
+now-fully-retrieved cases fails on an identical, separate gap**: the model attaches only 1 of
+the 2 (or 0 of 4) citations the stricter multi-hop answer prompt requires, despite the prompt
+explicitly stating "cite at least one quote from each contributing card." This is not a
+retrieval or code defect — it is Meta-Llama-3.1-8B not reliably complying with a multi-part
+citation instruction.
+
+**Retrieval-side work on MultiHop is done.** Further gains require one of:
+1. **Few-shot examples** in the answer prompt showing a correctly multi-cited chain answer —
+   cheapest to try, no code change, but 8B models are inconsistent few-shot followers.
+2. **Schema-enforced citation count**: change the answer JSON schema to require a
+   `citations` array with exactly one entry per evidence card ID actually included in the
+   pack for MultiHop questions, and reject/retry answers that don't satisfy it structurally
+   (forcing compliance via validation rather than instruction).
+3. **Defer to a larger/Tier-3 agentic model** — this may simply be outside an 8B model's
+   reliable instruction-following capacity; the CF_TEST_RESULTS.md HARDCOREPC/laptop qwen-7b
+   data point (also weaker on citation discipline than Meta-Llama) is consistent with this
+   being a capability floor, not a fixable prompt-engineering gap.
+
+Recommend (2) if pursued further, since (1) has already been tried once (the original
+multi-hop prompt update) with only partial compliance, and schema enforcement is the only
+option that doesn't depend on the model choosing to comply.
+
 ## 4. Tier 3 — Agentic retrieval (the strategic direction)
 
 Two escalating designs, both aligned with TheOrc's long-term goal of a **tiny custom

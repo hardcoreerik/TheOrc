@@ -30,6 +30,28 @@ public sealed class ContextFabricEvidencePackTests
         Claims = [new FabricClaim { ClaimId = $"{segmentId}-c1", Text = claimText }],
     };
 
+    // Models the REAL reader-model shape for identifier-bearing evidence: the claim TEXT is a
+    // paraphrase (as an LLM reader actually produces) and the tracked identifier survives only
+    // in the citation's verbatim quote -- never in claimText. A test built on the plain Card()
+    // helper (identifier embedded directly in claimText) does not exercise this path and would
+    // not have caught the chase reading the wrong haystack (fixed 2026-07-08: ChaseHaystack now
+    // includes citation quotes; CardHaystack, used by scoring, still does not).
+    private static FabricEvidenceCard CardWithCitation(
+        string segmentId, string summary, string paraphrasedClaimText, string verbatimQuote) => new()
+    {
+        SegmentId = segmentId,
+        Summary = summary,
+        Claims =
+        [
+            new FabricClaim
+            {
+                ClaimId = $"{segmentId}-c1",
+                Text = paraphrasedClaimText,
+                Citations = [new FabricCitation { SegmentId = segmentId, Quote = verbatimQuote }],
+            },
+        ],
+    };
+
     [Test]
     public void BuildEvidencePack_PrefersCardWithRareDistinctiveTerm_OverCommonWordOverlap()
     {
@@ -283,5 +305,114 @@ public sealed class ContextFabricEvidencePackTests
         var pack = runner.BuildEvidencePack(question, [target, distractor], null);
 
         Assert.That(pack.IncludedSegmentIds[0], Is.EqualTo("seg-target"));
+    }
+
+    // ── Tier 2.5: reference chasing ───────────────────────────────────────────────────────────
+
+    [Test]
+    public void BuildEvidencePack_ChasesTrackedIdentifier_IntoLinkedSegmentTheQuestionNeverNames()
+    {
+        // The question names only "Outpost Alpha". The identifier RPT-064 survives ONLY in the
+        // citation quote, not the claim text (realistic reader-model paraphrase) -- so the chase
+        // must read citation quotes, not just Summary+Claims.Text, or it finds nothing to follow.
+        var custody = CardWithCitation("seg-custody", "Custody transfer.",
+            "Outpost Alpha handed off a submission to the bureau.",
+            "Outpost Alpha passed custody of submission RPT-064 to the bureau.");
+        var checksum = CardWithCitation("seg-checksum", "Checksum confirmation.",
+            "The bureau confirmed a matching checksum.",
+            "Bureau confirmed RPT-064 matched checksum CK-086.");
+        var unrelated = Card("seg-noise", "Weather notes.",
+            "Routine weather observation logged, skies clear, winds calm.");
+        var question = new FabricBenchmarkQuestion(
+            "q-chase-1", FabricQuestionKind.MultiHop,
+            "What matching checksum was recorded once Outpost Alpha had passed custody of its submission?",
+            ["RPT-064", "CK-086"], ["seg-custody", "seg-checksum"]);
+
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), FabricRunOptions.Default);
+        var pack = runner.BuildEvidencePack(question, [custody, checksum, unrelated], null);
+
+        Assert.That(pack.IncludedSegmentIds, Does.Contain("seg-custody"));
+        Assert.That(pack.IncludedSegmentIds, Does.Contain("seg-checksum"));
+    }
+
+    [Test]
+    public void BuildEvidencePack_ChasesMultiLinkChain_AcrossSuccessiveHops()
+    {
+        // 3-hop chain: question names only the first station; each hop's link identifier lives
+        // only in its citation quote. Every hop must be walked (rounds > 1).
+        var hop1 = CardWithCitation("seg-hop1", "Dispatch.",
+            "Station Vantage dispatched a parcel downstream.",
+            "Station Vantage dispatched parcel RPT-100 downstream.");
+        var hop2 = CardWithCitation("seg-hop2", "Relay.",
+            "The relay forwarded the parcel under a new code.",
+            "Relay received RPT-100 and forwarded it as RPT-200.");
+        var hop3 = CardWithCitation("seg-hop3", "Receipt.",
+            "The terminal logged a final checksum for the parcel.",
+            "Terminal logged RPT-200 with final checksum CK-300.");
+        var question = new FabricBenchmarkQuestion(
+            "q-chase-2", FabricQuestionKind.MultiHop,
+            "What final checksum did the parcel dispatched by Station Vantage receive?",
+            ["CK-300"], ["seg-hop1", "seg-hop2", "seg-hop3"]);
+
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), FabricRunOptions.Default);
+        var pack = runner.BuildEvidencePack(question, [hop1, hop2, hop3], null);
+
+        Assert.That(pack.IncludedSegmentIds, Is.EquivalentTo(new[] { "seg-hop1", "seg-hop2", "seg-hop3" }));
+    }
+
+    [Test]
+    public void BuildEvidencePack_DoesNotChaseHighFrequencyFillerIdentifiers()
+    {
+        // An identifier appearing in many cards is corpus filler, not a chain link: chasing it
+        // would flood the pack. Doc frequency above the cap must stop the chase. Identifier lives
+        // only in citation quotes, matching the realistic shape the other chase tests use.
+        var seed = CardWithCitation("seg-seed", "Seed.",
+            "Station Harrow logged a shared code today.",
+            "Station Harrow logged the shared code FILL-01 today.");
+        var fillers = Enumerable.Range(1, 6)
+            .Select(i => CardWithCitation($"seg-fill-{i}", $"Filler {i}.",
+                $"Routine note {i} also references the shared code.",
+                $"Routine note {i} also carries FILL-01 in passing."))
+            .ToArray();
+        var question = new FabricBenchmarkQuestion(
+            "q-chase-3", FabricQuestionKind.LocalFact,
+            "What did Station Harrow log today?", ["FILL-01"], ["seg-seed"]);
+
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), FabricRunOptions.Default);
+        var pack = runner.BuildEvidencePack(question, [seed, .. fillers], null);
+
+        Assert.That(pack.IncludedSegmentIds, Does.Contain("seg-seed"));
+        // Filler cards may enter via normal term scoring, but the chase must not add all of
+        // them: the identifier occurs in 7 cards, above the cap of 6.
+        Assert.That(pack.IncludedSegmentIds.Count, Is.LessThan(7));
+    }
+
+    [Test]
+    public void BuildEvidencePack_MultiHopReservesGreedyFillBudget_UnlikeOtherQuestionKinds()
+    {
+        // Direct regression guard for the budget-reservation fix (CF_TEST_RESULTS.md #12): a
+        // full corpus-scale reproduction of the distractor-starvation scenario was attempted and
+        // found too fragile for a unit fixture (the greedy loop tries every candidate regardless
+        // of processing order, so undersized synthetic distractors don't reliably starve the real
+        // segments the way the dense live corpus does) -- the fix is validated live instead. This
+        // test guards the mechanism itself: MultiHop's greedy fill must accept strictly fewer
+        // cards than an otherwise-identical GlobalSynthesis question given the same budget, cards,
+        // and scoring, proving the kind-conditional reservation is wired up and would regress
+        // loudly (not silently) if removed.
+        var cards = Enumerable.Range(1, 8)
+            .Select(i => Card($"seg-{i}", $"Reading {i}.",
+                $"Station Bravo logged a distinct reading labeled MARK-{i:D3} during this cycle."))
+            .ToArray();
+        FabricBenchmarkQuestion Question(FabricQuestionKind kind) => new(
+            "q-budget-1", kind, "What readings did Station Bravo log across the cycle?",
+            ["MARK-001"], ["seg-1"]);
+
+        // EvidenceLimit tuned so all 8 cards fit the full budget but not the 70% reservation.
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), Options(evidenceLimit: 500));
+        var multiHopPack = runner.BuildEvidencePack(Question(FabricQuestionKind.MultiHop), cards, null);
+        var synthesisPack = runner.BuildEvidencePack(Question(FabricQuestionKind.GlobalSynthesis), cards, null);
+
+        Assert.That(multiHopPack.IncludedSegmentIds.Count,
+            Is.LessThan(synthesisPack.IncludedSegmentIds.Count));
     }
 }
