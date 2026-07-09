@@ -443,14 +443,16 @@
                                        Foreground="#555555" LetterSpacing="0.5" Margin="0,0,0,6"/>
                             <ComboBox x:Name="CbGenBackend" FontSize="11" HorizontalAlignment="Stretch"
                                       SelectionChanged="CbGenBackend_SelectionChanged">
-                                <ComboBoxItem x:Name="GenBackendClaude"
-                                              Content="☁  Claude API  (auto-detected from ANTHROPIC_API_KEY)"
+                                <ComboBoxItem x:Name="GenBackendNative"
+                                              Content="⚡  Native Runtime  (llama.cpp · port 8080)"
                                               IsSelected="True"/>
+                                <ComboBoxItem x:Name="GenBackendClaude"
+                                              Content="☁  Claude API  (ANTHROPIC_API_KEY)"/>
                                 <ComboBoxItem x:Name="GenBackendOllama"
-                                              Content="⚙  Ollama  (local model)"/>
+                                              Content="⚙  Ollama  (local)"/>
                             </ComboBox>
                             <TextBlock x:Name="TbGenBackendNote"
-                                       Text="Uses claude-haiku-4-5-20251001. Fast, high quality, no local GPU required."
+                                       Text="Fully local — uses whatever model is loaded in the native runtime (port 8080). Requires a ≥3B model."
                                        FontSize="10" Foreground="#666666" TextWrapping="Wrap" Margin="0,6,0,0"/>
                         </StackPanel>
                     </Border>

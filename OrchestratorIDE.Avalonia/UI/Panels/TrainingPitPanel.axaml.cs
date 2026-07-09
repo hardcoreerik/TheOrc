@@ -74,7 +74,7 @@ public partial class TrainingPitPanel : UserControl
     private bool   _genDotOn;
     private string _genKey = "v4gold";
     private bool   _genTargetIsToolcaller;
-    private bool   _genBackendIsClaude = true;
+    private string _genBackend = "native";   // "native" | "claude" | "ollama"
 
     private string GenOutDir       => Path.Combine(_pitRoot, "training_pit", "outputs", $"gen_{_genKey}");
     private string GenProgressPath => Path.Combine(GenOutDir, "gen_progress.json");
@@ -978,10 +978,11 @@ public partial class TrainingPitPanel : UserControl
         if (ForgeRunning)   { OnActivity?.Invoke("🧪 Generator refused: Forge is using the GPU."); return; }
         if (FoundryRunning) { OnActivity?.Invoke("🧪 Generator refused: Foundry is using the GPU."); return; }
 
-        // Toolcaller+Claude mode: no Ollama model required
-        var useClaudeBackend = _genTargetIsToolcaller && _genBackendIsClaude;
+        // Native and Claude backends don't need an Ollama model selected
+        var activeBackend = _genTargetIsToolcaller ? _genBackend : "ollama";
+        var needsOllamaModel = activeBackend == "ollama";
         var model = (CbGenDatasetModel.SelectedItem as HarvestModelOptionAva)?.Name ?? "";
-        if (!useClaudeBackend && model.Length == 0)
+        if (needsOllamaModel && model.Length == 0)
         { OnActivity?.Invoke("🧪 Generator: select a model first."); return; }
 
         var key = TbGenKey.Text?.Trim() ?? "";
@@ -1003,25 +1004,25 @@ public partial class TrainingPitPanel : UserControl
 
         File.WriteAllText(GenLogPath, $"=== generate run {DateTime.Now:yyyy-MM-dd HH:mm} ===\n");
 
+        // Build backend-specific argument fragment shared by both OS paths
+        string BackendArgs() => activeBackend switch
+        {
+            "native" => "--api native",
+            "claude" => "--api claude",
+            _        => $"--api ollama --model \"{model}\" --ollama-host \"{OllamaHost}\"",
+        };
+
         ProcessStartInfo psi;
         string? tmpScript = null;
 #if WINDOWS
         {
-            string winArgs;
-            if (_genTargetIsToolcaller)
-            {
-                winArgs = useClaudeBackend
-                    ? $"-u \"{scriptPath}\" --api claude --count {count} --key \"{key}\""
-                    : $"-u \"{scriptPath}\" --api ollama --model \"{model}\" --count {count} --key \"{key}\" --ollama-host \"{OllamaHost}\"";
-            }
-            else
-            {
-                winArgs = $"-u \"{scriptPath}\" --model \"{model}\" --count {count} --key \"{key}\" --ollama-host \"{OllamaHost}\"";
-            }
+            string coreArgs = _genTargetIsToolcaller
+                ? $"-u \"{scriptPath}\" {BackendArgs()} --count {count} --key \"{key}\""
+                : $"-u \"{scriptPath}\" --model \"{model}\" --count {count} --key \"{key}\" --ollama-host \"{OllamaHost}\"";
             psi = new ProcessStartInfo
             {
                 FileName         = "cmd.exe",
-                Arguments        = $"/c python {winArgs} >> \"{GenLogPath}\" 2>&1",
+                Arguments        = $"/c python {coreArgs} >> \"{GenLogPath}\" 2>&1",
                 WorkingDirectory = _pitRoot, UseShellExecute = false, CreateNoWindow = true,
             };
         }
@@ -1035,15 +1036,19 @@ public partial class TrainingPitPanel : UserControl
             sb.Append(ShQ(python)).Append(" -u ").Append(ShQ(scriptPath));
             if (_genTargetIsToolcaller)
             {
-                if (useClaudeBackend)
+                switch (activeBackend)
                 {
-                    sb.Append(" --api claude");
-                }
-                else
-                {
-                    sb.Append(" --api ollama");
-                    sb.Append(" --model ").Append(ShQ(model));
-                    sb.Append(" --ollama-host ").Append(ShQ(OllamaHost));
+                    case "native":
+                        sb.Append(" --api native");
+                        break;
+                    case "claude":
+                        sb.Append(" --api claude");
+                        break;
+                    default:
+                        sb.Append(" --api ollama");
+                        sb.Append(" --model ").Append(ShQ(model));
+                        sb.Append(" --ollama-host ").Append(ShQ(OllamaHost));
+                        break;
                 }
             }
             else
@@ -1090,7 +1095,7 @@ public partial class TrainingPitPanel : UserControl
         }
 
         var backendLabel = _genTargetIsToolcaller
-            ? (useClaudeBackend ? "claude-haiku-4-5-20251001" : $"ollama:{model}")
+            ? activeBackend switch { "native" => "native-runtime", "claude" => "claude-haiku", _ => $"ollama:{model}" }
             : $"ollama:{model}";
         OnActivity?.Invoke($"🧪 Generator started — backend={backendLabel}, target={count}, key={key}");
         GenBadge.Text          = "";
@@ -1245,10 +1250,18 @@ public partial class TrainingPitPanel : UserControl
 
     private void CbGenBackend_SelectionChanged(object? s, SelectionChangedEventArgs e)
     {
-        _genBackendIsClaude = CbGenBackend.SelectedIndex == 0;
-        TbGenBackendNote.Text = _genBackendIsClaude
-            ? "Uses claude-haiku-4-5-20251001. Fast, high quality, no local GPU required. Reads ANTHROPIC_API_KEY env var."
-            : $"Uses local Ollama model selected below. Requires Ollama at {OllamaHost}.";
+        _genBackend = CbGenBackend.SelectedIndex switch
+        {
+            0 => "native",
+            1 => "claude",
+            _ => "ollama",
+        };
+        TbGenBackendNote.Text = _genBackend switch
+        {
+            "native" => "Fully local — uses whatever model is loaded in the native runtime (port 8080). Requires a ≥3B model.",
+            "claude" => "Uses claude-haiku-4-5-20251001. Fast, high quality, no local GPU required. Reads ANTHROPIC_API_KEY env var.",
+            _        => $"Uses local Ollama model selected below. Requires Ollama at {OllamaHost}.",
+        };
     }
 
     private void BtnGenLoadAcademy_Click(object? s, RoutedEventArgs e)

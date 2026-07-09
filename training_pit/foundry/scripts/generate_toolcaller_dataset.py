@@ -8,8 +8,11 @@ seeded scenario templates. The decision type and tool are **predetermined** by t
 generation recipe — the model only fills in realistic request text and arguments, so the
 label cannot drift from the intended category.
 
-Supports two backends (--api):
-  claude   Use Anthropic Claude API (recommended). Reads ANTHROPIC_API_KEY env var.
+Supports three backends (--api):
+  native   Use TheOrc native llama.cpp runtime (port 8080, /v1/chat/completions).
+           Fully local — no cloud, no Ollama. Requires the native runtime to be running
+           with a ≥3B model loaded. Model auto-discovered from /v1/models if not set.
+  claude   Use Anthropic Claude API. Reads ANTHROPIC_API_KEY env var.
            Default model: claude-haiku-4-5-20251001 (fast and high quality).
   ollama   Use a local Ollama instance (--ollama-host / --model).
 
@@ -20,6 +23,9 @@ After generation, run Stage 3 (THE FOUNDRY) → "Validate captures" then "Export
 to gate and convert the outputs into training-ready JSONL.
 
 Run from repo root:
+    # Native runtime (TheOrc llama.cpp, fully local):
+    python training_pit/foundry/scripts/generate_toolcaller_dataset.py --api native --count 200
+
     # Claude API (auto-detected when ANTHROPIC_API_KEY is set):
     python training_pit/foundry/scripts/generate_toolcaller_dataset.py --count 200
 
@@ -28,9 +34,11 @@ Run from repo root:
         --api ollama --model qwen2.5-coder:14b --count 200
 
 Args:
-    --api          Backend: "claude" or "ollama". Auto: claude if ANTHROPIC_API_KEY set, else ollama.
+    --api          Backend: "native", "claude", or "ollama".
+                   Auto-detect: native if runtime healthy, else claude if key set, else ollama.
+    --native-host  Native runtime base URL (default: http://127.0.0.1:8080)
     --claude-model Claude model ID (default: claude-haiku-4-5-20251001)
-    --model        Ollama model tag (default: qwen2.5-coder:14b)
+    --model        Ollama model tag, or explicit model name for native (default: qwen2.5-coder:14b)
     --count        Target valid examples (default: 200)
     --key          Key for output/progress naming (default: toolcaller)
     --ollama-host  Ollama API base URL (default: http://localhost:11434)
@@ -276,6 +284,33 @@ def ollama_generate(host: str, model: str, system: str, prompt: str, timeout: in
     return r.json().get("response", "").strip()
 
 
+# ── Native runtime client (llama.cpp OpenAI-compat) ─────────────────────────────
+
+def native_generate(host: str, model: str, system: str, prompt: str, timeout: int = 60) -> str:
+    """Call the llama.cpp native runtime via POST /v1/chat/completions (non-streaming)."""
+    url = f"{host.rstrip('/')}/v1/chat/completions"
+    payload = {
+        "model":       model,
+        "messages":    [
+            {"role": "system", "content": system},
+            {"role": "user",   "content": prompt},
+        ],
+        "stream":      False,
+        "temperature": 0.8,
+        "max_tokens":  512,
+    }
+    r = requests.post(url, json=payload, timeout=timeout)
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"].strip()
+
+
+def native_list_models(host: str) -> list[str]:
+    """Return model IDs currently loaded in the native runtime."""
+    r = requests.get(f"{host.rstrip('/')}/v1/models", timeout=10)
+    r.raise_for_status()
+    return [m["id"] for m in r.json().get("data", [])]
+
+
 # ── Claude API client ────────────────────────────────────────────────────────────
 
 def claude_generate(api_key: str, model: str, system: str, prompt: str, timeout: int = 30) -> str:
@@ -491,22 +526,28 @@ def plan_scenarios(count: int, rng: random.Random) -> list[tuple[str, str, str |
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--api",          choices=["claude", "ollama"], default=None,
-                    help="Backend to use. Default: claude when ANTHROPIC_API_KEY is set, else ollama.")
+    ap.add_argument("--api",          choices=["native", "claude", "ollama"], default=None,
+                    help="Backend. Auto: native if runtime healthy, else claude if key set, else ollama.")
+    ap.add_argument("--native-host",  default="http://127.0.0.1:8080",
+                    help="Native llama.cpp runtime base URL (used when --api native)")
     ap.add_argument("--claude-model", default="claude-haiku-4-5-20251001",
                     help="Claude model ID (used when --api claude)")
     ap.add_argument("--model",        default="qwen2.5-coder:14b",
-                    help="Ollama model tag (used when --api ollama)")
+                    help="Ollama model tag or explicit native model name")
     ap.add_argument("--count",        type=int, default=200)
     ap.add_argument("--key",          default="toolcaller")
     ap.add_argument("--ollama-host",  default="http://localhost:11434")
     ap.add_argument("--seed",         type=int, default=42)
     args = ap.parse_args()
 
-    # Auto-detect API backend
+    # Auto-detect API backend: native → claude → ollama
     api_key: str | None = os.environ.get("ANTHROPIC_API_KEY")
     if args.api is None:
-        args.api = "claude" if api_key else "ollama"
+        try:
+            r = requests.get(f"{args.native_host.rstrip('/')}/health", timeout=3)
+            args.api = "native" if r.status_code == 200 else ("claude" if api_key else "ollama")
+        except Exception:
+            args.api = "claude" if api_key else "ollama"
 
     rng = random.Random(args.seed)
 
@@ -528,14 +569,24 @@ def main():
     existing = sorted(CAPTURES_DIR.glob("*.json"))
     counter  = len(existing) + 1
 
-    # Determine the canonical model name used in capture provenance
-    if args.api == "claude":
-        active_model = args.claude_model
-        # Claude is acting as teacher for the Qwen student model
-        teacher_model: str | None = args.claude_model
+    # Determine canonical model name and teacher provenance
+    if args.api == "native":
+        # Discover model from runtime if not explicitly set
+        if args.model and args.model != "qwen2.5-coder:14b":
+            active_model = args.model  # user specified a native model name
+        else:
+            try:
+                found = native_list_models(args.native_host)
+                active_model = found[0] if found else "native-unknown"
+            except Exception:
+                active_model = "native-unknown"
+        teacher_model: str | None = active_model  # local model acts as teacher
+    elif args.api == "claude":
+        active_model  = args.claude_model
+        teacher_model = args.claude_model  # Claude acts as teacher for Qwen student
     else:
         active_model  = args.model
-        teacher_model = None  # Ollama model is the producer, no distillation teacher
+        teacher_model = None  # Ollama is producer, no separate distillation teacher
 
     print(f"=== toolcaller dataset generator v0 ===", flush=True)
     print(f"api         : {args.api}", flush=True)
@@ -545,12 +596,20 @@ def main():
     print(f"progress    : {progress_path}", flush=True)
     print(flush=True)
 
-    if args.api == "claude":
+    if args.api == "native":
+        try:
+            r = requests.get(f"{args.native_host.rstrip('/')}/health", timeout=10)
+            r.raise_for_status()
+        except Exception as e:
+            print(f"ERROR: Native runtime not reachable at {args.native_host}: {e}", flush=True)
+            print("Start TheOrc and load a model in the native runtime first.", flush=True)
+            sys.exit(1)
+        print(f"Native runtime ready at {args.native_host} · model: {active_model}", flush=True)
+    elif args.api == "claude":
         if not api_key:
             print("ERROR: ANTHROPIC_API_KEY environment variable not set. "
-                  "Set it or use --api ollama.", flush=True)
+                  "Set it or use --api native or --api ollama.", flush=True)
             sys.exit(1)
-        # Quick connectivity check — a minimal request
         try:
             test = claude_generate(api_key, active_model,
                                    "Reply with the word OK.", "OK", timeout=15)
@@ -582,7 +641,14 @@ def main():
         prompt = build_generator_prompt(role, decision, tool, context_hint, tool_schemas)
 
         try:
-            if args.api == "claude":
+            if args.api == "native":
+                raw_text = native_generate(
+                    host=args.native_host,
+                    model=active_model,
+                    system=GENERATOR_SYSTEM,
+                    prompt=prompt,
+                )
+            elif args.api == "claude":
                 raw_text = claude_generate(api_key, active_model, GENERATOR_SYSTEM, prompt)
             else:
                 raw_text = ollama_generate(
@@ -592,8 +658,8 @@ def main():
                     prompt=prompt,
                 )
         except Exception as e:
-            backend = "Claude API" if args.api == "claude" else "Ollama"
-            print(f"  [warn] {backend} error: {e}", flush=True)
+            backend_label = {"native": "Native runtime", "claude": "Claude API"}.get(args.api, "Ollama")
+            print(f"  [warn] {backend_label} error: {e}", flush=True)
             rejected += 1
             continue
 
@@ -633,11 +699,8 @@ def main():
 
         write_progress(progress_path, "running", generated, rejected, args.count)
 
-        # Polite pause (avoid hammering Claude API rate limits)
-        if args.api == "claude":
-            time.sleep(0.3)
-        else:
-            time.sleep(0.1)
+        # Polite pause — Claude API has rate limits; native/Ollama just need breathing room
+        time.sleep(0.3 if args.api == "claude" else 0.1)
 
     write_progress(progress_path, "done", generated, rejected, args.count)
 
