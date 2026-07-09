@@ -23,14 +23,20 @@ public partial class TrainingPitPanel : UserControl
     private static readonly TimeSpan LiveWindow = TimeSpan.FromMinutes(3);
 
     // ── Public properties ─────────────────────────────────────────────────────
-    public string WorkspaceRoot { get; set; } = "";
-    public string OllamaHost    { get; set; } = "http://localhost:11434";
+    public string WorkspaceRoot  { get; set; } = "";
+    public string OllamaHost     { get; set; } = "http://localhost:11434";
+    public string ModelDepotRoot { get; set; } = "";
 
     // ── Events ────────────────────────────────────────────────────────────────
     public event Action<string>?          OnActivity;
     public event Action<string>?          StatusChanged;
     public event Action<bool, int>?       LiveStateChanged;
     public event Action?                  PitBossRequested;
+    /// <summary>
+    /// Fired when the user clicks "Load adapter into Native Runtime".
+    /// Args: (baseModelPath, loraPath) — both absolute paths to GGUF files.
+    /// </summary>
+    public event Action<string, string>?  ActivateAdapterRequested;
 
     // ── Queue ─────────────────────────────────────────────────────────────────
     public ObservableCollection<QueueItem> Queue { get; } = new();
@@ -73,10 +79,12 @@ public partial class TrainingPitPanel : UserControl
     private DispatcherTimer? _genTimer;
     private bool   _genDotOn;
     private string _genKey = "v4gold";
+    private bool   _genTargetIsToolcaller;
+    private string _genBackend = "native";   // "native" | "claude" | "ollama"
 
-    private string GenOutDir      => Path.Combine(_pitRoot, "training_pit", "outputs", $"gen_{_genKey}");
+    private string GenOutDir       => Path.Combine(_pitRoot, "training_pit", "outputs", $"gen_{_genKey}");
     private string GenProgressPath => Path.Combine(GenOutDir, "gen_progress.json");
-    private string GenLogPath     => Path.Combine(GenOutDir, "gen.log");
+    private string GenLogPath      => Path.Combine(GenOutDir, "gen.log");
     private bool   GenRunning     => _genProcess is { HasExited: false };
     private bool   HarvestRunning => _harvestProcess is { HasExited: false };
     private bool   ReviewRunning  => _reviewProcess is { HasExited: false };
@@ -942,6 +950,16 @@ public partial class TrainingPitPanel : UserControl
                     GenBadge.Text  = $"✓ {gen} generated";
                     GenStatus.Text = $"Done — {gen} examples, {rej} rejected";
                     GenBar.Value   = 100;
+                    if (_genTargetIsToolcaller)
+                    {
+                        BtnGenLoadFoundry.IsVisible = true;
+                        BtnGenLoadAcademy.IsVisible = false;
+                    }
+                    else
+                    {
+                        BtnGenLoadAcademy.IsVisible = true;
+                        BtnGenLoadFoundry.IsVisible = false;
+                    }
                 }
             }
             catch { }
@@ -966,8 +984,12 @@ public partial class TrainingPitPanel : UserControl
         if (ForgeRunning)   { OnActivity?.Invoke("🧪 Generator refused: Forge is using the GPU."); return; }
         if (FoundryRunning) { OnActivity?.Invoke("🧪 Generator refused: Foundry is using the GPU."); return; }
 
+        // Native and Claude backends don't need an Ollama model selected
+        var activeBackend = _genTargetIsToolcaller ? _genBackend : "ollama";
+        var needsOllamaModel = activeBackend == "ollama";
         var model = (CbGenDatasetModel.SelectedItem as HarvestModelOptionAva)?.Name ?? "";
-        if (model.Length == 0) { OnActivity?.Invoke("🧪 Generator: select a model first."); return; }
+        if (needsOllamaModel && model.Length == 0)
+        { OnActivity?.Invoke("🧪 Generator: select a model first."); return; }
 
         var key = TbGenKey.Text?.Trim() ?? "";
         if (key.Length == 0 || key.Contains(' ') || key.Contains('/') || key.Contains('\\'))
@@ -980,21 +1002,33 @@ public partial class TrainingPitPanel : UserControl
         Directory.CreateDirectory(GenOutDir);
         try { File.Delete(GenProgressPath); } catch { }
 
-        var scriptPath = Path.Combine(_pitRoot, "training_pit", "scripts", "generate_v4gold.py");
+        var scriptPath = _genTargetIsToolcaller
+            ? Path.Combine(_pitRoot, "training_pit", "foundry", "scripts", "generate_toolcaller_dataset.py")
+            : Path.Combine(_pitRoot, "training_pit", "scripts", "generate_v4gold.py");
         if (!File.Exists(scriptPath))
         { OnActivity?.Invoke($"🧪 Generator: script not found at {scriptPath}"); return; }
 
         File.WriteAllText(GenLogPath, $"=== generate run {DateTime.Now:yyyy-MM-dd HH:mm} ===\n");
 
+        // Build backend-specific argument fragment shared by both OS paths
+        string BackendArgs() => activeBackend switch
+        {
+            "native" => "--api native",
+            "claude" => "--api claude",
+            _        => $"--api ollama --model \"{model}\" --ollama-host \"{OllamaHost}\"",
+        };
+
         ProcessStartInfo psi;
         string? tmpScript = null;
 #if WINDOWS
         {
-            var winArgs = $"-u \"{scriptPath}\" --model \"{model}\" --count {count} --key \"{key}\" --ollama-host \"{OllamaHost}\"";
+            string coreArgs = _genTargetIsToolcaller
+                ? $"-u \"{scriptPath}\" {BackendArgs()} --count {count} --key \"{key}\""
+                : $"-u \"{scriptPath}\" --model \"{model}\" --count {count} --key \"{key}\" --ollama-host \"{OllamaHost}\"";
             psi = new ProcessStartInfo
             {
                 FileName         = "cmd.exe",
-                Arguments        = $"/c python {winArgs} >> \"{GenLogPath}\" 2>&1",
+                Arguments        = $"/c python {coreArgs} >> \"{GenLogPath}\" 2>&1",
                 WorkingDirectory = _pitRoot, UseShellExecute = false, CreateNoWindow = true,
             };
         }
@@ -1006,10 +1040,30 @@ public partial class TrainingPitPanel : UserControl
             tmpScript = Path.Combine(Path.GetTempPath(), $"orc_gen_{DateTime.Now:yyyyMMdd_HHmmss}.sh");
             var sb = new System.Text.StringBuilder("#!/bin/sh\n");
             sb.Append(ShQ(python)).Append(" -u ").Append(ShQ(scriptPath));
-            sb.Append(" --model ").Append(ShQ(model));
+            if (_genTargetIsToolcaller)
+            {
+                switch (activeBackend)
+                {
+                    case "native":
+                        sb.Append(" --api native");
+                        break;
+                    case "claude":
+                        sb.Append(" --api claude");
+                        break;
+                    default:
+                        sb.Append(" --api ollama");
+                        sb.Append(" --model ").Append(ShQ(model));
+                        sb.Append(" --ollama-host ").Append(ShQ(OllamaHost));
+                        break;
+                }
+            }
+            else
+            {
+                sb.Append(" --model ").Append(ShQ(model));
+                sb.Append(" --ollama-host ").Append(ShQ(OllamaHost));
+            }
             sb.Append($" --count {count}");
             sb.Append(" --key ").Append(ShQ(key));
-            sb.Append(" --ollama-host ").Append(ShQ(OllamaHost));
             sb.Append(" >> ").Append(ShQ(GenLogPath)).Append(" 2>&1\n");
             File.WriteAllText(tmpScript, sb.ToString());
             psi = new ProcessStartInfo
@@ -1046,7 +1100,10 @@ public partial class TrainingPitPanel : UserControl
             _genProcess.Exited += (_, _) => { try { File.Delete(ts); } catch { } };
         }
 
-        OnActivity?.Invoke($"🧪 Generator started — model={model}, target={count}, key={key}");
+        var backendLabel = _genTargetIsToolcaller
+            ? activeBackend switch { "native" => "native-runtime", "claude" => "claude-haiku", _ => $"ollama:{model}" }
+            : $"ollama:{model}";
+        OnActivity?.Invoke($"🧪 Generator started — backend={backendLabel}, target={count}, key={key}");
         GenBadge.Text          = "";
         GenStatus.Text         = "Starting…";
         GenBar.Value           = 0;
@@ -1169,6 +1226,79 @@ public partial class TrainingPitPanel : UserControl
             Process.Start(new ProcessStartInfo(trainFile) { UseShellExecute = true })?.Dispose();
         else
             OnActivity?.Invoke($"🧪 Generator: train_{_genKey}.jsonl not found.");
+    }
+
+    private void CbGenTarget_SelectionChanged(object? s, SelectionChangedEventArgs e)
+    {
+        _genTargetIsToolcaller = CbGenTarget.SelectedIndex == 1;
+
+        if (_genTargetIsToolcaller)
+        {
+            TbGenTargetNote.Text = "Synthetic toolcaller examples covering all 4 decision types (call/no_tool/clarify/unsupported) across all 4 worker roles. Output goes to training_pit/datasets/toolcaller/ — feeds THE FOUNDRY (Stage 3).";
+            TbGenFieldHint.Text  = "Requires the frozen tool schema (training_pit/schemas/toolcaller_v0_frozen_tools.json). The decision type is predetermined per example — the model only fills in realistic request text and arguments.";
+            if (TbGenKey.Text is "v4gold" or "")
+                TbGenKey.Text = "toolcaller";
+            BorderGenBackend.IsVisible = true;
+        }
+        else
+        {
+            TbGenTargetNote.Text = "Synthetic Warchief boss plans for the orchestration role. Output feeds ORC ACADEMY (Stage 2).";
+            TbGenFieldHint.Text  = "Every CODER/UIDEVELOPER task must name its output file(s) in the title — plans that omit filenames are rejected automatically.";
+            if (TbGenKey.Text is "toolcaller" or "")
+                TbGenKey.Text = "v4gold";
+            BorderGenBackend.IsVisible = false;
+        }
+
+        // Reset post-generation buttons — a fresh target selection means a fresh run is coming
+        BtnGenLoadAcademy.IsVisible  = false;
+        BtnGenLoadFoundry.IsVisible  = false;
+    }
+
+    private void CbGenBackend_SelectionChanged(object? s, SelectionChangedEventArgs e)
+    {
+        _genBackend = CbGenBackend.SelectedIndex switch
+        {
+            0 => "native",
+            1 => "claude",
+            _ => "ollama",
+        };
+        TbGenBackendNote.Text = _genBackend switch
+        {
+            "native" => "Fully local — uses whatever model is loaded in the native runtime (port 8080). Requires a ≥3B model.",
+            "claude" => "Uses claude-haiku-4-5-20251001. Fast, high quality, no local GPU required. Reads ANTHROPIC_API_KEY env var.",
+            _        => $"Uses local Ollama model selected below. Requires Ollama at {OllamaHost}.",
+        };
+    }
+
+    private void BtnGenLoadAcademy_Click(object? s, RoutedEventArgs e)
+    {
+        var key = TbGenKey.Text?.Trim() ?? _genKey;
+        if (key.Length == 0) return;
+        var dsDir     = Path.Combine(_pitRoot, "training_pit", "datasets");
+        var trainPath = Path.Combine(dsDir, $"train_{key}.jsonl");
+        var match = (CbDataset.ItemsSource as IEnumerable<DatasetOptionAva>)
+            ?.FirstOrDefault(d => d.TrainPath == trainPath || d.Name == key);
+        if (match is not null)
+        {
+            CbDataset.SelectedItem = match;
+            OnActivity?.Invoke($"→ Dataset '{key}' loaded into ORC ACADEMY — configure the base model in Stage 2 and click Start training.");
+        }
+        else
+        {
+            _ = ReloadModelsAsync().ContinueWith(_ => Dispatcher.UIThread.Post(() =>
+            {
+                var m2 = (CbDataset.ItemsSource as IEnumerable<DatasetOptionAva>)
+                    ?.FirstOrDefault(d => d.TrainPath == trainPath || d.Name == key);
+                if (m2 is not null) { CbDataset.SelectedItem = m2; OnActivity?.Invoke($"→ Dataset '{key}' loaded into ORC ACADEMY."); }
+                else OnActivity?.Invoke($"→ Dataset '{key}' not found — check training_pit/datasets/train_{key}.jsonl exists.");
+            }), TaskScheduler.Default);
+        }
+    }
+
+    private void BtnGenLoadFoundry_Click(object? s, RoutedEventArgs e)
+    {
+        RefreshFoundry();
+        OnActivity?.Invoke("⚒ Toolcaller captures added — check THE FOUNDRY gate card, then click 'Validate captures' → 'Export dataset' → 'Train toolcaller'.");
     }
 
     // ── Registry rendering ────────────────────────────────────────────────────
@@ -1497,7 +1627,7 @@ public partial class TrainingPitPanel : UserControl
             }
             catch { exported = "meta unreadable"; }
         }
-        FoundryCounts.Text = $"toolcaller: {staged} staged · {accepted} accepted · {exported}";
+        UpdateFoundryGateCard(staged, accepted, exported);
 
         if (!FoundryRunning && File.Exists(FoundrySummaryPath))
         {
@@ -1509,10 +1639,99 @@ public partial class TrainingPitPanel : UserControl
                 FoundryStatus.Text = (dry ? "Dry run verified " : "Adapter trained ") +
                                      sum.GetProperty("finished").GetString() +
                                      $" — eval_loss {sum.GetProperty("eval_loss").GetDouble():0.####}";
+
+                if (!dry)
+                    RefreshFoundryActivateCard();
             }
             catch { }
         }
     }
+
+    private void RefreshFoundryActivateCard()
+    {
+        var loraGguf   = FindFoundryLoraGguf();
+        var baseGguf   = FindFoundryBaseGguf();
+        var visible    = loraGguf is not null && baseGguf is not null;
+        BorderFoundryActivate.IsVisible = visible;
+        if (visible)
+            TbFoundryActivateInfo.Text =
+                $"Adapter ready: {Path.GetFileName(loraGguf)}\n" +
+                $"Base model:    {Path.GetFileName(baseGguf)}";
+    }
+
+    private string? FindFoundryLoraGguf()
+    {
+        // Prefer the depot, fall back to workspace outputs
+        var depotLora = string.IsNullOrEmpty(ModelDepotRoot) ? null
+            : Directory.EnumerateFiles(ModelDepotRoot, "theorc-toolcaller-*lora*.gguf")
+                       .OrderByDescending(File.GetLastWriteTimeUtc)
+                       .FirstOrDefault();
+        if (depotLora is not null) return depotLora;
+
+        return Directory.EnumerateFiles(FoundryOutDir, "*lora*.gguf", SearchOption.AllDirectories)
+                        .OrderByDescending(File.GetLastWriteTimeUtc)
+                        .FirstOrDefault();
+    }
+
+    private string? FindFoundryBaseGguf()
+    {
+        if (string.IsNullOrEmpty(ModelDepotRoot)) return null;
+        return Directory.EnumerateFiles(ModelDepotRoot, "Qwen2.5-1.5B*.gguf")
+                        .OrderByDescending(File.GetLastWriteTimeUtc)
+                        .FirstOrDefault();
+    }
+
+    private void UpdateFoundryGateCard(int staged, int accepted, string exported)
+    {
+        const int TrainMin = 150, EvalMin = 30;
+
+        static string GateIcon(bool ok)  => ok ? "✓" : "●";
+        static IBrush GateBrush(int val, int gate) => new SolidColorBrush(Color.Parse(
+            val >= gate ? "#80C0A0" : val >= gate / 2 ? "#E8A030" : "#E06040"));
+
+        var stagedBrush = GateBrush(staged, TrainMin);
+        GateStagedIcon.Text       = GateIcon(staged >= TrainMin);
+        GateStagedIcon.Foreground = stagedBrush;
+        GateStagedLabel.Text      = staged >= TrainMin
+            ? $"{staged} staged captures ✓"
+            : $"{staged} staged captures (need {TrainMin - staged} more)";
+        GateStagedLabel.Foreground = stagedBrush;
+        GateStagedBar.Value       = Math.Min(staged, TrainMin);
+        GateStagedBar.Foreground  = stagedBrush;
+
+        var acceptedBrush = GateBrush(accepted, EvalMin);
+        GateAcceptedIcon.Text       = GateIcon(accepted >= EvalMin);
+        GateAcceptedIcon.Foreground = acceptedBrush;
+        GateAcceptedLabel.Text      = accepted >= EvalMin
+            ? $"{accepted} accepted ✓"
+            : $"{accepted} accepted (need {EvalMin} for eval split)";
+        GateAcceptedLabel.Foreground = acceptedBrush;
+
+        var exportOk = exported != "not exported" && exported != "meta unreadable";
+        GateExportIcon.Text       = GateIcon(exportOk);
+        GateExportIcon.Foreground = new SolidColorBrush(Color.Parse(exportOk ? "#80C0A0" : "#E06040"));
+        GateExportLabel.Text      = exportOk ? $"Exported: {exported}" : "Dataset not exported yet — click Export";
+        GateExportLabel.Foreground = new SolidColorBrush(Color.Parse(exportOk ? "#A8CC80" : "#999999"));
+
+        // ETA: Qwen2.5-1.5B LoRA r=16, 3 epochs, effective batch 8 (~0.3–1.2 s/step on GPU)
+        var samples = Math.Max(staged, accepted);
+        if (samples > 0)
+        {
+            var steps  = (int)Math.Ceiling(samples * 3.0 / 8.0);
+            var minSec = (int)(steps * 0.3);
+            var maxSec = (int)(steps * 1.2);
+            GateTrainEta.Text = samples >= TrainMin
+                ? $"Est. training run: {FmtSec(minSec)}–{FmtSec(maxSec)}  ({steps} optimizer steps · Qwen2.5-1.5B LoRA)"
+                : $"At {samples} captures: ~{FmtSec(minSec)}–{FmtSec(maxSec)} — collect {TrainMin - samples} more to unlock training";
+        }
+        else
+        {
+            GateTrainEta.Text = "Run swarm sessions → 'Capture increment' above to stage toolcaller examples";
+        }
+    }
+
+    private static string FmtSec(int sec)
+        => sec < 60 ? $"{sec}s" : $"{sec / 60}m {sec % 60:00}s";
 
     private async void BtnFoundryValidate_Click(object? s, RoutedEventArgs e)
     {
@@ -1767,6 +1986,19 @@ public partial class TrainingPitPanel : UserControl
     {
         if (Directory.Exists(FoundryDir))
             Process.Start(new ProcessStartInfo(FoundryDir) { UseShellExecute = true })?.Dispose();
+    }
+
+    private void BtnFoundryActivate_Click(object? s, RoutedEventArgs e)
+    {
+        var lora = FindFoundryLoraGguf();
+        var base_ = FindFoundryBaseGguf();
+        if (lora is null || base_ is null)
+        {
+            FoundryStatus.Text = "GGUF files not found — run 'Train toolcaller' then ensure the depot has Qwen2.5-1.5B.";
+            return;
+        }
+        ActivateAdapterRequested?.Invoke(base_, lora);
+        FoundryStatus.Text = $"⚡ Sent to native runtime — restart llama.cpp backend to apply.";
     }
 
     private Task<(int Code, string Output)> RunProcessAsync(string fileName, string args) =>

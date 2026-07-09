@@ -49,6 +49,13 @@ public class AppSettings
     /// <summary>CPU threads for token generation. 0 = auto-detect.</summary>
     public int    LlamaCppThreads     { get; set; } = 0;
 
+    /// <summary>
+    /// Absolute path to a GGUF-format LoRA adapter file to load alongside the base model.
+    /// Empty = no adapter. The adapter must be compatible with the base model architecture.
+    /// Corresponds to the llama-server --lora flag.
+    /// </summary>
+    public string LlamaCppLoraPath    { get; set; } = "";
+
     // ── Derived helper ────────────────────────────────────────────────────
     /// <summary>Base URL that OllamaClient should point at for the active backend.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
