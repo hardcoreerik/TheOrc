@@ -145,16 +145,24 @@ def run_preflight(cfg: dict, repo_root: Path = REPO_ROOT) -> list[str]:
             if overlap:
                 findings.append(f"LEAKAGE: {len(overlap)} lineage group(s) present in both splits: "
                                 f"{sorted(overlap)[:5]}")
-        def _answers(rows):
-            return {m["content"] for r in rows if _valid_row(r)
-                    for m in r["messages"] if m.get("role") == "assistant"}
-        exact = _answers(train_rows) & _answers(eval_rows)
-        # Identical short decisions ({"decision": "no_tool"}) legitimately recur;
-        # only flag identical CALL payloads, where duplication means a shared case.
-        exact = {a for a in exact if '"call"' in a}
+        def _example_fingerprints(rows):
+            # Hash on (user_message, assistant_response) pairs — the same tool-call
+            # JSON appearing for *different* user requests is valid training diversity,
+            # not leakage. Only flag when the exact prompt+answer pair is duplicated.
+            fps = set()
+            for r in rows:
+                if not _valid_row(r):
+                    continue
+                msgs = r["messages"]
+                user = next((m["content"] for m in msgs if m.get("role") == "user"), "")
+                asst = next((m["content"] for m in msgs if m.get("role") == "assistant"), "")
+                if '"call"' in asst:
+                    fps.add(hash((user, asst)))
+            return fps
+        exact = _example_fingerprints(train_rows) & _example_fingerprints(eval_rows)
         if exact:
-            findings.append(f"LEAKAGE: {len(exact)} identical 'call' response(s) appear in both "
-                            "train and eval — eval numbers would be inflated")
+            findings.append(f"LEAKAGE: {len(exact)} identical (prompt, call-response) pair(s) "
+                            "appear in both train and eval — eval numbers would be inflated")
 
     # ── Baseline report (warn-level: required for promotion, not experiment) ──
     baseline = gates.get("baseline_report")
