@@ -404,11 +404,35 @@
                         <TextBlock Text="🧪" FontSize="14" VerticalAlignment="Center"/>
                         <TextBlock Text="GENERATE DATASET" FontSize="12" FontWeight="Bold"
                                    Foreground="#80C0E0" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        <Border Background="#0A1A10" BorderBrush="#2A5A38" BorderThickness="1"
+                                CornerRadius="3" Padding="5,1" Margin="8,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="→ Stage 2" FontSize="9" Foreground="#60A070"/>
+                        </Border>
                     </DockPanel>
-                    <TextBlock Text="Build synthetic boss plans with a local model"
+                    <TextBlock Text="Build synthetic Warchief boss plans — trains the orchestration adapter in ORC ACADEMY (Stage 2)"
                                FontSize="11" Foreground="#999999" TextWrapping="Wrap" Margin="0,0,0,4"/>
                     <TextBlock x:Name="GenBadge" Text="" FontSize="11" FontWeight="SemiBold"
-                               Foreground="#76B900" Margin="0,0,0,10"/>
+                               Foreground="#76B900" Margin="0,0,0,8"/>
+
+                    <!-- Generation target picker -->
+                    <Border Background="#0C0C0C" BorderBrush="#2A2A2A" BorderThickness="1"
+                            CornerRadius="4" Padding="10,8" Margin="0,0,0,10">
+                        <StackPanel>
+                            <TextBlock Text="GENERATE TARGET" FontSize="9" FontWeight="Bold"
+                                       Foreground="#555555" LetterSpacing="0.5" Margin="0,0,0,6"/>
+                            <ComboBox x:Name="CbGenTarget" FontSize="11" HorizontalAlignment="Stretch"
+                                      SelectionChanged="CbGenTarget_SelectionChanged">
+                                <ComboBoxItem x:Name="GenTargetBoss"
+                                              Content="🏛  Boss Plans  →  ORC ACADEMY (Stage 2)"
+                                              IsSelected="True"/>
+                                <ComboBoxItem x:Name="GenTargetToolcaller"
+                                              Content="⚒  Toolcaller Examples  →  THE FOUNDRY (Stage 3)"/>
+                            </ComboBox>
+                            <TextBlock x:Name="TbGenTargetNote"
+                                       Text="Synthetic Warchief boss plans for the orchestration role. Output feeds ORC ACADEMY."
+                                       FontSize="10" Foreground="#666666" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </Border>
 
                     <!-- Model / key / count -->
                     <TextBlock Text="Model" FontSize="10" Foreground="#999999" Margin="0,0,0,2"
@@ -443,7 +467,7 @@
                         </StackPanel>
                     </Grid>
 
-                    <TextBlock FontSize="10" Foreground="#666666" FontStyle="Italic"
+                    <TextBlock x:Name="TbGenFieldHint" FontSize="10" Foreground="#666666" FontStyle="Italic"
                                TextWrapping="Wrap" Margin="0,0,0,8"
                                Text="Every CODER/UIDEVELOPER task must name its output file(s) in the title — plans that omit filenames are rejected automatically."/>
 
@@ -473,6 +497,26 @@
                     <ProgressBar x:Name="GenBar" Height="8" Margin="0,6,0,0"
                                  BorderThickness="0" Background="#111111" Foreground="#40A070"
                                  Maximum="100" Value="0"/>
+
+                    <!-- Post-generation action buttons (shown only after a successful run) -->
+                    <Button x:Name="BtnGenLoadAcademy"
+                            Content="→ Use this dataset in ORC ACADEMY (Stage 2)"
+                            Click="BtnGenLoadAcademy_Click"
+                            IsVisible="False"
+                            Padding="10,4" Margin="0,0,0,4"
+                            Background="#3D2A00" BorderBrush="#E8A030" Foreground="#E8C080"
+                            BorderThickness="1" FontSize="11" HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            ToolTip.Tip="Selects this dataset in Stage 2 (ORC ACADEMY) so you can start training immediately"/>
+                    <Button x:Name="BtnGenLoadFoundry"
+                            Content="→ Captures ready — validate in THE FOUNDRY (Stage 3)"
+                            Click="BtnGenLoadFoundry_Click"
+                            IsVisible="False"
+                            Padding="10,4" Margin="0,0,0,8"
+                            Background="#2A1408" BorderBrush="#E06040" Foreground="#E0A080"
+                            BorderThickness="1" FontSize="11" HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            ToolTip.Tip="Refreshes THE FOUNDRY gate card — click Validate captures there to proceed"/>
 
                     <!-- Notes editor + open shortcuts -->
                     <TextBox x:Name="TbGenNotes" Margin="0,10,0,8"
@@ -630,8 +674,12 @@
                         <TextBlock Text="⚒" FontSize="14" VerticalAlignment="Center"/>
                         <TextBlock Text="THE FOUNDRY" FontSize="12" FontWeight="Bold"
                                    Foreground="#E06040" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        <Border Background="#1A0A06" BorderBrush="#5A2818" BorderThickness="1"
+                                CornerRadius="3" Padding="5,1" Margin="8,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="swarm captures" FontSize="9" Foreground="#C06040"/>
+                        </Border>
                     </DockPanel>
-                    <TextBlock Text="Train TheOrc's own specialist models — smallest safe model wins"
+                    <TextBlock Text="Train specialist models from organic swarm captures — smallest safe model that passes the gate"
                                FontSize="11" Foreground="#999999" TextWrapping="Wrap" Margin="0,0,0,4"/>
                     <TextBlock x:Name="FoundryBadge" Text="" FontSize="11" FontWeight="SemiBold"
                                Foreground="#76B900" Margin="0,0,0,10"/>
@@ -666,9 +714,42 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
-                    <!-- Toolcaller pipeline: captures → validate → export → train -->
-                    <TextBlock x:Name="FoundryCounts" Text="toolcaller: counting captures…"
-                               FontSize="11" Foreground="#999999" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                    <!-- Toolcaller pipeline: swarm captures → validate → export → train -->
+                    <Border Background="#0A1018" BorderBrush="#1A2A38" BorderThickness="1"
+                            CornerRadius="4" Padding="10,8" Margin="0,0,0,8">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="TRAINING GATES" FontSize="9" FontWeight="Bold"
+                                       Foreground="#4A6A88" LetterSpacing="0.5" Margin="0,0,0,4"/>
+                            <DockPanel>
+                                <TextBlock x:Name="GateStagedIcon" Text="●" FontSize="10" Width="14"
+                                           Foreground="#E06040" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="GateStagedLabel" Text="0 staged captures"
+                                           FontSize="11" Foreground="#999999" VerticalAlignment="Center"/>
+                                <TextBlock Text="gate: 150" FontSize="10" Foreground="#555555"
+                                           FontFamily="Consolas" HorizontalAlignment="Right"
+                                           DockPanel.Dock="Right" VerticalAlignment="Center"/>
+                            </DockPanel>
+                            <ProgressBar x:Name="GateStagedBar" Height="3" Maximum="150" Value="0"
+                                         Background="#111111" Foreground="#E06040" Margin="14,0,0,2"/>
+                            <DockPanel>
+                                <TextBlock x:Name="GateAcceptedIcon" Text="●" FontSize="10" Width="14"
+                                           Foreground="#E06040" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="GateAcceptedLabel" Text="0 accepted captures"
+                                           FontSize="11" Foreground="#999999" VerticalAlignment="Center"/>
+                                <TextBlock Text="gate: 30 eval" FontSize="10" Foreground="#555555"
+                                           FontFamily="Consolas" HorizontalAlignment="Right"
+                                           DockPanel.Dock="Right" VerticalAlignment="Center"/>
+                            </DockPanel>
+                            <DockPanel Margin="0,2,0,0">
+                                <TextBlock x:Name="GateExportIcon" Text="●" FontSize="10" Width="14"
+                                           Foreground="#E06040" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="GateExportLabel" Text="Dataset not exported yet"
+                                           FontSize="11" Foreground="#999999" VerticalAlignment="Center"/>
+                            </DockPanel>
+                            <TextBlock x:Name="GateTrainEta" Text="" FontSize="10"
+                                       Foreground="#80A0C0" FontFamily="Consolas" Margin="14,4,0,0"/>
+                        </StackPanel>
+                    </Border>
                     <CheckBox x:Name="ChkFoundryDryRun" Content="Dry run" IsChecked="True" Margin="0,0,0,8"
                               FontSize="11" Foreground="#999999"
                               ToolTip.Tip="Validate gates + model/data load without a real training run. A real run is the explicit approval for ONE training experiment."/>

@@ -73,10 +73,11 @@ public partial class TrainingPitPanel : UserControl
     private DispatcherTimer? _genTimer;
     private bool   _genDotOn;
     private string _genKey = "v4gold";
+    private bool   _genTargetIsToolcaller;
 
-    private string GenOutDir      => Path.Combine(_pitRoot, "training_pit", "outputs", $"gen_{_genKey}");
+    private string GenOutDir       => Path.Combine(_pitRoot, "training_pit", "outputs", $"gen_{_genKey}");
     private string GenProgressPath => Path.Combine(GenOutDir, "gen_progress.json");
-    private string GenLogPath     => Path.Combine(GenOutDir, "gen.log");
+    private string GenLogPath      => Path.Combine(GenOutDir, "gen.log");
     private bool   GenRunning     => _genProcess is { HasExited: false };
     private bool   HarvestRunning => _harvestProcess is { HasExited: false };
     private bool   ReviewRunning  => _reviewProcess is { HasExited: false };
@@ -942,6 +943,16 @@ public partial class TrainingPitPanel : UserControl
                     GenBadge.Text  = $"✓ {gen} generated";
                     GenStatus.Text = $"Done — {gen} examples, {rej} rejected";
                     GenBar.Value   = 100;
+                    if (_genTargetIsToolcaller)
+                    {
+                        BtnGenLoadFoundry.IsVisible = true;
+                        BtnGenLoadAcademy.IsVisible = false;
+                    }
+                    else
+                    {
+                        BtnGenLoadAcademy.IsVisible = true;
+                        BtnGenLoadFoundry.IsVisible = false;
+                    }
                 }
             }
             catch { }
@@ -980,7 +991,9 @@ public partial class TrainingPitPanel : UserControl
         Directory.CreateDirectory(GenOutDir);
         try { File.Delete(GenProgressPath); } catch { }
 
-        var scriptPath = Path.Combine(_pitRoot, "training_pit", "scripts", "generate_v4gold.py");
+        var scriptPath = _genTargetIsToolcaller
+            ? Path.Combine(_pitRoot, "training_pit", "foundry", "scripts", "generate_toolcaller_dataset.py")
+            : Path.Combine(_pitRoot, "training_pit", "scripts", "generate_v4gold.py");
         if (!File.Exists(scriptPath))
         { OnActivity?.Invoke($"🧪 Generator: script not found at {scriptPath}"); return; }
 
@@ -1169,6 +1182,61 @@ public partial class TrainingPitPanel : UserControl
             Process.Start(new ProcessStartInfo(trainFile) { UseShellExecute = true })?.Dispose();
         else
             OnActivity?.Invoke($"🧪 Generator: train_{_genKey}.jsonl not found.");
+    }
+
+    private void CbGenTarget_SelectionChanged(object? s, SelectionChangedEventArgs e)
+    {
+        _genTargetIsToolcaller = CbGenTarget.SelectedIndex == 1;
+
+        if (_genTargetIsToolcaller)
+        {
+            TbGenTargetNote.Text = "Synthetic toolcaller examples covering all 4 decision types (call/no_tool/clarify/unsupported) across all 4 worker roles. Output goes to training_pit/datasets/toolcaller/ — feeds THE FOUNDRY (Stage 3).";
+            TbGenFieldHint.Text  = "Requires the frozen tool schema (training_pit/schemas/toolcaller_v0_frozen_tools.json). The decision type is predetermined per example — the model only fills in realistic request text and arguments.";
+            if (TbGenKey.Text is "v4gold" or "")
+                TbGenKey.Text = "toolcaller";
+        }
+        else
+        {
+            TbGenTargetNote.Text = "Synthetic Warchief boss plans for the orchestration role. Output feeds ORC ACADEMY (Stage 2).";
+            TbGenFieldHint.Text  = "Every CODER/UIDEVELOPER task must name its output file(s) in the title — plans that omit filenames are rejected automatically.";
+            if (TbGenKey.Text is "toolcaller" or "")
+                TbGenKey.Text = "v4gold";
+        }
+
+        // Reset post-generation buttons — a fresh target selection means a fresh run is coming
+        BtnGenLoadAcademy.IsVisible  = false;
+        BtnGenLoadFoundry.IsVisible  = false;
+    }
+
+    private void BtnGenLoadAcademy_Click(object? s, RoutedEventArgs e)
+    {
+        var key = TbGenKey.Text?.Trim() ?? _genKey;
+        if (key.Length == 0) return;
+        var dsDir     = Path.Combine(_pitRoot, "training_pit", "datasets");
+        var trainPath = Path.Combine(dsDir, $"train_{key}.jsonl");
+        var match = (CbDataset.ItemsSource as IEnumerable<DatasetOptionAva>)
+            ?.FirstOrDefault(d => d.TrainPath == trainPath || d.Name == key);
+        if (match is not null)
+        {
+            CbDataset.SelectedItem = match;
+            OnActivity?.Invoke($"→ Dataset '{key}' loaded into ORC ACADEMY — configure the base model in Stage 2 and click Start training.");
+        }
+        else
+        {
+            _ = ReloadModelsAsync().ContinueWith(_ => Dispatcher.UIThread.Post(() =>
+            {
+                var m2 = (CbDataset.ItemsSource as IEnumerable<DatasetOptionAva>)
+                    ?.FirstOrDefault(d => d.TrainPath == trainPath || d.Name == key);
+                if (m2 is not null) { CbDataset.SelectedItem = m2; OnActivity?.Invoke($"→ Dataset '{key}' loaded into ORC ACADEMY."); }
+                else OnActivity?.Invoke($"→ Dataset '{key}' not found — check training_pit/datasets/train_{key}.jsonl exists.");
+            }), TaskScheduler.Default);
+        }
+    }
+
+    private void BtnGenLoadFoundry_Click(object? s, RoutedEventArgs e)
+    {
+        RefreshFoundry();
+        OnActivity?.Invoke("⚒ Toolcaller captures added — check THE FOUNDRY gate card, then click 'Validate captures' → 'Export dataset' → 'Train toolcaller'.");
     }
 
     // ── Registry rendering ────────────────────────────────────────────────────
@@ -1497,7 +1565,7 @@ public partial class TrainingPitPanel : UserControl
             }
             catch { exported = "meta unreadable"; }
         }
-        FoundryCounts.Text = $"toolcaller: {staged} staged · {accepted} accepted · {exported}";
+        UpdateFoundryGateCard(staged, accepted, exported);
 
         if (!FoundryRunning && File.Exists(FoundrySummaryPath))
         {
@@ -1513,6 +1581,58 @@ public partial class TrainingPitPanel : UserControl
             catch { }
         }
     }
+
+    private void UpdateFoundryGateCard(int staged, int accepted, string exported)
+    {
+        const int TrainMin = 150, EvalMin = 30;
+
+        static string GateIcon(bool ok)  => ok ? "✓" : "●";
+        static IBrush GateBrush(int val, int gate) => new SolidColorBrush(Color.Parse(
+            val >= gate ? "#80C0A0" : val >= gate / 2 ? "#E8A030" : "#E06040"));
+
+        var stagedBrush = GateBrush(staged, TrainMin);
+        GateStagedIcon.Text       = GateIcon(staged >= TrainMin);
+        GateStagedIcon.Foreground = stagedBrush;
+        GateStagedLabel.Text      = staged >= TrainMin
+            ? $"{staged} staged captures ✓"
+            : $"{staged} staged captures (need {TrainMin - staged} more)";
+        GateStagedLabel.Foreground = stagedBrush;
+        GateStagedBar.Value       = Math.Min(staged, TrainMin);
+        GateStagedBar.Foreground  = stagedBrush;
+
+        var acceptedBrush = GateBrush(accepted, EvalMin);
+        GateAcceptedIcon.Text       = GateIcon(accepted >= EvalMin);
+        GateAcceptedIcon.Foreground = acceptedBrush;
+        GateAcceptedLabel.Text      = accepted >= EvalMin
+            ? $"{accepted} accepted ✓"
+            : $"{accepted} accepted (need {EvalMin} for eval split)";
+        GateAcceptedLabel.Foreground = acceptedBrush;
+
+        var exportOk = exported != "not exported" && exported != "meta unreadable";
+        GateExportIcon.Text       = GateIcon(exportOk);
+        GateExportIcon.Foreground = new SolidColorBrush(Color.Parse(exportOk ? "#80C0A0" : "#E06040"));
+        GateExportLabel.Text      = exportOk ? $"Exported: {exported}" : "Dataset not exported yet — click Export";
+        GateExportLabel.Foreground = new SolidColorBrush(Color.Parse(exportOk ? "#A8CC80" : "#999999"));
+
+        // ETA: Qwen2.5-1.5B LoRA r=16, 3 epochs, effective batch 8 (~0.3–1.2 s/step on GPU)
+        var samples = Math.Max(staged, accepted);
+        if (samples > 0)
+        {
+            var steps  = (int)Math.Ceiling(samples * 3.0 / 8.0);
+            var minSec = (int)(steps * 0.3);
+            var maxSec = (int)(steps * 1.2);
+            GateTrainEta.Text = samples >= TrainMin
+                ? $"Est. training run: {FmtSec(minSec)}–{FmtSec(maxSec)}  ({steps} optimizer steps · Qwen2.5-1.5B LoRA)"
+                : $"At {samples} captures: ~{FmtSec(minSec)}–{FmtSec(maxSec)} — collect {TrainMin - samples} more to unlock training";
+        }
+        else
+        {
+            GateTrainEta.Text = "Run swarm sessions → 'Capture increment' above to stage toolcaller examples";
+        }
+    }
+
+    private static string FmtSec(int sec)
+        => sec < 60 ? $"{sec}s" : $"{sec / 60}m {sec % 60:00}s";
 
     private async void BtnFoundryValidate_Click(object? s, RoutedEventArgs e)
     {
