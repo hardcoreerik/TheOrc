@@ -301,6 +301,24 @@ public class AppSettings
     public bool ToolcallerDatasetCaptureEnabled { get; set; } = false;
 
     /// <summary>
+    /// Toolcaller specialist repair-lane opt-in (Foundry v0 trial). When true, a swarm
+    /// worker turn that produces content but NO parseable tool call gets one repair pass
+    /// through the trained specialist (ToolcallerRepairModel): its "call" proposals
+    /// re-enter the normal execution loop where ToolPolicyEngine and human approval stay
+    /// authoritative; every other decision leaves the turn's behavior unchanged. Off by
+    /// default per docs/THEORC_TOOLCALLER_V0.md — training success does not authorize
+    /// default runtime integration.
+    /// </summary>
+    public bool ToolcallerRepairEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Ollama tag of the toolcaller specialist used by the repair lane. Built from
+    /// training_pit/modelfiles/toolcaller-qwen25-1.5b.modelfile (Qwen2.5-1.5B +
+    /// foundry_toolcaller_v0_r2 LoRA).
+    /// </summary>
+    public string ToolcallerRepairModel { get; set; } = "theorc-toolcaller:qwen25-1.5b";
+
+    /// <summary>
     /// Root folder scanned by ModelDepot for native HIVE worker models/adapters.
     /// Empty = use ResolvedModelStoragePath.
     /// </summary>

@@ -52,7 +52,16 @@ def write_progress(out: Path, status: str, step: int, total: int, metrics: dict)
         "metrics": metrics,
         "updated": time.strftime("%Y-%m-%d %H:%M:%S"),
     }, indent=2))
-    tmp.replace(out / "progress.json")
+    # On Windows os.replace fails with PermissionError if a UI poller holds
+    # progress.json open at that instant. Progress is advisory — retry briefly,
+    # then skip this update rather than killing a multi-minute eval run.
+    for attempt in range(5):
+        try:
+            tmp.replace(out / "progress.json")
+            return
+        except PermissionError:
+            time.sleep(0.1 * (attempt + 1))
+    print("WARN: progress.json locked by a reader; skipping this progress write", flush=True)
 
 
 # ── JSON extraction from raw model output ─────────────────────────────────────

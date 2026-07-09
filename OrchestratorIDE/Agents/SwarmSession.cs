@@ -1913,6 +1913,40 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
     /// stops emitting tool calls or the step limit is hit.
     /// Handles: ask_user pause/resume, mid-run steer injection, file-write accounting.
     /// </summary>
+    /// <summary>
+    /// Repair-lane call into the theorc-toolcaller specialist (see ToolcallerService).
+    /// Feeds the tail of the worker's prose as the request — the model was trained on
+    /// (role, tools, natural-language request) → decision, and a worker's closing
+    /// "I'll now …" intent statement is the in-distribution analog. Returns a runnable
+    /// ToolCall only for a "call" decision naming a live tool; null otherwise.
+    /// Works identically on HIVE nodes: uses the same client the worker used, and a
+    /// node without the specialist model simply fails the call → null → old behavior.
+    /// </summary>
+    private async Task<ToolCall?> TryToolcallerRepairAsync(
+        SwarmTask                     task,
+        IReadOnlyList<ToolDefinition> tools,
+        string                        content,
+        OllamaClient?                 nodeOllama,
+        string                        agentKey,
+        CancellationToken             ct)
+    {
+        if (!Services.Swarm.ToolcallerService.IsEnabled) return null;
+        if (string.IsNullOrWhiteSpace(content)) return null;
+
+        // Training requests were short; keep the tail, where the stated intent lives.
+        const int MaxRequestChars = 2000;
+        var request = content.Length <= MaxRequestChars ? content : content[^MaxRequestChars..];
+
+        var decision = await Services.Swarm.ToolcallerService.ProposeAsync(
+            _ollama, nodeOllama, task.Role, tools, request, ct);
+        if (decision is null) return null;
+
+        var call = Services.Swarm.ToolcallerService.ToToolCall(decision, tools);
+        if (call is not null)
+            Activity($"⚒ Toolcaller repair: proposed {call.Name} (worker emitted no parseable call)", agentKey);
+        return call;
+    }
+
     private async Task RunWorkerLoopAsync(
         SwarmTask                     task,
         List<AgentMessage>            history,
@@ -2045,11 +2079,25 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
 
             if (pendingTcs.Count == 0)
             {
-                // Organic Foundry F-1 "no_tool" signal — worker answered without a tool call.
-                // Best-effort: StageNoToolAsync swallows all exceptions internally.
-                await Services.Swarm.ToolcallerDatasetCapture.StageNoToolAsync(
-                    _runId, task, model, content, tools, DatasetStagingDir);
-                break;
+                // Toolcaller repair lane (opt-in Foundry v0 trial): the worker stated intent
+                // but emitted no parseable call — give the trained specialist one shot at
+                // converting that intent into a proper proposal. Null on any failure or any
+                // non-"call" decision, in which case this turn behaves exactly as before.
+                // A repaired call re-enters the loop below, so ToolPolicyEngine and human
+                // approval remain fully authoritative.
+                var repaired = await TryToolcallerRepairAsync(task, tools, content, nodeOllama, agentKey, ct);
+                if (repaired is not null)
+                {
+                    pendingTcs.Add(repaired); // same list instance held by the history message
+                }
+                else
+                {
+                    // Organic Foundry F-1 "no_tool" signal — worker answered without a tool call.
+                    // Best-effort: StageNoToolAsync swallows all exceptions internally.
+                    await Services.Swarm.ToolcallerDatasetCapture.StageNoToolAsync(
+                        _runId, task, model, content, tools, DatasetStagingDir);
+                    break;
+                }
             }
 
             // ── Execute each tool call ────────────────────────────────────

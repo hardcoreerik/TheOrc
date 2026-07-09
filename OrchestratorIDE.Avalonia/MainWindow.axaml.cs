@@ -125,6 +125,9 @@ public partial class MainWindow : Window
         Services.Swarm.ToolcallerDatasetCapture.IsEnabled = _settings.ToolcallerDatasetCaptureEnabled;
         BdrDatasetCapture.IsVisible = _settings.ToolcallerDatasetCaptureEnabled;
 
+        Services.Swarm.ToolcallerService.IsEnabled = _settings.ToolcallerRepairEnabled;
+        Services.Swarm.ToolcallerService.Model     = _settings.ToolcallerRepairModel;
+
         _approvals = new ApprovalQueue();
         _registry  = new ToolRegistry(_approvals);
         _context   = new ContextManager(32_768);
@@ -2006,6 +2009,10 @@ public partial class MainWindow : Window
         // status bar pill together, immediately, whenever the setting changes.
         Services.Swarm.ToolcallerDatasetCapture.IsEnabled = newSettings.ToolcallerDatasetCaptureEnabled;
         BdrDatasetCapture.IsVisible = newSettings.ToolcallerDatasetCaptureEnabled;
+
+        // Toolcaller repair lane follows the same live-toggle rule.
+        Services.Swarm.ToolcallerService.IsEnabled = newSettings.ToolcallerRepairEnabled;
+        Services.Swarm.ToolcallerService.Model     = newSettings.ToolcallerRepairModel;
 
         if (newSettings.Backend != oldBackend ||
             (newSettings.Backend == InferenceBackend.LlamaCpp &&

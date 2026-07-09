@@ -2094,7 +2094,7 @@ public partial class TrainingPitPanel : UserControl
         }
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllText(resultsPath));
+            using var doc = JsonDocument.Parse(ReadSharedText(resultsPath));
             var root = doc.RootElement;
             var finished = root.TryGetProperty("finished", out var f) ? f.GetString() ?? "" : "";
             RenderArenaResults(root.GetProperty("metrics"), finished);
@@ -2225,6 +2225,22 @@ public partial class TrainingPitPanel : UserControl
             Process.Start(new ProcessStartInfo(dir) { UseShellExecute = true })?.Dispose();
     }
 
+    /// <summary>
+    /// Read a progress/results file WITHOUT taking a share-blocking handle. Plain
+    /// File.ReadAllText opens with FileShare.Read, which makes the eval script's atomic
+    /// tmp→json os.replace fail with PermissionError if a poll lands at that instant
+    /// (this killed a live baseline run at step 20/260 on 2026-07-09). FileShare
+    /// ReadWrite|Delete lets the writer replace the file underneath us; worst case we
+    /// parse a stale snapshot and pick up the fresh one 3 s later.
+    /// </summary>
+    private static string ReadSharedText(string path)
+    {
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
+                                      FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(fs);
+        return reader.ReadToEnd();
+    }
+
     private void ArenaTimer_Tick(object? s, EventArgs e)
     {
         if (!ArenaRunning)
@@ -2234,7 +2250,7 @@ public partial class TrainingPitPanel : UserControl
             {
                 try
                 {
-                    using var doc = JsonDocument.Parse(File.ReadAllText(resultsPath));
+                    using var doc = JsonDocument.Parse(ReadSharedText(resultsPath));
                     var root = doc.RootElement;
                     var fin  = root.TryGetProperty("finished", out var f) ? f.GetString() ?? "" : "";
                     RenderArenaResults(root.GetProperty("metrics"), fin);
@@ -2263,7 +2279,7 @@ public partial class TrainingPitPanel : UserControl
 
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllText(progressPath));
+            using var doc = JsonDocument.Parse(ReadSharedText(progressPath));
             var p     = doc.RootElement;
             var sts   = p.GetProperty("status").GetString() ?? "?";
             var step  = p.TryGetProperty("step",  out var st) ? st.GetInt32() : 0;
