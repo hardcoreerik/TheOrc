@@ -356,6 +356,13 @@ public partial class TrainingPitPanel : UserControl
                 QueueCount.Text = Queue.Count == 0 ? "nothing waiting" : $"{Queue.Count} waiting";
 
                 UpdateHarvestUi();
+
+                // Pipeline stages are laid out side-by-side (not lazily expanded), so populate
+                // all three immediately instead of waiting for an Expander.Expanded that no
+                // longer exists.
+                RefreshGen();
+                RefreshForge();
+                RefreshFoundry();
             });
 
             _ = ReloadModelsAsync();
@@ -600,8 +607,6 @@ public partial class TrainingPitPanel : UserControl
         modelName.Contains("gemma", StringComparison.OrdinalIgnoreCase);
 
     // ── Forge ─────────────────────────────────────────────────────────────────
-
-    private void ExpForge_Expanded(object? s, RoutedEventArgs e) => RefreshForge();
 
     private void RefreshForge()
     {
@@ -917,7 +922,6 @@ public partial class TrainingPitPanel : UserControl
             opts.FirstOrDefault();
     }
 
-    private void ExpGen_Expanded(object? s, RoutedEventArgs e) => RefreshGen();
 
     private void RefreshGen()
     {
@@ -1443,7 +1447,6 @@ public partial class TrainingPitPanel : UserControl
     private string ToolcallerAcceptedDir => Path.Combine(_pitRoot, "training_pit", "datasets", "toolcaller");
     private bool   FoundryRunning => _foundryProcess is { HasExited: false };
 
-    private void ExpFoundry_Expanded(object? s, RoutedEventArgs e) => RefreshFoundry();
 
     private void RefreshFoundry()
     {
