@@ -3,10 +3,15 @@
 generate_toolcaller_dataset.py — Synthetic toolcaller-v0 training data generator.
 
 Generates balanced examples across all 4 decision types (call/no_tool/clarify/unsupported)
-and all 4 roles (researcher/coder/ui_developer/tester) by prompting a local Ollama model
-with seeded scenario templates. The decision type and tool are **predetermined** by the
+and all 4 roles (researcher/coder/ui_developer/tester) by prompting a teacher model with
+seeded scenario templates. The decision type and tool are **predetermined** by the
 generation recipe — the model only fills in realistic request text and arguments, so the
 label cannot drift from the intended category.
+
+Supports two backends (--api):
+  claude   Use Anthropic Claude API (recommended). Reads ANTHROPIC_API_KEY env var.
+           Default model: claude-haiku-4-5-20251001 (fast and high quality).
+  ollama   Use a local Ollama instance (--ollama-host / --model).
 
 Each output file is a valid toolcaller-v0 capture JSON placed in:
     training_pit/datasets/toolcaller/
@@ -15,15 +20,21 @@ After generation, run Stage 3 (THE FOUNDRY) → "Validate captures" then "Export
 to gate and convert the outputs into training-ready JSONL.
 
 Run from repo root:
+    # Claude API (auto-detected when ANTHROPIC_API_KEY is set):
+    python training_pit/foundry/scripts/generate_toolcaller_dataset.py --count 200
+
+    # Ollama:
     python training_pit/foundry/scripts/generate_toolcaller_dataset.py \\
-        --model qwen2.5-coder:14b --count 200 --key toolcaller
+        --api ollama --model qwen2.5-coder:14b --count 200
 
 Args:
-    --model       Ollama model tag (default: qwen2.5-coder:14b)
-    --count       Target valid examples (default: 200)
-    --key         Key for output/progress naming (default: toolcaller)
-    --ollama-host Ollama API base URL (default: http://localhost:11434)
-    --seed        RNG seed for reproducibility (default: 42)
+    --api          Backend: "claude" or "ollama". Auto: claude if ANTHROPIC_API_KEY set, else ollama.
+    --claude-model Claude model ID (default: claude-haiku-4-5-20251001)
+    --model        Ollama model tag (default: qwen2.5-coder:14b)
+    --count        Target valid examples (default: 200)
+    --key          Key for output/progress naming (default: toolcaller)
+    --ollama-host  Ollama API base URL (default: http://localhost:11434)
+    --seed         RNG seed for reproducibility (default: 42)
 """
 
 import argparse
@@ -265,6 +276,28 @@ def ollama_generate(host: str, model: str, system: str, prompt: str, timeout: in
     return r.json().get("response", "").strip()
 
 
+# ── Claude API client ────────────────────────────────────────────────────────────
+
+def claude_generate(api_key: str, model: str, system: str, prompt: str, timeout: int = 30) -> str:
+    """Call Anthropic Messages API. No SDK required — pure requests."""
+    url = "https://api.anthropic.com/v1/messages"
+    headers = {
+        "x-api-key":         api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type":      "application/json",
+    }
+    payload = {
+        "model":      model,
+        "max_tokens": 512,
+        "system":     system,
+        "messages":   [{"role": "user", "content": prompt}],
+    }
+    r = requests.post(url, headers=headers, json=payload, timeout=timeout)
+    r.raise_for_status()
+    data = r.json()
+    return data["content"][0]["text"].strip()
+
+
 # ── JSON extraction ─────────────────────────────────────────────────────────────
 
 _JSON_RE = re.compile(r"\{[\s\S]*\}", re.DOTALL)
@@ -291,6 +324,7 @@ def validate_and_build_capture(
     lineage_id: str,
     example_id: str,
     model_name: str,
+    teacher_model: str | None = None,
 ) -> dict | None:
     """Validate model output and assemble a full toolcaller-v0 capture dict.
     Returns None if the example fails any hard gate."""
@@ -379,7 +413,7 @@ def validate_and_build_capture(
         "provenance": {
             "source_type":             "synthetic",
             "producing_model":         model_name,
-            "teacher_model":           None,
+            "teacher_model":           teacher_model,
             "prompt_or_recipe_id":     "generate_toolcaller_dataset.py/v0",
             "derived_from_example_id": None,
         },
@@ -457,12 +491,22 @@ def plan_scenarios(count: int, rng: random.Random) -> list[tuple[str, str, str |
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--model",       default="qwen2.5-coder:14b")
-    ap.add_argument("--count",       type=int, default=200)
-    ap.add_argument("--key",         default="toolcaller")
-    ap.add_argument("--ollama-host", default="http://localhost:11434")
-    ap.add_argument("--seed",        type=int, default=42)
+    ap.add_argument("--api",          choices=["claude", "ollama"], default=None,
+                    help="Backend to use. Default: claude when ANTHROPIC_API_KEY is set, else ollama.")
+    ap.add_argument("--claude-model", default="claude-haiku-4-5-20251001",
+                    help="Claude model ID (used when --api claude)")
+    ap.add_argument("--model",        default="qwen2.5-coder:14b",
+                    help="Ollama model tag (used when --api ollama)")
+    ap.add_argument("--count",        type=int, default=200)
+    ap.add_argument("--key",          default="toolcaller")
+    ap.add_argument("--ollama-host",  default="http://localhost:11434")
+    ap.add_argument("--seed",         type=int, default=42)
     args = ap.parse_args()
+
+    # Auto-detect API backend
+    api_key: str | None = os.environ.get("ANTHROPIC_API_KEY")
+    if args.api is None:
+        args.api = "claude" if api_key else "ollama"
 
     rng = random.Random(args.seed)
 
@@ -476,7 +520,7 @@ def main():
 
     CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
 
-    out_dir      = OUTPUTS_DIR / f"gen_{args.key}"
+    out_dir       = OUTPUTS_DIR / f"gen_{args.key}"
     out_dir.mkdir(parents=True, exist_ok=True)
     progress_path = out_dir / "gen_progress.json"
 
@@ -484,20 +528,46 @@ def main():
     existing = sorted(CAPTURES_DIR.glob("*.json"))
     counter  = len(existing) + 1
 
+    # Determine the canonical model name used in capture provenance
+    if args.api == "claude":
+        active_model = args.claude_model
+        # Claude is acting as teacher for the Qwen student model
+        teacher_model: str | None = args.claude_model
+    else:
+        active_model  = args.model
+        teacher_model = None  # Ollama model is the producer, no distillation teacher
+
     print(f"=== toolcaller dataset generator v0 ===", flush=True)
-    print(f"model       : {args.model}", flush=True)
+    print(f"api         : {args.api}", flush=True)
+    print(f"model       : {active_model}", flush=True)
     print(f"target count: {args.count}", flush=True)
     print(f"output dir  : {CAPTURES_DIR}", flush=True)
     print(f"progress    : {progress_path}", flush=True)
     print(flush=True)
 
-    # Verify Ollama is reachable
-    try:
-        r = requests.get(f"{args.ollama_host.rstrip('/')}/api/tags", timeout=10)
-        r.raise_for_status()
-    except Exception as e:
-        print(f"ERROR: Ollama not reachable at {args.ollama_host}: {e}", flush=True)
-        sys.exit(1)
+    if args.api == "claude":
+        if not api_key:
+            print("ERROR: ANTHROPIC_API_KEY environment variable not set. "
+                  "Set it or use --api ollama.", flush=True)
+            sys.exit(1)
+        # Quick connectivity check — a minimal request
+        try:
+            test = claude_generate(api_key, active_model,
+                                   "Reply with the word OK.", "OK", timeout=15)
+            if not test:
+                raise ValueError("empty response")
+        except Exception as e:
+            print(f"ERROR: Claude API not reachable ({active_model}): {e}", flush=True)
+            sys.exit(1)
+        print(f"Claude API ready ({active_model})", flush=True)
+    else:
+        try:
+            r = requests.get(f"{args.ollama_host.rstrip('/')}/api/tags", timeout=10)
+            r.raise_for_status()
+        except Exception as e:
+            print(f"ERROR: Ollama not reachable at {args.ollama_host}: {e}", flush=True)
+            sys.exit(1)
+        print(f"Ollama ready at {args.ollama_host}", flush=True)
 
     write_progress(progress_path, "running", 0, 0, args.count)
 
@@ -512,14 +582,18 @@ def main():
         prompt = build_generator_prompt(role, decision, tool, context_hint, tool_schemas)
 
         try:
-            raw_text = ollama_generate(
-                host=args.ollama_host,
-                model=args.model,
-                system=GENERATOR_SYSTEM,
-                prompt=prompt,
-            )
+            if args.api == "claude":
+                raw_text = claude_generate(api_key, active_model, GENERATOR_SYSTEM, prompt)
+            else:
+                raw_text = ollama_generate(
+                    host=args.ollama_host,
+                    model=active_model,
+                    system=GENERATOR_SYSTEM,
+                    prompt=prompt,
+                )
         except Exception as e:
-            print(f"  [warn] Ollama error: {e}", flush=True)
+            backend = "Claude API" if args.api == "claude" else "Ollama"
+            print(f"  [warn] {backend} error: {e}", flush=True)
             rejected += 1
             continue
 
@@ -539,7 +613,8 @@ def main():
             tool_schemas=tool_schemas,
             lineage_id=lineage_id,
             example_id=example_id,
-            model_name=args.model,
+            model_name=active_model,
+            teacher_model=teacher_model,
         )
 
         if capture is None:
@@ -558,8 +633,11 @@ def main():
 
         write_progress(progress_path, "running", generated, rejected, args.count)
 
-        # Polite pause between calls (avoids hammering the model)
-        time.sleep(0.1)
+        # Polite pause (avoid hammering Claude API rate limits)
+        if args.api == "claude":
+            time.sleep(0.3)
+        else:
+            time.sleep(0.1)
 
     write_progress(progress_path, "done", generated, rejected, args.count)
 

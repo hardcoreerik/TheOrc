@@ -74,6 +74,7 @@ public partial class TrainingPitPanel : UserControl
     private bool   _genDotOn;
     private string _genKey = "v4gold";
     private bool   _genTargetIsToolcaller;
+    private bool   _genBackendIsClaude = true;
 
     private string GenOutDir       => Path.Combine(_pitRoot, "training_pit", "outputs", $"gen_{_genKey}");
     private string GenProgressPath => Path.Combine(GenOutDir, "gen_progress.json");
@@ -977,8 +978,11 @@ public partial class TrainingPitPanel : UserControl
         if (ForgeRunning)   { OnActivity?.Invoke("🧪 Generator refused: Forge is using the GPU."); return; }
         if (FoundryRunning) { OnActivity?.Invoke("🧪 Generator refused: Foundry is using the GPU."); return; }
 
+        // Toolcaller+Claude mode: no Ollama model required
+        var useClaudeBackend = _genTargetIsToolcaller && _genBackendIsClaude;
         var model = (CbGenDatasetModel.SelectedItem as HarvestModelOptionAva)?.Name ?? "";
-        if (model.Length == 0) { OnActivity?.Invoke("🧪 Generator: select a model first."); return; }
+        if (!useClaudeBackend && model.Length == 0)
+        { OnActivity?.Invoke("🧪 Generator: select a model first."); return; }
 
         var key = TbGenKey.Text?.Trim() ?? "";
         if (key.Length == 0 || key.Contains(' ') || key.Contains('/') || key.Contains('\\'))
@@ -1003,7 +1007,17 @@ public partial class TrainingPitPanel : UserControl
         string? tmpScript = null;
 #if WINDOWS
         {
-            var winArgs = $"-u \"{scriptPath}\" --model \"{model}\" --count {count} --key \"{key}\" --ollama-host \"{OllamaHost}\"";
+            string winArgs;
+            if (_genTargetIsToolcaller)
+            {
+                winArgs = useClaudeBackend
+                    ? $"-u \"{scriptPath}\" --api claude --count {count} --key \"{key}\""
+                    : $"-u \"{scriptPath}\" --api ollama --model \"{model}\" --count {count} --key \"{key}\" --ollama-host \"{OllamaHost}\"";
+            }
+            else
+            {
+                winArgs = $"-u \"{scriptPath}\" --model \"{model}\" --count {count} --key \"{key}\" --ollama-host \"{OllamaHost}\"";
+            }
             psi = new ProcessStartInfo
             {
                 FileName         = "cmd.exe",
@@ -1019,10 +1033,26 @@ public partial class TrainingPitPanel : UserControl
             tmpScript = Path.Combine(Path.GetTempPath(), $"orc_gen_{DateTime.Now:yyyyMMdd_HHmmss}.sh");
             var sb = new System.Text.StringBuilder("#!/bin/sh\n");
             sb.Append(ShQ(python)).Append(" -u ").Append(ShQ(scriptPath));
-            sb.Append(" --model ").Append(ShQ(model));
+            if (_genTargetIsToolcaller)
+            {
+                if (useClaudeBackend)
+                {
+                    sb.Append(" --api claude");
+                }
+                else
+                {
+                    sb.Append(" --api ollama");
+                    sb.Append(" --model ").Append(ShQ(model));
+                    sb.Append(" --ollama-host ").Append(ShQ(OllamaHost));
+                }
+            }
+            else
+            {
+                sb.Append(" --model ").Append(ShQ(model));
+                sb.Append(" --ollama-host ").Append(ShQ(OllamaHost));
+            }
             sb.Append($" --count {count}");
             sb.Append(" --key ").Append(ShQ(key));
-            sb.Append(" --ollama-host ").Append(ShQ(OllamaHost));
             sb.Append(" >> ").Append(ShQ(GenLogPath)).Append(" 2>&1\n");
             File.WriteAllText(tmpScript, sb.ToString());
             psi = new ProcessStartInfo
@@ -1059,7 +1089,10 @@ public partial class TrainingPitPanel : UserControl
             _genProcess.Exited += (_, _) => { try { File.Delete(ts); } catch { } };
         }
 
-        OnActivity?.Invoke($"🧪 Generator started — model={model}, target={count}, key={key}");
+        var backendLabel = _genTargetIsToolcaller
+            ? (useClaudeBackend ? "claude-haiku-4-5-20251001" : $"ollama:{model}")
+            : $"ollama:{model}";
+        OnActivity?.Invoke($"🧪 Generator started — backend={backendLabel}, target={count}, key={key}");
         GenBadge.Text          = "";
         GenStatus.Text         = "Starting…";
         GenBar.Value           = 0;
@@ -1194,6 +1227,7 @@ public partial class TrainingPitPanel : UserControl
             TbGenFieldHint.Text  = "Requires the frozen tool schema (training_pit/schemas/toolcaller_v0_frozen_tools.json). The decision type is predetermined per example — the model only fills in realistic request text and arguments.";
             if (TbGenKey.Text is "v4gold" or "")
                 TbGenKey.Text = "toolcaller";
+            BorderGenBackend.IsVisible = true;
         }
         else
         {
@@ -1201,11 +1235,20 @@ public partial class TrainingPitPanel : UserControl
             TbGenFieldHint.Text  = "Every CODER/UIDEVELOPER task must name its output file(s) in the title — plans that omit filenames are rejected automatically.";
             if (TbGenKey.Text is "toolcaller" or "")
                 TbGenKey.Text = "v4gold";
+            BorderGenBackend.IsVisible = false;
         }
 
         // Reset post-generation buttons — a fresh target selection means a fresh run is coming
         BtnGenLoadAcademy.IsVisible  = false;
         BtnGenLoadFoundry.IsVisible  = false;
+    }
+
+    private void CbGenBackend_SelectionChanged(object? s, SelectionChangedEventArgs e)
+    {
+        _genBackendIsClaude = CbGenBackend.SelectedIndex == 0;
+        TbGenBackendNote.Text = _genBackendIsClaude
+            ? "Uses claude-haiku-4-5-20251001. Fast, high quality, no local GPU required. Reads ANTHROPIC_API_KEY env var."
+            : $"Uses local Ollama model selected below. Requires Ollama at {OllamaHost}.";
     }
 
     private void BtnGenLoadAcademy_Click(object? s, RoutedEventArgs e)

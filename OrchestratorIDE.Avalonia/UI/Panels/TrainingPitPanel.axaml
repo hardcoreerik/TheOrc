@@ -434,6 +434,27 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- Generation Backend (visible only in toolcaller mode) -->
+                    <Border x:Name="BorderGenBackend" IsVisible="False"
+                            Background="#0A1018" BorderBrush="#1A2A38" BorderThickness="1"
+                            CornerRadius="4" Padding="10,8" Margin="0,0,0,8">
+                        <StackPanel>
+                            <TextBlock Text="GENERATION BACKEND" FontSize="9" FontWeight="Bold"
+                                       Foreground="#555555" LetterSpacing="0.5" Margin="0,0,0,6"/>
+                            <ComboBox x:Name="CbGenBackend" FontSize="11" HorizontalAlignment="Stretch"
+                                      SelectionChanged="CbGenBackend_SelectionChanged">
+                                <ComboBoxItem x:Name="GenBackendClaude"
+                                              Content="☁  Claude API  (auto-detected from ANTHROPIC_API_KEY)"
+                                              IsSelected="True"/>
+                                <ComboBoxItem x:Name="GenBackendOllama"
+                                              Content="⚙  Ollama  (local model)"/>
+                            </ComboBox>
+                            <TextBlock x:Name="TbGenBackendNote"
+                                       Text="Uses claude-haiku-4-5-20251001. Fast, high quality, no local GPU required."
+                                       FontSize="10" Foreground="#666666" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                        </StackPanel>
+                    </Border>
+
                     <!-- Model / key / count -->
                     <TextBlock Text="Model" FontSize="10" Foreground="#999999" Margin="0,0,0,2"
                                ToolTip.Tip="Local Ollama model that will generate boss plans. Avoid boss-family models (Gemma 4 12B) — they produce circular training data."/>
