@@ -23,14 +23,20 @@ public partial class TrainingPitPanel : UserControl
     private static readonly TimeSpan LiveWindow = TimeSpan.FromMinutes(3);
 
     // ── Public properties ─────────────────────────────────────────────────────
-    public string WorkspaceRoot { get; set; } = "";
-    public string OllamaHost    { get; set; } = "http://localhost:11434";
+    public string WorkspaceRoot  { get; set; } = "";
+    public string OllamaHost     { get; set; } = "http://localhost:11434";
+    public string ModelDepotRoot { get; set; } = "";
 
     // ── Events ────────────────────────────────────────────────────────────────
     public event Action<string>?          OnActivity;
     public event Action<string>?          StatusChanged;
     public event Action<bool, int>?       LiveStateChanged;
     public event Action?                  PitBossRequested;
+    /// <summary>
+    /// Fired when the user clicks "Load adapter into Native Runtime".
+    /// Args: (baseModelPath, loraPath) — both absolute paths to GGUF files.
+    /// </summary>
+    public event Action<string, string>?  ActivateAdapterRequested;
 
     // ── Queue ─────────────────────────────────────────────────────────────────
     public ObservableCollection<QueueItem> Queue { get; } = new();
@@ -1633,9 +1639,46 @@ public partial class TrainingPitPanel : UserControl
                 FoundryStatus.Text = (dry ? "Dry run verified " : "Adapter trained ") +
                                      sum.GetProperty("finished").GetString() +
                                      $" — eval_loss {sum.GetProperty("eval_loss").GetDouble():0.####}";
+
+                if (!dry)
+                    RefreshFoundryActivateCard();
             }
             catch { }
         }
+    }
+
+    private void RefreshFoundryActivateCard()
+    {
+        var loraGguf   = FindFoundryLoraGguf();
+        var baseGguf   = FindFoundryBaseGguf();
+        var visible    = loraGguf is not null && baseGguf is not null;
+        BorderFoundryActivate.IsVisible = visible;
+        if (visible)
+            TbFoundryActivateInfo.Text =
+                $"Adapter ready: {Path.GetFileName(loraGguf)}\n" +
+                $"Base model:    {Path.GetFileName(baseGguf)}";
+    }
+
+    private string? FindFoundryLoraGguf()
+    {
+        // Prefer the depot, fall back to workspace outputs
+        var depotLora = string.IsNullOrEmpty(ModelDepotRoot) ? null
+            : Directory.EnumerateFiles(ModelDepotRoot, "theorc-toolcaller-*lora*.gguf")
+                       .OrderByDescending(File.GetLastWriteTimeUtc)
+                       .FirstOrDefault();
+        if (depotLora is not null) return depotLora;
+
+        return Directory.EnumerateFiles(FoundryOutDir, "*lora*.gguf", SearchOption.AllDirectories)
+                        .OrderByDescending(File.GetLastWriteTimeUtc)
+                        .FirstOrDefault();
+    }
+
+    private string? FindFoundryBaseGguf()
+    {
+        if (string.IsNullOrEmpty(ModelDepotRoot)) return null;
+        return Directory.EnumerateFiles(ModelDepotRoot, "Qwen2.5-1.5B*.gguf")
+                        .OrderByDescending(File.GetLastWriteTimeUtc)
+                        .FirstOrDefault();
     }
 
     private void UpdateFoundryGateCard(int staged, int accepted, string exported)
@@ -1943,6 +1986,19 @@ public partial class TrainingPitPanel : UserControl
     {
         if (Directory.Exists(FoundryDir))
             Process.Start(new ProcessStartInfo(FoundryDir) { UseShellExecute = true })?.Dispose();
+    }
+
+    private void BtnFoundryActivate_Click(object? s, RoutedEventArgs e)
+    {
+        var lora = FindFoundryLoraGguf();
+        var base_ = FindFoundryBaseGguf();
+        if (lora is null || base_ is null)
+        {
+            FoundryStatus.Text = "GGUF files not found — run 'Train toolcaller' then ensure the depot has Qwen2.5-1.5B.";
+            return;
+        }
+        ActivateAdapterRequested?.Invoke(base_, lora);
+        FoundryStatus.Text = $"⚡ Sent to native runtime — restart llama.cpp backend to apply.";
     }
 
     private Task<(int Code, string Output)> RunProcessAsync(string fileName, string args) =>

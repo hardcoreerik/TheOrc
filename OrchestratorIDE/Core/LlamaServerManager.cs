@@ -61,6 +61,12 @@ public sealed class LlamaServerManager : IDisposable
     public int    Threads      { get; set; } = 0;
 
     /// <summary>
+    /// Optional path to a GGUF-format LoRA adapter to load alongside the base model.
+    /// Empty = no adapter. Maps to <c>--lora &lt;path&gt;</c>.
+    /// </summary>
+    public string LoraPath     { get; set; } = "";
+
+    /// <summary>
     /// HIVE MIND C2 — llama.cpp RPC worker endpoints to offload layers to.
     /// Format: "ip:port" (e.g. "192.168.1.20:50052"). Empty = run locally only.
     /// Each entry appends <c>--rpc ip:port</c> to the server arguments.
@@ -232,6 +238,10 @@ public sealed class LlamaServerManager : IDisposable
 
         // Disable memory-mapping for broader Windows compat
         sb.Append(" --no-mmap");
+
+        // LoRA adapter (optional)
+        if (!string.IsNullOrWhiteSpace(LoraPath) && File.Exists(LoraPath))
+            sb.Append($" --lora \"{LoraPath}\"");
 
         // HIVE MIND C2: chain remote RPC workers for VRAM expansion.
         // Each --rpc endpoint receives overflow layers when the local GPU runs out.

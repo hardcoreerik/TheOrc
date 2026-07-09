@@ -821,6 +821,23 @@
                     <ProgressBar x:Name="FoundryBar" Height="8" Margin="0,6,0,0"
                                  BorderThickness="0" Background="#111111" Foreground="#E06040"
                                  Maximum="100"/>
+
+                    <!-- Load adapter to native runtime -->
+                    <Border x:Name="BorderFoundryActivate" IsVisible="False"
+                            Background="#0A1A0A" BorderBrush="#3A5A3A" BorderThickness="1"
+                            CornerRadius="4" Padding="10,8" Margin="0,10,0,0">
+                        <StackPanel Spacing="6">
+                            <TextBlock x:Name="TbFoundryActivateInfo" Text=""
+                                       FontSize="11" Foreground="#90D090" TextWrapping="Wrap"/>
+                            <Button x:Name="BtnFoundryActivate"
+                                    Content="⚡ Load adapter into Native Runtime"
+                                    Click="BtnFoundryActivate_Click"
+                                    Padding="10,5" HorizontalAlignment="Left"
+                                    Background="#1A3A1A" BorderBrush="#4A8A4A" Foreground="#90D090"
+                                    BorderThickness="1" FontSize="11"
+                                    ToolTip.Tip="Sets the native runtime base model to Qwen2.5-1.5B-Instruct and loads this LoRA adapter. Requires llama.cpp backend."/>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </Border>
         </Grid>

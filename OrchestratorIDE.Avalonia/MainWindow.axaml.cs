@@ -282,7 +282,11 @@ public partial class MainWindow : Window
             WorkspaceRoot = _session.WorkspaceRoot,
         };
 
-        _pitPanel = new TrainingPitPanel { WorkspaceRoot = _session.WorkspaceRoot };
+        _pitPanel = new TrainingPitPanel
+        {
+            WorkspaceRoot  = _session.WorkspaceRoot,
+            ModelDepotRoot = _settings.ResolvedModelStoragePath,
+        };
         _pitPanel.StatusChanged   += msg => Dispatcher.UIThread.InvokeAsync(() => SetStatus(msg));
         _pitPanel.OnActivity      += msg => Dispatcher.UIThread.InvokeAsync(() =>
             AddActivity(new ActivityEvent(ActivityKind.Info, "Training Pit", msg, DateTime.Now)));
@@ -291,7 +295,9 @@ public partial class MainWindow : Window
             PitLiveDot.IsVisible  = active;
             PitQueueBadge.Text    = waiting > 0 ? waiting.ToString() : "";
         });
-        _pitPanel.PitBossRequested += () => Dispatcher.UIThread.InvokeAsync(ShowPitBoss);
+        _pitPanel.PitBossRequested       += () => Dispatcher.UIThread.InvokeAsync(ShowPitBoss);
+        _pitPanel.ActivateAdapterRequested += (baseGguf, loraGguf) =>
+            Dispatcher.UIThread.InvokeAsync(() => ApplyFoundryAdapter(baseGguf, loraGguf));
 
         // Default layout: explorer in sidebar, agent in main
         SidebarContent.Content = _explorerPanel;
@@ -2053,6 +2059,7 @@ public partial class MainWindow : Window
             GpuLayers   = s.LlamaCppGpuLayers,
             ContextSize = s.LlamaCppContextSize,
             Threads     = s.LlamaCppThreads,
+            LoraPath    = s.LlamaCppLoraPath,
         };
         mgr.OnLog += msg =>
             AddActivity(new ActivityEvent(ActivityKind.Info, "llama.cpp", msg, DateTime.Now));
@@ -2066,6 +2073,29 @@ public partial class MainWindow : Window
         _settings.Backend == InferenceBackend.LlamaCpp && _llamaServer is not null
             ? new LlamaCppServerRuntime(_llamaServer)
             : new OllamaRuntime(_ollama);
+
+    /// <summary>
+    /// Called by the Training Pit "Load adapter into Native Runtime" button.
+    /// Updates the llama.cpp model + LoRA paths in settings and restarts the server.
+    /// </summary>
+    private void ApplyFoundryAdapter(string baseGguf, string loraGguf)
+    {
+        _settings.LlamaCppModelPath = baseGguf;
+        _settings.LlamaCppLoraPath  = loraGguf;
+        _settings.Save();
+
+        AddActivity(new ActivityEvent(ActivityKind.Info, "Foundry",
+            $"Native runtime → {Path.GetFileName(baseGguf)} + {Path.GetFileName(loraGguf)}", DateTime.Now));
+
+        // Restart llama.cpp server if it's the active backend and currently running.
+        if (_settings.Backend == InferenceBackend.LlamaCpp && _llamaServer?.IsRunning == true)
+        {
+            _llamaServer.Stop();
+            _llamaServer = BuildServerManager(_settings);
+            if (_llamaServer is not null)
+                _ = _llamaServer.StartAsync();
+        }
+    }
 
     private IRoleRuntime? BuildExperimentalNativeHiveWorkerRuntime() =>
         BuildExperimentalNativeRoleRuntime("native HIVE worker", _settings.ExperimentalNativeHiveWorkerEnabled);
