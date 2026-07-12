@@ -374,6 +374,7 @@ public partial class TrainingPitPanel : UserControl
                 RefreshForge();
                 RefreshFoundry();
                 RefreshArena();
+                RefreshGauntlet();
             });
 
             _ = ReloadModelsAsync();
@@ -2320,6 +2321,171 @@ public partial class TrainingPitPanel : UserControl
         ArenaDot.Fill        = new SolidColorBrush(Color.Parse("#6040E0"));
         BtnArenaRun.IsEnabled  = true;
         BtnArenaStop.IsEnabled = false;
+    }
+
+    // ── REFUSAL GAUNTLET ──────────────────────────────────────────────────────
+    // Adversarial refusal coverage for the DEPLOYED artifact: 4,788 generated
+    // cases across 6 failure families, scored two ways — strict decision match
+    // and safety rate (no fabricated tool call), each with an exact one-sided
+    // 95% Clopper-Pearson lower bound. See docs/TOOLCALLER_REFUSAL_GAUNTLET.md.
+
+    private const string GauntletModel = "theorc-toolcaller:qwen25-1.5b";
+
+    private Process?         _gauntletProcess;
+    private DispatcherTimer? _gauntletTimer;
+    private bool GauntletRunning => _gauntletProcess is { HasExited: false };
+
+    private string GauntletEvalPath => Path.Combine(_pitRoot, "training_pit", "datasets", "refusal_gauntlet_v0.jsonl");
+    private string GauntletOutDir   => Path.Combine(_pitRoot, "training_pit", "outputs", "refusal_gauntlet",
+                                                    GauntletModel.Replace(':', '_').Replace('/', '_'));
+
+    private void RefreshGauntlet() => TryShowGauntletResults();
+
+    private void TryShowGauntletResults()
+    {
+        var resultsPath = Path.Combine(GauntletOutDir, "results.json");
+        if (!File.Exists(resultsPath))
+        {
+            if (!GauntletRunning) BorderGauntletResults.IsVisible = false;
+            return;
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(ReadSharedText(resultsPath));
+            var root = doc.RootElement;
+            var fin  = root.TryGetProperty("finished", out var f) ? f.GetString() ?? "" : "";
+            RenderGauntletResults(root.GetProperty("metrics"), fin);
+        }
+        catch { }
+    }
+
+    private void RenderGauntletResults(JsonElement m, string finished)
+    {
+        static double Num(JsonElement m, string key) =>
+            m.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : 0;
+
+        TbGauntletSafety.Text   = $"{Num(m, "safety_rate") * 100:F1}%";
+        TbGauntletSafetyCi.Text = $"cp95 ≥ {Num(m, "safety_cp95_lower") * 100:F1}%";
+        TbGauntletStrict.Text   = $"{Num(m, "accuracy") * 100:F1}%";
+        TbGauntletStrictCi.Text = $"cp95 ≥ {Num(m, "cp95_lower") * 100:F1}%";
+        TbGauntletFab.Text      = $"{(int)Num(m, "fabricated_calls")}";
+        TbGauntletFlips.Text    = $"{(int)Num(m, "flip_groups")}/{(int)Num(m, "paraphrase_groups")}";
+
+        GauntletBadge.IsVisible   = true;
+        GauntletBadgeText.Text    = $"safety {TbGauntletSafety.Text}";
+        BorderGauntletResults.IsVisible = true;
+        GauntletFooter.Text = finished.Length > 0 ? $"evaluated {finished} · model {GauntletModel}" : "";
+
+        var famRows = new List<ArenaClassRowAva>();
+        if (m.TryGetProperty("per_family", out var pf))
+        {
+            foreach (var fam in pf.EnumerateObject())
+            {
+                var acc    = fam.Value.TryGetProperty("accuracy",    out var a) ? a.GetDouble() : 0;
+                var safety = fam.Value.TryGetProperty("safety_rate", out var sr) ? sr.GetDouble() : 0;
+                var n      = fam.Value.TryGetProperty("n",           out var nv) ? nv.GetInt32() : 0;
+                var ok     = fam.Value.TryGetProperty("correct",     out var cv) ? cv.GetInt32() : 0;
+                // Families with any fabrication risk stand out in red-ish tones.
+                var (fg, bar) = safety < 1.0 ? ("#F09090", "#A04040") : ("#E0C080", "#806020");
+                famRows.Add(new ArenaClassRowAva
+                {
+                    Label       = fam.Name,
+                    TpCountText = $"{ok}/{n}",
+                    F1Text      = $"{acc * 100:F1}% ({safety * 100:F0}%)",
+                    F1Pct       = acc * 100.0,
+                    LabelBrush  = new SolidColorBrush(Color.Parse(fg)),
+                    BarBrush    = new SolidColorBrush(Color.Parse(bar)),
+                });
+            }
+        }
+        GauntletFamilyList.ItemsSource = famRows;
+    }
+
+    private void BtnGauntletRun_Click(object? s, RoutedEventArgs e)
+    {
+        if (GauntletRunning) return;
+        if (!File.Exists(GauntletEvalPath))
+        {
+            OnActivity?.Invoke("🛡 Gauntlet: dataset missing — run generate_refusal_gauntlet.py first.");
+            return;
+        }
+        var scriptPath = Path.Combine(_pitRoot, "training_pit", "foundry", "scripts", "eval_refusal_gauntlet.py");
+        if (!File.Exists(scriptPath))
+        { OnActivity?.Invoke($"🛡 Gauntlet: eval script not found at {scriptPath}"); return; }
+
+        Directory.CreateDirectory(GauntletOutDir);
+        var logPath = Path.Combine(GauntletOutDir, "gauntlet.log");
+        File.WriteAllText(logPath, $"=== gauntlet run {DateTime.Now:yyyy-MM-dd HH:mm} ===\n");
+
+        var psi = new ProcessStartInfo
+        {
+            FileName         = "cmd.exe",
+            Arguments        = $"/c python -u \"{scriptPath}\"" +
+                               $" --ollama \"{GauntletModel}\"" +
+                               $" --eval \"{GauntletEvalPath}\"" +
+                               $" --out \"{GauntletOutDir}\"" +
+                               $" --workers 4" +
+                               $" >> \"{logPath}\" 2>&1",
+            WorkingDirectory = _pitRoot, UseShellExecute = false, CreateNoWindow = true,
+        };
+
+        try { _gauntletProcess = Process.Start(psi); }
+        catch (Exception ex) { OnActivity?.Invoke($"🛡 Gauntlet launch failed: {ex.Message}"); return; }
+        if (_gauntletProcess is null) { OnActivity?.Invoke("🛡 Gauntlet: failed to launch."); return; }
+
+        OnActivity?.Invoke($"🛡 Refusal Gauntlet started — {GauntletModel} vs {Path.GetFileName(GauntletEvalPath)}");
+        GauntletStatus.Text       = "Running against the deployed Ollama model…";
+        GauntletBar.IsIndeterminate = true;
+        GauntletDot.IsVisible     = true;
+        BtnGauntletRun.IsEnabled  = false;
+
+        _gauntletTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        _gauntletTimer.Tick -= GauntletTimer_Tick;
+        _gauntletTimer.Tick += GauntletTimer_Tick;
+        _gauntletTimer.Start();
+    }
+
+    private void GauntletTimer_Tick(object? s, EventArgs e)
+    {
+        if (!GauntletRunning)
+        {
+            TryShowGauntletResults();
+            GauntletStatus.Text = File.Exists(Path.Combine(GauntletOutDir, "results.json"))
+                ? "Done — failures.jsonl in the output folder feeds the next training round."
+                : "Gauntlet exited unexpectedly — check gauntlet.log";
+            OnActivity?.Invoke($"🛡 Refusal Gauntlet finished — safety {TbGauntletSafety.Text}, strict {TbGauntletStrict.Text}");
+            GauntletDone();
+            return;
+        }
+
+        var progressPath = Path.Combine(GauntletOutDir, "progress.json");
+        if (!File.Exists(progressPath)) return;
+        try
+        {
+            using var doc = JsonDocument.Parse(ReadSharedText(progressPath));
+            var p     = doc.RootElement;
+            var step  = p.TryGetProperty("step",  out var st) ? st.GetInt32() : 0;
+            var total = p.TryGetProperty("total", out var t)  ? t.GetInt32()  : 0;
+
+            GauntletBar.IsIndeterminate = step == 0;
+            if (total > 0) GauntletBar.Value = Math.Min(100.0, step * 100.0 / total);
+            GauntletStatus.Text = total > 0 ? $"Evaluating {step}/{total}…" : "Evaluating…";
+
+            if (step >= 50 && p.TryGetProperty("metrics", out var m) &&
+                m.ValueKind == JsonValueKind.Object && m.TryGetProperty("safety_rate", out _))
+                RenderGauntletResults(m, "in progress");
+        }
+        catch { }
+    }
+
+    private void GauntletDone()
+    {
+        _gauntletTimer?.Stop();
+        _gauntletProcess?.Dispose();
+        _gauntletProcess = null;
+        GauntletBar.IsIndeterminate = false;
+        GauntletDot.IsVisible    = false;
+        BtnGauntletRun.IsEnabled = true;
     }
 
     private void BtnFoundryActivate_Click(object? s, RoutedEventArgs e)
