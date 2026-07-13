@@ -348,9 +348,18 @@ public partial class MainWindow : Window
                 : (_settings.LastSingleModel.Length > 0 ? _settings.LastSingleModel : _settings.DefaultModel);
             string best;
 
+            // Boss-only specialists (theorc-boss:*) are trained exclusively to emit boss-plan
+            // JSON and were never evaluated on open-ended conversation -- fine for Swarm, but
+            // silently restoring/auto-selecting one as the OrcChat single-chat model produces
+            // exactly the bug this guard exists for (out-of-distribution prompt -> the model
+            // repeats its only known output shape until the token budget runs out instead of
+            // answering). Swarm mode is unaffected -- that's the surface these models are for.
+            bool IsChatEligible(string modelId) => isSwarmMode || ModelProfiles.Get(modelId).ChatSuitable;
+
             if (_settings.RestoreLastModel &&
                 !string.IsNullOrEmpty(lastUsed) &&
-                models.Contains(lastUsed, StringComparer.OrdinalIgnoreCase))
+                models.Contains(lastUsed, StringComparer.OrdinalIgnoreCase) &&
+                IsChatEligible(lastUsed))
             {
                 best = lastUsed;
                 AddActivity(new ActivityEvent(ActivityKind.Info, "Model", $"Restored: {best}", DateTime.Now));
@@ -365,12 +374,13 @@ public partial class MainWindow : Window
                     "gemma4:e4b", "llama3.1:8b",
                 };
                 best = preferred.FirstOrDefault(p => models.Contains(p, StringComparer.OrdinalIgnoreCase))
+                    ?? models.FirstOrDefault(IsChatEligible)
                     ?? models.First();
                 AddActivity(new ActivityEvent(ActivityKind.Info, "Model", $"Auto-selected: {best}", DateTime.Now));
             }
             else
             {
-                best = models.First();
+                best = models.FirstOrDefault(IsChatEligible) ?? models.First();
                 AddActivity(new ActivityEvent(ActivityKind.Info, "Model", $"Active: {best}", DateTime.Now));
             }
 
@@ -1717,6 +1727,10 @@ public partial class MainWindow : Window
         }
         else if (mode == "chat")
         {
+            var chatModel = BestSingleModel(_settings.LastSingleModel);
+            if (chatModel != _session.ActiveModel)
+                ApplyModelSwitch(chatModel, saveToSingleSlot: true);
+
             _chatPanel.RuntimeResolver = ResolveChatRuntime;
             _chatPanel.LocalUrl        = _settings.OllamaHost;
             _chatPanel.SetModels(_installedModels, _session.ActiveModel);
@@ -1811,10 +1825,18 @@ public partial class MainWindow : Window
         return nemotron ?? _session.ActiveModel;
     }
 
+    // Boss-only specialists (theorc-boss:*) are trained exclusively to emit boss-plan JSON and
+    // were never evaluated on open-ended conversation -- fine for Swarm, but landing one on
+    // single-chat/OrcChat (directly, or carried over from Swarm mode via _session.ActiveModel)
+    // produces an out-of-distribution collapse where the model just repeats its only known
+    // output shape instead of answering. See ModelProfile.ChatSuitable.
+    private static bool IsChatSuitable(string modelId) => ModelProfiles.Get(modelId).ChatSuitable;
+
     private string BestSingleModel(string lastSingle)
     {
         if (!string.IsNullOrEmpty(lastSingle) &&
-            _installedModels.Contains(lastSingle, StringComparer.OrdinalIgnoreCase))
+            _installedModels.Contains(lastSingle, StringComparer.OrdinalIgnoreCase) &&
+            IsChatSuitable(lastSingle))
             return lastSingle;
         var preferred = new[]
         {
@@ -1823,7 +1845,9 @@ public partial class MainWindow : Window
         };
         return preferred.FirstOrDefault(p =>
                    _installedModels.Contains(p, StringComparer.OrdinalIgnoreCase))
-               ?? _session.ActiveModel;
+               ?? (IsChatSuitable(_session.ActiveModel)
+                   ? _session.ActiveModel
+                   : _installedModels.FirstOrDefault(IsChatSuitable) ?? _session.ActiveModel);
     }
 
     private void UpdateModeToggle(string mode)
