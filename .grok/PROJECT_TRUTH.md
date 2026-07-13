@@ -52,11 +52,16 @@ The Native Runtime loop (tasks #8-#17, this same session) was unaffected and con
 
 ## 1. CORE IDENTITY — What This Project Claims to Be
 
-**TheOrc** is a 100% local AI coding orchestrator for Windows. It receives a
-user goal, decomposes it into parallel tasks, and dispatches each to a
-specialist AI agent (goblin worker). The user approves every file write and
-shell command before it executes. No API key. No subscription. No code leaves
-the machine.
+**TheOrc** is a local-first, cloud-optional AI coding orchestrator for Windows.
+It receives a user goal, decomposes it into parallel tasks, and dispatches each
+to a specialist AI agent (goblin worker). The user approves every file write
+and shell command before it executes. Core inference, models, data stores,
+training, and orchestration run entirely on infrastructure you control — no
+API key or subscription is required for any of that. Optional, explicit,
+operator-controlled network features exist (web search, URL fetch, Cerebras
+dataset generation, GitHub update checks, HIVE/Tailscale remote nodes); none
+of them are silent defaults, and using none of them keeps the whole app fully
+offline.
 
 **The warband:**
 | Role | What they do |

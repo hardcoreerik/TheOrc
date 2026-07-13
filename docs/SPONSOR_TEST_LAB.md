@@ -6,7 +6,7 @@
 
 ## What Is TheOrc?
 
-**TheOrc** is a native Windows desktop AI coding assistant that runs 100% on your hardware — no cloud, no subscriptions, no data leaving your machine.
+**TheOrc** is a native Windows desktop AI coding assistant that runs local-first on your hardware — no subscriptions, and no cloud model or inference provider required. Optional operator-controlled network features exist (web search, URL fetch, update checks) but nothing calls out by default.
 
 It is built on top of Ollama and llama.cpp, and exposes a full agent loop with plan/execute safety gates, diff approval before any file write, and git auto-checkpoints before every run. The **Goblin Swarm** mode deploys a coordinated squad of specialist agents (Boss, Coder, Researcher, UI Developer, Tester) that work in parallel on a single goal.
 

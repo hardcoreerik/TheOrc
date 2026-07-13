@@ -4,7 +4,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0B6DFF?style=for-the-badge&logo=windows)](https://github.com/hardcoreerik/TheOrc/releases)
 [![.NET](https://img.shields.io/badge/.NET-10.0-6B38FB?style=for-the-badge&logo=dotnet)](https://dotnet.microsoft.com/download/dotnet/10.0)
-[![Local](https://img.shields.io/badge/100%25-local-21C55D?style=for-the-badge)](#quick-start)
+[![Local](https://img.shields.io/badge/local--first-cloud--optional-21C55D?style=for-the-badge)](#quick-start)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-39FF6A?style=for-the-badge)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/hardcoreerik/TheOrc?style=for-the-badge&color=13E9B4)](https://github.com/hardcoreerik/TheOrc/releases)
 
@@ -46,7 +46,7 @@ The difference is that TheOrc is not just a chat window. It is a local orchestra
 - ORC ACADEMY for training a better boss model from reviewed swarm behavior
 - Context Fabric, a source-grounded memory system for working across corpora larger than a model context window
 
-Everything runs from your machine and your infrastructure choices. TheOrc is built around inspectability, approval gates, local ownership, and source reopening instead of magic-context marketing.
+**Local-first and cloud-optional.** The core application, models, data stores, training pipeline, and orchestration can run entirely on infrastructure you control. Network tools (web search, URL fetch), external dataset-generation providers, update checks, and remote HIVE nodes are explicit, operator-controlled features — not silent defaults. TheOrc is built around inspectability, approval gates, local ownership, and source reopening instead of magic-context marketing.
 
 It's basically a tiny software company that lives in your PC and does what you tell it. The staff are goblins. This is intentional.
 
