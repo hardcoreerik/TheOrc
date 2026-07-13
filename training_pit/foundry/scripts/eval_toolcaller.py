@@ -22,6 +22,10 @@ Output:
 import argparse, json, sys, time
 from pathlib import Path
 
+# Windows consoles default to cp1252; the summary bars use box glyphs.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 

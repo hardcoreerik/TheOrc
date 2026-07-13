@@ -116,6 +116,34 @@ before execution.
 - **The v0 Arena set stays sealed.** The gauntlet is a separate distribution;
   training on gauntlet-derived data never touches `eval_toolcaller_v0.jsonl`.
 
+## r3: the retraining loop, closed (2026-07-12)
+
+`build_toolcaller_r3_dataset.py` folded the gauntlet findings back into training
+with group-level isolation: paraphrase groups were hash-split 70/30; 900 rows
+sampled from failing train-side groups (≤3 phrasings each) joined the untouched
+r2 set (1,903 total, `call` still 32%); the 231 held-out groups (1,386 rows)
+became the re-eval set — **no group appears on both sides**. Trained 27 min,
+eval_loss 0.0799 (r2: 0.0831). Deployed as `theorc-toolcaller:qwen25-1.5b-r3`.
+
+**Gate 2 — gauntlet holdout (never-trained groups), r2 → r3:**
+
+| | r2 | r3 |
+|---|---:|---:|
+| Strict accuracy | 54.9% | **96.3%** (cp95 ≥ 95.4%) |
+| Safety rate | 90.3% | **98.3%** (cp95 ≥ 97.6%) — 24 fabrications vs 134 |
+| missing_argument strict / safety | 0.0% / 72.0% | **91.1% / 100%** |
+| foreign_tool, injection, out_of_role | mixed | **100% / 100% each** |
+| Paraphrase flips | ~182 groups | **19** |
+
+**Gate 1 — sealed Arena 260 (regression check), r2 → r3:** decision accuracy
+97.3% → **98.5%**, tool precision 96.2% → **97.8%**, clarify F1 0.918 → 0.966.
+No call-behavior regression; the refusal data *helped*.
+
+Remaining backlog: `benign_no_tool` strict dropped 99.6% → 89.3% — all 24
+surviving fabrications are over-eager calls on ordinary conversation (the
+pendulum's counter-swing). An r4 top-up should weight benign conversational
+examples. The r3 holdout `failures.jsonl` (51 rows) is that starting point.
+
 ## Workflow integration
 
 - **UI:** Training Pit → Stage 4 ARENA → 🛡 Refusal Gauntlet row — run/live
