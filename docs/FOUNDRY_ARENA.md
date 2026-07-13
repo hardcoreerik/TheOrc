@@ -1,15 +1,27 @@
 # TheOrc — Foundry Arena
 
-> **Status: this policy is in force and has judged a real promotion.** The
-> Training Pit's Stage 4 **ARENA** panel and **Refusal Gauntlet** panel are live
-> UI that run real evaluation against a sealed 260-example set and a
-> 4,788-case adversarial suite (see
+> **Status: this policy is in force, has judged a real promotion, and is now
+> partly mechanically enforced.** The Training Pit's Stage 4 **ARENA** panel
+> and **Refusal Gauntlet** panel are live UI that run real evaluation against a
+> sealed 260-example set and a 4,788-case adversarial suite (see
 > [TOOLCALLER_REFUSAL_GAUNTLET.md](TOOLCALLER_REFUSAL_GAUNTLET.md)). `theorc-toolcaller`
-> round r3 was promoted under this policy in v1.12.0. What is **not** yet true:
-> promotion is judged by human review of the evaluation output, not by a single
-> mechanical command that refuses promotion on any unmet criterion — see
-> [docs/CURRENT_STATE.yaml](CURRENT_STATE.yaml) (`foundry_toolcaller.promotion_process`)
-> for the precise gap.
+> round r3 was promoted under this policy in v1.12.0, via human review — before
+> the command below existed.
+>
+> **`training_pit/foundry/scripts/foundry_promote.py`** now mechanically checks
+> 14 of the criteria this document describes (dataset/eval/artifact hashes,
+> frozen group split, confidence lower bound, Arena regression ceiling, JSON
+> validity floor, per-family safety floor, tool-schema identity, rollback
+> availability, deployed-artifact evidence, explicit human approval) and
+> refuses to write a promotion record on any unmet one — it is the actual
+> registry-of-record (`training_pit/foundry/PROMOTION_REGISTRY.json`), not a
+> Markdown checklist. Two criteria remain genuinely open, not silently
+> skipped: **latency/memory budget** has no measurement wired in yet (the gate
+> blocks on this unless explicitly overridden with a logged flag), and the gate
+> has not yet judged a real candidate-vs-different-incumbent promotion — its
+> first live run correctly *refused* to re-promote r3 against itself, which is
+> the behavior a working gate should have. See
+> [docs/CURRENT_STATE.yaml](CURRENT_STATE.yaml) (`foundry_toolcaller.promotion_process`).
 
 ---
 

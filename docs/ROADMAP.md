@@ -518,12 +518,18 @@ OrcChat — both off by default under one settings toggle.
   regression (89.3% strict on benign no_tool cases; see
   [TOOLCALLER_REFUSAL_GAUNTLET.md](TOOLCALLER_REFUSAL_GAUNTLET.md)) — repair
   lane stays opt-in until this closes.
-- Promotion is still judged by review of the metrics in
-  `training_pit/foundry/configs/toolcaller_v0_r3.json`, not yet by a single
-  mechanical gate command that refuses promotion on any unmet criterion
-  (dataset/eval hashes, confidence bound, per-family safety floor, latency
-  budget, explicit human-approval record, rollback artifact) — see the
-  Foundry promotion gate work item below.
+- r3 itself was promoted by human review of the metrics in
+  `training_pit/foundry/configs/toolcaller_v0_r3.json`. As of 2026-07-13, a
+  mechanical gate exists (`training_pit/foundry/scripts/foundry_promote.py`)
+  that refuses promotion on any unmet criterion — dataset/eval/artifact
+  hashes, frozen split, confidence bound, Arena regression ceiling,
+  per-family safety floor, tool-schema identity, rollback availability,
+  deployed-artifact evidence, explicit human-approval record — and writes
+  `training_pit/foundry/PROMOTION_REGISTRY.json` as the actual registry of
+  record. Still open: **latency/memory budget has no real measurement wired
+  in** (the gate blocks on it unless explicitly, audibly overridden), and the
+  gate has not yet judged a real r4-vs-r3 promotion because no r4 candidate
+  exists.
 - Universal producer-provenance/contamination fields (candidate-vs-incumbent
   flag, teacher identity, repair lineage, redaction state) are enforced for the
   toolcaller repair lane specifically, not yet as a schema-level gate every

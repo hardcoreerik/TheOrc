@@ -99,8 +99,18 @@ subsystems:
       training_pit/foundry/configs/toolcaller_v0_r3.json, not by a single
       mechanical gate command. The promotion margin governing r4+ is frozen in
       that same config; r3 itself predates the margin and is not retroactively
-      judged by it. An executable promotion gate (one command, refuses on any
-      unmet criterion) is planned, not yet built.
+      judged by it. As of 2026-07-13, training_pit/foundry/scripts/
+      foundry_promote.py mechanically enforces 14 criteria (hashes, frozen
+      split, confidence bound, Arena regression ceiling, per-family safety
+      floor, tool-schema identity, rollback availability, deployed-artifact
+      evidence, explicit human approval) and writes/is
+      training_pit/foundry/PROMOTION_REGISTRY.json — the actual
+      registry-of-record. Demonstrated live against r3: correctly REFUSED to
+      re-promote r3 against itself (confidence bound cannot strictly exceed
+      itself) and correctly flagged latency/memory budget as genuinely
+      unmeasured (blocks unless explicitly overridden with a logged flag).
+      The gate has not yet judged a real different-candidate-vs-incumbent
+      promotion because no r4 candidate exists yet.
 
   foundry_arena:
     status: production
