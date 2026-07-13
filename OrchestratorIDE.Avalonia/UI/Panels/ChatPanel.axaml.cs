@@ -1,6 +1,7 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Diagnostics;
+using System.IO;
 using System.Text;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -479,6 +480,7 @@ public partial class ChatPanel : UserControl
         engine.OnTurnComplete += OnTurnComplete;
         engine.OnError        += OnEngineError;
         engine.OnUsage        += OnUsage;
+        engine.OnToolcallerDecision += OnToolcallerDecision;
 
         try
         {
@@ -492,6 +494,7 @@ public partial class ChatPanel : UserControl
             engine.OnTurnComplete -= OnTurnComplete;
             engine.OnError        -= OnEngineError;
             engine.OnUsage        -= OnUsage;
+            engine.OnToolcallerDecision -= OnToolcallerDecision;
 
             _isSending             = false;
             BtnSend.IsEnabled      = true;
@@ -953,6 +956,27 @@ public partial class ChatPanel : UserControl
             if (_streamBox is not null) _streamBox.Text = $"⚠  {error}";
             BdrSearching.IsVisible = false;
         });
+    }
+
+    /// <summary>
+    /// One id per panel lifetime (not per-turn) -- StageChatDecisionAsync generates its own
+    /// per-example id, this just groups every capture from this OrcChat session under a
+    /// common run id, matching SwarmSession._runId's role for swarm captures.
+    /// </summary>
+    private readonly string _chatCaptureRunId =
+        $"chat_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString("N")[..6]}";
+
+    /// <summary>
+    /// Foundry toolcaller-v1 organic capture (docs/TOOLCALLER_V1_FROZEN_INVENTORY.md).
+    /// Opt-in via the same AppSettings.ToolcallerDatasetCaptureEnabled flag the swarm v0
+    /// capture uses (checked inside StageChatDecisionAsync) -- fire-and-forget and
+    /// best-effort by design, so a capture failure can never disrupt the chat turn.
+    /// </summary>
+    private void OnToolcallerDecision(ChatToolDecision d)
+    {
+        var stagingDir = Path.Combine(WorkspaceRoot, ".orc", "chat", "dataset-staging");
+        _ = Services.Swarm.ToolcallerDatasetCapture.StageChatDecisionAsync(
+            _chatCaptureRunId, d.Model, d.Request, d.AvailableTools, d.Calls, WorkspaceRoot, stagingDir);
     }
 
     // ── Bubble builders ───────────────────────────────────────────────────────

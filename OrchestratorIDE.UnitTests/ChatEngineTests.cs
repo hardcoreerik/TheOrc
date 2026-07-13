@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Runtime.CompilerServices;
 using NUnit.Framework;
+using OrchestratorIDE.Core;
 using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Models;
 using OrchestratorIDE.Research;
@@ -184,5 +185,103 @@ public class ChatEngineTests
         await engine.SendAsync("hello");
 
         Assert.That(captured, Is.EqualTo(((int Prompt, int Completion)?)(42, 7)));
+    }
+
+    // ── OnToolcallerDecision (toolcaller-v1 capture hook) ───────────────────────
+
+    [Test]
+    public async Task OnToolcallerDecision_DoesNotFire_WhenNoToolsOffered()
+    {
+        // Zero tools available -> nothing to decide against, so no capture-worthy decision.
+        var runtime = new CapturingRuntime();
+        var engine  = new ChatEngine(runtime, "some-model", systemPrompt: "", tools: []);
+
+        ChatToolDecision? captured = null;
+        engine.OnToolcallerDecision += d => captured = d;
+
+        await engine.SendAsync("A perfectly ordinary long enough question.");
+
+        Assert.That(captured, Is.Null);
+    }
+
+    [Test]
+    public async Task OnToolcallerDecision_FiresNoTool_WhenToolsOfferedButNoneCalled()
+    {
+        var runtime = new CapturingRuntime();
+        var tools = new List<ToolDefinition> { new() { Name = "read_file", Description = "Read.", Parameters = new() } };
+        var engine = new ChatEngine(runtime, "some-model", systemPrompt: "", tools: tools);
+
+        ChatToolDecision? captured = null;
+        engine.OnToolcallerDecision += d => captured = d;
+
+        await engine.SendAsync("What does a NullReferenceException mean in C#?");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(captured, Is.Not.Null);
+            Assert.That(captured!.Calls, Is.Empty);
+            Assert.That(captured.Request, Is.EqualTo("What does a NullReferenceException mean in C#?"));
+            Assert.That(captured.AvailableTools.Select(t => t.Name), Is.EquivalentTo(new[] { "read_file" }));
+            Assert.That(captured.Model, Is.EqualTo("some-model"));
+        });
+    }
+
+    private sealed class ToolCallingRuntime : IModelRuntime
+    {
+        private int _calls;
+        public string RuntimeName => "ToolCalling";
+        public Task<bool> IsReachableAsync(CancellationToken ct = default) => Task.FromResult(true);
+        public Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default) =>
+            Task.FromResult(new List<string>());
+        public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) =>
+            Task.FromResult<int?>(null);
+
+        public async IAsyncEnumerable<string> StreamCompletionAsync(
+            string model,
+            IEnumerable<AgentMessage> history,
+            IReadOnlyList<object>? tools = null,
+            double temperature = 0.1,
+            double? topP = null,
+            int maxTokens = 4096,
+            Action<ToolCall>? onToolCall = null,
+            Action<int, int>? onUsage = null,
+            [EnumeratorCancellation] CancellationToken ct = default)
+        {
+            await Task.Yield();
+            // First call proposes a tool; every subsequent call (the loop's follow-up
+            // query after executing it) returns plain text so the loop terminates.
+            if (_calls++ == 0)
+                onToolCall?.Invoke(new ToolCall { Name = "read_file", Arguments = new() { ["path"] = "a.txt" } });
+            else
+                yield return "done";
+        }
+
+        public RuntimeHealth GetHealth() => new(true, RuntimeName);
+        public RuntimeStats GetStats() => new(RuntimeName);
+    }
+
+    [Test]
+    public async Task OnToolcallerDecision_FiresCall_ForNativeToolCall_BeforeExecuting()
+    {
+        var runtime = new ToolCallingRuntime();
+        var tools = new List<ToolDefinition>
+        {
+            new() { Name = "read_file", Description = "Read.", Parameters = new(),
+                     Handler = (args, ct) => Task.FromResult("file contents") },
+        };
+        var engine = new ChatEngine(runtime, "some-model", systemPrompt: "", tools: tools);
+
+        ChatToolDecision? captured = null;
+        engine.OnToolcallerDecision += d => captured = d;
+
+        await engine.SendAsync("Please read a.txt for me.");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(captured, Is.Not.Null);
+            Assert.That(captured!.Calls, Has.Count.EqualTo(1));
+            Assert.That(captured.Calls[0].Name, Is.EqualTo("read_file"));
+            Assert.That(captured.Request, Is.EqualTo("Please read a.txt for me."));
+        });
     }
 }
