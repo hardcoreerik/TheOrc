@@ -463,6 +463,8 @@ dotnet run --project OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj
 
 **Requirements:** Windows 10/11 · .NET 10 · [Ollama](https://ollama.com) · 8 GB VRAM minimum (16 GB recommended for running a full swarm)
 
+Ollama is the easiest path to get running, which is why it's the default here — it is not the only one. Native in-process inference and a standalone llama.cpp server are both real, supported lanes with zero Ollama dependency; see [docs/RUNTIME_SUPPORT_MATRIX.md](docs/RUNTIME_SUPPORT_MATRIX.md) for what's default, what's opt-in, and how fallback between them actually works.
+
 ### Grab a model and go
 
 ```powershell

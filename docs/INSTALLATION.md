@@ -37,7 +37,12 @@ The portable route is appropriate when you already have a working inference back
 
 Expect to configure:
 
-- Ollama host or llama.cpp runtime path
+- Ollama host or llama.cpp runtime path — these are two independently supported
+  backends (`AppSettings.Backend`: `Ollama` or `LlamaCpp`), not a primary path
+  and a fallback; see [RUNTIME_SUPPORT_MATRIX.md](RUNTIME_SUPPORT_MATRIX.md)
+  for the full lane-by-lane breakdown (Ollama, llama.cpp server, native
+  in-process, remote HIVE) including which are on by default and how
+  automatic fallback actually behaves
 - model selection
 - workspace and settings paths
 

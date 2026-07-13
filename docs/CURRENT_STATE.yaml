@@ -69,9 +69,11 @@ subsystems:
     note: >
       In-process native inference (LLamaSharp-backed) is a real, working
       alternate lane to Ollama, but Ollama remains the default/primary path for
-      most workflows today. See the runtime support matrix (planned —
-      docs/RUNTIME_SUPPORT_MATRIX.md) for the full current/default/fallback
-      picture per workload.
+      most workflows today. See docs/RUNTIME_SUPPORT_MATRIX.md for the full
+      current/default/fallback picture per workload, including the real
+      NativeWithFallbackRuntime mechanics and the one open gap it documents
+      (benchmark reports record RuntimeName as a static label, not per-call
+      fallback counts).
 
   llamacpp_server:
     status: opt-in
