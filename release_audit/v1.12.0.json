@@ -1,0 +1,92 @@
+{
+  "missing_patterns": [],
+  "native_backend_load_result": "static_proxy: cuda_dll_presence",
+  "audited_at": "2026-07-13T07:15:24Z",
+  "actual_assets": [
+    {
+      "sha256": null,
+      "windows_asset": false,
+      "name": "OrchestratorIDE",
+      "size_bytes": 253097705,
+      "downloaded": false
+    },
+    {
+      "windows_asset": true,
+      "size_bytes": 1348642416,
+      "downloaded": true,
+      "name": "OrchestratorIDE.exe",
+      "sha256": "43ee604bdd1c9ac629e116758f5f2bfd25991a67024262dd3758d3627dd09836",
+      "actual_size_bytes": 1348642416
+    },
+    {
+      "sha256": null,
+      "windows_asset": false,
+      "name": "OrchestratorSetup",
+      "size_bytes": 118028578,
+      "downloaded": false
+    },
+    {
+      "windows_asset": true,
+      "size_bytes": 110709806,
+      "downloaded": true,
+      "name": "OrchestratorSetup.exe",
+      "sha256": "8e983b265eb617cf5ac10a17762e2d490961c74c67ce8d8a7d9abc3341c26d05",
+      "actual_size_bytes": 110709806
+    },
+    {
+      "sha256": null,
+      "windows_asset": false,
+      "name": "TheOrc-1.12.0-osx-arm64-portable.tar.gz",
+      "size_bytes": 144013723,
+      "downloaded": false
+    },
+    {
+      "windows_asset": true,
+      "size_bytes": 777839835,
+      "downloaded": true,
+      "name": "TheOrc-1.12.0-win-x64-portable.zip",
+      "sha256": "b7d799fdc3be36d5fd9cc9b53d0908b1bd467e4d44a125361cd93923f242d946",
+      "actual_size_bytes": 777839835
+    },
+    {
+      "sha256": null,
+      "windows_asset": false,
+      "name": "theorc-warband",
+      "size_bytes": 195429567,
+      "downloaded": false
+    },
+    {
+      "sha256": null,
+      "windows_asset": false,
+      "name": "theorc-warband-1.12.0-linux-x64.tar.gz",
+      "size_bytes": 298619339,
+      "downloaded": false
+    },
+    {
+      "sha256": null,
+      "windows_asset": false,
+      "name": "theorc-warband-1.12.0-osx-arm64.tar.gz",
+      "size_bytes": 72406642,
+      "downloaded": false
+    }
+  ],
+  "cuda_dll_check": {
+    "file_names": null,
+    "found": false,
+    "checked": true,
+    "file_count": 0
+  },
+  "gpu_cpu_backend_selected": "not_tested_live (see native_backend_load_result proxy; live GPU test only run for the current release via Tools/NativeProbe separately)",
+  "installer_launch_result": "not_executed (would modify system state -- see script header)",
+  "superseded_status": "no known issues found by this audit",
+  "tag": "v1.12.0",
+  "expected_windows_patterns": [
+    "OrchestratorSetup.exe",
+    "*win-x64*.zip",
+    "OrchestratorIDE.exe"
+  ],
+  "status_flags": [],
+  "update_path_result": "not_tested (would require triggering the self-updater against a running older version)",
+  "published_at": "2026-07-13T05:22:39Z",
+  "launch_result": "started_and_stayed_up"
+}

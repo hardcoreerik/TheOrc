@@ -163,13 +163,21 @@ subsystems:
       signing, or notarization yet.
 
   release_asset_audit:
-    status: planned
+    status: experimental
     note: >
-      A one-time historical-release audit (per the external review's P0
-      recommendation) has not been run — it requires launching old binaries
-      across platforms this session does not have hardware access to for every
-      historical tag. A forward-looking audit script for NEW releases is
-      planned/in progress.
+      As of 2026-07-13: scripts/audit_release.ps1 exists and has audited 3 of
+      28 tagged releases (v1.12.0, v1.11.2, v1.11.0) — see
+      docs/RELEASE_ASSET_AUDIT.md and release_audit/. Confirmed LIVE (not just
+      date-inferred) that v1.11.2 and v1.11.0 both genuinely omit CUDA runtime
+      DLLs from their Windows portable builds (the documented pre-2026-07-04
+      bug); confirmed v1.12.0 does not have this problem (CUDA fetch is
+      correctly installer-side by design as of v1.11.3, and the current build
+      launches and stays up). NOT done: auditing the remaining 25 historical
+      tags, macOS/Linux asset checks, SHA-256 manifest / SBOM / build
+      provenance / code signing for any release, and posting the
+      recommended warnings to the affected historical GitHub release pages
+      (drafted in RELEASE_ASSET_AUDIT.md, deliberately not auto-posted --
+      editing a public release page needs an explicit decision).
 
 warband:
   status: opt-in
