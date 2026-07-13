@@ -134,6 +134,7 @@ public partial class SettingsPanel : UserControl
         TglAutoResync.IsChecked       = s.HiveDevAutoResyncEnabled;
         TglNativeMainChat.IsChecked   = s.ExperimentalNativeMainChatEnabled;
         TglToolcallerDatasetCapture.IsChecked = s.ToolcallerDatasetCaptureEnabled;
+        TglToolcallerRepair.IsChecked         = s.ToolcallerRepairEnabled;
         TbNativeRuntimeModelRoot.Text = s.NativeRuntimeModelRoot;
         TbNativeRuntimeContextSize.Text = s.NativeRuntimeContextSize.ToString();
         TbNativeRuntimeGpuLayers.Text = s.NativeRuntimeGpuLayers.ToString();
@@ -312,6 +313,7 @@ public partial class SettingsPanel : UserControl
         s.HiveDevAutoResyncEnabled            = TglAutoResync.IsChecked == true;
         s.ExperimentalNativeMainChatEnabled   = TglNativeMainChat.IsChecked == true;
         s.ToolcallerDatasetCaptureEnabled     = TglToolcallerDatasetCapture.IsChecked == true;
+        s.ToolcallerRepairEnabled             = TglToolcallerRepair.IsChecked == true;
         s.NativeRuntimeModelRoot = TbNativeRuntimeModelRoot.Text?.Trim() ?? "";
         s.NativeRuntimeContextSize = int.TryParse(TbNativeRuntimeContextSize.Text, out var nativeCtx)
             ? Math.Max(512, nativeCtx)

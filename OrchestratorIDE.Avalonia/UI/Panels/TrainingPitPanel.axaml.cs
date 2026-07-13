@@ -265,15 +265,17 @@ public partial class TrainingPitPanel : UserControl
 
     // ── Data loading ──────────────────────────────────────────────────────────
 
+    private static bool IsRealPitRoot(string root) =>
+        Directory.Exists(Path.Combine(root, "training_pit", "foundry"));
+
     private static string ResolvePitRoot(string workspaceRoot)
     {
-        if (!string.IsNullOrEmpty(workspaceRoot) &&
-            Directory.Exists(Path.Combine(workspaceRoot, "training_pit")))
+        if (!string.IsNullOrEmpty(workspaceRoot) && IsRealPitRoot(workspaceRoot))
             return workspaceRoot;
 
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         for (int i = 0; i < 8 && dir != null; i++, dir = dir.Parent)
-            if (Directory.Exists(Path.Combine(dir.FullName, "training_pit")))
+            if (IsRealPitRoot(dir.FullName))
                 return dir.FullName;
         return "";
     }
@@ -371,6 +373,8 @@ public partial class TrainingPitPanel : UserControl
                 RefreshGen();
                 RefreshForge();
                 RefreshFoundry();
+                RefreshArena();
+                RefreshGauntlet();
             });
 
             _ = ReloadModelsAsync();
@@ -520,6 +524,8 @@ public partial class TrainingPitPanel : UserControl
         if (HarvestRunning) return;
         if (ForgeRunning)   { OnActivity?.Invoke("Not starting harvest — Forge is using the GPU."); return; }
         if (FoundryRunning) { OnActivity?.Invoke("Not starting harvest — Foundry is using the GPU."); return; }
+        if (ArenaRunning)   { OnActivity?.Invoke("Not starting harvest — Arena benchmark is using the GPU."); return; }
+        if (GauntletRunning){ OnActivity?.Invoke("Not starting harvest — Refusal Gauntlet is using the GPU."); return; }
         if (ReviewRunning)  { OnActivity?.Invoke("Not starting harvest — a review is using the GPU."); return; }
         if (_liveActive)    { OnActivity?.Invoke("Not starting harvest — captures already arriving."); return; }
 
@@ -713,6 +719,8 @@ public partial class TrainingPitPanel : UserControl
         if (HarvestRunning || _liveActive) { OnActivity?.Invoke("🏛 Academy refused: harvest owns the GPU."); return; }
         if (ReviewRunning)                  { OnActivity?.Invoke("🏛 Academy refused: review owns the GPU."); return; }
         if (FoundryRunning)                 { OnActivity?.Invoke("🏛 Academy refused: Foundry owns the GPU."); return; }
+        if (ArenaRunning)                   { OnActivity?.Invoke("🏛 Academy refused: Arena benchmark owns the GPU."); return; }
+        if (GauntletRunning)                { OnActivity?.Invoke("🏛 Academy refused: Refusal Gauntlet owns the GPU."); return; }
 
         var hfRepo = TbHfRepo.Text?.Trim() ?? "";
         if (hfRepo.Length == 0) { OnActivity?.Invoke("🏛 Academy refused: HF repo is empty."); return; }
@@ -983,6 +991,8 @@ public partial class TrainingPitPanel : UserControl
         if (GenRunning) return;
         if (ForgeRunning)   { OnActivity?.Invoke("🧪 Generator refused: Forge is using the GPU."); return; }
         if (FoundryRunning) { OnActivity?.Invoke("🧪 Generator refused: Foundry is using the GPU."); return; }
+        if (ArenaRunning)   { OnActivity?.Invoke("🧪 Generator refused: Arena benchmark is using the GPU."); return; }
+        if (GauntletRunning){ OnActivity?.Invoke("🧪 Generator refused: Refusal Gauntlet is using the GPU."); return; }
 
         // Native and Claude backends don't need an Ollama model selected
         var activeBackend = _genTargetIsToolcaller ? _genBackend : "ollama";
@@ -1387,13 +1397,16 @@ public partial class TrainingPitPanel : UserControl
                 : $"{info.Count} of {ReviewExperimentalGate} toward an experimental adapter";
         ReviewLatest.Text = info.LatestSummary.Length > 0 ? $"latest: {info.LatestSummary}" : "";
 
-        var gpuFree = !ReviewRunning && !HarvestRunning && !ForgeRunning && !FoundryRunning;
+        var gpuFree = !ReviewRunning && !HarvestRunning && !ForgeRunning && !FoundryRunning
+                      && !ArenaRunning && !GauntletRunning;
         BtnReviewNow.IsEnabled        = gpuFree;
         BtnCaptureIncrement.IsEnabled = gpuFree;
         if (!gpuFree)
         {
             var reason = ReviewRunning   ? "Review already running."
                        : HarvestRunning ? "Harvest is using the GPU."
+                       : ArenaRunning   ? "Arena benchmark is using the GPU."
+                       : GauntletRunning ? "Refusal Gauntlet is using the GPU."
                                         : "Training is using the GPU.";
             ToolTip.SetTip(BtnReviewNow,        reason);
             ToolTip.SetTip(BtnCaptureIncrement, reason);
@@ -1454,7 +1467,7 @@ public partial class TrainingPitPanel : UserControl
 
     private void BtnReviewNow_Click(object? s, RoutedEventArgs e)
     {
-        if (ReviewRunning || HarvestRunning || ForgeRunning || FoundryRunning)
+        if (ReviewRunning || HarvestRunning || ForgeRunning || FoundryRunning || ArenaRunning || GauntletRunning)
         {
             OnActivity?.Invoke("🔍 Review refused — GPU is in use.");
             return;
@@ -1501,7 +1514,7 @@ public partial class TrainingPitPanel : UserControl
 
     private void BtnCaptureIncrement_Click(object? s, RoutedEventArgs e)
     {
-        if (ReviewRunning || HarvestRunning || ForgeRunning || FoundryRunning)
+        if (ReviewRunning || HarvestRunning || ForgeRunning || FoundryRunning || ArenaRunning || GauntletRunning)
         {
             OnActivity?.Invoke("⬇ Capture refused — GPU is in use.");
             return;
@@ -1566,6 +1579,14 @@ public partial class TrainingPitPanel : UserControl
     private Process?         _foundryProcess;
     private DispatcherTimer? _foundryTimer;
     private bool _foundryDotOn;
+
+    // ── ARENA (benchmark) ─────────────────────────────────────────────────────
+    private Process?         _arenaProcess;
+    private DispatcherTimer? _arenaTimer;
+    private bool   _arenaDotOn;
+    private string _arenaOutDir = "";
+
+    private bool ArenaRunning => _arenaProcess is { HasExited: false };
 
     private string FoundryDir          => Path.Combine(_pitRoot, "training_pit", "foundry");
     private string FoundryConfigPath   => Path.Combine(FoundryDir, "configs", "toolcaller_v0.json");
@@ -1801,6 +1822,8 @@ public partial class TrainingPitPanel : UserControl
         if (FoundryRunning) return;
         if (ForgeRunning)                  { OnActivity?.Invoke("⚒ Foundry refused: ORC ACADEMY owns the GPU."); return; }
         if (GenRunning)                    { OnActivity?.Invoke("⚒ Foundry refused: generator owns the GPU."); return; }
+        if (ArenaRunning)                  { OnActivity?.Invoke("⚒ Foundry refused: Arena benchmark owns the GPU."); return; }
+        if (GauntletRunning)               { OnActivity?.Invoke("⚒ Foundry refused: Refusal Gauntlet owns the GPU."); return; }
         if (HarvestRunning || _liveActive) { OnActivity?.Invoke("⚒ Foundry refused: harvest owns the GPU."); return; }
         if (ReviewRunning)                 { OnActivity?.Invoke("⚒ Foundry refused: review owns the GPU."); return; }
         if (!File.Exists(FoundryConfigPath))
@@ -1986,6 +2009,581 @@ public partial class TrainingPitPanel : UserControl
     {
         if (Directory.Exists(FoundryDir))
             Process.Start(new ProcessStartInfo(FoundryDir) { UseShellExecute = true })?.Dispose();
+    }
+
+    // ── ARENA ─────────────────────────────────────────────────────────────────
+
+    private void RefreshArena()
+    {
+        var outputsRoot = Path.Combine(_pitRoot, "training_pit", "outputs");
+        var evalPath    = Path.Combine(_pitRoot, "training_pit", "datasets", "eval_toolcaller_v0.jsonl");
+        var options     = new List<ArenaAdapterOptionAva>();
+
+        if (Directory.Exists(outputsRoot) && File.Exists(evalPath))
+        {
+            foreach (var dir in Directory.GetDirectories(outputsRoot, "foundry_toolcaller_*")
+                                         .OrderByDescending(d => d))
+            {
+                var adapterDir  = Path.Combine(dir, "adapter");
+                var configPath  = Path.Combine(adapterDir, "adapter_config.json");
+                if (!File.Exists(configPath)) continue;
+
+                string? baseModelId = null;
+                try
+                {
+                    using var doc  = JsonDocument.Parse(File.ReadAllText(configPath));
+                    baseModelId    = doc.RootElement.TryGetProperty("base_model_name_or_path", out var bm)
+                                    ? bm.GetString() : null;
+                }
+                catch { }
+
+                var name      = Path.GetFileName(dir);
+                var outDir    = Path.Combine(dir, "arena");
+                var hasResult = File.Exists(Path.Combine(outDir, "results.json"));
+                options.Add(new ArenaAdapterOptionAva
+                {
+                    Display      = hasResult ? $"✓ {name}" : name,
+                    AdapterDir   = adapterDir,
+                    EvalPath     = evalPath,
+                    OutDir       = outDir,
+                    HasResult    = hasResult,
+                    BaseModelId  = baseModelId ?? "",
+                });
+
+                // Base model option (one per unique base model)
+                if (baseModelId is not null &&
+                    !options.Any(o => o.BaseOnly && o.BaseModelId == baseModelId))
+                {
+                    var baseOutDir = Path.Combine(outputsRoot, "arena_baseline",
+                                                  baseModelId.Replace('/', '_').Replace(':', '_'));
+                    options.Add(new ArenaAdapterOptionAva
+                    {
+                        Display     = $"BASE  {baseModelId.Split('/').Last()}  (no adapter)",
+                        AdapterDir  = adapterDir,
+                        EvalPath    = evalPath,
+                        OutDir      = baseOutDir,
+                        HasResult   = File.Exists(Path.Combine(baseOutDir, "results.json")),
+                        BaseOnly    = true,
+                        BaseModelId = baseModelId,
+                    });
+                }
+            }
+        }
+
+        var prevOut = (CbArenaAdapter.SelectedItem as ArenaAdapterOptionAva)?.OutDir;
+        CbArenaAdapter.ItemsSource   = options;
+        CbArenaAdapter.SelectedItem  =
+            options.FirstOrDefault(o => o.OutDir == prevOut) ??
+            options.FirstOrDefault(o => !o.BaseOnly);
+
+        BtnArenaRun.IsEnabled  = !ArenaRunning && options.Any(o => !o.BaseOnly);
+        BtnArenaStop.IsEnabled = ArenaRunning;
+
+        if (CbArenaAdapter.SelectedItem is ArenaAdapterOptionAva sel)
+            TryShowArenaResults(sel.OutDir);
+    }
+
+    private void CbArenaAdapter_SelectionChanged(object? s, SelectionChangedEventArgs e)
+    {
+        if (CbArenaAdapter.SelectedItem is ArenaAdapterOptionAva opt)
+            TryShowArenaResults(opt.OutDir);
+    }
+
+    private void TryShowArenaResults(string outDir)
+    {
+        var resultsPath = Path.Combine(outDir, "results.json");
+        if (!File.Exists(resultsPath))
+        {
+            if (!ArenaRunning)
+            {
+                BorderArenaResults.IsVisible = false;
+                ArenaResultBadge.IsVisible   = false;
+            }
+            return;
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(ReadSharedText(resultsPath));
+            var root = doc.RootElement;
+            var finished = root.TryGetProperty("finished", out var f) ? f.GetString() ?? "" : "";
+            RenderArenaResults(root.GetProperty("metrics"), finished);
+        }
+        catch { }
+    }
+
+    private void RenderArenaResults(JsonElement m, string finished)
+    {
+        static string Pct(JsonElement m, string key) =>
+            m.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number
+                ? $"{v.GetDouble() * 100:F0}%" : "—";
+
+        TbArenaDecisionAcc.Text = Pct(m, "decision_accuracy");
+        TbArenaJsonValid.Text   = Pct(m, "json_validity");
+        TbArenaToolPrec.Text    = Pct(m, "tool_precision");
+        TbArenaArgMatch.Text    = Pct(m, "arg_exact_match");
+
+        ArenaResultBadge.IsVisible   = true;
+        ArenaResultBadgeText.Text    = TbArenaDecisionAcc.Text;
+        BorderArenaResults.IsVisible = true;
+        ArenaResultFooter.Text       = finished.Length > 0 ? $"evaluated {finished}" : "";
+
+        // Per-class F1 bars
+        var classRows = new List<ArenaClassRowAva>();
+        if (m.TryGetProperty("per_class", out var pc))
+        {
+            var styles = new Dictionary<string, (string fg, string bar)>
+            {
+                ["call"]        = ("#A080FF", "#6040E0"),
+                ["no_tool"]     = ("#80C080", "#409040"),
+                ["clarify"]     = ("#80C0E0", "#4090A0"),
+                ["unsupported"] = ("#E8C080", "#A08030"),
+            };
+            foreach (var cls in new[] { "call", "no_tool", "clarify", "unsupported" })
+            {
+                if (!pc.TryGetProperty(cls, out var cv)) continue;
+                var f1    = cv.TryGetProperty("f1",    out var fv) ? fv.GetDouble() : 0.0;
+                var count = cv.TryGetProperty("count", out var cv2) ? cv2.GetInt32()  : 0;
+                var tp    = cv.TryGetProperty("tp",    out var tv) ? tv.GetInt32()  : 0;
+                var (fg, bar) = styles.GetValueOrDefault(cls, ("#AAAAAA", "#666666"));
+                classRows.Add(new ArenaClassRowAva
+                {
+                    Label       = cls,
+                    TpCountText = $"{tp}/{count}",
+                    F1Text      = $"F1 {f1:F3}",
+                    F1Pct       = f1 * 100.0,
+                    LabelBrush  = new SolidColorBrush(Color.Parse(fg)),
+                    BarBrush    = new SolidColorBrush(Color.Parse(bar)),
+                });
+            }
+        }
+        ArenaClassList.ItemsSource = classRows;
+    }
+
+    /// <summary>
+    /// Platform-aware launcher for the python eval scripts (Arena / Refusal Gauntlet),
+    /// following StartForge's convention: cmd.exe shell-redirection on Windows, a temp
+    /// /bin/sh script elsewhere so args are shell-quoted and the log redirection is
+    /// owned by the shell (survives an app crash mid-run). Returns null on failure.
+    /// </summary>
+    private static ProcessStartInfo? BuildPythonEvalLauncher(
+        string scriptPath,
+        IReadOnlyList<(string Flag, string? Value)> flags,
+        string logPath, string workDir, out string? tempScript)
+    {
+        tempScript = null;
+#if WINDOWS
+        var winArgs = new System.Text.StringBuilder($"-u \"{scriptPath}\"");
+        foreach (var (flag, value) in flags)
+        {
+            winArgs.Append(' ').Append(flag);
+            if (value is not null) winArgs.Append($" \"{value}\"");
+        }
+        return new ProcessStartInfo
+        {
+            FileName         = "cmd.exe",
+            Arguments        = $"/c python {winArgs} >> \"{logPath}\" 2>&1",
+            WorkingDirectory = workDir, UseShellExecute = false, CreateNoWindow = true,
+        };
+#else
+        try
+        {
+            static string ShQ(string s) => "'" + s.Replace("'", "'\\''") + "'";
+            var python = Environment.GetEnvironmentVariable("PYTHON") ?? "python3";
+            tempScript = Path.Combine(Path.GetTempPath(), $"orc_eval_{DateTime.Now:yyyyMMdd_HHmmssfff}.sh");
+            var sb = new System.Text.StringBuilder("#!/bin/sh\n");
+            sb.Append(ShQ(python)).Append(" -u ").Append(ShQ(scriptPath));
+            foreach (var (flag, value) in flags)
+            {
+                sb.Append(' ').Append(flag);
+                if (value is not null) sb.Append(' ').Append(ShQ(value));
+            }
+            sb.Append(" >> ").Append(ShQ(logPath)).Append(" 2>&1\n");
+            File.WriteAllText(tempScript, sb.ToString());
+            var psi = new ProcessStartInfo
+            {
+                FileName = "/bin/sh", WorkingDirectory = workDir,
+                UseShellExecute = false, CreateNoWindow = true,
+            };
+            psi.ArgumentList.Add(tempScript);
+            return psi;
+        }
+        catch
+        {
+            return null;
+        }
+#endif
+    }
+
+    private void BtnArenaRun_Click(object? s, RoutedEventArgs e)
+    {
+        if (ArenaRunning)   return;
+        if (ForgeRunning)   { OnActivity?.Invoke("⚔ Arena refused: Forge is using the GPU."); return; }
+        if (FoundryRunning) { OnActivity?.Invoke("⚔ Arena refused: Foundry is using the GPU."); return; }
+        if (GenRunning)     { OnActivity?.Invoke("⚔ Arena refused: generator is using the GPU."); return; }
+        if (HarvestRunning || _liveActive) { OnActivity?.Invoke("⚔ Arena refused: harvest owns the GPU."); return; }
+        if (ReviewRunning)  { OnActivity?.Invoke("⚔ Arena refused: review owns the GPU."); return; }
+        if (GauntletRunning){ OnActivity?.Invoke("⚔ Arena refused: Refusal Gauntlet is using the GPU."); return; }
+
+        if (CbArenaAdapter.SelectedItem is not ArenaAdapterOptionAva opt)
+        { OnActivity?.Invoke("⚔ Arena: select an adapter first."); return; }
+
+        if (!File.Exists(opt.EvalPath))
+        { OnActivity?.Invoke($"⚔ Arena: eval file not found — {opt.EvalPath}"); return; }
+
+        var scriptPath = Path.Combine(_pitRoot, "training_pit", "foundry", "scripts", "eval_toolcaller.py");
+        if (!File.Exists(scriptPath))
+        { OnActivity?.Invoke($"⚔ Arena: eval script not found at {scriptPath}"); return; }
+
+        _arenaOutDir = opt.OutDir;
+        Directory.CreateDirectory(_arenaOutDir);
+
+        var logPath = Path.Combine(_arenaOutDir, "arena.log");
+        File.WriteAllText(logPath, $"=== arena run {DateTime.Now:yyyy-MM-dd HH:mm} ===\n");
+
+        var flags = new List<(string, string?)>
+        {
+            ("--adapter", opt.AdapterDir),
+            ("--eval",    opt.EvalPath),
+            ("--out",     opt.OutDir),
+        };
+        if (opt.BaseOnly) flags.Add(("--base-only", null));
+
+        var psi = BuildPythonEvalLauncher(scriptPath, flags, logPath, _pitRoot, out var tempScript);
+        if (psi is null) { OnActivity?.Invoke("⚔ Arena: failed to prepare launcher."); return; }
+
+        try { _arenaProcess = Process.Start(psi); }
+        catch (Exception ex)
+        {
+            if (tempScript is not null) try { File.Delete(tempScript); } catch { }
+            OnActivity?.Invoke($"⚔ Arena launch failed: {ex.Message}"); return;
+        }
+
+        if (_arenaProcess is null)
+        {
+            if (tempScript is not null) try { File.Delete(tempScript); } catch { }
+            OnActivity?.Invoke("⚔ Arena: failed to launch."); return;
+        }
+        if (tempScript is not null)
+        {
+            var ts = tempScript;
+            _arenaProcess.EnableRaisingEvents = true;
+            _arenaProcess.Exited += (_, _) => { try { File.Delete(ts); } catch { } };
+        }
+
+        var label = opt.BaseOnly
+            ? $"base-model baseline ({opt.BaseModelId.Split('/').Last()})"
+            : $"adapter {Path.GetFileName(Path.GetDirectoryName(opt.AdapterDir) ?? opt.AdapterDir)}";
+        OnActivity?.Invoke($"⚔ Arena started — {label} vs {Path.GetFileName(opt.EvalPath)}");
+        ArenaStatus.Text         = "Launching evaluator — loading model…";
+        ArenaBar.IsIndeterminate = true;
+        ArenaDot.IsVisible       = true;
+        BtnArenaRun.IsEnabled    = false;
+        BtnArenaStop.IsEnabled   = true;
+        BorderArenaResults.IsVisible = false;
+
+        _arenaTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        _arenaTimer.Tick -= ArenaTimer_Tick;
+        _arenaTimer.Tick += ArenaTimer_Tick;
+        _arenaTimer.Start();
+    }
+
+    private void BtnArenaStop_Click(object? s, RoutedEventArgs e)
+    {
+        if (!ArenaRunning) return;
+        try { _arenaProcess!.Kill(entireProcessTree: true); _arenaProcess.WaitForExit(3000); } catch { }
+        OnActivity?.Invoke("⚔ Arena stopped.");
+        ArenaStatus.Text = "Stopped.";
+        ArenaDone();
+    }
+
+    private void BtnArenaFolder_Click(object? s, RoutedEventArgs e)
+    {
+        var dir = _arenaOutDir.Length > 0 && Directory.Exists(_arenaOutDir)
+                  ? _arenaOutDir
+                  : Path.Combine(_pitRoot, "training_pit", "outputs");
+        if (Directory.Exists(dir))
+            Process.Start(new ProcessStartInfo(dir) { UseShellExecute = true })?.Dispose();
+    }
+
+    /// <summary>
+    /// Read a progress/results file WITHOUT taking a share-blocking handle. Plain
+    /// File.ReadAllText opens with FileShare.Read, which makes the eval script's atomic
+    /// tmp→json os.replace fail with PermissionError if a poll lands at that instant
+    /// (this killed a live baseline run at step 20/260 on 2026-07-09). FileShare
+    /// ReadWrite|Delete lets the writer replace the file underneath us; worst case we
+    /// parse a stale snapshot and pick up the fresh one 3 s later.
+    /// </summary>
+    private static string ReadSharedText(string path)
+    {
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
+                                      FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(fs);
+        return reader.ReadToEnd();
+    }
+
+    private void ArenaTimer_Tick(object? s, EventArgs e)
+    {
+        if (!ArenaRunning)
+        {
+            var resultsPath = Path.Combine(_arenaOutDir, "results.json");
+            if (File.Exists(resultsPath))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(ReadSharedText(resultsPath));
+                    var root = doc.RootElement;
+                    var fin  = root.TryGetProperty("finished", out var f) ? f.GetString() ?? "" : "";
+                    RenderArenaResults(root.GetProperty("metrics"), fin);
+                    OnActivity?.Invoke($"⚔ Arena finished — decision accuracy: {TbArenaDecisionAcc.Text}");
+                    RefreshArena(); // refresh picker so completed adapters show ✓
+                }
+                catch { OnActivity?.Invoke("⚔ Arena finished but results unreadable."); }
+            }
+            else
+            {
+                var logPath = Path.Combine(_arenaOutDir, "arena.log");
+                var tail = File.Exists(logPath)
+                    ? string.Join(" ", File.ReadLines(logPath).TakeLast(2)) : "no log";
+                ArenaStatus.Text = Truncate($"Arena exited unexpectedly — {tail}", 180);
+                OnActivity?.Invoke("⚔ Arena exited unexpectedly — check arena.log");
+            }
+            ArenaDone();
+            return;
+        }
+
+        _arenaDotOn    = !_arenaDotOn;
+        ArenaDot.Opacity = _arenaDotOn ? 1.0 : 0.35;
+
+        var progressPath = Path.Combine(_arenaOutDir, "progress.json");
+        if (!File.Exists(progressPath)) return;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(ReadSharedText(progressPath));
+            var p     = doc.RootElement;
+            var sts   = p.GetProperty("status").GetString() ?? "?";
+            var step  = p.TryGetProperty("step",  out var st) ? st.GetInt32() : 0;
+            var total = p.TryGetProperty("total", out var t)  ? t.GetInt32()  : 0;
+
+            ArenaBar.IsIndeterminate = sts is "loading_model";
+            if (!ArenaBar.IsIndeterminate && total > 0)
+                ArenaBar.Value = Math.Min(100.0, step * 100.0 / total);
+
+            ArenaStatus.Text = sts switch
+            {
+                "loading_model" => "Loading model and adapter (first run may take 30–60s)…",
+                "evaluating"    => total > 0 ? $"Evaluating {step}/{total}…" : "Evaluating…",
+                "done"          => "Done.",
+                _               => sts,
+            };
+
+            // Show live partial results once we have ≥10 samples
+            if (step >= 10 &&
+                p.TryGetProperty("metrics", out var m) &&
+                m.ValueKind == JsonValueKind.Object &&
+                m.TryGetProperty("decision_accuracy", out _))
+            {
+                RenderArenaResults(m, "in progress");
+                BorderArenaResults.IsVisible = true;
+            }
+        }
+        catch { }
+    }
+
+    private void ArenaDone()
+    {
+        _arenaTimer?.Stop();
+        _arenaProcess?.Dispose();
+        _arenaProcess        = null;
+        ArenaBar.IsIndeterminate = false;
+        ArenaDot.IsVisible   = false;
+        ArenaDot.Fill        = new SolidColorBrush(Color.Parse("#6040E0"));
+        BtnArenaRun.IsEnabled  = true;
+        BtnArenaStop.IsEnabled = false;
+    }
+
+    // ── REFUSAL GAUNTLET ──────────────────────────────────────────────────────
+    // Adversarial refusal coverage for the DEPLOYED artifact: 4,788 generated
+    // cases across 6 failure families, scored two ways — strict decision match
+    // and safety rate (no fabricated tool call), each with an exact one-sided
+    // 95% Clopper-Pearson lower bound. See docs/TOOLCALLER_REFUSAL_GAUNTLET.md.
+
+    private const string GauntletModel = "theorc-toolcaller:qwen25-1.5b";
+
+    private Process?         _gauntletProcess;
+    private DispatcherTimer? _gauntletTimer;
+    private bool GauntletRunning => _gauntletProcess is { HasExited: false };
+
+    private string GauntletEvalPath => Path.Combine(_pitRoot, "training_pit", "datasets", "refusal_gauntlet_v0.jsonl");
+    private string GauntletOutDir   => Path.Combine(_pitRoot, "training_pit", "outputs", "refusal_gauntlet",
+                                                    GauntletModel.Replace(':', '_').Replace('/', '_'));
+
+    private void RefreshGauntlet() => TryShowGauntletResults();
+
+    private void TryShowGauntletResults()
+    {
+        var resultsPath = Path.Combine(GauntletOutDir, "results.json");
+        if (!File.Exists(resultsPath))
+        {
+            if (!GauntletRunning) BorderGauntletResults.IsVisible = false;
+            return;
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(ReadSharedText(resultsPath));
+            var root = doc.RootElement;
+            var fin  = root.TryGetProperty("finished", out var f) ? f.GetString() ?? "" : "";
+            RenderGauntletResults(root.GetProperty("metrics"), fin);
+        }
+        catch { }
+    }
+
+    private void RenderGauntletResults(JsonElement m, string finished)
+    {
+        static double Num(JsonElement m, string key) =>
+            m.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : 0;
+
+        TbGauntletSafety.Text   = $"{Num(m, "safety_rate") * 100:F1}%";
+        TbGauntletSafetyCi.Text = $"cp95 ≥ {Num(m, "safety_cp95_lower") * 100:F1}%";
+        TbGauntletStrict.Text   = $"{Num(m, "accuracy") * 100:F1}%";
+        TbGauntletStrictCi.Text = $"cp95 ≥ {Num(m, "cp95_lower") * 100:F1}%";
+        TbGauntletFab.Text      = $"{(int)Num(m, "fabricated_calls")}";
+        TbGauntletFlips.Text    = $"{(int)Num(m, "flip_groups")}/{(int)Num(m, "paraphrase_groups")}";
+
+        GauntletBadge.IsVisible   = true;
+        GauntletBadgeText.Text    = $"safety {TbGauntletSafety.Text}";
+        BorderGauntletResults.IsVisible = true;
+        GauntletFooter.Text = finished.Length > 0 ? $"evaluated {finished} · model {GauntletModel}" : "";
+
+        var famRows = new List<ArenaClassRowAva>();
+        if (m.TryGetProperty("per_family", out var pf))
+        {
+            foreach (var fam in pf.EnumerateObject())
+            {
+                var acc    = fam.Value.TryGetProperty("accuracy",    out var a) ? a.GetDouble() : 0;
+                var safety = fam.Value.TryGetProperty("safety_rate", out var sr) ? sr.GetDouble() : 0;
+                var n      = fam.Value.TryGetProperty("n",           out var nv) ? nv.GetInt32() : 0;
+                var ok     = fam.Value.TryGetProperty("correct",     out var cv) ? cv.GetInt32() : 0;
+                // Families with any fabrication risk stand out in red-ish tones.
+                var (fg, bar) = safety < 1.0 ? ("#F09090", "#A04040") : ("#E0C080", "#806020");
+                famRows.Add(new ArenaClassRowAva
+                {
+                    Label       = fam.Name,
+                    TpCountText = $"{ok}/{n}",
+                    F1Text      = $"{acc * 100:F1}% ({safety * 100:F0}%)",
+                    F1Pct       = acc * 100.0,
+                    LabelBrush  = new SolidColorBrush(Color.Parse(fg)),
+                    BarBrush    = new SolidColorBrush(Color.Parse(bar)),
+                });
+            }
+        }
+        GauntletFamilyList.ItemsSource = famRows;
+    }
+
+    private void BtnGauntletRun_Click(object? s, RoutedEventArgs e)
+    {
+        if (GauntletRunning) return;
+        // The gauntlet drives the deployed Ollama model — same GPU as every
+        // other training-pit consumer, so it takes the same mutex.
+        if (ForgeRunning)   { OnActivity?.Invoke("🛡 Gauntlet refused: Forge is using the GPU."); return; }
+        if (FoundryRunning) { OnActivity?.Invoke("🛡 Gauntlet refused: Foundry is using the GPU."); return; }
+        if (ArenaRunning)   { OnActivity?.Invoke("🛡 Gauntlet refused: Arena benchmark is using the GPU."); return; }
+        if (GenRunning)     { OnActivity?.Invoke("🛡 Gauntlet refused: generator is using the GPU."); return; }
+        if (HarvestRunning || _liveActive) { OnActivity?.Invoke("🛡 Gauntlet refused: harvest owns the GPU."); return; }
+        if (ReviewRunning)  { OnActivity?.Invoke("🛡 Gauntlet refused: review owns the GPU."); return; }
+        if (!File.Exists(GauntletEvalPath))
+        {
+            OnActivity?.Invoke("🛡 Gauntlet: dataset missing — run generate_refusal_gauntlet.py first.");
+            return;
+        }
+        var scriptPath = Path.Combine(_pitRoot, "training_pit", "foundry", "scripts", "eval_refusal_gauntlet.py");
+        if (!File.Exists(scriptPath))
+        { OnActivity?.Invoke($"🛡 Gauntlet: eval script not found at {scriptPath}"); return; }
+
+        Directory.CreateDirectory(GauntletOutDir);
+        var logPath = Path.Combine(GauntletOutDir, "gauntlet.log");
+        File.WriteAllText(logPath, $"=== gauntlet run {DateTime.Now:yyyy-MM-dd HH:mm} ===\n");
+
+        var psi = BuildPythonEvalLauncher(scriptPath, new List<(string, string?)>
+        {
+            ("--ollama",  GauntletModel),
+            ("--eval",    GauntletEvalPath),
+            ("--out",     GauntletOutDir),
+            ("--workers", "4"),
+        }, logPath, _pitRoot, out var tempScript);
+        if (psi is null) { OnActivity?.Invoke("🛡 Gauntlet: failed to prepare launcher."); return; }
+
+        try { _gauntletProcess = Process.Start(psi); }
+        catch (Exception ex)
+        {
+            if (tempScript is not null) try { File.Delete(tempScript); } catch { }
+            OnActivity?.Invoke($"🛡 Gauntlet launch failed: {ex.Message}"); return;
+        }
+        if (_gauntletProcess is null)
+        {
+            if (tempScript is not null) try { File.Delete(tempScript); } catch { }
+            OnActivity?.Invoke("🛡 Gauntlet: failed to launch."); return;
+        }
+        if (tempScript is not null)
+        {
+            var ts = tempScript;
+            _gauntletProcess.EnableRaisingEvents = true;
+            _gauntletProcess.Exited += (_, _) => { try { File.Delete(ts); } catch { } };
+        }
+
+        OnActivity?.Invoke($"🛡 Refusal Gauntlet started — {GauntletModel} vs {Path.GetFileName(GauntletEvalPath)}");
+        GauntletStatus.Text       = "Running against the deployed Ollama model…";
+        GauntletBar.IsIndeterminate = true;
+        GauntletDot.IsVisible     = true;
+        BtnGauntletRun.IsEnabled  = false;
+
+        _gauntletTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        _gauntletTimer.Tick -= GauntletTimer_Tick;
+        _gauntletTimer.Tick += GauntletTimer_Tick;
+        _gauntletTimer.Start();
+    }
+
+    private void GauntletTimer_Tick(object? s, EventArgs e)
+    {
+        if (!GauntletRunning)
+        {
+            TryShowGauntletResults();
+            GauntletStatus.Text = File.Exists(Path.Combine(GauntletOutDir, "results.json"))
+                ? "Done — failures.jsonl in the output folder feeds the next training round."
+                : "Gauntlet exited unexpectedly — check gauntlet.log";
+            OnActivity?.Invoke($"🛡 Refusal Gauntlet finished — safety {TbGauntletSafety.Text}, strict {TbGauntletStrict.Text}");
+            GauntletDone();
+            return;
+        }
+
+        var progressPath = Path.Combine(GauntletOutDir, "progress.json");
+        if (!File.Exists(progressPath)) return;
+        try
+        {
+            using var doc = JsonDocument.Parse(ReadSharedText(progressPath));
+            var p     = doc.RootElement;
+            var step  = p.TryGetProperty("step",  out var st) ? st.GetInt32() : 0;
+            var total = p.TryGetProperty("total", out var t)  ? t.GetInt32()  : 0;
+
+            GauntletBar.IsIndeterminate = step == 0;
+            if (total > 0) GauntletBar.Value = Math.Min(100.0, step * 100.0 / total);
+            GauntletStatus.Text = total > 0 ? $"Evaluating {step}/{total}…" : "Evaluating…";
+
+            if (step >= 50 && p.TryGetProperty("metrics", out var m) &&
+                m.ValueKind == JsonValueKind.Object && m.TryGetProperty("safety_rate", out _))
+                RenderGauntletResults(m, "in progress");
+        }
+        catch { }
+    }
+
+    private void GauntletDone()
+    {
+        _gauntletTimer?.Stop();
+        _gauntletProcess?.Dispose();
+        _gauntletProcess = null;
+        GauntletBar.IsIndeterminate = false;
+        GauntletDot.IsVisible    = false;
+        BtnGauntletRun.IsEnabled = true;
     }
 
     private void BtnFoundryActivate_Click(object? s, RoutedEventArgs e)
@@ -2241,6 +2839,30 @@ public class AdapterRowAva
                            (IBrush)new SolidColorBrush(Color.Parse("#999999"))),
         };
     }
+}
+
+public class ArenaAdapterOptionAva
+{
+    public string Display     { get; init; } = "";
+    public string AdapterDir  { get; init; } = "";
+    public string EvalPath    { get; init; } = "";
+    public string OutDir      { get; init; } = "";
+    public string BaseModelId { get; init; } = "";
+    public bool   HasResult   { get; init; }
+    public bool   BaseOnly    { get; init; }
+
+    public IBrush TextBrush => new SolidColorBrush(Color.Parse(
+        BaseOnly ? "#777777" : HasResult ? "#A080FF" : "#D4D4D4"));
+}
+
+public class ArenaClassRowAva
+{
+    public string Label       { get; init; } = "";
+    public string TpCountText { get; init; } = "";
+    public string F1Text      { get; init; } = "";
+    public double F1Pct       { get; init; }
+    public IBrush LabelBrush  { get; init; } = Brushes.Gray;
+    public IBrush BarBrush    { get; init; } = Brushes.Gray;
 }
 
 public class ModelRowAva

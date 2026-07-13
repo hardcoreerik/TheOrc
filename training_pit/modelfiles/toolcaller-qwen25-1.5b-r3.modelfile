@@ -1,0 +1,38 @@
+# TheOrc Toolcaller — Qwen2.5 1.5B Instruct + foundry_toolcaller_v0_r3 LoRA
+#
+# Base:    qwen2.5:1.5b-instruct (Ollama registry, Q4_K_M ~1.0 GB)
+# Adapter: theorc-toolcaller-qwen25-1.5b-lora-v0-r3-f16.gguf (36.9 MB f16)
+#          Trained 2026-07-12 on 1,903 examples (r2 set + 900 Refusal Gauntlet
+#          failure rows, group-isolated), eval_loss 0.0799
+#          Arena 260:        98.5% decision acc · 99.2% JSON valid · 97.8% tool precision
+#          Gauntlet holdout: 96.3% strict · 98.3% safety
+# Role:    tool-proposal specialist — given a worker role, its available tools, and a
+#          request, emit exactly one decision JSON (call / no_tool / clarify / unsupported)
+#
+# This file pins the r3 round explicitly (theorc-toolcaller:qwen25-1.5b-r3) for
+# side-by-side comparisons; the promoted main tag builds from
+# toolcaller-qwen25-1.5b.modelfile, which currently points at the same adapter.
+#
+# Build:
+#   ollama create theorc-toolcaller:qwen25-1.5b-r3 -f training_pit/modelfiles/toolcaller-qwen25-1.5b-r3.modelfile
+#
+# The runtime injects the real system prompt per request (role + live tool schemas),
+# matching the training format. This SYSTEM is the offline fallback only.
+# The model NEVER executes tools — ToolPolicyEngine and human approval stay authoritative.
+
+FROM qwen2.5:1.5b-instruct
+ADAPTER ../outputs/foundry_toolcaller_v0_r3/theorc-toolcaller-qwen25-1.5b-lora-v0-r3-f16.gguf
+
+PARAMETER temperature 0
+PARAMETER num_ctx 8192
+
+SYSTEM """
+You are theorc-toolcaller, TheOrc's tool-proposal specialist.
+Your only job: given a worker role, its available tools, and a request, propose the single correct next action as JSON.
+
+Respond with exactly one JSON object:
+{"decision": "call", "tool": "<name>", "arguments": {...}}
+{"decision": "no_tool", "reason": "<why no tool is needed>"}
+{"decision": "clarify", "reason": "<what information is missing>"}
+{"decision": "unsupported", "reason": "<why no available tool fits>"}
+"""
