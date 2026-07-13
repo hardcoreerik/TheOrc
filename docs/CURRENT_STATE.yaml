@@ -123,12 +123,22 @@ subsystems:
   capture_provenance_enforcement:
     status: experimental
     note: >
-      The toolcaller repair lane specifically excludes its own outputs from
-      being staged as organic training examples (ToolcallerService.
-      RepairProvenanceMarker, checked in SwarmSession before calling
-      ToolcallerDatasetCapture.StageCallAsync). This is NOT yet a schema-level
-      field enforced across every Foundry/Training Pit capture path — see the
-      universal-provenance work item in docs/ROADMAP.md.
+      As of 2026-07-13: every toolcaller v0 (Swarm) and v1 (OrcChat) capture
+      carries a `governance` block (producing_subsystem, candidate_vs_incumbent,
+      human_modified, repair_lineage, parent_example_ids, runtime_version,
+      prompt_version, workspace_sensitivity, redaction_state,
+      consent_setting_version — see training_pit/TOOLCALLER_CAPTURE_SCHEMA.md).
+      The repair-lane contamination path now has TWO independent hard gates:
+      the original SwarmSession call-site exclusion, plus a second check inside
+      ToolcallerDatasetCapture.StageCallAsync/StageChatDecisionAsync itself
+      (candidate_vs_incumbent == "self_incumbent" is refused at write time, not
+      just at the call site) — see
+      ToolcallerDatasetCaptureTests.StageCallAsync_HardGate_*.
+      Still NOT universal: DatasetCapture.cs (plan captures), OllamaReviewService
+      (dataset-judge outputs), and Context Fabric repair data carry no
+      equivalent governance block yet. workspace_sensitivity and
+      redaction_state are honest placeholders (no automated classifier exists
+      yet), not real gates.
 
   release_engineering:
     status: experimental

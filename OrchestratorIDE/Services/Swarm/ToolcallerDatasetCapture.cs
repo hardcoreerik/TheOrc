@@ -69,7 +69,61 @@ public static class ToolcallerDatasetCapture
     /// </summary>
     public static bool IsEnabled { get; set; } = false;
 
+    /// <summary>
+    /// Bump when the opt-in toggle's scope or disclosure copy changes materially (e.g. a new
+    /// data category gets captured under the same setting) — lets a future export distinguish
+    /// examples captured under an old consent description from a new one.
+    /// </summary>
+    private const string ConsentSettingVersion = "1";
+
+    private const string PromptVersionV0 = "v0-2026-07"; // export_toolcaller_dataset.py SYSTEM_TEMPLATE
+    private const string PromptVersionV1 = "v1-2026-07"; // ChatEngine's live per-turn prompt (no fixed template)
+
     private static int _sequence;
+
+    /// <summary>
+    /// Governance/provenance fields recommended by the 2026-07-12 external release review's
+    /// "universal contamination and provenance enforcement" P0 finding. Additive to the existing
+    /// `provenance` object rather than replacing it, to avoid a breaking schema change.
+    ///
+    /// This is the HARD GATE the review asked for, made mechanical rather than a checklist: a
+    /// capture whose producing model IS the toolcaller specialist's own deployed tag
+    /// (candidate_vs_incumbent = "self_incumbent") means the model's own output would become
+    /// positive training truth for its own family — StageCallAsync/StageChatDecisionAsync check
+    /// this and REFUSE to write the capture, as defense-in-depth on top of the call-site
+    /// exclusion in SwarmSession (which checks ToolcallerService.RepairProvenanceMarker before
+    /// ever calling in). Two independent checks so forgetting one at a future call site doesn't
+    /// silently reopen the contamination path the review caught.
+    ///
+    /// NOT yet true, recorded honestly rather than faked: workspace_sensitivity and
+    /// redaction_state have no automated classifier behind them yet (sanitize_dataset.py runs
+    /// later in the pipeline, not at capture time) — both fields exist so a future classifier
+    /// has somewhere to write its verdict, not because classification happens today. This
+    /// governance block also only covers the toolcaller v0/v1 streams; DatasetCapture.cs (plan
+    /// captures), OllamaReviewService (dataset-judge outputs), and Context Fabric repair data
+    /// do not yet carry equivalent fields — see docs/CURRENT_STATE.yaml
+    /// (capture_provenance_enforcement) for the tracked scope gap.
+    /// </summary>
+    private static object BuildGovernance(string producingSubsystem, string producingModel,
+        bool isRepairLaneOutput, string promptVersion) => new
+    {
+        producing_subsystem = producingSubsystem,
+        candidate_vs_incumbent = producingModel == ToolcallerService.Model
+            ? "self_incumbent"
+            : "external",
+        human_modified = false, // true only after a reviewer edits the staged file; capture-time is always false
+        repair_lineage = isRepairLaneOutput,
+        parent_example_ids = Array.Empty<string>(), // organic capture has no synthetic/paraphrase parent yet
+        runtime_version = typeof(ToolcallerDatasetCapture).Assembly.GetName().Version?.ToString() ?? "unknown",
+        prompt_version = promptVersion,
+        workspace_sensitivity = "unclassified",
+        redaction_state = "none",
+        consent_setting_version = ConsentSettingVersion,
+    };
+
+    /// <summary>True when a ToolCall was proposed by the repair lane itself, not the worker/chat model.</summary>
+    private static bool IsRepairLaneOutput(ToolCall call) =>
+        call.ExplainWhy?.Contains(ToolcallerService.RepairProvenanceMarker) == true;
 
     /// <summary>
     /// Stage a "call" example: the worker proposed exactly this tool with these arguments.
@@ -85,6 +139,9 @@ public static class ToolcallerDatasetCapture
         string                        stagingDir)
     {
         if (!IsEnabled) return;
+        // Hard gate (defense-in-depth on top of the SwarmSession call-site exclusion): never
+        // stage the toolcaller specialist's own repair-lane proposal as if a worker produced it.
+        if (IsRepairLaneOutput(call)) return;
 
         try
         {
@@ -108,6 +165,7 @@ public static class ToolcallerDatasetCapture
                     prompt_or_recipe_id = (string?)null,
                     derived_from_example_id = (string?)null,
                 },
+                governance = BuildGovernance("swarm", model, isRepairLaneOutput: false, PromptVersionV0),
                 role = RoleToken(task.Role),
                 request = RequestText(task),
                 available_tools = availableTools.Select(t => t.Name).ToArray(),
@@ -177,6 +235,7 @@ public static class ToolcallerDatasetCapture
                     prompt_or_recipe_id = (string?)null,
                     derived_from_example_id = (string?)null,
                 },
+                governance = BuildGovernance("swarm", model, isRepairLaneOutput: false, PromptVersionV0),
                 role = RoleToken(task.Role),
                 request = RequestText(task),
                 available_tools = availableTools.Select(t => t.Name).ToArray(),
@@ -238,6 +297,12 @@ public static class ToolcallerDatasetCapture
 
             foreach (var call in calls)
             {
+                // Hard gate, same reasoning as StageCallAsync: never stage the specialist's own
+                // repair-lane proposal as if the chat model produced it. The repair lane is
+                // Swarm-only today, so this branch should be unreachable in practice — kept as
+                // defense-in-depth in case OrcChat ever gains repair-lane assistance later.
+                if (IsRepairLaneOutput(call)) continue;
+
                 var exampleId = NextChatExampleId(runId);
                 var policy = workspaceRoot is not null
                     ? ToolPolicyEngine.Evaluate(call.Name, call.Arguments, workspaceRoot)
@@ -273,6 +338,7 @@ public static class ToolcallerDatasetCapture
             prompt_or_recipe_id = (string?)null,
             derived_from_example_id = (string?)null,
         },
+        governance = BuildGovernance("orcchat", model, isRepairLaneOutput: false, PromptVersionV1),
         role = "chat",
         request,
         available_tools = availableTools.Select(t => t.Name).ToArray(),

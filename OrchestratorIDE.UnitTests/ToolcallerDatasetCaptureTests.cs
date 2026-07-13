@@ -158,6 +158,119 @@ public sealed class ToolcallerDatasetCaptureTests
         return dir;
     }
 
+    // ── governance/provenance (external review P0: universal contamination gate) ──
+
+    [Test]
+    public async Task StageCallAsync_WritesGovernanceBlock_WithExpectedFields()
+    {
+        var stagingDir = NewTempDir();
+        var task = new SwarmTask { Title = "x", Description = "Read the config file.", Role = SwarmWorkerRole.Coder };
+        var call = new ToolCall { Name = "read_file", Arguments = new() { ["path"] = "config.json" } };
+
+        await ToolcallerDatasetCapture.StageCallAsync(
+            "20260713_120000", task, "qwen2.5-coder:14b", call, [], NewTempDir(), stagingDir);
+
+        var file = Directory.GetFiles(stagingDir, "toolcaller_capture_*.json").Single();
+        using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(file));
+        var gov = doc.RootElement.GetProperty("governance");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(gov.GetProperty("producing_subsystem").GetString(), Is.EqualTo("swarm"));
+            Assert.That(gov.GetProperty("candidate_vs_incumbent").GetString(), Is.EqualTo("external"),
+                "an ordinary swarm worker model is not the toolcaller specialist itself");
+            Assert.That(gov.GetProperty("human_modified").GetBoolean(), Is.False);
+            Assert.That(gov.GetProperty("repair_lineage").GetBoolean(), Is.False);
+            Assert.That(gov.GetProperty("parent_example_ids").GetArrayLength(), Is.EqualTo(0));
+            Assert.That(gov.GetProperty("runtime_version").GetString(), Is.Not.Empty);
+            Assert.That(gov.GetProperty("prompt_version").GetString(), Is.EqualTo("v0-2026-07"));
+            Assert.That(gov.GetProperty("workspace_sensitivity").GetString(), Is.EqualTo("unclassified"));
+            Assert.That(gov.GetProperty("redaction_state").GetString(), Is.EqualTo("none"));
+            Assert.That(gov.GetProperty("consent_setting_version").GetString(), Is.EqualTo("1"));
+        });
+    }
+
+    [Test]
+    public async Task StageCallAsync_HardGate_RefusesToStage_WhenProducerIsTheRepairLaneItself()
+    {
+        // A ToolCall carrying ToolcallerService.RepairProvenanceMarker in ExplainWhy means the
+        // toolcaller specialist proposed it, not the worker's own model -- staging it would let
+        // the model train on its own output as if it were organic ground truth (the exact
+        // contamination path the external review caught and required a hard gate for).
+        var stagingDir = NewTempDir();
+        var task = new SwarmTask { Title = "x", Description = "Do something.", Role = SwarmWorkerRole.Coder };
+        var call = new ToolCall
+        {
+            Name = "read_file",
+            Arguments = new() { ["path"] = "a.txt" },
+            ExplainWhy = $"proposed by theorc-toolcaller:qwen25-1.5b ({ToolcallerService.RepairProvenanceMarker})",
+        };
+
+        await ToolcallerDatasetCapture.StageCallAsync(
+            "run", task, "qwen2.5-coder:14b", call, [], NewTempDir(), stagingDir);
+
+        Assert.That(Directory.Exists(stagingDir) && Directory.GetFiles(stagingDir).Length > 0, Is.False);
+    }
+
+    [Test]
+    public async Task StageCallAsync_MarksCandidateVsIncumbent_SelfIncumbent_WhenProducerIsTheDeployedToolcallerTag()
+    {
+        // Even without the ExplainWhy marker (e.g. a future call site that forgets to exclude
+        // repair-lane output before calling in), a capture whose producing_model matches the
+        // deployed toolcaller tag exactly must be flagged, not silently treated as ordinary
+        // organic data.
+        var stagingDir = NewTempDir();
+        var task = new SwarmTask { Title = "x", Description = "Do something.", Role = SwarmWorkerRole.Coder };
+        var call = new ToolCall { Name = "read_file", Arguments = new() { ["path"] = "a.txt" } };
+
+        await ToolcallerDatasetCapture.StageCallAsync(
+            "run", task, ToolcallerService.Model, call, [], NewTempDir(), stagingDir);
+
+        var file = Directory.GetFiles(stagingDir, "toolcaller_capture_*.json").Single();
+        using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(file));
+        Assert.That(doc.RootElement.GetProperty("governance").GetProperty("candidate_vs_incumbent").GetString(),
+            Is.EqualTo("self_incumbent"));
+    }
+
+    [Test]
+    public async Task StageChatDecisionAsync_WritesGovernanceBlock_WithChatSubsystemAndPromptVersion()
+    {
+        var stagingDir = NewTempDir();
+        var call = new ToolCall { Name = "read_file", Arguments = new() { ["path"] = "a.txt" } };
+
+        await ToolcallerDatasetCapture.StageChatDecisionAsync(
+            "chat_run", "qwen2.5:7b", "Please read a.txt for me.", [], [call], null, stagingDir);
+
+        var file = Directory.GetFiles(stagingDir, "toolcaller_v1_chat_*.json").Single();
+        using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(file));
+        var gov = doc.RootElement.GetProperty("governance");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(gov.GetProperty("producing_subsystem").GetString(), Is.EqualTo("orcchat"));
+            Assert.That(gov.GetProperty("prompt_version").GetString(), Is.EqualTo("v1-2026-07"));
+            Assert.That(gov.GetProperty("candidate_vs_incumbent").GetString(), Is.EqualTo("external"));
+        });
+    }
+
+    [Test]
+    public async Task StageChatDecisionAsync_HardGate_RefusesToStage_WhenProducerIsTheRepairLaneItself()
+    {
+        var stagingDir = NewTempDir();
+        var call = new ToolCall
+        {
+            Name = "read_file",
+            Arguments = new() { ["path"] = "a.txt" },
+            ExplainWhy = $"proposed by theorc-toolcaller:qwen25-1.5b ({ToolcallerService.RepairProvenanceMarker})",
+        };
+
+        await ToolcallerDatasetCapture.StageChatDecisionAsync(
+            "chat_run", "qwen2.5:7b", "A perfectly long enough request to pass the triviality filter.",
+            [], [call], null, stagingDir);
+
+        Assert.That(Directory.Exists(stagingDir) && Directory.GetFiles(stagingDir).Length > 0, Is.False);
+    }
+
     // ── v1 chat capture (StageChatDecisionAsync) ────────────────────────────────
 
     [Test]

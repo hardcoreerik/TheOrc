@@ -67,13 +67,44 @@ schema is detectable against examples generated under the old one.
   // ── Source and transformation provenance ────────────────────────────────
   "provenance": {
     "source_type": "human-authored",     // "human-authored" | "swarm_capture" |
-                                          // "corrected_model_output" | "synthetic" |
-                                          // "repair" | "paraphrase"
+                                          // "chat_capture" | "corrected_model_output" |
+                                          // "synthetic" | "repair" | "paraphrase"
     "producing_model": null,             // model id if source_type implies model output
     "teacher_model": null,               // teacher id if synthetic (proposed data, not gold)
     "prompt_or_recipe_id": null,         // authoring prompt/recipe version, if applicable
     "derived_from_example_id": null      // example_id this was paraphrased/repaired from,
                                           // if any (must share lineage_group_id)
+  },
+
+  // ── Governance (added 2026-07-13, external release review P0) ──────────
+  // Additive to `provenance` above, not a replacement — organic captures (v0 swarm,
+  // v1 chat) always include this block. Exists so a model's own output can never
+  // silently become positive training truth for its own family; see
+  // OrchestratorIDE/Services/Swarm/ToolcallerDatasetCapture.cs's BuildGovernance
+  // for the two-layer hard gate this backs (call-site exclusion in SwarmSession +
+  // a second check inside the capture sink itself).
+  "governance": {
+    "producing_subsystem": "swarm",      // "swarm" | "orcchat" — which capture stream wrote this
+    "candidate_vs_incumbent": "external", // "external" | "self_incumbent" — "self_incumbent"
+                                          // means producing_model equals the toolcaller
+                                          // specialist's OWN deployed tag; such captures are
+                                          // refused at write time, never staged
+    "human_modified": false,             // true only after a reviewer edits the staged file
+    "repair_lineage": false,             // true if this is a repair-lane proposal (currently
+                                          // such captures are refused, not staged with this
+                                          // flag true — the flag exists for any future path
+                                          // that stages repair output for auditable review
+                                          // rather than automatic exclusion)
+    "parent_example_ids": [],            // organic capture has no synthetic/paraphrase parent
+    "runtime_version": "1.12.0.0",       // OrchestratorIDE.Avalonia assembly version at capture time
+    "prompt_version": "v0-2026-07",      // version tag for the system-prompt template used;
+                                          // v0 = export_toolcaller_dataset.py's SYSTEM_TEMPLATE,
+                                          // v1 = ChatEngine's live per-turn prompt (no fixed template)
+    "workspace_sensitivity": "unclassified", // no automated classifier yet — placeholder for
+                                          // a future scan, NOT a real gate today
+    "redaction_state": "none",           // sanitize_dataset.py runs later in the pipeline,
+                                          // not at capture time
+    "consent_setting_version": "1"       // bump when the opt-in toggle's scope/copy changes
   },
 
   // ── Input context ────────────────────────────────────────────────────────
