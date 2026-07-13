@@ -70,6 +70,17 @@ def main():
     ap.add_argument("--seed", type=int, default=7)
     args = ap.parse_args()
 
+    # The gauntlet group->side assignment is FROZEN with the promotion margin
+    # (toolcaller_v0_r3.json promotion.margin.eval_sets.group_split). Changing
+    # either value silently migrates held-out groups train-side and invalidates
+    # every cross-round comparison — hard-stop rather than trust review to catch it.
+    FROZEN_HOLDOUT_FRAC, FROZEN_SPLIT_SEED = 0.30, 7
+    if args.holdout_frac != FROZEN_HOLDOUT_FRAC or args.seed != FROZEN_SPLIT_SEED:
+        raise SystemExit(
+            f"REFUSED: group split is frozen at holdout_frac={FROZEN_HOLDOUT_FRAC}, "
+            f"seed={FROZEN_SPLIT_SEED} (got {args.holdout_frac}, {args.seed}). "
+            "See promotion.margin.eval_sets.group_split in toolcaller_v0_r3.json.")
+
     base_train = load_jsonl(args.train)
     gauntlet   = load_jsonl(args.gauntlet)
     failures   = load_jsonl(args.failures)
