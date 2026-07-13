@@ -1,0 +1,154 @@
+# TheOrc — machine-readable subsystem status
+#
+# Single source of truth for "is X actually shipped?" — created in response to the
+# 2026-07-12 external release review's P0 finding that canonical docs (ROADMAP.md,
+# THEORC_FOUNDRY.md, FOUNDRY_ARENA.md, docs/README.md) had drifted out of sync with
+# shipped reality (Foundry status was the sharpest example: docs said "F-0
+# documentation only, no model trained" while v1.12.0 had already trained, evaluated,
+# and promoted theorc-toolcaller r3).
+#
+# Status vocabulary (fixed set — do not invent new values without updating this
+# comment and every doc/tool that reads this file):
+#   planned      - designed, not built
+#   experimental - built, not enabled by default, may change or be removed
+#   opt-in       - built, works, off by default behind a user-facing toggle
+#   promoted     - passed its evaluation/promotion gate (Foundry-specific)
+#   production   - on by default, expected stable behavior
+#   retired      - was shipped, intentionally removed or replaced
+#   quarantined  - shipped but found unsafe/broken, disabled pending a fix
+#
+# This file does not yet drive automated banner generation (that's future work —
+# see the P0 doc-sync recommendation this file exists to satisfy). Today it is the
+# thing a human checks before writing "planned" or "shipped" in prose. Update this
+# file in the SAME commit/PR that changes a subsystem's status.
+#
+# last_reviewed: 2026-07-13
+# reviewed_against_release: v1.12.0
+
+subsystems:
+  swarm_orchestration:
+    status: production
+    note: >
+      Single-agent and multi-agent (Swarm) execution, approval-aware tools,
+      worktree isolation. Core product since v1.0-v1.5.
+
+  hive_mind:
+    status: production
+    caveats:
+      - "Hostile-condition / chaos testing (worker death mid-lease, clock skew,
+         partial transfer, revoked-node rejoin) not yet covered by an automated
+         suite — see docs/ROADMAP.md HIVE gaps."
+      - "Multi-node scaling evidence beyond small fleets is limited."
+
+  context_fabric:
+    status: production
+    note: >
+      CF-0 through CF-8 landed. Deterministic ingestion, document graph
+      retrieval, native readers/reducers, citation verification, distributed
+      HIVE readers. CF-7 benchmark gate closed (GO) after NoKvSlot root-cause
+      fix (Gemma-4-class llama.cpp limitation, not a TheOrc defect) and three
+      tiers of retrieval-quality fixes.
+
+  orc_academy:
+    status: production
+    note: >
+      v1 adapter is the production boss-planning adapter (99.3% structured-plan
+      eval). v2 was retired (suitability audit found 51.3% mislabeled examples).
+      v3 completed but did not beat v1 on production criteria — not registered.
+
+  reviewer_quality_gate:
+    status: experimental
+    note: "Advisory only — the reviewer can be overridden, not yet enforced."
+
+  trust_tier_config:
+    status: experimental
+    note: "Configuration surface remains incomplete."
+
+  native_runtime:
+    status: opt-in
+    note: >
+      In-process native inference (LLamaSharp-backed) is a real, working
+      alternate lane to Ollama, but Ollama remains the default/primary path for
+      most workflows today. See the runtime support matrix (planned —
+      docs/RUNTIME_SUPPORT_MATRIX.md) for the full current/default/fallback
+      picture per workload.
+
+  llamacpp_server:
+    status: opt-in
+    note: "Supported backend; not the default onboarding path (Quick Start still starts from Ollama)."
+
+  foundry_toolcaller:
+    status: promoted
+    round: r3
+    model_tag: "theorc-toolcaller:qwen25-1.5b"
+    promoted_date: "2026-07-12"
+    note: >
+      First Foundry specialist. Trained, evaluated (sealed 260-example Arena +
+      4,788-case adversarial Refusal Gauntlet), promoted, and deployed via
+      Ollama. Wired into SwarmSession as an opt-in repair lane (off by default).
+      Organic training-data capture live from Swarm (v0 schema, 6 tools) and
+      OrcChat (v1 schema, 16 tools), both gated by one settings toggle, off by
+      default.
+    known_regression: >
+      Ordinary (non-tool) conversation strict accuracy dropped to 89.3% in r3;
+      all remaining fabrications are over-eager tool calls on benign chat, not
+      dangerous fabrications. Repair lane stays opt-in until an r4 round closes
+      this gap.
+    promotion_process: >
+      r3 was promoted by human review of the metrics in
+      training_pit/foundry/configs/toolcaller_v0_r3.json, not by a single
+      mechanical gate command. The promotion margin governing r4+ is frozen in
+      that same config; r3 itself predates the margin and is not retroactively
+      judged by it. An executable promotion gate (one command, refuses on any
+      unmet criterion) is planned, not yet built.
+
+  foundry_arena:
+    status: production
+    note: >
+      Training Pit Stage 4 ARENA panel + Refusal Gauntlet panel are live UI,
+      not just policy documents. Both drive real Ollama/Ollama-deployed-model
+      evaluation runs with live progress and results.
+
+  foundry_other_tracks:
+    status: planned
+    note: >
+      toolcaller is the only Foundry track past the design stage. Other
+      hypothesized tracks (dataset screening, Context Fabric repair, routing,
+      review, swarm planning specialists) remain strategy-only.
+
+  orcish_tongue:
+    status: planned
+    note: "Universal tool-call adaptation rename/runtime direction. Not started."
+
+  capture_provenance_enforcement:
+    status: experimental
+    note: >
+      The toolcaller repair lane specifically excludes its own outputs from
+      being staged as organic training examples (ToolcallerService.
+      RepairProvenanceMarker, checked in SwarmSession before calling
+      ToolcallerDatasetCapture.StageCallAsync). This is NOT yet a schema-level
+      field enforced across every Foundry/Training Pit capture path — see the
+      universal-provenance work item in docs/ROADMAP.md.
+
+  release_engineering:
+    status: experimental
+    note: >
+      v1.12.0's workflow is materially better than the v1.11.x line (which had
+      a documented CUDA-DLL omission on every historical Windows build before
+      2026-07-04, and a concurrency bug that could silently drop Windows/Linux
+      Warband assets from a release). Current workflow verifies expected files
+      exist; it does not launch/smoke-test packaged binaries. No SBOM, code
+      signing, or notarization yet.
+
+  release_asset_audit:
+    status: planned
+    note: >
+      A one-time historical-release audit (per the external review's P0
+      recommendation) has not been run — it requires launching old binaries
+      across platforms this session does not have hardware access to for every
+      historical tag. A forward-looking audit script for NEW releases is
+      planned/in progress.
+
+warband:
+  status: opt-in
+  note: "Headless daemon; Linux/macOS artifacts ship with releases as of v1.11.0."

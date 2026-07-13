@@ -1,7 +1,12 @@
 # TheOrc — Toolcaller v0
 
-> **Status: 🔲 First-proof specification.** This document defines a dataset and
-> evaluation contract only. It does not authorize training or runtime changes.
+> **Status: this contract has been fulfilled and the resulting model is shipped.**
+> `theorc-toolcaller` (round r3) is trained, promoted, and deployed as
+> `theorc-toolcaller:qwen25-1.5b` via Ollama, wired into Swarm as an opt-in
+> repair lane (v1.12.0). This document is preserved as the original v0 dataset
+> and evaluation contract for historical/audit purposes — current results live
+> in [THEORC_TOOLCALLER_V0_BASELINE.md](THEORC_TOOLCALLER_V0_BASELINE.md) and
+> [TOOLCALLER_REFUSAL_GAUNTLET.md](TOOLCALLER_REFUSAL_GAUNTLET.md).
 
 ---
 

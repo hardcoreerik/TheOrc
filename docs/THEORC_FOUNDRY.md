@@ -1,8 +1,14 @@
 # TheOrc — Foundry
 
-> **Status: 🔲 Strategy / pre-coding.** This document defines the planned custom
-> TheOrc model program. It does not claim that the model family or autonomous
-> improvement loop is implemented.
+> **Status: mixed — see [docs/CURRENT_STATE.yaml](CURRENT_STATE.yaml) (`foundry_toolcaller`,
+> `foundry_other_tracks`) for the authoritative per-track state.** This document
+> defines the umbrella strategy for the custom TheOrc model program. The first
+> track — `theorc-toolcaller` — is **promoted and shipped** (v1.12.0, round r3):
+> trained, adversarially evaluated, deployed via Ollama, wired into Swarm as an
+> opt-in repair lane. Every other hypothesized track (dataset screening, Context
+> Fabric repair, routing, review, swarm planning) remains strategy-only — this
+> document does not claim those exist. Do not assume "Foundry" as a whole is
+> either fully shipped or fully unimplemented; check the specific track.
 
 ---
 

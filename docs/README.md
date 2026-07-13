@@ -66,16 +66,28 @@ adversarial-review context and may contain deeper implementation notes.
 
 ## TheOrc Foundry
 
-- [THEORC_FOUNDRY.md](THEORC_FOUNDRY.md) — planned custom-model strategy, model family, local
-  self-improvement boundaries, hardware hypotheses, and delivery phases
-- [FOUNDRY_ARENA.md](FOUNDRY_ARENA.md) — planned dataset admission, baseline comparison, promotion,
-  quarantine, and rollback policy
-- [THEORC_TOOLCALLER_V0.md](THEORC_TOOLCALLER_V0.md) — documentation-only contract for the first
-  proposed Foundry proof model
-- [TOOLCALLER_V0_FROZEN_INVENTORY.md](TOOLCALLER_V0_FROZEN_INVENTORY.md) — F-1: the toolcaller-v0
-  tool universe, verified against live code and frozen with a checked-in schema hash
+> **`theorc-toolcaller` (round r3) is trained, promoted, and deployed as of v1.12.0** —
+> the docs below describe both the strategy/policy contracts AND the shipped result.
+> Read [TOOLCALLER_REFUSAL_GAUNTLET.md](TOOLCALLER_REFUSAL_GAUNTLET.md) for current
+> results; the "planned"/"proposed" language elsewhere in this section refers to the
+> original design contract, not current implementation status.
+
+- [THEORC_FOUNDRY.md](THEORC_FOUNDRY.md) — custom-model strategy, model family, local
+  self-improvement boundaries, hardware hypotheses, and delivery phases (first specialist shipped)
+- [FOUNDRY_ARENA.md](FOUNDRY_ARENA.md) — dataset admission, baseline comparison, promotion,
+  quarantine, and rollback policy (in force for the shipped r3 promotion)
+- [THEORC_TOOLCALLER_V0.md](THEORC_TOOLCALLER_V0.md) — the v0 proof contract for the first
+  Foundry specialist, now trained and promoted (round r3)
+- [TOOLCALLER_V0_FROZEN_INVENTORY.md](TOOLCALLER_V0_FROZEN_INVENTORY.md) — the toolcaller-v0
+  tool universe (Swarm, 6 tools), verified against live code and frozen with a checked-in schema hash
+- [TOOLCALLER_V1_FROZEN_INVENTORY.md](TOOLCALLER_V1_FROZEN_INVENTORY.md) — the toolcaller-v1
+  tool universe (OrcChat, 16 tools) — a deliberate sibling inventory, not an edit to v0
+- [TOOLCALLER_REFUSAL_GAUNTLET.md](TOOLCALLER_REFUSAL_GAUNTLET.md) — the adversarial
+  refusal-safety benchmark (4,788 cases, exact confidence bounds) and r2→r3 retraining results
+- [THEORC_TOOLCALLER_V0_BASELINE.md](THEORC_TOOLCALLER_V0_BASELINE.md) — trained-vs-base-model
+  comparison report backing the r3 promotion decision
 - [`../training_pit/TOOLCALLER_CAPTURE_SCHEMA.md`](../training_pit/TOOLCALLER_CAPTURE_SCHEMA.md) —
-  F-1: the dataset capture schema and mechanical admission gates for toolcaller-v0 examples
+  the dataset capture schema and mechanical admission gates for toolcaller v0/v1 examples
 
 ---
 

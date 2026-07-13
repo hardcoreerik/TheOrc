@@ -1,6 +1,6 @@
 # TheOrc — Roadmap
 
-> Last updated: 2026-07-03 (Context Fabric CF-0 through CF-8 landed; large benchmark/product-proof runs remain future work).
+> Last updated: 2026-07-13 (TheOrc Foundry's first specialist model, theorc-toolcaller r3, trained/promoted/deployed; see below).
 > This document is updated after every GitHub release. It reflects actual code state, not aspirations — features marked Shipped have been verified in the running app.
 
 ---
@@ -9,10 +9,19 @@
 
 TheOrc is a production local AI orchestrator. The core swarm, model intelligence, distributed HIVE MIND, and self-training loop are all shipped and running. The v1 adapter scores **99.3%** on structured planning evals and remains the production adapter. The **v2 adapter regressed** — a post-hoc suitability audit found 51.3% of its 1,784 examples assigned write tasks to TESTER-lane roles, dropping the structured-plan pass rate to 77.8% (perfect plans 71% → 54%); v2 was retired and its data repurposed. **ORC ACADEMY v3** completed on a clean 906 train / 87 eval set and beat base in A/B (94.7% vs 85.3%), but did **not** beat the v1 99.3% production baseline because of the `files_named` gap. v1 stays production; v3 is not registered.
 
-**Foundry status:** F-0 documentation only. No Foundry model has been trained,
-promoted, or wired into production. The first possible proof is
-`theorc-toolcaller`, and training is gated on a production-shaped baseline showing
-a measurable gap under the [Foundry Arena policy](FOUNDRY_ARENA.md).
+**Foundry status:** the first specialist model shipped in v1.12.0. `theorc-toolcaller`
+(Qwen2.5-1.5B + LoRA, round r3) is trained, promoted, deployed via Ollama, and wired
+into the Swarm worker loop as an **opt-in** repair lane (off by default) — see
+[FOUNDRY_ARENA.md](FOUNDRY_ARENA.md) for the promotion policy and
+[THEORC_TOOLCALLER_V0.md](THEORC_TOOLCALLER_V0.md) /
+[TOOLCALLER_REFUSAL_GAUNTLET.md](../training_pit/../docs/TOOLCALLER_REFUSAL_GAUNTLET.md)
+for the evaluation contract and adversarial-safety results. r3 measured 98.5% sealed
+decision accuracy and 98.3% held-out gauntlet safety, but has a known remaining
+regression on ordinary (non-tool) conversation (89.3% strict, all misses are
+over-eager calls, not fabricated arguments) — the repair lane stays opt-in until an
+r4 round closes that gap. The promotion margin that will judge r4+ is frozen in
+`training_pit/foundry/configs/toolcaller_v0_r3.json`; r3 itself was promoted before
+that margin existed and is not retroactively judged by it.
 
 v1.8.0 ships the Avalonia MarkdownView (Phase 6), the full FlaUI + Avalonia test suite (Phase 7, 23 tests), and the Grok toolchain integration. CodeGraph v1 — a Roslyn + SQLite code knowledge graph that lets the agent query graph structure instead of grepping files — is fully implemented and committed, targeting v1.9.
 
@@ -479,25 +488,48 @@ Wire `EVAL_RUBRIC.md` into a UI-driven automated model regression test. After ea
 ### HIVE MIND: remote harvest and academy execution
 Allow a HIVE worker node to run GOBLIN HARVEST overnight and return captures to the boss node's Training Pit. Remote adapter training (via HIVE) is further out — needs Phase 3B first.
 
-### TheOrc Foundry — custom local model program (strategy only)
+### TheOrc Foundry — custom local model program
+
+> **SHIPPED in v1.12.0** (this entry originally listed the strategy under v1.9
+> planning; it is left in place chronologically but the status below is current
+> as of v1.12.0, not v1.9).
 
 Canonical strategy: [THEORC_FOUNDRY.md](THEORC_FOUNDRY.md). Evaluation and
-promotion policy: [FOUNDRY_ARENA.md](FOUNDRY_ARENA.md). First proposed proof:
-[THEORC_TOOLCALLER_V0.md](THEORC_TOOLCALLER_V0.md).
+promotion policy: [FOUNDRY_ARENA.md](FOUNDRY_ARENA.md). First proof, now
+promoted: [THEORC_TOOLCALLER_V0.md](THEORC_TOOLCALLER_V0.md) /
+[TOOLCALLER_REFUSAL_GAUNTLET.md](TOOLCALLER_REFUSAL_GAUNTLET.md).
 
-TheOrc Foundry is the planned program for creating TheOrc-native specialists on
-locally controlled consumer hardware. It joins the existing Training Pit and ORC
-ACADEMY data/training foundation to Native Runtime deployment and eventual
-HIVE/Warband distribution. Candidate models must beat the current baseline on a
-frozen rubric without safety regressions before promotion.
+TheOrc Foundry is the program for creating TheOrc-native specialists on locally
+controlled consumer hardware. It joins the Training Pit and ORC ACADEMY
+data/training foundation to Native Runtime/Ollama deployment. Candidate models
+must beat the current baseline on a frozen rubric without safety regressions
+before promotion.
 
-**Current status:** documentation/F-0 only. No Foundry model family, Dataset
-Doctor, Foundry Arena automation, autonomous promotion, or distributed training
-is claimed as implemented. `theorc-toolcaller` is the first planned proof;
-dataset, baseline, evaluation, and promotion contracts must be accepted before
-training begins. ORCISH TONGUE remains the planned universal tool-caller
-rename/runtime direction; existing prompt-layer adaptation remains under current
-code names.
+**Current status:** `theorc-toolcaller` (Qwen2.5-1.5B + LoRA) is trained,
+promoted (round r3), deployed as `theorc-toolcaller:qwen25-1.5b` via Ollama, and
+wired into the Swarm worker loop as an opt-in repair lane. The Training Pit ships
+a Stage 4 **ARENA** benchmark panel (sealed 260-example eval) and a **Refusal
+Gauntlet** (4,788-case adversarial refusal-safety suite with exact confidence
+bounds). Organic training-data capture runs from two sources — Swarm and
+OrcChat — both off by default under one settings toggle.
+
+**Still planned / open:**
+- An r4 round to close the known ordinary-conversation over-eager-call
+  regression (89.3% strict on benign no_tool cases; see
+  [TOOLCALLER_REFUSAL_GAUNTLET.md](TOOLCALLER_REFUSAL_GAUNTLET.md)) — repair
+  lane stays opt-in until this closes.
+- Promotion is still judged by review of the metrics in
+  `training_pit/foundry/configs/toolcaller_v0_r3.json`, not yet by a single
+  mechanical gate command that refuses promotion on any unmet criterion
+  (dataset/eval hashes, confidence bound, per-family safety floor, latency
+  budget, explicit human-approval record, rollback artifact) — see the
+  Foundry promotion gate work item below.
+- Universal producer-provenance/contamination fields (candidate-vs-incumbent
+  flag, teacher identity, repair lineage, redaction state) are enforced for the
+  toolcaller repair lane specifically, not yet as a schema-level gate every
+  Foundry/Training Pit capture path must satisfy.
+- ORCISH TONGUE remains the planned universal tool-caller rename/runtime
+  direction; existing prompt-layer adaptation remains under current code names.
 
 ### HIVE MIND: hive identity, membership certs, auto-promotion — v1.9.4 (all 4 phases shipped 2026-06-21)
 Spec: [`HIVE_MEMBERSHIP_SPEC.md`](HIVE_MEMBERSHIP_SPEC.md). Adds a hive-wide `HiveId` (survives Warchief elections, unlike per-node identity), membership certificates so a node can prove hive membership to a peer it never directly paired with (avoids O(n²) manual-approval pairing at "100s of nodes" scale), an authenticated `/hive/mesh/role-assign` RPC + "👑 Declare this machine Warchief" UI action (first real consumer of the long-dormant `HiveAcceptControlPolicy` enum), and a first-run/repair discovery wizard (`HiveDiscoveryWizard`: scan LAN → join existing hive or found a new one, with three trigger sites). All four phases landed same day, each build+test+grok-review-CLEAN before commit; full swarmcli parity (`--list-peers`, `--declare-warchief`, `--set-accept-control`). Also fixed a naming collision: the pre-existing "🎯 Set as Warchief" menu item was an unrelated swarm-task-routing preference, renamed to "📤 Route my swarm tasks here". One deferred remainder: presenting a membership cert at the request-time auth gate needs its own subject-proves-key signature scheme (issuance + verification shipped; wire-gate consumption intentionally not bolted on).
@@ -659,7 +691,7 @@ Reference points: [Playwright docs](https://playwright.dev/docs/intro),
 | **HIVE MIND C2 (RPC model chain)** | Groundwork laid | llama.cpp RPC plumbing exists; full SwarmSession routing to RPC workers not wired; blocked on Phase 3B |
 | **"Zero idle chatter" message discipline** | Not implemented | Good spec hygiene; no user-visible impact currently; revisit when HIVE worker verbosity becomes a real problem |
 | **Cross-platform desktop (Mac / Linux)** | WPF deleted 2026-06-20, Avalonia is the only desktop shell | macOS `osx-arm64` app/setup artifacts ship in v1.11.2; full Linux desktop publishing and real cross-OS hardware soak remain open. ScreenRecorder degrades gracefully (SharpAVI Windows-only). Warband (daemon) ships Linux/macOS artifacts — see WARBANDS above. |
-| **On-platform self-improvement (TheOrc trains itself)** | Reframed under TheOrc Foundry; not implemented | Training Pit and ORC ACADEMY provide existing capture/training foundations. Foundry F-4 through F-6 now define the planned gated path from local data generation to independently evaluated candidates; see [THEORC_FOUNDRY.md](THEORC_FOUNDRY.md). |
+| **On-platform self-improvement (TheOrc trains itself)** | **Shipped for the first Foundry track (v1.12.0)** | `theorc-toolcaller` r3 was trained on organic data captured from TheOrc's own real Swarm/OrcChat usage, adversarially evaluated, and promoted — see [THEORC_FOUNDRY.md](THEORC_FOUNDRY.md). Still gated by human review at every stage; no autonomous promotion. |
 | **Reviewer adapter (local model trained to review TheOrc's own code, replacing Codex)** | PARKED 2026-06-13 — investigation concluded, build not started | B-3/B-4 baseline series proved prompt-engineering alone has a hard ceiling on `qwen2.5-coder:14b` (0/3 Codex catches); Stage 1 SFT needs off-machine compute that went to ORC ACADEMY training instead. Still considered valuable — not cancelled. See [`reviewer-adapter/00-index.md`](reviewer-adapter/00-index.md) for the resume plan and phase gate. |
 
 ---

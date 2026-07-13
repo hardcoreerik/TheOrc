@@ -1,7 +1,15 @@
 # TheOrc — Foundry Arena
 
-> **Status: 🔲 Planned specification.** No Foundry model promotion automation is
-> implemented by this documentation pass.
+> **Status: this policy is in force and has judged a real promotion.** The
+> Training Pit's Stage 4 **ARENA** panel and **Refusal Gauntlet** panel are live
+> UI that run real evaluation against a sealed 260-example set and a
+> 4,788-case adversarial suite (see
+> [TOOLCALLER_REFUSAL_GAUNTLET.md](TOOLCALLER_REFUSAL_GAUNTLET.md)). `theorc-toolcaller`
+> round r3 was promoted under this policy in v1.12.0. What is **not** yet true:
+> promotion is judged by human review of the evaluation output, not by a single
+> mechanical command that refuses promotion on any unmet criterion — see
+> [docs/CURRENT_STATE.yaml](CURRENT_STATE.yaml) (`foundry_toolcaller.promotion_process`)
+> for the precise gap.
 
 ---
 
@@ -11,8 +19,9 @@ Foundry Arena is the evidence and lifecycle policy for custom TheOrc models.
 It prevents training loss, subjective impressions, or self-scored synthetic data
 from being mistaken for product improvement.
 
-No Arena service or promotion automation exists yet. Until it does, "Arena"
-means this policy plus manually produced evidence.
+"Arena" today means this policy plus the Training Pit's live evaluation UI and
+manually reviewed evidence — not yet a single mechanical promotion gate. See the
+status note above for the exact boundary.
 
 The governing rule is:
 
