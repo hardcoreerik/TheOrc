@@ -373,9 +373,12 @@ public partial class MainWindow : Window
                     "nemotron-3-nano:4b", "qwen2.5-coder:3b", "qwen2.5:14b-instruct",
                     "gemma4:e4b", "llama3.1:8b",
                 };
-                best = preferred.FirstOrDefault(p => models.Contains(p, StringComparer.OrdinalIgnoreCase))
+                best = preferred.FirstOrDefault(p => models.Contains(p, StringComparer.OrdinalIgnoreCase) && IsChatEligible(p))
                     ?? models.FirstOrDefault(IsChatEligible)
                     ?? models.First();
+                if (!IsChatEligible(best))
+                    AddActivity(new ActivityEvent(ActivityKind.Warning, "Model",
+                        $"No chat-suitable model installed — falling back to {best} (planner-only).", DateTime.Now));
                 AddActivity(new ActivityEvent(ActivityKind.Info, "Model", $"Auto-selected: {best}", DateTime.Now));
             }
             else
@@ -425,6 +428,29 @@ public partial class MainWindow : Window
                 $"Session from {saved.LastActivityAt:g}", DateTime.Now));
             // ConfirmWorkspace rebinds all services (tools, checkpoint panel, SQL store, swarm)
             await Dispatcher.UIThread.InvokeAsync(() => ConfirmWorkspace(saved.WorkspaceRoot));
+
+            // This overwrite runs after the ChatSuitable gate above, so a persisted session's
+            // ActiveModel (e.g. captured while Swarm mode had a theorc-boss:* planner active)
+            // bypasses it entirely -- re-validate here rather than leaving a boss-only planner
+            // silently active on the OrcChat/single-chat surface. Swarm mode is exempt, same as
+            // the earlier gate.
+            if (_settings.LastMode != "swarm" &&
+                !string.IsNullOrEmpty(_session.ActiveModel) &&
+                _installedModels.Count > 0 &&
+                !IsChatSuitable(_session.ActiveModel))
+            {
+                var fallback = BestSingleModel(_settings.LastSingleModel);
+                _session.ActiveModel   = fallback;
+                _swarmPanel.ActiveModel = fallback;
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    _chatPanel.SetModels(_installedModels, fallback);
+                    UpdateStatusBar();
+                });
+                AddActivity(new ActivityEvent(ActivityKind.Warning, "Model",
+                    $"Restored session had a planner-only model active — switched to {fallback} for chat.",
+                    DateTime.Now));
+            }
         }
 
         // Model status polling
@@ -1844,10 +1870,12 @@ public partial class MainWindow : Window
             "qwen2.5-coder:3b", "gemma4:e4b", "llama3.1:8b",
         };
         return preferred.FirstOrDefault(p =>
-                   _installedModels.Contains(p, StringComparer.OrdinalIgnoreCase))
-               ?? (IsChatSuitable(_session.ActiveModel)
-                   ? _session.ActiveModel
-                   : _installedModels.FirstOrDefault(IsChatSuitable) ?? _session.ActiveModel);
+                   _installedModels.Contains(p, StringComparer.OrdinalIgnoreCase) && IsChatSuitable(p))
+               ?? _installedModels.FirstOrDefault(IsChatSuitable)
+               // Nothing chat-suitable is installed at all (e.g. only theorc-boss:* present) --
+               // keep the session's current model rather than leaving it unset; this is a
+               // deliberately rare last resort, not the normal path.
+               ?? _session.ActiveModel;
     }
 
     private void UpdateModeToggle(string mode)
