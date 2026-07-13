@@ -313,8 +313,8 @@ public class AppSettings
 
     /// <summary>
     /// Ollama tag of the toolcaller specialist used by the repair lane. Built from
-    /// training_pit/modelfiles/toolcaller-qwen25-1.5b.modelfile (Qwen2.5-1.5B +
-    /// foundry_toolcaller_v0_r2 LoRA).
+    /// training_pit/modelfiles/toolcaller-qwen25-1.5b.modelfile (Qwen2.5-1.5B + the
+    /// currently promoted Foundry LoRA round — see that modelfile's header for which).
     /// </summary>
     public string ToolcallerRepairModel { get; set; } = "theorc-toolcaller:qwen25-1.5b";
 

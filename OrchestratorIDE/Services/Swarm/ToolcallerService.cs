@@ -11,8 +11,9 @@ namespace OrchestratorIDE.Services.Swarm;
 
 /// <summary>
 /// Runtime client for theorc-toolcaller — the first Foundry specialist
-/// (foundry_toolcaller_v0_r2, Qwen2.5-1.5B + LoRA; Arena: 97.3% decision
-/// accuracy / 96.2% tool precision on the 260-example held-out set).
+/// (Qwen2.5-1.5B + the currently promoted LoRA round; gate scores live in
+/// docs/TOOLCALLER_REFUSAL_GAUNTLET.md and the shipped modelfile's header,
+/// so they aren't duplicated here to rot).
 ///
 /// V0 integration is the opt-in REPAIR LANE only (AppSettings.ToolcallerRepairEnabled,
 /// default off): when a swarm worker turn produces content but no parseable tool call —
@@ -32,6 +33,14 @@ public static class ToolcallerService
 
     /// <summary>Ollama tag of the specialist. Built from training_pit/modelfiles/toolcaller-qwen25-1.5b.modelfile.</summary>
     public static string Model { get; set; } = "theorc-toolcaller:qwen25-1.5b";
+
+    /// <summary>
+    /// Provenance marker stamped into ToolCall.ExplainWhy for repair-lane proposals.
+    /// ToolcallerDatasetCapture MUST skip calls carrying it — staging the specialist's
+    /// own outputs as "organic" examples would feed the model its own behavior in the
+    /// next training round (self-distillation contamination).
+    /// </summary>
+    public const string RepairProvenanceMarker = "toolcaller repair lane";
 
     public sealed record Decision(
         string  Kind,        // call | no_tool | clarify | unsupported | (parse_error)
@@ -100,7 +109,7 @@ public static class ToolcallerService
             Name         = d.Tool,
             Arguments    = d.Arguments ?? [],
             IsTextFormat = true,   // result re-enters history as a user message, like text-parsed calls
-            ExplainWhy   = $"proposed by {Model} (repair lane)",
+            ExplainWhy   = $"proposed by {Model} ({RepairProvenanceMarker})",
         };
     }
 

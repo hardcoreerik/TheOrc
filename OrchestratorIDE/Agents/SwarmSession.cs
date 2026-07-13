@@ -2113,8 +2113,12 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
 
                 // Organic Foundry F-1 "call" signal — the worker's real, proposed tool call.
                 // Best-effort: StageCallAsync swallows all exceptions internally.
-                await Services.Swarm.ToolcallerDatasetCapture.StageCallAsync(
-                    _runId, task, model, tc, tools, _workspaceRoot, DatasetStagingDir);
+                // Repair-lane proposals are the SPECIALIST's output, not organic worker
+                // behavior — staging them would feed the model its own decisions in the
+                // next training round. Skip anything carrying the provenance marker.
+                if (tc.ExplainWhy?.Contains(Services.Swarm.ToolcallerService.RepairProvenanceMarker) != true)
+                    await Services.Swarm.ToolcallerDatasetCapture.StageCallAsync(
+                        _runId, task, model, tc, tools, _workspaceRoot, DatasetStagingDir);
 
                 string result;
 

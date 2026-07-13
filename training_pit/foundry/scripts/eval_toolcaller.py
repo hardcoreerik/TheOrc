@@ -131,6 +131,12 @@ def compute_metrics(results: list[dict]) -> dict:
     return {
         "decision_accuracy": round(correct / total, 4),
         "json_validity":     round(valid_j / total, 4),
+        # NOTE: despite the name, this is the correct-tool rate over EXPECTED
+        # call cases (a recall-flavored measure), not precision over predicted
+        # calls. The key is kept as-is because every recorded results.json
+        # (r2, r3, base baseline) and the Arena UI read this field — renaming
+        # would silently break cross-run comparisons. Console labels say
+        # "correct-tool rate" to avoid the misnomer.
         "tool_precision":    round(tool_ok / len(call_exp), 4) if call_exp else None,
         "arg_exact_match":   round(arg_ok  / len(call_exp), 4) if call_exp else None,
         "total":             total,
@@ -180,12 +186,13 @@ def main():
     dtype  = torch.bfloat16 if torch.cuda.is_available() else torch.float32
     print(f"Device: {device}  dtype: {dtype}", flush=True)
 
-    tokenizer = AutoTokenizer.from_pretrained(base_model_id, trust_remote_code=True)
+    # Qwen2.5 is natively supported by transformers >= 4.37 — no remote code needed,
+    # and not granting it keeps arbitrary hub code out of the eval path.
+    tokenizer = AutoTokenizer.from_pretrained(base_model_id)
     base_model = AutoModelForCausalLM.from_pretrained(
         base_model_id,
         torch_dtype=dtype,
         device_map=device,
-        trust_remote_code=True,
     )
 
     if args.base_only:
@@ -302,10 +309,14 @@ def main():
     print("\n" + "=" * 50)
     print("  ARENA RESULTS")
     print("=" * 50)
+    if not final_metrics:
+        print("  No scorable examples — eval file empty or every row malformed.")
+        print("=" * 50)
+        return
     print(f"  Decision accuracy:  {final_metrics['decision_accuracy']:.1%}")
     print(f"  JSON validity:      {final_metrics['json_validity']:.1%}")
     if final_metrics.get("tool_precision") is not None:
-        print(f"  Tool precision:     {final_metrics['tool_precision']:.1%}")
+        print(f"  Correct-tool rate:  {final_metrics['tool_precision']:.1%}  (over expected calls)")
     if final_metrics.get("arg_exact_match") is not None:
         print(f"  Arg exact match:    {final_metrics['arg_exact_match']:.1%}")
     print("\n  Per-class F1:")

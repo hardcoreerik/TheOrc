@@ -525,6 +525,7 @@ public partial class TrainingPitPanel : UserControl
         if (ForgeRunning)   { OnActivity?.Invoke("Not starting harvest — Forge is using the GPU."); return; }
         if (FoundryRunning) { OnActivity?.Invoke("Not starting harvest — Foundry is using the GPU."); return; }
         if (ArenaRunning)   { OnActivity?.Invoke("Not starting harvest — Arena benchmark is using the GPU."); return; }
+        if (GauntletRunning){ OnActivity?.Invoke("Not starting harvest — Refusal Gauntlet is using the GPU."); return; }
         if (ReviewRunning)  { OnActivity?.Invoke("Not starting harvest — a review is using the GPU."); return; }
         if (_liveActive)    { OnActivity?.Invoke("Not starting harvest — captures already arriving."); return; }
 
@@ -718,6 +719,8 @@ public partial class TrainingPitPanel : UserControl
         if (HarvestRunning || _liveActive) { OnActivity?.Invoke("🏛 Academy refused: harvest owns the GPU."); return; }
         if (ReviewRunning)                  { OnActivity?.Invoke("🏛 Academy refused: review owns the GPU."); return; }
         if (FoundryRunning)                 { OnActivity?.Invoke("🏛 Academy refused: Foundry owns the GPU."); return; }
+        if (ArenaRunning)                   { OnActivity?.Invoke("🏛 Academy refused: Arena benchmark owns the GPU."); return; }
+        if (GauntletRunning)                { OnActivity?.Invoke("🏛 Academy refused: Refusal Gauntlet owns the GPU."); return; }
 
         var hfRepo = TbHfRepo.Text?.Trim() ?? "";
         if (hfRepo.Length == 0) { OnActivity?.Invoke("🏛 Academy refused: HF repo is empty."); return; }
@@ -989,6 +992,7 @@ public partial class TrainingPitPanel : UserControl
         if (ForgeRunning)   { OnActivity?.Invoke("🧪 Generator refused: Forge is using the GPU."); return; }
         if (FoundryRunning) { OnActivity?.Invoke("🧪 Generator refused: Foundry is using the GPU."); return; }
         if (ArenaRunning)   { OnActivity?.Invoke("🧪 Generator refused: Arena benchmark is using the GPU."); return; }
+        if (GauntletRunning){ OnActivity?.Invoke("🧪 Generator refused: Refusal Gauntlet is using the GPU."); return; }
 
         // Native and Claude backends don't need an Ollama model selected
         var activeBackend = _genTargetIsToolcaller ? _genBackend : "ollama";
@@ -1393,13 +1397,16 @@ public partial class TrainingPitPanel : UserControl
                 : $"{info.Count} of {ReviewExperimentalGate} toward an experimental adapter";
         ReviewLatest.Text = info.LatestSummary.Length > 0 ? $"latest: {info.LatestSummary}" : "";
 
-        var gpuFree = !ReviewRunning && !HarvestRunning && !ForgeRunning && !FoundryRunning;
+        var gpuFree = !ReviewRunning && !HarvestRunning && !ForgeRunning && !FoundryRunning
+                      && !ArenaRunning && !GauntletRunning;
         BtnReviewNow.IsEnabled        = gpuFree;
         BtnCaptureIncrement.IsEnabled = gpuFree;
         if (!gpuFree)
         {
             var reason = ReviewRunning   ? "Review already running."
                        : HarvestRunning ? "Harvest is using the GPU."
+                       : ArenaRunning   ? "Arena benchmark is using the GPU."
+                       : GauntletRunning ? "Refusal Gauntlet is using the GPU."
                                         : "Training is using the GPU.";
             ToolTip.SetTip(BtnReviewNow,        reason);
             ToolTip.SetTip(BtnCaptureIncrement, reason);
@@ -1460,7 +1467,7 @@ public partial class TrainingPitPanel : UserControl
 
     private void BtnReviewNow_Click(object? s, RoutedEventArgs e)
     {
-        if (ReviewRunning || HarvestRunning || ForgeRunning || FoundryRunning)
+        if (ReviewRunning || HarvestRunning || ForgeRunning || FoundryRunning || ArenaRunning || GauntletRunning)
         {
             OnActivity?.Invoke("🔍 Review refused — GPU is in use.");
             return;
@@ -1507,7 +1514,7 @@ public partial class TrainingPitPanel : UserControl
 
     private void BtnCaptureIncrement_Click(object? s, RoutedEventArgs e)
     {
-        if (ReviewRunning || HarvestRunning || ForgeRunning || FoundryRunning)
+        if (ReviewRunning || HarvestRunning || ForgeRunning || FoundryRunning || ArenaRunning || GauntletRunning)
         {
             OnActivity?.Invoke("⬇ Capture refused — GPU is in use.");
             return;
@@ -1816,6 +1823,7 @@ public partial class TrainingPitPanel : UserControl
         if (ForgeRunning)                  { OnActivity?.Invoke("⚒ Foundry refused: ORC ACADEMY owns the GPU."); return; }
         if (GenRunning)                    { OnActivity?.Invoke("⚒ Foundry refused: generator owns the GPU."); return; }
         if (ArenaRunning)                  { OnActivity?.Invoke("⚒ Foundry refused: Arena benchmark owns the GPU."); return; }
+        if (GauntletRunning)               { OnActivity?.Invoke("⚒ Foundry refused: Refusal Gauntlet owns the GPU."); return; }
         if (HarvestRunning || _liveActive) { OnActivity?.Invoke("⚒ Foundry refused: harvest owns the GPU."); return; }
         if (ReviewRunning)                 { OnActivity?.Invoke("⚒ Foundry refused: review owns the GPU."); return; }
         if (!File.Exists(FoundryConfigPath))
@@ -2151,11 +2159,70 @@ public partial class TrainingPitPanel : UserControl
         ArenaClassList.ItemsSource = classRows;
     }
 
+    /// <summary>
+    /// Platform-aware launcher for the python eval scripts (Arena / Refusal Gauntlet),
+    /// following StartForge's convention: cmd.exe shell-redirection on Windows, a temp
+    /// /bin/sh script elsewhere so args are shell-quoted and the log redirection is
+    /// owned by the shell (survives an app crash mid-run). Returns null on failure.
+    /// </summary>
+    private static ProcessStartInfo? BuildPythonEvalLauncher(
+        string scriptPath,
+        IReadOnlyList<(string Flag, string? Value)> flags,
+        string logPath, string workDir, out string? tempScript)
+    {
+        tempScript = null;
+#if WINDOWS
+        var winArgs = new System.Text.StringBuilder($"-u \"{scriptPath}\"");
+        foreach (var (flag, value) in flags)
+        {
+            winArgs.Append(' ').Append(flag);
+            if (value is not null) winArgs.Append($" \"{value}\"");
+        }
+        return new ProcessStartInfo
+        {
+            FileName         = "cmd.exe",
+            Arguments        = $"/c python {winArgs} >> \"{logPath}\" 2>&1",
+            WorkingDirectory = workDir, UseShellExecute = false, CreateNoWindow = true,
+        };
+#else
+        try
+        {
+            static string ShQ(string s) => "'" + s.Replace("'", "'\\''") + "'";
+            var python = Environment.GetEnvironmentVariable("PYTHON") ?? "python3";
+            tempScript = Path.Combine(Path.GetTempPath(), $"orc_eval_{DateTime.Now:yyyyMMdd_HHmmssfff}.sh");
+            var sb = new System.Text.StringBuilder("#!/bin/sh\n");
+            sb.Append(ShQ(python)).Append(" -u ").Append(ShQ(scriptPath));
+            foreach (var (flag, value) in flags)
+            {
+                sb.Append(' ').Append(flag);
+                if (value is not null) sb.Append(' ').Append(ShQ(value));
+            }
+            sb.Append(" >> ").Append(ShQ(logPath)).Append(" 2>&1\n");
+            File.WriteAllText(tempScript, sb.ToString());
+            var psi = new ProcessStartInfo
+            {
+                FileName = "/bin/sh", WorkingDirectory = workDir,
+                UseShellExecute = false, CreateNoWindow = true,
+            };
+            psi.ArgumentList.Add(tempScript);
+            return psi;
+        }
+        catch
+        {
+            return null;
+        }
+#endif
+    }
+
     private void BtnArenaRun_Click(object? s, RoutedEventArgs e)
     {
         if (ArenaRunning)   return;
         if (ForgeRunning)   { OnActivity?.Invoke("⚔ Arena refused: Forge is using the GPU."); return; }
         if (FoundryRunning) { OnActivity?.Invoke("⚔ Arena refused: Foundry is using the GPU."); return; }
+        if (GenRunning)     { OnActivity?.Invoke("⚔ Arena refused: generator is using the GPU."); return; }
+        if (HarvestRunning || _liveActive) { OnActivity?.Invoke("⚔ Arena refused: harvest owns the GPU."); return; }
+        if (ReviewRunning)  { OnActivity?.Invoke("⚔ Arena refused: review owns the GPU."); return; }
+        if (GauntletRunning){ OnActivity?.Invoke("⚔ Arena refused: Refusal Gauntlet is using the GPU."); return; }
 
         if (CbArenaAdapter.SelectedItem is not ArenaAdapterOptionAva opt)
         { OnActivity?.Invoke("⚔ Arena: select an adapter first."); return; }
@@ -2173,18 +2240,16 @@ public partial class TrainingPitPanel : UserControl
         var logPath = Path.Combine(_arenaOutDir, "arena.log");
         File.WriteAllText(logPath, $"=== arena run {DateTime.Now:yyyy-MM-dd HH:mm} ===\n");
 
-        var baseOnlyFlag = opt.BaseOnly ? " --base-only" : "";
-        var psi = new ProcessStartInfo
+        var flags = new List<(string, string?)>
         {
-            FileName         = "cmd.exe",
-            Arguments        = $"/c python -u \"{scriptPath}\"" +
-                               $" --adapter \"{opt.AdapterDir}\"" +
-                               $" --eval \"{opt.EvalPath}\"" +
-                               $" --out \"{opt.OutDir}\"" +
-                               $"{baseOnlyFlag}" +
-                               $" >> \"{logPath}\" 2>&1",
-            WorkingDirectory = _pitRoot, UseShellExecute = false, CreateNoWindow = true,
+            ("--adapter", opt.AdapterDir),
+            ("--eval",    opt.EvalPath),
+            ("--out",     opt.OutDir),
         };
+        if (opt.BaseOnly) flags.Add(("--base-only", null));
+
+        var psi = BuildPythonEvalLauncher(scriptPath, flags, logPath, _pitRoot, out _);
+        if (psi is null) { OnActivity?.Invoke("⚔ Arena: failed to prepare launcher."); return; }
 
         try { _arenaProcess = Process.Start(psi); }
         catch (Exception ex) { OnActivity?.Invoke($"⚔ Arena launch failed: {ex.Message}"); return; }
@@ -2404,6 +2469,14 @@ public partial class TrainingPitPanel : UserControl
     private void BtnGauntletRun_Click(object? s, RoutedEventArgs e)
     {
         if (GauntletRunning) return;
+        // The gauntlet drives the deployed Ollama model — same GPU as every
+        // other training-pit consumer, so it takes the same mutex.
+        if (ForgeRunning)   { OnActivity?.Invoke("🛡 Gauntlet refused: Forge is using the GPU."); return; }
+        if (FoundryRunning) { OnActivity?.Invoke("🛡 Gauntlet refused: Foundry is using the GPU."); return; }
+        if (ArenaRunning)   { OnActivity?.Invoke("🛡 Gauntlet refused: Arena benchmark is using the GPU."); return; }
+        if (GenRunning)     { OnActivity?.Invoke("🛡 Gauntlet refused: generator is using the GPU."); return; }
+        if (HarvestRunning || _liveActive) { OnActivity?.Invoke("🛡 Gauntlet refused: harvest owns the GPU."); return; }
+        if (ReviewRunning)  { OnActivity?.Invoke("🛡 Gauntlet refused: review owns the GPU."); return; }
         if (!File.Exists(GauntletEvalPath))
         {
             OnActivity?.Invoke("🛡 Gauntlet: dataset missing — run generate_refusal_gauntlet.py first.");
@@ -2417,17 +2490,14 @@ public partial class TrainingPitPanel : UserControl
         var logPath = Path.Combine(GauntletOutDir, "gauntlet.log");
         File.WriteAllText(logPath, $"=== gauntlet run {DateTime.Now:yyyy-MM-dd HH:mm} ===\n");
 
-        var psi = new ProcessStartInfo
+        var psi = BuildPythonEvalLauncher(scriptPath, new List<(string, string?)>
         {
-            FileName         = "cmd.exe",
-            Arguments        = $"/c python -u \"{scriptPath}\"" +
-                               $" --ollama \"{GauntletModel}\"" +
-                               $" --eval \"{GauntletEvalPath}\"" +
-                               $" --out \"{GauntletOutDir}\"" +
-                               $" --workers 4" +
-                               $" >> \"{logPath}\" 2>&1",
-            WorkingDirectory = _pitRoot, UseShellExecute = false, CreateNoWindow = true,
-        };
+            ("--ollama",  GauntletModel),
+            ("--eval",    GauntletEvalPath),
+            ("--out",     GauntletOutDir),
+            ("--workers", "4"),
+        }, logPath, _pitRoot, out _);
+        if (psi is null) { OnActivity?.Invoke("🛡 Gauntlet: failed to prepare launcher."); return; }
 
         try { _gauntletProcess = Process.Start(psi); }
         catch (Exception ex) { OnActivity?.Invoke($"🛡 Gauntlet launch failed: {ex.Message}"); return; }

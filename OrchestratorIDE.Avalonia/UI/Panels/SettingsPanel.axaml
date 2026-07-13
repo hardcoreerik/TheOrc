@@ -570,7 +570,7 @@
                                       IsChecked="False"/>
                         <StackPanel Margin="0,0,8,0">
                             <TextBlock Text="Toolcaller specialist repair lane (Foundry v0 trial)" Classes="SettingLabel"/>
-                            <TextBlock Text="Opt-in, off by default. When a swarm worker states intent but emits no parseable tool call, the trained theorc-toolcaller:qwen25-1.5b specialist (Arena: 97.3% decision accuracy) gets one shot at converting that intent into a proper proposal. Proposed calls still pass through the deterministic tool policy and approval flow -- the specialist proposes, it never executes. Requires the theorc-toolcaller model in Ollama (or on the HIVE node running the worker); if missing, behavior silently falls back to today's."
+                            <TextBlock Text="Opt-in, off by default. When a swarm worker states intent but emits no parseable tool call, the trained theorc-toolcaller:qwen25-1.5b specialist gets one shot at converting that intent into a proper proposal (current promoted round and its gate scores: docs/TOOLCALLER_REFUSAL_GAUNTLET.md). Proposed calls still pass through the deterministic tool policy and approval flow -- the specialist proposes, it never executes. Requires the theorc-toolcaller model in Ollama (or on the HIVE node running the worker); if missing, behavior silently falls back to today's."
                                        Classes="SettingHint" TextWrapping="Wrap"/>
                         </StackPanel>
                     </DockPanel>

@@ -140,12 +140,20 @@ def main():
             c[r.get("decision") or "?"] += 1
         return dict(sorted(c.items()))
 
+    def rel(p: Path) -> str:
+        """Repo-relative POSIX path — the committed sidecar must not leak a
+        machine-specific filesystem layout (F:\\Ai\\... etc.)."""
+        try:
+            return p.resolve().relative_to(REPO).as_posix()
+        except ValueError:
+            return str(p)  # outside the repo: keep as given
+
     meta = {
         "round": "r3",
         "built": __import__("time").strftime("%Y-%m-%d %H:%M"),
         "sources": {
-            "base_train": str(args.train), "gauntlet": str(args.gauntlet),
-            "failures": str(args.failures),
+            "base_train": rel(args.train), "gauntlet": rel(args.gauntlet),
+            "failures": rel(args.failures),
         },
         "train_sha256":   sha256_file(args.out_train),
         "holdout_sha256": sha256_file(args.out_holdout),

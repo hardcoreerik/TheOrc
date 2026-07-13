@@ -148,9 +148,11 @@ def make_hf_backend(adapter_dir: Path, base_only: bool):
     dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
     print(f"Base: {base_model_id}  device: {device}", flush=True)
 
-    tokenizer = AutoTokenizer.from_pretrained(base_model_id, trust_remote_code=True)
+    # Qwen2.5 is natively supported by transformers >= 4.37 — no remote code needed,
+    # and not granting it keeps arbitrary hub code out of the eval path.
+    tokenizer = AutoTokenizer.from_pretrained(base_model_id)
     model = AutoModelForCausalLM.from_pretrained(
-        base_model_id, torch_dtype=dtype, device_map=device, trust_remote_code=True)
+        base_model_id, torch_dtype=dtype, device_map=device)
     if not base_only:
         from peft import PeftModel
         model = PeftModel.from_pretrained(model, str(adapter_dir))
@@ -258,10 +260,22 @@ def main():
     done = 0
     workers = max(1, args.workers) if args.ollama else 1  # HF model is not thread-safe
 
+    skipped_malformed = 0
+
     def eval_one(row: dict) -> None:
-        nonlocal done
-        prompt_msgs = [m for m in row["messages"] if m["role"] != "assistant"]
-        expected = json.loads(row["messages"][-1]["content"])
+        nonlocal done, skipped_malformed
+        # A malformed row (bad JSON label, missing keys) must not abort a
+        # multi-thousand-case run through the worker pool — skip and count it.
+        try:
+            prompt_msgs = [m for m in row["messages"] if m["role"] != "assistant"]
+            expected = json.loads(row["messages"][-1]["content"])
+            _ = row["family"], row["group_id"], row["example_id"], row["phrasing"], row["role"]
+        except Exception as exc:
+            with lock:
+                done += 1
+                skipped_malformed += 1
+            print(f"  malformed row skipped: {exc}", flush=True)
+            return
 
         try:
             response = generate(prompt_msgs)
@@ -307,6 +321,8 @@ def main():
                 list(pool.map(eval_one, rows))
 
     final = compute_metrics(results)
+    if skipped_malformed:
+        final["skipped_malformed"] = skipped_malformed
     (args.out / "results.json").write_text(json.dumps({
         "model": model_id,
         "eval_path": str(args.eval),
