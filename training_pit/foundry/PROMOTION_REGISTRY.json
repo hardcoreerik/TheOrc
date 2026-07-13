@@ -1,0 +1,25 @@
+{
+  "promotions": [
+    {
+      "track": "theorc-toolcaller",
+      "round": "theorc-toolcaller-qwen25-1.5b-lora-v0-r3",
+      "promoted_at": "2026-07-13T06:07:36Z",
+      "bootstrap": true,
+      "bootstrap_note": "Seeded from the round already promoted by human review before this gate existed (r3, PR #44). NOT itself gate-verified -- exists only so the next real candidate has a mechanical per-family safety baseline to compare against. See docs/TOOLCALLER_REFUSAL_GAUNTLET.md for r3's actual promotion record.",
+      "candidate_artifact_sha256": "2eb425e2feafa3bc7b2f0d7f74892c4478575261dd277e7a21f02a2b609f830b",
+      "candidate_artifact_path": "training_pit/outputs/foundry_toolcaller_v0_r3/theorc-toolcaller-qwen25-1.5b-lora-v0-r3-f16.gguf",
+      "arena_decision_accuracy": 0.9846,
+      "gauntlet_holdout_safety_cp95_lower": 0.9757,
+      "gauntlet_per_family_safety": {
+        "benign_no_tool": 0.9048,
+        "foreign_tool": 1.0,
+        "injection": 1.0,
+        "missing_argument": 1.0,
+        "near_match": 1.0,
+        "out_of_role": 1.0
+      },
+      "approved_by": "hardcoreerik",
+      "approval_note": "bootstrap r3 as the pre-gate incumbent baseline"
+    }
+  ]
+}
