@@ -337,7 +337,17 @@ jobs:
           $header  = "## What's new in v$ver"
           $pattern = "(?ms)$([regex]::Escape($header))\s*\n(.*?)(?=\n## |\z)"
           $match   = [regex]::Match($readme, $pattern)
-          $whatsNew = if ($match.Success) { $match.Groups[1].Value.Trim() } else { "" }
+          if (-not $match.Success) {
+            # Version/release-note hygiene (external release review P2): a version bump
+            # merging without a matching README changelog section used to fall back to an
+            # EMPTY "What's new" block and ship anyway -- the exact "tag equals source
+            # version, README release heading exists" gap the review flagged. Hard-fail
+            # instead: no tag ships without either a real changelog section or an explicit
+            # "unreleased"/skip marker.
+            Write-Error "No '$header' section found in README.md. Add the changelog section for this version before tagging, or if this is intentionally not a documented release, do not push this tag."
+            exit 1
+          }
+          $whatsNew = $match.Groups[1].Value.Trim()
 
           # Previous tag for the compare link
           $prevTag = git describe --tags --abbrev=0 "$tag^" 2>$null
@@ -352,7 +362,7 @@ jobs:
 
           ## TheOrc $tag
 
-          > 100% local AI coding assistant — no cloud, no subscriptions, no data leaving your machine.
+          > Local-first, cloud-optional AI coding assistant — no subscriptions, no cloud model or inference provider required.
 
           ---
 
@@ -564,6 +574,14 @@ jobs:
           tag='${{ steps.ver.outputs.TAG }}'
 
           header="## What's new in v$ver"
+          headerFound=$(awk -v hdr="$header" '$0 == hdr { print "1"; exit }' README.md)
+          if [ -z "$headerFound" ]; then
+            # Version/release-note hygiene (external release review P2): mirrors the
+            # win-x64 leg's hard-fail -- a missing changelog section used to silently ship
+            # an empty "What's new" block instead of stopping the release.
+            echo "::error::No '$header' section found in README.md. Add the changelog section for this version before tagging, or if this is intentionally not a documented release, do not push this tag." >&2
+            exit 1
+          fi
           whatsNew=$(awk -v hdr="$header" '
             $0 == hdr { found=1; next }
             found && /^## / { exit }
@@ -583,7 +601,7 @@ jobs:
 
           ## TheOrc $tag
 
-          > 100% local AI coding assistant — no cloud, no subscriptions, no data leaving your machine.
+          > Local-first, cloud-optional AI coding assistant — no subscriptions, no cloud model or inference provider required.
 
           ---
 

@@ -68,3 +68,36 @@ jobs:
             --configuration Release ^
             --no-restore
         shell: cmd
+
+      # Version/release-note hygiene (external release review P2): catches a version bump
+      # merging without its README changelog section at PR time, not just at tag-push time
+      # (release.yml's own hard-fail is the last line of defense; this is the earlier one).
+      # A no-op for the overwhelming majority of commits, which never touch <Version> at all.
+      - name: Check version/changelog hygiene
+        shell: pwsh
+        run: |
+          $csproj = Get-Content "OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj" -Raw
+          $verMatch = [regex]::Match($csproj, '<Version>([\d.]+)</Version>')
+          if (-not $verMatch.Success) {
+            Write-Error "Could not find <Version> in OrchestratorIDE.Avalonia.csproj."
+            exit 1
+          }
+          $ver = $verMatch.Groups[1].Value
+          $asmVerMatch = [regex]::Match($csproj, '<AssemblyVersion>([\d.]+)</AssemblyVersion>')
+          $fileVerMatch = [regex]::Match($csproj, '<FileVersion>([\d.]+)</FileVersion>')
+          if ($asmVerMatch.Success -and $asmVerMatch.Groups[1].Value -ne "$ver.0") {
+            Write-Error "AssemblyVersion ($($asmVerMatch.Groups[1].Value)) does not match Version ($ver.0)."
+            exit 1
+          }
+          if ($fileVerMatch.Success -and $fileVerMatch.Groups[1].Value -ne "$ver.0") {
+            Write-Error "FileVersion ($($fileVerMatch.Groups[1].Value)) does not match Version ($ver.0)."
+            exit 1
+          }
+
+          $readme = Get-Content README.md -Raw
+          $header = "## What's new in v$ver"
+          if ($readme -notmatch [regex]::Escape($header)) {
+            Write-Error "OrchestratorIDE.Avalonia.csproj is at Version $ver but README.md has no '$header' section. Every version bump needs its own changelog heading -- see docs/ROADMAP.md's release-note convention."
+            exit 1
+          }
+          Write-Host "Version hygiene OK: $ver matches AssemblyVersion/FileVersion and has a README changelog section."
