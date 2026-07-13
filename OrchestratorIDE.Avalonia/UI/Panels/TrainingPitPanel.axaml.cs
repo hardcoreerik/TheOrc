@@ -2248,13 +2248,27 @@ public partial class TrainingPitPanel : UserControl
         };
         if (opt.BaseOnly) flags.Add(("--base-only", null));
 
-        var psi = BuildPythonEvalLauncher(scriptPath, flags, logPath, _pitRoot, out _);
+        var psi = BuildPythonEvalLauncher(scriptPath, flags, logPath, _pitRoot, out var tempScript);
         if (psi is null) { OnActivity?.Invoke("⚔ Arena: failed to prepare launcher."); return; }
 
         try { _arenaProcess = Process.Start(psi); }
-        catch (Exception ex) { OnActivity?.Invoke($"⚔ Arena launch failed: {ex.Message}"); return; }
+        catch (Exception ex)
+        {
+            if (tempScript is not null) try { File.Delete(tempScript); } catch { }
+            OnActivity?.Invoke($"⚔ Arena launch failed: {ex.Message}"); return;
+        }
 
-        if (_arenaProcess is null) { OnActivity?.Invoke("⚔ Arena: failed to launch."); return; }
+        if (_arenaProcess is null)
+        {
+            if (tempScript is not null) try { File.Delete(tempScript); } catch { }
+            OnActivity?.Invoke("⚔ Arena: failed to launch."); return;
+        }
+        if (tempScript is not null)
+        {
+            var ts = tempScript;
+            _arenaProcess.EnableRaisingEvents = true;
+            _arenaProcess.Exited += (_, _) => { try { File.Delete(ts); } catch { } };
+        }
 
         var label = opt.BaseOnly
             ? $"base-model baseline ({opt.BaseModelId.Split('/').Last()})"
@@ -2496,12 +2510,26 @@ public partial class TrainingPitPanel : UserControl
             ("--eval",    GauntletEvalPath),
             ("--out",     GauntletOutDir),
             ("--workers", "4"),
-        }, logPath, _pitRoot, out _);
+        }, logPath, _pitRoot, out var tempScript);
         if (psi is null) { OnActivity?.Invoke("🛡 Gauntlet: failed to prepare launcher."); return; }
 
         try { _gauntletProcess = Process.Start(psi); }
-        catch (Exception ex) { OnActivity?.Invoke($"🛡 Gauntlet launch failed: {ex.Message}"); return; }
-        if (_gauntletProcess is null) { OnActivity?.Invoke("🛡 Gauntlet: failed to launch."); return; }
+        catch (Exception ex)
+        {
+            if (tempScript is not null) try { File.Delete(tempScript); } catch { }
+            OnActivity?.Invoke($"🛡 Gauntlet launch failed: {ex.Message}"); return;
+        }
+        if (_gauntletProcess is null)
+        {
+            if (tempScript is not null) try { File.Delete(tempScript); } catch { }
+            OnActivity?.Invoke("🛡 Gauntlet: failed to launch."); return;
+        }
+        if (tempScript is not null)
+        {
+            var ts = tempScript;
+            _gauntletProcess.EnableRaisingEvents = true;
+            _gauntletProcess.Exited += (_, _) => { try { File.Delete(ts); } catch { } };
+        }
 
         OnActivity?.Invoke($"🛡 Refusal Gauntlet started — {GauntletModel} vs {Path.GetFileName(GauntletEvalPath)}");
         GauntletStatus.Text       = "Running against the deployed Ollama model…";
