@@ -1,0 +1,94 @@
+{
+  "published_at": "2026-07-03T05:29:59Z",
+  "cuda_dll_check": {
+    "found": false,
+    "file_count": 0,
+    "checked": true,
+    "file_names": null
+  },
+  "installer_launch_result": "not_executed (would modify system state -- see script header)",
+  "superseded_status": "FLAGGED",
+  "expected_windows_patterns": [
+    "OrchestratorSetup.exe",
+    "*win-x64*.zip",
+    "OrchestratorIDE.exe"
+  ],
+  "missing_patterns": [],
+  "gpu_cpu_backend_selected": "not_tested_live (see native_backend_load_result proxy; live GPU test only run for the current release via Tools/NativeProbe separately)",
+  "update_path_result": "not_tested (would require triggering the self-updater against a running older version)",
+  "audited_at": "2026-07-13T07:15:35Z",
+  "launch_result": "not_executed (historical binary -- static checks only, see script header)",
+  "status_flags": [
+    "PRE-CUDA-FIX, CONFIRMED (published before 2026-07-04 AND this audit's own download found zero CUDA runtime DLLs in the portable zip -- the historical omission bug the review documents, not just a date-based assumption)"
+  ],
+  "tag": "v1.11.2",
+  "actual_assets": [
+    {
+      "size_bytes": 252614217,
+      "name": "OrchestratorIDE",
+      "downloaded": false,
+      "windows_asset": false,
+      "sha256": null
+    },
+    {
+      "name": "OrchestratorIDE.exe",
+      "size_bytes": 774615958,
+      "actual_size_bytes": 774615958,
+      "windows_asset": true,
+      "downloaded": true,
+      "sha256": "43c20414c7495fdc3eaac3ef9b54ecd196cc327674ec07a1e07e56a3711a82ef"
+    },
+    {
+      "size_bytes": 118020322,
+      "name": "OrchestratorSetup",
+      "downloaded": false,
+      "windows_asset": false,
+      "sha256": null
+    },
+    {
+      "name": "OrchestratorSetup.exe",
+      "size_bytes": 110705710,
+      "actual_size_bytes": 110705710,
+      "windows_asset": true,
+      "downloaded": true,
+      "sha256": "16e5155f560ea87995e5238987ae7dccfe8f7df590d30628d2c2492d3f10db62"
+    },
+    {
+      "size_bytes": 143851327,
+      "name": "TheOrc-1.11.2-osx-arm64-portable.tar.gz",
+      "downloaded": false,
+      "windows_asset": false,
+      "sha256": null
+    },
+    {
+      "name": "TheOrc-1.11.2-win-x64-portable.zip",
+      "size_bytes": 376793132,
+      "actual_size_bytes": 376793132,
+      "windows_asset": true,
+      "downloaded": true,
+      "sha256": "7c023d4a53fd3131684d5ae8f9d67eb0d05bf1c7364ef2aa91fd890d1f2ec8c6"
+    },
+    {
+      "size_bytes": 195305215,
+      "name": "theorc-warband",
+      "downloaded": false,
+      "windows_asset": false,
+      "sha256": null
+    },
+    {
+      "size_bytes": 298577855,
+      "name": "theorc-warband-1.11.2-linux-x64.tar.gz",
+      "downloaded": false,
+      "windows_asset": false,
+      "sha256": null
+    },
+    {
+      "size_bytes": 72362120,
+      "name": "theorc-warband-1.11.2-osx-arm64.tar.gz",
+      "downloaded": false,
+      "windows_asset": false,
+      "sha256": null
+    }
+  ],
+  "native_backend_load_result": "static_proxy: cuda_dll_presence"
+}
