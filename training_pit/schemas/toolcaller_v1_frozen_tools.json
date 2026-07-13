@@ -1,0 +1,287 @@
+[
+  {
+    "description": "Pause your task and ask the user a question. Use when you genuinely need user input to proceed -- e.g. ambiguous requirements, a critical design choice, or needing credentials/paths you can't infer. Keep it rare: ask at most once per task.",
+    "name": "ask_user",
+    "parameters": {
+      "options": {
+        "description": "Optional JSON array of suggested answer strings, e.g. [\"Option A\",\"Option B\"]. Omit if open-ended.",
+        "type": "string"
+      },
+      "question": {
+        "description": "Clear, specific question to ask the user.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "question"
+    ]
+  },
+  {
+    "description": "Fetch and extract readable content from a URL. Use this to deep-read an article, documentation page, or any web page after finding it via web_search. Returns clean text and links.",
+    "name": "fetch_page",
+    "parameters": {
+      "mode": {
+        "description": "'text' for article body text (default), or 'links' to list all hyperlinks on the page.",
+        "type": "string"
+      },
+      "url": {
+        "description": "The full URL to fetch (must start with http:// or https://).",
+        "type": "string"
+      }
+    },
+    "required": [
+      "url"
+    ]
+  },
+  {
+    "description": "Fetch a public URL and return its text content (HTML stripped). Use for documentation, GitHub issues, Stack Overflow answers, changelogs. Max 8000 chars returned. Do NOT use for internal/private URLs.",
+    "name": "fetch_url",
+    "parameters": {
+      "max_chars": {
+        "description": "Maximum characters to return (default 6000, max 8000)",
+        "type": "integer"
+      },
+      "url": {
+        "description": "The public URL to fetch (https:// only)",
+        "type": "string"
+      }
+    },
+    "required": [
+      "url"
+    ]
+  },
+  {
+    "description": "Get a structural outline of a file (classes, methods, functions).",
+    "name": "get_outline",
+    "parameters": {
+      "path": {
+        "description": "File path to outline (supports .cs, .py, .js, .ts).",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ]
+  },
+  {
+    "description": "Search code for a pattern. Uses ripgrep if available, falls back to built-in.",
+    "name": "grep_code",
+    "parameters": {
+      "glob": {
+        "description": "File glob filter (e.g. '*.cs', '*.py'). Optional.",
+        "type": "string"
+      },
+      "path": {
+        "description": "Directory to search. Defaults to workspace root.",
+        "type": "string"
+      },
+      "pattern": {
+        "description": "Regex pattern to search for.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "pattern"
+    ]
+  },
+  {
+    "description": "Inspect provisional Context Fabric claims, entities, and relations. Read-only.",
+    "name": "library_graph",
+    "parameters": {
+      "corpus_id": {
+        "description": "Corpus id to inspect.",
+        "type": "string"
+      },
+      "entity_id": {
+        "description": "Optional entity id filter for relations.",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Maximum rows to return. Default 10.",
+        "type": "number"
+      },
+      "query": {
+        "description": "Optional claim-text search query.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "corpus_id"
+    ]
+  },
+  {
+    "description": "List Context Fabric corpora and document counts. Read-only.",
+    "name": "library_list",
+    "parameters": {},
+    "required": []
+  },
+  {
+    "description": "Open exact Context Fabric source segments by document_id or segment_id. Read-only.",
+    "name": "library_open",
+    "parameters": {
+      "count": {
+        "description": "When opening a document, max segment count. Default 8.",
+        "type": "number"
+      },
+      "document_id": {
+        "description": "Document id to open.",
+        "type": "string"
+      },
+      "segment_id": {
+        "description": "Segment id to open directly.",
+        "type": "string"
+      },
+      "start_ordinal": {
+        "description": "When opening a document, first ordinal to include. Default 0.",
+        "type": "number"
+      }
+    },
+    "required": []
+  },
+  {
+    "description": "Search Context Fabric segment text by BM25/FTS and return source-grounded hits. Read-only.",
+    "name": "library_search",
+    "parameters": {
+      "corpus_id": {
+        "description": "Optional corpus id filter.",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Maximum results. Default 10.",
+        "type": "number"
+      },
+      "query": {
+        "description": "Search query.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "query"
+    ]
+  },
+  {
+    "description": "List files in a directory (recursive, respects .gitignore-style skips).",
+    "name": "list_files",
+    "parameters": {
+      "depth": {
+        "description": "Max recursion depth (default 3).",
+        "type": "integer"
+      },
+      "path": {
+        "description": "Directory path. Defaults to workspace root.",
+        "type": "string"
+      }
+    },
+    "required": []
+  },
+  {
+    "description": "Read the contents of a file.",
+    "name": "read_file",
+    "parameters": {
+      "path": {
+        "description": "File path relative to workspace root, or absolute.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ]
+  },
+  {
+    "description": "Run a PowerShell command in the workspace. Use env_setup to source an environment script BEFORE the command -- both run in the same process so variables like IDF_PATH survive. Example: env_setup=\". C:\\esp-idf\\export.ps1\", command=\"idf.py build\". Blocked: destructive commands.",
+    "name": "run_shell",
+    "parameters": {
+      "command": {
+        "description": "The PowerShell command to run.",
+        "type": "string"
+      },
+      "cwd": {
+        "description": "Working directory (default: workspace root).",
+        "type": "string"
+      },
+      "env_setup": {
+        "description": "Optional. A PowerShell snippet run BEFORE command in the same process. Use this to source environment scripts (e.g. \". C:\\esp-idf\\export.ps1\"). The environment it sets is visible to command.",
+        "type": "string"
+      },
+      "reason": {
+        "description": "Why this command needs to run.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "command"
+    ]
+  },
+  {
+    "description": "Two-stage verify: (1) build/compile check always runs, (2) test suite runs only if test files are found. Auto-detects: dotnet, pytest, npm/tsc, cargo, go.",
+    "name": "run_tests",
+    "parameters": {
+      "path": {
+        "description": "Path to verify. Defaults to workspace root.",
+        "type": "string"
+      }
+    },
+    "required": []
+  },
+  {
+    "description": "Save a markdown document into the current workspace and return its path.",
+    "name": "save_markdown_document",
+    "parameters": {
+      "content": {
+        "description": "Full markdown document body to save.",
+        "type": "string"
+      },
+      "filename": {
+        "description": "File name, with or without the .md extension.",
+        "type": "string"
+      },
+      "folder": {
+        "description": "Optional workspace-relative folder. Defaults to chat-output.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "filename",
+      "content"
+    ]
+  },
+  {
+    "description": "Search the web using DuckDuckGo. Returns titles, URLs, and snippets for the most relevant results. Use this first when you need current information or facts you're not certain about.",
+    "name": "web_search",
+    "parameters": {
+      "max_results": {
+        "description": "How many results to return. Default: 6, max: 10.",
+        "type": "integer"
+      },
+      "query": {
+        "description": "The search query. Be specific. Use quotes around phrases.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "query"
+    ]
+  },
+  {
+    "description": "Write content to a file. Shows a diff preview before writing.",
+    "name": "write_file",
+    "parameters": {
+      "content": {
+        "description": "Complete new file content.",
+        "type": "string"
+      },
+      "path": {
+        "description": "File path relative to workspace root.",
+        "type": "string"
+      },
+      "reason": {
+        "description": "Why this change is being made.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path",
+      "content"
+    ]
+  }
+]

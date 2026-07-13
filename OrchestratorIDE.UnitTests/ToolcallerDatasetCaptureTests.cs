@@ -157,4 +157,121 @@ public sealed class ToolcallerDatasetCaptureTests
         _tempDirs.Add(dir);
         return dir;
     }
+
+    // ── v1 chat capture (StageChatDecisionAsync) ────────────────────────────────
+
+    [Test]
+    public async Task StageChatDecisionAsync_Call_WritesV1CaptureWithChatRole()
+    {
+        var stagingDir = NewTempDir();
+        var workspaceRoot = NewTempDir();
+        var call = new ToolCall { Name = "write_file", Arguments = new() { ["path"] = "notes.md", ["content"] = "hi" } };
+        var availableTools = new List<ToolDefinition>
+        {
+            new() { Name = "write_file", Description = "Write.", Parameters = new() },
+            new() { Name = "web_search", Description = "Search the web.", Parameters = new() },
+        };
+
+        await ToolcallerDatasetCapture.StageChatDecisionAsync(
+            "chat_20260713_120000", "qwen2.5:7b", "Save these notes to a file.",
+            availableTools, [call], workspaceRoot, stagingDir);
+
+        var file = Directory.GetFiles(stagingDir, "toolcaller_v1_chat_*.json").Single();
+        using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(file));
+        var root = doc.RootElement;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(root.GetProperty("schema_version").GetString(), Is.EqualTo("toolcaller-v1"));
+            Assert.That(root.GetProperty("example_id").GetString(), Does.StartWith("tcv1_chat_20260713_120000_"));
+            Assert.That(root.GetProperty("role").GetString(), Is.EqualTo("chat"));
+            Assert.That(root.GetProperty("request").GetString(), Is.EqualTo("Save these notes to a file."));
+            Assert.That(root.GetProperty("available_tools").EnumerateArray().Select(e => e.GetString()),
+                Is.EquivalentTo(new[] { "write_file", "web_search" }));
+            Assert.That(root.GetProperty("approval_state").GetString(), Is.EqualTo("n/a"));
+
+            var expected = root.GetProperty("expected");
+            Assert.That(expected.GetProperty("decision").GetString(), Is.EqualTo("call"));
+            Assert.That(expected.GetProperty("tool").GetString(), Is.EqualTo("write_file"));
+
+            var policy = root.GetProperty("policy_outcome");
+            Assert.That(policy.GetProperty("evaluated").GetBoolean(), Is.True);
+        });
+    }
+
+    [Test]
+    public async Task StageChatDecisionAsync_MultipleCalls_WritesOneCapturePerCall()
+    {
+        var stagingDir = NewTempDir();
+        var calls = new List<ToolCall>
+        {
+            new() { Name = "read_file", Arguments = new() { ["path"] = "a.txt" } },
+            new() { Name = "grep_code", Arguments = new() { ["pattern"] = "foo" } },
+        };
+
+        await ToolcallerDatasetCapture.StageChatDecisionAsync(
+            "chat_run", "m", "Read a.txt and search for foo.", [], calls, null, stagingDir);
+
+        Assert.That(Directory.GetFiles(stagingDir, "toolcaller_v1_chat_*.json"), Has.Length.EqualTo(2));
+    }
+
+    [Test]
+    public async Task StageChatDecisionAsync_NoTool_WritesNoToolDecision()
+    {
+        var stagingDir = NewTempDir();
+
+        await ToolcallerDatasetCapture.StageChatDecisionAsync(
+            "chat_run", "m", "What does a NullReferenceException mean in C#?",
+            [], [], null, stagingDir);
+
+        var file = Directory.GetFiles(stagingDir, "toolcaller_v1_chat_*.json").Single();
+        using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(file));
+        var root = doc.RootElement;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(root.GetProperty("expected").GetProperty("decision").GetString(), Is.EqualTo("no_tool"));
+            Assert.That(root.GetProperty("policy_outcome").ValueKind, Is.EqualTo(JsonValueKind.Null));
+        });
+    }
+
+    [Test]
+    public async Task StageChatDecisionAsync_SkipsTrivialRequest()
+    {
+        var stagingDir = NewTempDir();
+
+        await ToolcallerDatasetCapture.StageChatDecisionAsync(
+            "chat_run", "m", "ok", [], [], null, stagingDir);
+
+        Assert.That(Directory.Exists(stagingDir) && Directory.GetFiles(stagingDir).Length > 0, Is.False);
+    }
+
+    [Test]
+    public async Task StageChatDecisionAsync_DoesNothing_WhenDisabled()
+    {
+        ToolcallerDatasetCapture.IsEnabled = false;
+        var stagingDir = NewTempDir();
+
+        await ToolcallerDatasetCapture.StageChatDecisionAsync(
+            "chat_run", "m", "A perfectly long enough request to pass the triviality filter.",
+            [], [], null, stagingDir);
+
+        Assert.That(Directory.Exists(stagingDir) && Directory.GetFiles(stagingDir).Length > 0, Is.False);
+    }
+
+    [Test]
+    public async Task StageChatDecisionAsync_NeverWritesToV0StagingConvention()
+    {
+        // v0 and v1 must be trivially distinguishable by filename alone, even without
+        // opening the file -- an exporter scanning a shared directory must never mix them.
+        var stagingDir = NewTempDir();
+
+        await ToolcallerDatasetCapture.StageChatDecisionAsync(
+            "chat_run", "m", "A perfectly long enough request to pass the triviality filter.",
+            [], [], null, stagingDir);
+
+        var files = Directory.GetFiles(stagingDir);
+        Assert.That(files, Has.All.Matches<string>(f => Path.GetFileName(f).StartsWith("toolcaller_v1_chat_")));
+        Assert.That(files, Has.None.Matches<string>(f => Path.GetFileName(f).StartsWith("toolcaller_capture_")));
+    }
 }

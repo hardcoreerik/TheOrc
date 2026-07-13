@@ -11,6 +11,13 @@
 > ([Tools/ToolcallerBench](../Tools/ToolcallerBench)), sanitization, and human review are
 > complete — no split is assigned at capture time.
 >
+> **Sibling stream (toolcaller-v1):** OrcChat single-agent captures, a wider 16-tool
+> universe, role `"chat"`, staged separately to `.orc/chat/dataset-staging/` with a
+> `toolcaller_v1_chat_` filename prefix — never mixed with the v0 stream above. See
+> [TOOLCALLER_V1_FROZEN_INVENTORY.md](../docs/TOOLCALLER_V1_FROZEN_INVENTORY.md). The
+> shape below is identical for both; only `schema_version`, `tool_schema_hash`, `role`,
+> and `approval_state` (`"n/a"` for chat — no swarm-style approval gate) differ.
+>
 > Neither `DATASET_SCHEMA.md` (chat-JSONL SFT format) nor `PLAN_CAPTURE_SCHEMA.md`
 > (boss plan-decomposition format) can hold a tool-call example: neither has
 > `available_tools`, a call/no_tool/clarify/unsupported decision enum, or a

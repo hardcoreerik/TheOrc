@@ -7,6 +7,17 @@ using OrchestratorIDE.Models;
 namespace OrchestratorIDE.Research;
 
 /// <summary>
+/// One (request, decision) pair from ChatEngine.OnToolcallerDecision -- the toolcaller-v1
+/// capture shape. <paramref name="Calls"/> empty means the model chose no_tool; non-empty
+/// means it proposed one or more calls (native tool_calls or parsed ReAct blocks).
+/// </summary>
+public sealed record ChatToolDecision(
+    string Request,
+    IReadOnlyList<ToolDefinition> AvailableTools,
+    IReadOnlyList<ToolCall> Calls,
+    string Model);
+
+/// <summary>
 /// Conversation engine — originally built for the research chat tab, generalized so any
 /// chat surface (research chat, a future general/uncensored chat panel, etc.) can reuse the
 /// same proven multi-turn/streaming/tool-loop machinery instead of forking a parallel engine.
@@ -84,6 +95,17 @@ public class ChatEngine
     /// Not cumulative across turns; the caller sums across calls if it wants a running
     /// total.</summary>
     public event Action<int, int>? OnUsage;
+
+    /// <summary>
+    /// Fired once per turn, at the model's FIRST decision on a fresh user request (before
+    /// any tool-loop iteration) -- exactly the (request, decision) shape the Foundry
+    /// toolcaller-v1 capture schema wants (docs/TOOLCALLER_V1_FROZEN_INVENTORY.md). Follow-up
+    /// decisions inside a multi-step tool loop are NOT fired here; that's a different decision
+    /// shape than "single bounded request -> decision". ChatEngine stays workspace/staging
+    /// agnostic on purpose -- a subscriber (ChatPanel) owns turning this into an opt-in
+    /// dataset capture. No default subscriber, so this cannot change existing behavior.
+    /// </summary>
+    public event Action<ChatToolDecision>? OnToolcallerDecision;
 
     // ── Construction ──────────────────────────────────────────────────────────
 
@@ -183,6 +205,7 @@ public class ChatEngine
         // ── Path 1: Native tool calling ─────────────────────────────────────
         if (toolCallsNative.Count > 0)
         {
+            FireToolcallerDecision(tools, toolCallsNative);
             await RunNativeToolLoop(fullText, toolCallsNative, tools, systemMsg, ct);
             return;
         }
@@ -196,11 +219,13 @@ public class ChatEngine
         var reactCalls = tools.Count > 0 ? ResearchToolset.ParseReActCalls(fullText) : [];
         if (reactCalls.Count > 0)
         {
+            FireToolcallerDecision(tools, ToToolCalls(reactCalls));
             await RunReActLoop(fullText, reactCalls, tools, systemMsg, ct);
             return;
         }
 
         // ── No tool calls — plain response ──────────────────────────────────
+        FireToolcallerDecision(tools, []);
         _history.Add(new AgentMessage
         {
             Role    = MessageRole.Assistant,
@@ -209,6 +234,19 @@ public class ChatEngine
         });
         OnTurnComplete?.Invoke(fullText);
     }
+
+    /// <summary>Only fires when tools were actually offered -- with zero tools available
+    /// there was nothing to decide against, so a "no_tool" capture would be meaningless.</summary>
+    private void FireToolcallerDecision(List<ToolDefinition> tools, IReadOnlyList<ToolCall> calls)
+    {
+        if (tools.Count == 0 || OnToolcallerDecision is null) return;
+        var request = _history.LastOrDefault(m => m.Role == MessageRole.User)?.Content ?? "";
+        if (string.IsNullOrWhiteSpace(request)) return;
+        OnToolcallerDecision.Invoke(new ChatToolDecision(request, tools, calls, Model));
+    }
+
+    private static List<ToolCall> ToToolCalls(List<ToolCallRequest> reqs) =>
+        reqs.Select(r => new ToolCall { Name = r.Name, Arguments = r.Args }).ToList();
 
     // ── Native tool loop ──────────────────────────────────────────────────────
 
