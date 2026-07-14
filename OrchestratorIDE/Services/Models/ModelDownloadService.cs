@@ -163,8 +163,9 @@ public sealed class ModelDownloadService : IDisposable
             return false;
         }
 
-        var modelfilePath = Path.Combine(
-            _settings?.ResolvedTempFallbackPath ?? Path.GetTempPath(), $"Modelfile_{modelName}.tmp");
+        var tempDir = _settings?.ResolvedTempFallbackPath ?? Path.GetTempPath();
+        Directory.CreateDirectory(tempDir);
+        var modelfilePath = Path.Combine(tempDir, $"Modelfile_{modelName}.tmp");
         await File.WriteAllTextAsync(modelfilePath,
             $"FROM \"{ggufPath.Replace("\\", "/")}\"\n", ct);
 

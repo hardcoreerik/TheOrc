@@ -113,9 +113,12 @@ public class SwarmSession
     /// .orc-rooted state (runs, dataset staging, agent files) doesn't land somewhere
     /// the OS may clean up. AppSettings.ResolvedTempFallbackPath falls back to
     /// Path.GetTempPath() itself when the user hasn't set an override, so this
-    /// preserves prior behavior by default.
+    /// preserves prior behavior by default. Read once per session (not per property
+    /// access) -- RunsRoot/DatasetStagingDir/AgentFilesDir are accessed repeatedly
+    /// throughout a swarm run, and AppSettings.Load() is a synchronous file read.
     /// </summary>
-    private static string TempFallbackRoot => OrchestratorIDE.Core.AppSettings.Load().ResolvedTempFallbackPath;
+    private readonly string _tempFallbackRoot = OrchestratorIDE.Core.AppSettings.Load().ResolvedTempFallbackPath;
+    private string TempFallbackRoot => _tempFallbackRoot;
 
     private string RunsRoot         => Path.Combine(_workspaceRoot ?? TempFallbackRoot, ".orc", "swarm", "runs");
     private string RunDir           => Path.Combine(RunsRoot, _runId);
