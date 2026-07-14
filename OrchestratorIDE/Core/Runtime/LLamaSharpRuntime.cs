@@ -228,6 +228,16 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             {
                 ContextSize   = (uint)_options.ContextLength,
                 GpuLayerCount = _options.GpuLayers,
+                // Default n_seq_max is 1. AdapterManager mints a fresh, never-recycled sequence
+                // id per conversation (see AdapterManager.SequenceHardLimit) and only tears down
+                // the executor once minted count approaches that cap -- an assumption that only
+                // held by accident for plain-transformer architectures, where llama.cpp tolerates
+                // seq_id >= n_seq_max in the unified KV-cache path. Recurrent/hybrid architectures
+                // (e.g. Qwen3.5's Gated Delta Net layers) validate seq_id strictly against
+                // n_seq_max and fail find_slot/init_batch on literally the second conversation
+                // (seq_id=1) otherwise -- 100% reproducible, not load-dependent. Matching SeqMax to
+                // the hard limit makes the recycle contract hold for every architecture.
+                SeqMax        = (uint)AdapterManager.SequenceHardLimit,
                 // SwaFull deliberately left at its native default (true). false was tried during
                 // the NoKvSlot investigation to shrink SWA-layer cache 6x on Gemma-3-class
                 // architectures, but that shrinks the SWA cache to min(fullContext, n_swa +
