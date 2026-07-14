@@ -108,7 +108,16 @@ public class SwarmSession
 
     // ── Paths ─────────────────────────────────────────────────────────────────
 
-    private string RunsRoot         => Path.Combine(_workspaceRoot ?? Path.GetTempPath(), ".orc", "swarm", "runs");
+    /// <summary>
+    /// Root used in place of the OS temp folder when no workspace is open, so
+    /// .orc-rooted state (runs, dataset staging, agent files) doesn't land somewhere
+    /// the OS may clean up. AppSettings.ResolvedTempFallbackPath falls back to
+    /// Path.GetTempPath() itself when the user hasn't set an override, so this
+    /// preserves prior behavior by default.
+    /// </summary>
+    private static string TempFallbackRoot => OrchestratorIDE.Core.AppSettings.Load().ResolvedTempFallbackPath;
+
+    private string RunsRoot         => Path.Combine(_workspaceRoot ?? TempFallbackRoot, ".orc", "swarm", "runs");
     private string RunDir           => Path.Combine(RunsRoot, _runId);
     /// <summary>
     /// Workers write files into a staging area under the run directory.
@@ -122,7 +131,7 @@ public class SwarmSession
     /// Files are plan-capture JSON (PLAN_CAPTURE_SCHEMA.md format).
     /// Convert to chat-JSONL via training_pit/scripts/convert_plan_captures.py.
     /// </summary>
-    private string DatasetStagingDir => Path.Combine(_workspaceRoot ?? Path.GetTempPath(), ".orc", "swarm", "dataset-staging");
+    private string DatasetStagingDir => Path.Combine(_workspaceRoot ?? TempFallbackRoot, ".orc", "swarm", "dataset-staging");
 
     /// <summary>Returns the staging dir for the last (or current) run. Empty if no run yet.</summary>
     public string GetOutputProjectDir() => string.IsNullOrEmpty(_runId) ? "" : OutputProjectDir;
@@ -959,7 +968,7 @@ public class SwarmSession
     // ── Agent files (.orc/agents/{role}.md) ──────────────────────────────────
 
     private string AgentFilesDir =>
-        Path.Combine(_workspaceRoot ?? Path.GetTempPath(), ".orc", "agents");
+        Path.Combine(_workspaceRoot ?? TempFallbackRoot, ".orc", "agents");
 
     private string AgentFilePath(string role) =>
         Path.Combine(AgentFilesDir, $"{role.ToLower()}.md");

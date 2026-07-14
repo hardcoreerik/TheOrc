@@ -135,6 +135,10 @@ public partial class SettingsPanel : UserControl
         TglNativeMainChat.IsChecked   = s.ExperimentalNativeMainChatEnabled;
         TglToolcallerDatasetCapture.IsChecked = s.ToolcallerDatasetCaptureEnabled;
         TglToolcallerRepair.IsChecked         = s.ToolcallerRepairEnabled;
+        RowModelStorage.PathText  = s.ModelStoragePath;
+        RowModelStorage.DefaultDisplay = s.ResolvedModelStoragePath;
+        RowTempFallback.PathText  = s.TempFallbackPath;
+        RowTempFallback.DefaultDisplay = s.ResolvedTempFallbackPath;
         TbNativeRuntimeModelRoot.Text = s.NativeRuntimeModelRoot;
         TbNativeRuntimeContextSize.Text = s.NativeRuntimeContextSize.ToString();
         TbNativeRuntimeGpuLayers.Text = s.NativeRuntimeGpuLayers.ToString();
@@ -314,6 +318,8 @@ public partial class SettingsPanel : UserControl
         s.ExperimentalNativeMainChatEnabled   = TglNativeMainChat.IsChecked == true;
         s.ToolcallerDatasetCaptureEnabled     = TglToolcallerDatasetCapture.IsChecked == true;
         s.ToolcallerRepairEnabled             = TglToolcallerRepair.IsChecked == true;
+        s.ModelStoragePath  = RowModelStorage.PathText.Trim();
+        s.TempFallbackPath  = RowTempFallback.PathText.Trim();
         s.NativeRuntimeModelRoot = TbNativeRuntimeModelRoot.Text?.Trim() ?? "";
         s.NativeRuntimeContextSize = int.TryParse(TbNativeRuntimeContextSize.Text, out var nativeCtx)
             ? Math.Max(512, nativeCtx)

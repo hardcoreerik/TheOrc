@@ -2,6 +2,7 @@
 <UserControl x:Class="OrchestratorIDE.UI.Panels.SettingsPanel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:OrchestratorIDE.UI.Controls"
              Background="{StaticResource Br.Bg.Sidebar}">
 
     <UserControl.Resources>
@@ -121,6 +122,19 @@
                              Classes="SettingInput"
                              Text="http://localhost:11434"/>
                 </StackPanel>
+
+                <!-- ── STORAGE ─────────────────────────────────────────── -->
+                <TextBlock Text="STORAGE" Classes="SectionHeader" Margin="0,12,0,0"/>
+
+                <controls:StoragePathRow x:Name="RowModelStorage"
+                    Label="Model storage"
+                    Hint="Where downloaded GGUF model files are saved."
+                    BrowseTitle="Choose model storage folder"/>
+
+                <controls:StoragePathRow x:Name="RowTempFallback"
+                    Label="Temp / scratch fallback"
+                    Hint="Used instead of the system temp folder when no workspace is open, and for transient files (self-update staging, Ollama model staging)."
+                    BrowseTitle="Choose temp/scratch fallback folder"/>
 
                 <!-- ── INFERENCE BACKEND ──────────────────────────────── -->
                 <TextBlock Text="INFERENCE BACKEND" Classes="SectionHeader" Margin="0,12,0,0"/>

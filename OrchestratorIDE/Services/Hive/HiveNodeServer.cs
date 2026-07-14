@@ -985,7 +985,7 @@ public sealed class HiveNodeServer : IDisposable
             var result   = await OrchestratorIDE.Core.UpdateChecker.CheckAsync(settings, force: true);
             if (result is null || !result.UpdateAvailable) return;
 
-            var stagingDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "orc_update_staging");
+            var stagingDir = System.IO.Path.Combine(settings.ResolvedTempFallbackPath, "orc_update_staging");
             var progress   = new Progress<string>(_ => { });
             var updater    = new SelfUpdater();
 
