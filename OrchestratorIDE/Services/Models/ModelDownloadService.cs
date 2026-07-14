@@ -15,11 +15,13 @@ namespace OrchestratorIDE.Services.Models;
 /// </summary>
 public sealed class ModelDownloadService : IDisposable
 {
-    private readonly HttpClient _http;
+    private readonly HttpClient    _http;
+    private readonly AppSettings?  _settings;
 
     public ModelDownloadService(string? accessToken = null, AppSettings? settings = null)
     {
-        _http = new HttpClient { Timeout = TimeSpan.FromHours(4) };
+        _http     = new HttpClient { Timeout = TimeSpan.FromHours(4) };
+        _settings = settings;
         _http.DefaultRequestHeaders.Add("User-Agent", "OrchestratorIDE/1.0");
 
         var resolvedToken = HuggingFaceAccessTokenResolver.Resolve(accessToken, settings);
@@ -161,7 +163,9 @@ public sealed class ModelDownloadService : IDisposable
             return false;
         }
 
-        var modelfilePath = Path.Combine(Path.GetTempPath(), $"Modelfile_{modelName}.tmp");
+        var tempDir = _settings?.ResolvedTempFallbackPath ?? Path.GetTempPath();
+        Directory.CreateDirectory(tempDir);
+        var modelfilePath = Path.Combine(tempDir, $"Modelfile_{modelName}.tmp");
         await File.WriteAllTextAsync(modelfilePath,
             $"FROM \"{ggufPath.Replace("\\", "/")}\"\n", ct);
 

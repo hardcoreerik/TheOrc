@@ -1,0 +1,57 @@
+<!-- Copyright (C) 2025-present hardcoreerik / TheOrc contributors | SPDX-License-Identifier: AGPL-3.0-or-later -->
+<UserControl x:Class="OrchestratorIDE.UI.Controls.StoragePathRow"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+    Reusable "storage location" settings row: label, hint, a path textbox
+    (empty = use default), Browse, and Reset. One instance per category
+    (model storage, temp/scratch fallback, ...) instead of a hand-copied
+    XAML block per category — see StoragePathRow.axaml.cs for PathText/
+    Label/Hint/DefaultDisplay.
+    -->
+
+    <UserControl.Styles>
+        <Style Selector="TextBlock.RowLabel">
+            <Setter Property="Foreground" Value="{StaticResource Br.Text.Primary}"/>
+            <Setter Property="FontSize"   Value="12"/>
+            <Setter Property="Margin"     Value="0,0,0,2"/>
+        </Style>
+        <Style Selector="TextBlock.RowHint">
+            <Setter Property="Foreground"   Value="{StaticResource Br.Text.Muted}"/>
+            <Setter Property="FontSize"     Value="10"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin"       Value="0,0,0,4"/>
+        </Style>
+        <Style Selector="TextBox.RowInput">
+            <Setter Property="Background"      Value="{StaticResource Br.Bg.Input}"/>
+            <Setter Property="Foreground"      Value="{StaticResource Br.Text.Primary}"/>
+            <Setter Property="BorderBrush"     Value="{StaticResource Br.Border}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding"         Value="6,5"/>
+            <Setter Property="FontFamily"      Value="Consolas, 'Cascadia Code', monospace"/>
+            <Setter Property="FontSize"        Value="12"/>
+        </Style>
+        <Style Selector="Button.RowButton">
+            <Setter Property="Background"  Value="{StaticResource Br.Bg.Input}"/>
+            <Setter Property="Foreground"  Value="{StaticResource Br.Text.Primary}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Br.Border}"/>
+            <Setter Property="FontSize"    Value="12"/>
+        </Style>
+    </UserControl.Styles>
+
+    <StackPanel Margin="8,4,8,4">
+        <TextBlock x:Name="TbLabel" Classes="RowLabel"/>
+        <TextBlock x:Name="TbHint"  Classes="RowHint"/>
+        <Grid ColumnDefinitions="*,32,32">
+            <TextBox x:Name="TbPath" Grid.Column="0" Classes="RowInput"/>
+            <Button x:Name="BtnBrowse" Grid.Column="1" Content="…" Margin="4,0,0,0"
+                    Classes="RowButton" Click="BtnBrowse_Click"
+                    ToolTip.Tip="Browse for a folder"/>
+            <Button x:Name="BtnReset" Grid.Column="2" Content="↺" Margin="4,0,0,0"
+                    Classes="RowButton" Click="BtnReset_Click"
+                    ToolTip.Tip="Reset to default"/>
+        </Grid>
+        <TextBlock x:Name="TbResolved" Classes="RowHint" FontStyle="Italic" Margin="0,2,0,0"/>
+    </StackPanel>
+</UserControl>

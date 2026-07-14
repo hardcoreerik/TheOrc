@@ -82,6 +82,22 @@ public class AppSettings
                 "OrchestratorIDE", "Models");
 
     /// <summary>
+    /// Root folder used instead of the OS temp directory when no workspace is open
+    /// (.orc-rooted state -- swarm runs, dataset staging, agent state) or for genuinely
+    /// transient scratch files (self-update staging, the Ollama Modelfile staged before
+    /// `ollama create`). Empty = OS temp dir (Path.GetTempPath()), the prior unconditional
+    /// behavior everywhere this is consumed.
+    /// </summary>
+    public string TempFallbackPath { get; set; } = "";
+
+    /// <summary>
+    /// Resolved temp/scratch fallback directory -- always non-empty, never throws.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ResolvedTempFallbackPath =>
+        !string.IsNullOrEmpty(TempFallbackPath) ? TempFallbackPath : Path.GetTempPath();
+
+    /// <summary>
     /// Optional Hugging Face access token used for gated model metadata and downloads.
     /// Empty = prefer environment variables or the local Hugging Face CLI login token.
     /// </summary>
