@@ -431,26 +431,9 @@ public partial class MainWindow : Window
 
             // This overwrite runs after the ChatSuitable gate above, so a persisted session's
             // ActiveModel (e.g. captured while Swarm mode had a theorc-boss:* planner active)
-            // bypasses it entirely -- re-validate here rather than leaving a boss-only planner
-            // silently active on the OrcChat/single-chat surface. Swarm mode is exempt, same as
-            // the earlier gate.
-            if (_settings.LastMode != "swarm" &&
-                !string.IsNullOrEmpty(_session.ActiveModel) &&
-                _installedModels.Count > 0 &&
-                !IsChatSuitable(_session.ActiveModel))
-            {
-                var fallback = BestSingleModel(_settings.LastSingleModel);
-                _session.ActiveModel   = fallback;
-                _swarmPanel.ActiveModel = fallback;
-                await Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    _chatPanel.SetModels(_installedModels, fallback);
-                    UpdateStatusBar();
-                });
-                AddActivity(new ActivityEvent(ActivityKind.Warning, "Model",
-                    $"Restored session had a planner-only model active — switched to {fallback} for chat.",
-                    DateTime.Now));
-            }
+            // bypasses it entirely -- re-validate and resync the chat/swarm panels here rather
+            // than leaving them showing the pre-restore model while _session moved on.
+            await Dispatcher.UIThread.InvokeAsync(ValidateAndSyncSessionModel);
         }
 
         // Model status polling
@@ -1858,6 +1841,38 @@ public partial class MainWindow : Window
     // output shape instead of answering. See ModelProfile.ChatSuitable.
     private static bool IsChatSuitable(string modelId) => ModelProfiles.Get(modelId).ChatSuitable;
 
+    /// <summary>
+    /// Re-validates _session.ActiveModel against ChatSuitable and syncs _chatPanel/_swarmPanel
+    /// to match -- call this after ANY code path assigns a new _session directly (session-store
+    /// restore, ResumeSession) rather than through SetMode/ApplyModelSwitch, since those paths
+    /// bypass the eligibility gate those helpers apply. Swarm mode is exempt. Always resyncs the
+    /// panels (not just on an ineligible model) -- a restored session can carry a different but
+    /// perfectly valid model that _chatPanel was never told about.
+    /// </summary>
+    private void ValidateAndSyncSessionModel()
+    {
+        if (_settings.LastMode == "swarm" ||
+            string.IsNullOrEmpty(_session.ActiveModel) ||
+            _installedModels.Count == 0)
+            return;
+
+        var model = _session.ActiveModel;
+        if (!IsChatSuitable(model))
+        {
+            var fallback = BestSingleModel(_settings.LastSingleModel);
+            _session.ActiveModel = model = fallback;
+            AddActivity(new ActivityEvent(ActivityKind.Warning, "Model",
+                IsChatSuitable(fallback)
+                    ? $"Restored session had a planner-only model active — switched to {fallback} for chat."
+                    : $"No chat-suitable model installed — {fallback} remains active (planner-only). Pick a general-purpose model from the OrcChat dropdown.",
+                DateTime.Now));
+        }
+
+        _swarmPanel.ActiveModel = model;
+        _chatPanel.SetModels(_installedModels, model);
+        UpdateStatusBar();
+    }
+
     private string BestSingleModel(string lastSingle)
     {
         if (!string.IsNullOrEmpty(lastSingle) &&
@@ -1929,6 +1944,7 @@ public partial class MainWindow : Window
         _chatPanel.WorkspaceRoot = _session.WorkspaceRoot;
         _explorerPanel.LoadWorkspace(_session.WorkspaceRoot);
         _checkpointPanel.SetWorkspace(_session.WorkspaceRoot);
+        ValidateAndSyncSessionModel();
         UpdateStatusBar();
         SidebarContent.Content = _explorerPanel;
         AddActivity(new ActivityEvent(ActivityKind.Info, "Session",
