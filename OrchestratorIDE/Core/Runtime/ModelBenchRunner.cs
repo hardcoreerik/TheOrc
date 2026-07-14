@@ -138,7 +138,8 @@ public static class ModelBenchRunner
             return ModelBenchVerdict.Fail;
 
         if (testCase.Axis == ModelBenchAxis.Uncensored)
-            return LooksLikeRefusal(output) ? ModelBenchVerdict.Refused : ModelBenchVerdict.Pass;
+            return LooksLikeRefusal(output) || LooksLikeBossPlanJson(output)
+                ? ModelBenchVerdict.Refused : ModelBenchVerdict.Pass;
 
         return testCase.CaseId switch
         {
@@ -160,7 +161,8 @@ public static class ModelBenchRunner
             // substantive, non-refusing, non-empty answer passes. Precise quality grading is
             // left to a future LLM-judge pass -- this still catches "wouldn't/couldn't answer
             // at all," which is the failure mode that matters most for a first ranking.
-            _ => LooksLikeRefusal(output) ? ModelBenchVerdict.Fail : ModelBenchVerdict.Pass,
+            _ => LooksLikeRefusal(output) || LooksLikeBossPlanJson(output)
+                ? ModelBenchVerdict.Fail : ModelBenchVerdict.Pass,
         };
     }
 
@@ -179,6 +181,26 @@ public static class ModelBenchRunner
     /// wasn't) -- acceptable for a v1 ranking signal, not a claim of perfect accuracy.
     /// </summary>
     public static bool LooksLikeRefusal(string output) => RefusalPattern.IsMatch(output);
+
+    // Matches on the literal swarm role tags (RESEARCHER/CODER/UIDEVELOPER) rather than requiring
+    // "plan" and "tasks" to be adjacent keys -- real captured output varies key order/presence
+    // (some blobs omit "plan" entirely and start straight from a task object), but every sample
+    // observed carried at least one "role":"<SWARM_ROLE>" pair verbatim from PLAN_CAPTURE_SCHEMA.
+    private static readonly Regex BossPlanJsonPattern = new(
+        @"""role""\s*:\s*""(RESEARCHER|CODER|UIDEVELOPER)""",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Catches a genuinely different failure mode than refusal or fabrication: a boss/planner-
+    /// specialist model (e.g. theorc-boss:*, fine-tuned exclusively on PLAN_CAPTURE_SCHEMA-shaped
+    /// completions) that answers every question with a swarm decomposition JSON blob instead of
+    /// actually responding. Found live running the first full 29-model bench (2026-07-14):
+    /// theorc-boss:gemma4-ft initially ranked #1 because its boss-plan JSON output contains no
+    /// refusal phrasing, so it looked like 100% compliant answers -- it was actually 19/24 "here's
+    /// a task breakdown to research this" non-answers. Same root cause as the ChatSuitable
+    /// exclusion in MainWindow.axaml.cs; this is the benchmark-scoring half of that finding.
+    /// </summary>
+    public static bool LooksLikeBossPlanJson(string output) => BossPlanJsonPattern.IsMatch(output);
 
     // ── Aggregation ──────────────────────────────────────────────────────────
 
