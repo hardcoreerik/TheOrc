@@ -354,7 +354,16 @@ public partial class MainWindow : Window
             // exactly the bug this guard exists for (out-of-distribution prompt -> the model
             // repeats its only known output shape until the token budget runs out instead of
             // answering). Swarm mode is unaffected -- that's the surface these models are for.
-            bool IsChatEligible(string modelId) => isSwarmMode || ModelProfiles.Get(modelId).ChatSuitable;
+            //
+            // TesterScore ("structured JSON output reliability") adds a second bar: a model can
+            // be ChatSuitable (not boss-only) and still be too weak to reliably use tools --
+            // e.g. nemotron-3-nano writes a fake web_search(...) call as plain prose instead of
+            // a real tool_call when it can't express one, and ChatEngine then has no way to tell
+            // that never actually ran. Excluding low-TesterScore models from auto-restore/
+            // auto-select keeps them out of the default path while leaving them manually
+            // selectable from the dropdown for anyone who wants them anyway.
+            bool IsChatEligible(string modelId) => isSwarmMode ||
+                (ModelProfiles.Get(modelId).ChatSuitable && ModelProfiles.Get(modelId).TesterScore >= MinToolReliableTesterScore);
 
             if (_settings.RestoreLastModel &&
                 !string.IsNullOrEmpty(lastUsed) &&
@@ -378,7 +387,7 @@ public partial class MainWindow : Window
                     ?? models.First();
                 if (!IsChatEligible(best))
                     AddActivity(new ActivityEvent(ActivityKind.Warning, "Model",
-                        $"No chat-suitable model installed — falling back to {best} (planner-only).", DateTime.Now));
+                        $"No sufficiently capable chat model installed — falling back to {best}.", DateTime.Now));
                 AddActivity(new ActivityEvent(ActivityKind.Info, "Model", $"Auto-selected: {best}", DateTime.Now));
             }
             else
@@ -386,7 +395,7 @@ public partial class MainWindow : Window
                 best = models.FirstOrDefault(IsChatEligible) ?? models.First();
                 if (!IsChatEligible(best))
                     AddActivity(new ActivityEvent(ActivityKind.Warning, "Model",
-                        $"No chat-suitable model installed — falling back to {best} (planner-only).", DateTime.Now));
+                        $"No sufficiently capable chat model installed — falling back to {best}.", DateTime.Now));
                 AddActivity(new ActivityEvent(ActivityKind.Info, "Model", $"Active: {best}", DateTime.Now));
             }
 
@@ -1842,7 +1851,21 @@ public partial class MainWindow : Window
     // single-chat/OrcChat (directly, or carried over from Swarm mode via _session.ActiveModel)
     // produces an out-of-distribution collapse where the model just repeats its only known
     // output shape instead of answering. See ModelProfile.ChatSuitable.
-    private static bool IsChatSuitable(string modelId) => ModelProfiles.Get(modelId).ChatSuitable;
+    //
+    // TesterScore ("structured JSON output reliability") is a second bar on top of
+    // ChatSuitable: a model can be perfectly fine for plain conversation and still be too weak
+    // to reliably use tools (e.g. nemotron-3-nano writing a fake web_search(...) call as plain
+    // prose instead of a real tool_call it can't express -- see ChatEngine's ReAct fallback and
+    // unexecuted-tool-call detection, the other half of this fix). 5 is chosen against real
+    // ModelProfiles.cs data: excludes nemotron-3-nano:4b (3) and :4b-q8_0 (4) while keeping every
+    // general-purpose fallback candidate already in MainWindow's preferred lists.
+    private const int MinToolReliableTesterScore = 5;
+
+    private static bool IsChatSuitable(string modelId)
+    {
+        var profile = ModelProfiles.Get(modelId);
+        return profile.ChatSuitable && profile.TesterScore >= MinToolReliableTesterScore;
+    }
 
     /// <summary>
     /// Re-validates _session.ActiveModel against ChatSuitable and syncs _chatPanel/_swarmPanel
@@ -1866,8 +1889,8 @@ public partial class MainWindow : Window
             _session.ActiveModel = model = fallback;
             AddActivity(new ActivityEvent(ActivityKind.Warning, "Model",
                 IsChatSuitable(fallback)
-                    ? $"Restored session had a planner-only model active — switched to {fallback} for chat."
-                    : $"No chat-suitable model installed — {fallback} remains active (planner-only). Pick a general-purpose model from the OrcChat dropdown.",
+                    ? $"Restored session had a planner-only or tool-unreliable model active — switched to {fallback} for chat."
+                    : $"No sufficiently capable chat model installed — {fallback} remains active. Pick a general-purpose model from the OrcChat dropdown.",
                 DateTime.Now));
         }
 
