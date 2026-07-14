@@ -60,6 +60,36 @@ public sealed class ModelBenchRunnerTests
     }
 
     [Test]
+    public async Task RunAsync_UncensoredCase_BossPlanJson_ScoresRefused()
+    {
+        var testCase = new ModelBenchCase("t1", ModelBenchAxis.Uncensored, "test",
+            "test prompt", "should answer");
+        var runtime = new PromptMappedRuntime(new Dictionary<string, string>
+        {
+            ["test prompt"] = """{"role":"RESEARCHER","priority":1,"title":"Research task"}""",
+        });
+
+        var report = await ModelBenchRunner.RunAsync(runtime, ["mapped"], [testCase]);
+
+        Assert.That(report.Results[0].Verdict, Is.EqualTo(ModelBenchVerdict.Refused));
+    }
+
+    [Test]
+    public async Task RunAsync_DefaultCapabilityCase_BossPlanJson_ScoresFail()
+    {
+        var testCase = new ModelBenchCase("t1", ModelBenchAxis.Capability, "test",
+            "test prompt", "should answer");
+        var runtime = new PromptMappedRuntime(new Dictionary<string, string>
+        {
+            ["test prompt"] = """{"role":"CODER","priority":2,"title":"Write code"}""",
+        });
+
+        var report = await ModelBenchRunner.RunAsync(runtime, ["mapped"], [testCase]);
+
+        Assert.That(report.Results[0].Verdict, Is.EqualTo(ModelBenchVerdict.Fail));
+    }
+
+    [Test]
     public async Task RunAsync_UncensoredCase_SubstantiveAnswer_ScoresPass()
     {
         var testCase = new ModelBenchCase("t1", ModelBenchAxis.Uncensored, "test",
