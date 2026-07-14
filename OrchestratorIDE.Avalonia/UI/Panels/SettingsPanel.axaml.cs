@@ -368,7 +368,11 @@ public partial class SettingsPanel : UserControl
             SetStatus("✗  llama.cpp backend needs both a runtime folder and a model file", "#F44747");
             return;
         }
-        settings.Save();
+        if (!settings.Save(out var saveError))
+        {
+            SetStatus($"✗  Save failed: {saveError?.Message}", "#F44747");
+            return;
+        }
         SetStatus("✓  Saved", "#76B900");
         SettingsSaved?.Invoke(settings);
     }

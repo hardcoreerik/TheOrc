@@ -406,13 +406,26 @@ public class AppSettings
         return new AppSettings();
     }
 
-    public void Save()
+    /// <summary>
+    /// Persists settings to disk. Returns true on success; false (with <paramref name="error"/> set)
+    /// if the write failed, so callers can surface the failure instead of assuming success.
+    /// </summary>
+    public bool Save(out Exception? error)
     {
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
             File.WriteAllText(_path, JsonSerializer.Serialize(this, _json));
+            error = null;
+            return true;
         }
-        catch { /* non-fatal */ }
+        catch (Exception ex)
+        {
+            error = ex;
+            return false;
+        }
     }
+
+    /// <summary>Convenience overload for callers that don't need the failure detail.</summary>
+    public bool Save() => Save(out _);
 }
