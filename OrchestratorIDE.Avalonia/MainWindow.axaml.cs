@@ -362,8 +362,7 @@ public partial class MainWindow : Window
             // that never actually ran. Excluding low-TesterScore models from auto-restore/
             // auto-select keeps them out of the default path while leaving them manually
             // selectable from the dropdown for anyone who wants them anyway.
-            bool IsChatEligible(string modelId) => isSwarmMode ||
-                (ModelProfiles.Get(modelId).ChatSuitable && ModelProfiles.Get(modelId).TesterScore >= MinToolReliableTesterScore);
+            bool IsChatEligible(string modelId) => isSwarmMode || IsChatSuitable(modelId);
 
             if (_settings.RestoreLastModel &&
                 !string.IsNullOrEmpty(lastUsed) &&
