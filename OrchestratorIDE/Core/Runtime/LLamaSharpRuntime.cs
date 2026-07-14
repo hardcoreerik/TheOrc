@@ -32,6 +32,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
 {
     private LLamaWeights? _weights;
     private ModelParams? _modelParams;
+    private ModelParams? _statelessModelParams;
     private string? _activeModelPath;
     private string? _activeAdapterPath;
     private RuntimeOptions _options = new();
@@ -106,7 +107,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         Action<int, int>? onUsage = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        if (_weights is null || _modelParams is null)
+        if (_weights is null || _statelessModelParams is null)
             throw new InvalidOperationException(
                 "No model loaded. Call LoadModelAsync before streaming.");
 
@@ -115,7 +116,12 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         // itself isn't IDisposable, but the native context it owns (.Context) is — confirmed
         // via reflection during the Stage 1 smoke test (RUNTIME_SWITCH_PLAN.md) after Grok
         // caught that this was never disposed, leaking native KV-cache memory on every call.
-        var executor = new StatelessExecutor(_weights, _modelParams);
+        //
+        // Uses _statelessModelParams (SeqMax=1), NOT _modelParams (SeqMax=SequenceHardLimit) --
+        // this executor only ever runs a single sequence per call, so reusing the persistent-
+        // executor params would reserve the same hybrid-architecture rs-cache VRAM budget on
+        // every stateless call for no benefit (CodeRabbit review, PR #56).
+        var executor = new StatelessExecutor(_weights, _statelessModelParams);
         try
         {
             // Build the raw prompt using the GGUF's embedded chat template.
@@ -253,6 +259,19 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
                 // see docs/CONTEXT_FABRIC_TEST_HARNESS.md §7.
             };
 
+            // StreamCompletionAsync's StatelessExecutor only ever runs one sequence per call
+            // (CodeRabbit review, PR #56) -- it must NOT reuse `mp` above. llama.cpp allocates
+            // its per-sequence recurrent-state ("rs cache") buffer sized by n_seq_max on hybrid
+            // architectures, so reusing the persistent-executor params (SeqMax =
+            // SequenceHardLimit = 40) would make every single stateless call reserve the same
+            // ~2GB the persistent AdapterManager executors reserve once, wasting VRAM and
+            // risking OOM under concurrent calls. Separate instance, native default SeqMax (1).
+            var statelessMp = new ModelParams(baseGgufPath)
+            {
+                ContextSize   = (uint)_options.ContextLength,
+                GpuLayerCount = _options.GpuLayers,
+            };
+
             if (!string.IsNullOrEmpty(adapterPath))
             {
                 if (!File.Exists(adapterPath))
@@ -263,10 +282,11 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
                 // The adapter path is stored so the UI can surface it, but it is NOT applied.
             }
 
-            _weights          = await LLamaWeights.LoadFromFileAsync(mp, ct);
-            _modelParams      = mp;
-            _activeModelPath  = baseGgufPath;
-            _activeAdapterPath = adapterPath;
+            _weights              = await LLamaWeights.LoadFromFileAsync(mp, ct);
+            _modelParams          = mp;
+            _statelessModelParams = statelessMp;
+            _activeModelPath      = baseGgufPath;
+            _activeAdapterPath    = adapterPath;
             Interlocked.Increment(ref _weightsGeneration);
 
             // Fix #3: do not claim adapter is active — LoRA is not applied in Phase 2.
@@ -313,6 +333,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         _weights?.Dispose();
         _weights              = null;
         _modelParams          = null;
+        _statelessModelParams = null;
         _activeModelPath      = null;
         _activeAdapterPath    = null;
         _lastTokensPerSecond  = null;
