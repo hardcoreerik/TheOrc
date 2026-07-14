@@ -226,6 +226,7 @@ public class ChatEngine
 
         // ── No tool calls — plain response ──────────────────────────────────
         FireToolcallerDecision(tools, []);
+        fullText = SanitizeFinalText(fullText, tools);
         _history.Add(new AgentMessage
         {
             Role    = MessageRole.Assistant,
@@ -234,6 +235,36 @@ public class ChatEngine
         });
         OnTurnComplete?.Invoke(fullText);
     }
+
+    /// <summary>
+    /// Guards the two ways ChatEngine can otherwise hand back an untrustworthy or silently
+    /// empty "final answer": (1) a model with no real tool call to show for it can still write
+    /// out something that LOOKS like one -- e.g. a fake `web_search(query="...")` code block
+    /// instead of a real tool_call, because it lacks a format it can reliably express (the
+    /// AMD-stock-price incident this exists for: the model fabricated increasingly specific
+    /// "results" across turns because its own fake call sat in history looking like a genuine
+    /// attempted action with nothing ever actually run); (2) a weak model can loop through real
+    /// tool calls every iteration and hit MaxIterations without ever synthesizing prose, leaving
+    /// lastText/finalClean empty -- the turn completes with literally nothing shown, which reads
+    /// as a silent failure. Neither case blocks or retries -- this just stops a bad outcome from
+    /// being presented as either trustworthy or as if the turn simply produced no output.
+    /// </summary>
+    private static string SanitizeFinalText(string text, List<ToolDefinition> tools)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return "⚠️ The model didn't produce a usable response (it may have run out of " +
+                   "tool-call attempts without ever answering). Try again, or switch to a more " +
+                   "capable model.";
+        if (tools.Count > 0 && LooksLikeUnexecutedToolAttempt(text, tools))
+            return "⚠️ This model appears to have attempted a tool call in an unsupported " +
+                   "format, so it never actually ran. The text below is unverified.\n\n" + text;
+        return text;
+    }
+
+    private static bool LooksLikeUnexecutedToolAttempt(string text, List<ToolDefinition> tools) =>
+        tools.Any(t => System.Text.RegularExpressions.Regex.IsMatch(
+            text, $@"\b{System.Text.RegularExpressions.Regex.Escape(t.Name)}\s*\(",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase));
 
     /// <summary>Only fires when tools were actually offered -- with zero tools available
     /// there was nothing to decide against, so a "no_tool" capture would be meaningless.</summary>
@@ -314,6 +345,7 @@ public class ChatEngine
         }
 
         // Final text — record and signal complete
+        lastText = SanitizeFinalText(lastText, tools);
         _history.Add(new AgentMessage
         {
             Role    = MessageRole.Assistant,
@@ -401,6 +433,7 @@ public class ChatEngine
         var finalClean = pendingText;
         foreach (var call in ResearchToolset.ParseReActCalls(finalClean))
             finalClean = finalClean.Replace(call.FullMatch, "").Trim();
+        finalClean = SanitizeFinalText(finalClean, tools);
 
         _history.Add(new AgentMessage
         {
@@ -464,7 +497,15 @@ public class ChatEngine
     private string? ResolveSystemPrompt()
     {
         var basePrompt = SystemPrompt ?? BuildSystemPrompt();
-        if (SystemPrompt != null && !ResearchToolset.KnownNativeToolSupport(Model) && !string.IsNullOrWhiteSpace(ReactInstructions))
+        // Appended regardless of KnownNativeToolSupport -- that check is a guess based on what
+        // a model FAMILY typically supports, not a guarantee this specific model/quantization
+        // reliably emits real tool_calls. Teaching the ReAct fallback in addition to (never
+        // instead of) native tool schema is a strict superset: a model that already uses native
+        // tool_calls correctly just ignores the redundant instructions; one that doesn't (e.g.
+        // writing a fake web_search(...) call as prose because it has no better format to reach
+        // for) now has a real fallback syntax instead of inventing pseudo-code ChatEngine can
+        // never parse. See LooksLikeUnexecutedToolAttempt for the other half of this safety net.
+        if (SystemPrompt != null && !string.IsNullOrWhiteSpace(ReactInstructions))
             basePrompt = string.IsNullOrWhiteSpace(basePrompt) ? ReactInstructions : $"{basePrompt}\n\n{ReactInstructions}";
         if (!IncludeDateTimeContext) return basePrompt;
 
@@ -472,13 +513,8 @@ public class ChatEngine
         return string.IsNullOrEmpty(basePrompt) ? dateTimeLine : $"{dateTimeLine}\n\n{basePrompt}";
     }
 
-    private string BuildSystemPrompt()
-    {
-        var known = ResearchToolset.KnownNativeToolSupport(Model);
-        return known
-            ? ResearchToolset.BaseSystemPrompt
-            : ResearchToolset.BaseSystemPrompt + "\n\n" + ResearchToolset.ReActSystemPrompt;
-    }
+    private string BuildSystemPrompt() =>
+        ResearchToolset.BaseSystemPrompt + "\n\n" + ResearchToolset.ReActSystemPrompt;
 
     /// <summary>
     /// Prepends a system message only when one is actually present -- a null/empty
