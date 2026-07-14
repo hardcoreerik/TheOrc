@@ -52,7 +52,19 @@ public record ModelProfile(
     // Extra text appended to the BossDecomposeSystemPrompt for models that need
     // additional guidance to produce well-decomposed plans. Null = no supplement.
     // Use for models with known planning weaknesses (e.g. collapse to 1 empty task).
-    string? BossPromptSupplement = null
+    string? BossPromptSupplement = null,
+
+    // ── Chat-surface suitability ──────────────────────────────────────────────
+    // False for models fine-tuned/few-shot-baked exclusively toward one narrow structured
+    // output (e.g. theorc-boss:* -- ORC ACADEMY's boss-plan-JSON specialists). These models
+    // reliably decompose a goal into a plan, but were never trained or evaluated on ordinary
+    // open-ended conversation; given an out-of-distribution chat prompt they can collapse into
+    // repeating their only known output shape (boss-plan JSON) until the token budget runs out
+    // instead of answering the question. Used to keep single-chat model restore/auto-select
+    // (MainWindow.axaml.cs) from silently landing a user on a planning-only specialist for
+    // general OrcChat use -- it remains manually selectable from the dropdown for anyone who
+    // wants to inspect/eval it directly.
+    bool ChatSuitable = true
 )
 {
     public int ContextK => ContextTokens / 1024;
@@ -285,7 +297,8 @@ Always follow that structure. Each task MUST have a non-empty description of at 
             MaxSteps: 22, Temperature: 0.2, TimeoutSeconds: 90, AutoVerify: true,
             Description: "Gemma 4 12B QAT boss model — temp=0.2 (deliberate; Google recommends 1.0), think=false, 16K ctx cap (model supports 256K), few-shot baked in. Base: hf.co/google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0 (6.7 GB confirmed). Install: theorc-boss-gemma4.Modelfile",
             MinVramGb: 7, ParamsBillions: 12, Speed: SpeedTier.Fast,
-            BossScore: 6, CoderScore: 8, ResearcherScore: 8, TesterScore: 8
+            BossScore: 6, CoderScore: 8, ResearcherScore: 8, TesterScore: 8,
+            ChatSuitable: false
         ),
 
         // ── TheOrc custom boss model — gemma4-ft (LoRA fine-tuned, ORC ACADEMY v1) ─
@@ -308,7 +321,8 @@ Always follow that structure. Each task MUST have a non-empty description of at 
             MaxSteps: 22, Temperature: 0.2, TimeoutSeconds: 90, AutoVerify: true,
             Description: "Gemma 4 12B FT boss — LoRA v1 merged. 99.3% pass / 84/87 perfect plans (vs 94.5% / 69 base). Gains on tester-write exclusion and file naming. temp=0.2, think=false, 16K ctx. Install: theorc-boss-gemma4-ft.Modelfile",
             MinVramGb: 7, ParamsBillions: 12, Speed: SpeedTier.Fast,
-            BossScore: 9, CoderScore: 8, ResearcherScore: 8, TesterScore: 9
+            BossScore: 9, CoderScore: 8, ResearcherScore: 8, TesterScore: 9,
+            ChatSuitable: false
         ),
 
         // ── Raw QAT base — available for use as worker (coder/researcher) ────────
