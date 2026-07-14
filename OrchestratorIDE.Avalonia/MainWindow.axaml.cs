@@ -384,6 +384,9 @@ public partial class MainWindow : Window
             else
             {
                 best = models.FirstOrDefault(IsChatEligible) ?? models.First();
+                if (!IsChatEligible(best))
+                    AddActivity(new ActivityEvent(ActivityKind.Warning, "Model",
+                        $"No chat-suitable model installed — falling back to {best} (planner-only).", DateTime.Now));
                 AddActivity(new ActivityEvent(ActivityKind.Info, "Model", $"Active: {best}", DateTime.Now));
             }
 
