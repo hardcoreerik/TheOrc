@@ -2694,6 +2694,9 @@ public partial class MainWindow : Window
     private void Menu_ModelBenchmark(object? sender, RoutedEventArgs e)
         => RunMenuTask(ShowModelBenchmarkAsync(), "Model benchmark window failed to open");
 
+    private void Menu_ChatModelBench(object? sender, RoutedEventArgs e)
+        => RunMenuTask(ShowChatModelBenchAsync(), "Chat model bench window failed to open");
+
     private async Task ShowModelDownloaderAsync()
     {
         var win = new ModelDownloaderWindow(_settings);
@@ -2709,6 +2712,12 @@ public partial class MainWindow : Window
     private async Task ShowModelBenchmarkAsync()
     {
         var win = new ModelBenchmarkWindow(_settings);
+        await win.ShowDialog(this);
+    }
+
+    private async Task ShowChatModelBenchAsync()
+    {
+        var win = new ChatModelBenchWindow(_ollama, _session.WorkspaceRoot);
         await win.ShowDialog(this);
     }
 

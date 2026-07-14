@@ -232,6 +232,8 @@
                 <Separator/>
                 <MenuItem Header="Manage Library…"    Click="Menu_ModelLibrary"/>
                 <MenuItem Header="Model Benchmark…"   Click="Menu_ModelBenchmark"/>
+                <MenuItem Header="Chat Model Bench…"  Click="Menu_ChatModelBench"
+                          ToolTip.Tip="General chat quality + 'uncensored ability' ranking across installed models"/>
             </MenuItem>
 
             <!-- Debug -->

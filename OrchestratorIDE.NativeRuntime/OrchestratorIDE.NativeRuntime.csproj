@@ -32,6 +32,9 @@
     <Compile Include="..\OrchestratorIDE\Core\Runtime\RuntimeOrchestrator.cs" Link="Runtime\RuntimeOrchestrator.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\OrcScheduler.cs" Link="Runtime\OrcScheduler.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\NativeRuntimeTestSupport.cs" Link="Runtime\NativeRuntimeTestSupport.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\ModelBenchCorpus.cs" Link="Runtime\ModelBenchCorpus.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\ModelBenchRunner.cs" Link="Runtime\ModelBenchRunner.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\ModelBenchReportStore.cs" Link="Runtime\ModelBenchReportStore.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\HeadlessAgentLoop.cs" Link="Runtime\HeadlessAgentLoop.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\ContextFabricContracts.cs" Link="ContextFabric\ContextFabricContracts.cs" />
     <Compile Include="..\OrchestratorIDE\Services\ContextFabric\DeterministicFabricCorpus.cs" Link="ContextFabric\DeterministicFabricCorpus.cs" />
