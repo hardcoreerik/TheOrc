@@ -253,35 +253,51 @@ public static class ContextFabricBenchmarkGateEvaluator
     /// The primary actionable capability signal (Remediation Phase 2, review item #2): replaces
     /// literal 100% question_pass_rate as the thing that actually gates GO/NO-GO. Passes when
     /// B3 (Single-node Context Fabric) beats the strongest of the B0/B1/B2 baselines on raw
-    /// PassedCount -- all four run against the identical question set within one gate-expanded
-    /// invocation, so comparing raw counts (not normalized rates) is valid -- AND the aggregate
-    /// citation_precision metric clears its existing 0.90 bar. A missing/incomparable baseline
-    /// (PassedCount null -- e.g. B4, or a baseline that hasn't run) is treated as 0 correct for
-    /// this comparison: we can't credit B3 with "beating" a baseline we have no score for, but a
-    /// baseline's absence also shouldn't itself block the gate the way a missing REQUIRED system
-    /// already does via the separate "B0-B4 frozen runs present" gate. B3 itself missing a count
-    /// (not run, or Missing status) fails this gate outright -- there's nothing to grade.
+    /// PassedCount -- all four are EXPECTED to run against the identical question set within one
+    /// gate-expanded invocation, so comparing raw counts (not normalized rates) is valid there --
+    /// AND the aggregate citation_precision metric clears its existing 0.90 bar. A
+    /// missing/incomparable baseline (PassedCount null -- e.g. B4, or a baseline that hasn't run)
+    /// is treated as 0 correct for this comparison: we can't credit B3 with "beating" a baseline
+    /// we have no score for, but a baseline's absence also shouldn't itself block the gate the
+    /// way a missing REQUIRED system already does via the separate "B0-B4 frozen runs present"
+    /// gate. B3 itself missing a count (not run, or Missing status) fails this gate outright --
+    /// there's nothing to grade. A baseline that DID run but against a different-sized question
+    /// set (TotalCount mismatch -- e.g. a differing --max-questions cap between runs, or hand-
+    /// assembled frozenSystemRuns in a non-gate-expanded invocation) fails the gate outright too
+    /// (CodeRabbit review, PR #59): raw-count comparison across mismatched totals is meaningless,
+    /// not just imprecise, and silently comparing them anyway would be worse than refusing to.
     /// </summary>
     private static FabricGateResult BuildGradedCapabilityGate(
         IReadOnlyList<FabricBenchmarkSystemGate> systems,
         IReadOnlyList<FabricBenchmarkMetric> metrics)
     {
         var b3 = systems.FirstOrDefault(system => system.SystemId == "B3");
-        if (b3?.PassedCount is not { } b3Passed)
+        if (b3?.PassedCount is not { } b3Passed || b3.TotalCount is not { } b3Total)
             return new FabricGateResult(
                 "Graded capability",
                 false,
                 "B3 has no comparable PassedCount (not run, or missing).");
 
-        var bestBaseline = systems
-            .Where(system => system.SystemId is "B0" or "B1" or "B2")
-            .Max(system => system.PassedCount ?? 0);
+        var scoredBaselines = systems
+            .Where(system => system.SystemId is "B0" or "B1" or "B2" && system.PassedCount is not null)
+            .ToArray();
+        var mismatched = scoredBaselines
+            .Where(system => system.TotalCount != b3Total)
+            .Select(system => $"{system.SystemId}={system.TotalCount}")
+            .ToArray();
+        if (mismatched.Length > 0)
+            return new FabricGateResult(
+                "Graded capability",
+                false,
+                $"Question-set size mismatch: B3 ran {b3Total} questions but {string.Join(", ", mismatched)} did not -- raw PassedCount is not comparable across differently-sized runs.");
+
+        var bestBaseline = scoredBaselines.Length == 0 ? 0 : scoredBaselines.Max(system => system.PassedCount ?? 0);
 
         var citationPrecision = metrics.FirstOrDefault(metric => metric.Name == "citation_precision");
         var citationPrecisionPassed = citationPrecision?.Passed ?? false;
         var beatsBaseline = b3Passed > bestBaseline;
 
-        var detail = $"B3 {b3Passed}/{b3.TotalCount} vs. best baseline {bestBaseline}; " +
+        var detail = $"B3 {b3Passed}/{b3Total} vs. best baseline {bestBaseline}; " +
             $"citation_precision {(citationPrecision is null ? "not available" : $"{citationPrecision.Value:P1}")}";
         return new FabricGateResult("Graded capability", beatsBaseline && citationPrecisionPassed, detail);
     }

@@ -105,6 +105,34 @@ public sealed class ContextFabricGradedCapabilityGateTests
     }
 
     [Test]
+    public async Task GradedCapabilityGate_Fails_When_A_Baseline_Ran_A_DifferentSized_Question_Set()
+    {
+        // CodeRabbit review, PR #59: raw PassedCount comparison assumed every system ran the
+        // identical question set without ever checking it. A baseline scored against a
+        // different-sized set (e.g. a differing --max-questions cap between runs, or hand-
+        // assembled frozenSystemRuns) must fail the gate outright rather than silently compare
+        // incomparable numbers.
+        var b3 = await BuildB3ReportAsync(); // TotalQuestions == 5 (see other tests' precondition)
+
+        var report = ContextFabricBenchmarkGateEvaluator.Evaluate(b3, null, null,
+        [
+            SystemWithScore("B0", "Closed-book native model", passed: 1, total: 5),
+            // B1 ran against a 100-question set, not this run's 5 -- a real scenario (mixing
+            // artifacts from different invocations) this gate must reject, not silently compare.
+            SystemWithScore("B1", "Truncated prompt", passed: 40, total: 100),
+        ]);
+
+        var gradedGate = report.Gates.Single(gate => gate.Name == "Graded capability");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(gradedGate.Passed, Is.False, gradedGate.Detail);
+            Assert.That(gradedGate.Detail, Does.Contain("mismatch").IgnoreCase);
+            Assert.That(gradedGate.Detail, Does.Contain("B1=100"));
+        });
+    }
+
+    [Test]
     public void GradedCapabilityGate_Fails_When_B3_Has_No_Comparable_Score()
     {
         var report = ContextFabricBenchmarkGateEvaluator.Evaluate(
