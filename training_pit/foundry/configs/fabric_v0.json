@@ -37,7 +37,7 @@
     "eval_path": null,
     "meta_path": null,
     "exporter": null,
-    "_dataset_note": "Task universe not frozen. Candidate shape: retrieval-failure case (query + retrieved evidence + expected source) → diagnosis/repair action. The CF benchmark harness (docs/CONTEXT_FABRIC_GRADING_SPEC.md) is the capture point."
+    "_dataset_note": "Task universe not frozen. Candidate shape: retrieval-failure case (query + retrieved evidence + expected source) → diagnosis/repair action. The CF-7 benchmark harness (docs/CONTEXT_FABRIC_BENCHMARK_MANIFEST.md for the run/capture recipe, docs/CONTEXT_FABRIC_GRADING_SPEC.md for how a case gets scored as a failure) is the capture point."
   },
 
   "hyperparams": {

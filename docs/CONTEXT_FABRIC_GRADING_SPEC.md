@@ -258,7 +258,7 @@ not the evidence **cards** B3 scores; it tokenizes with the stricter
 matching terms) is actually the same *formula* B3's `TermScore` uses — neither
 calls `ScoreTextIdf`, which is exclusive to `BuildExhaustiveAnswer` (§5.3) —
 but B2 has none of B3's `AnchorScore`, proximity-pair, coverage-aware greedy
-fill, MultiHop budget reservation, or reference-chase logic (§5.1 steps 1-5).
+fill, MultiHop budget reservation, or reference-chase logic (§5.1 steps 1-6).
 Both independently implement "rank candidates by IDF-ish term overlap,
 greedily fill a token budget in ranked order," which is what makes a B3-vs-B2
 comparison a fair retrieval contest rather than B2 losing by construction (the
