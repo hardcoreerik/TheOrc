@@ -98,8 +98,8 @@ Required top-level fields:
 - `metrics`
 - `gates`
 - `readyForExpansion`
-- `evidenceBudget` (optional — `null`/absent when no single-node Context
-  Fabric report was supplied; otherwise one entry per question category with
+- `evidenceBudget` (always present as an array, `[]` when no single-node
+  Context Fabric report was supplied; otherwise one entry per question category with
   P50/P95/max B3 prompt-token counts, see
   [CONTEXT_FABRIC_GRADING_SPEC.md §8.2](CONTEXT_FABRIC_GRADING_SPEC.md#82-evidence-budget-telemetry))
 
