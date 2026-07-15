@@ -2,9 +2,11 @@
 
 Tracks every real CF-7 gate run performed during the NoKvSlot investigation: what was
 tested, on which machine, with which model, what bugs were found along the way, and what
-each run actually showed. For how the harness itself grades answers, see
-[CONTEXT_FABRIC_BUG_HISTORY.md](CONTEXT_FABRIC_BUG_HISTORY.md) (§7/§7a has the full
-NoKvSlot root-cause writeup this file summarizes into a results table).
+each run actually showed. For the full NoKvSlot root-cause investigation this file
+summarizes into a results table, see
+[CONTEXT_FABRIC_BUG_HISTORY.md](CONTEXT_FABRIC_BUG_HISTORY.md) §7/§7a. For how the harness
+itself grades answers (independent of any run's result), see
+[CONTEXT_FABRIC_GRADING_SPEC.md](CONTEXT_FABRIC_GRADING_SPEC.md).
 
 ---
 
