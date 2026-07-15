@@ -296,14 +296,27 @@ corpus coincidence. That risk had never been reproduced — "this boundary case
 does not [have a regression test]" per the Grading Spec's own known-limitations
 note.
 
-**Investigation finding: the risk is currently latent, not live.** All 15
-Exhaustive questions in the actual 150-question suite name a hyphenated
-identifier (`case-ledger-NN`), which routes through Tier 1c's verbatim anchor
-match (`CF_RETRIEVAL_IMPROVEMENT_PLAN.md` §1c) — the fallback unigram
-heuristic this section is about is never actually reached by any live
-question today. The boundary-case risk is real for a *future* Exhaustive
-question authored without a hyphenated identifier, not for anything currently
-being scored.
+**Investigation finding, corrected after Grok review: the fallback heuristic
+IS live, but the specific failure mode is not (yet) triggered by any real
+question.** The 150-question expanded-corpus suite's 15 Exhaustive questions
+all name a hyphenated identifier (`case-ledger-NN`), routing through Tier
+1c's verbatim anchor match (`CF_RETRIEVAL_IMPROVEMENT_PLAN.md` §1c) — those
+15 never reach the fallback heuristic. But the smaller, frozen 16-segment
+`DeterministicFabricCorpus` fixture (used by `cf7-gate`, not
+`cf7-gate-expanded`) has its own Exhaustive question,
+`exhaustive-archive-tokens` ("List every archive token in section order.") —
+no hyphenated identifier, so it genuinely exercises the fallback heuristic on
+every `cf7-gate` run. It currently classifies correctly (category-wide, as
+intended) only because every segment's text literally contains the phrase
+"archive token" (`DeterministicFabricCorpus.cs:251`), giving "token" 100%
+document frequency in that specific corpus — nowhere near the <50% threshold
+that triggers misclassification. **The heuristic is live and currently
+correct on this question by fortunate corpus construction, not because the
+heuristic is safe in general** — the boundary-case risk (a term with <50%
+document frequency by coincidence) remains real and untriggered by any
+current question, which is exactly what the new regression test below
+reproduces synthetically rather than waiting for it to happen on a real
+corpus.
 
 **Fixes landed:**
 1. A regression test
@@ -322,10 +335,13 @@ being scored.
    not-yet-implemented. Proven by a second test
    (`BuildExhaustiveAnswer_OverrideFixesTheBoundaryCase`) using the
    identical fixture with the override set, confirming all 10 cards match.
-3. **Deliberately not backfilled onto the existing 150-question suite**: since
-   every current question is already correctly handled by Tier 1c regardless
-   of the heuristic, setting the override on them would be a no-op that adds
-   authoring surface without fixing anything live. The override is
+3. **Deliberately not backfilled onto any existing question**: the 15
+   expanded-suite Exhaustive questions are already correctly handled by Tier
+   1c, and `exhaustive-archive-tokens` is already correctly classified by the
+   fallback heuristic (100% document frequency on "token" in its specific
+   frozen corpus) — setting the override on any of them would be a no-op
+   that adds authoring surface without fixing anything live. The override is
    documented (Grading Spec §5.3) as something future question authors
-   should set explicitly for any new hyphen-free Exhaustive question, not
-   retrofitted onto questions that don't need it.
+   should set explicitly for any new Exhaustive question whose category-wide
+   term might have lower, coincidental document frequency, not retrofitted
+   onto questions that don't need it.

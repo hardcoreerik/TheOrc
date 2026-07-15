@@ -315,13 +315,19 @@ tiers in order, the second only as a fallback from the first:
 > directly instead of inferred, closing the gap for any question that sets
 > it — proven by a matching test
 > (`BuildExhaustiveAnswer_OverrideFixesTheBoundaryCase`) using the identical
-> fixture. **This is opt-in, not automatic**: every question in the current
-> 150-question suite leaves the override unset (`null`), because every
-> current Exhaustive question has a hyphenated identifier and is fully
-> handled by Tier 1c — the fallback heuristic isn't actually reachable by any
-> live question today. The override exists for the future: any new Exhaustive
-> question authored *without* a hyphenated identifier should set it
-> explicitly rather than trust the heuristic's inference. See
+> fixture. **This is opt-in, not automatic, and no current question needs
+> it** — but the fallback heuristic itself IS live: the 150-question expanded
+> suite's 15 Exhaustive questions all have a hyphenated identifier and route
+> through Tier 1c, but the smaller frozen 16-segment fixture's own Exhaustive
+> question (`exhaustive-archive-tokens`, no hyphenated identifier) genuinely
+> exercises this fallback heuristic on every `cf7-gate` run. It happens to
+> classify correctly today only because its category term ("token") has
+> 100% document frequency in that specific corpus — nowhere near the <50%
+> threshold that would trigger the boundary-case bug above. Any new
+> Exhaustive question authored *without* a hyphenated identifier, especially
+> one where the category term's real-corpus frequency isn't guaranteed high,
+> should set the override explicitly rather than trust the heuristic's
+> inference. See
 > `CONTEXT_FABRIC_BUG_HISTORY.md` §6 for the two earlier classification
 > approaches that were tried and rejected before this heuristic was adopted,
 > and §7d for this mitigation.
