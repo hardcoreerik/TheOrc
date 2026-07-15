@@ -987,12 +987,15 @@ public sealed class ContextFabricFeasibilityRunner
         //
         // This is a heuristic, not a proof (docs/CONTEXT_FABRIC_GRADING_SPEC.md §5.3): a
         // genuinely category-wide question whose real content terms happen to have <50% document
-        // frequency by corpus coincidence would be misclassified as entity-scoped. Every current
-        // Exhaustive question in the corpus has a hyphenated identifier and is routed through
-        // Tier 1c's verbatim anchor match instead (ClaimMatches, below) -- this heuristic is only
-        // reached as a fallback for questions with no such identifier, which the live 150-question
-        // suite doesn't currently contain. question.ExhaustiveIsEntityScopedOverride lets a future
-        // question override this inference with an authored ground truth instead of relying on it
+        // frequency by corpus coincidence would be misclassified as entity-scoped. All 15
+        // Exhaustive questions in the 150-question expanded suite have a hyphenated identifier
+        // and are routed through Tier 1c's verbatim anchor match instead (ClaimMatches, below),
+        // never reaching this fallback -- but DeterministicFabricCorpus's own Exhaustive question
+        // ("archive token", no hyphenated identifier) DOES reach it on every cf7-gate run, and
+        // currently classifies correctly only because "token" has 100% document frequency in
+        // that specific corpus, not because this heuristic is safe in general.
+        // question.ExhaustiveIsEntityScopedOverride lets a future question override this
+        // inference with an authored ground truth instead of relying on it
         // (Remediation Phase 3, review item #4).
         var termsPresentInCorpus = terms.Where(term => documentFrequency.ContainsKey(term)).ToArray();
         var minDocumentFrequency = termsPresentInCorpus.Length == 0
