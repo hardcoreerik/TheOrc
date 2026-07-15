@@ -26,10 +26,28 @@ public sealed class LLamaSharpRuntimeThinkingSuppressionTests
         "message['content'] + '<|im_end|>' + '\\n'}}{% endfor %}" +
         "{% if add_generation_prompt %}{{ '<|im_start|>assistant\\n' }}{% endif %}";
 
+    // Mentions the enable_thinking variable name (e.g. a template with unrelated custom
+    // logic reusing that name) but does NOT emit Qwen's specific empty-seed shape -- must
+    // NOT be treated as supporting suppression, since appending Qwen's literal text would
+    // be wrong for whatever this template actually does with the variable.
+    private const string EnableThinkingNameOnlyNoSeedTemplate =
+        "{%- if enable_thinking is defined and enable_thinking is true %}" +
+        "{{- '<reasoning-mode-on/>' }}" +
+        "{%- endif %}" +
+        "{% if add_generation_prompt %}{{ '<|im_start|>assistant\\n' }}{% endif %}";
+
     [Test]
     public void SupportsThinkingSuppression_True_For_Qwen35Style_Template()
     {
         Assert.That(LLamaSharpRuntime.SupportsThinkingSuppression(Qwen35TemplateTail), Is.True);
+    }
+
+    [Test]
+    public void SupportsThinkingSuppression_False_When_EnableThinking_Present_But_Seed_Shape_Differs()
+    {
+        // Regression coverage for the dual-marker tightening (Grok review, PR #58):
+        // the variable name alone is not sufficient.
+        Assert.That(LLamaSharpRuntime.SupportsThinkingSuppression(EnableThinkingNameOnlyNoSeedTemplate), Is.False);
     }
 
     [Test]
@@ -97,5 +115,21 @@ public sealed class LLamaSharpRuntimeThinkingSuppressionTests
         var result = LLamaSharpRuntime.ApplyThinkingSuppression(rendered);
 
         Assert.That(result, Is.EqualTo(rendered));
+    }
+
+    [Test]
+    public void ApplyThinkingSuppression_Still_Applies_When_Think_Text_Appears_Earlier_In_History()
+    {
+        // Regression coverage (Grok review, PR #58): the idempotency guard must only look
+        // at the prompt's TAIL, not scan the whole prompt -- otherwise any earlier message
+        // (conversation history, a document being analyzed) that happens to mention the
+        // literal text "<think>" for unrelated reasons would false-positive and silently
+        // skip suppression for the entire call, re-enabling full reasoning mode.
+        var rendered = "<|im_start|>user\nPlease explain what a <think> tag is used for.<|im_end|>\n" +
+                       "<|im_start|>assistant\n";
+
+        var result = LLamaSharpRuntime.ApplyThinkingSuppression(rendered);
+
+        Assert.That(result, Is.EqualTo(rendered + "<think>\n\n</think>\n\n"));
     }
 }

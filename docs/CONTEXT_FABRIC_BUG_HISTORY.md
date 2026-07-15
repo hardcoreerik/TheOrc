@@ -255,11 +255,15 @@ trained default: full reasoning mode.
 
 Fix: added `LLamaSharpRuntime.SupportsThinkingSuppression` (checks the raw
 `tokenizer.chat_template` metadata string, exposed via `LLamaWeights.Metadata`,
-for the literal `enable_thinking` marker — detected generically, not by model
-family/filename, so it covers any future reasoning model using the same
-pattern) and `ApplyThinkingSuppression` (appends the same empty
-`<think>\n\n</think>\n\n` block the official template would have rendered).
-Both are pure static functions with direct unit test coverage
+for **both** the `enable_thinking` marker **and** the literal
+`<think>\n\n</think>\n\n` empty-seed text — requiring both, not just the
+variable name, avoids a false-positive match on some other template that
+happens to reference `enable_thinking` for unrelated semantics or a
+differently-shaped seed) and `ApplyThinkingSuppression` (appends that same
+empty block the official template would have rendered, with its own
+tail-only idempotency guard). Detected generically, not by model
+family/filename, so this covers any future reasoning model using the same
+pattern. Both are pure static functions with direct unit test coverage
 (`LLamaSharpRuntimeThinkingSuppressionTests.cs`), applied once per rendered
 prompt in `ApplyEmbeddedTemplate`, cached per loaded model.
 

@@ -518,15 +518,24 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     /// render when `enable_thinking` is left unset (see ApplyEmbeddedTemplate for why this must
     /// be done manually). No-op if the rendered prompt doesn't end in a newline (an embedded
     /// template always ends its assistant-turn opener with one, so this guards against appending
-    /// onto something that isn't the shape we expect) or if it already contains a `&lt;think&gt;`
-    /// marker (idempotency guard: protects against double-application, and against a future
-    /// LLamaSharp version that DOES evaluate the template's own seed, which would otherwise
-    /// produce two think blocks back to back). Pure/static so it's testable directly.
+    /// onto something that isn't the shape we expect) or if its TAIL already carries a
+    /// `&lt;think&gt;`/`&lt;/think&gt;` marker (idempotency guard: protects against double-application,
+    /// and against a future LLamaSharp version that DOES evaluate the template's own seed, which
+    /// would otherwise produce two think blocks back to back). Deliberately checks only the
+    /// trimmed tail, not the whole prompt (Grok review, PR #58): a whole-prompt scan would
+    /// false-positive and skip suppression entirely whenever any earlier message -- conversation
+    /// history, a document being analyzed, anything -- happens to mention the literal text
+    /// "&lt;think&gt;" for unrelated reasons. Pure/static so it's testable directly.
     /// </summary>
-    internal static string ApplyThinkingSuppression(string renderedPrompt) =>
-        renderedPrompt.EndsWith('\n') && !renderedPrompt.Contains("<think>", StringComparison.Ordinal)
-            ? renderedPrompt + "<think>\n\n</think>\n\n"
-            : renderedPrompt;
+    internal static string ApplyThinkingSuppression(string renderedPrompt)
+    {
+        if (!renderedPrompt.EndsWith('\n'))
+            return renderedPrompt;
+        var tail = renderedPrompt.TrimEnd();
+        if (tail.EndsWith("<think>", StringComparison.Ordinal) || tail.EndsWith("</think>", StringComparison.Ordinal))
+            return renderedPrompt;
+        return renderedPrompt + "<think>\n\n</think>\n\n";
+    }
 
     private static string FormatLoadFailure(Exception ex)
     {
