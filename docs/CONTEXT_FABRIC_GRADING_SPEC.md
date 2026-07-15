@@ -30,7 +30,7 @@ set against the same corpus:
 | B0 | Closed-book — no corpus access at all | `ContextFabricBaselineRunner` | Yes |
 | B1 | Truncated prompt — corpus crammed in until it runs out of budget, no ranking | `ContextFabricBaselineRunner` | Yes |
 | B2 | Conventional top-k RAG — IDF-ranked segment retrieval | `ContextFabricBaselineRunner.BuildTopKText` | Yes |
-| B3 | Single-node Context Fabric — the actual product answering path | `ContextFabricFeasibilityRunner` | Yes |
+| B3 | Single-node Context Fabric — the benchmark harness's own implementation of the Context Fabric approach (see §5.1 — this is a separate implementation from the shipped product's answering path, not the same code) | `ContextFabricFeasibilityRunner` | Yes |
 | B4 | HIVE Context Fabric — frozen multi-node acceptance artifact | `ContextFabricBaselineRunner.LoadHiveAcceptanceGate` | **No — see §2.1** |
 
 ### 2.1 B4 is structurally different from B0–B3, not just "not re-run"
