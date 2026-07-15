@@ -221,7 +221,7 @@ it's "every card that actually belongs to the named category." Current logic:
 
 For a single question:
 
-```
+```text
 totalCitations  = count of every non-null citation object across every claim
                   in the model's answer, REGARDLESS of validity
                   (a hallucinated segmentId still increments this)
@@ -254,7 +254,7 @@ the precision score, not silently excluded from it.
 `ContextFabricBenchmarkGateEvaluator.cs:97-102` computes the metric reported
 in the gate as:
 
-```
+```text
 gate_citation_precision = sum(ValidCitations across all 120 questions)
                          / sum(TotalCitations across all 120 questions)
 ```

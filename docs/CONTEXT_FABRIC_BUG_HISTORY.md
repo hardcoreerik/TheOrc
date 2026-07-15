@@ -194,7 +194,7 @@ unlimited) became a live ~12GB VRAM reservation, OOM-crashing the native
 process (`cudaMalloc failed`, exit `0xC0000005`) on a 16GB GPU. Lowered
 `SequenceHardLimit` to 40 (~2GB rs-cache reservation, still well above
 `SequenceRecycleThreshold = 24`). A follow-up finding (CodeRabbit review, PR
-#56): `StreamCompletionAsync`'s `StatelessExecutor` was reusing the same
+\#56): `StreamCompletionAsync`'s `StatelessExecutor` was reusing the same
 `_modelParams` instance, forcing every single-sequence stateless call to
 reserve the same ~2GB rs-cache budget for no benefit — split into a separate
 `_statelessModelParams` instance with the native default `SeqMax=1`.
