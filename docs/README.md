@@ -97,9 +97,14 @@ adversarial-review context and may contain deeper implementation notes.
   the gate sits in the run lifecycle and how Off/Advisory/Gated modes behave
 - [REVIEWER_ADAPTER_GUIDE.md](REVIEWER_ADAPTER_GUIDE.md) — plan to train a local reviewer model
   (**parked** since 2026-06-13; see [reviewer-adapter/00-index.md](reviewer-adapter/00-index.md))
-- [CONTEXT_FABRIC_TEST_HARNESS.md](CONTEXT_FABRIC_TEST_HARNESS.md) — how the CF-7 benchmark grades
-  answers: evidence selection, JSON recovery, verification rules, and known residual risks, kept
-  independent of any single run's result so the scoring logic itself can be reviewed
+- [CONTEXT_FABRIC_GRADING_SPEC.md](CONTEXT_FABRIC_GRADING_SPEC.md) — normative spec for how the
+  CF-7 benchmark grades answers: evidence selection, JSON recovery, verification rules, decision
+  flowchart, and current known limitations, kept independent of any single run's result so the
+  scoring logic itself can be reviewed
+- [CONTEXT_FABRIC_BUG_HISTORY.md](CONTEXT_FABRIC_BUG_HISTORY.md) — chronological record of past
+  CF-7 scoring/infrastructure bugs, what was tried, and what was disproven
+- [CONTEXT_FABRIC_INFRASTRUCTURE_NOTES.md](CONTEXT_FABRIC_INFRASTRUCTURE_NOTES.md) — known model
+  compatibility table and fleet/environment quirks that affect whether a CF-7 run executes
 - [CONTEXT_FABRIC_BENCHMARK_MANIFEST.md](CONTEXT_FABRIC_BENCHMARK_MANIFEST.md) — pinned fixture
   manifest shape and the CF-7 gate report schema, plus the re-run recipe
 - [CONTEXT_FABRIC_BENCHMARK_CORPUS.md](CONTEXT_FABRIC_BENCHMARK_CORPUS.md) — public benchmark shelf,

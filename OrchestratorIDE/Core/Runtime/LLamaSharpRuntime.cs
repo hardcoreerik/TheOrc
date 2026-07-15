@@ -211,7 +211,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         // pre-flight found/tried, instead of only the generic NativeApi TypeInitializationException.
         //
         // Opt-in native log sink for the Gemma-specific NoKvSlot investigation
-        // (docs/CONTEXT_FABRIC_TEST_HARNESS.md §7): llama.cpp emits its own WARN/ERROR lines
+        // (docs/CONTEXT_FABRIC_BUG_HISTORY.md §7): llama.cpp emits its own WARN/ERROR lines
         // right when a decode fails to find a KV slot (e.g. cell-count or batch-size detail our
         // managed DecodeResult enum doesn't carry). Reuses THEORC_KVCACHE_DIAGNOSTICS so a single
         // env var turns on every diagnostic this investigation has added. stdout, not stderr --
@@ -256,7 +256,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
                 // not help even one call succeed). Making UBatchSize large enough to cover these
                 // prompts would erase most of the intended memory saving anyway, since Context
                 // Fabric's prompts are designed to use most of the context budget. Reverted;
-                // see docs/CONTEXT_FABRIC_TEST_HARNESS.md §7.
+                // see docs/CONTEXT_FABRIC_BUG_HISTORY.md §7.
             };
 
             // StreamCompletionAsync's StatelessExecutor only ever runs one sequence per call
