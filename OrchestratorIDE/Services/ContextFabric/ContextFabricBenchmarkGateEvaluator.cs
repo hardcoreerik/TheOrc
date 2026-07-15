@@ -118,7 +118,10 @@ public static class ContextFabricBenchmarkGateEvaluator
             // substantially when a few citation-heavy questions dominate the aggregate, and
             // abstention questions (correctly 0 citations) are invisible to the aggregate even
             // though their own precision is 1.0. This metric is that mean, computed directly
-            // from QuestionResults rather than the Summary's pre-aggregated counts.
+            // from QuestionResults rather than the Summary's pre-aggregated counts. Non-blocking:
+            // it's a supplementary diagnostic view of the SAME underlying citation-quality
+            // signal the aggregate citation_precision metric already gates on -- it should not
+            // create a second, redundant blocking bar for that signal.
             var perQuestionPrecisions = singleNodeContextFabric.QuestionResults
                 .Select(result => result.Verification.CitationPrecision)
                 .ToArray();
@@ -128,7 +131,8 @@ public static class ContextFabricBenchmarkGateEvaluator
                 meanPrecision,
                 0.90,
                 meanPrecision >= 0.90,
-                $"mean of {perQuestionPrecisions.Length} per-question precision scores"));
+                $"mean of {perQuestionPrecisions.Length} per-question precision scores",
+                IsBlocking: false));
             metrics.Add(new FabricBenchmarkMetric(
                 "max_prompt_tokens",
                 summary.MaximumPromptTokens,

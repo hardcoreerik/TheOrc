@@ -83,7 +83,9 @@ Those are valid benchmark-program concerns, but today they belong in corpus-prog
 
 CF-7 adds a separate machine-readable gate report; it does not change the pinned source-fixture manifest above.
 
-Current report schema: `cf7-benchmark-gate-1.0`.
+Current report schema: `cf7-benchmark-gate-1.1` (bumped from `1.0` in
+Remediation Phase 2, PR #59 — see the `IsBlocking`/`PassedCount`/`evidenceBudget`
+additions below).
 
 Required top-level fields:
 
@@ -96,6 +98,18 @@ Required top-level fields:
 - `metrics`
 - `gates`
 - `readyForExpansion`
+- `evidenceBudget` (optional — `null`/absent when no single-node Context
+  Fabric report was supplied; otherwise one entry per question category with
+  P50/P95/max B3 prompt-token counts, see
+  [CONTEXT_FABRIC_GRADING_SPEC.md §8.2](CONTEXT_FABRIC_GRADING_SPEC.md#82-evidence-budget-telemetry))
+
+Every entry in `metrics` and `gates` also carries `isBlocking` (bool,
+`true` unless explicitly set otherwise) — only a blocking entry failing can
+produce `readyForExpansion: false`. Every entry in `systems` also carries
+`passedCount`/`totalCount` (nullable ints; `null` for systems without a
+comparable per-question score, e.g. B4) — see
+[CONTEXT_FABRIC_GRADING_SPEC.md §8.1](CONTEXT_FABRIC_GRADING_SPEC.md#81-the-primary-signal-is-now-graded-capability-not-literal-100-pass-rate)
+for the `Graded capability` gate these numbers feed.
 
 The `systems` array must include B0 through B4. Missing artifacts are explicit `Missing` entries, not omitted rows. This keeps the evaluator fail-closed until closed-book, truncated-prompt, top-k RAG, single-node Context Fabric, and HIVE Context Fabric runs are all present.
 

@@ -117,12 +117,61 @@ public sealed class ContextFabricGradedCapabilityGateTests
 
         Assert.Multiple(() =>
         {
-            // Both exist as distinct metrics -- see docs/CONTEXT_FABRIC_GRADING_SPEC.md §6.2 for
-            // why they can diverge (mean isn't just a re-derivation of the aggregate).
             Assert.That(aggregate.Name, Is.Not.EqualTo(mean.Name));
-            // Perfect scripted run: both should be at or near 1.0.
+            // Perfect scripted run: both should be at or near 1.0 here -- the genuine
+            // divergence case is covered by the dedicated test below, since it needs a
+            // deliberately lopsided citation distribution the scripted runtime doesn't
+            // naturally produce.
             Assert.That(mean.Value, Is.GreaterThanOrEqualTo(0).And.LessThanOrEqualTo(1.0));
             Assert.That(mean.Target, Is.EqualTo(0.90));
+            // Non-blocking (Grading Spec §8): reported alongside the aggregate but must not
+            // independently gate NO-GO the way citation_precision itself still does.
+            Assert.That(mean.IsBlocking, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task MeanCitationPrecision_Diverges_From_Aggregate_When_Citation_Counts_Are_Lopsided()
+    {
+        // Grok review, PR #59: the previous version of this test only bounds-checked the
+        // mean's value and never actually proved it can differ from the aggregate -- the
+        // whole point of adding it (Grading Spec §6.2). Construct two questions with
+        // deliberately lopsided citation counts: one with a single valid citation (its own
+        // precision 1.0), one with zero valid out of 100 attempted (its own precision 0.0).
+        // Mean of per-question precision = (1.0 + 0.0) / 2 = 0.5. Aggregate = (1 valid) /
+        // (1 + 100 total) ~= 0.0099 -- the citation-heavy failing question dominates the
+        // aggregate far more than its 1-in-2 share of the question count would suggest.
+        var perfectB3 = await BuildB3ReportAsync();
+        var template = perfectB3.QuestionResults[0];
+        var goodQuestion = template with
+        {
+            Verification = new FabricVerificationResult(true, 1.0, ValidCitations: 1, TotalCitations: 1, [], []),
+        };
+        var badQuestion = template with
+        {
+            Verification = new FabricVerificationResult(false, 0.0, ValidCitations: 0, TotalCitations: 100, [], []),
+        };
+        var b3 = perfectB3 with
+        {
+            QuestionResults = [goodQuestion, badQuestion],
+            Summary = perfectB3.Summary with
+            {
+                ValidCitations = 1,
+                TotalCitations = 101,
+            },
+        };
+
+        var report = ContextFabricBenchmarkGateEvaluator.Evaluate(b3, null, null);
+
+        var aggregate = report.Metrics.Single(metric => metric.Name == "citation_precision");
+        var mean = report.Metrics.Single(metric => metric.Name == "mean_citation_precision");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(mean.Value, Is.EqualTo(0.5).Within(0.0001));
+            Assert.That(aggregate.Value, Is.EqualTo(1.0 / 101.0).Within(0.0001));
+            Assert.That(mean.Value, Is.Not.EqualTo(aggregate.Value).Within(0.01),
+                "the whole point: these must genuinely differ, not just be two names for the same number");
         });
     }
 

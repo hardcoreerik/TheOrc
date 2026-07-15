@@ -48,10 +48,15 @@ public static class ContextFabricBenchmarkGateWriter
 
         sb.AppendLine("## B0-B4 Systems");
         sb.AppendLine();
-        sb.AppendLine("| ID | System | Status | Detail |");
-        sb.AppendLine("|---|---|---|---|");
+        sb.AppendLine("| ID | System | Status | Score | Detail |");
+        sb.AppendLine("|---|---|---|---|---|");
         foreach (var system in report.Systems)
-            sb.AppendLine($"| `{Escape(system.SystemId)}` | {Escape(system.Label)} | `{system.Status}` | {Escape(system.Detail)} |");
+        {
+            var score = system.PassedCount is { } passed && system.TotalCount is { } total
+                ? $"{passed}/{total}"
+                : "n/a";
+            sb.AppendLine($"| `{Escape(system.SystemId)}` | {Escape(system.Label)} | `{system.Status}` | {score} | {Escape(system.Detail)} |");
+        }
         sb.AppendLine();
 
         sb.AppendLine("## Metrics");
