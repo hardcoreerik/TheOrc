@@ -434,37 +434,94 @@ masquerading as an infrastructure failure.
 ## 8. Gate metrics and thresholds
 
 (`ContextFabricBenchmarkGateEvaluator.cs`) — current values, as of this
-document's last edit:
+document's last edit. Every metric and gate carries an `IsBlocking` flag
+(default `true`); only a blocking metric/gate failing can produce `NO-GO`.
 
-| Metric | Target | Computed as | What it means if it fails |
-|---|---|---|---|
-| `segment_terminal_coverage` | 1.0 | `AcceptedSegments / ExpectedSegments` | Not every segment was accepted during ingestion — an ingestion bug, not a model problem |
-| `question_pass_rate` | 1.0 | `PassedQuestions / TotalQuestions` | At least one held-out question failed verification |
-| `citation_precision` | 0.90 | See §6.2 — aggregate, not mean | The model is citing segments that don't actually support its claims |
-| `max_prompt_tokens` | ≤ context limit | `max(prompt tokens across all calls)` | The evidence pack overflowed the context budget |
-| `boundary_stitch_pass_rate` | 1.0 | `passed stitch cases / total stitch cases` | A question spanning a segment boundary wasn't stitched correctly |
+| Metric | Target | Blocking? | Computed as | What it means if it fails |
+|---|---|---|---|---|
+| `segment_terminal_coverage` | 1.0 | yes | `AcceptedSegments / ExpectedSegments` | Not every segment was accepted during ingestion — an ingestion bug, not a model problem |
+| `question_pass_rate` | 1.0 | **no** | `PassedQuestions / TotalQuestions` | Reported stretch goal only (see §8.1) — does not by itself produce NO-GO |
+| `citation_precision` | 0.90 | yes | See §6.2 — aggregate, not mean | The model is citing segments that don't actually support its claims |
+| `mean_citation_precision` | 0.90 | no | Mean of each question's own `Verification.CitationPrecision` (§6.1) | Reported alongside the aggregate so the two can be compared directly — see §6.2 for why they can diverge |
+| `max_prompt_tokens` | ≤ context limit | yes | `max(prompt tokens across all calls)` | The evidence pack overflowed the context budget |
+| `boundary_stitch_pass_rate` | 1.0 | yes | `passed stitch cases / total stitch cases` | A question spanning a segment boundary wasn't stitched correctly |
 
-**Interpretation note:** `question_pass_rate`'s target is literally 100% — the
-gate reports `NO-GO` unless *every one* of 120 held-out questions passes
-verification exactly. This means B3 can substantially outscore every baseline
-and the gate will still say `NO-GO`. When reviewing a gate report, look at the
-`systems` table's raw pass counts, not just the top-line verdict, to judge
-whether a NO-GO reflects "close but not perfect" or "still fundamentally
-broken." (This all-or-nothing gate design is a known area under review — see
-the open item tracked for a future phase.)
+### 8.1 The primary signal is now "Graded capability," not literal 100% pass rate
+
+**As of Remediation Phase 2 (2026-07-15), `question_pass_rate`'s literal-100%
+requirement no longer gates the overall GO/NO-GO verdict.** Previously,
+`ReadyForExpansion` required *every* gate to pass, including a CF0-level
+`all-questions-verified` check with the exact same all-or-nothing semantics —
+B3 could substantially outscore every baseline and the top-line verdict would
+still read `NO-GO`, with no distinction between "56/120 passed" and "119/120
+passed." Both `question_pass_rate` (this doc's metric) and
+`all-questions-verified` (`ContextFabricFeasibilityRunner.BuildGates`) are now
+marked `IsBlocking: false` — still computed, still reported in every output,
+but incapable of producing `NO-GO` on their own.
+
+The new primary signal is the **`Graded capability`** gate
+(`ContextFabricBenchmarkGateEvaluator.BuildGradedCapabilityGate`), which
+passes when:
+
+1. B3's `PassedCount` exceeds the highest `PassedCount` among the supplied
+   B0/B1/B2 baselines (raw counts, not rates — all systems run the identical
+   question set within one gate-expanded invocation, so this is a direct,
+   valid comparison), **and**
+2. The `citation_precision` metric (§6.2's aggregate form) clears its
+   existing 0.90 target.
+
+A missing baseline (not supplied, or B4 — which has no comparable count at
+all, see §2.1) is treated as 0 correct for this comparison: B3 can't be
+credited with "beating" a score that doesn't exist, but a baseline's absence
+is already flagged separately by the "B0-B4 frozen runs present" gate and
+doesn't itself block `Graded capability`. B3 having no comparable score at
+all (not run, or `Missing` status) fails the gate outright. A baseline that
+DID run but against a differently-sized question set (`TotalCount` mismatch
+against B3's) also fails the gate outright — raw-count comparison across
+mismatched totals is meaningless, not just imprecise.
+
+**This does not mean every hard requirement was softened.** Two narrower,
+single-question structural spot-checks in `ContextFabricFeasibilityRunner.
+BuildGates` — `cross-segment-reasoning` (one representative multi-hop
+question genuinely cites 2+ segments) and `exhaustive-leaf-coverage` (one
+representative exhaustive question covers every corpus segment) — kept their
+default `IsBlocking: true` and still independently gate `FabricFeasibilityReport.
+Passed` → B3's system status → the CF7-level "System runs passed" gate →
+`ReadyForExpansion`. Only the all-or-nothing *aggregate* pass-rate check was
+demoted; these two structural checks were not.
+
+`ReadyForExpansion` (and `FabricFeasibilityReport.Passed` at the CF0 level)
+now compute as `Gates.Where(g => g.IsBlocking).All(g => g.Passed)` — a
+`NO-GO` means a genuinely blocking gate failed, not that the harness is
+holding out for statistical perfection on a 120-question sample.
+
+### 8.2 Evidence budget telemetry
+
+Every gate report now includes `EvidenceBudget`: per-question-category (§3.1's
+seven categories) B3 prompt-token statistics — question count, P50, P95, and
+max prompt tokens (nearest-rank percentile, `ContextFabricBenchmarkGateEvaluator.
+NearestRankPercentile`). This surfaces exactly the review's motivating case —
+seeing whether GlobalSynthesis (or any other category) is running close to the
+evidence budget ceiling — without having to hand-aggregate the raw
+`QuestionResults` JSON.
 
 ## 9. Known limitations (current, not historical)
 
 - **Exhaustive-category classification is a heuristic** (§5.3) — a boundary
   case exists in theory with no regression test covering it yet.
-- **`question_pass_rate` at 100%** produces a binary GO/NO-GO signal that
-  doesn't distinguish "56/120 passed" from "119/120 passed" — both are
-  NO-GO. Always read the raw systems table.
 - **`citation_precision` is an aggregate, not a mean** (§6.2) — a small number
   of citation-heavy questions can dominate the reported number.
+  `mean_citation_precision` (§8) reports the alternative directly, so this is
+  no longer a silent gap, but the aggregate is still the one that gates.
 - **B4 measures a different, smaller benchmark entirely** (§2.1) — its
   presence in the systems table is not evidence about the current 120-question
-  corpus.
+  corpus, and it has no `PassedCount` to feed into the `Graded capability`
+  gate.
+- **`Graded capability`'s "beats the best baseline" bar is a floor, not a
+  target.** Beating B0/B1/B2 by even one question clears the gate — it says
+  nothing about how close B3 is to its own 100% stretch goal. Always read the
+  raw systems table and `question_pass_rate`'s reported value, not just the
+  gate's PASS/FAIL, to judge how much headroom remains.
 
 For the story behind any of these — what was tried, what broke, what's still
 open — see [CONTEXT_FABRIC_BUG_HISTORY.md](CONTEXT_FABRIC_BUG_HISTORY.md).

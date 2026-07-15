@@ -36,12 +36,20 @@ public sealed class ContextFabricCf7Tests
     {
         var (b3, quote, stitch) = await BuildBaselineReportsAsync();
 
+        // Real, below-B3 baseline scores (not the trivial "B3 > 0" comparison a scoreless
+        // baseline would produce -- Grok review, PR #59) so "Graded capability" here is an
+        // actual beats-the-baseline comparison, matching what a real gate-expanded run
+        // supplies. b3 is the scripted runtime's perfect run (5/5 on this fixture); B0-B2
+        // are deliberately below that.
+        Assert.That(b3.Summary.TotalQuestions, Is.EqualTo(5),
+            "baseline scores below assume this fixture's known question count");
         var report = ContextFabricBenchmarkGateEvaluator.Evaluate(b3, quote, stitch,
         [
-            PassedSystem("B0", "Closed-book native model"),
-            PassedSystem("B1", "Truncated prompt"),
-            PassedSystem("B2", "Conventional top-k RAG"),
-            PassedSystem("B4", "HIVE Context Fabric"),
+            PassedSystem("B0", "Closed-book native model", passed: 1, total: 5),
+            PassedSystem("B1", "Truncated prompt", passed: 2, total: 5),
+            PassedSystem("B2", "Conventional top-k RAG", passed: 3, total: 5),
+            // B4 deliberately has no comparable score -- see Grading Spec §2.1.
+            new("B4", "HIVE Context Fabric", FabricBenchmarkSystemStatus.Passed, "Frozen run passed."),
         ]);
 
         Assert.Multiple(() =>
@@ -51,6 +59,9 @@ public sealed class ContextFabricCf7Tests
             Assert.That(report.Systems, Has.All.Matches<FabricBenchmarkSystemGate>(
                 system => system.Status == FabricBenchmarkSystemStatus.Passed));
             Assert.That(report.Gates, Has.All.Matches<FabricGateResult>(gate => gate.Passed));
+            Assert.That(report.Gates.Single(gate => gate.Name == "Graded capability").Detail,
+                Does.Contain("5/5").And.Contain("best baseline 3"),
+                "confirms this is a real comparison, not a trivial B3-beats-zero pass");
         });
     }
 
@@ -98,8 +109,9 @@ public sealed class ContextFabricCf7Tests
         });
     }
 
-    private static FabricBenchmarkSystemGate PassedSystem(string systemId, string label) =>
-        new(systemId, label, FabricBenchmarkSystemStatus.Passed, "Frozen run passed.");
+    private static FabricBenchmarkSystemGate PassedSystem(string systemId, string label, int passed, int total) =>
+        new(systemId, label, FabricBenchmarkSystemStatus.Passed, $"Frozen run passed: {passed}/{total} correct.",
+            PassedCount: passed, TotalCount: total);
 
     private static async Task<(
         FabricFeasibilityReport B3,

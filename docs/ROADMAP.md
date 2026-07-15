@@ -476,6 +476,22 @@ Delivery order:
 
 The go/no-go benchmark compares closed-book, truncated prompt, conventional RAG, single-node Context Fabric, and HIVE Context Fabric with the same native model. It requires exact synthetic ground truth, a pinned public-domain Darwin corpus, standardized long-context subsets, citation precision, multi-hop and exhaustive recall, correct abstention, an 8K final-context ceiling, normalized HIVE scaling, and worker-failure recovery. The project must report a failed hypothesis if these gates do not beat ordinary RAG; impressive demos are not acceptance evidence.
 
+**As of Remediation Phase 2 (2026-07-15, PR #59), the literal 100%-of-120
+question_pass_rate metric is no longer itself the blocking bar.** The new
+`Graded capability` gate requires single-node Context Fabric to beat the
+strongest of the closed-book/truncated/RAG baselines on raw question count
+*and* clear the existing 0.90 citation precision bar — that specific
+all-or-nothing metric is now a reported stretch goal, not a release
+blocker. **This does not mean every hard requirement was softened**: two
+narrower, single-question structural spot-checks — `cross-segment-reasoning`
+(one representative multi-hop question genuinely cites 2+ segments) and
+`exhaustive-leaf-coverage` (one representative exhaustive question covers
+every corpus segment) — are unchanged and still block on their own,
+independent of the graded floor above. See
+[CONTEXT_FABRIC_GRADING_SPEC.md §8.1](CONTEXT_FABRIC_GRADING_SPEC.md#81-the-primary-signal-is-now-graded-capability-not-literal-100-pass-rate)
+for the full mechanics, and `ContextFabricFeasibilityRunner.BuildGates` for
+which gates are (and are not) blocking.
+
 ### Reviewer Gate hardening — true blocking mode
 Add a session-level confirmation dialog for BLOCKER findings. The user must explicitly acknowledge ("I understand this output has a BLOCKER finding and I am proceeding anyway") rather than just clicking Apply. Optional: log all BLOCKER overrides to the SQLite runs table for audit.
 

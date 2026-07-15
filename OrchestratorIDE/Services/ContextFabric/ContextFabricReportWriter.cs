@@ -72,10 +72,10 @@ public static class ContextFabricReportWriter
 
         sb.AppendLine("## Gates");
         sb.AppendLine();
-        sb.AppendLine("| Gate | Result | Detail |");
-        sb.AppendLine("|---|---|---|");
+        sb.AppendLine("| Gate | Result | Blocking? | Detail |");
+        sb.AppendLine("|---|---|---|---|");
         foreach (var gate in report.Gates)
-            sb.AppendLine($"| `{Escape(gate.Name)}` | {(gate.Passed ? "PASS" : "FAIL")} | {Escape(gate.Detail)} |");
+            sb.AppendLine($"| `{Escape(gate.Name)}` | {(gate.Passed ? "PASS" : "FAIL")} | {(gate.IsBlocking ? "yes" : "no")} | {Escape(gate.Detail)} |");
 
         sb.AppendLine();
         sb.AppendLine("## Questions");

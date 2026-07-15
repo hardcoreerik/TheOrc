@@ -91,7 +91,9 @@ public sealed class ContextFabricBaselineRunner
             report.SystemId,
             report.Label,
             report.RunCompleted ? FabricBenchmarkSystemStatus.Passed : FabricBenchmarkSystemStatus.Failed,
-            report.Detail);
+            report.Detail,
+            PassedCount: report.Questions.Count(question => question.Correct),
+            TotalCount: report.Questions.Count);
     }
 
     /// <summary>
