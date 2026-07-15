@@ -200,7 +200,7 @@ Same IDF-weighted, budget-fill approach as B3, applied to the "conventional
 RAG" comparison baseline, so a B3-vs-B2 comparison measures a real retrieval
 contest rather than B2 losing by construction.
 
-### 5.3 Exhaustive-category answers — `BuildExhaustiveAnswer` (`ContextFabricFeasibilityRunner.cs:~740`)
+### 5.3 Exhaustive-category answers — `BuildExhaustiveAnswer` (`ContextFabricFeasibilityRunner.cs:962`)
 
 Exhaustive questions ("list every case-file ID under ledger X") do **not** go
 through `BuildEvidencePack` — the goal isn't "the top-N most relevant cards,"
