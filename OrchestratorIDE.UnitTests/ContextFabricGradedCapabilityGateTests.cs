@@ -18,12 +18,12 @@ public sealed class ContextFabricGradedCapabilityGateTests
     {
         // BuildB3ReportAsync's scripted runtime answers everything correctly (a perfect
         // pass rate), which would NOT actually exercise the scenario this test is named
-        // for. Force a genuinely imperfect Summary.PassedQuestions (Grok review, PR #59) --
-        // the CF0-level blocking gates (segment coverage, citation precision, etc.) are
-        // computed from the real underlying QuestionResults, not the overridden Summary,
-        // so they're unaffected: Passed staying true here is proof that ONLY the
-        // now-non-blocking all-questions-verified/question_pass_rate signal was holding it
-        // back before, not a side effect of also faking the other gates.
+        // for. Force a genuinely imperfect Summary.PassedQuestions (Grok review, PR #59).
+        // NOTE: this only exercises the CF7-level question_pass_rate metric's non-blocking
+        // status -- it does NOT make CF0's own all-questions-verified gate false (that gate
+        // is computed from the real, still-perfect QuestionResults/Gates, untouched here).
+        // See FabricFeasibilityReport_Passed_True_When_AllQuestionsVerified_Fails below for
+        // the dedicated test of THAT gate's non-blocking status.
         var perfectB3 = await BuildB3ReportAsync();
         Assert.That(perfectB3.Summary.TotalQuestions, Is.GreaterThan(3),
             "fixture needs enough questions for an imperfect-but-baseline-beating pass count");
@@ -69,6 +69,38 @@ public sealed class ContextFabricGradedCapabilityGateTests
             Assert.That(report.ReadyForExpansion, Is.True,
                 "ReadyForExpansion must not be sunk by a non-blocking metric alone. Gates: " +
                 string.Join("; ", report.Gates.Select(g => $"{g.Name}={g.Passed}(blocking={g.IsBlocking}):{g.Detail}")));
+        });
+    }
+
+    [Test]
+    public async Task FabricFeasibilityReport_Passed_True_When_AllQuestionsVerified_Fails()
+    {
+        // Dedicated test for the CF0-level change (ContextFabricFeasibilityRunner.BuildGates):
+        // all-questions-verified is now IsBlocking: false. Directly replace that one gate's
+        // result with a failing, non-blocking version -- everything else (segment coverage,
+        // citation precision, context-bounded, etc.) stays at its real, passing value from the
+        // scripted run -- and confirm Passed survives on its own, independent of the CF7-level
+        // test above (Grok review, PR #59: that test never actually made this gate fail).
+        var perfectB3 = await BuildB3ReportAsync();
+        var allQuestionsVerifiedGate = perfectB3.Gates.Single(gate => gate.Name == "all-questions-verified");
+        Assert.That(allQuestionsVerifiedGate.IsBlocking, Is.False,
+            "precondition: this gate must actually be non-blocking for the test below to prove anything");
+
+        var b3 = perfectB3 with
+        {
+            Gates = perfectB3.Gates
+                .Select(gate => gate.Name == "all-questions-verified"
+                    ? gate with { Passed = false, Detail = "synthetic failure for this test" }
+                    : gate)
+                .ToArray(),
+        };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(b3.Gates.Single(gate => gate.Name == "all-questions-verified").Passed, Is.False,
+                "confirms the override actually took effect");
+            Assert.That(b3.Passed, Is.True,
+                "a failing non-blocking gate must not sink FabricFeasibilityReport.Passed");
         });
     }
 
