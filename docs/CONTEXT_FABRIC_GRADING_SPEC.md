@@ -122,9 +122,15 @@ flowchart TD
     C -- yes --> D{claim count <= 64?}
     D -- no --> ERR3[errors += too many claims]
     D -- yes --> E[For each claim]
-    E --> F{claim.Text non-empty?}
-    F -- no --> ERR4[errors += empty claim text]
-    F -- yes --> G[For each citation in claim]
+    E --> E2{claim object is null?}
+    E2 -- yes --> ERR4b[errors += null claim item<br/>this claim is skipped entirely]
+    E2 -- no --> F{claim.Text non-empty?}
+    F -- no --> ERR4[errors += empty claim text<br/>NOT skipped, falls through]
+    F -- yes --> FC{draftCitations.Count ><br/>maxCitationsPerClaim?}
+    ERR4 --> FC
+    FC -- yes --> ERR4c[errors += too many citations<br/>NOT skipped, falls through]
+    FC -- no --> G[For each citation in claim]
+    ERR4c --> G
     G --> G2{citation object is null?}
     G2 -- yes --> ERR5b[errors += null citation item<br/>NOT counted in totalCitations]
     G2 -- no --> TC[totalCitations++<br/>counted regardless of what follows]
@@ -152,7 +158,7 @@ flowchart TD
     T -- no --> ERR14[errors += missing required evidence]
     T -- yes --> PASS
     Q -- yes --> PASS{errors.Count == 0?}
-    ERR & ERR2 & ERR3 & ERR4 & ERR5 & ERR5b & ERR6 & ERR7 & ERR8 & ERR9 & ERR10 & ERR11 & ERR12 & ERR13 & ERR14 --> FAIL[Verification.Passed = false]
+    ERR & ERR2 & ERR3 & ERR4 & ERR4b & ERR4c & ERR5 & ERR5b & ERR6 & ERR7 & ERR8 & ERR9 & ERR10 & ERR11 & ERR12 & ERR13 & ERR14 --> FAIL[Verification.Passed = false]
     PASS -- yes --> PASSED[Verification.Passed = true]
 ```
 
