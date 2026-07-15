@@ -283,3 +283,49 @@ for current status).
 its CF-7 numbers are trusted — a 0/128 (or near-0) segment-acceptance rate
 alongside `<think>`-prefixed raw outputs is the signature of this exact
 failure mode, not a model-capability result.
+
+### §7d. Exhaustive-category heuristic hardening (2026-07-15, Remediation Phase 3)
+
+Distinct from §7a/§7b/§7c (all runtime/architecture crash modes) — this is a
+grading-logic gap, not an infrastructure bug. The Grading Spec §5.3 has
+flagged since 2026-07-04 that `BuildExhaustiveAnswer`'s entity-scoped vs.
+category-wide classification (§6's `3ef5fb0b` fix, above) is a heuristic, not
+a proof, and could misclassify a genuinely category-wide question as
+entity-scoped if its content terms happen to have <50% document frequency by
+corpus coincidence. That risk had never been reproduced — "this boundary case
+does not [have a regression test]" per the Grading Spec's own known-limitations
+note.
+
+**Investigation finding: the risk is currently latent, not live.** All 15
+Exhaustive questions in the actual 150-question suite name a hyphenated
+identifier (`case-ledger-NN`), which routes through Tier 1c's verbatim anchor
+match (`CF_RETRIEVAL_IMPROVEMENT_PLAN.md` §1c) — the fallback unigram
+heuristic this section is about is never actually reached by any live
+question today. The boundary-case risk is real for a *future* Exhaustive
+question authored without a hyphenated identifier, not for anything currently
+being scored.
+
+**Fixes landed:**
+1. A regression test
+   (`BuildExhaustiveAnswer_HeuristicMisclassifiesCategoryWideQuestion_KnownBoundaryCase`)
+   reproducing the exact failure with a synthetic 10-card corpus: a
+   genuinely category-wide "archive token" question where only 3 of 10
+   relevant cards happen to use the literal word "token" (the other 7 use
+   "marker"/"designation"), causing the heuristic to hard-require "token"
+   and silently drop the 7 differently-phrased-but-equally-relevant cards.
+   This closes the "boundary case does not [have a test]" gap directly.
+2. `FabricBenchmarkQuestion.ExhaustiveIsEntityScopedOverride` (nullable
+   `bool`): an optional, authored ground-truth annotation. When set,
+   `BuildExhaustiveAnswer` uses it directly instead of inferring via the
+   heuristic — the "pre-compute ground-truth classification... instead of
+   inferring it at grading time" resolution the Grading Spec had tracked as
+   not-yet-implemented. Proven by a second test
+   (`BuildExhaustiveAnswer_OverrideFixesTheBoundaryCase`) using the
+   identical fixture with the override set, confirming all 10 cards match.
+3. **Deliberately not backfilled onto the existing 150-question suite**: since
+   every current question is already correctly handled by Tier 1c regardless
+   of the heuristic, setting the override on them would be a no-op that adds
+   authoring surface without fixing anything live. The override is
+   documented (Grading Spec §5.3) as something future question authors
+   should set explicitly for any new hyphen-free Exhaustive question, not
+   retrofitted onto questions that don't need it.

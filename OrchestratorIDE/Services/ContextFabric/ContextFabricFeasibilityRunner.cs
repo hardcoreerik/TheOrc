@@ -984,11 +984,22 @@ public sealed class ContextFabricFeasibilityRunner
         // the corpus: if it appears in a minority of cards, it's naming a specific instance (a);
         // if even the rarest term is common to most cards, there is no such instance to filter on,
         // and every non-stopword overlap should count, matching (b)'s broad-category intent.
+        //
+        // This is a heuristic, not a proof (docs/CONTEXT_FABRIC_GRADING_SPEC.md §5.3): a
+        // genuinely category-wide question whose real content terms happen to have <50% document
+        // frequency by corpus coincidence would be misclassified as entity-scoped. Every current
+        // Exhaustive question in the corpus has a hyphenated identifier and is routed through
+        // Tier 1c's verbatim anchor match instead (ClaimMatches, below) -- this heuristic is only
+        // reached as a fallback for questions with no such identifier, which the live 150-question
+        // suite doesn't currently contain. question.ExhaustiveIsEntityScopedOverride lets a future
+        // question override this inference with an authored ground truth instead of relying on it
+        // (Remediation Phase 3, review item #4).
         var termsPresentInCorpus = terms.Where(term => documentFrequency.ContainsKey(term)).ToArray();
         var minDocumentFrequency = termsPresentInCorpus.Length == 0
             ? 0
             : termsPresentInCorpus.Min(term => documentFrequency[term]);
-        var isEntityScoped = termsPresentInCorpus.Length > 0 && minDocumentFrequency < cards.Count / 2.0;
+        var isEntityScoped = question.ExhaustiveIsEntityScopedOverride
+            ?? (termsPresentInCorpus.Length > 0 && minDocumentFrequency < cards.Count / 2.0);
         var mostDistinctiveTerms = isEntityScoped
             ? termsPresentInCorpus.Where(term => documentFrequency[term] == minDocumentFrequency).ToHashSet(StringComparer.Ordinal)
             : terms;

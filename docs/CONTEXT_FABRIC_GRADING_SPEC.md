@@ -296,20 +296,35 @@ tiers in order, the second only as a fallback from the first:
    token"`, where every segment is genuinely relevant) and fall back to "any
    non-stopword term matches."
 
-> **Known limitation, not yet fixed:** the Tier 1c anchor match resolved the
-> specific `ledger-01`-vs-`ledger-09` collision that originally motivated this
-> section, but the fallback unigram classification (step 2, used for any
-> exhaustive question with no hyphenated identifier in it) is still a
-> heuristic, not a proof. A genuinely category-wide question with no
-> hyphenated anchors, whose real content terms happen to have <50% document
-> frequency by corpus coincidence, would still be mis-classified as
-> entity-scoped. Both real scenarios uncovered so far (ledger-scoped,
-> archive-token-wide) have regression tests; this boundary case does not.
-> Planned resolution: pre-compute ground-truth classification per exhaustive
-> question at authoring time instead of inferring it at grading time —
-> tracked for a future phase, not yet implemented. See
-> `CONTEXT_FABRIC_BUG_HISTORY.md` for the two earlier approaches that were
-> tried and rejected before the fallback heuristic was adopted.
+> **Known limitation, mitigated but not eliminated (Remediation Phase 3,
+> 2026-07-15):** the Tier 1c anchor match resolved the specific
+> `ledger-01`-vs-`ledger-09` collision that originally motivated this section,
+> but the fallback unigram classification (step 2, used for any exhaustive
+> question with no hyphenated identifier in it) is still a heuristic, not a
+> proof. A genuinely category-wide question with no hyphenated anchors, whose
+> real content terms happen to have <50% document frequency by corpus
+> coincidence, is still mis-classified as entity-scoped by default — now
+> **proven, not just theorized**, by a dedicated regression test
+> (`BuildExhaustiveAnswer_HeuristicMisclassifiesCategoryWideQuestion_KnownBoundaryCase`)
+> that reproduces the exact failure: 7 of 10 genuinely-relevant cards silently
+> dropped because they phrased the category differently than the 3 cards the
+> heuristic happened to anchor on.
+>
+> `question.ExhaustiveIsEntityScopedOverride` (nullable bool on
+> `FabricBenchmarkQuestion`) now lets a question's ground truth be supplied
+> directly instead of inferred, closing the gap for any question that sets
+> it — proven by a matching test
+> (`BuildExhaustiveAnswer_OverrideFixesTheBoundaryCase`) using the identical
+> fixture. **This is opt-in, not automatic**: every question in the current
+> 150-question suite leaves the override unset (`null`), because every
+> current Exhaustive question has a hyphenated identifier and is fully
+> handled by Tier 1c — the fallback heuristic isn't actually reachable by any
+> live question today. The override exists for the future: any new Exhaustive
+> question authored *without* a hyphenated identifier should set it
+> explicitly rather than trust the heuristic's inference. See
+> `CONTEXT_FABRIC_BUG_HISTORY.md` §6 for the two earlier classification
+> approaches that were tried and rejected before this heuristic was adopted,
+> and §7d for this mitigation.
 
 ## 6. Grading algebra — `FabricAnswerVerifier.NormalizeAndVerify`
 

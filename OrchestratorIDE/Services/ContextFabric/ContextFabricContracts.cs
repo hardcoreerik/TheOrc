@@ -105,13 +105,27 @@ public enum FabricQuestionKind
     Unanswerable,
 }
 
+/// <summary>
+/// ExhaustiveIsEntityScopedOverride is an optional, authored ground-truth annotation for
+/// FabricQuestionKind.Exhaustive questions only (Remediation Phase 3, review item #4 --
+/// "pre-compute the ground-truth classification... so the benchmark no longer relies on the
+/// runtime heuristic"). When set, BuildExhaustiveAnswer
+/// (ContextFabricFeasibilityRunner.cs) uses it directly instead of inferring entity-scoped
+/// vs. category-wide from document frequency -- see
+/// docs/CONTEXT_FABRIC_GRADING_SPEC.md §5.3 for the heuristic's known boundary-case risk this
+/// exists to close. Null (the default, and every question in the current 150-question suite)
+/// preserves existing behavior exactly -- Tier 1c's hyphenated-identifier anchor match already
+/// covers every current Exhaustive question, so the heuristic's fallback path isn't actually
+/// exercised by the live corpus today. Ignored for non-Exhaustive questions.
+/// </summary>
 public sealed record FabricBenchmarkQuestion(
     string QuestionId,
     FabricQuestionKind Kind,
     string Question,
     IReadOnlyList<string> ExpectedTerms,
     IReadOnlyList<string> ExpectedSegmentIds,
-    bool ExpectAbstention = false);
+    bool ExpectAbstention = false,
+    bool? ExhaustiveIsEntityScopedOverride = null);
 
 public sealed record FabricAnswerClaim
 {

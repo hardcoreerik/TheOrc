@@ -183,4 +183,70 @@ public sealed class ContextFabricExhaustiveAnswerTests
             Assert.That(result.Answer?.Answer, Does.Not.Contain("DECOY"));
         });
     }
+
+    [Test]
+    public void BuildExhaustiveAnswer_HeuristicMisclassifiesCategoryWideQuestion_KnownBoundaryCase()
+    {
+        // Remediation Phase 3 (docs/CONTEXT_FABRIC_GRADING_SPEC.md §5.3/§9): reproduces the
+        // documented-but-previously-untested boundary case. "archive token" has NO hyphenated
+        // identifier, so Tier 1c's anchor match never engages and the fallback unigram
+        // heuristic runs. The question is genuinely category-wide -- every card in this corpus
+        // is an archive-token record -- but the corpus phrases most of them WITHOUT the literal
+        // word "token" (using "marker"/"designation" instead), so "token" itself has document
+        // frequency 3/10 (< 50% of cards) purely by phrasing coincidence. The heuristic reads
+        // that as "token" being a rare instance-identifier and misclassifies this category-wide
+        // question as entity-scoped, hard-requiring "token" and silently dropping every card
+        // that used different phrasing -- proving the "known residual risk" this doc has
+        // flagged since 2026-07-04 is real, not just theoretical.
+        var tokenCards = Enumerable.Range(0, 3)
+            .Select(i => Card($"seg-token-{i}", $"Archive token {i} was logged in the register."))
+            .ToArray();
+        var phrasedDifferently = Enumerable.Range(3, 7)
+            .Select(i => Card($"seg-other-{i}", $"Archive marker {i} was logged as a register designation."))
+            .ToArray();
+        var allCards = tokenCards.Concat(phrasedDifferently).ToArray();
+        var corpus = Corpus(allCards.Select(c => c.SegmentId).ToArray());
+        var question = new FabricBenchmarkQuestion(
+            "q-boundary", FabricQuestionKind.Exhaustive,
+            "List every archive token recorded in this corpus, in any order.",
+            Enumerable.Range(0, 10).Select(i => i.ToString()).ToArray(),
+            allCards.Select(c => c.SegmentId).ToArray());
+
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), FabricRunOptions.Default);
+        var result = runner.BuildExhaustiveAnswer(corpus, question, allCards);
+
+        // Documents the bug precisely: only the 3 "token"-phrased cards are included, the other
+        // 7 genuinely-relevant cards are silently dropped. If this heuristic is ever improved,
+        // this specific assertion should start failing -- that's the point of pinning it here.
+        Assert.That(result.IncludedSegmentIds, Is.EquivalentTo(tokenCards.Select(c => c.SegmentId)),
+            "documents the known heuristic misclassification -- see the override test below for the fix");
+    }
+
+    [Test]
+    public void BuildExhaustiveAnswer_OverrideFixesTheBoundaryCase()
+    {
+        // Same fixture as the boundary-case test above, but with the ground-truth override set
+        // -- proves ExhaustiveIsEntityScopedOverride (Remediation Phase 3) actually closes the
+        // gap rather than just being unused plumbing.
+        var tokenCards = Enumerable.Range(0, 3)
+            .Select(i => Card($"seg-token-{i}", $"Archive token {i} was logged in the register."))
+            .ToArray();
+        var phrasedDifferently = Enumerable.Range(3, 7)
+            .Select(i => Card($"seg-other-{i}", $"Archive marker {i} was logged as a register designation."))
+            .ToArray();
+        var allCards = tokenCards.Concat(phrasedDifferently).ToArray();
+        var corpus = Corpus(allCards.Select(c => c.SegmentId).ToArray());
+        var question = new FabricBenchmarkQuestion(
+            "q-boundary-fixed", FabricQuestionKind.Exhaustive,
+            "List every archive token recorded in this corpus, in any order.",
+            Enumerable.Range(0, 10).Select(i => i.ToString()).ToArray(),
+            allCards.Select(c => c.SegmentId).ToArray(),
+            ExhaustiveIsEntityScopedOverride: false);
+
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime(), FabricRunOptions.Default);
+        var result = runner.BuildExhaustiveAnswer(corpus, question, allCards);
+
+        Assert.That(result.IncludedSegmentIds, Is.EquivalentTo(allCards.Select(c => c.SegmentId)),
+            "override should make every genuinely relevant card match, not just the 3 that happen to say 'token'");
+    }
 }
