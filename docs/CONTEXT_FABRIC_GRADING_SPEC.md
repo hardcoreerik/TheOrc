@@ -296,20 +296,41 @@ tiers in order, the second only as a fallback from the first:
    token"`, where every segment is genuinely relevant) and fall back to "any
    non-stopword term matches."
 
-> **Known limitation, not yet fixed:** the Tier 1c anchor match resolved the
-> specific `ledger-01`-vs-`ledger-09` collision that originally motivated this
-> section, but the fallback unigram classification (step 2, used for any
-> exhaustive question with no hyphenated identifier in it) is still a
-> heuristic, not a proof. A genuinely category-wide question with no
-> hyphenated anchors, whose real content terms happen to have <50% document
-> frequency by corpus coincidence, would still be mis-classified as
-> entity-scoped. Both real scenarios uncovered so far (ledger-scoped,
-> archive-token-wide) have regression tests; this boundary case does not.
-> Planned resolution: pre-compute ground-truth classification per exhaustive
-> question at authoring time instead of inferring it at grading time —
-> tracked for a future phase, not yet implemented. See
-> `CONTEXT_FABRIC_BUG_HISTORY.md` for the two earlier approaches that were
-> tried and rejected before the fallback heuristic was adopted.
+> **Known limitation, mitigated but not eliminated (Remediation Phase 3,
+> 2026-07-15):** the Tier 1c anchor match resolved the specific
+> `ledger-01`-vs-`ledger-09` collision that originally motivated this section,
+> but the fallback unigram classification (step 2, used for any exhaustive
+> question with no hyphenated identifier in it) is still a heuristic, not a
+> proof. A genuinely category-wide question with no hyphenated anchors, whose
+> real content terms happen to have <50% document frequency by corpus
+> coincidence, is still mis-classified as entity-scoped by default — now
+> **proven, not just theorized**, by a dedicated regression test
+> (`BuildExhaustiveAnswer_HeuristicMisclassifiesCategoryWideQuestion_KnownBoundaryCase`)
+> that reproduces the exact failure: 7 of 10 genuinely-relevant cards silently
+> dropped because they phrased the category differently than the 3 cards the
+> heuristic happened to anchor on.
+>
+> `question.ExhaustiveIsEntityScopedOverride` (nullable bool on
+> `FabricBenchmarkQuestion`) now lets a question's ground truth be supplied
+> directly instead of inferred, closing the gap for any question that sets
+> it — proven by a matching test
+> (`BuildExhaustiveAnswer_OverrideFixesTheBoundaryCase`) using the identical
+> fixture. **This is opt-in, not automatic, and no current question needs
+> it** — but the fallback heuristic itself IS live: the 150-question expanded
+> suite's 15 Exhaustive questions all have a hyphenated identifier and route
+> through Tier 1c, but the smaller frozen 16-segment fixture's own Exhaustive
+> question (`exhaustive-archive-tokens`, no hyphenated identifier) genuinely
+> exercises this fallback heuristic on every `cf7-gate` run. It happens to
+> classify correctly today only because its category term ("token") has
+> 100% document frequency in that specific corpus — nowhere near the <50%
+> threshold that would trigger the boundary-case bug above. Any new
+> Exhaustive question authored *without* a hyphenated identifier, especially
+> one where the category term's real-corpus frequency isn't guaranteed high,
+> should set the override explicitly rather than trust the heuristic's
+> inference. See
+> `CONTEXT_FABRIC_BUG_HISTORY.md` §6 for the two earlier classification
+> approaches that were tried and rejected before this heuristic was adopted,
+> and §7d for this mitigation.
 
 ## 6. Grading algebra — `FabricAnswerVerifier.NormalizeAndVerify`
 
@@ -507,8 +528,12 @@ evidence budget ceiling — without having to hand-aggregate the raw
 
 ## 9. Known limitations (current, not historical)
 
-- **Exhaustive-category classification is a heuristic** (§5.3) — a boundary
-  case exists in theory with no regression test covering it yet.
+- **Exhaustive-category classification is a heuristic** (§5.3) — the boundary
+  case (a category-wide term with <50% document frequency by coincidence)
+  now has a regression test proving it's real, and an opt-in
+  `ExhaustiveIsEntityScopedOverride` question field that closes it when set,
+  but no current question sets it and the heuristic remains the default for
+  any Exhaustive question without a hyphenated identifier.
 - **`citation_precision` is an aggregate, not a mean** (§6.2) — a small number
   of citation-heavy questions can dominate the reported number.
   `mean_citation_precision` (§8) reports the alternative directly, so this is

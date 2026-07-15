@@ -984,11 +984,25 @@ public sealed class ContextFabricFeasibilityRunner
         // the corpus: if it appears in a minority of cards, it's naming a specific instance (a);
         // if even the rarest term is common to most cards, there is no such instance to filter on,
         // and every non-stopword overlap should count, matching (b)'s broad-category intent.
+        //
+        // This is a heuristic, not a proof (docs/CONTEXT_FABRIC_GRADING_SPEC.md §5.3): a
+        // genuinely category-wide question whose real content terms happen to have <50% document
+        // frequency by corpus coincidence would be misclassified as entity-scoped. All 15
+        // Exhaustive questions in the 150-question expanded suite have a hyphenated identifier
+        // and are routed through Tier 1c's verbatim anchor match instead (ClaimMatches, below),
+        // never reaching this fallback -- but DeterministicFabricCorpus's own Exhaustive question
+        // ("archive token", no hyphenated identifier) DOES reach it on every cf7-gate run, and
+        // currently classifies correctly only because "token" has 100% document frequency in
+        // that specific corpus, not because this heuristic is safe in general.
+        // question.ExhaustiveIsEntityScopedOverride lets a future question override this
+        // inference with an authored ground truth instead of relying on it
+        // (Remediation Phase 3, review item #4).
         var termsPresentInCorpus = terms.Where(term => documentFrequency.ContainsKey(term)).ToArray();
         var minDocumentFrequency = termsPresentInCorpus.Length == 0
             ? 0
             : termsPresentInCorpus.Min(term => documentFrequency[term]);
-        var isEntityScoped = termsPresentInCorpus.Length > 0 && minDocumentFrequency < cards.Count / 2.0;
+        var isEntityScoped = question.ExhaustiveIsEntityScopedOverride
+            ?? (termsPresentInCorpus.Length > 0 && minDocumentFrequency < cards.Count / 2.0);
         var mostDistinctiveTerms = isEntityScoped
             ? termsPresentInCorpus.Where(term => documentFrequency[term] == minDocumentFrequency).ToHashSet(StringComparer.Ordinal)
             : terms;

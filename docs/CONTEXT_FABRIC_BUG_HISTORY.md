@@ -283,3 +283,65 @@ for current status).
 its CF-7 numbers are trusted — a 0/128 (or near-0) segment-acceptance rate
 alongside `<think>`-prefixed raw outputs is the signature of this exact
 failure mode, not a model-capability result.
+
+### §7d. Exhaustive-category heuristic hardening (2026-07-15, Remediation Phase 3)
+
+Distinct from §7a/§7b/§7c (all runtime/architecture crash modes) — this is a
+grading-logic gap, not an infrastructure bug. The Grading Spec §5.3 has
+flagged since 2026-07-04 that `BuildExhaustiveAnswer`'s entity-scoped vs.
+category-wide classification (§6's `3ef5fb0b` fix, above) is a heuristic, not
+a proof, and could misclassify a genuinely category-wide question as
+entity-scoped if its content terms happen to have <50% document frequency by
+corpus coincidence. That risk had never been reproduced — "this boundary case
+does not [have a regression test]" per the Grading Spec's own known-limitations
+note.
+
+**Investigation finding, corrected after Grok review: the fallback heuristic
+IS live, but the specific failure mode is not (yet) triggered by any real
+question.** The 150-question expanded-corpus suite's 15 Exhaustive questions
+all name a hyphenated identifier (`case-ledger-NN`), routing through Tier
+1c's verbatim anchor match (`CF_RETRIEVAL_IMPROVEMENT_PLAN.md` §1c) — those
+15 never reach the fallback heuristic. But the smaller, frozen 16-segment
+`DeterministicFabricCorpus` fixture (used by `cf7-gate`, not
+`cf7-gate-expanded`) has its own Exhaustive question,
+`exhaustive-archive-tokens` ("List every archive token in section order.") —
+no hyphenated identifier, so it genuinely exercises the fallback heuristic on
+every `cf7-gate` run. It currently classifies correctly (category-wide, as
+intended) only because every segment's text literally contains the phrase
+"archive token" (`DeterministicFabricCorpus.cs:251`), giving "token" 100%
+document frequency in that specific corpus — nowhere near the <50% threshold
+that triggers misclassification. **The heuristic is live and currently
+correct on this question by fortunate corpus construction, not because the
+heuristic is safe in general** — the boundary-case risk (a term with <50%
+document frequency by coincidence) remains real and untriggered by any
+current question, which is exactly what the new regression test below
+reproduces synthetically rather than waiting for it to happen on a real
+corpus.
+
+**Fixes landed:**
+1. A regression test
+   (`BuildExhaustiveAnswer_HeuristicMisclassifiesCategoryWideQuestion_KnownBoundaryCase`)
+   reproducing the exact failure with a synthetic 10-card corpus: a
+   genuinely category-wide "archive token" question where only 3 of 10
+   relevant cards happen to use the literal word "token" (the other 7 use
+   "marker"/"designation"), causing the heuristic to hard-require "token"
+   and silently drop the 7 differently-phrased-but-equally-relevant cards.
+   This closes the "boundary case does not [have a test]" gap directly.
+2. `FabricBenchmarkQuestion.ExhaustiveIsEntityScopedOverride` (nullable
+   `bool`): an optional, authored ground-truth annotation. When set,
+   `BuildExhaustiveAnswer` uses it directly instead of inferring via the
+   heuristic — the "pre-compute ground-truth classification... instead of
+   inferring it at grading time" resolution the Grading Spec had tracked as
+   not-yet-implemented. Proven by a second test
+   (`BuildExhaustiveAnswer_OverrideFixesTheBoundaryCase`) using the
+   identical fixture with the override set, confirming all 10 cards match.
+3. **Deliberately not backfilled onto any existing question**: the 15
+   expanded-suite Exhaustive questions are already correctly handled by Tier
+   1c, and `exhaustive-archive-tokens` is already correctly classified by the
+   fallback heuristic (100% document frequency on "token" in its specific
+   frozen corpus) — setting the override on any of them would be a no-op
+   that adds authoring surface without fixing anything live. The override is
+   documented (Grading Spec §5.3) as something future question authors
+   should set explicitly for any new Exhaustive question whose category-wide
+   term might have lower, coincidental document frequency, not retrofitted
+   onto questions that don't need it.
