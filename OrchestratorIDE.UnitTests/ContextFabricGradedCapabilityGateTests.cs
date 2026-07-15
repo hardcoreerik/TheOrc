@@ -16,13 +16,39 @@ public sealed class ContextFabricGradedCapabilityGateTests
     [Test]
     public async Task ReadyForExpansion_True_When_B3_Beats_Baselines_Despite_Imperfect_Pass_Rate()
     {
-        var b3 = await BuildB3ReportAsync();
+        // BuildB3ReportAsync's scripted runtime answers everything correctly (a perfect
+        // pass rate), which would NOT actually exercise the scenario this test is named
+        // for. Force a genuinely imperfect Summary.PassedQuestions (Grok review, PR #59) --
+        // the CF0-level blocking gates (segment coverage, citation precision, etc.) are
+        // computed from the real underlying QuestionResults, not the overridden Summary,
+        // so they're unaffected: Passed staying true here is proof that ONLY the
+        // now-non-blocking all-questions-verified/question_pass_rate signal was holding it
+        // back before, not a side effect of also faking the other gates.
+        var perfectB3 = await BuildB3ReportAsync();
+        Assert.That(perfectB3.Summary.TotalQuestions, Is.GreaterThan(3),
+            "fixture needs enough questions for an imperfect-but-baseline-beating pass count");
+        var imperfectSummary = perfectB3.Summary with
+        {
+            PassedQuestions = perfectB3.Summary.TotalQuestions - 1,
+        };
+        var b3 = perfectB3 with { Summary = imperfectSummary };
 
-        var report = ContextFabricBenchmarkGateEvaluator.Evaluate(b3, null, null,
+        // Full happy-path inputs (B4 + diagnostics) so the ONLY varying factor from the
+        // pre-existing "everything passes" test is the imperfect pass rate -- otherwise a
+        // missing B4/quote/stitch would independently sink ReadyForExpansion and the test
+        // would prove nothing about the metric this PR actually changed.
+        var fixture = DeterministicFabricCorpus.Create();
+        var quote = new ContextFabricBenchmarkExpansionRunner(runtime: null)
+            .RunQuoteAnchoringDiagnostics(fixture);
+        var stitch = await new ContextFabricBenchmarkExpansionRunner(new ScriptedFabricRuntime())
+            .RunBoundaryStitchDiagnosticsAsync(DeterministicFabricCorpus.CreateBoundaryStitchFixture());
+
+        var report = ContextFabricBenchmarkGateEvaluator.Evaluate(b3, quote, stitch,
         [
             SystemWithScore("B0", "Closed-book native model", passed: 1, total: 5),
             SystemWithScore("B1", "Truncated prompt", passed: 2, total: 5),
             SystemWithScore("B2", "Conventional top-k RAG", passed: 3, total: 5),
+            new("B4", "HIVE Context Fabric", FabricBenchmarkSystemStatus.Passed, "Frozen run passed."),
         ]);
 
         var gradedGate = report.Gates.Single(gate => gate.Name == "Graded capability");
@@ -30,12 +56,19 @@ public sealed class ContextFabricGradedCapabilityGateTests
 
         Assert.Multiple(() =>
         {
-            // The scripted B3 fixture (see BuildB3ReportAsync) answers everything correctly,
-            // so it beats every supplied baseline (max 3/5) and clears citation_precision.
+            Assert.That(questionPassRateMetric.Passed, Is.False,
+                "the whole point of this test is a genuinely imperfect pass rate");
+            Assert.That(questionPassRateMetric.IsBlocking, Is.False,
+                "the old harsh metric is still reported but no longer blocks");
+            // Imperfect pass rate (TotalQuestions - 1) still comfortably beats every
+            // supplied baseline (max 3/5) and clears citation_precision from the real
+            // scripted answers.
             Assert.That(gradedGate.Passed, Is.True, gradedGate.Detail);
             Assert.That(gradedGate.IsBlocking, Is.True);
-            // The old harsh metric is still reported (visible in output) but no longer blocks.
-            Assert.That(questionPassRateMetric.IsBlocking, Is.False);
+            // The actual point: overall Passed is true DESPITE the imperfect pass rate.
+            Assert.That(report.ReadyForExpansion, Is.True,
+                "ReadyForExpansion must not be sunk by a non-blocking metric alone. Gates: " +
+                string.Join("; ", report.Gates.Select(g => $"{g.Name}={g.Passed}(blocking={g.IsBlocking}):{g.Detail}")));
         });
     }
 
@@ -54,22 +87,22 @@ public sealed class ContextFabricGradedCapabilityGateTests
     }
 
     [Test]
-    public void GradedCapabilityGate_TreatsMissingBaseline_AsZero_NotAsBlocking()
+    public async Task GradedCapabilityGate_TreatsMissingBaseline_AsZero_NotAsBlocking()
     {
         // No frozenSystemRuns supplied at all -- B0/B1/B2 are all "Missing" with null
-        // PassedCount. The graded gate must still be EVALUABLE (not itself missing/N-A),
-        // treating an absent baseline as 0 rather than refusing to compare -- a genuinely
-        // missing baseline is already flagged separately by "B0-B4 frozen runs present".
-        var report = ContextFabricBenchmarkGateEvaluator.Evaluate(
-            singleNodeContextFabric: null, quoteAnchoring: null, boundaryStitch: null);
+        // PassedCount. The graded gate must still PASS when B3 has any correct answers,
+        // treating an absent baseline as 0 rather than refusing to compare or failing
+        // outright -- a genuinely missing baseline is already flagged separately by
+        // "B0-B4 frozen runs present" (Grok review, PR #59: the original version of this
+        // test only asserted the gate was non-null, proving nothing about the "as zero"
+        // claim in its own name).
+        var b3 = await BuildB3ReportAsync();
+
+        var report = ContextFabricBenchmarkGateEvaluator.Evaluate(b3, null, null);
 
         var gradedGate = report.Gates.Single(gate => gate.Name == "Graded capability");
 
-        // B3 itself is also missing here, so the gate still fails overall -- but for the
-        // "B3 missing" reason, not because baselines were absent. Covered together with the
-        // dedicated "no comparable score" test above; this test's own assertion is just that
-        // evaluation doesn't throw and the gate is present at all.
-        Assert.That(gradedGate, Is.Not.Null);
+        Assert.That(gradedGate.Passed, Is.True, gradedGate.Detail);
     }
 
     [Test]
