@@ -116,12 +116,15 @@ current source, not transcribed from memory.
 ```mermaid
 flowchart TD
     A[Model answer JSON] --> B{schemaVersion correct?}
-    B -- no --> ERR[errors += schema mismatch]
+    B -- no --> ERR[errors += schema mismatch<br/>NOT terminal, falls through]
     B -- yes --> C{answer text under<br/>max(12000, 80*ExpectedTerms) chars?}
-    C -- no --> ERR2[errors += answer too long]
+    ERR --> C
+    C -- no --> ERR2[errors += answer too long<br/>NOT terminal, falls through]
     C -- yes --> D{claim count <= 64?}
-    D -- no --> ERR3[errors += too many claims]
+    ERR2 --> D
+    D -- no --> ERR3[errors += too many claims<br/>NOT terminal, falls through]
     D -- yes --> E[For each claim]
+    ERR3 --> E
     E --> E2{claim object is null?}
     E2 -- yes --> ERR4b[errors += null claim item<br/>this claim is skipped entirely]
     E2 -- no --> F{claim.Text non-empty?}
@@ -152,7 +155,7 @@ flowchart TD
     Q -- yes --> ERR11[errors += abstained answer has factual claims]
     N -- no --> R{draft.Abstained?}
     R -- yes --> ERR12[errors += unexpectedly abstained]
-    R -- no --> S{every ExpectedTerm found in<br/>answer text or a citation quote?}
+    R -- no --> S{every ExpectedTerm found in<br/>answer text, a claim's text,<br/>or a citation quote?}
     ERR12 --> S
     S -- no --> ERR13[errors += missing expected term]
     S -- regardless --> T{every ExpectedSegmentId<br/>in verifiedSegments?}
@@ -160,7 +163,7 @@ flowchart TD
     T -- yes --> PASS{errors.Count == 0?<br/>final check, all branches<br/>above converge here}
     Q -- no --> PASS
     ERR14 --> PASS
-    ERR & ERR2 & ERR3 & ERR4 & ERR4b & ERR4c & ERR5 & ERR5b & ERR6 & ERR7 & ERR8 & ERR9 & ERR10 & ERR11 & ERR12 & ERR13 --> PASS
+    ERR4b & ERR5 & ERR5b & ERR6 & ERR7 & ERR8 & ERR9 & ERR10 & ERR11 & ERR12 & ERR13 --> PASS
     PASS -- no --> FAIL[Verification.Passed = false]
     PASS -- yes --> PASSED[Verification.Passed = true]
 ```
@@ -299,10 +302,11 @@ without penalizing a legitimately large exhaustive enumeration.
 ### 6.4 Non-abstention vs. abstention verification
 
 - **Non-abstention questions:** every term in `question.ExpectedTerms` must
-  appear somewhere in the answer text or a citation quote, and every segment
-  in `question.ExpectedSegmentIds` must be in `verifiedSegments` — evidence
-  from the *specific* segments the question was authored against, not just
-  any correct-sounding text.
+  appear somewhere in the `groundedTrace` — the answer text, any claim's own
+  text, or a citation quote (`ContextFabricValidation.cs:948-950` joins all
+  three) — and every segment in `question.ExpectedSegmentIds` must be in
+  `verifiedSegments` — evidence from the *specific* segments the question was
+  authored against, not just any correct-sounding text.
 - **`ExpectAbstention` questions:** the model must abstain, must say the
   corpus "does not establish" the answer (exact substring match, case
   insensitive), and must not include any claims.
