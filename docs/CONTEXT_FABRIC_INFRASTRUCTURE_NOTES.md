@@ -23,15 +23,18 @@ it isn't mistaken for either.
 | Gemma-4-12B (any variant) | Shared-KV-cache design (layers reuse other layers' K/V tensors) | **Incompatible** — native `NoKvSlot` crashes on Context Fabric's evidence-heavy prompts, upstream `llama.cpp` limitation, no LLamaSharp release includes the fix yet | §7a — [ggml-org/llama.cpp#21468](https://github.com/ggml-org/llama.cpp/issues/21468), [#23720](https://github.com/ggml-org/llama.cpp/issues/23720); fix [#23981](https://github.com/ggml-org/llama.cpp/pull/23981) merged 2026-06-02, not yet pinned by any LLamaSharp release |
 | Meta-Llama-3.1-8B-Instruct | Plain transformer | **Confirmed working** — zero `NoKvSlot` across 30- and 100-question runs, 99.1% citation precision (113/114) | §7a |
 | qwen2.5-coder-7b-instruct | Plain transformer | **Works, but weaker capability** — zero `NoKvSlot`, but real (non-infrastructure) citation-discipline gaps at scale: 25-31/100 pass rate, ~76-99% citation precision depending on run | §7a |
-| Qwen3.5-9B (any quant, e.g. Q8_0/Q4_K_M) | Hybrid attention + Gated Delta Net (recurrent) | **Runs cleanly as of PR #56** (`SeqMax` fix) — zero `NoKvSlot`, zero OOM across full 120-question runs on both Q8_0 (2h35m) and Q4_K_M (2h31m). Benchmark capability itself is currently poor: B3 16/120 (Q8_0) and 1/120 (Q4_K_M), both NO-GO — a real capability finding, not an infrastructure issue. | §7b |
+| Qwen3.5-9B (any quant, e.g. Q8_0/Q4_K_M) | Hybrid attention + Gated Delta Net (recurrent); thinking-mode model | **Runtime clean as of PR #56** (`SeqMax` fix) — zero `NoKvSlot`, zero OOM. **Reader-incompatible until PR #58** (thinking-suppression fix) — without it, the model's default reasoning mode consumes the reader's entire completion budget on every segment, so 0/128 segments ever get accepted and B3's pass count only reflects how many held-out questions are Unanswerable, not capability. As of PR #58: segment acceptance confirmed 123/128 on a smoke test; full-scale re-score not yet run — see the CF-7 remediation tracker. | §7b (SeqMax), §7c (thinking suppression) |
 
 **General rule of thumb from the above:** infrastructure compatibility and
 model capability are independent axes. A model can run with zero crashes and
-still score poorly (Qwen3.5-9B), or be structurally unable to run at all
-regardless of how capable it might otherwise be (Gemma-4-12B). Check this
-table before assuming a low score reflects the model being "bad" — confirm
-there's no infrastructure failure hiding in the raw JSON first (grep
-`verification.errors` for `NoKvSlot` or similar).
+still score poorly, or be structurally unable to run at all regardless of how
+capable it might otherwise be (Gemma-4-12B), or run and score near-zero for a
+reason that's neither (Qwen3.5-9B before PR #58 — clean runtime, but the
+reader never actually read anything). Check this table before assuming a low
+score reflects the model being "bad" — confirm there's no infrastructure
+failure hiding in the raw JSON first: grep `verification.errors` for
+`NoKvSlot`, and check `segmentResults[].metrics.rawOutputExcerpt` for
+`<think>`-prefixed reader outputs with near-zero segment acceptance.
 
 ## Fleet/environment issues
 
