@@ -500,12 +500,18 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
 
     /// <summary>
     /// True if the GGUF's own chat template implements the `enable_thinking` opt-in pattern
-    /// (Qwen3/3.5-family and similar reasoning models) -- i.e. it has a designed way to
-    /// suppress the model's default reasoning mode by leaving that variable unset. Pure/static
-    /// so it's testable without a loaded model.
+    /// (Qwen3/3.5-family and similar reasoning models) by emitting the SAME literal empty-seed
+    /// text `ApplyThinkingSuppression` appends. Requires both markers, not just the variable
+    /// name alone (Grok review, PR #58): a template could reference `enable_thinking` for
+    /// unrelated semantics or a differently-shaped seed, and blindly appending Qwen's exact
+    /// `&lt;think&gt;\n\n&lt;/think&gt;\n\n` text to a template that doesn't actually use that
+    /// shape would be wrong, not just redundant. Pure/static so it's testable without a loaded
+    /// model.
     /// </summary>
     internal static bool SupportsThinkingSuppression(string? rawChatTemplate) =>
-        rawChatTemplate is not null && rawChatTemplate.Contains("enable_thinking", StringComparison.Ordinal);
+        rawChatTemplate is not null
+        && rawChatTemplate.Contains("enable_thinking", StringComparison.Ordinal)
+        && rawChatTemplate.Contains("<think>\\n\\n</think>\\n\\n", StringComparison.Ordinal);
 
     /// <summary>
     /// Appends the empty, pre-closed &lt;think&gt;&lt;/think&gt; block the template itself would
