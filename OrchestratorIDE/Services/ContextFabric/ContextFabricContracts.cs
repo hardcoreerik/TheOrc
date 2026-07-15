@@ -14,7 +14,11 @@ public static class FabricSchemaVersions
     public const string Stitch = "cf0-stitch-1.0";
     public const string QuoteDiagnostics = "cf0-quote-diagnostics-1.0";
     public const string StitchDiagnostics = "cf0-stitch-diagnostics-1.0";
-    public const string BenchmarkGate = "cf7-benchmark-gate-1.0";
+    // 1.1: added FabricGateResult.IsBlocking, FabricBenchmarkMetric.IsBlocking,
+    // FabricBenchmarkSystemGate.PassedCount/TotalCount, the "Graded capability" gate,
+    // mean_citation_precision metric, and EvidenceBudgetStats (Remediation Phase 2 --
+    // see docs/CONTEXT_FABRIC_GRADING_SPEC.md §8).
+    public const string BenchmarkGate = "cf7-benchmark-gate-1.1";
     public const string Baseline = "cf7-baseline-1.0";
     public const string ReaderPrompt = "cf0-reader-1.2";
     public const string ReducerPrompt = "cf0-reducer-1.0";
@@ -240,7 +244,16 @@ public sealed record FabricQuestionRunResult(
     IReadOnlyList<string> IncludedSegmentIds,
     FabricCallMetrics Metrics);
 
-public sealed record FabricGateResult(string Name, bool Passed, string Detail);
+/// <summary>
+/// IsBlocking defaults true so every existing gate keeps blocking overall Passed/
+/// ReadyForExpansion status unless explicitly marked otherwise. Currently only
+/// "all-questions-verified" (CF0, ContextFabricFeasibilityRunner.BuildGates) and the
+/// question_pass_rate-derived portion of "Metric thresholds passed" (CF7,
+/// ContextFabricBenchmarkGateEvaluator) are non-blocking -- literal 100% question pass
+/// rate is kept as a reported stretch goal, not a release blocker, per
+/// docs/CONTEXT_FABRIC_GRADING_SPEC.md §8/§9 (Remediation Phase 2).
+/// </summary>
+public sealed record FabricGateResult(string Name, bool Passed, string Detail, bool IsBlocking = true);
 
 public sealed record FabricFeasibilitySummary(
     int ExpectedSegments,
@@ -282,7 +295,7 @@ public sealed record FabricFeasibilityReport(
     FabricFeasibilitySummary Summary,
     FabricBenchmarkEnvironment? Environment = null)
 {
-    public bool Passed => Gates.Count > 0 && Gates.All(gate => gate.Passed);
+    public bool Passed => Gates.Count > 0 && Gates.Where(gate => gate.IsBlocking).All(gate => gate.Passed);
 }
 
 public sealed record FabricEvidenceValidationResult(
@@ -367,18 +380,44 @@ public enum FabricBenchmarkSystemStatus
     Missing,
 }
 
+/// <summary>
+/// PassedCount/TotalCount are null when a system's per-question score isn't comparable --
+/// B4 (a frozen, structurally-different acceptance artifact; see
+/// docs/CONTEXT_FABRIC_GRADING_SPEC.md §2.1) never sets them. Populated for B0/B1/B2 by
+/// ContextFabricBaselineRunner.ToSystemGate and for B3 by
+/// ContextFabricBenchmarkGateEvaluator.BuildSystemGate, both counting the SAME question set
+/// within one gate-expanded run, so PassedCount is directly comparable across systems without
+/// normalization.
+/// </summary>
 public sealed record FabricBenchmarkSystemGate(
     string SystemId,
     string Label,
     FabricBenchmarkSystemStatus Status,
-    string Detail);
+    string Detail,
+    int? PassedCount = null,
+    int? TotalCount = null);
 
+/// <summary>See FabricGateResult's IsBlocking doc -- same rationale, same default.</summary>
 public sealed record FabricBenchmarkMetric(
     string Name,
     double Value,
     double Target,
     bool Passed,
-    string Detail);
+    string Detail,
+    bool IsBlocking = true);
+
+/// <summary>
+/// Per-question-category evidence-budget consumption (Remediation Phase 2, review item #9 --
+/// "add evidence budget consumption statistics so we can see when global-synthesis questions
+/// are budget-constrained"). P50/P95 are computed over each category's B3 prompt-token counts
+/// (FabricQuestionRunResult.Metrics.PromptTokens), nearest-rank method.
+/// </summary>
+public sealed record FabricEvidenceBudgetStat(
+    string Category,
+    int QuestionCount,
+    int P50PromptTokens,
+    int P95PromptTokens,
+    int MaxPromptTokens);
 
 public sealed record FabricCf7BenchmarkGateReport(
     string SchemaVersion,
@@ -388,9 +427,10 @@ public sealed record FabricCf7BenchmarkGateReport(
     string SourceDigest,
     IReadOnlyList<FabricBenchmarkSystemGate> Systems,
     IReadOnlyList<FabricBenchmarkMetric> Metrics,
-    IReadOnlyList<FabricGateResult> Gates)
+    IReadOnlyList<FabricGateResult> Gates,
+    IReadOnlyList<FabricEvidenceBudgetStat>? EvidenceBudget = null)
 {
-    public bool ReadyForExpansion => Gates.Count > 0 && Gates.All(gate => gate.Passed);
+    public bool ReadyForExpansion => Gates.Count > 0 && Gates.Where(gate => gate.IsBlocking).All(gate => gate.Passed);
 }
 
 public sealed class FabricContextBudgetExceededException(string message) : InvalidOperationException(message);

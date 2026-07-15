@@ -56,18 +56,30 @@ public static class ContextFabricBenchmarkGateWriter
 
         sb.AppendLine("## Metrics");
         sb.AppendLine();
-        sb.AppendLine("| Metric | Value | Target | Result | Detail |");
-        sb.AppendLine("|---|---:|---:|---|---|");
+        sb.AppendLine("| Metric | Value | Target | Result | Blocking? | Detail |");
+        sb.AppendLine("|---|---:|---:|---|---|---|");
         foreach (var metric in report.Metrics)
-            sb.AppendLine($"| `{Escape(metric.Name)}` | {metric.Value:0.###} | {metric.Target:0.###} | {(metric.Passed ? "PASS" : "FAIL")} | {Escape(metric.Detail)} |");
+            sb.AppendLine($"| `{Escape(metric.Name)}` | {metric.Value:0.###} | {metric.Target:0.###} | {(metric.Passed ? "PASS" : "FAIL")} | {(metric.IsBlocking ? "yes" : "no (stretch goal)")} | {Escape(metric.Detail)} |");
         sb.AppendLine();
 
         sb.AppendLine("## Gates");
         sb.AppendLine();
-        sb.AppendLine("| Gate | Result | Detail |");
-        sb.AppendLine("|---|---|---|");
+        sb.AppendLine("| Gate | Result | Blocking? | Detail |");
+        sb.AppendLine("|---|---|---|---|");
         foreach (var gate in report.Gates)
-            sb.AppendLine($"| `{Escape(gate.Name)}` | {(gate.Passed ? "PASS" : "FAIL")} | {Escape(gate.Detail)} |");
+            sb.AppendLine($"| `{Escape(gate.Name)}` | {(gate.Passed ? "PASS" : "FAIL")} | {(gate.IsBlocking ? "yes" : "no")} | {Escape(gate.Detail)} |");
+
+        if (report.EvidenceBudget is { Count: > 0 })
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Evidence budget by question category");
+            sb.AppendLine();
+            sb.AppendLine("| Category | Questions | P50 prompt tokens | P95 prompt tokens | Max prompt tokens |");
+            sb.AppendLine("|---|---:|---:|---:|---:|");
+            foreach (var stat in report.EvidenceBudget)
+                sb.AppendLine($"| `{Escape(stat.Category)}` | {stat.QuestionCount} | {stat.P50PromptTokens} | {stat.P95PromptTokens} | {stat.MaxPromptTokens} |");
+        }
+
         return sb.ToString();
     }
 

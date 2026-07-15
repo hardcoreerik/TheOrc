@@ -1213,9 +1213,16 @@ public sealed class ContextFabricFeasibilityRunner
             new("working-context-bounded",
                 calls.Count > 0 && calls.All(call => call.FitsContext),
                 $"maxPrompt={summary.MaximumPromptTokens} context={_options.ContextBudget.ContextLimit}"),
+            // Non-blocking: literal 100% question pass rate is a reported stretch goal, not a
+            // release blocker (Remediation Phase 2, docs/CONTEXT_FABRIC_GRADING_SPEC.md §9) --
+            // B3 can substantially beat every baseline and still fail this single all-or-nothing
+            // check, which used to sink the whole report's Passed status on its own. The graded
+            // capability signal (ContextFabricBenchmarkGateEvaluator's "Graded capability" gate)
+            // is what should actually gate GO/NO-GO now.
             new("all-questions-verified",
                 questions.Count == fixture.Questions.Count && questions.All(result => result.Verification.Passed),
-                $"passed={summary.PassedQuestions}/{summary.TotalQuestions}"),
+                $"passed={summary.PassedQuestions}/{summary.TotalQuestions}",
+                IsBlocking: false),
             new("cross-segment-reasoning",
                 multiHop is not null && multiHop.Verification.Passed && multiHop.Verification.VerifiedSegmentIds.Count >= 2,
                 $"verifiedSegments={multiHop?.Verification.VerifiedSegmentIds.Count ?? 0}"),
