@@ -284,6 +284,78 @@ its CF-7 numbers are trusted — a 0/128 (or near-0) segment-acceptance rate
 alongside `<think>`-prefixed raw outputs is the signature of this exact
 failure mode, not a model-capability result.
 
+### §7e. OPEN, UNRESOLVED (2026-07-15): `NoKvSlot` recurred on a fully-fixed `Qwen3.5-9B-Q8_0`, contradicting §7b's "zero `NoKvSlot`" claim
+
+A Phase E re-run of `Qwen3.5-9B-Q8_0` — same `SeqMax`/`SequenceHardLimit=40`
+fix from §7b, same thinking-suppression fix from §7c, no runtime code changes
+since PR #56 — hit **96 separate `NoKvSlot` incidents**, each exhausting all 8
+retries before a forced recycle (gate `cf7_gate_20260715_181445_828_...`, log
+`cf7-phaseE-full120-q8_0.log`). `§7b`'s claim that PR #56 verified "zero
+`NoKvSlot`, zero OOM" across a full Q8_0 run was accurate for the run it was
+based on, but this new run — identical code — proves that claim does not
+generalize to "eliminated." Downgrading §7b's claim from "fixed" to "greatly
+reduced, not deterministic."
+
+**Failure signature, and why it looks different from §7b/§7a:** the storm
+starts cleanly (7 uneventful natural recycles on the `Researcher` role,
+`minted=24` each, no forced recycles) then, immediately after the
+`Researcher`'s 7th recycle, the `Reviewer` role's *next fresh, freshly-built*
+executor fails to decode — `RECYCLING minted=1 activeCount=0 forced=True`
+followed immediately by another `decode: failed to find a memory slot`, for
+every subsequent conversation for the rest of the run (96 times straight, one
+every ~138 log lines). Unlike §7b (broken on literally the 2nd conversation
+ever, deterministic from cold start) or the historical Gemma-4 pattern (near-
+universal from the first conversation), this run's first ~76,000 log lines
+(≈7 full `Researcher` recycle cycles, ~168 conversations) were clean — the
+break only starts partway through, and once started, never recovers for the
+rest of the run, even though `ForceRecycle` gives every subsequent
+conversation a genuinely fresh, from-scratch executor (`minted=1` every time,
+not climbing).
+
+**Root cause not yet found.** The native log shows the fresh `Reviewer`
+context's construction completing successfully (RS buffer reserved, no CUDA
+error) before the decode itself fails — so this is not a context-construction
+allocation failure (ruling out simple VRAM exhaustion-at-construction as the
+direct cause, though VRAM fragmentation building up in the driver across ~168
+prior conversations' worth of alloc/free cycles by the time `Reviewer` first
+needs to recycle remains an open, unverified hypothesis: model (8.86 GiB) +
+one active `n_seq_max=40` context (~2.5 GiB) leaves only ~850 MiB of headroom
+against `15037 MiB free`, before accounting for driver-level fragmentation or
+this machine's own baseline ~1.2-1.9 GiB desktop GPU usage). Resulting B3
+score for this run (14/120, *worse* than `B0` closed-book) is **not usable as
+a capability measurement** — it is a corrupted-run artifact and is excluded
+from Phase E's Qwen3.5 results.
+
+**Practical guidance until root-caused:** do not trust any Qwen3.5 (or other
+hybrid/recurrent-architecture) CF-7 score without first grep'ing its raw log
+for `NoKvSlot` and checking whether the incident count is small/isolated
+(like `qwen2.5-coder`'s 2 incidents, §6 row 14 in `CF_TEST_RESULTS.md`,
+plausibly harmless) or forms a sustained, never-recovering storm like this
+one (score is void). A `--max-questions 30` smoke run is **not sufficient** to
+catch this — the storm here only started after ~168 prior conversations, well
+past what a 30-question smoke test would exercise.
+
+**Follow-up diagnostic (same session, `Qwen3.5-9B-Q4_K_M`):** re-ran the
+identical suite against the smaller quant (≈half the VRAM footprint of Q8_0,
+substantially more headroom against the 15037 MiB free budget) to test
+whether available VRAM headroom is the deciding factor. Result: **the storm
+still occurred, but measurably less severe** — 59 incidents (vs. Q8_0's 96),
+starting at the same point (after the `Researcher` role's 6th natural
+recycle, ~144 prior conversations, essentially the same onset as Q8_0's 7th/
+~168) but this time **partially recovering** rather than permanently
+breaking: `RECYCLING minted=` values after the storm starts were `1, 1, 3, 1,
+1, 4, 2, 2, 3, ...` — i.e., some fresh executors survived several
+conversations before failing again, instead of failing on the very first
+decode every single time as Q8_0 did. This is consistent with (but does not
+prove) the VRAM-fragmentation hypothesis above: less memory pressure delays
+and partially mitigates the failure without eliminating it. Root cause is
+still open — this new data narrows the search (onset correlates with
+`Researcher` conversation count, not wall-clock time or question index; more
+headroom reduces severity but does not fix it) but does not explain the
+underlying native trigger. `Qwen3.5-9B-Q4_K_M`'s B3 score from this run
+(40/120) is likewise **not usable** as a capability measurement for the same
+reason as Q8_0's.
+
 ### §7d. Exhaustive-category heuristic hardening (2026-07-15, Remediation Phase 3)
 
 Distinct from §7a/§7b/§7c (all runtime/architecture crash modes) — this is a
