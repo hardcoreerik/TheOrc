@@ -125,14 +125,16 @@ flowchart TD
     E --> F{claim.Text non-empty?}
     F -- no --> ERR4[errors += empty claim text]
     F -- yes --> G[For each citation in claim]
-    G --> H{citation.SegmentId set?}
+    G --> G2{citation object is null?}
+    G2 -- yes --> ERR5b[errors += null citation item<br/>NOT counted in totalCitations]
+    G2 -- no --> TC[totalCitations++<br/>counted regardless of what follows]
+    TC --> H{citation.SegmentId set?}
     H -- no --> ERR5[errors += missing segmentId]
     H -- yes --> I{segmentId exists in corpus?}
     I -- no --> ERR6[errors += unknown segment]
     I -- yes --> J["NormalizeCitation:<br/>quote actually found in segment text?"]
     J -- no --> ERR7[errors += citation not grounded]
-    J -- yes --> K[validCitations++, totalCitations++<br/>segment added to verifiedSegments]
-    H -- counts regardless of outcome --> L[totalCitations++]
+    J -- yes --> K[validCitations++<br/>segment added to verifiedSegments]
     E --> M{claim has >=1 valid citation,<br/>unless answer is abstained?}
     M -- no --> ERR8[errors += claim has no valid citation]
     E --> N{question.ExpectAbstention?}
@@ -150,7 +152,7 @@ flowchart TD
     T -- no --> ERR14[errors += missing required evidence]
     T -- yes --> PASS
     Q -- yes --> PASS{errors.Count == 0?}
-    ERR & ERR2 & ERR3 & ERR4 & ERR5 & ERR6 & ERR7 & ERR8 & ERR9 & ERR10 & ERR11 & ERR12 & ERR13 & ERR14 --> FAIL[Verification.Passed = false]
+    ERR & ERR2 & ERR3 & ERR4 & ERR5 & ERR5b & ERR6 & ERR7 & ERR8 & ERR9 & ERR10 & ERR11 & ERR12 & ERR13 & ERR14 --> FAIL[Verification.Passed = false]
     PASS -- yes --> PASSED[Verification.Passed = true]
 ```
 
