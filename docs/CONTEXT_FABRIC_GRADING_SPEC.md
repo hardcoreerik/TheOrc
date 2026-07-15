@@ -204,28 +204,46 @@ contest rather than B2 losing by construction.
 
 Exhaustive questions ("list every case-file ID under ledger X") do **not** go
 through `BuildEvidencePack` — the goal isn't "the top-N most relevant cards,"
-it's "every card that actually belongs to the named category." Current logic:
+it's "every card that actually belongs to the named category." Current logic
+(`ClaimMatches`, `ContextFabricFeasibilityRunner.cs:1013-1015`) tries two
+tiers in order, the second only as a fallback from the first:
 
-1. Tokenize the question, find which of its terms are actually present in the
-   corpus's cards, and compute each one's document frequency.
-2. Classify the question as **entity-scoped** if its rarest present term
-   appears in fewer than half the cards (`minDocumentFrequency < cards.Count / 2.0`)
-   — e.g. `"case-ledger-01"` is genuinely rare relative to the corpus, so
-   hard-require that term.
-3. Otherwise classify as **category-wide** (e.g. `"archive token"`, where
-   every segment is genuinely relevant) and fall back to "any non-stopword
-   term matches."
+1. **Tier 1c — hyphenated-identifier anchor match (takes precedence when it
+   applies).** Extract hyphenated identifier anchors from the question (e.g.
+   `case-ledger-01`, `BR-048` — anything matching `\b\w+(?:-\w+)+\b`) whose
+   document frequency across cards is both `>0` and `<50%`
+   (`scopedIdentifierAnchors`, lines 1006-1011). If any such anchors exist, a
+   claim matches only if its text contains one of them as a **verbatim
+   contiguous substring** — bypassing unigram scoring entirely. This exists
+   because the tokenizer splits identifiers into corpus-common fragments
+   (`case`, `ledger`, `01`), so unigram rarity alone cannot distinguish
+   `case-ledger-01` from `case-ledger-09`; the exact scenario that motivated
+   this tier is documented in
+   [CF_RETRIEVAL_IMPROVEMENT_PLAN.md §1c](CF_RETRIEVAL_IMPROVEMENT_PLAN.md).
+2. **Fallback — entity-scoped vs. category-wide unigram classification**,
+   used only when no hyphenated anchors are found for the question. Tokenize
+   the question, find which of its terms are actually present in the corpus's
+   cards, and compute each one's document frequency. Classify as
+   **entity-scoped** if the rarest present term appears in fewer than half
+   the cards (`minDocumentFrequency < cards.Count / 2.0`) and hard-require
+   that term; otherwise classify as **category-wide** (e.g. `"archive
+   token"`, where every segment is genuinely relevant) and fall back to "any
+   non-stopword term matches."
 
-> **Known limitation, not yet fixed:** this classification is a heuristic, not
-> a proof. A genuinely category-wide question whose real content terms happen
-> to have <50% document frequency by corpus coincidence would be
-> mis-classified as entity-scoped. Both real scenarios uncovered so far
-> (ledger-scoped, archive-token-wide) have regression tests; the boundary case
-> does not. Planned resolution: pre-compute ground-truth classification per
-> exhaustive question at authoring time instead of inferring it at grading
-> time — tracked for a future phase, not yet implemented. See
+> **Known limitation, not yet fixed:** the Tier 1c anchor match resolved the
+> specific `ledger-01`-vs-`ledger-09` collision that originally motivated this
+> section, but the fallback unigram classification (step 2, used for any
+> exhaustive question with no hyphenated identifier in it) is still a
+> heuristic, not a proof. A genuinely category-wide question with no
+> hyphenated anchors, whose real content terms happen to have <50% document
+> frequency by corpus coincidence, would still be mis-classified as
+> entity-scoped. Both real scenarios uncovered so far (ledger-scoped,
+> archive-token-wide) have regression tests; this boundary case does not.
+> Planned resolution: pre-compute ground-truth classification per exhaustive
+> question at authoring time instead of inferring it at grading time —
+> tracked for a future phase, not yet implemented. See
 > `CONTEXT_FABRIC_BUG_HISTORY.md` for the two earlier approaches that were
-> tried and rejected before this heuristic was adopted.
+> tried and rejected before the fallback heuristic was adopted.
 
 ## 6. Grading algebra — `FabricAnswerVerifier.NormalizeAndVerify`
 
