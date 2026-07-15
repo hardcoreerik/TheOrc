@@ -475,7 +475,20 @@ all, see §2.1) is treated as 0 correct for this comparison: B3 can't be
 credited with "beating" a score that doesn't exist, but a baseline's absence
 is already flagged separately by the "B0-B4 frozen runs present" gate and
 doesn't itself block `Graded capability`. B3 having no comparable score at
-all (not run, or `Missing` status) fails the gate outright.
+all (not run, or `Missing` status) fails the gate outright. A baseline that
+DID run but against a differently-sized question set (`TotalCount` mismatch
+against B3's) also fails the gate outright — raw-count comparison across
+mismatched totals is meaningless, not just imprecise.
+
+**This does not mean every hard requirement was softened.** Two narrower,
+single-question structural spot-checks in `ContextFabricFeasibilityRunner.
+BuildGates` — `cross-segment-reasoning` (one representative multi-hop
+question genuinely cites 2+ segments) and `exhaustive-leaf-coverage` (one
+representative exhaustive question covers every corpus segment) — kept their
+default `IsBlocking: true` and still independently gate `FabricFeasibilityReport.
+Passed` → B3's system status → the CF7-level "System runs passed" gate →
+`ReadyForExpansion`. Only the all-or-nothing *aggregate* pass-rate check was
+demoted; these two structural checks were not.
 
 `ReadyForExpansion` (and `FabricFeasibilityReport.Passed` at the CF0 level)
 now compute as `Gates.Where(g => g.IsBlocking).All(g => g.Passed)` — a
