@@ -428,7 +428,7 @@ public sealed record FabricCf7BenchmarkGateReport(
     IReadOnlyList<FabricBenchmarkSystemGate> Systems,
     IReadOnlyList<FabricBenchmarkMetric> Metrics,
     IReadOnlyList<FabricGateResult> Gates,
-    IReadOnlyList<FabricEvidenceBudgetStat>? EvidenceBudget = null)
+    IReadOnlyList<FabricEvidenceBudgetStat> EvidenceBudget)
 {
     public bool ReadyForExpansion => Gates.Count > 0 && Gates.Where(gate => gate.IsBlocking).All(gate => gate.Passed);
 }

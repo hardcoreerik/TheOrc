@@ -476,6 +476,17 @@ Delivery order:
 
 The go/no-go benchmark compares closed-book, truncated prompt, conventional RAG, single-node Context Fabric, and HIVE Context Fabric with the same native model. It requires exact synthetic ground truth, a pinned public-domain Darwin corpus, standardized long-context subsets, citation precision, multi-hop and exhaustive recall, correct abstention, an 8K final-context ceiling, normalized HIVE scaling, and worker-failure recovery. The project must report a failed hypothesis if these gates do not beat ordinary RAG; impressive demos are not acceptance evidence.
 
+**As of Remediation Phase 2 (2026-07-15, PR #59), the literal 100% pass rate
+across all 120 held-out questions is no longer itself the blocking bar.**
+The actual GO/NO-GO floor is the `Graded capability` gate: single-node
+Context Fabric must beat the strongest of the closed-book/truncated/RAG
+baselines on raw question count *and* clear the existing 0.90 citation
+precision bar. Perfect recall across every category (multi-hop, exhaustive,
+abstention, etc.) is tracked as an explicit, still-reported stretch goal
+(`question_pass_rate`), not a release blocker — see
+[CONTEXT_FABRIC_GRADING_SPEC.md §8.1](CONTEXT_FABRIC_GRADING_SPEC.md#81-the-primary-signal-is-now-graded-capability-not-literal-100-pass-rate)
+for the full mechanics and rationale.
+
 ### Reviewer Gate hardening — true blocking mode
 Add a session-level confirmation dialog for BLOCKER findings. The user must explicitly acknowledge ("I understand this output has a BLOCKER finding and I am proceeding anyway") rather than just clicking Apply. Optional: log all BLOCKER overrides to the SQLite runs table for audit.
 

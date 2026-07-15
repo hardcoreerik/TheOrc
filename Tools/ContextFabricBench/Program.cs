@@ -321,7 +321,7 @@ internal static class Program
                 Console.WriteLine($"JSON: {expandedGatePaths.JsonPath}");
                 Console.WriteLine($"Markdown: {expandedGatePaths.MarkdownPath}");
                 foreach (var gate in expandedGateReport.Gates.Where(gate => !gate.Passed))
-                    Console.WriteLine($"FAILED {gate.Name}: {gate.Detail}");
+                    Console.WriteLine($"{(gate.IsBlocking ? "FAILED" : "MISSED (stretch goal, non-blocking)")} {gate.Name}: {gate.Detail}");
                 return expandedGateReport.ReadyForExpansion ? 0 : 2;
             }
 
@@ -381,7 +381,7 @@ internal static class Program
                 Console.WriteLine($"JSON: {gatePaths.JsonPath}");
                 Console.WriteLine($"Markdown: {gatePaths.MarkdownPath}");
                 foreach (var gate in gateReport.Gates.Where(gate => !gate.Passed))
-                    Console.WriteLine($"FAILED {gate.Name}: {gate.Detail}");
+                    Console.WriteLine($"{(gate.IsBlocking ? "FAILED" : "MISSED (stretch goal, non-blocking)")} {gate.Name}: {gate.Detail}");
                 return gateReport.ReadyForExpansion ? 0 : 2;
             }
 
@@ -395,7 +395,7 @@ internal static class Program
             Console.WriteLine($"JSON: {paths.JsonPath}");
             Console.WriteLine($"Markdown: {paths.MarkdownPath}");
             foreach (var gate in report.Gates.Where(gate => !gate.Passed))
-                Console.WriteLine($"FAILED {gate.Name}: {gate.Detail}");
+                Console.WriteLine($"{(gate.IsBlocking ? "FAILED" : "MISSED (stretch goal, non-blocking)")} {gate.Name}: {gate.Detail}");
 
             return report.Passed ? 0 : 2;
         }

@@ -182,10 +182,10 @@ public sealed class ContextFabricGradedCapabilityGateTests
 
         var report = ContextFabricBenchmarkGateEvaluator.Evaluate(b3, null, null);
 
-        Assert.That(report.EvidenceBudget, Is.Not.Null.And.Not.Empty);
+        Assert.That(report.EvidenceBudget, Is.Not.Empty);
         Assert.Multiple(() =>
         {
-            foreach (var stat in report.EvidenceBudget!)
+            foreach (var stat in report.EvidenceBudget)
             {
                 Assert.That(stat.QuestionCount, Is.GreaterThan(0), stat.Category);
                 Assert.That(stat.P50PromptTokens, Is.LessThanOrEqualTo(stat.P95PromptTokens), stat.Category);
@@ -200,7 +200,7 @@ public sealed class ContextFabricGradedCapabilityGateTests
         var report = ContextFabricBenchmarkGateEvaluator.Evaluate(
             singleNodeContextFabric: null, quoteAnchoring: null, boundaryStitch: null);
 
-        Assert.That(report.EvidenceBudget, Is.Not.Null.And.Empty);
+        Assert.That(report.EvidenceBudget, Is.Empty);
     }
 
     [TestCase(new[] { 10 }, 0.50, ExpectedResult = 10)]

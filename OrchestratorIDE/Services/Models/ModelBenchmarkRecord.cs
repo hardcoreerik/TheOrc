@@ -161,11 +161,13 @@ public static class ModelBenchmarkStore
                     }
                 }
 
-                foreach (var g in gate.GetProperty("gates").EnumerateArray())
-                    passed |= (g.GetProperty("name").GetString() == "System runs passed" &&
-                               g.GetProperty("passed").GetBoolean());
-                // Overall: all gates must pass
-                passed = gate.GetProperty("gates").EnumerateArray().All(g => g.GetProperty("passed").GetBoolean());
+                // Overall verdict: read the report's own readyForExpansion rather than
+                // re-deriving "all gates pass" here -- that used to be equivalent, but since
+                // gates can now be non-blocking (Remediation Phase 2, "Graded capability"
+                // gate; see docs/CONTEXT_FABRIC_GRADING_SPEC.md §8.1), re-deriving from a raw
+                // gates.All(...) would silently disagree with the actual verdict the moment a
+                // non-blocking gate fails on an otherwise-passing run (Grok review, PR #59).
+                passed = gate.TryGetProperty("readyForExpansion", out var ready) && ready.GetBoolean();
 
                 gateReports.Add((genId, digest, ts, qPassRate, qPassed, qTotal,
                     citPrec, segCov, stitchRate, passed));
