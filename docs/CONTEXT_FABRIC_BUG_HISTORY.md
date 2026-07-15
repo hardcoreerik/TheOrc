@@ -201,6 +201,10 @@ reserve the same ~2GB rs-cache budget for no benefit — split into a separate
 
 Verified live: zero `NoKvSlot`, zero OOM, across full 120-question runs on
 both `Qwen3.5-9B-Q8_0` (2h35m) and `Qwen3.5-9B-Q4_K_M` (2h31m). See PR #56.
+**Update (2026-07-15, see §7e): this "zero `NoKvSlot`" claim does not
+generalize — two later Phase E re-runs on identical code hit a severe,
+unresolved `NoKvSlot` storm. Treat this section's fix as "greatly reduces,
+does not eliminate," not "fixed."**
 Both runs' actual benchmark scores were low (B3 16/120 and 1/120
 respectively, both NO-GO). **This was reported at the time as "a real
 capability finding about Qwen3.5-9B" — that conclusion turned out to be
@@ -319,9 +323,11 @@ allocation failure (ruling out simple VRAM exhaustion-at-construction as the
 direct cause, though VRAM fragmentation building up in the driver across ~168
 prior conversations' worth of alloc/free cycles by the time `Reviewer` first
 needs to recycle remains an open, unverified hypothesis: model (8.86 GiB) +
-one active `n_seq_max=40` context (~2.5 GiB) leaves only ~850 MiB of headroom
-against `15037 MiB free`, before accounting for driver-level fragmentation or
-this machine's own baseline ~1.2-1.9 GiB desktop GPU usage). Resulting B3
+**both** roles' `n_seq_max=40` contexts concurrently active (`Researcher` and
+`Reviewer` each reserve their own ~2.5 GiB rs-cache, ~5 GiB combined) leaves
+only ~850 MiB of headroom against `15037 MiB free`, before accounting for
+driver-level fragmentation or this machine's own baseline ~1.2-1.9 GiB
+desktop GPU usage. Resulting B3
 score for this run (14/120, *worse* than `B0` closed-book) is **not usable as
 a capability measurement** — it is a corrupted-run artifact and is excluded
 from Phase E's Qwen3.5 results.
