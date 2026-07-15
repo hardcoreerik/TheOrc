@@ -141,24 +141,27 @@ flowchart TD
     I -- yes --> J["NormalizeCitation:<br/>quote actually found in segment text?"]
     J -- no --> ERR7[errors += citation not grounded]
     J -- yes --> K[validCitations++<br/>segment added to verifiedSegments]
-    E --> M{claim has >=1 valid citation,<br/>unless answer is abstained?}
+    E --> M{claim has >=1 valid citation,<br/>unless answer is abstained?<br/>(checked per-claim, inside the loop)}
     M -- no --> ERR8[errors += claim has no valid citation]
-    E --> N{question.ExpectAbstention?}
-    N -- yes --> O{draft.Abstained == true?}
+    E -- after ALL claims processed --> N{question.ExpectAbstention?<br/>evaluated ONCE, not per-claim}
+    N -- yes --> O{draft.Abstained?}
     O -- no --> ERR9[errors += did not abstain]
     O -- yes --> P{answer text contains<br/>'does not establish'?}
     P -- no --> ERR10[errors += missing abstention phrase]
-    P -- yes --> Q{zero claims present?}
-    Q -- no --> ERR11[errors += abstained answer has factual claims]
-    N -- no --> R{draft.Abstained == false?}
-    R -- no --> ERR12[errors += unexpectedly abstained]
-    R -- yes --> S{every ExpectedTerm found in<br/>answer text or a citation quote?}
+    ERR9 & ERR10 & P -- yes, all independent checks --> Q{draftClaims.Count > 0?<br/>always checked, not gated on O/P}
+    Q -- yes --> ERR11[errors += abstained answer has factual claims]
+    N -- no --> R{draft.Abstained?}
+    R -- yes --> ERR12[errors += unexpectedly abstained]
+    R -- no --> S{every ExpectedTerm found in<br/>answer text or a citation quote?}
+    ERR12 --> S
     S -- no --> ERR13[errors += missing expected term]
-    S -- yes --> T{every ExpectedSegmentId<br/>in verifiedSegments?}
+    S -- regardless --> T{every ExpectedSegmentId<br/>in verifiedSegments?}
     T -- no --> ERR14[errors += missing required evidence]
-    T -- yes --> PASS
-    Q -- yes --> PASS{errors.Count == 0?}
-    ERR & ERR2 & ERR3 & ERR4 & ERR4b & ERR4c & ERR5 & ERR5b & ERR6 & ERR7 & ERR8 & ERR9 & ERR10 & ERR11 & ERR12 & ERR13 & ERR14 --> FAIL[Verification.Passed = false]
+    T -- yes --> PASS{errors.Count == 0?<br/>final check, all branches<br/>above converge here}
+    Q -- no --> PASS
+    ERR14 --> PASS
+    ERR & ERR2 & ERR3 & ERR4 & ERR4b & ERR4c & ERR5 & ERR5b & ERR6 & ERR7 & ERR8 & ERR9 & ERR10 & ERR11 & ERR12 & ERR13 --> PASS
+    PASS -- no --> FAIL[Verification.Passed = false]
     PASS -- yes --> PASSED[Verification.Passed = true]
 ```
 
