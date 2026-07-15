@@ -528,8 +528,12 @@ evidence budget ceiling — without having to hand-aggregate the raw
 
 ## 9. Known limitations (current, not historical)
 
-- **Exhaustive-category classification is a heuristic** (§5.3) — a boundary
-  case exists in theory with no regression test covering it yet.
+- **Exhaustive-category classification is a heuristic** (§5.3) — the boundary
+  case (a category-wide term with <50% document frequency by coincidence)
+  now has a regression test proving it's real, and an opt-in
+  `ExhaustiveIsEntityScopedOverride` question field that closes it when set,
+  but no current question sets it and the heuristic remains the default for
+  any Exhaustive question without a hyphenated identifier.
 - **`citation_precision` is an aggregate, not a mean** (§6.2) — a small number
   of citation-heavy questions can dominate the reported number.
   `mean_citation_precision` (§8) reports the alternative directly, so this is
