@@ -114,9 +114,11 @@ public enum FabricQuestionKind
 /// vs. category-wide from document frequency -- see
 /// docs/CONTEXT_FABRIC_GRADING_SPEC.md §5.3 for the heuristic's known boundary-case risk this
 /// exists to close. Null (the default, and every question in the current 150-question suite)
-/// preserves existing behavior exactly -- Tier 1c's hyphenated-identifier anchor match already
-/// covers every current Exhaustive question, so the heuristic's fallback path isn't actually
-/// exercised by the live corpus today. Ignored for non-Exhaustive questions.
+/// preserves existing behavior exactly -- the fallback heuristic IS live (DeterministicFabricCorpus's
+/// "archive token" question has no hyphenated identifier and reaches it on every cf7-gate run,
+/// currently classifying correctly only because its category term has 100% document frequency
+/// in that specific corpus), it just isn't currently MISCLASSIFYING anything. Ignored for
+/// non-Exhaustive questions.
 /// </summary>
 public sealed record FabricBenchmarkQuestion(
     string QuestionId,
