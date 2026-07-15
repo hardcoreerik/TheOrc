@@ -260,7 +260,8 @@ IDs are minted monotonically and never recycled, even after a `Conversation` is
 crash "at exactly the 257th reader conversation"). The existing fix,
 `SequenceRecycleThreshold = 128` (rebuild the role's executor — a fresh native
 context — every 128 minted conversations, at an idle point) and
-`SequenceHardLimit = 240` (fail closed with a managed exception rather than let
+`SequenceHardLimit = 240` (as of 2026-07-04; lowered to 40 on 2026-07-14, see
+§7b) (fail closed with a managed exception rather than let
 the native assert kill the process), protects against exhausting the *count* of
 sequence IDs. **It does not protect against exhausting actual KV-cache
 *memory*, which is a function of prompt size × live-but-unrecycled sequences,
@@ -420,6 +421,38 @@ the full extracted JSON fails deserialization to `FabricBoundaryStitchDraft` for
 reason not yet identified (only a short raw-output excerpt is persisted, not the full
 response, so this needs a fresh instrumented run to pin down further). Not yet fixed;
 tracked here as a known, low-priority, separate gap.
+
+### 7b. Second architecture-specific failure mode (2026-07-14): recurrent/hybrid models (Qwen3.5) need explicit `SeqMax`
+
+Distinct from §7a's Gemma-4 shared-KV-cache issue. `Qwen3.5-9B-Q8_0` (a hybrid
+attention + Gated Delta Net / recurrent architecture) hit `NoKvSlot` on
+**literally the second conversation ever minted** on any role's executor — not
+a slow climb toward `SequenceRecycleThreshold`, 100% reproducible from the
+first recycle. Native log showed `find_slot: seq_id=1 >= n_seq_max=1` and
+`init_batch: failed to prepare recurrent ubatches`.
+
+Root cause: `LLamaSharpRuntime.cs`'s `ModelParams` never set `SeqMax`, so it
+defaulted to 1. `AdapterManager` mints a fresh, monotonically-increasing
+sequence id per conversation and only tears the executor down at
+`SequenceRecycleThreshold`/`SequenceHardLimit` — an assumption that happened
+to hold for plain-transformer architectures (llama.cpp's unified KV-cache path
+tolerates `seq_id >= n_seq_max` there) but recurrent/hybrid architectures
+validate `seq_id` strictly against `n_seq_max`, so every executor's second
+conversation failed outright regardless of load.
+
+Fix: set `ModelParams.SeqMax = AdapterManager.SequenceHardLimit`. This alone
+traded one bug for another — llama.cpp allocates a per-sequence recurrent-
+state ("rs cache") buffer sized by `n_seq_max` on hybrid models, and the old
+`SequenceHardLimit = 240` (calibrated when native `n_seq_max` was effectively
+unlimited) became a live ~12GB VRAM reservation, OOM-crashing the native
+process (`cudaMalloc failed`, exit `0xC0000005`) on a 16GB GPU. Lowered
+`SequenceHardLimit` to 40 (~2GB rs-cache reservation, still well above
+`SequenceRecycleThreshold = 24`). Verified live: zero `NoKvSlot`, zero OOM,
+full CF-7 smoke run (3 questions) completes cleanly in ~58 minutes. See PR #56.
+
+**Practical guidance:** any future `SequenceHardLimit` change must be checked
+against rs-cache VRAM cost for the largest hybrid-architecture model in use,
+not just against the native `LLAMA_MAX_SEQ` sequence-count cap.
 
 ## 8. Known fleet/environment issues (not scoring-logic bugs)
 

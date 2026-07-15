@@ -68,9 +68,23 @@ public sealed class AdapterManager : IAsyncDisposable
 
     // Absolute refusal point: if outstanding conversations have kept the executor from recycling
     // and it is now approaching the native slot cap, minting another conversation would trade a
-    // recoverable managed exception for a process-killing native assert. Below 256 so the throw
-    // always wins the race against the assert.
-    internal const int SequenceHardLimit = 240;
+    // recoverable managed exception for a process-killing native assert.
+    //
+    // Also used directly as ModelParams.SeqMax (LLamaSharpRuntime.cs) — the default n_seq_max=1
+    // means the second-ever conversation on a fresh executor fails find_slot/init_batch outright
+    // on recurrent/hybrid architectures (e.g. Qwen3.5's Gated Delta Net layers validate seq_id
+    // strictly against n_seq_max; plain-transformer llama.cpp paths happened to tolerate seq_id
+    // >= n_seq_max, which is why this was never noticed before). That makes this constant a
+    // direct native VRAM reservation, not just a managed counter: llama.cpp allocates a
+    // per-sequence recurrent-state ("rs cache") buffer sized by n_seq_max on hybrid models.
+    // Confirmed live on a 16GB GPU with Qwen3.5-9B-Q8_0 (8.86GB weights): SeqMax=240 reserved
+    // ~12GB for the rs cache alone (~50MB/slot) and OOM-crashed the native process
+    // (cudaMalloc failed, 0xC0000005) before the managed hard-limit check ever got a chance to
+    // throw. Lowered from 240 to keep the rs-cache reservation (~2GB at this value) affordable
+    // on consumer GPUs while still giving SequenceRecycleThreshold plenty of grace for the
+    // active-conversations-outstanding path below. Do not raise this without checking rs-cache
+    // size against available VRAM for the largest hybrid-architecture model in use.
+    internal const int SequenceHardLimit = 40;
 
     // Opt-in, zero-cost-by-default diagnostic for the open KV-cache exhaustion investigation
     // (docs/CONTEXT_FABRIC_TEST_HARNESS.md §7): a threshold change alone was tried and had no
