@@ -202,23 +202,27 @@ in [CF_RETRIEVAL_IMPROVEMENT_PLAN.md](CF_RETRIEVAL_IMPROVEMENT_PLAN.md); this
 is a summary of the current state, not a restatement of that plan's
 rationale. Given a question and the corpus's evidence cards:
 
-1. **Extract anchors and proximity pairs from the question** (Tier 1a):
-   hyphenated identifiers and proper-noun runs (`ExtractAnchorPhrases`) plus
-   unordered nearby-term pairs (`ExtractProximityPairs`). Tokenize with a
+1. **Extract anchor phrases from the question** (Tier 1a): hyphenated
+   identifiers and proper-noun runs (`ExtractAnchorPhrases`). Tokenize with a
    2-character minimum (`TokenizeForScoring`) for the unigram term set — short
    enough to keep 2-digit identifiers like `01` in `case-ledger-01`, since a
    3-character-minimum tokenizer would silently split that on the hyphen.
-2. **Score each card on two separate axes, ranked lexicographically, not
-   blended:** `AnchorScore` (verbatim anchor matches, plus proximity-pair
-   matches at half an anchor's weight) is compared *first* — a card matching
-   the question's named entity always outranks any accumulation of common-word
-   overlap, because in an entity-dense corpus dozens of cards can tie on
-   unigrams alone. `TermScore` (unigram IDF-style: `1.0 / documentFrequency`
-   summed over overlapping terms, stopwords excluded) is the tiebreaker only
-   when `AnchorScore` ties (including the common case of both being zero,
-   where ordering falls back to pure `TermScore` — unchanged from the
-   original IDF-only behavior for questions with no extractable anchors).
-3. **Coverage-aware greedy fill** (Tier 1b): at each step, pick whichever
+2. **Extract proximity pairs from the question** (Tier 1.5, added later):
+   unordered nearby-term pairs (`ExtractProximityPairs`) — a lighter-weight
+   signal than a verbatim anchor for questions whose key terms appear near
+   each other but not as a contiguous phrase.
+3. **Score each card on two separate axes, ranked lexicographically, not
+   blended:** `AnchorScore` (verbatim anchor matches, plus Tier 1.5 proximity-
+   pair matches at half an anchor's weight) is compared *first* — a card
+   matching the question's named entity always outranks any accumulation of
+   common-word overlap, because in an entity-dense corpus dozens of cards can
+   tie on unigrams alone. `TermScore` (unigram IDF-style: `1.0 /
+   documentFrequency` summed over overlapping terms, stopwords excluded) is
+   the tiebreaker only when `AnchorScore` ties (including the common case of
+   both being zero, where ordering falls back to pure `TermScore` — unchanged
+   from the original IDF-only behavior for questions with no extractable
+   anchors).
+4. **Coverage-aware greedy fill** (Tier 1b): at each step, pick whichever
    remaining card covers the most *not-yet-covered* anchors/pairs/terms — not
    just whichever scores highest overall — so a MultiHop question naming two
    distinct entities spends its budget covering both instead of stacking
@@ -226,20 +230,20 @@ rationale. Given a question and the corpus's evidence cards:
    anchor/term is covered, ordering falls back to the base scores (preserving
    "fill remaining budget with the best cards" for GlobalSynthesis-style
    questions with no natural coverage target).
-4. **MultiHop budget reservation** (Tier 2.5): for `FabricQuestionKind.MultiHop`
+5. **MultiHop budget reservation** (Tier 2.5): for `FabricQuestionKind.MultiHop`
    questions only, the greedy fill stops at 70% of the evidence budget
    (6,144 tokens by default, 3,072 for HIVE), reserving the remaining 30% for
-   step 5 — this corpus reuses entity names across unrelated chains as
+   step 6 — this corpus reuses entity names across unrelated chains as
    distractors, and an unrestricted greedy fill was measured spending the
    whole budget on same-name-wrong-chain cards, leaving no room for the actual
    chain continuation.
-5. **Reference chase** (`ChaseTrackedReferences`): after the greedy fill,
+6. **Reference chase** (`ChaseTrackedReferences`): after the greedy fill,
    makes a final pass to include any additional cards the corpus's own
    cross-reference tracking indicates are needed to complete a chain, within
    whatever budget remains.
 
 Cards contributing zero to both `AnchorScore` and `TermScore` are excluded
-outright at step 2 — there is **no fixed card-count cap** anywhere in this
+outright at step 3 — there is **no fixed card-count cap** anywhere in this
 pipeline.
 
 ### 5.2 B2 — `BuildTopKText` (`ContextFabricBaselineRunner.cs:410`)
@@ -250,13 +254,17 @@ made them comparable, and this doc previously overstated the similarity.
 Concretely: B2 scores whole corpus **segments** (`fixture.Corpus.Segments`),
 not the evidence **cards** B3 scores; it tokenizes with the stricter
 3-character-minimum `Tokenize` (not `TokenizeForScoring`) against its own
-`_stopwords` set; and its per-term weight is a plain `1.0 /
-documentFrequency` sum rather than B3's `ScoreTextIdf`. Both independently
-implement "rank candidates by IDF-ish term overlap, greedily fill a token
-budget in ranked order," which is what makes a B3-vs-B2 comparison a fair
-retrieval contest rather than B2 losing by construction (the pre-fix
-`Take(4)` implementation did lose by construction) — but they are two
-separate implementations of that idea, not one shared code path.
+`_stopwords` set. Its per-term weight (`1.0 / documentFrequency`, summed over
+matching terms) is actually the same *formula* B3's `TermScore` uses — neither
+calls `ScoreTextIdf`, which is exclusive to `BuildExhaustiveAnswer` (§5.3) —
+but B2 has none of B3's `AnchorScore`, proximity-pair, coverage-aware greedy
+fill, MultiHop budget reservation, or reference-chase logic (§5.1 steps 1-5).
+Both independently implement "rank candidates by IDF-ish term overlap,
+greedily fill a token budget in ranked order," which is what makes a B3-vs-B2
+comparison a fair retrieval contest rather than B2 losing by construction (the
+pre-fix `Take(4)` implementation did lose by construction) — but B3's
+retrieval is substantially more sophisticated than B2's, by design; they are
+two separate implementations, not one shared code path.
 
 ### 5.3 Exhaustive-category answers — `BuildExhaustiveAnswer` (`ContextFabricFeasibilityRunner.cs:962`)
 
