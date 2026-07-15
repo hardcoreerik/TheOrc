@@ -322,9 +322,15 @@ without penalizing a legitimately large exhaustive enumeration.
 - **Non-abstention questions:** every term in `question.ExpectedTerms` must
   appear somewhere in the `groundedTrace` — the answer text, any claim's own
   text, or a citation quote (`ContextFabricValidation.cs:948-950` joins all
-  three) — and every segment in `question.ExpectedSegmentIds` must be in
-  `verifiedSegments` — evidence from the *specific* segments the question was
-  authored against, not just any correct-sounding text.
+  three). Only quotes from citations that already passed `NormalizeCitation`
+  (§6.1's `validCitations`) are included — `groundedTrace` is built from
+  `normalizedClaims`, which only ever holds the `citations` list populated at
+  line 927, after a citation clears the segment-exists and quote-grounded
+  checks. A hallucinated or invalid citation's quote text can't be used to
+  satisfy an `ExpectedTerm` match. Separately, every segment in
+  `question.ExpectedSegmentIds` must be in `verifiedSegments` — evidence from
+  the *specific* segments the question was authored against, not just any
+  correct-sounding text.
 - **`ExpectAbstention` questions:** the model must abstain, must say the
   corpus "does not establish" the answer (exact substring match, case
   insensitive), and must not include any claims.
