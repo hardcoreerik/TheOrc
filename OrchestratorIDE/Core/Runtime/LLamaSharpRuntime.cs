@@ -48,6 +48,11 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     private bool _foldSystemIntoUser;
     private string? _lastPromptPath;
 
+    // Cached result of scanning the GGUF's own tokenizer.chat_template for an
+    // "enable_thinking" toggle (Qwen3/3.5-family reasoning models and similar).
+    // See ApplyEmbeddedTemplate for why this needs to be applied manually.
+    private bool? _templateSupportsThinkingSuppression;
+
     public string RuntimeName => "LLamaSharp";
 
     // ── IModelRuntime ────────────────────────────────────────────────────────
@@ -341,6 +346,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         _hasEmbeddedTemplate  = null;
         _foldSystemIntoUser   = false;
         _lastPromptPath       = null;
+        _templateSupportsThinkingSuppression = null;
         if (hadWeights) Interlocked.Increment(ref _weightsGeneration);
         return ValueTask.CompletedTask;
     }
@@ -443,8 +449,58 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         var template = new LLamaTemplate(_weights!) { AddAssistant = true };
         foreach (var msg in messages)
             template.Add(NativePromptBuilder.ToRoleString(msg.Role), msg.Content ?? "");
-        return Encoding.UTF8.GetString(template.Apply());
+        var result = Encoding.UTF8.GetString(template.Apply());
+
+        // Qwen3/3.5-family (and similar) GGUF chat templates end with:
+        //   {%- if add_generation_prompt %}
+        //       {{- '<|im_start|>assistant\n' }}
+        //       {%- if enable_thinking is defined and enable_thinking is true %}
+        //           {{- '<think>\n' }}
+        //       {%- else %}
+        //           {{- '<think>\n\n</think>\n\n' }}
+        //       {%- endif %}
+        //   {%- endif %}
+        // i.e. the template's OWN designed way to suppress reasoning mode is to leave
+        // enable_thinking unset, which pre-seeds an empty, already-closed <think></think>
+        // block so the model starts generating its real answer immediately. LLamaSharp's
+        // LLamaTemplate (a minimal Jinja subset, not a full interpreter) renders through
+        // "<|im_start|>assistant\n" without error but does not evaluate this trailing
+        // `enable_thinking is defined` conditional at all -- confirmed empirically: CF-7
+        // reader calls against Qwen3.5-9B produced <think> blocks consuming ~2000 tokens
+        // (near the reader's completion cap) on literally every one of 128 segments, with
+        // zero cards ever successfully parsed as JSON (rawOutputExcerpt always started with
+        // "<think>", promptPath was "EmbeddedTemplate" -- not a ChatML fallback). Since the
+        // model free-generates its trained default (thinking) whenever the seed is absent,
+        // append the exact same empty-think-block the template would have produced, so the
+        // model behaves identically to enable_thinking=false in an official inference stack.
+        // Detected generically via the raw chat_template text (not a filename/family check)
+        // so this covers any future reasoning model using the same enable_thinking pattern.
+        _templateSupportsThinkingSuppression ??= _weights!.Metadata.TryGetValue("tokenizer.chat_template", out var rawTemplate)
+            && SupportsThinkingSuppression(rawTemplate);
+        if (_templateSupportsThinkingSuppression == true)
+            result = ApplyThinkingSuppression(result);
+
+        return result;
     }
+
+    /// <summary>
+    /// True if the GGUF's own chat template implements the `enable_thinking` opt-in pattern
+    /// (Qwen3/3.5-family and similar reasoning models) -- i.e. it has a designed way to
+    /// suppress the model's default reasoning mode by leaving that variable unset. Pure/static
+    /// so it's testable without a loaded model.
+    /// </summary>
+    internal static bool SupportsThinkingSuppression(string? rawChatTemplate) =>
+        rawChatTemplate is not null && rawChatTemplate.Contains("enable_thinking", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Appends the empty, pre-closed &lt;think&gt;&lt;/think&gt; block the template itself would
+    /// render when `enable_thinking` is left unset (see ApplyEmbeddedTemplate for why this must
+    /// be done manually). No-op if the rendered prompt doesn't end in a newline -- an embedded
+    /// template always ends its assistant-turn opener with one, so this guards against appending
+    /// onto something that isn't the shape we expect. Pure/static so it's testable directly.
+    /// </summary>
+    internal static string ApplyThinkingSuppression(string renderedPrompt) =>
+        renderedPrompt.EndsWith('\n') ? renderedPrompt + "<think>\n\n</think>\n\n" : renderedPrompt;
 
     private static string FormatLoadFailure(Exception ex)
     {

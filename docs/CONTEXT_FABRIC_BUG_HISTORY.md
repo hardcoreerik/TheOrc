@@ -202,9 +202,78 @@ reserve the same ~2GB rs-cache budget for no benefit — split into a separate
 Verified live: zero `NoKvSlot`, zero OOM, across full 120-question runs on
 both `Qwen3.5-9B-Q8_0` (2h35m) and `Qwen3.5-9B-Q4_K_M` (2h31m). See PR #56.
 Both runs' actual benchmark scores were low (B3 16/120 and 1/120
-respectively, both NO-GO) — a real capability finding about Qwen3.5-9B on this
-benchmark, separate from and not caused by the infrastructure bug above.
+respectively, both NO-GO). **This was reported at the time as "a real
+capability finding about Qwen3.5-9B" — that conclusion turned out to be
+wrong; see §7c below.** The infrastructure bug documented in this section
+(§7b) is still real and still fixed; it was simply not the last
+infrastructure problem blocking a valid Qwen3.5 measurement.
 
 **Practical guidance:** any future `SequenceHardLimit` change must be checked
 against rs-cache VRAM cost for the largest hybrid-architecture model in use,
 not just against the native `LLAMA_MAX_SEQ` sequence-count cap.
+
+### §7c. Third architecture-specific failure mode (2026-07-15): thinking-mode models need the reasoning-suppression seed applied manually
+
+Distinct from both §7a (Gemma-4 shared-KV-cache) and §7b (recurrent-model
+`SeqMax`). After §7b's fix, Qwen3.5-9B ran with zero crashes but still scored
+essentially zero on B3 (16/120 Q8_0, 1/120 Q4_K_M) — both NO-GO. Inspecting
+the raw `cf0_*.json` segment-read results showed why: **0/128 segments were
+ever accepted**, on both quants, every single time. `segmentResults[].metrics.
+rawOutputExcerpt` showed all 128 reader outputs starting with a `<think>`
+block, mean completion length 2,054 tokens (103/128 at or near the reader's
+~2000-token completion cap) — the model spent its entire completion budget
+reasoning and the actual `FabricEvidenceCard` JSON was truncated or never
+started. All 128 rejections were JSON-parse failures (68 "could not be
+parsed", 59 "did not contain a JSON object", 1 unterminated).
+
+**The 16/120 and 1/120 pass counts were not a capability measurement.** The
+held-out set has exactly 16 Unanswerable questions; with zero segments ever
+ingested, B3 had no evidence for anything and could only "pass" the questions
+where abstaining is the correct answer — B3's score was, in effect, measuring
+"how many of the 120 questions are Unanswerable," not model capability. This
+is the same class of harness-bug-wearing-a-NO-GO-costume documented in §7
+(and `ModelAdmissionGate` had already flagged this exact risk pre-emptively:
+Qwen3.5 was admitted only as **Provisional** for Context Fabric roles, with
+the stated reason "Reasoning-tuned models require a clean structured-output
+benchmark pass for Context Fabric" and the explicit detail "Visible reasoning
+traces can consume the response budget or precede the required JSON object"
+(`ModelAdmissionGate.cs:234`) — a correct prediction of precisely what
+happened, made before any Qwen3.5 CF-7 run was ever attempted).
+
+Root cause: Qwen3.5's own GGUF chat template (`tokenizer.chat_template`)
+implements the standard `enable_thinking` opt-out pattern — its trailing
+`add_generation_prompt` block appends `<think>\n\n</think>\n\n` (a pre-closed,
+empty reasoning block) whenever `enable_thinking` is not explicitly `true`,
+which causes the model to skip straight to its real answer. `LLamaSharpRuntime.
+ApplyEmbeddedTemplate` uses LLamaSharp's `LLamaTemplate` — a minimal Jinja
+subset, not a full interpreter — which renders the template through
+`<|im_start|>assistant\n` without throwing (confirmed via
+`segmentResults[].metrics.promptPath == "EmbeddedTemplate"`, not a ChatML
+fallback) but does not evaluate that trailing `enable_thinking is defined`
+conditional at all. With no seed present, the model free-generates its
+trained default: full reasoning mode.
+
+Fix: added `LLamaSharpRuntime.SupportsThinkingSuppression` (checks the raw
+`tokenizer.chat_template` metadata string, exposed via `LLamaWeights.Metadata`,
+for the literal `enable_thinking` marker — detected generically, not by model
+family/filename, so it covers any future reasoning model using the same
+pattern) and `ApplyThinkingSuppression` (appends the same empty
+`<think>\n\n</think>\n\n` block the official template would have rendered).
+Both are pure static functions with direct unit test coverage
+(`LLamaSharpRuntimeThinkingSuppressionTests.cs`), applied once per rendered
+prompt in `ApplyEmbeddedTemplate`, cached per loaded model.
+
+Verified live on `Qwen3.5-9B-Q8_0` (3-question smoke test): segment acceptance
+0/128 → **123/128**, `<think>`-prefixed outputs 128/128 → **0/128**, mean
+completion tokens 2,054 → **294** (a ~7x reduction — the fix also
+substantially speeds up every CF-7 run against a thinking-mode model, since
+none of the completion budget is wasted on reasoning). The 5 remaining
+rejections on that run were a distinct, minor issue ("claims must contain at
+least 1 item") unrelated to thinking-mode. See PR #58 for the fix and the
+first full-scale re-run under it.
+
+**Practical guidance:** any newly-admitted model should be checked for a
+`enable_thinking`-style opt-out in its own `tokenizer.chat_template` before
+its CF-7 numbers are trusted — a 0/128 (or near-0) segment-acceptance rate
+alongside `<think>`-prefixed raw outputs is the signature of this exact
+failure mode, not a model-capability result.
