@@ -8,7 +8,7 @@
 largest failure class and the current work target; 10 genuine model failures remain the
 model-capability signal. This document is the durable reference for the retrieval-quality
 work that follows the NoKvSlot investigation
-([CONTEXT_FABRIC_TEST_HARNESS.md §7a](CONTEXT_FABRIC_TEST_HARNESS.md)); per-run results
+([CONTEXT_FABRIC_BUG_HISTORY.md §7a](CONTEXT_FABRIC_BUG_HISTORY.md)); per-run results
 land in [CF_TEST_RESULTS.md](CF_TEST_RESULTS.md).
 
 ---

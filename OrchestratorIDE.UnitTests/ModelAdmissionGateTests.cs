@@ -57,7 +57,7 @@ public sealed class ModelAdmissionGateTests
     public void ContextFabric_Downgrades_Gemma4_Despite_Size_Due_To_Known_NoKvSlot_Issue()
     {
         // Gemma 4's shared-KV-cache architecture hits native NoKvSlot on Context Fabric's
-        // evidence-heavy prompts regardless of size (docs/CONTEXT_FABRIC_TEST_HARNESS.md §7a) --
+        // evidence-heavy prompts regardless of size (docs/CONTEXT_FABRIC_BUG_HISTORY.md §7a) --
         // a known, currently-unpatched upstream llama.cpp limitation, not fixable in our own
         // code. Size alone is no longer sufficient for Admitted status on this family.
         var decision = ModelAdmissionGate.Evaluate(

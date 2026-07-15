@@ -56,7 +56,7 @@ public sealed class AdapterManager : IAsyncDisposable
     //
     // This threshold bounds sequence-ID *count*, not KV-cache *memory* — a distinct exhaustion
     // mode that shares the same "disposed conversations aren't reclaimed" root cause. The
-    // 2026-07-04 CF-7 gate run hit native NoKvSlot decode failures (docs/CONTEXT_FABRIC_TEST_HARNESS.md
+    // 2026-07-04 CF-7 gate run hit native NoKvSlot decode failures (docs/CONTEXT_FABRIC_BUG_HISTORY.md
     // §7) well under the old threshold of 128, because BuildEvidencePack's uncapped evidence
     // packs (up to ~26 segments/6.3K tokens per question, versus 1-4 before) consume far more of
     // the shared KV pool per conversation than this threshold was calibrated for. Lowered as a
@@ -87,7 +87,7 @@ public sealed class AdapterManager : IAsyncDisposable
     internal const int SequenceHardLimit = 40;
 
     // Opt-in, zero-cost-by-default diagnostic for the open KV-cache exhaustion investigation
-    // (docs/CONTEXT_FABRIC_TEST_HARNESS.md §7): a threshold change alone was tried and had no
+    // (docs/CONTEXT_FABRIC_BUG_HISTORY.md §7): a threshold change alone was tried and had no
     // measurable effect on the failure trace, so the next step is confirming or ruling out
     // whether ActiveCount is ever actually reaching zero (which would explain why recycling
     // never engages regardless of the threshold value). Set THEORC_KVCACHE_DIAGNOSTICS=1 to

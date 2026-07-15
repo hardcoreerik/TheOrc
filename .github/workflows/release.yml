@@ -106,7 +106,7 @@ jobs:
       # $(CUDA_PATH)) resolves to nothing here -- meaning every past release build has
       # silently shipped WITHOUT cudart64_12.dll/cublas64_12.dll/cublasLt64_12.dll, so the
       # official Windows build CPU-falls-back for every real end user with an NVIDIA GPU
-      # (root-caused 2026-07-04, see docs/CONTEXT_FABRIC_TEST_HARNESS.md and
+      # (root-caused 2026-07-04, see docs/CONTEXT_FABRIC_BUG_HISTORY.md and
       # NativeBackendBootstrap.cs's class doc). Fetches just the ~3 files needed directly
       # from NVIDIA's own official redistributable feed (SHA-256 verified), not a full
       # toolkit install and not a third-party NuGet repackaging.

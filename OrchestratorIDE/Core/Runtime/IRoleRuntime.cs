@@ -323,7 +323,7 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
             var result = await conversation.Executor.Infer(ct).ConfigureAwait(false);
             if (result == DecodeResult.NoKvSlot)
             {
-                // A 100-question CF-7 gate run (docs/CONTEXT_FABRIC_TEST_HARNESS.md §7) showed
+                // A 100-question CF-7 gate run (docs/CONTEXT_FABRIC_BUG_HISTORY.md §7) showed
                 // NoKvSlot recurring on ~all subsequent conversations once it first occurred on a
                 // role's executor -- evidence the pool stays degraded rather than a single
                 // oversized prompt being the whole story. Mark the role for AdapterManager to
