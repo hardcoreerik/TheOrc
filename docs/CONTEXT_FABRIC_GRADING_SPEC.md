@@ -156,7 +156,7 @@ flowchart TD
     O -- no --> ERR9[errors += did not abstain]
     O -- yes --> P{answer text contains<br/>'does not establish'?}
     P -- no --> ERR10[errors += missing abstention phrase]
-    ERR9 & ERR10 & P -- yes, all independent checks --> Q{draftClaims.Count > 0?<br/>always checked, not gated on O/P}
+    ERR9 & ERR10 & P -- yes --> Q{draftClaims.Count > 0?<br/>always checked, regardless of<br/>how O/P came out}
     Q -- yes --> ERR11[errors += abstained answer has factual claims]
     N -- no --> R{draft.Abstained?}
     R -- yes --> ERR12[errors += unexpectedly abstained]
@@ -182,28 +182,48 @@ malformed citation are equally fatal to a question's pass/fail status.
 
 ## 5. Evidence selection
 
-### 5.1 B3 — `BuildEvidencePack` (`ContextFabricFeasibilityRunner.cs`)
+### 5.1 B3 — `BuildEvidencePack` (`ContextFabricFeasibilityRunner.cs:661`)
 
-This is not benchmark-only code — it's the same evidence selection used by
-`FabricNativeReaderService` and `HiveNativeRoleExecutorAdapter` in the real
-product. Given a question and the corpus's evidence cards:
+This is the benchmark's own evidence-selection implementation, used to
+produce B3's answers. **It is not the same code as the real product's
+evidence selection** — the actual product path (`FabricAskService`, via
+`EvidencePackBuilder.cs`) is a structurally separate implementation that
+operates on `FabricLibraryRepository`/`DocumentGraphRepository` and a
+`FabricQueryPlan`, not on benchmark corpus cards, and does not share
+`ScoreTextIdf`/`TokenizeForScoring` with `BuildEvidencePack`. The two are
+conceptually similar (both are budget-filling evidence selectors) but should
+not be assumed to behave identically — a B3 result is a measurement of the
+benchmark harness's own evidence-selection algorithm, not a direct proxy for
+the shipped product's retrieval quality.
 
-1. Compute IDF (inverse document frequency) per term across the supplied
+Given a question and the corpus's evidence cards, `BuildEvidencePack`:
+
+1. Computes IDF (inverse document frequency) per term across the supplied
    cards, after tokenizing with a 2-character minimum (`TokenizeForScoring`) —
    short enough to keep 2-digit identifiers like `01` in `case-ledger-01`,
-   since the 3-character-minimum `Tokenize` would silently split that on the
+   since a 3-character-minimum tokenizer would silently split that on the
    hyphen and destroy the exact signal needed to tell `ledger-01` from
    `ledger-09`.
-2. Exclude English stopwords entirely from scoring (`the`, `and`, `this`, ...).
-3. Score every card via `ScoreTextIdf` and greedily fill the evidence budget
+2. Excludes English stopwords entirely from scoring (`the`, `and`, `this`, ...).
+3. Scores every card via `ScoreTextIdf` and greedily fills the evidence budget
    (6,144 tokens by default, 3,072 for HIVE) in ranked order — **no fixed
    card-count cap**. Cards scoring 0 are excluded outright.
 
-### 5.2 B2 — `BuildTopKText` (`ContextFabricBaselineRunner.cs`)
+### 5.2 B2 — `BuildTopKText` (`ContextFabricBaselineRunner.cs:410`)
 
-Same IDF-weighted, budget-fill approach as B3, applied to the "conventional
-RAG" comparison baseline, so a B3-vs-B2 comparison measures a real retrieval
-contest rather than B2 losing by construction.
+B2 is **not** the same algorithm as B3, despite both being IDF-weighted,
+budget-filling retrieval — they diverged after the original bug fix that
+made them comparable, and this doc previously overstated the similarity.
+Concretely: B2 scores whole corpus **segments** (`fixture.Corpus.Segments`),
+not the evidence **cards** B3 scores; it tokenizes with the stricter
+3-character-minimum `Tokenize` (not `TokenizeForScoring`) against its own
+`_stopwords` set; and its per-term weight is a plain `1.0 /
+documentFrequency` sum rather than B3's `ScoreTextIdf`. Both independently
+implement "rank candidates by IDF-ish term overlap, greedily fill a token
+budget in ranked order," which is what makes a B3-vs-B2 comparison a fair
+retrieval contest rather than B2 losing by construction (the pre-fix
+`Take(4)` implementation did lose by construction) — but they are two
+separate implementations of that idea, not one shared code path.
 
 ### 5.3 Exhaustive-category answers — `BuildExhaustiveAnswer` (`ContextFabricFeasibilityRunner.cs:962`)
 
