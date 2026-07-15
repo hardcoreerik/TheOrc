@@ -160,7 +160,7 @@ flowchart TD
     Q -- yes --> ERR11[errors += abstained answer has factual claims]
     N -- no --> R{draft.Abstained?}
     R -- yes --> ERR12[errors += unexpectedly abstained]
-    R -- no --> S{every ExpectedTerm found in<br/>answer text, a claim's text,<br/>or a citation quote?}
+    R -- no --> S{every ExpectedTerm found in<br/>answer text, a claim's text,<br/>or a VALID citation's quote?}
     ERR12 --> S
     S -- no --> ERR13[errors += missing expected term]
     S -- regardless --> T{every ExpectedSegmentId<br/>in verifiedSegments?}
@@ -196,18 +196,51 @@ not be assumed to behave identically — a B3 result is a measurement of the
 benchmark harness's own evidence-selection algorithm, not a direct proxy for
 the shipped product's retrieval quality.
 
-Given a question and the corpus's evidence cards, `BuildEvidencePack`:
+`BuildEvidencePack`'s current algorithm is substantially more than plain IDF
+— it has accreted the full Tier 1a/1b/1.5/2.5 retrieval-quality work tracked
+in [CF_RETRIEVAL_IMPROVEMENT_PLAN.md](CF_RETRIEVAL_IMPROVEMENT_PLAN.md); this
+is a summary of the current state, not a restatement of that plan's
+rationale. Given a question and the corpus's evidence cards:
 
-1. Computes IDF (inverse document frequency) per term across the supplied
-   cards, after tokenizing with a 2-character minimum (`TokenizeForScoring`) —
-   short enough to keep 2-digit identifiers like `01` in `case-ledger-01`,
-   since a 3-character-minimum tokenizer would silently split that on the
-   hyphen and destroy the exact signal needed to tell `ledger-01` from
-   `ledger-09`.
-2. Excludes English stopwords entirely from scoring (`the`, `and`, `this`, ...).
-3. Scores every card via `ScoreTextIdf` and greedily fills the evidence budget
-   (6,144 tokens by default, 3,072 for HIVE) in ranked order — **no fixed
-   card-count cap**. Cards scoring 0 are excluded outright.
+1. **Extract anchors and proximity pairs from the question** (Tier 1a):
+   hyphenated identifiers and proper-noun runs (`ExtractAnchorPhrases`) plus
+   unordered nearby-term pairs (`ExtractProximityPairs`). Tokenize with a
+   2-character minimum (`TokenizeForScoring`) for the unigram term set — short
+   enough to keep 2-digit identifiers like `01` in `case-ledger-01`, since a
+   3-character-minimum tokenizer would silently split that on the hyphen.
+2. **Score each card on two separate axes, ranked lexicographically, not
+   blended:** `AnchorScore` (verbatim anchor matches, plus proximity-pair
+   matches at half an anchor's weight) is compared *first* — a card matching
+   the question's named entity always outranks any accumulation of common-word
+   overlap, because in an entity-dense corpus dozens of cards can tie on
+   unigrams alone. `TermScore` (unigram IDF-style: `1.0 / documentFrequency`
+   summed over overlapping terms, stopwords excluded) is the tiebreaker only
+   when `AnchorScore` ties (including the common case of both being zero,
+   where ordering falls back to pure `TermScore` — unchanged from the
+   original IDF-only behavior for questions with no extractable anchors).
+3. **Coverage-aware greedy fill** (Tier 1b): at each step, pick whichever
+   remaining card covers the most *not-yet-covered* anchors/pairs/terms — not
+   just whichever scores highest overall — so a MultiHop question naming two
+   distinct entities spends its budget covering both instead of stacking
+   near-duplicate cards about whichever entity ranked first. Once every
+   anchor/term is covered, ordering falls back to the base scores (preserving
+   "fill remaining budget with the best cards" for GlobalSynthesis-style
+   questions with no natural coverage target).
+4. **MultiHop budget reservation** (Tier 2.5): for `FabricQuestionKind.MultiHop`
+   questions only, the greedy fill stops at 70% of the evidence budget
+   (6,144 tokens by default, 3,072 for HIVE), reserving the remaining 30% for
+   step 5 — this corpus reuses entity names across unrelated chains as
+   distractors, and an unrestricted greedy fill was measured spending the
+   whole budget on same-name-wrong-chain cards, leaving no room for the actual
+   chain continuation.
+5. **Reference chase** (`ChaseTrackedReferences`): after the greedy fill,
+   makes a final pass to include any additional cards the corpus's own
+   cross-reference tracking indicates are needed to complete a chain, within
+   whatever budget remains.
+
+Cards contributing zero to both `AnchorScore` and `TermScore` are excluded
+outright at step 2 — there is **no fixed card-count cap** anywhere in this
+pipeline.
 
 ### 5.2 B2 — `BuildTopKText` (`ContextFabricBaselineRunner.cs:410`)
 
