@@ -222,9 +222,11 @@ gate correctly recognizes it as a real capability win over both baselines.
 
 However, `ReadyForExpansion` = **NO-GO overall** regardless, because
 `segment_terminal_coverage` (109/128 = 85.2%, blocking, target 1.0) still fails — an
-ingestion-stage gap unrelated to B3's answer quality — and `boundary_stitch_pass_rate`,
-while passing at the aggregate 0.9 citation threshold in this run, was 0/2 in earlier
-same-model runs on this machine (§5) and has not been re-verified since. **Net effect of the
+ingestion-stage gap unrelated to B3's answer quality. `boundary_stitch_pass_rate` is a
+separate blocking gate with its own pass/fail criterion (not the 0.90 threshold, which
+applies only to `citation_precision`) — it was 0/2 in earlier same-model runs on this
+machine (§5) and has not been re-verified for this specific run, so its status here remains
+unverified rather than confirmed passing. **Net effect of the
 new gates on this model: correctly separates "the fabric's answers are now genuinely better
 than RAG" (true, and now visible) from "the corpus ingestion and answer-generation pipeline
 overall is ready to expand" (not yet true) — a more honest and more actionable verdict than
