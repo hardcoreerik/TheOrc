@@ -46,13 +46,18 @@ questions, not 120). The artifact currently on file
 reader nodes (HARDCOREPC, HARDCORELAPTOPMSI, NEWCOREPC).
 
 B4's contribution to the gate is a single structural pass/fail, computed from
-four checks on the artifact JSON, none of which touch `question_pass_rate` or
-`citation_precision`:
+six checks on the artifact JSON (`ContextFabricBaselineRunner.cs:129-180`),
+none of which touch `question_pass_rate` or `citation_precision`:
 
 1. `passed == true` in the artifact
 2. `gateMode == "acceptance"`
 3. `readerNodeCount >= 2`
-4. Every entry in the artifact's `verifiers` array is individually valid
+4. Every entry in the artifact's `verifiers` array has `validated == true`,
+   and the array is non-empty
+5. Every entry in the artifact's `questions` array has `answerValidated ==
+   true`, and the array is non-empty
+6. Every entry in the artifact's `stitchCases` array has `validated == true`,
+   and the array is non-empty
 
 **Practical consequence:** B4 in the systems table tells you "the last
 distributed-HIVE acceptance run structurally succeeded as of its own date,"
