@@ -475,10 +475,25 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         // model behaves identically to enable_thinking=false in an official inference stack.
         // Detected generically via the raw chat_template text (not a filename/family check)
         // so this covers any future reasoning model using the same enable_thinking pattern.
-        _templateSupportsThinkingSuppression ??= _weights!.Metadata.TryGetValue("tokenizer.chat_template", out var rawTemplate)
-            && SupportsThinkingSuppression(rawTemplate);
-        if (_templateSupportsThinkingSuppression == true)
-            result = ApplyThinkingSuppression(result);
+        // Isolated try/catch: this is a best-effort enhancement on top of an already-successful
+        // template render. A failure here (e.g. a malformed/unexpected Metadata entry) must not
+        // propagate to BuildPromptForLoadedModel's outer catch, which treats ANY exception from
+        // this method as "the embedded template itself doesn't work" and permanently falls back
+        // to ChatML for the rest of the session (Grok review, PR #58) -- that would be a much
+        // worse regression than simply not suppressing thinking mode this one call.
+        try
+        {
+            _templateSupportsThinkingSuppression ??= _weights!.Metadata.TryGetValue("tokenizer.chat_template", out var rawTemplate)
+                && SupportsThinkingSuppression(rawTemplate);
+            if (_templateSupportsThinkingSuppression == true)
+                result = ApplyThinkingSuppression(result);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            System.Diagnostics.Trace.TraceWarning(
+                $"[LLamaSharpRuntime] Thinking-suppression detection failed ({ex.GetType().Name}: {ex.Message}); " +
+                "continuing without it for this render.");
+        }
 
         return result;
     }
@@ -495,12 +510,17 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     /// <summary>
     /// Appends the empty, pre-closed &lt;think&gt;&lt;/think&gt; block the template itself would
     /// render when `enable_thinking` is left unset (see ApplyEmbeddedTemplate for why this must
-    /// be done manually). No-op if the rendered prompt doesn't end in a newline -- an embedded
+    /// be done manually). No-op if the rendered prompt doesn't end in a newline (an embedded
     /// template always ends its assistant-turn opener with one, so this guards against appending
-    /// onto something that isn't the shape we expect. Pure/static so it's testable directly.
+    /// onto something that isn't the shape we expect) or if it already contains a `&lt;think&gt;`
+    /// marker (idempotency guard: protects against double-application, and against a future
+    /// LLamaSharp version that DOES evaluate the template's own seed, which would otherwise
+    /// produce two think blocks back to back). Pure/static so it's testable directly.
     /// </summary>
     internal static string ApplyThinkingSuppression(string renderedPrompt) =>
-        renderedPrompt.EndsWith('\n') ? renderedPrompt + "<think>\n\n</think>\n\n" : renderedPrompt;
+        renderedPrompt.EndsWith('\n') && !renderedPrompt.Contains("<think>", StringComparison.Ordinal)
+            ? renderedPrompt + "<think>\n\n</think>\n\n"
+            : renderedPrompt;
 
     private static string FormatLoadFailure(Exception ex)
     {

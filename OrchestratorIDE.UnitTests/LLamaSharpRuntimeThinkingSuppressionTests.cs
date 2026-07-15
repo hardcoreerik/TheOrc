@@ -77,15 +77,25 @@ public sealed class LLamaSharpRuntimeThinkingSuppressionTests
     }
 
     [Test]
-    public void ApplyThinkingSuppression_Idempotent_Guard_Does_Not_Apply_Twice_Manually()
+    public void ApplyThinkingSuppression_Is_Idempotent_Does_Not_Double_Append()
     {
-        // Not a code guarantee (the runtime only calls this once per render via the
-        // cached _templateSupportsThinkingSuppression flag) -- documents that calling it
-        // twice WOULD double-append, so any future caller must not do that.
+        // Guards against a double call (or a future LLamaSharp version that DOES evaluate
+        // the template's own <think> seed) producing two back-to-back think blocks.
         var once = LLamaSharpRuntime.ApplyThinkingSuppression("<|im_start|>assistant\n");
         var twice = LLamaSharpRuntime.ApplyThinkingSuppression(once);
 
-        Assert.That(twice, Is.Not.EqualTo(once));
-        Assert.That(twice, Does.Contain("<think>\n\n</think>\n\n<think>\n\n</think>\n\n"));
+        Assert.That(twice, Is.EqualTo(once));
+    }
+
+    [Test]
+    public void ApplyThinkingSuppression_NoOp_When_Prompt_Already_Has_A_Think_Marker()
+    {
+        // Covers the case where a future/different LLamaTemplate render already emitted
+        // <think>\n itself (the model's OWN opt-in seed) -- must not append a second block.
+        const string rendered = "<|im_start|>assistant\n<think>\n";
+
+        var result = LLamaSharpRuntime.ApplyThinkingSuppression(rendered);
+
+        Assert.That(result, Is.EqualTo(rendered));
     }
 }

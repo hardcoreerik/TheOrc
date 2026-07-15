@@ -269,8 +269,10 @@ completion tokens 2,054 → **294** (a ~7x reduction — the fix also
 substantially speeds up every CF-7 run against a thinking-mode model, since
 none of the completion budget is wasted on reasoning). The 5 remaining
 rejections on that run were a distinct, minor issue ("claims must contain at
-least 1 item") unrelated to thinking-mode. See PR #58 for the fix and the
-first full-scale re-run under it.
+least 1 item") unrelated to thinking-mode. See PR #58 for the fix; a
+full-scale 120-question re-score under it had not yet been run as of this
+writing (see `CONTEXT_FABRIC_INFRASTRUCTURE_NOTES.md`'s compatibility table
+for current status).
 
 **Practical guidance:** any newly-admitted model should be checked for a
 `enable_thinking`-style opt-out in its own `tokenizer.chat_template` before
