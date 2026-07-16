@@ -233,6 +233,46 @@ public sealed class ModelBenchRunnerTests
     }
 
     [Test]
+    public void RunAsync_UserCancelDuringGeneration_PropagatesInsteadOfScoringError()
+    {
+        // Regression for the grok BLOCKER: a user cancel mid-generation must surface as
+        // OperationCanceledException from RunAsync — never be swallowed into an Error verdict
+        // that lets the run finish as "Completed" and save a report the user aborted.
+        var testCase = new ModelBenchCase("t1", ModelBenchAxis.Capability, "test", "p", "should answer");
+        var runtime  = new HangingRuntime();
+        using var cts = new CancellationTokenSource();
+
+        var runTask = ModelBenchRunner.RunAsync(runtime, ["mapped"], [testCase], ct: cts.Token);
+        cts.Cancel();
+
+        Assert.CatchAsync<OperationCanceledException>(async () => await runTask.WaitAsync(TimeSpan.FromSeconds(10)));
+    }
+
+    /// <summary>Streams forever until the caller's token cancels — models a mid-generation cancel.</summary>
+    private sealed class HangingRuntime : IModelRuntime
+    {
+        public string RuntimeName => "Hanging";
+        public Task<bool> IsReachableAsync(CancellationToken ct = default) => Task.FromResult(true);
+        public Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default) =>
+            Task.FromResult(new List<string> { "mapped" });
+        public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) =>
+            Task.FromResult<int?>(2048);
+
+        public async IAsyncEnumerable<string> StreamCompletionAsync(
+            string model, IEnumerable<AgentMessage> history, IReadOnlyList<object>? tools = null,
+            double temperature = 0.1, double? topP = null, int maxTokens = 4096,
+            Action<ToolCall>? onToolCall = null, Action<int, int>? onUsage = null,
+            [EnumeratorCancellation] CancellationToken ct = default)
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+            yield break;
+        }
+
+        public RuntimeHealth GetHealth() => new(true, RuntimeName, ActiveModel: "mapped");
+        public RuntimeStats GetStats() => new(RuntimeName, ActiveModel: "mapped");
+    }
+
+    [Test]
     public async Task RunAsync_ModelCallbacks_FirePerModel()
     {
         var testCase = new ModelBenchCase("t1", ModelBenchAxis.Capability, "test", "p", "should answer");

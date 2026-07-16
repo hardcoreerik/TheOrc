@@ -139,6 +139,13 @@ public static class ModelBenchRunner
             return new ModelBenchCaseResult(testCase, model, Success: false, null, ModelBenchVerdict.Error,
                 sw.Elapsed, $"Timed out after {timeout.TotalSeconds:0}s -- see the AMD-stock-price incident: a weak model can loop or stall indefinitely on some prompts.");
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // USER cancellation (not a per-case timeout) must propagate — swallowing it as a
+            // verdict lets a cancel on the final case complete the whole run as "Completed"
+            // and save a report the user asked to abort (grok review BLOCKER).
+            throw;
+        }
         catch (Exception ex)
         {
             sw.Stop();

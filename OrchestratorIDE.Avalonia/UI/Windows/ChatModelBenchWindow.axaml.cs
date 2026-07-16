@@ -300,8 +300,12 @@ public partial class ChatModelBenchWindow : Window
                 pauseGate: _pauseGate,
                 ct: _runCts.Token);
 
+            // A cancel that lands after the final case (or during teardown of the run loop)
+            // must still end the run as Cancelled — never save a report the user aborted.
+            _runCts.Token.ThrowIfCancellationRequested();
+
             _telemetry.StageStarted("report", 0, "Writing report…");
-            RenderResults(report);
+            if (!_isClosed) RenderResults(report);
             string summary;
             try
             {
