@@ -48,6 +48,7 @@ public partial class ChatModelBenchWindow : Window
     private readonly DispatcherTimer _statusTick;
     private TestTimeEstimate? _lastEstimate;
     private DateTimeOffset    _lastEstimateAtUtc;
+    private DateTimeOffset?   _pausedAtUtc;   // freezes the countdown at the pause instant
 
     /// <summary>
     /// Normalized run state, exposed read-only so headless tests (and future automation)
@@ -146,12 +147,18 @@ public partial class ChatModelBenchWindow : Window
         if (_runCts is null) return;
         if (_pauseGate.IsPaused)
         {
+            // Shift the estimate anchor by the paused duration so the countdown resumes from
+            // where it froze instead of jumping toward zero (CodeRabbit review).
+            if (_pausedAtUtc is { } pausedAt)
+                _lastEstimateAtUtc += DateTimeOffset.UtcNow - pausedAt;
+            _pausedAtUtc = null;
             _pauseGate.Resume();
             _telemetry.ResumeRun();
             BtnPause.Content = "⏸  Pause";
         }
         else
         {
+            _pausedAtUtc = DateTimeOffset.UtcNow;
             _pauseGate.Pause();
             _telemetry.PauseRun();   // logs the paused/holding-at-boundary feed entry itself
             BtnPause.Content = "▶  Resume";
@@ -172,7 +179,8 @@ public partial class ChatModelBenchWindow : Window
         if (_settings is not null)
         {
             _settings.BenchLiteMode = TglLiteMode.IsChecked == true;
-            _settings.Save();
+            if (!_settings.Save(out var error))
+                TbStatus.Text = $"Reduce-motion preference not persisted: {error?.Message}";
         }
     }
 
@@ -317,6 +325,7 @@ public partial class ChatModelBenchWindow : Window
         finally
         {
             _statusTick.Stop();
+            _pausedAtUtc = null;
             RefreshTimeTexts();     // final frozen values
             _pauseGate.Resume();
             _runCts?.Dispose();
@@ -457,10 +466,14 @@ public partial class ChatModelBenchWindow : Window
         else
         {
             // Count down between samples: published estimate minus wall time since it was made.
-            // A stalled case bottoms out at 0:00 rather than inventing new precision.
-            var sinceEstimate = _telemetry.Phase == TestRunPhase.Paused
-                ? TimeSpan.Zero
-                : DateTimeOffset.UtcNow - _lastEstimateAtUtc;
+            // While paused, freeze at the pause instant (not back at the raw estimate — that
+            // would jump backwards; CodeRabbit review). A stalled case bottoms out at 0:00
+            // rather than inventing new precision.
+            var reference = _telemetry.Phase == TestRunPhase.Paused && _pausedAtUtc is { } pausedAt
+                ? pausedAt
+                : DateTimeOffset.UtcNow;
+            var sinceEstimate = reference - _lastEstimateAtUtc;
+            if (sinceEstimate < TimeSpan.Zero) sinceEstimate = TimeSpan.Zero;
             var shown = _lastEstimate.Remaining.Value - sinceEstimate;
             if (shown < TimeSpan.Zero) shown = TimeSpan.Zero;
             var conf = _lastEstimate.Confidence switch

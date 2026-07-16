@@ -235,17 +235,36 @@ public sealed class NeuralFlowVisualizer : Control
 
     private void DrawSettledParticles(DrawingContext ctx, double cx, double yMin, double yMax, double halfW)
     {
-        if (_settled.Count == 0) return;
+        int completed = Math.Min(_state.CompletedSamples, Math.Max(_state.TotalSamples, 1));
+        if (completed <= 0) return;
+
+        // Derive the capped dot pile proportionally from the verdict TALLIES (never by
+        // sampling every Nth verdict — that silently drops failures between the sampled
+        // boundaries on large runs; CodeRabbit review). Largest-remainder-free approximation:
+        // fail and warning dots each round up so even one failure is always visible.
+        int scale = Math.Max(1, (int)Math.Ceiling(_state.TotalSamples / (double)MaxParticles));
+        int dots  = Math.Max(1, (int)Math.Round(completed / (double)scale));
+        int failDots = _state.FailedSamples  == 0 ? 0
+            : Math.Clamp((int)Math.Ceiling(dots * _state.FailedSamples  / (double)completed), 1, dots);
+        int warnDots = _state.WarningSamples == 0 ? 0
+            : Math.Clamp((int)Math.Ceiling(dots * _state.WarningSamples / (double)completed), 1, dots - failDots);
+
         // Fill bottom-up: the pile grows toward the waist as more samples finish, and dots
         // spread wider near the chamber floor (inverted funnel).
-        double fillFrac = Math.Min(1.0, _settled.Count / (double)MaxParticles);
-        for (int i = 0; i < _settled.Count; i++)
+        double fillFrac = Math.Min(1.0, dots / (double)MaxParticles);
+        for (int i = 0; i < dots; i++)
         {
             double v = Hash(i, 41);                                   // 0 = floor .. 1 = top of pile
             double y = yMax - v * (yMax - yMin) * Math.Min(1.0, fillFrac + 0.15);
             double widen = 0.28 + 0.72 * Math.Clamp((y - yMin) / Math.Max(1, yMax - yMin), 0, 1);
             double x = cx + (Hash(i, 53) * 2 - 1) * halfW * widen;
-            ctx.DrawEllipse(new SolidColorBrush(_settled[i], 0.9), null, new Point(x, y), 2.0, 2.0);
+            // Interleave verdict colours through the pile via the index hash (stable but
+            // scattered, so failures don't clump into one corner).
+            int bucket = (int)(Hash(i, 67) * dots);
+            var color = bucket < failDots ? ErrCol
+                : bucket < failDots + warnDots ? WarnCol
+                : Accent;
+            ctx.DrawEllipse(new SolidColorBrush(color, 0.9), null, new Point(x, y), 2.0, 2.0);
         }
 
         // Completion glow: full chamber softly lit once done.

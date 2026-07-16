@@ -129,7 +129,14 @@ public sealed class TestStageTimeline : Control
                 : new SolidColorBrush(color, stage.Status == TestStageStatus.Active ? 1.0 : 0.85);
             ctx.DrawEllipse(fill, new Pen(new SolidColorBrush(color), 1.4), new Point(x, nodeY), r, r);
 
-            if (!dense)
+            if (dense)
+            {
+                // Status must never be colour-only (CodeRabbit review): dense nodes still get
+                // their glyph, drawn small above the tick since it can't fit inside r=4.
+                if (stage.Status != TestStageStatus.Queued)
+                    DrawCentered(ctx, glyph, x, nodeY - 14, 8, color);
+            }
+            else
             {
                 DrawCentered(ctx, glyph, x, nodeY - 7.5, 10,
                     stage.Status == TestStageStatus.Queued ? TextDim : Colors.White);

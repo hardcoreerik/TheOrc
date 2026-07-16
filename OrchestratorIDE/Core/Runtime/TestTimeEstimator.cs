@@ -48,6 +48,8 @@ public sealed class TestTimeEstimator
     private double   _sumSqSec;
     private double   _ewmaSec;
     private double?  _publishedRemainingSec;
+    private (int Count, int Remaining)? _lastInputs;
+    private TestTimeEstimate? _lastResult;
 
     /// <summary>Number of completed samples fed in so far.</summary>
     public int SampleCount => _count;
@@ -68,17 +70,25 @@ public sealed class TestTimeEstimator
         _count = 0;
         _sumSec = _sumSqSec = _ewmaSec = 0;
         _publishedRemainingSec = null;
+        _lastInputs = null;
+        _lastResult = null;
     }
 
     /// <summary>
-    /// Current estimate given how many samples remain. Call after each AddSample (or on a UI
-    /// tick); each call advances the smoothing filter one step.
+    /// Current estimate given how many samples remain. Idempotent for unchanged inputs: the
+    /// smoothing filter only advances when a new sample arrived or the remaining count moved,
+    /// so a fast UI tick and a suspended reduced-motion UI converge to the SAME value from
+    /// identical telemetry (CodeRabbit review).
     /// </summary>
     public TestTimeEstimate GetEstimate(int remainingSamples)
     {
+        if (_lastInputs == (_count, remainingSamples) && _lastResult is not null)
+            return _lastResult;
+
         if (_count < WarmupSamples || remainingSamples < 0)
-            return new TestTimeEstimate(null, TestEstimateConfidence.Calculating, MeanOrNull(), RecentOrNull(),
-                "sample throughput (warming up)");
+            return Publish(remainingSamples, new TestTimeEstimate(
+                null, TestEstimateConfidence.Calculating, MeanOrNull(), RecentOrNull(),
+                "sample throughput (warming up)"));
 
         var mean   = _sumSec / _count;
         var perSec = RecentBlend * _ewmaSec + (1 - RecentBlend) * mean;
@@ -92,12 +102,19 @@ public sealed class TestTimeEstimator
         else
             _publishedRemainingSec += (rawSec - _publishedRemainingSec.Value) * SmoothFactor;
 
-        return new TestTimeEstimate(
+        return Publish(remainingSamples, new TestTimeEstimate(
             TimeSpan.FromSeconds(Math.Max(0, _publishedRemainingSec.Value)),
             ComputeConfidence(mean),
             MeanOrNull(),
             RecentOrNull(),
-            "sample throughput");
+            "sample throughput"));
+    }
+
+    private TestTimeEstimate Publish(int remainingSamples, TestTimeEstimate estimate)
+    {
+        _lastInputs = (_count, remainingSamples);
+        _lastResult = estimate;
+        return estimate;
     }
 
     private TestEstimateConfidence ComputeConfidence(double mean)

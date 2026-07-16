@@ -257,6 +257,21 @@ public sealed class TestTimeEstimatorTests
     }
 
     [Test]
+    public void RepeatedReads_WithUnchangedInputs_AreIdempotent()
+    {
+        var e = new TestTimeEstimator();
+        for (var i = 0; i < 8; i++) e.AddSample(TimeSpan.FromSeconds(5));
+        e.AddSample(TimeSpan.FromSeconds(60)); // create a gap between raw and published
+
+        var first = e.GetEstimate(remainingSamples: 10);
+        for (var i = 0; i < 50; i++) e.GetEstimate(remainingSamples: 10); // 60Hz-style polling
+        var last = e.GetEstimate(remainingSamples: 10);
+
+        Assert.That(last, Is.EqualTo(first),
+            "polling frequency must not advance the smoothing filter when telemetry is unchanged");
+    }
+
+    [Test]
     public void Reset_ClearsHistory()
     {
         var e = new TestTimeEstimator();

@@ -82,6 +82,8 @@ public class VisualTestRunnerTests
         model.StageStarted("a"); model.StageEnded("a", TestStageStatus.Completed);
         model.StageStarted("b"); model.StageEnded("b", TestStageStatus.Warning, "2 refused");
         model.StageStarted("c"); model.StageEnded("c", TestStageStatus.Failed, "boom");
+        model.StageEnded("e", TestStageStatus.Skipped);
+        model.StageEnded("f", TestStageStatus.Cancelled);
         model.StageStarted("d");
         timeline.SetStages(model.Stages);
         Assert.DoesNotThrow(() => AvaloniaHeadlessPlatform.ForceRenderTimerTick());
@@ -252,14 +254,15 @@ public class VisualTestRunnerTests
             pause.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await PumpUntilAsync(() => win.Telemetry.Phase == TestRunPhase.Paused);
 
-            // Give the in-flight case time to finish, then confirm the run is actually held.
+            // Give the in-flight case time to finish and settle, then require progress to be
+            // EXACTLY stable — any further completion means the pause gate leaked a new case.
             await Task.Delay(150);
             Dispatcher.UIThread.RunJobs();
             var heldAt = win.Telemetry.CompletedSamples;
             await Task.Delay(150);
             Dispatcher.UIThread.RunJobs();
-            Assert.That(win.Telemetry.CompletedSamples, Is.LessThanOrEqualTo(heldAt + 1),
-                "at most the single in-flight case may complete after pause");
+            Assert.That(win.Telemetry.CompletedSamples, Is.EqualTo(heldAt),
+                "no case may start once the run has settled at the pause boundary");
 
             pause.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));   // resume
             await PumpUntilAsync(() => win.Telemetry.Phase == TestRunPhase.Completed);

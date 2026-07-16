@@ -197,9 +197,11 @@ public sealed class ModelBenchRunnerTests
         gate.Pause();
 
         var started = 0;
+        var modelStarted = 0;
         var runTask = ModelBenchRunner.RunAsync(
             runtime, ["mapped"], [testCase],
             onCaseStart: (_, _) => Interlocked.Increment(ref started),
+            onModelStart: _ => Interlocked.Increment(ref modelStarted),
             pauseGate: gate);
 
         await Task.Delay(100);
@@ -207,6 +209,8 @@ public sealed class ModelBenchRunnerTests
         {
             Assert.That(runTask.IsCompleted, Is.False, "run must hold while paused");
             Assert.That(started, Is.Zero, "no case may start while paused");
+            Assert.That(modelStarted, Is.Zero,
+                "a paused run must not announce a model as started/loading before execution may proceed");
         });
 
         gate.Resume();
