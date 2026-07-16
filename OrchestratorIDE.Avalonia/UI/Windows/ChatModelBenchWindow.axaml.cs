@@ -350,17 +350,27 @@ public partial class ChatModelBenchWindow : Window
     }
 
     /// <summary>
-    /// Marshals a runner callback onto the UI thread, dropped once the window has started
-    /// closing OR the run has already reached a terminal phase — a queued callback that
-    /// dispatches after EndRun must not re-activate a stage or bump sample counts on a run
-    /// the UI already reported as Cancelled/Failed/Completed (grok review MINORs; same
-    /// discipline as ModelDownloaderWindow's _isClosed guard). Both conditions are
-    /// re-checked inside the post because Closing/EndRun can land between enqueue and
-    /// dispatch.
+    /// Applies a runner callback to telemetry/UI state — inline when already on the UI
+    /// thread, marshalled via Post otherwise — and drops it once the window has started
+    /// closing or the run has reached a terminal phase, so a late callback can never
+    /// re-activate a stage or bump sample counts on a run the UI already reported as
+    /// Cancelled/Failed/Completed (grok review; same discipline as ModelDownloaderWindow's
+    /// _isClosed guard).
     /// </summary>
     private void PostIfOpen(Action action)
     {
         if (_isClosed) return;
+        // RunAsync executes on the UI thread (its awaits resume via the UI
+        // SynchronizationContext), so callbacks normally apply INLINE — strictly ordered
+        // before the post-RunAsync continuation. That is what keeps the final
+        // onCaseComplete/onModelComplete from reordering after StageStarted("report")/EndRun
+        // or being dropped entirely (grok review). The Post branch is only a safety net for
+        // a runtime that invokes callbacks from a worker thread.
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            if (_telemetry.IsRunActive) action();
+            return;
+        }
         Dispatcher.UIThread.Post(() =>
         {
             if (!_isClosed && _telemetry.IsRunActive) action();
