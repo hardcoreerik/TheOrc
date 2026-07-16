@@ -11,6 +11,13 @@ namespace OrchestratorIDE.UnitTests;
 internal sealed class ScriptedFabricRuntime : IRoleRuntime, IRoleRuntimeDiagnostics
 {
     public string RuntimeName => "scripted-native-cf0";
+    public Func<IReadOnlyList<AgentMessage>, int?>? PromptTokenCounter { get; init; }
+
+    public int? CountPromptTokens(
+        RuntimeRole role,
+        IEnumerable<AgentMessage> history,
+        IReadOnlyList<object>? tools = null) =>
+        PromptTokenCounter?.Invoke(history.ToArray());
 
     public async IAsyncEnumerable<string> StreamRoleCompletionAsync(
         RuntimeRole role,

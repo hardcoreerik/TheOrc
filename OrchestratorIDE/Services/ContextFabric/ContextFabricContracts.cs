@@ -149,9 +149,9 @@ public sealed record FabricContextBudget(
     int SystemReserve = 512)
 {
     // ContextManager.EstimateTokens is a crude chars/4 heuristic that under-counts
-    // token-dense, JSON-structured prompts. This margin is applied to the budget gate in
-    // every CF inference call so an over-estimated prompt can't silently overflow the native
-    // KV pool (the root-cause of NoKvSlot crashes on CF runs; see CONTEXT_FABRIC_BUG_HISTORY.md §7).
+    // token-dense, JSON-structured prompts. This margin remains the portable fallback for
+    // runtimes without a loaded native tokenizer. Native answer packing additionally checks the
+    // fully rendered prompt's exact model token count before admitting each evidence card.
     // Single source of truth: referenced from ContextFabricFeasibilityRunner, FabricBoundaryStitcher,
     // and EvidencePackBuilder. Kept in FabricContextBudget so it compiles into OrchestratorIDE.NativeRuntime
     // (which links ContextFabricContracts.cs but not EvidencePackBuilder.cs).
