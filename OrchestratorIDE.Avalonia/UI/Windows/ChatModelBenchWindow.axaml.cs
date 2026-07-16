@@ -454,6 +454,7 @@ public partial class ChatModelBenchWindow : Window
 
     private void RefreshTimeTexts()
     {
+        if (_isClosed) return;   // a queued _statusTick tick can land after Closing
         TbElapsed.Text = _telemetry.RunStartedUtc is null ? "—" : FormatSpan(_telemetry.Elapsed);
 
         if (_telemetry.Phase is TestRunPhase.Completed or TestRunPhase.Cancelled or TestRunPhase.Failed)
