@@ -309,28 +309,32 @@ public partial class ChatModelBenchWindow : Window
             }
 
             _telemetry.EndRun(TestRunPhase.Completed, summary);
-            TbStatus.Text = summary;
+            if (!_isClosed) TbStatus.Text = summary;
         }
         catch (OperationCanceledException)
         {
             _telemetry.EndRun(TestRunPhase.Cancelled,
                 $"Cancelled after {_telemetry.CompletedSamples}/{_telemetry.TotalSamples} cases.");
-            TbStatus.Text = "Cancelled.";
+            if (!_isClosed) TbStatus.Text = "Cancelled.";
         }
         catch (Exception ex)
         {
             _telemetry.EndRun(TestRunPhase.Failed, $"Bench failed: {ex.Message}");
-            TbStatus.Text = $"Bench failed: {ex.Message}";
+            if (!_isClosed) TbStatus.Text = $"Bench failed: {ex.Message}";
         }
         finally
         {
+            // Telemetry/gate/cts cleanup is always safe; visual-tree work is skipped after
+            // Closing so a close-triggered cancel can't touch a tearing-down tree — the
+            // catch/finally half of the PostIfOpen guard (grok review MINOR). EndRun above is
+            // model-only: its Updated event re-enters OnTelemetryUpdated, which self-guards.
             _statusTick.Stop();
             _pausedAtUtc = null;
-            RefreshTimeTexts();     // final frozen values
+            if (!_isClosed) RefreshTimeTexts();     // final frozen values
             _pauseGate.Resume();
             _runCts?.Dispose();
             _runCts = null;
-            SetRunControls(running: false);
+            if (!_isClosed) SetRunControls(running: false);
         }
     }
 
@@ -402,6 +406,7 @@ public partial class ChatModelBenchWindow : Window
 
     private void OnTelemetryUpdated()
     {
+        if (_isClosed) return;   // telemetry may still mutate during teardown; the tree must not
         Viz.SetState(new NeuralFlowVisualizer.FlowState(
             _telemetry.Phase,
             _telemetry.TotalSamples,

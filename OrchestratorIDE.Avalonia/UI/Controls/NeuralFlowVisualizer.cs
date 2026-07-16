@@ -45,11 +45,6 @@ public sealed class NeuralFlowVisualizer : Control
 
     private FlowState _state = new(TestRunPhase.Idle, 0, 0, 0, 0, 0, "");
 
-    // Verdict colour of each completed sample, in completion order, capped like the particles.
-    // When Completed > MaxParticles each stored entry represents `ceil(total/Max)` samples.
-    private readonly List<Color> _settled = [];
-    private int _settledRepresents = 1;   // samples per settled dot
-
     private sealed class Comet
     {
         public long StartMs;
@@ -83,15 +78,15 @@ public sealed class NeuralFlowVisualizer : Control
         set { _liteMode = value; SyncTimer(); InvalidateVisual(); }
     }
 
-    /// <summary>Push the latest run state. Also resets internal history when a new run starts.</summary>
+    /// <summary>Push the latest run state. Also resets comet history when a new run starts.
+    /// The settled pile itself is derived from the state's verdict tallies at render time, so
+    /// there is no per-sample history to lose or under-sample.</summary>
     public void SetState(FlowState state)
     {
         var runRestarted = state.Phase == TestRunPhase.Running && state.CompletedSamples < _state.CompletedSamples;
         if (runRestarted || (state.Phase == TestRunPhase.Running && _state.Phase is TestRunPhase.Idle
                 or TestRunPhase.Completed or TestRunPhase.Failed or TestRunPhase.Cancelled))
         {
-            _settled.Clear();
-            _settledRepresents = Math.Max(1, (int)Math.Ceiling(state.TotalSamples / (double)MaxParticles));
             _comets.Clear();
         }
         _state = state;
@@ -100,20 +95,14 @@ public sealed class NeuralFlowVisualizer : Control
     }
 
     /// <summary>
-    /// One sample finished: fires a comet through the network and settles a verdict-coloured
-    /// particle in the bottom chamber. kind maps pass/warning/fail to theme colours.
+    /// One sample finished: fires a comet through the network in the verdict's theme colour.
+    /// (The settled pile updates from SetState tallies; this is only the travel animation.)
     /// </summary>
     public void PulseSample(TestActivityKind kind)
     {
-        var color = VerdictColor(kind);
-        if (_settled.Count == 0 || (_state.CompletedSamples % _settledRepresents) == 0)
-        {
-            _settled.Add(color);
-            if (_settled.Count > MaxParticles) _settled.RemoveAt(0);
-        }
         if (!_liteMode && _attached)
         {
-            _comets.Add(new Comet { StartMs = Environment.TickCount64, Color = color });
+            _comets.Add(new Comet { StartMs = Environment.TickCount64, Color = VerdictColor(kind) });
             if (_comets.Count > 24) _comets.RemoveRange(0, _comets.Count - 24);
         }
         InvalidateVisual();
