@@ -378,8 +378,7 @@ public partial class ChatModelBenchWindow : Window
             _telemetry.PassedSamples,
             _telemetry.WarningSamples,
             _telemetry.FailedSamples,
-            _telemetry.CurrentOperation,
-            _telemetry.Phase == TestRunPhase.Failed ? _telemetry.CurrentOperation : null));
+            _telemetry.CurrentOperation));
         Timeline.SetStages(_telemetry.Stages);
 
         TbOperation.Text = _telemetry.Phase == TestRunPhase.Idle

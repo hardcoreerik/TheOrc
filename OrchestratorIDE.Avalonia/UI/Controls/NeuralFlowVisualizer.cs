@@ -41,10 +41,9 @@ public sealed class NeuralFlowVisualizer : Control
         int PassedSamples,
         int WarningSamples,
         int FailedSamples,
-        string CurrentOperation,
-        string? FailureSummary);
+        string CurrentOperation);
 
-    private FlowState _state = new(TestRunPhase.Idle, 0, 0, 0, 0, 0, "", null);
+    private FlowState _state = new(TestRunPhase.Idle, 0, 0, 0, 0, 0, "");
 
     // Verdict colour of each completed sample, in completion order, capped like the particles.
     // When Completed > MaxParticles each stored entry represents `ceil(total/Max)` samples.
