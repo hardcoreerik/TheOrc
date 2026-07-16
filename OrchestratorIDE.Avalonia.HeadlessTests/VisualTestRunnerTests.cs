@@ -42,7 +42,7 @@ public class VisualTestRunnerTests
         {
             viz.SetState(new NeuralFlowVisualizer.FlowState(
                 phase, TotalSamples: 48, CompletedSamples: 20,
-                PassedSamples: 15, WarningSamples: 2, FailedSamples: 3,
+                PassedSamples: 14, WarningSamples: 2, FailedSamples: 3, ErrorSamples: 1,
                 CurrentOperation: "test"));
             viz.PulseSample(TestActivityKind.Success);
             viz.PulseSample(TestActivityKind.Failure);
@@ -59,7 +59,7 @@ public class VisualTestRunnerTests
         window.Show();
 
         viz.SetState(new NeuralFlowVisualizer.FlowState(
-            TestRunPhase.Running, 10, 5, 4, 0, 1, "running"));
+            TestRunPhase.Running, 10, 5, 4, 0, 1, 0, "running"));
         viz.LiteMode = true;
         AvaloniaHeadlessPlatform.ForceRenderTimerTick();
         viz.LiteMode = false;
@@ -116,7 +116,7 @@ public class VisualTestRunnerTests
         {
             viz.SetState(new NeuralFlowVisualizer.FlowState(
                 m.Phase, m.TotalSamples, m.CompletedSamples,
-                m.PassedSamples, m.WarningSamples, m.FailedSamples,
+                m.PassedSamples, m.WarningSamples, m.FailedSamples, m.ErrorSamples,
                 m.CurrentOperation));
             timeline.SetStages(m.Stages);
         };

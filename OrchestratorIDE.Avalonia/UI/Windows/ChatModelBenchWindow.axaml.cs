@@ -88,6 +88,7 @@ public partial class ChatModelBenchWindow : Window
     {
         Opened -= OnOpened;
         await LoadModelsAsync();
+        if (_isClosed) return;   // window closed while the model list was loading
         LoadLastReport();
     }
 
@@ -105,9 +106,10 @@ public partial class ChatModelBenchWindow : Window
         }
         catch (Exception ex)
         {
-            TbStatus.Text = $"Failed to list models: {ex.Message}";
+            if (!_isClosed) TbStatus.Text = $"Failed to list models: {ex.Message}";
             return;
         }
+        if (_isClosed) return;   // don't rebuild the list against a tearing-down tree
 
         ModelListPanel.Children.Clear();
         _modelCheckboxes.Clear();
@@ -414,6 +416,7 @@ public partial class ChatModelBenchWindow : Window
             _telemetry.PassedSamples,
             _telemetry.WarningSamples,
             _telemetry.FailedSamples,
+            _telemetry.ErrorSamples,
             _telemetry.CurrentOperation));
         Timeline.SetStages(_telemetry.Stages);
 

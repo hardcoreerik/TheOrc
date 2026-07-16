@@ -41,9 +41,10 @@ public sealed class NeuralFlowVisualizer : Control
         int PassedSamples,
         int WarningSamples,
         int FailedSamples,
+        int ErrorSamples,
         string CurrentOperation);
 
-    private FlowState _state = new(TestRunPhase.Idle, 0, 0, 0, 0, 0, "");
+    private FlowState _state = new(TestRunPhase.Idle, 0, 0, 0, 0, 0, 0, "");
 
     private sealed class Comet
     {
@@ -233,8 +234,10 @@ public sealed class NeuralFlowVisualizer : Control
         // fail and warning dots each round up so even one failure is always visible.
         int scale = Math.Max(1, (int)Math.Ceiling(_state.TotalSamples / (double)MaxParticles));
         int dots  = Math.Max(1, (int)Math.Round(completed / (double)scale));
-        int failDots = _state.FailedSamples  == 0 ? 0
-            : Math.Clamp((int)Math.Ceiling(dots * _state.FailedSamples  / (double)completed), 1, dots);
+        // Infrastructure errors render in the failure colour too — they're non-passes.
+        int failLike = _state.FailedSamples + _state.ErrorSamples;
+        int failDots = failLike == 0 ? 0
+            : Math.Clamp((int)Math.Ceiling(dots * failLike / (double)completed), 1, dots);
         int warnDots = _state.WarningSamples == 0 ? 0
             : Math.Clamp((int)Math.Ceiling(dots * _state.WarningSamples / (double)completed), 1, dots - failDots);
 
@@ -259,7 +262,7 @@ public sealed class NeuralFlowVisualizer : Control
         // Completion glow: full chamber softly lit once done.
         if (_state.Phase == TestRunPhase.Completed)
             DrawGlowDot(ctx, cx, (yMin + yMax) / 2, halfW * 0.9,
-                _state.FailedSamples > 0 ? WarnCol : Accent, 0.10);
+                _state.FailedSamples + _state.ErrorSamples > 0 ? WarnCol : Accent, 0.10);
     }
 
     // ── Waist network ────────────────────────────────────────────────────────────

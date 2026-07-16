@@ -222,12 +222,15 @@ public sealed class TestRunTelemetryModel
     /// <summary>
     /// Records one finished sample. kind: Success=pass, Warning=refused/soft-fail,
     /// Failure=fail, and errored=true for infrastructure errors (timeouts, exceptions).
+    /// The four buckets are mutually exclusive — an errored sample counts ONLY in
+    /// ErrorSamples, never also in FailedSamples, so Passed+Warning+Failed+Error always
+    /// equals CompletedSamples (grok review: double-counting made the sum exceed it).
     /// </summary>
     public void SampleCompleted(TestActivityKind kind, bool errored = false, string? feedMessage = null)
     {
         CompletedSamples++;
         if (errored) ErrorSamples++;
-        switch (kind)
+        else switch (kind)
         {
             case TestActivityKind.Success: PassedSamples++;  break;
             case TestActivityKind.Warning: WarningSamples++; break;

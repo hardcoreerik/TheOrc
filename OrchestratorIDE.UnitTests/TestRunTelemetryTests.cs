@@ -63,9 +63,11 @@ public sealed class TestRunTelemetryTests
         {
             Assert.That(m.CompletedSamples, Is.EqualTo(4));
             Assert.That(m.PassedSamples,    Is.EqualTo(1));
-            Assert.That(m.FailedSamples,    Is.EqualTo(2));
+            Assert.That(m.FailedSamples,    Is.EqualTo(1), "errored samples must not double-count as failed");
             Assert.That(m.WarningSamples,   Is.EqualTo(1));
             Assert.That(m.ErrorSamples,     Is.EqualTo(1));
+            Assert.That(m.PassedSamples + m.WarningSamples + m.FailedSamples + m.ErrorSamples,
+                Is.EqualTo(m.CompletedSamples), "verdict buckets must be mutually exclusive");
             Assert.That(m.ActiveStage?.SamplesCompleted, Is.EqualTo(4));
             Assert.That(m.ActiveStage?.Detail, Is.EqualTo("4/4"));
             Assert.That(m.FractionComplete, Is.EqualTo(0.4).Within(1e-9));
