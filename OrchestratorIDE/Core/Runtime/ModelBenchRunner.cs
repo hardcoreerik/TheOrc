@@ -64,6 +64,9 @@ public static class ModelBenchRunner
         TimeSpan? perCaseTimeout = null,
         Action<string, ModelBenchCase>? onCaseStart = null,
         Action<ModelBenchCaseResult>? onCaseComplete = null,
+        Action<string>? onModelStart = null,
+        Action<string>? onModelComplete = null,
+        TestRunPauseGate? pauseGate = null,
         CancellationToken ct = default)
     {
         cases ??= ModelBenchCorpus.AllCases;
@@ -72,14 +75,20 @@ public static class ModelBenchRunner
 
         foreach (var model in models)
         {
+            onModelStart?.Invoke(model);
             foreach (var testCase in cases)
             {
+                // Pause holds the run at the case boundary (never mid-sample, so per-case
+                // timings stay honest); cancellation always wins over pause.
+                if (pauseGate is not null)
+                    await pauseGate.WaitWhilePausedAsync(ct);
                 ct.ThrowIfCancellationRequested();
                 onCaseStart?.Invoke(model, testCase);
                 var result = await RunOneAsync(runtime, model, testCase, temperature, timeout, ct);
                 results.Add(result);
                 onCaseComplete?.Invoke(result);
             }
+            onModelComplete?.Invoke(model);
         }
 
         return new ModelBenchReport(

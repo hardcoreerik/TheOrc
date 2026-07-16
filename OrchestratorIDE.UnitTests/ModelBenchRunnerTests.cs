@@ -188,6 +188,66 @@ public sealed class ModelBenchRunnerTests
         Assert.That(report.Results[0].Verdict, Is.EqualTo(ModelBenchVerdict.Fail));
     }
 
+    [Test]
+    public async Task RunAsync_PauseGate_HoldsRunAtCaseBoundaryUntilResume()
+    {
+        var testCase = new ModelBenchCase("t1", ModelBenchAxis.Capability, "test", "p", "should answer");
+        var runtime  = new PromptMappedRuntime(new Dictionary<string, string> { ["p"] = "an answer" });
+        var gate     = new TestRunPauseGate();
+        gate.Pause();
+
+        var started = 0;
+        var runTask = ModelBenchRunner.RunAsync(
+            runtime, ["mapped"], [testCase],
+            onCaseStart: (_, _) => Interlocked.Increment(ref started),
+            pauseGate: gate);
+
+        await Task.Delay(100);
+        Assert.Multiple(() =>
+        {
+            Assert.That(runTask.IsCompleted, Is.False, "run must hold while paused");
+            Assert.That(started, Is.Zero, "no case may start while paused");
+        });
+
+        gate.Resume();
+        var report = await runTask.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.That(report.Results, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void RunAsync_CancelWhilePaused_Throws()
+    {
+        var testCase = new ModelBenchCase("t1", ModelBenchAxis.Capability, "test", "p", "should answer");
+        var runtime  = new PromptMappedRuntime(new Dictionary<string, string> { ["p"] = "an answer" });
+        var gate     = new TestRunPauseGate();
+        gate.Pause();
+        using var cts = new CancellationTokenSource();
+
+        var runTask = ModelBenchRunner.RunAsync(runtime, ["mapped"], [testCase], pauseGate: gate, ct: cts.Token);
+        cts.Cancel();
+        Assert.CatchAsync<OperationCanceledException>(async () => await runTask.WaitAsync(TimeSpan.FromSeconds(10)));
+    }
+
+    [Test]
+    public async Task RunAsync_ModelCallbacks_FirePerModel()
+    {
+        var testCase = new ModelBenchCase("t1", ModelBenchAxis.Capability, "test", "p", "should answer");
+        var runtime  = new PromptMappedRuntime(new Dictionary<string, string> { ["p"] = "an answer" });
+        var startedModels = new List<string>();
+        var completedModels = new List<string>();
+
+        await ModelBenchRunner.RunAsync(
+            runtime, ["m1", "m2"], [testCase],
+            onModelStart: startedModels.Add,
+            onModelComplete: completedModels.Add);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(startedModels,   Is.EqualTo(new[] { "m1", "m2" }));
+            Assert.That(completedModels, Is.EqualTo(new[] { "m1", "m2" }));
+        });
+    }
+
     // ── Fake runtime (mirrors NativeRuntimeTestSupportTests.PromptMappedRuntime) ─────────────
 
     private sealed class PromptMappedRuntime(IReadOnlyDictionary<string, string> outputs) : IModelRuntime
