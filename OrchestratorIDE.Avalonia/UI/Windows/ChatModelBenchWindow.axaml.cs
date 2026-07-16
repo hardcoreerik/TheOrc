@@ -351,17 +351,19 @@ public partial class ChatModelBenchWindow : Window
 
     /// <summary>
     /// Marshals a runner callback onto the UI thread, dropped once the window has started
-    /// closing — a cancelled run's still-in-flight case must not mutate telemetry or touch
-    /// a tearing-down visual tree (grok review MINOR; same discipline as
-    /// ModelDownloaderWindow's _isClosed guard). Double-checked inside the post because
-    /// Closing can fire between the enqueue and the dispatch.
+    /// closing OR the run has already reached a terminal phase — a queued callback that
+    /// dispatches after EndRun must not re-activate a stage or bump sample counts on a run
+    /// the UI already reported as Cancelled/Failed/Completed (grok review MINORs; same
+    /// discipline as ModelDownloaderWindow's _isClosed guard). Both conditions are
+    /// re-checked inside the post because Closing/EndRun can land between enqueue and
+    /// dispatch.
     /// </summary>
     private void PostIfOpen(Action action)
     {
         if (_isClosed) return;
         Dispatcher.UIThread.Post(() =>
         {
-            if (!_isClosed) action();
+            if (!_isClosed && _telemetry.IsRunActive) action();
         });
     }
 
