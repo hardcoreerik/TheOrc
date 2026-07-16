@@ -2,10 +2,11 @@
 <Window x:Class="OrchestratorIDE.UI.Windows.ChatModelBenchWindow"
         xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Width="1040"
-        Height="760"
-        MinWidth="820"
-        MinHeight="560"
+        xmlns:controls="clr-namespace:OrchestratorIDE.UI.Controls"
+        Width="1120"
+        Height="820"
+        MinWidth="900"
+        MinHeight="640"
         Background="#111411"
         Title="Model Bench"
         AutomationProperties.AutomationId="ChatModelBenchWindow.Root">
@@ -18,20 +19,39 @@
                 BorderBrush="#2E3A2E"
                 BorderThickness="0,0,0,1"
                 Padding="16,12">
-            <StackPanel>
-                <TextBlock Text="Model Bench"
-                           FontSize="20"
-                           FontWeight="Bold"
-                           Foreground="#76B900"/>
-                <TextBlock Margin="0,4,0,0"
-                           FontSize="12"
-                           Foreground="#888888"
-                           Text="General chat quality and 'uncensored ability' (over-refusal) ranking across installed models. Every case here has a legitimate answer -- this measures wrongful refusal, not jailbreak resistance."
-                           TextWrapping="Wrap"/>
-            </StackPanel>
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel>
+                    <TextBlock Text="Model Bench"
+                               FontSize="20"
+                               FontWeight="Bold"
+                               Foreground="#76B900"/>
+                    <TextBlock Margin="0,4,0,0"
+                               FontSize="12"
+                               Foreground="#888888"
+                               Text="General chat quality and 'uncensored ability' (over-refusal) ranking across installed models. Every case here has a legitimate answer -- this measures wrongful refusal, not jailbreak resistance."
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <ToggleButton x:Name="TglLiteMode"
+                                  Content="Reduce motion"
+                                  IsCheckedChanged="TglLiteMode_Changed"
+                                  FontSize="10" Padding="8,4"
+                                  Background="#1E251E" Foreground="#D4D4D4" BorderBrush="#2E3A2E"
+                                  AutomationProperties.AutomationId="ChatModelBenchWindow.LiteMode"
+                                  ToolTip.Tip="Freeze all bench animations (state still renders). Persisted."/>
+                    <ToggleButton x:Name="TglShowViz"
+                                  Content="Visuals"
+                                  IsChecked="True"
+                                  IsCheckedChanged="TglShowViz_Changed"
+                                  FontSize="10" Padding="8,4"
+                                  Background="#1E251E" Foreground="#D4D4D4" BorderBrush="#2E3A2E"
+                                  AutomationProperties.AutomationId="ChatModelBenchWindow.ShowViz"
+                                  ToolTip.Tip="Hide or show the hourglass visualization. The run continues either way."/>
+                </StackPanel>
+            </Grid>
         </Border>
 
-        <!-- Body: model picker (left) + results (right) -->
+        <!-- Body: model picker (left) + visual runner (right) -->
         <Grid Grid.Row="1" ColumnDefinitions="260,1,*" Margin="0">
 
             <!-- Model picker -->
@@ -52,10 +72,152 @@
 
             <Border Grid.Column="1" Background="#2E3A2E"/>
 
-            <!-- Results -->
-            <ScrollViewer Grid.Column="2" Padding="16" VerticalScrollBarVisibility="Auto">
-                <StackPanel x:Name="ResultsPanel" Spacing="8"/>
-            </ScrollViewer>
+            <!-- Visual runner column -->
+            <Grid Grid.Column="2" RowDefinitions="Auto,Auto,Auto,*" Margin="12">
+
+                <!-- Hourglass / neural flow -->
+                <Border x:Name="VizHost" Grid.Row="0"
+                        Background="#0D140D"
+                        BorderBrush="#2E3A2E"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Height="250"
+                        Margin="0,0,0,8">
+                    <Grid RowDefinitions="*,Auto">
+                        <controls:NeuralFlowVisualizer x:Name="Viz" Grid.Row="0"
+                                                       AutomationProperties.AutomationId="ChatModelBenchWindow.Viz"/>
+                        <TextBlock x:Name="TbOperation" Grid.Row="1"
+                                   Text="Idle — pick models on the left and press Run Bench."
+                                   FontSize="11" FontFamily="Consolas"
+                                   Foreground="#7A8A6A"
+                                   HorizontalAlignment="Center"
+                                   Margin="8,0,8,8"
+                                   TextTrimming="CharacterEllipsis"
+                                   AutomationProperties.AutomationId="ChatModelBenchWindow.Operation"/>
+                    </Grid>
+                </Border>
+
+                <!-- Stage timeline -->
+                <Border Grid.Row="1"
+                        Background="#0D140D"
+                        BorderBrush="#2E3A2E"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Height="66"
+                        Margin="0,0,0,8">
+                    <controls:TestStageTimeline x:Name="Timeline"
+                                                AutomationProperties.AutomationId="ChatModelBenchWindow.Timeline"/>
+                </Border>
+
+                <!-- Status strip -->
+                <Border Grid.Row="2"
+                        Background="#141814"
+                        BorderBrush="#2E3A2E"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Padding="10,7"
+                        Margin="0,0,0,8">
+                    <StackPanel Spacing="4">
+                        <Grid ColumnDefinitions="*,*,*,*,*">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="PHASE" FontSize="9" Foreground="#888888"/>
+                                <TextBlock x:Name="TbPhase" Text="Idle" FontSize="13" FontFamily="Consolas" Foreground="#D4D4D4"
+                                           AutomationProperties.AutomationId="ChatModelBenchWindow.Phase"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="PROGRESS" FontSize="9" Foreground="#888888"/>
+                                <TextBlock x:Name="TbProgress" Text="—" FontSize="13" FontFamily="Consolas" Foreground="#D4D4D4"
+                                           AutomationProperties.AutomationId="ChatModelBenchWindow.Progress"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="ELAPSED" FontSize="9" Foreground="#888888"/>
+                                <TextBlock x:Name="TbElapsed" Text="—" FontSize="13" FontFamily="Consolas" Foreground="#D4D4D4"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="3">
+                                <TextBlock Text="REMAINING" FontSize="9" Foreground="#888888"/>
+                                <TextBlock x:Name="TbRemaining" Text="—" FontSize="13" FontFamily="Consolas" Foreground="#D4D4D4"
+                                           AutomationProperties.AutomationId="ChatModelBenchWindow.Remaining"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="4">
+                                <TextBlock Text="VERDICTS  P / R / F / E" FontSize="9" Foreground="#888888"/>
+                                <TextBlock x:Name="TbVerdicts" Text="—" FontSize="13" FontFamily="Consolas" Foreground="#D4D4D4"/>
+                            </StackPanel>
+                        </Grid>
+                        <Grid x:Name="DetailStatsRow" ColumnDefinitions="*,*,*,*,*" IsVisible="False">
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="EST. FINISH" FontSize="9" Foreground="#888888"/>
+                                <TextBlock x:Name="TbEta" Text="—" FontSize="12" FontFamily="Consolas" Foreground="#D4D4D4"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="AVG / CASE" FontSize="9" Foreground="#888888"/>
+                                <TextBlock x:Name="TbAvgCase" Text="—" FontSize="12" FontFamily="Consolas" Foreground="#D4D4D4"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="RECENT / CASE" FontSize="9" Foreground="#888888"/>
+                                <TextBlock x:Name="TbRecentCase" Text="—" FontSize="12" FontFamily="Consolas" Foreground="#D4D4D4"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="3">
+                                <TextBlock Text="THROUGHPUT" FontSize="9" Foreground="#888888"/>
+                                <TextBlock x:Name="TbThroughput" Text="—" FontSize="12" FontFamily="Consolas" Foreground="#D4D4D4"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="4">
+                                <TextBlock Text="ESTIMATE BASIS" FontSize="9" Foreground="#888888"/>
+                                <TextBlock x:Name="TbBasis" Text="—" FontSize="12" FontFamily="Consolas" Foreground="#D4D4D4"/>
+                            </StackPanel>
+                        </Grid>
+                        <ToggleButton x:Name="TglDetails"
+                                      Content="More stats"
+                                      IsCheckedChanged="TglDetails_Changed"
+                                      FontSize="9" Padding="6,1"
+                                      HorizontalAlignment="Right"
+                                      Background="Transparent" Foreground="#7A8A6A" BorderBrush="#2E3A2E"
+                                      AutomationProperties.AutomationId="ChatModelBenchWindow.Details"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Activity feed + results -->
+                <Grid Grid.Row="3" ColumnDefinitions="5*,8,7*">
+                    <Border Grid.Column="0"
+                            Background="#0D140D"
+                            BorderBrush="#2E3A2E"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="8">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Top" Text="ACTIVITY" FontSize="10" FontWeight="Bold"
+                                       Foreground="#888888" Margin="2,0,0,6"/>
+                            <ScrollViewer x:Name="FeedScroll" VerticalScrollBarVisibility="Auto">
+                                <StackPanel x:Name="FeedPanel" Spacing="2"
+                                            AutomationProperties.AutomationId="ChatModelBenchWindow.Feed"/>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+
+                    <Border Grid.Column="2"
+                            Background="#0D140D"
+                            BorderBrush="#2E3A2E"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="8">
+                        <DockPanel>
+                            <DockPanel DockPanel.Dock="Top" Margin="2,0,0,6">
+                                <TextBlock Text="RESULTS" FontSize="10" FontWeight="Bold" Foreground="#888888"
+                                           VerticalAlignment="Center"/>
+                                <Button x:Name="BtnOpenReports"
+                                        Content="Open report folder"
+                                        Click="BtnOpenReports_Click"
+                                        DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                        FontSize="9" Padding="6,2"
+                                        Background="#1E251E" Foreground="#7A8A6A" BorderBrush="#2E3A2E"
+                                        ToolTip.Tip="Full per-case logs are written as JSON reports"/>
+                            </DockPanel>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <StackPanel x:Name="ResultsPanel" Spacing="8"/>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+                </Grid>
+            </Grid>
         </Grid>
 
         <!-- Footer -->
@@ -71,15 +233,35 @@
                            FontSize="11"
                            Foreground="#888888"/>
 
-                <Button x:Name="BtnRun"
-                        Content="▶  Run Bench"
-                        Click="BtnRun_Click"
-                        DockPanel.Dock="Left"
-                        Margin="12,0,0,0"
-                        Background="#1B2C1B"
-                        Foreground="#76B900"
-                        BorderBrush="#3A5A1A"
-                        Padding="12,6"/>
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0">
+                    <Button x:Name="BtnRun"
+                            Content="▶  Run Bench"
+                            Click="BtnRun_Click"
+                            Background="#1B2C1B"
+                            Foreground="#76B900"
+                            BorderBrush="#3A5A1A"
+                            Padding="12,6"
+                            AutomationProperties.AutomationId="ChatModelBenchWindow.Run"/>
+                    <Button x:Name="BtnPause"
+                            Content="⏸  Pause"
+                            Click="BtnPause_Click"
+                            IsEnabled="False"
+                            Background="#1E251E"
+                            Foreground="#D4D4D4"
+                            BorderBrush="#2E3A2E"
+                            Padding="12,6"
+                            ToolTip.Tip="Holds the run at the next case boundary; the in-flight case finishes first."
+                            AutomationProperties.AutomationId="ChatModelBenchWindow.Pause"/>
+                    <Button x:Name="BtnCancel"
+                            Content="■  Cancel"
+                            Click="BtnCancel_Click"
+                            IsEnabled="False"
+                            Background="#1E1414"
+                            Foreground="#CA6A6A"
+                            BorderBrush="#5A2A2A"
+                            Padding="12,6"
+                            AutomationProperties.AutomationId="ChatModelBenchWindow.Cancel"/>
+                </StackPanel>
 
                 <Button Content="Close"
                         Click="BtnClose_Click"
