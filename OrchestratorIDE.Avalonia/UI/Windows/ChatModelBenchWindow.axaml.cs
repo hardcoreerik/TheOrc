@@ -38,7 +38,8 @@ public partial class ChatModelBenchWindow : Window
 
     private readonly Dictionary<string, CheckBox> _modelCheckboxes = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _runCts;
-    private bool _isClosed;   // gates fire-and-forget Dispatcher posts after teardown starts
+    private bool _isClosed;         // gates fire-and-forget Dispatcher posts after teardown starts
+    private bool _seedingLiteMode;  // true only while the ctor seeds TglLiteMode from settings
 
     private readonly TestRunTelemetryModel _telemetry = new();
     private readonly TestTimeEstimator     _estimator = new();
@@ -71,7 +72,11 @@ public partial class ChatModelBenchWindow : Window
         _statusTick = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _statusTick.Tick += (_, _) => RefreshTimeTexts();
 
+        // Seeding the toggle fires IsCheckedChanged; suppress the persistence side effect so
+        // merely opening the window never rewrites settings.json (grok review MINOR).
+        _seedingLiteMode = true;
         TglLiteMode.IsChecked = _settings?.BenchLiteMode == true;
+        _seedingLiteMode = false;
         ApplyLiteMode();
 
         Opened += OnOpened;
@@ -178,7 +183,7 @@ public partial class ChatModelBenchWindow : Window
     private void TglLiteMode_Changed(object? sender, RoutedEventArgs e)
     {
         ApplyLiteMode();
-        if (_settings is not null)
+        if (_settings is not null && !_seedingLiteMode)
         {
             _settings.BenchLiteMode = TglLiteMode.IsChecked == true;
             if (!_settings.Save(out var error))
