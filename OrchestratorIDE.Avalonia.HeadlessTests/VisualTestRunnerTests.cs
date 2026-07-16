@@ -52,6 +52,23 @@ public class VisualTestRunnerTests
     }
 
     [AvaloniaTest]
+    public void NeuralFlowVisualizer_one_dot_pile_with_mixed_fail_and_warning_does_not_throw()
+    {
+        // Regression: TotalSamples > MaxParticles gives scale >= 2, so early in a large run the
+        // pile is a single dot; fail+warning tallies then drove Math.Clamp(min:1, max:0).
+        var viz = new NeuralFlowVisualizer();
+        var window = new Window { Width = 400, Height = 300, Content = viz };
+        window.Show();
+
+        viz.SetState(new NeuralFlowVisualizer.FlowState(
+            TestRunPhase.Running, TotalSamples: 300, CompletedSamples: 2,
+            PassedSamples: 0, WarningSamples: 1, FailedSamples: 1, ErrorSamples: 0,
+            CurrentOperation: "early mixed verdicts"));
+        Assert.DoesNotThrow(() => AvaloniaHeadlessPlatform.ForceRenderTimerTick());
+        window.Close();
+    }
+
+    [AvaloniaTest]
     public void NeuralFlowVisualizer_lite_mode_toggles_without_throwing()
     {
         var viz = new NeuralFlowVisualizer();

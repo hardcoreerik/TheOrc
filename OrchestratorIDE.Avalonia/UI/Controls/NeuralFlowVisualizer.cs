@@ -238,7 +238,9 @@ public sealed class NeuralFlowVisualizer : Control
         int failLike = _state.FailedSamples + _state.ErrorSamples;
         int failDots = failLike == 0 ? 0
             : Math.Clamp((int)Math.Ceiling(dots * failLike / (double)completed), 1, dots);
-        int warnDots = _state.WarningSamples == 0 ? 0
+        // Guard failDots == dots: Math.Clamp(min:1, max:0) throws, and a 1-dot pile with mixed
+        // fail+warning tallies hits exactly that (grok review BLOCKER) — failures win the dot.
+        int warnDots = _state.WarningSamples == 0 || failDots >= dots ? 0
             : Math.Clamp((int)Math.Ceiling(dots * _state.WarningSamples / (double)completed), 1, dots - failDots);
 
         // Fill bottom-up: the pile grows toward the waist as more samples finish, and dots
