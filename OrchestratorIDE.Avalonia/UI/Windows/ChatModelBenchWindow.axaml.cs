@@ -32,7 +32,6 @@ namespace OrchestratorIDE.UI.Windows;
 /// </summary>
 public partial class ChatModelBenchWindow : Window
 {
-    private readonly OllamaClient  _ollama;
     private readonly string?       _workspaceRoot;
     private readonly IModelRuntime _runtime;
     private readonly AppSettings?  _settings;
@@ -61,7 +60,6 @@ public partial class ChatModelBenchWindow : Window
     public ChatModelBenchWindow(OllamaClient ollama, string? workspaceRoot = null, AppSettings? settings = null,
         IModelRuntime? runtime = null)
     {
-        _ollama        = ollama;
         _workspaceRoot = workspaceRoot;
         _runtime       = runtime ?? new OllamaRuntime(ollama);
         _settings      = settings;
