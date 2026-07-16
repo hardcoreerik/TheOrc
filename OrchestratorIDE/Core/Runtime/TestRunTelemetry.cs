@@ -108,7 +108,7 @@ public sealed class TestRunTelemetryModel
     {
         if (Phase != TestRunPhase.Running) return;
         Phase = TestRunPhase.Paused;
-        AddActivity(TestActivityKind.Info, "Run paused.");
+        AddActivity(TestActivityKind.Info, "Run paused — holding at the next sample boundary (in-flight sample finishes first).");
     }
 
     public void ResumeRun()

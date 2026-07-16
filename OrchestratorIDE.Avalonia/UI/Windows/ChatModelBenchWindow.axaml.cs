@@ -38,6 +38,7 @@ public partial class ChatModelBenchWindow : Window
 
     private readonly Dictionary<string, CheckBox> _modelCheckboxes = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _runCts;
+    private bool _isClosed;   // gates fire-and-forget Dispatcher posts after teardown starts
 
     private readonly TestRunTelemetryModel _telemetry = new();
     private readonly TestTimeEstimator     _estimator = new();
@@ -75,6 +76,7 @@ public partial class ChatModelBenchWindow : Window
         Opened += OnOpened;
         Closing += (_, _) =>
         {
+            _isClosed = true;
             _runCts?.Cancel();
             _pauseGate.Resume();   // a paused run must still observe the cancel
             _statusTick.Stop();
@@ -151,8 +153,7 @@ public partial class ChatModelBenchWindow : Window
         else
         {
             _pauseGate.Pause();
-            _telemetry.PauseRun();
-            _telemetry.AddActivity(TestActivityKind.Info, "Holding at the next case boundary (in-flight case finishes first).");
+            _telemetry.PauseRun();   // logs the paused/holding-at-boundary feed entry itself
             BtnPause.Content = "▶  Resume";
         }
     }
@@ -235,40 +236,45 @@ public partial class ChatModelBenchWindow : Window
         }
 
         _runCts = new CancellationTokenSource();
-        SetRunControls(running: true);
-        ResultsPanel.Children.Clear();
-
         var cases = ModelBenchCorpus.AllCases;
-        var stages = new List<(string, string)> { ("init", "Initialize") };
-        stages.AddRange(selected.Select(m => (StageIdFor(m), ShortModelName(m))));
-        stages.Add(("report", "Save report"));
-
-        _estimator.Reset();
-        _lastEstimate = null;
-        _telemetry.StartRun(stages, totalSamples: cases.Count * selected.Count);
-        _telemetry.StageStarted("init", 0, "Preparing corpus and runtime…");
-        _telemetry.AddActivity(TestActivityKind.Info,
-            $"Corpus '{ModelBenchCorpus.DefaultCorpusName}': {cases.Count} cases × {selected.Count} model{(selected.Count == 1 ? "" : "s")}.");
-        _telemetry.StageEnded("init", TestStageStatus.Completed, $"{cases.Count} cases ready");
-        _statusTick.Start();
 
         // Per-model verdict tally for honest stage end-states (reset on each model start;
         // only ever touched on the UI thread via the posted callbacks below).
         var tally = new ModelTally();
 
+        // Everything after cts creation lives inside try/finally: a throw during run SETUP
+        // (StartRun / stage events / a telemetry-consumer bug) must still re-arm the Run
+        // button and dispose the cts, and must not escape this async void handler
+        // (grok review BLOCKER).
         try
         {
+            SetRunControls(running: true);
+            ResultsPanel.Children.Clear();
+
+            var stages = new List<(string, string)> { ("init", "Initialize") };
+            stages.AddRange(selected.Select(m => (StageIdFor(m), ShortModelName(m))));
+            stages.Add(("report", "Save report"));
+
+            _estimator.Reset();
+            _lastEstimate = null;
+            _telemetry.StartRun(stages, totalSamples: cases.Count * selected.Count);
+            _telemetry.StageStarted("init", 0, "Preparing corpus and runtime…");
+            _telemetry.AddActivity(TestActivityKind.Info,
+                $"Corpus '{ModelBenchCorpus.DefaultCorpusName}': {cases.Count} cases × {selected.Count} model{(selected.Count == 1 ? "" : "s")}.");
+            _telemetry.StageEnded("init", TestStageStatus.Completed, $"{cases.Count} cases ready");
+            _statusTick.Start();
+
             var report = await ModelBenchRunner.RunAsync(
                 _runtime, selected,
-                onModelStart: model => Dispatcher.UIThread.Post(() =>
+                onModelStart: model => PostIfOpen(() =>
                 {
                     tally.Fails = tally.Errors = 0;
                     _telemetry.StageStarted(StageIdFor(model), cases.Count, $"Loading {ShortModelName(model)}…");
                 }),
-                onCaseStart: (model, testCase) => Dispatcher.UIThread.Post(() =>
+                onCaseStart: (model, testCase) => PostIfOpen(() =>
                     _telemetry.SampleStarted($"{ShortModelName(model)} — {testCase.Category}: generating response…")),
-                onCaseComplete: result => Dispatcher.UIThread.Post(() => OnCaseComplete(result, tally)),
-                onModelComplete: model => Dispatcher.UIThread.Post(() =>
+                onCaseComplete: result => PostIfOpen(() => OnCaseComplete(result, tally)),
+                onModelComplete: model => PostIfOpen(() =>
                 {
                     var status = tally.Errors >= cases.Count      ? TestStageStatus.Failed
                         : tally.Fails + tally.Errors > 0          ? TestStageStatus.Warning
@@ -317,6 +323,22 @@ public partial class ChatModelBenchWindow : Window
             _runCts = null;
             SetRunControls(running: false);
         }
+    }
+
+    /// <summary>
+    /// Marshals a runner callback onto the UI thread, dropped once the window has started
+    /// closing — a cancelled run's still-in-flight case must not mutate telemetry or touch
+    /// a tearing-down visual tree (grok review MINOR; same discipline as
+    /// ModelDownloaderWindow's _isClosed guard). Double-checked inside the post because
+    /// Closing can fire between the enqueue and the dispatch.
+    /// </summary>
+    private void PostIfOpen(Action action)
+    {
+        if (_isClosed) return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_isClosed) action();
+        });
     }
 
     /// <summary>Per-model fail/error tally, mutated only on the UI thread.</summary>

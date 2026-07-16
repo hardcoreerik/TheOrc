@@ -169,13 +169,19 @@ public class VisualTestRunnerTests
         return (win, tempRoot);
     }
 
+    /// <summary>Ready = model list populated (LoadModelsAsync finished), not just Run enabled —
+    /// clicking Run with zero checkboxes would no-op and hang the completion wait (grok MINOR).</summary>
+    private static Task WaitUntilRunnableAsync(ChatModelBenchWindow win) => PumpUntilAsync(() =>
+        win.FindControl<Button>("BtnRun")!.IsEnabled
+        && win.FindControl<StackPanel>("ModelListPanel")!.Children.Count > 0);
+
     [AvaloniaTest]
     public async Task FullRun_WithScriptedRuntime_CompletesAndReportsThroughTelemetry()
     {
         var (win, tempRoot) = OpenWindowWith(new ScriptedBenchRuntime());
         try
         {
-            await PumpUntilAsync(() => win.FindControl<Button>("BtnRun")!.IsEnabled);
+            await WaitUntilRunnableAsync(win);
 
             win.FindControl<Button>("BtnRun")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await PumpUntilAsync(() => win.Telemetry.Phase == TestRunPhase.Completed);
@@ -208,7 +214,7 @@ public class VisualTestRunnerTests
         var (win, tempRoot) = OpenWindowWith(runtime);
         try
         {
-            await PumpUntilAsync(() => win.FindControl<Button>("BtnRun")!.IsEnabled);
+            await WaitUntilRunnableAsync(win);
             win.FindControl<Button>("BtnRun")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
             await PumpUntilAsync(() => win.Telemetry.CompletedSamples >= 2);
@@ -238,7 +244,7 @@ public class VisualTestRunnerTests
         var (win, tempRoot) = OpenWindowWith(runtime);
         try
         {
-            await PumpUntilAsync(() => win.FindControl<Button>("BtnRun")!.IsEnabled);
+            await WaitUntilRunnableAsync(win);
             win.FindControl<Button>("BtnRun")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
             await PumpUntilAsync(() => win.Telemetry.CompletedSamples >= 1);
