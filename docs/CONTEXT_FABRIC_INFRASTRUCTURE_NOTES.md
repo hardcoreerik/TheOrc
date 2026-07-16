@@ -23,7 +23,7 @@ it isn't mistaken for either.
 | Gemma-4-12B (any variant) | Shared-KV-cache design (layers reuse other layers' K/V tensors) | **Incompatible** — native `NoKvSlot` crashes on Context Fabric's evidence-heavy prompts, upstream `llama.cpp` limitation, no LLamaSharp release includes the fix yet | §7a — [ggml-org/llama.cpp#21468](https://github.com/ggml-org/llama.cpp/issues/21468), [#23720](https://github.com/ggml-org/llama.cpp/issues/23720); fix [#23981](https://github.com/ggml-org/llama.cpp/pull/23981) merged 2026-06-02, not yet pinned by any LLamaSharp release |
 | Meta-Llama-3.1-8B-Instruct | Plain transformer | **Confirmed working** — zero `NoKvSlot` across 30- and 100-question runs, 99.1% citation precision (113/114) | §7a |
 | qwen2.5-coder-7b-instruct | Plain transformer | **Works, but weaker capability** — zero incidents at 100-question scale; two isolated, automatically recovered `NoKvSlot` incidents in the 120-question run. Real citation-discipline gaps remain: 25-31/100 pass rate, ~76-99% citation precision depending on run | §7a |
-| Qwen3.5-9B (Q8_0 and Q4_K_M tested) | Hybrid attention + Gated Delta Net (recurrent); thinking-mode model | **Recurrent `SeqMax` and thinking-mode defects fixed.** The later storm is root-caused as per-request attention-context exhaustion caused by heuristic prompt budgeting; exact-token admission and runtime completion bounds are implemented, with full Q8_0/Q4_K_M revalidation pending. No valid full-scale capability score exists yet. | §7b (SeqMax), §7c (thinking suppression), §7e (root-caused; full-gate validation pending) |
+| Qwen3.5-9B (Q8_0 and Q4_K_M tested) | Hybrid attention + Gated Delta Net (recurrent); thinking-mode model | **Fully working as of 2026-07-16.** Three architecture-specific defects found and fixed in sequence: recurrent `SeqMax` (§7b), thinking-mode budget exhaustion (§7c), and per-request attention-context exhaustion from heuristic prompt budgeting (§7e — fixed by exact-token admission + completion clamping, PR #63). Live-validated: full 120-question gates on both quants with **zero** `NoKvSlot` incidents; Q8_0 B3 75/120 (best B3 score on any model to date) and Q4_K_M B3 67/120, both passing the `Graded capability` gate. Remaining NO-GO factor is `segment_terminal_coverage` (96.1%/91.4% vs. 1.0), a model-quality ingestion gap, not infrastructure. | §7b (SeqMax), §7c (thinking suppression), §7e (resolved, live-validated); CF_TEST_RESULTS.md §6 rows 17-18 |
 
 **General rule of thumb from the above:** infrastructure compatibility and
 model capability are independent axes. A model can run with zero crashes and
@@ -77,6 +77,25 @@ model choice.
   the HARDCORELAPTOPMSI run). When using `schtasks`, the `/tr` command runs
   via `CreateProcess`, not a shell — `>`/`2>&1` redirection syntax is
   silently ignored unless wrapped in a `.bat` file or `cmd /c "..."`.
+
+- **`%APPDATA%` is per-package-virtualized for MSIX-installed apps, not just
+  per-Windows-account (2026-07-15).** Distinct from the `hardc`/`hardcoreerik`
+  two-account gotcha above (§ CF_TEST_RESULTS.md §4) — this one bit two
+  *tools running as the exact same Windows account and SID*. Claude Code's
+  desktop app is installed via MSIX, which redirects that process's
+  `%APPDATA%\OrchestratorIDE\Models-CF7` to a virtualized physical path
+  (`C:\Users\<user>\AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\
+  Roaming\OrchestratorIDE\Models-CF7`) transparently — reads/writes through
+  the normal `%APPDATA%` path "just work" from inside that process. A
+  non-packaged tool (e.g. Codex CLI) run as the *same* `NEWCOREPC\hardc`
+  account does **not** get this redirect and sees the unvirtualized, real
+  `%APPDATA%\OrchestratorIDE\Models-CF7` — which can be empty even though the
+  models are genuinely present and readable from the virtualized path. If a
+  tool reports CF-7 model files as missing, check whether it's running inside
+  an MSIX-packaged app's virtualized filesystem before concluding a
+  re-download is needed; `Get-Item`'s `FullName` from *inside* the packaged
+  process will show the real physical (virtualized) path if you need to hand
+  it to a tool that can't see the redirect.
 
 ## Re-running
 

@@ -288,7 +288,7 @@ its CF-7 numbers are trusted — a 0/128 (or near-0) segment-acceptance rate
 alongside `<think>`-prefixed raw outputs is the signature of this exact
 failure mode, not a model-capability result.
 
-### §7e. ROOT-CAUSED; FIX IMPLEMENTED; FULL Q8_0/Q4_K_M VALIDATION PENDING (2026-07-15): exact prompt capacity, not persistent cache poisoning
+### §7e. RESOLVED (2026-07-16, live-gate validated): exact prompt capacity, not persistent cache poisoning
 
 Two Phase E runs remain valid historical records of broken infrastructure:
 `Qwen3.5-9B-Q8_0` hit **96** `NoKvSlot` incidents and scored 14/120; the
@@ -339,11 +339,43 @@ heuristic fallback.
 
 This fix deliberately leaves `SeqMax=40`, `SequenceRecycleThreshold=24`,
 `SequenceHardLimit=40`, thinking suppression, disposal behavior, and the
-LLamaSharp 0.27.0 pin unchanged. Targeted unit tests pass. Clean, complete
-120-question Q8_0 and Q4_K_M gates with zero `NoKvSlot`, `failed to find a
-memory slot`, and `failed to prepare attention ubatches` incidents are still
-required before §7e is called resolved or a Qwen3.5 capability score is
-published.
+LLamaSharp 0.27.0 pin unchanged. Targeted unit tests pass.
+
+**Live-gate validation (2026-07-16, NEWCOREPC, PR #63 head `33d6eab2`):** the
+required clean, complete gates have now run and passed the bug-specific
+criteria on all three replays, all with `THEORC_KVCACHE_DIAGNOSTICS=1`:
+
+- **One-question Q8_0 smoke** (`cf7-7e-smoke1-q8_0-20260715_224107.log`,
+  18:14): full 128-segment ingestion + 1 answered question, **zero**
+  `NoKvSlot` / `failed to find a memory slot` /
+  `failed to prepare attention ubatches` matches.
+- **Full 120-question Q8_0 gate**
+  (`cf7-7e-full120-q8_0-20260715_230005.log`, 41:42, gate
+  `cf7_gate_20260716_064147_541_b6bb535228404553804e035353c4e4d1`): **zero**
+  incident matches across all of B3 + B0/B1/B2; 12 executor recycles, every
+  one a healthy natural threshold recycle (`minted=24, forced=False`) —
+  sailing far past the ~168-conversation onset point of both corrupted runs.
+  `max_prompt_tokens` 6,656/8,192 shows the exact-token admission clamp
+  holding real headroom. B3 **75/120**, B2 52/120 — `Graded capability` PASS
+  (B3 beats best baseline by 23; citation_precision 92.7% clears 0.90);
+  `boundary_stitch` 2/2 PASS. Overall verdict NO-GO solely on
+  `segment_terminal_coverage` 123/128 (96.1% vs. 1.0 blocking target), a
+  pre-existing ingestion-quality gap unrelated to this bug.
+- **Full 120-question Q4_K_M gate**
+  (`cf7-7e-full120-q4km-20260715_234244.log`, 27:51, gate
+  `cf7_gate_20260716_071035_006_dc4e73df346e46869d2fbd05da9355ab`): **zero**
+  incident matches. `max_prompt_tokens` 6,655/8,192. B3 **67/120**, B2
+  57/120 — `Graded capability` PASS (citation_precision 96.5%);
+  `boundary_stitch` 2/2 PASS. Overall NO-GO again solely on
+  `segment_terminal_coverage` 117/128 (91.4%).
+
+Both quants also completed dramatically faster than the §7b-era 2.5-hour
+runs (41:42 / 27:51) — expected, since thinking suppression (§7c) removes
+the reasoning-token overhead those earlier timings included. These are the
+**first valid full-scale Qwen3.5-9B CF-7 capability scores** (see
+`CF_TEST_RESULTS.md` §6 rows 17-18), and Q8_0's 75/120 is the highest B3
+score recorded on any model to date (previous best: Meta-Llama-3.1-8B's
+58/120). §7e is closed.
 
 ### §7d. Exhaustive-category heuristic hardening (2026-07-15, Remediation Phase 3)
 
