@@ -49,11 +49,21 @@ public partial class ChatModelBenchWindow : Window
     private TestTimeEstimate? _lastEstimate;
     private DateTimeOffset    _lastEstimateAtUtc;
 
-    public ChatModelBenchWindow(OllamaClient ollama, string? workspaceRoot = null, AppSettings? settings = null)
+    /// <summary>
+    /// Normalized run state, exposed read-only so headless tests (and future automation)
+    /// can observe the run without reaching into private UI fields.
+    /// </summary>
+    public TestRunTelemetryModel Telemetry => _telemetry;
+
+    /// <param name="runtime">Overrides the Ollama-backed runtime — used by headless tests to
+    /// drive a full visual run against a scripted runtime (ContextFabricScriptedRuntime
+    /// discipline: never exercise a real model in tests).</param>
+    public ChatModelBenchWindow(OllamaClient ollama, string? workspaceRoot = null, AppSettings? settings = null,
+        IModelRuntime? runtime = null)
     {
         _ollama        = ollama;
         _workspaceRoot = workspaceRoot;
-        _runtime       = new OllamaRuntime(ollama);
+        _runtime       = runtime ?? new OllamaRuntime(ollama);
         _settings      = settings;
         InitializeComponent();
 
@@ -88,7 +98,9 @@ public partial class ChatModelBenchWindow : Window
         List<string> models;
         try
         {
-            models = await _ollama.GetInstalledModelsAsync();
+            // Via the runtime abstraction (not _ollama directly) so an injected test runtime
+            // controls the model list too. OllamaRuntime just delegates to the client.
+            models = await _runtime.GetInstalledModelsAsync();
         }
         catch (Exception ex)
         {
