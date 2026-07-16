@@ -783,8 +783,10 @@ public sealed class ContextFabricFeasibilityRunner
             var exactPromptTokens = _runtime.CountPromptTokens(
                 RuntimeRole.Reviewer,
                 BuildAnswerMessages(input));
+            var chaseReserve = _options.ContextBudget.EvidenceLimit - budgetLimit;
+            var exactContextLimit = _options.ContextBudget.ContextLimit - chaseReserve;
             if (exactPromptTokens is { } exact &&
-                (long)exact + _options.AnswerMaxTokens > _options.ContextBudget.ContextLimit)
+                (long)exact + _options.AnswerMaxTokens > exactContextLimit)
                 return false;
             evidence.Add(candidateEvidence);
             included.Add(card.SegmentId);
@@ -1122,14 +1124,17 @@ public sealed class ContextFabricFeasibilityRunner
         int maxTokens,
         CancellationToken ct)
     {
-        // EstimateTokens is a crude chars/4 heuristic that under-counts token-dense prompts.
-        // The margin-adjusted value is used only for the budget gate; the raw estimate is used
-        // as the reporting fallback so FabricCallMetrics don't show inflated prompt-token counts.
+        // Use the loaded model's exact rendered-prompt count when available. The chars/4 estimate
+        // and margin remain the fallback for runtimes without a native tokenizer (and before a
+        // native model's first load); NativeRoleRuntime still bounds that first request itself.
         var rawPromptTokens = messages.Sum(message => ContextManager.EstimateTokens(message.Content));
-        var gatePromptTokens = (int)Math.Ceiling(rawPromptTokens * EvidenceTokenSafetyMargin);
-        if (gatePromptTokens + maxTokens > _options.ContextBudget.ContextLimit)
+        var exactPromptTokens = _runtime.CountPromptTokens(role, messages);
+        var gatePromptTokens = exactPromptTokens ??
+            (int)Math.Ceiling(rawPromptTokens * EvidenceTokenSafetyMargin);
+        if ((long)gatePromptTokens + maxTokens > _options.ContextBudget.ContextLimit)
             throw new FabricContextBudgetExceededException(
-                $"{stage}/{itemId} requires up to {gatePromptTokens + maxTokens} tokens (margin-adjusted), exceeding {_options.ContextBudget.ContextLimit}.");
+                $"{stage}/{itemId} requires up to {(long)gatePromptTokens + maxTokens} tokens " +
+                $"({(exactPromptTokens.HasValue ? "exact" : "margin-adjusted")}), exceeding {_options.ContextBudget.ContextLimit}.");
 
         var stopwatch = Stopwatch.StartNew();
         var output = new StringBuilder();
@@ -1162,7 +1167,7 @@ public sealed class ContextFabricFeasibilityRunner
                     stage,
                     itemId,
                     role,
-                    reportedPrompt > 0 ? reportedPrompt : rawPromptTokens,
+                    reportedPrompt > 0 ? reportedPrompt : exactPromptTokens ?? rawPromptTokens,
                     completionTokens,
                     _options.ContextBudget.ContextLimit,
                     stopwatch.ElapsedMilliseconds,
@@ -1183,7 +1188,7 @@ public sealed class ContextFabricFeasibilityRunner
                     stage,
                     itemId,
                     role,
-                    rawPromptTokens,
+                    exactPromptTokens ?? rawPromptTokens,
                     ContextManager.EstimateTokens(output.ToString()),
                     _options.ContextBudget.ContextLimit,
                     stopwatch.ElapsedMilliseconds,

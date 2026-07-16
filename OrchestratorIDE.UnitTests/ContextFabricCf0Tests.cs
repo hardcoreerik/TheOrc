@@ -381,7 +381,10 @@ public sealed class ContextFabricCf0Tests
     public async Task FeasibilityRunner_CompletesNativeMapReduce_WithVerified8KAnswers()
     {
         var fixture = DeterministicFabricCorpus.Create();
-        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime());
+        var runner = new ContextFabricFeasibilityRunner(new ScriptedFabricRuntime
+        {
+            PromptTokenCounter = _ => 1_000,
+        });
 
         var report = await runner.RunAsync(fixture);
 
@@ -391,7 +394,7 @@ public sealed class ContextFabricCf0Tests
                 string.Join("; ", report.Gates.Where(gate => !gate.Passed).Select(gate => $"{gate.Name}: {gate.Detail}")));
             Assert.That(report.Summary.AcceptedSegments, Is.EqualTo(16));
             Assert.That(report.Summary.PassedQuestions, Is.EqualTo(5));
-            Assert.That(report.Summary.MaximumPromptTokens, Is.LessThan(8192));
+            Assert.That(report.Summary.MaximumPromptTokens, Is.EqualTo(1_000));
             Assert.That(report.Summary.SourceToWorkingContextRatio, Is.GreaterThan(1));
             Assert.That(report.Reductions.Last().CoveredSegmentIds, Has.Count.EqualTo(16));
             Assert.That(report.Calls, Has.Count.EqualTo(26));

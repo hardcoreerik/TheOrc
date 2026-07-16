@@ -94,7 +94,7 @@ public sealed class ContextFabricEvidencePackTests
     }
 
     [Test]
-    public void BuildEvidencePack_UsesExactPromptTokens_WhenRuntimeProvidesThem()
+    public void BuildEvidencePack_UsesExactPromptTokens_AndPreservesMultiHopReserve()
     {
         var cards = new[]
         {
@@ -118,8 +118,11 @@ public sealed class ContextFabricEvidencePackTests
 
         var pack = new ContextFabricFeasibilityRunner(runtime, options)
             .BuildEvidencePack(question, cards, null);
+        var multiHopPack = new ContextFabricFeasibilityRunner(runtime, options)
+            .BuildEvidencePack(question with { Kind = FabricQuestionKind.MultiHop }, cards, null);
 
         Assert.That(pack.IncludedSegmentIds, Has.Count.EqualTo(1));
+        Assert.That(multiHopPack.IncludedSegmentIds, Is.Empty);
     }
 
     [Test]
