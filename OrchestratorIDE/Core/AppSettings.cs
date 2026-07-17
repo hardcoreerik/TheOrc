@@ -234,6 +234,13 @@ public class AppSettings
     /// </summary>
     public bool HiveLiteMode { get; set; } = false;
 
+    /// <summary>
+    /// Reduced-motion mode for the visual test runner (Model Bench hourglass/neural-flow and
+    /// stage-timeline animations). Same contract as HiveLiteMode: state still renders, motion
+    /// stops. Toggled in-place from the bench window itself and persisted here.
+    /// </summary>
+    public bool BenchLiteMode { get; set; } = false;
+
     /// <summary>HIVE screen layout: rail on the left side instead of the right. User-customizable
     /// (flip button on the rail); persisted so the choice sticks across sessions.</summary>
     public bool   HiveRailOnLeft { get; set; } = false;

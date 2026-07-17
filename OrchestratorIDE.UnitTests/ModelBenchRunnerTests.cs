@@ -188,6 +188,110 @@ public sealed class ModelBenchRunnerTests
         Assert.That(report.Results[0].Verdict, Is.EqualTo(ModelBenchVerdict.Fail));
     }
 
+    [Test]
+    public async Task RunAsync_PauseGate_HoldsRunAtCaseBoundaryUntilResume()
+    {
+        var testCase = new ModelBenchCase("t1", ModelBenchAxis.Capability, "test", "p", "should answer");
+        var runtime  = new PromptMappedRuntime(new Dictionary<string, string> { ["p"] = "an answer" });
+        var gate     = new TestRunPauseGate();
+        gate.Pause();
+
+        var started = 0;
+        var modelStarted = 0;
+        var runTask = ModelBenchRunner.RunAsync(
+            runtime, ["mapped"], [testCase],
+            onCaseStart: (_, _) => Interlocked.Increment(ref started),
+            onModelStart: _ => Interlocked.Increment(ref modelStarted),
+            pauseGate: gate);
+
+        await Task.Delay(100);
+        Assert.Multiple(() =>
+        {
+            Assert.That(runTask.IsCompleted, Is.False, "run must hold while paused");
+            Assert.That(started, Is.Zero, "no case may start while paused");
+            Assert.That(modelStarted, Is.Zero,
+                "a paused run must not announce a model as started/loading before execution may proceed");
+        });
+
+        gate.Resume();
+        var report = await runTask.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.That(report.Results, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void RunAsync_CancelWhilePaused_Throws()
+    {
+        var testCase = new ModelBenchCase("t1", ModelBenchAxis.Capability, "test", "p", "should answer");
+        var runtime  = new PromptMappedRuntime(new Dictionary<string, string> { ["p"] = "an answer" });
+        var gate     = new TestRunPauseGate();
+        gate.Pause();
+        using var cts = new CancellationTokenSource();
+
+        var runTask = ModelBenchRunner.RunAsync(runtime, ["mapped"], [testCase], pauseGate: gate, ct: cts.Token);
+        cts.Cancel();
+        Assert.CatchAsync<OperationCanceledException>(async () => await runTask.WaitAsync(TimeSpan.FromSeconds(10)));
+    }
+
+    [Test]
+    public void RunAsync_UserCancelDuringGeneration_PropagatesInsteadOfScoringError()
+    {
+        // Regression for the grok BLOCKER: a user cancel mid-generation must surface as
+        // OperationCanceledException from RunAsync — never be swallowed into an Error verdict
+        // that lets the run finish as "Completed" and save a report the user aborted.
+        var testCase = new ModelBenchCase("t1", ModelBenchAxis.Capability, "test", "p", "should answer");
+        var runtime  = new HangingRuntime();
+        using var cts = new CancellationTokenSource();
+
+        var runTask = ModelBenchRunner.RunAsync(runtime, ["mapped"], [testCase], ct: cts.Token);
+        cts.Cancel();
+
+        Assert.CatchAsync<OperationCanceledException>(async () => await runTask.WaitAsync(TimeSpan.FromSeconds(10)));
+    }
+
+    /// <summary>Streams forever until the caller's token cancels — models a mid-generation cancel.</summary>
+    private sealed class HangingRuntime : IModelRuntime
+    {
+        public string RuntimeName => "Hanging";
+        public Task<bool> IsReachableAsync(CancellationToken ct = default) => Task.FromResult(true);
+        public Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default) =>
+            Task.FromResult(new List<string> { "mapped" });
+        public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) =>
+            Task.FromResult<int?>(2048);
+
+        public async IAsyncEnumerable<string> StreamCompletionAsync(
+            string model, IEnumerable<AgentMessage> history, IReadOnlyList<object>? tools = null,
+            double temperature = 0.1, double? topP = null, int maxTokens = 4096,
+            Action<ToolCall>? onToolCall = null, Action<int, int>? onUsage = null,
+            [EnumeratorCancellation] CancellationToken ct = default)
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+            yield break;
+        }
+
+        public RuntimeHealth GetHealth() => new(true, RuntimeName, ActiveModel: "mapped");
+        public RuntimeStats GetStats() => new(RuntimeName, ActiveModel: "mapped");
+    }
+
+    [Test]
+    public async Task RunAsync_ModelCallbacks_FirePerModel()
+    {
+        var testCase = new ModelBenchCase("t1", ModelBenchAxis.Capability, "test", "p", "should answer");
+        var runtime  = new PromptMappedRuntime(new Dictionary<string, string> { ["p"] = "an answer" });
+        var startedModels = new List<string>();
+        var completedModels = new List<string>();
+
+        await ModelBenchRunner.RunAsync(
+            runtime, ["m1", "m2"], [testCase],
+            onModelStart: startedModels.Add,
+            onModelComplete: completedModels.Add);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(startedModels,   Is.EqualTo(new[] { "m1", "m2" }));
+            Assert.That(completedModels, Is.EqualTo(new[] { "m1", "m2" }));
+        });
+    }
+
     // ── Fake runtime (mirrors NativeRuntimeTestSupportTests.PromptMappedRuntime) ─────────────
 
     private sealed class PromptMappedRuntime(IReadOnlyDictionary<string, string> outputs) : IModelRuntime

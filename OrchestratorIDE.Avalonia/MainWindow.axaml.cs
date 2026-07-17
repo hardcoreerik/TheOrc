@@ -2717,7 +2717,7 @@ public partial class MainWindow : Window
 
     private async Task ShowChatModelBenchAsync()
     {
-        var win = new ChatModelBenchWindow(_ollama, _session.WorkspaceRoot);
+        var win = new ChatModelBenchWindow(_ollama, _session.WorkspaceRoot, _settings);
         await win.ShowDialog(this);
     }
 

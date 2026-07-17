@@ -64,7 +64,13 @@ public static class ModelBenchRunner
         TimeSpan? perCaseTimeout = null,
         Action<string, ModelBenchCase>? onCaseStart = null,
         Action<ModelBenchCaseResult>? onCaseComplete = null,
-        CancellationToken ct = default)
+        // ct keeps its original positional slot (before the newer optional parameters) so any
+        // pre-existing positional caller keeps compiling — deliberate deviation from the
+        // ct-goes-last convention (CodeRabbit review).
+        CancellationToken ct = default,
+        Action<string>? onModelStart = null,
+        Action<string>? onModelComplete = null,
+        TestRunPauseGate? pauseGate = null)
     {
         cases ??= ModelBenchCorpus.AllCases;
         var timeout = perCaseTimeout ?? TimeSpan.FromSeconds(90);
@@ -72,14 +78,25 @@ public static class ModelBenchRunner
 
         foreach (var model in models)
         {
+            // Honor a pending pause BEFORE announcing the model start, so a paused run never
+            // reports a stage as active/loading while execution is actually held.
+            if (pauseGate is not null)
+                await pauseGate.WaitWhilePausedAsync(ct);
+            ct.ThrowIfCancellationRequested();
+            onModelStart?.Invoke(model);
             foreach (var testCase in cases)
             {
+                // Pause holds the run at the case boundary (never mid-sample, so per-case
+                // timings stay honest); cancellation always wins over pause.
+                if (pauseGate is not null)
+                    await pauseGate.WaitWhilePausedAsync(ct);
                 ct.ThrowIfCancellationRequested();
                 onCaseStart?.Invoke(model, testCase);
                 var result = await RunOneAsync(runtime, model, testCase, temperature, timeout, ct);
                 results.Add(result);
                 onCaseComplete?.Invoke(result);
             }
+            onModelComplete?.Invoke(model);
         }
 
         return new ModelBenchReport(
@@ -121,6 +138,13 @@ public static class ModelBenchRunner
             sw.Stop();
             return new ModelBenchCaseResult(testCase, model, Success: false, null, ModelBenchVerdict.Error,
                 sw.Elapsed, $"Timed out after {timeout.TotalSeconds:0}s -- see the AMD-stock-price incident: a weak model can loop or stall indefinitely on some prompts.");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // USER cancellation (not a per-case timeout) must propagate — swallowing it as a
+            // verdict lets a cancel on the final case complete the whole run as "Completed"
+            // and save a report the user asked to abort (grok review BLOCKER).
+            throw;
         }
         catch (Exception ex)
         {
