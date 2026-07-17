@@ -45,9 +45,20 @@ subsystems:
     note: >
       CF-0 through CF-8 landed. Deterministic ingestion, document graph
       retrieval, native readers/reducers, citation verification, distributed
-      HIVE readers. CF-7 benchmark gate closed (GO) after NoKvSlot root-cause
-      fix (Gemma-4-class llama.cpp limitation, not a TheOrc defect) and three
-      tiers of retrieval-quality fixes.
+      HIVE readers. CF-7 benchmark gate closed GO 2026-07-17 on the real,
+      un-marked expanded corpus (cf-expanded-book-v1, 128 segments, 120 real
+      held-out questions) -- Qwen3.5-9B-Q8_0: 128/128 segments, 104/120
+      questions (best baseline 52/120), citation precision 97.1%. The prior
+      "GO" (2026-07-03, PR #32) was against a corpus later found to be
+      overclaimed (marked/leaked evidence lines); this run is the honest
+      replacement, not a re-confirmation. Preceded by the §7e NoKvSlot
+      exact-token-admission fix (PR #63) and two independent bugs found
+      while live-validating the real corpus: the open-extraction reader
+      silently dropping facts on dense segments (no recall safety net,
+      unlike marked-mode reading) and the exhaustive-leaf-coverage gate
+      checking a stale whole-corpus assumption left over from the frozen
+      16-segment fixture instead of each exhaustive question's own expected
+      segment set. See feat/cf7-open-extraction-recall-fix.
 
   orc_academy:
     status: production
