@@ -12,6 +12,19 @@ namespace OrchestratorIDE.Services.ContextFabric;
 public sealed class ContextFabricFeasibilityRunner
 {
     private const int MaxRawOutputExcerptChars = 400;
+    private const string NoCompleteRootSummary = "No complete root summary is available.";
+    private const string AnswerSystemPrompt =
+        "[FABRIC_ANSWER] Answer only from supplied evidence. Return one JSON object only. Every factual answer claim " +
+        "must cite exact quotes and segment IDs from the evidence. Set citation offsets to -1 and quoteDigest empty. " +
+        "For multi-hop questions the answer sentence MUST spell out the full chain, naming every identifier from every link " +
+        "verbatim (never just the final value), and the claim's citations array MUST contain one exact quote from every " +
+        "evidence card that contributes a link — an answer with fewer citations than chain links is invalid. " +
+        "For contradiction questions, include both the current and superseded facts and cite at least one quote from each card. " +
+        "For exhaustive questions, include every matching item and preserve segment IDs exactly. " +
+        "When not abstaining, return exactly one claim whose text equals the answer and attach every supporting citation to it. " +
+        "If evidence is insufficient, set abstained=true, use no claims, and say that the corpus does not establish the answer. " +
+        "Output shape: {\"schemaVersion\":\"cf0-answer-1.0\",\"answer\":\"...\",\"abstained\":false,\"claims\":[{\"text\":\"...\", " +
+        "\"citations\":[{\"segmentId\":\"...\",\"charStart\":-1,\"charEnd\":-1,\"quote\":\"exact source text\",\"quoteDigest\":\"\"}]}]}";
 
     // Single source of truth for the token-safety margin lives in FabricContextBudget
     // (ContextFabricContracts.cs), which compiles into NativeRuntime unlike EvidencePackBuilder.cs.
@@ -556,32 +569,16 @@ public sealed class ContextFabricFeasibilityRunner
         if (question.Kind == FabricQuestionKind.Exhaustive)
             return BuildExhaustiveAnswer(corpus, question, cards);
 
-        var packed = BuildEvidencePack(question, cards, root);
+        var packed = BuildEvidencePack(question, cards, root, corpus.CorpusId);
         var input = new AnswerInput(
             FabricSchemaVersions.Answer,
             corpus.CorpusId,
             question.QuestionId,
             question.Kind.ToString(),
             question.Question,
-            root?.Summary ?? "No complete root summary is available.",
+            root?.Summary ?? NoCompleteRootSummary,
             packed.Evidence);
-        var messages = new AgentMessage[]
-        {
-            SystemMessage(
-                "[FABRIC_ANSWER] Answer only from supplied evidence. Return one JSON object only. Every factual answer claim " +
-                "must cite exact quotes and segment IDs from the evidence. Set citation offsets to -1 and quoteDigest empty. " +
-                "For multi-hop questions the answer sentence MUST spell out the full chain, naming every identifier from every link " +
-                "verbatim (never just the final value), and the claim's citations array MUST contain one exact quote from every " +
-                "evidence card that contributes a link — an answer with fewer citations than chain links is invalid. " +
-                "For contradiction questions, include " +
-                "both the current and superseded facts and cite at least one quote from each card. " +
-                "For exhaustive questions, include every matching item and preserve segment IDs exactly. " +
-                "When not abstaining, return exactly one claim whose text equals the answer and attach every supporting citation to it. " +
-                "If evidence is insufficient, set abstained=true, use no claims, and say that the corpus does not establish the answer. " +
-                "Output shape: {\"schemaVersion\":\"cf0-answer-1.0\",\"answer\":\"...\",\"abstained\":false,\"claims\":[{\"text\":\"...\", " +
-                "\"citations\":[{\"segmentId\":\"...\",\"charStart\":-1,\"charEnd\":-1,\"quote\":\"exact source text\",\"quoteDigest\":\"\"}]}]}"),
-            UserMessage(FabricJson.Serialize(input)),
-        };
+        var messages = BuildAnswerMessages(input);
         var invocation = await InvokeAsync(
             "answer",
             question.QuestionId,
@@ -661,7 +658,8 @@ public sealed class ContextFabricFeasibilityRunner
     internal EvidencePack BuildEvidencePack(
         FabricBenchmarkQuestion question,
         IReadOnlyList<FabricEvidenceCard> cards,
-        FabricReductionNode? root)
+        FabricReductionNode? root,
+        string corpusId = "corpus")
     {
         var terms = TokenizeForScoring(question.Question);
         terms.ExceptWith(_scoringStopwords);
@@ -772,15 +770,23 @@ public sealed class ContextFabricFeasibilityRunner
             var projected = evidence.Append(candidateEvidence).ToArray();
             var input = new AnswerInput(
                 FabricSchemaVersions.Answer,
-                "corpus",
+                corpusId,
                 question.QuestionId,
                 question.Kind.ToString(),
                 question.Question,
-                root?.Summary ?? "",
+                root?.Summary ?? NoCompleteRootSummary,
                 projected);
             var projectedTokens = (int)Math.Ceiling(
                 ContextManager.EstimateTokens(FabricJson.Serialize(input)) * EvidenceTokenSafetyMargin);
             if (projectedTokens > budgetLimit)
+                return false;
+            var exactPromptTokens = _runtime.CountPromptTokens(
+                RuntimeRole.Reviewer,
+                BuildAnswerMessages(input));
+            var chaseReserve = _options.ContextBudget.EvidenceLimit - budgetLimit;
+            var exactContextLimit = _options.ContextBudget.ContextLimit - chaseReserve;
+            if (exactPromptTokens is { } exact &&
+                (long)exact + _options.AnswerMaxTokens > exactContextLimit)
                 return false;
             evidence.Add(candidateEvidence);
             included.Add(card.SegmentId);
@@ -829,6 +835,12 @@ public sealed class ContextFabricFeasibilityRunner
 
         return new EvidencePack(evidence, included);
     }
+
+    private static AgentMessage[] BuildAnswerMessages(AnswerInput input) =>
+    [
+        SystemMessage(AnswerSystemPrompt),
+        UserMessage(FabricJson.Serialize(input)),
+    ];
 
     /// <summary>
     /// Tier 2.5 (CF_RETRIEVAL_IMPROVEMENT_PLAN.md): reference-chasing for multi-hop chains.
@@ -1112,14 +1124,17 @@ public sealed class ContextFabricFeasibilityRunner
         int maxTokens,
         CancellationToken ct)
     {
-        // EstimateTokens is a crude chars/4 heuristic that under-counts token-dense prompts.
-        // The margin-adjusted value is used only for the budget gate; the raw estimate is used
-        // as the reporting fallback so FabricCallMetrics don't show inflated prompt-token counts.
+        // Use the loaded model's exact rendered-prompt count when available. The chars/4 estimate
+        // and margin remain the fallback for runtimes without a native tokenizer (and before a
+        // native model's first load); NativeRoleRuntime still bounds that first request itself.
         var rawPromptTokens = messages.Sum(message => ContextManager.EstimateTokens(message.Content));
-        var gatePromptTokens = (int)Math.Ceiling(rawPromptTokens * EvidenceTokenSafetyMargin);
-        if (gatePromptTokens + maxTokens > _options.ContextBudget.ContextLimit)
+        var exactPromptTokens = _runtime.CountPromptTokens(role, messages);
+        var gatePromptTokens = exactPromptTokens ??
+            (int)Math.Ceiling(rawPromptTokens * EvidenceTokenSafetyMargin);
+        if ((long)gatePromptTokens + maxTokens > _options.ContextBudget.ContextLimit)
             throw new FabricContextBudgetExceededException(
-                $"{stage}/{itemId} requires up to {gatePromptTokens + maxTokens} tokens (margin-adjusted), exceeding {_options.ContextBudget.ContextLimit}.");
+                $"{stage}/{itemId} requires up to {(long)gatePromptTokens + maxTokens} tokens " +
+                $"({(exactPromptTokens.HasValue ? "exact" : "margin-adjusted")}), exceeding {_options.ContextBudget.ContextLimit}.");
 
         var stopwatch = Stopwatch.StartNew();
         var output = new StringBuilder();
@@ -1152,7 +1167,7 @@ public sealed class ContextFabricFeasibilityRunner
                     stage,
                     itemId,
                     role,
-                    reportedPrompt > 0 ? reportedPrompt : rawPromptTokens,
+                    reportedPrompt > 0 ? reportedPrompt : exactPromptTokens ?? rawPromptTokens,
                     completionTokens,
                     _options.ContextBudget.ContextLimit,
                     stopwatch.ElapsedMilliseconds,
@@ -1173,7 +1188,7 @@ public sealed class ContextFabricFeasibilityRunner
                     stage,
                     itemId,
                     role,
-                    rawPromptTokens,
+                    exactPromptTokens ?? rawPromptTokens,
                     ContextManager.EstimateTokens(output.ToString()),
                     _options.ContextBudget.ContextLimit,
                     stopwatch.ElapsedMilliseconds,

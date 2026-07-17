@@ -402,6 +402,18 @@ public sealed class ContextFabricCf0Tests
     }
 
     [Test]
+    public async Task FeasibilityRunner_ReportsExactPromptTokens_WhenRuntimeProvidesThem()
+    {
+        var runtime = new ScriptedFabricRuntime { PromptTokenCounter = _ => 1_000 };
+        var report = await new ContextFabricFeasibilityRunner(runtime)
+            .RunAsync(DeterministicFabricCorpus.Create());
+        var runtimeCalls = report.Calls.Where(call => call.PromptPath == "Scripted").ToArray();
+
+        Assert.That(runtimeCalls, Is.Not.Empty);
+        Assert.That(runtimeCalls, Has.All.Property(nameof(FabricCallMetrics.PromptTokens)).EqualTo(1_000));
+    }
+
+    [Test]
     public void AnswerVerifier_RejectsForgedCitation()
     {
         var fixture = DeterministicFabricCorpus.Create();

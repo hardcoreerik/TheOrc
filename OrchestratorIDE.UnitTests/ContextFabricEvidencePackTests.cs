@@ -1,6 +1,7 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using NUnit.Framework;
+using System.Text.Json;
 using OrchestratorIDE.Services.ContextFabric;
 
 namespace OrchestratorIDE.UnitTests;
@@ -90,6 +91,38 @@ public sealed class ContextFabricEvidencePackTests
         var pack = runner.BuildEvidencePack(question, cards, null);
 
         Assert.That(pack.IncludedSegmentIds.Count, Is.GreaterThan(4));
+    }
+
+    [Test]
+    public void BuildEvidencePack_UsesExactPromptTokens_AndPreservesMultiHopReserve()
+    {
+        var cards = new[]
+        {
+            Card("seg-1", "First reading.", "Station Bravo logged reading MARK-001."),
+            Card("seg-2", "Second reading.", "Station Bravo logged reading MARK-002."),
+        };
+        var question = new FabricBenchmarkQuestion(
+            "q-exact", FabricQuestionKind.GlobalSynthesis,
+            "What readings did Station Bravo log?", ["MARK-001"], ["seg-1"]);
+        var runtime = new ScriptedFabricRuntime
+        {
+            PromptTokenCounter = messages =>
+            {
+                using var json = JsonDocument.Parse(messages[^1].Content);
+                return json.RootElement.GetProperty("evidence").GetArrayLength() == 1 ? 1_920 : 1_921;
+            },
+        };
+        var options = new FabricRunOptions(
+            new FabricContextBudget(ContextLimit: 2_048, ResponseReserve: 128, SystemReserve: 128),
+            AnswerMaxTokens: 128);
+
+        var pack = new ContextFabricFeasibilityRunner(runtime, options)
+            .BuildEvidencePack(question, cards, null);
+        var multiHopPack = new ContextFabricFeasibilityRunner(runtime, options)
+            .BuildEvidencePack(question with { Kind = FabricQuestionKind.MultiHop }, cards, null);
+
+        Assert.That(pack.IncludedSegmentIds, Has.Count.EqualTo(1));
+        Assert.That(multiHopPack.IncludedSegmentIds, Is.Empty);
     }
 
     [Test]

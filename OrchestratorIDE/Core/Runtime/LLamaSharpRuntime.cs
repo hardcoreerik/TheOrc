@@ -5,6 +5,7 @@ using System.Text;
 using LLama;
 using LLama.Batched;
 using LLama.Common;
+using LLama.Native;
 using OrchestratorIDE.Models;
 
 namespace OrchestratorIDE.Core.Runtime;
@@ -84,6 +85,24 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
                 "No model loaded. Call LoadModelAsync before requesting a BatchedExecutor.");
         return new BatchedExecutor(_weights, _modelParams);
     }
+
+    internal LLamaToken[] TokenizePromptForLoadedModel(
+        IEnumerable<AgentMessage> history,
+        IReadOnlyList<object>? tools)
+    {
+        if (_weights is null)
+            throw new InvalidOperationException(
+                "No model loaded. Call LoadModelAsync before tokenizing a native prompt.");
+        return _weights.Tokenize(
+            BuildPromptForLoadedModel(history, tools),
+            add_bos: true,
+            special: true,
+            Encoding.UTF8);
+    }
+
+    internal bool IsModelLoaded(string path) =>
+        _activeModelPath is not null &&
+        string.Equals(_activeModelPath, path, StringComparison.OrdinalIgnoreCase);
 
     // Bumped every time _weights is reassigned (new load or unload via DisposeAsync).
     // AdapterManager compares this against the generation it built its executors against —

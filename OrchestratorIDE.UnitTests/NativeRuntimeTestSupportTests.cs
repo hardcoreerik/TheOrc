@@ -419,6 +419,20 @@ public sealed class NativeRuntimeTestSupportTests
     }
 
     [Test]
+    public void NativeRoleRuntime_CompletionLimit_UsesOnlyRemainingContextCells()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(NativeRoleRuntime.GetCompletionTokenLimit(1_000, 2_048, 8_192), Is.EqualTo(2_048));
+            Assert.That(NativeRoleRuntime.GetCompletionTokenLimit(7_000, 2_048, 8_192), Is.EqualTo(1_192));
+            Assert.That(NativeRoleRuntime.GetCompletionTokenLimit(8_192, 2_048, 8_192), Is.Zero);
+            Assert.That(
+                () => NativeRoleRuntime.GetCompletionTokenLimit(8_193, 1, 8_192),
+                Throws.InvalidOperationException.With.Message.Contains("exceeding the native context size"));
+        });
+    }
+
+    [Test]
     public async Task NativeRoleRuntime_EmptyDepot_Returns_ClearFailure_Before_ModelLoad()
     {
         var root = NewTempRoot();

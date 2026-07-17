@@ -201,10 +201,10 @@ reserve the same ~2GB rs-cache budget for no benefit — split into a separate
 
 Verified live: zero `NoKvSlot`, zero OOM, across full 120-question runs on
 both `Qwen3.5-9B-Q8_0` (2h35m) and `Qwen3.5-9B-Q4_K_M` (2h31m). See PR #56.
-**Update (2026-07-15, see §7e): this "zero `NoKvSlot`" claim does not
-generalize — two later Phase E re-runs on identical code hit a severe,
-unresolved `NoKvSlot` storm. Treat this section's fix as "greatly reduces,
-does not eliminate," not "fixed."**
+**Update (2026-07-15, see §7e): the later Phase E failures were a distinct
+attention-context-capacity defect, not a recurrence of §7b's recurrent
+`SeqMax` failure. PR #56 remains the fix for recurrent sequence capacity;
+§7e addresses prompt-plus-completion fit within `n_ctx`.**
 Both runs' actual benchmark scores were low (B3 16/120 and 1/120
 respectively, both NO-GO). **This was reported at the time as "a real
 capability finding about Qwen3.5-9B" — that conclusion turned out to be
@@ -288,79 +288,94 @@ its CF-7 numbers are trusted — a 0/128 (or near-0) segment-acceptance rate
 alongside `<think>`-prefixed raw outputs is the signature of this exact
 failure mode, not a model-capability result.
 
-### §7e. OPEN, UNRESOLVED (2026-07-15): `NoKvSlot` recurred on a fully-fixed `Qwen3.5-9B-Q8_0`, contradicting §7b's "zero `NoKvSlot`" claim
+### §7e. RESOLVED (2026-07-16, live-gate validated): exact prompt capacity, not persistent cache poisoning
 
-A Phase E re-run of `Qwen3.5-9B-Q8_0` — same `SeqMax`/`SequenceHardLimit=40`
-fix from §7b, same thinking-suppression fix from §7c, no runtime code changes
-since PR #56 — hit **96 separate `NoKvSlot` incidents**, each exhausting all 8
-retries before a forced recycle (gate `cf7_gate_20260715_181445_828_...`, log
-`cf7-phaseE-full120-q8_0.log`). `§7b`'s claim that PR #56 verified "zero
-`NoKvSlot`, zero OOM" across a full Q8_0 run was accurate for the run it was
-based on, but this new run — identical code — proves that claim does not
-generalize to "eliminated." Downgrading §7b's claim from "fixed" to "greatly
-reduced, not deterministic."
+Two Phase E runs remain valid historical records of broken infrastructure:
+`Qwen3.5-9B-Q8_0` hit **96** `NoKvSlot` incidents and scored 14/120; the
+`Qwen3.5-9B-Q4_K_M` diagnostic hit **59** and scored 40/120. Both scores are
+still void as capability measurements. The incident counts were real, but the
+original explanation was wrong.
 
-**Failure signature, and why it looks different from §7b/§7a:** the storm
-starts cleanly (7 uneventful natural recycles on the `Researcher` role,
-`minted=24` each, no forced recycles) then, immediately after the
-`Researcher`'s 7th recycle, the `Reviewer` role's *next fresh, freshly-built*
-executor fails to decode — `RECYCLING minted=1 activeCount=0 forced=True`
-followed immediately by another `decode: failed to find a memory slot`, for
-every subsequent conversation for the rest of the run (96 times straight, one
-every ~138 log lines). Unlike §7b (broken on literally the 2nd conversation
-ever, deterministic from cold start) or the historical Gemma-4 pattern (near-
-universal from the first conversation), this run's first ~76,000 log lines
-(≈7 full `Researcher` recycle cycles, ~168 conversations) were clean — the
-break only starts partway through, and once started, never recovers for the
-rest of the run, even though `ForceRecycle` gives every subsequent
-conversation a genuinely fresh, from-scratch executor (`minted=1` every time,
-not climbing).
+**Root cause:** the first B3 `Reviewer` request's fully templated prompt plus
+its requested completion exceeded the fixed 8,192-cell attention context. The
+CF packer admitted evidence with `ContextManager.EstimateTokens` (a `chars/4`
+heuristic plus a 15% margin), which under-counted Qwen's actual tokenization of
+the JSON-heavy prompt. llama.cpp then exhausted the request's own attention-KV
+cells during generation. The matching upstream two-line signature is
+documented in [ggml-org/llama.cpp#20049](https://github.com/ggml-org/llama.cpp/issues/20049#issuecomment-4054052141):
+`init_batch: failed to prepare attention ubatches` followed by
+`decode: failed to find a memory slot` is total attention-context exhaustion.
+It is not the recurrent `seq_id >= n_seq_max` path fixed in §7b.
 
-**Root cause not yet found.** The native log shows the fresh `Reviewer`
-context's construction completing successfully (RS buffer reserved, no CUDA
-error) before the decode itself fails — so this is not a context-construction
-allocation failure (ruling out simple VRAM exhaustion-at-construction as the
-direct cause, though VRAM fragmentation building up in the driver across ~168
-prior conversations' worth of alloc/free cycles by the time `Reviewer` first
-needs to recycle remains an open, unverified hypothesis: model (8.86 GiB) +
-**both** roles' `n_seq_max=40` contexts concurrently active (`Researcher` and
-`Reviewer` each reserve their own ~2.5 GiB rs-cache, ~5 GiB combined) leaves
-only ~850 MiB of headroom against `15037 MiB free`, before accounting for
-driver-level fragmentation or this machine's own baseline ~1.2-1.9 GiB
-desktop GPU usage. Resulting B3
-score for this run (14/120, *worse* than `B0` closed-book) is **not usable as
-a capability measurement** — it is a corrupted-run artifact and is excluded
-from Phase E's Qwen3.5 results.
+The raw artifacts confirm that this was not a first-decode failure. Q8_0's
+first affected request generated 6 completion tokens (beginning the answer
+JSON) before exhausting the context; Q4_K_M generated 126 tokens, including a
+substantive answer and partial citations. Both fresh contexts completed their
+KV/RS/compute allocations with no CUDA OOM before inference. Across the full
+logs, context construction and destruction counts were balanced, later B0-B2
+contexts ran cleanly, and every allocation succeeded. That evidence rejects
+persistent allocator fragmentation, recurrent-cache exhaustion, and
+cross-role pool poisoning as explanations for this storm.
 
-**Practical guidance until root-caused:** do not trust any Qwen3.5 (or other
-hybrid/recurrent-architecture) CF-7 score without first grep'ing its raw log
-for `NoKvSlot` and checking whether the incident count is small/isolated
-(like `qwen2.5-coder`'s 2 incidents, §6 row 14 in `CF_TEST_RESULTS.md`,
-plausibly harmless) or forms a sustained, never-recovering storm like this
-one (score is void). A `--max-questions 30` smoke run is **not sufficient** to
-catch this — the storm here only started after ~168 prior conversations, well
-past what a 30-question smoke test would exercise.
+The apparent onset after roughly 168 prior `Researcher` conversations was
+correlation, not accumulated damage: B3 was the first phase to send this large
+prompt through the `Reviewer`. The old Q4_K_M estimate of ~144 omitted the
+conversations already served by its active executor; its true onset was also
+about 168. Forced recycling then retried the same oversized request against a
+fresh context, so it could not repair the capacity mismatch. Q8_0 also did not
+"never recover": after onset its executor distribution was `89× minted=1`,
+`3×2`, `3×3`, and `1×4`, representing 12 additional successful conversations.
+Q4_K_M's distribution was `41×1`, `8×2`, `5×3`, `2×4`, `2×8`, and `1×12`.
+Those brief successes do not make either historical score usable.
 
-**Follow-up diagnostic (same session, `Qwen3.5-9B-Q4_K_M`):** re-ran the
-identical suite against the smaller quant (≈half the VRAM footprint of Q8_0,
-substantially more headroom against the 15037 MiB free budget) to test
-whether available VRAM headroom is the deciding factor. Result: **the storm
-still occurred, but measurably less severe** — 59 incidents (vs. Q8_0's 96),
-starting at the same point (after the `Researcher` role's 6th natural
-recycle, ~144 prior conversations, essentially the same onset as Q8_0's 7th/
-~168) but this time **partially recovering** rather than permanently
-breaking: `RECYCLING minted=` values after the storm starts were `1, 1, 3, 1,
-1, 4, 2, 2, 3, ...` — i.e., some fresh executors survived several
-conversations before failing again, instead of failing on the very first
-decode every single time as Q8_0 did. This is consistent with (but does not
-prove) the VRAM-fragmentation hypothesis above: less memory pressure delays
-and partially mitigates the failure without eliminating it. Root cause is
-still open — this new data narrows the search (onset correlates with
-`Researcher` conversation count, not wall-clock time or question index; more
-headroom reduces severity but does not fix it) but does not explain the
-underlying native trigger. `Qwen3.5-9B-Q4_K_M`'s B3 score from this run
-(40/120) is likewise **not usable** as a capability measurement for the same
-reason as Q8_0's.
+**Implemented fix:** native CF evidence admission now asks the loaded model to
+tokenize the fully rendered Reviewer prompt, including the chat template and
+system/user framing, before accepting each card. It reserves the complete
+`AnswerMaxTokens` allowance against the real context size. Native inference
+queues that same token array and caps generation to the remaining context
+cells, eliminating a count-versus-execution boundary mismatch. Runtimes that
+cannot provide an exact loaded-model count retain the existing conservative
+heuristic fallback.
+
+This fix deliberately leaves `SeqMax=40`, `SequenceRecycleThreshold=24`,
+`SequenceHardLimit=40`, thinking suppression, disposal behavior, and the
+LLamaSharp 0.27.0 pin unchanged. Targeted unit tests pass.
+
+**Live-gate validation (2026-07-16, NEWCOREPC, PR #63 head `33d6eab2`):** the
+required clean, complete gates have now run and passed the bug-specific
+criteria on all three replays, all with `THEORC_KVCACHE_DIAGNOSTICS=1`:
+
+- **One-question Q8_0 smoke** (`cf7-7e-smoke1-q8_0-20260715_224107.log`,
+  18:14): full 128-segment ingestion + 1 answered question, **zero**
+  `NoKvSlot` / `failed to find a memory slot` /
+  `failed to prepare attention ubatches` matches.
+- **Full 120-question Q8_0 gate**
+  (`cf7-7e-full120-q8_0-20260715_230005.log`, 41:42, gate
+  `cf7_gate_20260716_064147_541_b6bb535228404553804e035353c4e4d1`): **zero**
+  incident matches across all of B3 + B0/B1/B2; 12 executor recycles, every
+  one a healthy natural threshold recycle (`minted=24, forced=False`) —
+  sailing far past the ~168-conversation onset point of both corrupted runs.
+  `max_prompt_tokens` 6,656/8,192 shows the exact-token admission clamp
+  holding real headroom. B3 **75/120**, B2 52/120 — `Graded capability` PASS
+  (B3 beats best baseline by 23; citation_precision 92.7% clears 0.90);
+  `boundary_stitch` 2/2 PASS. Overall verdict NO-GO solely on
+  `segment_terminal_coverage` 123/128 (96.1% vs. 1.0 blocking target), a
+  pre-existing ingestion-quality gap unrelated to this bug.
+- **Full 120-question Q4_K_M gate**
+  (`cf7-7e-full120-q4km-20260715_234244.log`, 27:51, gate
+  `cf7_gate_20260716_071035_006_dc4e73df346e46869d2fbd05da9355ab`): **zero**
+  incident matches. `max_prompt_tokens` 6,655/8,192. B3 **67/120**, B2
+  57/120 — `Graded capability` PASS (citation_precision 96.5%);
+  `boundary_stitch` 2/2 PASS. Overall NO-GO again solely on
+  `segment_terminal_coverage` 117/128 (91.4%).
+
+Both quants also completed dramatically faster than the §7b-era 2.5-hour
+runs (41:42 / 27:51) — expected, since thinking suppression (§7c) removes
+the reasoning-token overhead those earlier timings included. These are the
+**first valid full-scale Qwen3.5-9B CF-7 capability scores** (see
+`CF_TEST_RESULTS.md` §6 rows 17-18), and Q8_0's 75/120 is the highest B3
+score recorded on any model to date (previous best: Meta-Llama-3.1-8B's
+58/120). §7e is closed.
 
 ### §7d. Exhaustive-category heuristic hardening (2026-07-15, Remediation Phase 3)
 

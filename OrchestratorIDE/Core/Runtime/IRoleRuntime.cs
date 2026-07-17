@@ -18,6 +18,16 @@ public interface IRoleRuntime
 {
     string RuntimeName { get; }
 
+    /// <summary>
+    /// Returns the loaded model's exact token count for the fully rendered prompt when the
+    /// runtime can provide it. Runtimes without a native tokenizer return <see langword="null"/>
+    /// so callers can retain their conservative fallback estimate.
+    /// </summary>
+    int? CountPromptTokens(
+        RuntimeRole role,
+        IEnumerable<AgentMessage> history,
+        IReadOnlyList<object>? tools = null) => null;
+
     IAsyncEnumerable<string> StreamRoleCompletionAsync(
         RuntimeRole role,
         IEnumerable<AgentMessage> history,
@@ -176,6 +186,21 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
     public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) =>
         Task.FromResult<int?>(_options.ContextLength);
 
+    public int? CountPromptTokens(
+        RuntimeRole role,
+        IEnumerable<AgentMessage> history,
+        IReadOnlyList<object>? tools = null)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(history);
+        var binding = _roleBindings.TryGetValue(role, out var configured)
+            ? configured
+            : _depot.ResolveRole(role);
+        if (binding is null || !_runtime.IsModelLoaded(binding.BaseModel.Path))
+            return null;
+        return _runtime.TokenizePromptForLoadedModel(history, tools).Length;
+    }
+
     public string? GetLastPromptPath(RuntimeRole role)
     {
         ThrowIfDisposed();
@@ -238,16 +263,22 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
             Temperature = (float)Math.Clamp(temperature, 0.0, 2.0),
         };
 
-        var prompt = _runtime.BuildPromptForLoadedModel(history, tools);
+        var promptTokens = _runtime.TokenizePromptForLoadedModel(history, tools);
         var promptPath = _runtime.GetLastPromptPath() ?? "Unknown";
+        var completionLimit = GetCompletionTokenLimit(
+            promptTokens.Length,
+            maxTokens,
+            executor.Context.ContextSize);
         var started = DateTime.UtcNow;
         var firstTokenAt = default(DateTime);
         var outputBuilder = new StringBuilder();
 
-        conversation.Prompt(prompt, addBos: true, special: true);
+        // Queue the same array used for the exact capacity check. Re-tokenizing the string here
+        // would make the guard and the native request capable of disagreeing at the boundary.
+        conversation.Prompt(promptTokens);
         await InferUntilReadyAsync(conversation, role, ct).ConfigureAwait(false);
 
-        for (var i = 0; i < Math.Max(0, maxTokens); i++)
+        for (var i = 0; i < completionLimit; i++)
         {
             ct.ThrowIfCancellationRequested();
 
@@ -306,11 +337,23 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
             _lastPromptPathByRole[role] = promptPath;
         }
 
-        onUsage?.Invoke(ContextManager.EstimateTokens(prompt), completionTokens);
+        onUsage?.Invoke(promptTokens.Length, completionTokens);
 
         if (onToolCall is not null)
             foreach (var tc in ToolCallTextParser.Parse(outputText))
                 onToolCall(tc);
+    }
+
+    internal static int GetCompletionTokenLimit(
+        int promptTokenCount,
+        int requestedMaxTokens,
+        uint contextSize)
+    {
+        var available = (long)contextSize - promptTokenCount;
+        if (available < 0)
+            throw new InvalidOperationException(
+                $"Rendered prompt is {promptTokenCount} tokens, exceeding the native context size of {contextSize}.");
+        return (int)Math.Min(Math.Max(0, requestedMaxTokens), available);
     }
 
     private async Task InferUntilReadyAsync(
@@ -323,13 +366,11 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
             var result = await conversation.Executor.Infer(ct).ConfigureAwait(false);
             if (result == DecodeResult.NoKvSlot)
             {
-                // A 100-question CF-7 gate run (docs/CONTEXT_FABRIC_BUG_HISTORY.md §7) showed
-                // NoKvSlot recurring on ~all subsequent conversations once it first occurred on a
-                // role's executor -- evidence the pool stays degraded rather than a single
-                // oversized prompt being the whole story. Mark the role for AdapterManager to
-                // recycle its executor at the next opportunity (fresh, empty pool) as soon as
-                // NoKvSlot is seen at all, not just when we give up retrying -- even a
-                // retry-recovered hit is evidence of degradation worth not compounding further.
+                // NoKvSlot means the pending batch could not reserve enough attention-KV cells.
+                // Exact prompt accounting and the completion cap above prevent a single request
+                // from exceeding its context. Keep the existing degraded-role recycle as
+                // defense-in-depth for other causes such as temporary cross-conversation pressure,
+                // and mark it on the first hit rather than waiting for the final retry.
                 // Deliberately NOT passed this request's cancellation token: the mark must
                 // survive the request being cancelled, or the degraded executor gets reused by
                 // the next request (CodeRabbit finding, 2026-07-06). Cancellation still
