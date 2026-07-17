@@ -1376,10 +1376,19 @@ public sealed class ContextFabricFeasibilityRunner
             new("cross-segment-reasoning",
                 multiHop is not null && multiHop.Verification.Passed && multiHop.Verification.VerifiedSegmentIds.Count >= 2,
                 $"verifiedSegments={multiHop?.Verification.VerifiedSegmentIds.Count ?? 0}"),
+            // Checks the found exhaustive question's OWN expected segment set, not the whole
+            // corpus: DeterministicFabricCorpus's frozen fixture has exactly one exhaustive
+            // category whose ExpectedSegmentIds happens to be every segment, so
+            // "== fixture.Corpus.Segments.Count" used to be equivalent to this. The expanded
+            // corpus's 15 per-ledger exhaustive categories each scope to their own 3-5 segments
+            // (DeterministicExpandedFabricCorpus.cs), so that equality was unsatisfiable there --
+            // a flawless answer to "list every case-file ID under ledger case-ledger-01" cites 4
+            // segments, never all 128, which sank this gate on every live CF-7 run regardless of
+            // answer quality (found 2026-07-17: included=4/128 with Verification.Passed=true).
             new("exhaustive-leaf-coverage",
                 exhaustive is not null && exhaustive.Verification.Passed &&
-                exhaustive.IncludedSegmentIds.Count == fixture.Corpus.Segments.Count,
-                $"included={exhaustive?.IncludedSegmentIds.Count ?? 0}/{fixture.Corpus.Segments.Count}"),
+                exhaustive.Question.ExpectedSegmentIds.All(exhaustive.IncludedSegmentIds.Contains),
+                $"included={exhaustive?.IncludedSegmentIds.Count ?? 0}/{exhaustive?.Question.ExpectedSegmentIds.Count ?? 0}"),
             new("citation-precision",
                 precision >= 0.90,
                 $"mean={precision:P1}"),
