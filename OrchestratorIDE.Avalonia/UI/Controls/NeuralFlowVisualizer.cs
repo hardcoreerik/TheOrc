@@ -252,11 +252,12 @@ public sealed class NeuralFlowVisualizer : Control
             double y = yMax - v * (yMax - yMin) * Math.Min(1.0, fillFrac + 0.15);
             double widen = 0.28 + 0.72 * Math.Clamp((y - yMin) / Math.Max(1, yMax - yMin), 0, 1);
             double x = cx + (Hash(i, 53) * 2 - 1) * halfW * widen;
-            // Interleave verdict colours through the pile via the index hash (stable but
-            // scattered, so failures don't clump into one corner).
-            int bucket = (int)(Hash(i, 67) * dots);
-            var color = bucket < failDots ? ErrCol
-                : bucket < failDots + warnDots ? WarnCol
+            // Verdict colours by exact index range: the coordinate hashes above already
+            // scatter positions, and range assignment guarantees every allocated failure
+            // dot actually renders red — hash-bucket sampling (with replacement) could
+            // miss the fail range entirely on small piles (CodeRabbit review).
+            var color = i < failDots ? ErrCol
+                : i < failDots + warnDots ? WarnCol
                 : Accent;
             ctx.DrawEllipse(new SolidColorBrush(color, 0.9), null, new Point(x, y), 2.0, 2.0);
         }

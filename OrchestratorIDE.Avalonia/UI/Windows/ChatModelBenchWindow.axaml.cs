@@ -155,9 +155,16 @@ public partial class ChatModelBenchWindow : Window
         if (_pauseGate.IsPaused)
         {
             // Shift the estimate anchor by the paused duration so the countdown resumes from
-            // where it froze instead of jumping toward zero (CodeRabbit review).
+            // where it froze instead of jumping toward zero. Anchor to the LATER of pause
+            // instant and last estimate: an in-flight case that completed during the pause
+            // already moved _lastEstimateAtUtc forward, and shifting that fresh anchor by the
+            // whole pause would place it in the future and re-freeze the countdown
+            // (CodeRabbit review).
             if (_pausedAtUtc is { } pausedAt)
-                _lastEstimateAtUtc += DateTimeOffset.UtcNow - pausedAt;
+            {
+                var frozenAt = _lastEstimateAtUtc > pausedAt ? _lastEstimateAtUtc : pausedAt;
+                _lastEstimateAtUtc += DateTimeOffset.UtcNow - frozenAt;
+            }
             _pausedAtUtc = null;
             _pauseGate.Resume();
             _telemetry.ResumeRun();
@@ -309,9 +316,19 @@ public partial class ChatModelBenchWindow : Window
             string summary;
             try
             {
-                var path = await ModelBenchReportStore.WriteAsync(report, _workspaceRoot);
+                // Cancellation-aware: a cancel clicked while the report is being written must
+                // end the run as Cancelled, not save the aborted run's report as Completed
+                // (CodeRabbit review). A partially written file is tolerated — LoadAll skips
+                // corrupt reports by design.
+                var path = await ModelBenchReportStore.WriteAsync(report, _workspaceRoot, _runCts.Token);
                 _telemetry.StageEnded("report", TestStageStatus.Completed, Path.GetFileName(path));
                 summary = $"Done — {selected.Count} model{(selected.Count == 1 ? "" : "s")}, {report.Results.Count} cases. Saved {Path.GetFileName(path)}.";
+            }
+            catch (OperationCanceledException)
+            {
+                // Bypass the save-failed warning: EndRun(Cancelled) in the outer handler marks
+                // the still-active report stage Cancelled itself.
+                throw;
             }
             catch (Exception ex)
             {
