@@ -19,7 +19,7 @@ param(
     [string]$Range      = "HEAD~1..HEAD",
     [switch]$Staged,
     [string]$Focus      = "",
-    [string]$GrokModel  = "grok-build",
+    [string]$GrokModel  = "grok-4.5",
     [int]   $TimeoutSec = 600,
     [switch]$SkipCodex,
     [switch]$SkipGrok
@@ -48,7 +48,7 @@ if (-not $SkipGrok) {
     Write-Host "[dual-review] Starting Grok reviewer ($GrokModel)..." -ForegroundColor Magenta
     $jobs += Start-Job -Name "Grok" -ScriptBlock {
         param($tools, $range, $focus, $model, $timeout)
-        & pwsh -NonInteractive -File "$tools\grok-review.ps1" @range @focus -Model $model -TimeoutSec $timeout
+        & pwsh -NonInteractive -File "$tools\grok-review.ps1" @range @focus -Model $model -TimeoutSec $timeout -MaxDiffKB 512
         $LASTEXITCODE
     } -ArgumentList $tools, $rangeArg, $focusArg, $GrokModel, $TimeoutSec
 }
