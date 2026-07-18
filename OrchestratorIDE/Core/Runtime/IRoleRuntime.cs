@@ -82,7 +82,7 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
         ModelDepot depot,
         RuntimeOptions? options = null,
         IOrcScheduler? scheduler = null,
-        Func<VramBudget>? budgetProvider = null,
+        Func<VramBudget?>? budgetProvider = null,
         IReadOnlyDictionary<RuntimeRole, RuntimeRoleBinding>? roleBindings = null,
         bool allowUnbudgetedExecution = false)
         : this(
@@ -103,7 +103,7 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
         RuntimeOptions? options = null,
         bool disposeRuntime = false,
         IOrcScheduler? scheduler = null,
-        Func<VramBudget>? budgetProvider = null,
+        Func<VramBudget?>? budgetProvider = null,
         IReadOnlyDictionary<RuntimeRole, RuntimeRoleBinding>? roleBindings = null,
         bool allowUnbudgetedExecution = false)
     {
