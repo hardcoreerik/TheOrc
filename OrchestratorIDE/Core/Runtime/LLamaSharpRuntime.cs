@@ -27,7 +27,7 @@ namespace OrchestratorIDE.Core.Runtime;
 /// carries current macOS ARM64 Metal libraries; CUDA 12 is packaged only for x64 Windows/Linux.
 ///
 /// LoRA note: LLamaSharp 0.27 removed ModelParams.LoraAdapters. Adapter support
-/// is deferred to Phase 3 (RUNTIME_PHASE0_SPEC.md §7).
+/// is deferred to Phase 3 (docs/RUNTIME_PHASE0_SPEC.md §7).
 /// </summary>
 public sealed class LLamaSharpRuntime : ILocalModelRuntime
 {
@@ -70,7 +70,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         Task.FromResult<int?>(_weights is null ? null : _options.ContextLength);
 
     /// <summary>
-    /// Phase 3 / AdapterManager seam (RUNTIME_PHASE0_SPEC.md §7a). AdapterManager needs raw
+    /// Phase 3 / AdapterManager seam (docs/RUNTIME_PHASE0_SPEC.md §7a). AdapterManager needs raw
     /// LLamaWeights + IContextParams to build its own persistent per-role BatchedExecutor
     /// instances (separate from the StatelessExecutor this runtime uses for StreamCompletionAsync),
     /// but _weights/_modelParams must stay private to everyone else. This factory is the only
@@ -302,7 +302,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
                     return new ModelLoadResult(false, RuntimeName, baseGgufPath,
                         $"Adapter file not found: {adapterPath}");
                 // TODO: LLamaSharp 0.27 removed ModelParams.LoraAdapters. LoRA attach
-                // revisited in Phase 3 after KV-cache safety spike (RUNTIME_PHASE0_SPEC.md §7).
+                // revisited in Phase 3 after KV-cache safety spike (docs/RUNTIME_PHASE0_SPEC.md §7).
                 // The adapter path is stored so the UI can surface it, but it is NOT applied.
             }
 
@@ -340,13 +340,13 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
 
     /// <summary>
     /// LoRA hot-swap: NOT IMPLEMENTED until the KV-cache safety spike runs.
-    /// See RUNTIME_PHASE0_SPEC.md §7.
+    /// See docs/RUNTIME_PHASE0_SPEC.md §7.
     /// </summary>
     public Task SwapAdapterAsync(string? adapterName, CancellationToken ct = default) =>
         // Task.FromException so the exception surfaces via the returned Task, not synchronously.
         // A bare `=> throw` in a non-async Task-returning method bypasses async try/catch.
         Task.FromException(new NotSupportedException(
-            "LoRA hot-swap is spike-gated. See RUNTIME_PHASE0_SPEC.md §7. " +
+            "LoRA hot-swap is spike-gated. See docs/RUNTIME_PHASE0_SPEC.md §7. " +
             "Use LoadModelAsync with the desired adapterPath instead."));
 
     // ── IAsyncDisposable ─────────────────────────────────────────────────────

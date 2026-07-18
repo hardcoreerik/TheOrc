@@ -128,7 +128,7 @@ Tools/*.log
 /staged_*.txt
 *.staged.tmp
 
-# Spike harness re-run output (regenerable; canonical finding lives in RUNTIME_PHASE0_SPEC.md)
+# Spike harness re-run output (regenerable; canonical finding lives in docs/RUNTIME_PHASE0_SPEC.md)
 .grok/spike-assets/**/*.log
 
 # Marketplace — local publishing staging (Gumroad listings, model cards, release

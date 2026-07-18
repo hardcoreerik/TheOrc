@@ -22,7 +22,7 @@ namespace OrchestratorIDE.Core.Runtime;
 /// that mismatch structurally impossible instead of relying on caller discipline.
 ///
 /// <b>Known scope limitation, not a bug introduced here:</b> SessionManager manages a single
-/// shared base model load (RUNTIME_PHASE0_SPEC.md §3 — "persistent base model", singular). If
+/// shared base model load (docs/RUNTIME_PHASE0_SPEC.md §3 — "persistent base model", singular). If
 /// two roles resolve to <i>different</i> base GGUF files, switching between them forces a real
 /// reload (LLamaSharpRuntime.LoadModelAsync disposes the previous weights), which bumps
 /// WeightsGeneration, which — correctly, per AdapterManager's own invalidation rule — tears
@@ -266,7 +266,7 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
     }
 
     /// <summary>
-    /// Read-only snapshot of current VRAM admission state — RUNTIME_PHASE0_SPEC.md §3's
+    /// Read-only snapshot of current VRAM admission state — docs/RUNTIME_PHASE0_SPEC.md §3's
     /// "surface SessionManager/AdapterManager-backed telemetry" item. Deliberately does NOT wait
     /// on <see cref="_admissionGate"/>: this is a status read for UI/diagnostics, not a decision,
     /// so it never blocks behind an in-flight model load. It still takes the short, synchronous

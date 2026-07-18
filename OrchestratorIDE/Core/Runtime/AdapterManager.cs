@@ -7,7 +7,7 @@ namespace OrchestratorIDE.Core.Runtime;
 
 /// <summary>
 /// Native Runtime Phase 3 — per-role persistent LoRA contexts. Design rationale and the
-/// empirical spike behind it: RUNTIME_PHASE0_SPEC.md §7 (hot-swap spike) and §7a (this design).
+/// empirical spike behind it: docs/RUNTIME_PHASE0_SPEC.md §7 (hot-swap spike) and §7a (this design).
 ///
 /// One persistent <see cref="BatchedExecutor"/> per <see cref="RuntimeRole"/>. The role's
 /// adapter (if any) is loaded and attached exactly once, when that role's executor is first

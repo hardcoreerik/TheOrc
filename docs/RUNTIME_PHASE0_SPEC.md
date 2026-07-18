@@ -13,7 +13,7 @@
 > research) genuinely not started. The two opt-in toggles for Phases 0-3 (HIVE worker, main chat)
 > had zero Settings UI exposure until tonight -- fixed, not a code gap, a discoverability one.
 > **Author:** Claude (code-grounded). ChatGPT and Grok contributed the strategic framing and phasing; this doc is the authoritative spec because it is written against the actual codebase, not a generic mental model.
-> **Canonical location:** `.grok/RUNTIME_PHASE0_SPEC.md`. Referenced from `docs/ROADMAP.md` and `.grok/PROJECT_TRUTH.md` §4.
+> **Canonical location:** `docs/RUNTIME_PHASE0_SPEC.md` (moved here from `.grok/` — this is an architectural spec, not review scratch). Referenced from `docs/ROADMAP.md` and `.grok/PROJECT_TRUTH.md` §4.
 
 ---
 
@@ -355,7 +355,7 @@ every entry was attempted (never abandoning the rest of the cleanup on the first
 
 ## 11. ORCISH TONGUE — the universal tool caller (why native is a capability, not just cleanup)
 
-> **ORCISH TONGUE** is the new name for the system formerly called GOBLIN MIND (the tool-call format intelligence under `Services/ToolCalls/`). Rename inventory: [`.grok/RENAME_GOBLIN_MIND.md`](RENAME_GOBLIN_MIND.md). Renamed to end the GOBLIN MIND / HIVE MIND collision and to name what it actually does: speak every local model's tool-call dialect.
+> **ORCISH TONGUE** is the new name for the system formerly called GOBLIN MIND (the tool-call format intelligence under `Services/ToolCalls/`). Rename inventory: [`.grok/RENAME_GOBLIN_MIND.md`](../.grok/RENAME_GOBLIN_MIND.md). Renamed to end the GOBLIN MIND / HIVE MIND collision and to name what it actually does: speak every local model's tool-call dialect.
 
 ### What it is today (prompt layer — probabilistic)
 

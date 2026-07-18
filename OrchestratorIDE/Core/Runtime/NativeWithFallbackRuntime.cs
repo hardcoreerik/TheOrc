@@ -179,7 +179,7 @@ public sealed class NativeWithFallbackRuntime : IModelRuntime, IAsyncDisposable
     /// derives from <see cref="InvalidOperationException"/> — a review pass caught that the
     /// first draft's broad InvalidOperationException match would catch it too, which is the
     /// wrong call: admission denial is a deliberate "OrcScheduler decided native does not have
-    /// room for this role right now" outcome (RUNTIME_PHASE0_SPEC.md §6 Phase 4), not a transient
+    /// room for this role right now" outcome (docs/RUNTIME_PHASE0_SPEC.md §6 Phase 4), not a transient
     /// load failure. Silently rerouting every VRAM-constrained request to Ollama would mask a
     /// capacity problem indefinitely instead of surfacing it. Generic InvalidOperationException
     /// (covers "no base GGUF resolved," "no model loaded," "could not load base model" — the

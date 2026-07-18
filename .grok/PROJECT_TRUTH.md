@@ -310,7 +310,7 @@ Full spec: `.grok/WARBANDS.md`. The `OrchestratorIDE.Daemon` project IS the Warb
 
 ### TheOrc Native Runtime — v2.0 Direction (Phase 0-3 groundwork landed; first live path is opt-in)
 
-Full spec: `.grok/RUNTIME_PHASE0_SPEC.md`. An orchestration/swarm-aware layer **on top of LLamaSharp** (llama.cpp bindings) — NOT a from-scratch inference engine. Goal: drop the Ollama dependency, kill per-call reload + HTTP overhead + the `ollama create` merge step, and make the warband behave as one cohesive GPU mind.
+Full spec: `docs/RUNTIME_PHASE0_SPEC.md`. An orchestration/swarm-aware layer **on top of LLamaSharp** (llama.cpp bindings) — NOT a from-scratch inference engine. Goal: drop the Ollama dependency, kill per-call reload + HTTP overhead + the `ollama create` merge step, and make the warband behave as one cohesive GPU mind.
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -341,7 +341,7 @@ Settings UI and verified end-to-end (single-turn and multi-turn). `SwarmSession`
 remains on the configured default runtime -- genuinely not touched, not just
 forgotten to update here.
 
-**ORCISH TONGUE** (universal tool caller, formerly GOBLIN MIND — renamed to end the GOBLIN MIND / HIVE MIND collision; inventory in `.grok/RENAME_GOBLIN_MIND.md`, not yet applied to code). Native runtime is the substrate that upgrades it from prompt-layer format adaptation (probe + parse defensively) to **decoder-layer grammar-constrained tool calls (GBNF)** — valid by construction, works on any model even untrained-for-tools. This is the real "why native" capability, not just dropping the Ollama install. See `RUNTIME_PHASE0_SPEC.md` §11.
+**ORCISH TONGUE** (universal tool caller, formerly GOBLIN MIND — renamed to end the GOBLIN MIND / HIVE MIND collision; inventory in `.grok/RENAME_GOBLIN_MIND.md`, not yet applied to code). Native runtime is the substrate that upgrades it from prompt-layer format adaptation (probe + parse defensively) to **decoder-layer grammar-constrained tool calls (GBNF)** — valid by construction, works on any model even untrained-for-tools. This is the real "why native" capability, not just dropping the Ollama install. See `docs/RUNTIME_PHASE0_SPEC.md` §11.
 
 ### Promised from README "What's coming" section
 | Item | Source |

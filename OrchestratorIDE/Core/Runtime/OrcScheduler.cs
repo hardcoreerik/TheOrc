@@ -3,7 +3,7 @@
 namespace OrchestratorIDE.Core.Runtime;
 
 /// <summary>
-/// Native Runtime Phase 4 — capability + VRAM + lane-aware dispatch (RUNTIME_PHASE0_SPEC.md §6).
+/// Native Runtime Phase 4 — capability + VRAM + lane-aware dispatch (docs/RUNTIME_PHASE0_SPEC.md §6).
 ///
 /// Not to be confused with <see cref="OrchestratorIDE.Services.Hive.HiveScheduler"/>, which
 /// picks a remote HIVE node for a task based on free VRAM + model-hint matching — a distributed
