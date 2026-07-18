@@ -2315,6 +2315,12 @@ public partial class MainWindow : Window
 
     private VramBudget? TryBuildNativeHiveBudget()
     {
+        // Native Runtime v2.0 Phase B: prefer a LIVE nvidia-smi read over the one-time
+        // install-detected total -- ReservedBytes then reflects whatever else is using the GPU
+        // right now (other apps, the OS compositor, another TheOrc process), not a static zero.
+        if (NativeVramProbe.TryQueryLiveNvidiaBudget() is { } liveBudget)
+            return liveBudget;
+
         var detectedVramGb = _settings.DetectedVramGb;
         if (detectedVramGb <= 0)
             return null;

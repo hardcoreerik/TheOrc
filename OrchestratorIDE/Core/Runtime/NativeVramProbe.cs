@@ -62,13 +62,28 @@ public static class NativeVramProbe
             if (process is null)
                 return null;
 
-            var output = process.StandardOutput.ReadToEnd().Trim();
-            if (!process.WaitForExit((int)QueryTimeout.TotalMilliseconds))
+            // ReadToEnd() blocks until stdout closes, which only happens when the process exits
+            // -- if nvidia-smi hangs, that call blocks indefinitely and WaitForExit's timeout
+            // below would never even be reached (CodeRabbit finding on the first cut of this
+            // method). Bound the read AND the exit under one shared deadline instead, so a truly
+            // hung process is killed within QueryTimeout regardless of which step it's stuck on.
+            string output;
+            using (var cts = new CancellationTokenSource(QueryTimeout))
             {
-                // Best-effort: a hung nvidia-smi must not leak a zombie process, but a failure
-                // killing it must not throw past this method either.
-                try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
-                return null;
+                try
+                {
+                    var readTask = process.StandardOutput.ReadToEndAsync(cts.Token);
+                    var exitTask = process.WaitForExitAsync(cts.Token);
+                    Task.WaitAll([readTask, exitTask], cts.Token);
+                    output = readTask.Result.Trim();
+                }
+                catch (OperationCanceledException)
+                {
+                    // Best-effort: a hung nvidia-smi must not leak a zombie process, but a
+                    // failure killing it must not throw past this method either.
+                    try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
+                    return null;
+                }
             }
 
             if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(output))
