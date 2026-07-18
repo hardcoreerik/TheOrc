@@ -87,6 +87,11 @@ public static class ContextFabricBenchmarkGateEvaluator
         if (singleNodeContextFabric is not null)
         {
             var summary = singleNodeContextFabric.Summary;
+            // Stays fully blocking (unlike question_pass_rate below): a rejected segment is a
+            // real recall failure the reader should not have, not an inherently-hard question
+            // this benchmark treats as a stretch goal. ContextFabricFeasibilityRunner's
+            // open-extraction completeness-repair pass (ReadSegmentAsync, added 2026-07-17) is
+            // what's supposed to close this to 100/100 -- if it doesn't, that is real signal.
             metrics.Add(new FabricBenchmarkMetric(
                 "segment_terminal_coverage",
                 Ratio(summary.AcceptedSegments, summary.ExpectedSegments),
