@@ -644,7 +644,7 @@ and run as a service before the GUI-as-client changeover happens.
 
 ## TheOrc Native Runtime — v2.0 direction
 
-> Full spec: [`.grok/RUNTIME_PHASE0_SPEC.md`](../.grok/RUNTIME_PHASE0_SPEC.md). Status changed after ORC ACADEMY v3 completed: early runtime groundwork has landed, but native runtime is still pre-production and not the default.
+> Full spec: [`docs/RUNTIME_PHASE0_SPEC.md`](RUNTIME_PHASE0_SPEC.md). Status changed after ORC ACADEMY v3 completed: early runtime groundwork has landed, but native runtime is still pre-production and not the default.
 
 **What it is:** an orchestration / swarm-aware layer *on top of* LLamaSharp (llama.cpp bindings) — **not** a from-scratch inference engine. llama.cpp owns the kernels; TheOrc owns scheduling, session management, adapter hot-swap, VRAM-aware dispatch, and direct Avalonia streaming. The moat is making the warband feel like one cohesive mind on the GPU instead of a series of independent HTTP calls.
 

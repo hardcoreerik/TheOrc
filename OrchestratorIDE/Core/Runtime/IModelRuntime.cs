@@ -13,7 +13,7 @@ namespace OrchestratorIDE.Core.Runtime;
 /// Phase 2: LLamaSharpRuntime (in-process GGUF — the "no Ollama dependency" win).
 ///
 /// Interface contract copied verbatim from the working OllamaClient.StreamCompletionAsync
-/// signature so FakeOllamaClient wraps without rework. See RUNTIME_PHASE0_SPEC.md §2.
+/// signature so FakeOllamaClient wraps without rework. See docs/RUNTIME_PHASE0_SPEC.md §2.
 /// </summary>
 public interface IModelRuntime
 {
@@ -101,7 +101,7 @@ public interface ILocalModelRuntime : IModelRuntime, IAsyncDisposable
         RuntimeOptions? options = null,
         CancellationToken ct = default);
 
-    // LoRA hot-swap requires a verification spike before roadmapping — see RUNTIME_PHASE0_SPEC.md §7.
+    // LoRA hot-swap requires a verification spike before roadmapping — see docs/RUNTIME_PHASE0_SPEC.md §7.
     // SwapAdapterAsync is reserved here so the interface evolves cleanly, but is NOT implemented
     // until the spike confirms the KV-cache safety of adapter detach/reattach.
     Task SwapAdapterAsync(string? adapterName, CancellationToken ct = default);
