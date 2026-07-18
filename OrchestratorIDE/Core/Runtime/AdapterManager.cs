@@ -113,8 +113,17 @@ public sealed class AdapterManager : IAsyncDisposable
     /// Resolves-or-creates the role's persistent executor, then returns a fresh, reference
     /// -counted conversation handle on it. Dispose the returned handle when done with it —
     /// until you do, RebindRoleAsync for this role will refuse to tear down the executor.
+    ///
+    /// <b>internal, not public</b> (Native Runtime v2.0 Phase A — see
+    /// docs/NATIVE_RUNTIME_V2_SPEC.md §1.3): AdapterManager has no VRAM/scheduler awareness of
+    /// its own — it will happily build a persistent executor for any role requested, regardless
+    /// of whether there is room. <see cref="RuntimeOrchestrator.GetConversationForBindingAsync"/>
+    /// is the only sanctioned caller; it gates every call through
+    /// <see cref="RuntimeOrchestrator.EnsureAdmitted"/> first. Keeping this internal (rather than
+    /// public) makes an admission-bypassing call path a compile error instead of a runtime hazard
+    /// — same-assembly test code retains access via the existing InternalsVisibleTo entries.
     /// </summary>
-    public Task<TrackedConversation> CreateConversationAsync(
+    internal Task<TrackedConversation> CreateConversationAsync(
         RuntimeRoleBinding binding, CancellationToken ct = default) =>
         GetOrCreateConversationAsync(binding, forceRebuild: false, ct);
 
@@ -123,8 +132,11 @@ public sealed class AdapterManager : IAsyncDisposable
     /// (e.g. the adapter file at the same path was retrained). Throws InvalidOperationException
     /// if any conversation from the current executor is still outstanding — callers must
     /// dispose their TrackedConversations before rebinding, there is no implicit drain/wait.
+    ///
+    /// <b>internal, not public</b> — same admission-bypass rationale as
+    /// <see cref="CreateConversationAsync"/> above.
     /// </summary>
-    public Task<TrackedConversation> RebindRoleAsync(
+    internal Task<TrackedConversation> RebindRoleAsync(
         RuntimeRoleBinding newBinding, CancellationToken ct = default) =>
         GetOrCreateConversationAsync(newBinding, forceRebuild: true, ct);
 

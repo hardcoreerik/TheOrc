@@ -94,16 +94,29 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
     private readonly object _telemetryGate = new();
     private bool _disposed;
 
+    private readonly bool _allowUnbudgetedExecution;
+
     /// <param name="runtime">
     /// Owned by both managers this constructs. Pass <paramref name="disposeRuntime"/> = true if
     /// this RuntimeOrchestrator should own the runtime's lifetime too (disposing it alongside
     /// SessionManager/AdapterManager on DisposeAsync); false if some other owner disposes it.
     /// </param>
+    /// <param name="allowUnbudgetedExecution">
+    /// Native Runtime v2.0 Phase A (docs/NATIVE_RUNTIME_V2_SPEC.md §1.3): when
+    /// <paramref name="scheduler"/> or <paramref name="budgetProvider"/> is null, admission is
+    /// otherwise unenforceable. Default <see langword="false"/> means that condition now fails
+    /// CLOSED — <see cref="EnsureAdmitted"/> throws rather than silently loading unadmitted, the
+    /// fail-open behavior this parameter replaces. Pass <see langword="true"/> only for an
+    /// explicit, caller-acknowledged opt-out (e.g. a benchmark harness deliberately running
+    /// without scheduler wiring) — the caller must still surface that choice to the user/log
+    /// itself; this constructor does not log it, it only honors it.
+    /// </param>
     public RuntimeOrchestrator(
         LLamaSharpRuntime runtime,
         bool disposeRuntime = false,
         IOrcScheduler? scheduler = null,
-        Func<VramBudget>? budgetProvider = null)
+        Func<VramBudget>? budgetProvider = null,
+        bool allowUnbudgetedExecution = false)
     {
         ArgumentNullException.ThrowIfNull(runtime);
         _runtime = runtime;
@@ -111,6 +124,7 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
         _adapterManager = new AdapterManager(runtime);
         _scheduler = scheduler;
         _budgetProvider = budgetProvider;
+        _allowUnbudgetedExecution = allowUnbudgetedExecution;
     }
 
     /// <summary>
@@ -195,12 +209,40 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
     /// Pure check, no bookkeeping write — the caller (<see cref="GetConversationForBindingAsync"/>,
     /// holding <see cref="_admissionGate"/> for the whole pipeline) only commits a reservation
     /// after the load and conversation build both succeed. Throws
-    /// <see cref="RuntimeAdmissionDeniedException"/> if denied.
+    /// <see cref="RuntimeAdmissionDeniedException"/> if denied — including when no
+    /// scheduler/budget is configured and <see cref="_allowUnbudgetedExecution"/> is false (the
+    /// Phase A fail-closed fix: this used to be a silent no-op, letting native execution proceed
+    /// with zero admission control whenever the caller didn't wire a budget — see
+    /// docs/NATIVE_RUNTIME_V2_SPEC.md §1.2 Gap 2). Deliberately reuses
+    /// <see cref="RuntimeAdmissionDeniedException"/> rather than a new exception type for this
+    /// case too: <see cref="NativeWithFallbackRuntime.ShouldFallback"/> already excludes this
+    /// exact type from its fallback-eligible set, so an unconfigured budget fails closed the same
+    /// way a real capacity denial does, instead of being silently rerouted to Ollama.
+    ///
+    /// internal (not private): unit-tested directly in RuntimeOrchestratorTests, same rationale
+    /// as AdapterManager.BindingMatches — this method touches no native LLamaSharp objects (only
+    /// LLamaSharpRuntime.WeightsGeneration, a managed counter), so it can be exercised in
+    /// isolation without a real model load, unlike the rest of GetConversationForBindingAsync.
     /// </summary>
-    private void EnsureAdmitted(RuntimeRoleBinding binding)
+    internal void EnsureAdmitted(RuntimeRoleBinding binding)
     {
         if (_scheduler is null || _budgetProvider is null)
-            return;
+        {
+            if (_allowUnbudgetedExecution)
+                return;
+
+            var unavailableDecision = new SchedulingDecision(
+                Admitted: false,
+                Lane: binding.Role is RuntimeRole.Boss or RuntimeRole.Reviewer
+                    ? SchedulingLane.Interactive
+                    : SchedulingLane.Background,
+                Reason: "No VRAM scheduler/budget is configured for native execution, so admission " +
+                        "cannot be evaluated. Failing closed rather than loading unadmitted " +
+                        "(Native Runtime v2.0 Phase A). Construct the runtime with a scheduler + " +
+                        "budgetProvider, or pass allowUnbudgetedExecution: true to explicitly opt out.");
+            throw new RuntimeAdmissionDeniedException(
+                binding, new VramBudget(TotalBytes: 0, ReservedBytes: 0), unavailableDecision);
+        }
 
         var currentGeneration = _runtime.WeightsGeneration;
         var baseline = _budgetProvider()
