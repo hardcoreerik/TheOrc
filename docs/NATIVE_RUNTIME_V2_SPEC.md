@@ -42,7 +42,7 @@ must diverge, it says so explicitly (see [§0.4](#04-known-contradictions--stale
 
 | Source | What it owns |
 |---|---|
-| [`.grok/RUNTIME_PHASE0_SPEC.md`](../.grok/RUNTIME_PHASE0_SPEC.md) | The runtime contracts (`IModelRuntime`/`ILocalModelRuntime`), the DI decision (§4), the LoRA hot-swap spike verdict (§7), and the `AdapterManager` per-role-context design (§7a). **This spec builds on it; it does not re-decide those.** |
+| [`docs/RUNTIME_PHASE0_SPEC.md`](RUNTIME_PHASE0_SPEC.md) | The runtime contracts (`IModelRuntime`/`ILocalModelRuntime`), the DI decision (§4), the LoRA hot-swap spike verdict (§7), and the `AdapterManager` per-role-context design (§7a). **This spec builds on it; it does not re-decide those.** |
 | [`docs/RUNTIME_SUPPORT_MATRIX.md`](RUNTIME_SUPPORT_MATRIX.md) | The four runtime lanes, which is default/opt-in/fallback, and the real `NativeWithFallbackRuntime` fallback mechanics. |
 | [`docs/CURRENT_STATE.yaml`](CURRENT_STATE.yaml) | The machine-readable "is X actually shipped?" status vocabulary. `native_runtime: opt-in`. |
 | [`docs/ROADMAP.md`](ROADMAP.md) | The v2.0 phase table (Phases 0–5) and ranked function priorities. |
@@ -68,7 +68,7 @@ the foundation phases below does **not** authorize that flip.
 These were found during research and are surfaced rather than silently resolved. Where
 sources disagree, this spec adopts the **more conservative** framing.
 
-1. **Phase 4 "wired in" overstatement.** [`.grok/RUNTIME_PHASE0_SPEC.md`](../.grok/RUNTIME_PHASE0_SPEC.md)
+1. **Phase 4 "wired in" overstatement.** [`docs/RUNTIME_PHASE0_SPEC.md`](RUNTIME_PHASE0_SPEC.md)
    §0 and §6 describe `OrcScheduler` (Phase 4) as "IMPLEMENTED" and "real and wired in."
    The [ROADMAP](ROADMAP.md) Phase 4 row is more accurate: *"🔶 Started … Still not wired
    into AdapterManager beyond `RuntimeOrchestrator`'s own gate."* **This spec adopts the
@@ -160,7 +160,7 @@ does not actually fit.
 ### 1.3 Target design
 
 Prefer the **smallest** design that centralizes the invariant. No new abstraction layer, no
-DI container (per [`.grok/RUNTIME_PHASE0_SPEC.md`](../.grok/RUNTIME_PHASE0_SPEC.md) §4's
+DI container (per [`docs/RUNTIME_PHASE0_SPEC.md`](RUNTIME_PHASE0_SPEC.md) §4's
 Option A decision), no stateful ledger inside the scheduler.
 
 **Ownership (unchanged where already correct):**
@@ -180,7 +180,7 @@ Option A decision), no stateful ledger inside the scheduler.
    - **1a (preferred):** make `AdapterManager`'s minting methods `internal` and route the
      single existing caller through `RuntimeOrchestrator` (already the case), so external
      assemblies cannot mint unadmitted. Since `Core/Runtime` compiles into
-     `OrchestratorIDE.Avalonia.dll` (per [`RUNTIME_PHASE0_SPEC.md`](../.grok/RUNTIME_PHASE0_SPEC.md)
+     `OrchestratorIDE.Avalonia.dll` (per [`RUNTIME_PHASE0_SPEC.md`](RUNTIME_PHASE0_SPEC.md)
      §7a), `internal` is sufficient with no `InternalsVisibleTo` needed for production code;
      tests already in the same assembly retain access.
    - **1b (if 1a is insufficient):** require minting to carry an admission token that only
@@ -565,7 +565,7 @@ Native contexts/sessions/models/adapters have explicit ownership and determinist
   adds tests that reservation + residency return to baseline after disposal.
 
 > **Landmine (carry into every phase):** swapping a LoRA on a live context without
-> `MemoryClear()` is silently unsafe ([`RUNTIME_PHASE0_SPEC.md`](../.grok/RUNTIME_PHASE0_SPEC.md)
+> `MemoryClear()` is silently unsafe ([`RUNTIME_PHASE0_SPEC.md`](RUNTIME_PHASE0_SPEC.md)
 > §7). The mitigation — one persistent context per role, adapter bound once at creation — is
 > load-bearing. No phase may reintroduce live adapter swapping without restating this hazard
 > and showing the `MemoryClear()`.
