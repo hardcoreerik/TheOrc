@@ -71,12 +71,20 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
     private readonly Dictionary<RuntimeRole, string?> _lastPromptPathByRole = new();
     private bool _disposed;
 
+    /// <param name="allowUnbudgetedExecution">
+    /// Native Runtime v2.0 Phase A (docs/NATIVE_RUNTIME_V2_SPEC.md §1.3): forwarded verbatim to
+    /// <see cref="RuntimeOrchestrator"/>. Default <see langword="false"/> means admission fails
+    /// closed when <paramref name="scheduler"/>/<paramref name="budgetProvider"/> are null,
+    /// rather than loading unadmitted. Only pass <see langword="true"/> as a deliberate,
+    /// caller-logged opt-out.
+    /// </param>
     public NativeRoleRuntime(
         ModelDepot depot,
         RuntimeOptions? options = null,
         IOrcScheduler? scheduler = null,
         Func<VramBudget>? budgetProvider = null,
-        IReadOnlyDictionary<RuntimeRole, RuntimeRoleBinding>? roleBindings = null)
+        IReadOnlyDictionary<RuntimeRole, RuntimeRoleBinding>? roleBindings = null,
+        bool allowUnbudgetedExecution = false)
         : this(
             depot,
             new LLamaSharpRuntime(),
@@ -84,7 +92,8 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
             disposeRuntime: true,
             scheduler,
             budgetProvider,
-            roleBindings)
+            roleBindings,
+            allowUnbudgetedExecution)
     {
     }
 
@@ -95,13 +104,15 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
         bool disposeRuntime = false,
         IOrcScheduler? scheduler = null,
         Func<VramBudget>? budgetProvider = null,
-        IReadOnlyDictionary<RuntimeRole, RuntimeRoleBinding>? roleBindings = null)
+        IReadOnlyDictionary<RuntimeRole, RuntimeRoleBinding>? roleBindings = null,
+        bool allowUnbudgetedExecution = false)
     {
         _depot = depot ?? throw new ArgumentNullException(nameof(depot));
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _options = options ?? new RuntimeOptions();
         _roleBindings = roleBindings ?? new Dictionary<RuntimeRole, RuntimeRoleBinding>();
-        _orchestrator = new RuntimeOrchestrator(_runtime, disposeRuntime, scheduler, budgetProvider);
+        _orchestrator = new RuntimeOrchestrator(
+            _runtime, disposeRuntime, scheduler, budgetProvider, allowUnbudgetedExecution);
     }
 
     public string RuntimeName => "NativeRoleRuntime";

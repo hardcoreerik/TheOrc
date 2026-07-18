@@ -202,10 +202,19 @@ internal static class Program
                 _ => "Corpus: deterministic 16-segment synthetic book",
             });
 
+            // Native Runtime v2.0 Phase A (docs/NATIVE_RUNTIME_V2_SPEC.md §1.2 Gap 2):
+            // RuntimeOrchestrator now fails closed by default when no scheduler/budget is
+            // configured. This CLI benchmark harness deliberately runs without one (foreground,
+            // single-operator, known-dedicated box) -- explicit, logged opt-out rather than the
+            // old silent-by-omission behavior.
+            Console.WriteLine(
+                "Native admission: running with allowUnbudgetedExecution=true (no VRAM scheduler " +
+                "wired for this benchmark harness) -- admission is NOT enforced for this run.");
             await using var runtime = new NativeRoleRuntime(
                 depot,
                 new RuntimeOptions(options.ContextLength, options.GpuLayers, PreferGpu: options.GpuLayers != 0),
-                roleBindings: BuildRoleBindings(researcher, reviewer));
+                roleBindings: BuildRoleBindings(researcher, reviewer),
+                allowUnbudgetedExecution: true);
             if (options.Suite == BenchmarkSuite.Stitch)
             {
                 // Same reasoning as the expanded reader's ReaderMaxTokens bump above: the stitch

@@ -2258,9 +2258,17 @@ public partial class MainWindow : Window
             var budget = TryBuildNativeHiveBudget();
             if (budget is null)
             {
+                // Native Runtime v2.0 Phase A (docs/NATIVE_RUNTIME_V2_SPEC.md §1.2 Gap 2):
+                // RuntimeOrchestrator now fails CLOSED when no scheduler/budget is configured,
+                // rather than silently loading unadmitted. Constructing the runtime anyway would
+                // just make every subsequent conversation throw RuntimeAdmissionDeniedException,
+                // so don't build it at all -- same "can't satisfy this precondition, fall back to
+                // the configured model runtime" pattern already used above for baseCount == 0.
                 AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
-                    $"Experimental {featureLabel} could not derive a local VRAM budget. OrcScheduler admission checks are disabled.",
+                    $"Experimental {featureLabel} could not derive a local VRAM budget, so native admission " +
+                    "cannot be evaluated. Will use configured model runtime instead of loading native unadmitted.",
                     DateTime.Now));
+                return null;
             }
 
             // Pre-bind Researcher/Reviewer with Context-Fabric-aware workload kinds so
@@ -2286,8 +2294,9 @@ public partial class MainWindow : Window
                     ContextLength: Math.Max(512, _settings.NativeRuntimeContextSize),
                     GpuLayers: _settings.NativeRuntimeGpuLayers,
                     PreferGpu: _settings.NativeRuntimeGpuLayers != 0),
-                scheduler: budget is null ? null : new OrcScheduler(),
-                budgetProvider: budget is null ? null : () => budget,
+                // budget is guaranteed non-null here -- the null case returns above.
+                scheduler: new OrcScheduler(),
+                budgetProvider: () => budget,
                 roleBindings: roleBindings);
         }
         catch (Exception ex)

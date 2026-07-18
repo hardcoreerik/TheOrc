@@ -137,11 +137,24 @@ public sealed class HiveService : BackgroundService
                 : $"http://127.0.0.1:{_cfg.TaskQueuePort}";
 
             IHiveNativeRoleExecutor? nativeExecutor = null;
-            if (nativeReady)
+            if (nativeReady && _cfg.NativeVramMb <= 0)
             {
-                var budget = _cfg.NativeVramMb > 0
-                    ? new VramBudget(_cfg.NativeVramMb * 1024L * 1024L, ReservedBytes: 0)
-                    : null;
+                // Native Runtime v2.0 Phase A (docs/NATIVE_RUNTIME_V2_SPEC.md §1.2 Gap 2):
+                // RuntimeOrchestrator now fails CLOSED when no scheduler/budget is configured
+                // instead of silently loading unadmitted -- so skip building the native runtime
+                // entirely rather than constructing one whose every conversation would throw.
+                // This is the least-attended surface in the fleet (a HIVE worker runs
+                // unattended), so it gets the strictest treatment: no opt-out here, configure
+                // Hive:NativeVramMb to enable native role execution.
+                _log.LogWarning(
+                    "Native role execution requested (WorkerMode + native ready) but " +
+                    "Hive:NativeVramMb is not configured, so a VRAM budget cannot be derived and " +
+                    "admission cannot be evaluated. Skipping native role execution for this " +
+                    "worker; configure Hive:NativeVramMb to enable it.");
+            }
+            else if (nativeReady)
+            {
+                var budget = new VramBudget(_cfg.NativeVramMb * 1024L * 1024L, ReservedBytes: 0);
                 // ModelDepot.ResolveRole(role) alone (no workload kind) never consults
                 // ModelAdmissionGate, so it can hand the Researcher role a reasoning-tuned model
                 // (DeepSeek-R1-distill, Qwen3, etc.) whose <think> trace then consumes the whole
@@ -175,8 +188,8 @@ public sealed class HiveService : BackgroundService
                         ContextLength: Math.Max(512, _cfg.NativeContextSize),
                         GpuLayers: _cfg.NativeGpuLayers,
                         PreferGpu: _cfg.NativeGpuLayers != 0),
-                    scheduler: budget is null ? null : new OrcScheduler(),
-                    budgetProvider: budget is null ? null : () => budget,
+                    scheduler: new OrcScheduler(),
+                    budgetProvider: () => budget,
                     roleBindings: roleBindings);
 
                 nativeExecutor = new HiveNativeRoleExecutorAdapter(nativeRuntime, _cfg.WorkspaceRoot);

@@ -109,6 +109,41 @@ public sealed class RuntimeOrchestratorTests
     }
 
     [Test]
+    public async Task GetConversationForBindingAsync_Throws_RuntimeAdmissionDenied_When_No_Scheduler_Or_Budget_Configured()
+    {
+        // Native Runtime v2.0 Phase A (docs/NATIVE_RUNTIME_V2_SPEC.md §1.2 Gap 2): this used to
+        // be a silent no-op that let native execution proceed with zero admission control.
+        // GetConversationForBindingAsync throws EnsureAdmitted's denial before ever touching
+        // SessionManager.LoadBindingAsync, so this is safe to exercise without a real GGUF —
+        // the fake binding's path is never actually opened.
+        await using var runtime = new LLamaSharpRuntime();
+        await using var orchestrator = new RuntimeOrchestrator(runtime);
+        var binding = new RuntimeRoleBinding(RuntimeRole.Boss, FakeBaseModel(), Adapter: null);
+
+        var ex = Assert.ThrowsAsync<RuntimeAdmissionDeniedException>(
+            async () => await orchestrator.GetConversationForBindingAsync(binding));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ex!.Decision.Admitted, Is.False);
+            Assert.That(ex.Decision.Reason, Does.Contain("No VRAM scheduler/budget is configured"));
+        });
+    }
+
+    [Test]
+    public async Task EnsureAdmitted_Does_Not_Throw_When_AllowUnbudgetedExecution_Is_True_And_No_Scheduler_Or_Budget()
+    {
+        // The deliberate opt-out (e.g. ContextFabricBench) must bypass the fail-closed denial
+        // above without needing a real model load — exercised directly against the internal
+        // seam so this stays a pure, isolated admission-decision test.
+        await using var runtime = new LLamaSharpRuntime();
+        await using var orchestrator = new RuntimeOrchestrator(runtime, allowUnbudgetedExecution: true);
+        var binding = new RuntimeRoleBinding(RuntimeRole.Boss, FakeBaseModel(), Adapter: null);
+
+        Assert.DoesNotThrow(() => orchestrator.EnsureAdmitted(binding));
+    }
+
+    [Test]
     public async Task GetReservationSnapshot_Returns_Null_When_No_Scheduler_Configured()
     {
         await using var runtime = new LLamaSharpRuntime();
@@ -158,6 +193,15 @@ public sealed class RuntimeOrchestratorTests
 
         Assert.Throws<ObjectDisposedException>(() => orchestrator.GetReservationSnapshot());
     }
+
+    private static RuntimeModelAsset FakeBaseModel() => new(
+        Id: "fake-base",
+        Kind: RuntimeAssetKind.BaseModelGguf,
+        Path: "does-not-exist.gguf",
+        DisplayName: "does-not-exist.gguf",
+        SizeBytes: 1_000_000,
+        LastModifiedUtc: DateTimeOffset.UnixEpoch,
+        SuggestedRoles: [RuntimeRole.Boss]);
 
     private string NewTempRoot()
     {
