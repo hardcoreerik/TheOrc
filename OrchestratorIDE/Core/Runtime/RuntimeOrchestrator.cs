@@ -47,7 +47,7 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
     private readonly SessionManager _sessionManager;
     private readonly AdapterManager _adapterManager;
     private readonly IOrcScheduler? _scheduler;
-    private readonly Func<VramBudget>? _budgetProvider;
+    private readonly Func<VramBudget?>? _budgetProvider;
 
     // Active-reservation accounting (the gap flagged in OrcScheduler's review: a static budget
     // snapshot with no tracking lets concurrent role admissions over-admit). Two review passes
@@ -115,7 +115,7 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
         LLamaSharpRuntime runtime,
         bool disposeRuntime = false,
         IOrcScheduler? scheduler = null,
-        Func<VramBudget>? budgetProvider = null,
+        Func<VramBudget?>? budgetProvider = null,
         bool allowUnbudgetedExecution = false)
     {
         ArgumentNullException.ThrowIfNull(runtime);

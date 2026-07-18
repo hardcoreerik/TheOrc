@@ -154,7 +154,6 @@ public sealed class HiveService : BackgroundService
             }
             else if (nativeReady)
             {
-                var budget = new VramBudget(_cfg.NativeVramMb * 1024L * 1024L, ReservedBytes: 0);
                 // ModelDepot.ResolveRole(role) alone (no workload kind) never consults
                 // ModelAdmissionGate, so it can hand the Researcher role a reasoning-tuned model
                 // (DeepSeek-R1-distill, Qwen3, etc.) whose <think> trace then consumes the whole
@@ -189,7 +188,12 @@ public sealed class HiveService : BackgroundService
                         GpuLayers: _cfg.NativeGpuLayers,
                         PreferGpu: _cfg.NativeGpuLayers != 0),
                     scheduler: new OrcScheduler(),
-                    budgetProvider: () => budget,
+                    // Native Runtime v2.0 Phase B (docs/NATIVE_RUNTIME_V2_SPEC.md Phase B): the
+                    // method itself, not a closed-over snapshot -- called fresh on every
+                    // admission by RuntimeOrchestrator.EnsureAdmitted. This is the
+                    // least-attended surface in the fleet (an unattended HIVE worker), so a
+                    // live read matters even more here than in MainWindow.
+                    budgetProvider: BuildNativeHiveVramBudget,
                     roleBindings: roleBindings);
 
                 nativeExecutor = new HiveNativeRoleExecutorAdapter(nativeRuntime, _cfg.WorkspaceRoot);
@@ -257,4 +261,16 @@ public sealed class HiveService : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Native Runtime v2.0 Phase B (docs/NATIVE_RUNTIME_V2_SPEC.md Phase B): prefers a LIVE
+    /// nvidia-smi read over the operator-configured static <see cref="DaemonConfig.NativeVramMb"/>
+    /// total -- <see cref="VramBudget.ReservedBytes"/> then reflects whatever else is actually
+    /// using the GPU right now, not a static zero. Falls back to the pre-Phase-B
+    /// config-only budget when the live probe is unavailable (non-NVIDIA GPU, nvidia-smi
+    /// missing, etc.), so this is never worse than what WorkerMode already required
+    /// (Hive:NativeVramMb configured and positive) to reach this call site.
+    /// </summary>
+    private VramBudget BuildNativeHiveVramBudget() =>
+        NativeVramProbe.TryQueryLiveNvidiaBudget()
+        ?? new VramBudget(_cfg.NativeVramMb * 1024L * 1024L, ReservedBytes: 0);
 }

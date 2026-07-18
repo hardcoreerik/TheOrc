@@ -2294,9 +2294,14 @@ public partial class MainWindow : Window
                     ContextLength: Math.Max(512, _settings.NativeRuntimeContextSize),
                     GpuLayers: _settings.NativeRuntimeGpuLayers,
                     PreferGpu: _settings.NativeRuntimeGpuLayers != 0),
-                // budget is guaranteed non-null here -- the null case returns above.
                 scheduler: new OrcScheduler(),
-                budgetProvider: () => budget,
+                // Native Runtime v2.0 Phase B (docs/NATIVE_RUNTIME_V2_SPEC.md Phase B): pass the
+                // method itself, not a closed-over snapshot -- RuntimeOrchestrator.EnsureAdmitted
+                // calls this fresh on EVERY admission, so a stale one-time reading defeats the
+                // point of a "live" budget. TryBuildNativeHiveBudget already prefers a live
+                // nvidia-smi read and falls back to the static detected-total, so this is never
+                // worse than the pre-Phase-B behavior, only ever more accurate.
+                budgetProvider: TryBuildNativeHiveBudget,
                 roleBindings: roleBindings);
         }
         catch (Exception ex)
@@ -2310,6 +2315,12 @@ public partial class MainWindow : Window
 
     private VramBudget? TryBuildNativeHiveBudget()
     {
+        // Native Runtime v2.0 Phase B: prefer a LIVE nvidia-smi read over the one-time
+        // install-detected total -- ReservedBytes then reflects whatever else is using the GPU
+        // right now (other apps, the OS compositor, another TheOrc process), not a static zero.
+        if (NativeVramProbe.TryQueryLiveNvidiaBudget() is { } liveBudget)
+            return liveBudget;
+
         var detectedVramGb = _settings.DetectedVramGb;
         if (detectedVramGb <= 0)
             return null;
