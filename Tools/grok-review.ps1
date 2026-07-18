@@ -50,6 +50,13 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 
+# -PR implies PR-scope review (repo reads, conventions, full diff budget) unless
+# the caller explicitly asked for a specific mode — bare `-PR <n>` used to silently
+# run as the cheap `quick` tier (64KB cap, no repo reads, no conventions block).
+if ($PR -gt 0 -and -not $PSBoundParameters.ContainsKey('Mode')) {
+    $Mode = 'full'
+}
+
 # ── Mode defaults ─────────────────────────────────────────────────────────────
 $readsAllowed = $Mode -in @('full','adversary')
 if ($TimeoutSec -le 0) { $TimeoutSec = if ($readsAllowed) { 900 } else { 300 } }
