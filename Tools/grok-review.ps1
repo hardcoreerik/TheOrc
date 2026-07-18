@@ -363,11 +363,19 @@ $findings = foreach ($line in $rawLines) {
 }
 $verdict = ($findings -join "`n").Trim()
 
-# No findings extracted: a trailing CLEAN token on the last non-empty line
-# (possibly glued to narration) still means a clean review.
+# No findings extracted: accept CLEAN only as a standalone line, or glued
+# directly onto prior narration with no separating space (e.g. "...hazard.CLEAN").
+# A space before CLEAN ("far from CLEAN", "not CLEAN", "Overall CLEAN") is
+# narration, not a verdict — reject it and fail closed (exit 5) rather than
+# risk a false-positive clean pass on ambiguous model output.
 if (-not $verdict) {
     $lastLine = $rawLines | Where-Object { $_.Trim() } | Select-Object -Last 1
-    if ($lastLine -match '\bCLEAN\s*$') { $verdict = 'CLEAN' }
+    if ($lastLine) {
+        $trimmed = $lastLine.Trim()
+        if ($trimmed -match '^CLEAN\.?$' -or $trimmed -match '[^\sA-Za-z]CLEAN\.?$') {
+            $verdict = 'CLEAN'
+        }
+    }
 }
 
 if (-not $verdict) {
