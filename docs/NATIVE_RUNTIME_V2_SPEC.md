@@ -76,14 +76,16 @@ sources disagree, this spec adopts the **more conservative** framing.
    `RuntimeOrchestrator.EnsureAdmitted`, but it is not the sole authoritative boundary —
    see [§1.2](#12-the-gaps). Anyone reading the Phase 0 spec's completeness claims
    should treat them as optimistic relative to the gaps documented here.
-2. **`THEORC_TEST_GGUF` smoke lane.** The [ROADMAP](ROADMAP.md) Phase 3 row references a
-   `THEORC_TEST_GGUF` opt-in role-runtime smoke lane. That environment-variable name is
-   **not present in the current source tree** (whole-repo search, 0 hits). The real-model
-   harnesses that exist today are `Tools/ContextFabricBench/Program.cs`,
-   `ContextFabricFeasibilityRunner`, and the manual Settings capture in
-   `MainWindow.axaml.cs`. [§3](#3-real-model-native-path-proof) specifies a standardized lane
-   and, as part of it, requires reconciling this stale reference (either restore the lane or
-   correct the ROADMAP).
+2. **Correction (this spec's own earlier claim was wrong):** an initial draft of this document
+   claimed the `THEORC_TEST_GGUF` opt-in role-runtime smoke lane the [ROADMAP](ROADMAP.md) Phase 3
+   row references was "not present in the current source tree." That was a search error, found
+   and corrected during Phase A implementation. **The lane is real.**
+   `OrchestratorIDE.UnitTests/NativeRuntimeTestSupportTests.cs` gates three lanes behind
+   `THEORC_TEST_GGUF` — the native smoke lane, the native/Ollama parity lane, and the native
+   role-runtime smoke lane (`Assert.Ignore` when unset, `Assert.Fail` if set to a non-GGUF path).
+   These, plus `Tools/ContextFabricBench/Program.cs` and `ContextFabricFeasibilityRunner`, are the
+   real-model harnesses that exist today. [§3](#3-real-model-native-path-proof)'s standardized
+   lane should build on `THEORC_TEST_GGUF`'s existing gating convention rather than reinvent one.
 3. **`SessionManager` "adapter pending" wording is stale.** `SessionManager` still describes
    adapters as *"pending AdapterManager support"* (`SessionManager.cs:26-27`, and the load
    message at `SessionManager.cs:201`), and its snapshot exposes `HasPendingAdapter`. The
@@ -335,10 +337,10 @@ to Ollama.
 
 ### 3.2 What the real-model E2E lane must exercise
 
-A single opt-in, hardware-gated lane (gated by an explicit env var / config flag — and, as
-part of this work, **reconcile the stale `THEORC_TEST_GGUF` reference** from
-[§0.4](#04-known-contradictions--stale-references): either restore that lane name or update
-the ROADMAP to the real mechanism). The lane drives the actual lifecycle:
+A single opt-in, hardware-gated lane, gated behind the existing `THEORC_TEST_GGUF` convention
+`NativeRuntimeTestSupportTests.cs` already uses (see [§0.4](#04-known-contradictions--stale-references))
+rather than a new env var — extend that file's lanes, don't fork a parallel gating mechanism.
+The lane drives the actual lifecycle:
 
 1. **Model discovery & resolution** through `ModelDepot.Scan` + `ResolveRole`
    (`ModelDepot.cs:102`, `:163`).
@@ -484,9 +486,9 @@ negative-path coverage for its safety-critical behavior.
 
 - **Purpose / outcome:** a standardized, opt-in, hardware-gated lane proves the whole native
   lifecycle on a real model and proves no silent fallback.
-- **Components:** a new opt-in test/harness lane (reconciling the stale `THEORC_TEST_GGUF`
-  reference), reusing `ModelDepot`, `RuntimeOrchestrator`, `NativeRoleRuntime`,
-  `ContextFabricBench`-style real-model harness patterns.
+- **Components:** extends the existing `THEORC_TEST_GGUF`-gated lanes in
+  `NativeRuntimeTestSupportTests.cs`, reusing `ModelDepot`, `RuntimeOrchestrator`,
+  `NativeRoleRuntime`, `ContextFabricBench`-style real-model harness patterns.
 - **Dependencies:** Phases A–C (the lane asserts admission, lifecycle, and telemetry behavior
   those phases define).
 - **Safety invariants:** all of [§5](#5-mandatory-requirements-traceability) — the lane is
@@ -501,7 +503,7 @@ negative-path coverage for its safety-critical behavior.
 - **Failure/rollback:** the lane is opt-in and CI-gated off by default; a flaky lane is fixed
   or quarantined without affecting the default build.
 - **Definition of Done:** lane green on a reference box with retained evidence; negative
-  fail-closed test passes; ROADMAP `THEORC_TEST_GGUF` reference reconciled.
+  fail-closed test passes.
 - **Non-goals:** multi-machine HIVE validation (that is [§6](#6-later-milestone-default-runtime-flip-hive-gated),
   not this lane); making native the default.
 
