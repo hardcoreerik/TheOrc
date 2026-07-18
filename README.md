@@ -16,6 +16,14 @@
 
 ---
 
+> ## v1.13.0 — Context Fabric is complete. The road to v2.0 begins.
+>
+> Context Fabric — TheOrc's source-grounded memory system — has closed its benchmark gate at **GO** on an honest, un-marked corpus: **104 of 120** held-out questions answered, **97.1%** citation precision, **128 of 128** segments read, against a best competing baseline of 52/120. That is the milestone the whole CF program was built to reach, and it is now behind us.
+>
+> With durable memory proven, **v2.0 turns to the runtime and the operator's hands**: making native local inference the default lane (Ollama fully optional), and giving agents real reach — browser automation and page understanding, workspace and shell intelligence, and multimodal document intake. [Jump to the v2.0 roadmap ↓](#the-road-to-v20)
+
+---
+
 ## Project Credits
 
 TheOrc is created and maintained by [Erik / hardcoreerik](https://github.com/hardcoreerik), with AI-assisted development and review from Claude Sonnet, OpenAI Codex, and Grok Build.
@@ -69,20 +77,16 @@ If Copilot is a better autocomplete, TheOrc is trying to become a better local A
 
 ## Where the project is right now
 
-The current repo is no longer just a swarm experiment. Several big pieces are already real:
+TheOrc is a production local AI orchestrator, not a swarm experiment. The major subsystems are built, shipped, and verified in the running app:
 
-- **Avalonia-only shell**: WPF is gone. The desktop app is now one cross-platform Avalonia codebase.
-- **Native runtime path**: local native inference is a first-class runtime lane, not just a side experiment.
-- **HIVE campaign engine**: distributed worker and campaign plumbing now exists as a real implementation path.
-- **ORC ACADEMY**: the shipped `theorc-boss:gemma4-ft` adapter proved the boss can improve from reviewed swarm plans.
-- **Context Fabric**: CF-0 through CF-8 have landed on `master`: native feasibility, deterministic ingestion, graph-backed retrieval, native readers, OrcChat Library citations/source opening, distributed HIVE readers, benchmark-gate contracts, and hard-ingestion groundwork. See [The Orc Context Fabric.md](docs/The%20Orc%20Context%20Fabric.md) for the authoritative per-phase status.
+- **Avalonia-only desktop shell** — one cross-platform codebase. WPF has been removed entirely.
+- **Native runtime** — in-process local inference is a first-class runtime lane, with automatic Ollama fallback on any fault.
+- **HIVE MIND** — distributed worker and campaign execution across enrolled machines, secured by a full cryptographic identity layer.
+- **ORC ACADEMY** — the self-training loop that turns reviewed swarm plans into a better boss model; the shipped `theorc-boss:gemma4-ft` adapter scores 99.3% on structured planning.
+- **TheOrc Foundry** — the specialist-model pipeline; its first model, `theorc-toolcaller`, is trained, benchmarked, and deployed.
+- **Context Fabric — complete.** CF-0 through CF-8 have landed on `master`, and the CF-7 benchmark gate closed at **GO** on an honest un-marked corpus (2026-07-17). Source-grounded memory across corpus-scale libraries is now a proven, measured capability. See [The Orc Context Fabric.md](docs/The%20Orc%20Context%20Fabric.md) for the authoritative per-phase status.
 
-The current direction is straightforward:
-
-1. Keep making local AI execution more capable and more inspectable.
-2. Turn Context Fabric into a real source-grounded memory layer for OrcChat and future library workflows.
-3. Grow the public benchmark shelf around the **Independent Mind Corpus** instead of hiding behind toy demos.
-4. Keep the long-term loop intact: run, review, learn, and ship better local operators.
+With those foundations in place, the project's focus now shifts to **v2.0** — see [The road to v2.0](#the-road-to-v20) below.
 
 ---
 
@@ -145,31 +149,56 @@ TheOrc is not trying to replace your editor. It's the AI **project runner** that
 
 ---
 
-## Current flagship system
+## Flagship system: Context Fabric
 
-**Context Fabric is the most distinctive new system on the workbench.** It is TheOrc's answer to the "finite model, large corpus" problem: a source-grounded memory fabric that stores durable artifacts, reopens evidence on demand, and keeps every accepted claim tied back to source.
+**Context Fabric is TheOrc's answer to the "finite model, large corpus" problem** — a source-grounded memory fabric that stores durable artifacts, reopens evidence on demand, and keeps every accepted claim tied back to its source.
 
-The intended user experience is the part that matters: it should feel like OrcChat has a much larger memory than the active model's live context window. The source corpus stays on disk, parsed into stable addresses with hashes and provenance. The model gets a budgeted working set for the current question, and when the answer needs proof, Context Fabric reopens the original source, verifies the quote/range, and shows the citation instead of pretending the whole book was inside one prompt.
+The user experience is the point: OrcChat behaves as though it has a far larger memory than the active model's live context window. The source corpus stays on disk, parsed into stable addresses with hashes and provenance. The model receives a budgeted working set for the current question, and when an answer needs proof, Context Fabric reopens the original source, verifies the quote and range, and shows the citation — instead of pretending the whole book fit inside one prompt.
 
-Current repo truth:
+**As of v1.13.0, the full CF program is complete and the benchmark gate is closed at GO:**
 
-- **CF-0 passed** with scripted and real native-model evidence-card verification.
-- **CF-1 passed its focused deterministic-ingestion exit**: stable import/rebuild, text and PDF parsing, lexical search, content-addressed artifacts, and pinned Darwin, Constitution, and Federalist fixtures.
-- **CF-2 through CF-4 passed** their focused gates: graph-backed retrieval, native boundary stitching, and hierarchical reduction/budgeting.
-- **CF-5 (OrcChat Library)** is merged: corpus attachment, cited answers, citation popup/source opening, coverage status, and notebook persistence are in the app path.
-- **CF-6 through CF-8** are merged: distributed HIVE readers, benchmark-gate contracts, parser block provenance, DOCX/EPUB structure, OCR contracts, immutable versions, cache policy, vector fallback, and cross-corpus/CodeGraph links.
-- **The CF-7 benchmark gate has its first GO verdict** (2026-07-03): live closed-book, truncated-prompt, and top-k RAG baselines plus the single-node and 3-node HIVE Context Fabric runs, all present and passed on GPU-verified native inference.
-- **The million-token product proof has run and passed**: a 1.82M-token deterministic corpus processed unattended on one node — 640/640 segments, 5/5 verified questions including a 640-citation exhaustive enumeration, 563x source-to-working-context ratio on an 8K native context, zero Ollama involvement.
-- **Still not oversold:** standardized LongBench/LongBench v2 subset runs and full multimodal page understanding remain future benchmark/product work, not claims of this release.
-- The first branded benchmark lane now has a name: **The Independent Mind Corpus** — a public benchmark shelf built around works that stress evidence, liberty, literacy, institutional design, strategy, and source-grounded truth.
+- **CF-0 through CF-8 have landed on `master`** — native feasibility, deterministic ingestion, graph-backed retrieval, native readers and boundary stitching, hierarchical reduction and budgeting, OrcChat Library citations and source opening, distributed HIVE readers, benchmark-gate contracts, and hard-ingestion (structured formats, OCR contracts, immutable versions, cache policy, vector fallback, cross-corpus/CodeGraph links).
+- **The CF-7 benchmark gate closed GO on an honest, un-marked corpus (2026-07-17).** On `cf-expanded-book-v1` (128 segments, 120 real held-out questions), Qwen3.5-9B answered **104/120** questions at **97.1%** citation precision with **128/128** segments read — against a best competing baseline (closed-book, truncated-prompt, top-k RAG) of 52/120, all on GPU-verified native inference.
+- **This GO replaces, and does not merely re-confirm, an earlier one.** A 2026-07-03 GO was later found to have run against a corpus containing marked/leaked evidence lines; that result was retracted and the corpus rebuilt un-marked. The v1.13.0 result is the honest replacement — the kind of correction the project's [truth-audit discipline](docs/AI_DEVELOPMENT_DISCLOSURE.md) exists to force.
+- **The million-token product proof has run and passed:** a 1.82M-token deterministic corpus processed unattended on one node — 640/640 segments, 5/5 verified questions including a 640-citation exhaustive enumeration, a 563× source-to-working-context ratio on an 8K native context, zero Ollama involvement.
+- **Still not oversold:** standardized LongBench / LongBench v2 subset runs and full multimodal page understanding remain future benchmark and product work, not claims of this release.
+- The public benchmark lane has a name: **The Independent Mind Corpus** — a shelf built around works that stress evidence, liberty, literacy, institutional design, strategy, and source-grounded truth.
 
-This is where TheOrc starts to become more than "AI swarm for code." It becomes a local system for reading, checking, and reasoning across source material without pretending the model remembered the whole shelf.
+Context Fabric is what makes TheOrc more than "an AI swarm for code": a local system for reading, checking, and reasoning across source material without pretending the model remembered the whole shelf.
+
+---
+
+## The road to v2.0
+
+With Context Fabric complete, v2.0 is about two things: making the **native runtime the default**, and giving agents **real operational reach** beyond generating text. Four workstreams define the release. None of these are claimed as shipped — this is what the project is building next, in priority order.
+
+### 1. Native Runtime becomes the default
+The defining change of v2.0. Local in-process inference — already a real, verified runtime lane — is promoted from opt-in to the default path, with Ollama becoming fully optional rather than the assumed backend. The `RuntimeOrchestrator` / `AdapterManager` / `OrcScheduler` layer (per-role persistent LoRA contexts, VRAM-budget admission control, automatic fallback) graduates out of experimental status. This flip is **gated on multi-machine HIVE validation across a real LAN/Tailscale network** — a measured bar, not a calendar date.
+
+### 2. Browser automation + page understanding
+The highest-impact new capability: agents that can drive a real browser and understand what they see. Playwright-backed navigation, interaction, and page comprehension turn "read the docs" and "check the live site" from hand-offs into tasks a worker completes itself — under the same approval gates as every other tool.
+
+### 3. Workspace + shell intelligence
+Sharper hands on the local machine: fast ripgrep-backed search, safe structured file I/O, real diffs, and bounded build/test/shell execution. Every command still flows through the operator approval flow — the goal is capability with control, not an unsupervised shell.
+
+### 4. Multimodal intake + artifact export
+Closing the loop on documents. Image and OCR intake (Tesseract plus multimodal native chains) lets the swarm read scanned and visual sources; Pandoc-backed export turns results into polished `.docx`, PDF, and HTML deliverables instead of leaving everything as raw markdown.
+
+**Beyond v2.0**, the longer-term direction is a daemon-centric HIVE: the headless Warband daemon becomes the canonical node on every machine, collapsing today's dual GUI/daemon stack into one. See [ROADMAP.md](docs/ROADMAP.md) for the full picture.
 
 ---
 
 ## Historical release notes
 
-Everything below this line is preserved release history. The sections above describe where the project is now; the sections below describe what changed at each tagged release.
+Everything below this line is preserved release history. The sections above describe where the project is now and where it's going; the sections below describe what changed at each tagged release.
+
+## What's new in v1.13.0
+
+**Context Fabric closes its benchmark gate at GO — honestly.** The CF-7 gate reached **GO** on `cf-expanded-book-v1`, a 128-segment un-marked corpus with 120 real held-out questions: Qwen3.5-9B answered **104/120** at **97.1%** citation precision with **128/128** segments read, versus a best competing baseline of 52/120. Critically, this run *replaces* an earlier 2026-07-03 GO that was found to have scored against a corpus containing marked/leaked evidence lines — that result was retracted, the corpus rebuilt clean, and the gate re-run from scratch. Two independent bugs surfaced during live validation and were fixed to reach the honest verdict: the open-extraction reader was silently dropping facts on dense filler-heavy segments (now backed by a completeness-repair pass), and the exhaustive-leaf-coverage gate was checking a stale whole-corpus assumption left over from the old 16-segment fixture (now scoped to each question's own segment set).
+
+**A stricter NoKvSlot admission fix underneath the gate.** The §7e prompt-overflow fix (exact-token admission) closed a class of `Qwen3.5` KV-cache exhaustion crashes that had been corrupting benchmark scores — runs are now checked for `NoKvSlot` before their numbers are trusted, and Qwen3.5-Q8_0 is the new best-performing configuration on the gate.
+
+**Cost-tiered external code review.** The `grok-review` tooling was reworked into four explicit modes — `quick` (default, cheap, latest commit), `diff` (pre-commit uncommitted check), `full` (PR-scope with repo reads and project conventions), and `adversary` (a red-team pass that hunts what the prior reviewer missed) — with a real `-PR <n>` flag, corrected tool-policy enforcement, and a verdict parser hardened against both narration-glued findings and fail-open false-CLEAN results. The tool proved itself during its own review, catching three real regressions in its own pull request before merge.
 
 ## What's new in v1.12.0
 

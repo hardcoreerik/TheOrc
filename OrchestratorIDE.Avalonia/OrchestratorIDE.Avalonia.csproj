@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>OrchestratorIDE</RootNamespace>
     <AssemblyName>OrchestratorIDE.Avalonia</AssemblyName>
-    <Version>1.12.0</Version>
+    <Version>1.13.0</Version>
     <AssemblyVersion>1.12.0.0</AssemblyVersion>
     <FileVersion>1.12.0.0</FileVersion>
     <NoWarn>$(NoWarn);NU1510;AVLN3001</NoWarn>
