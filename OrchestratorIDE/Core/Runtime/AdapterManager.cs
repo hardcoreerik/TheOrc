@@ -350,29 +350,43 @@ public sealed class AdapterManager : IAsyncDisposable
         ThrowIfDisposed();
 
         return _entries
-            .Select(kv => new AdapterRoleResidency(
-                Role: kv.Key,
-                Binding: kv.Value.Binding,
-                ActiveCount: kv.Value.ActiveCount,
-                ConversationsCreated: kv.Value.ConversationsCreated,
-                Status: ComputeResidencyStatus(kv.Value)))
+            .Select(kv =>
+            {
+                // ActiveCount/ConversationsCreated/ForceRecycle are each an independent
+                // Volatile.Read -- capturing each ONCE here (rather than letting the record
+                // initializer and ComputeResidencyStatus each re-read RoleEntry separately) is
+                // what makes the displayed count and the displayed status describe the SAME
+                // instant. Without this, a concurrent mint between reads could show e.g.
+                // ConversationsCreated=23 alongside Status=RecyclePending, which needs >= 24
+                // (CodeRabbit finding on this PR).
+                var activeCount = kv.Value.ActiveCount;
+                var conversationsCreated = kv.Value.ConversationsCreated;
+                var forceRecycle = kv.Value.ForceRecycle;
+                return new AdapterRoleResidency(
+                    Role: kv.Key,
+                    Binding: kv.Value.Binding,
+                    ActiveCount: activeCount,
+                    ConversationsCreated: conversationsCreated,
+                    Status: ComputeResidencyStatus(conversationsCreated, forceRecycle));
+            })
             .ToArray();
     }
 
     // Independently computed for display, not literally shared with GetOrCreateConversationAsync's
     // live recycle-check branch above -- Phase C is read-only additive telemetry (per spec: "add
     // read-only accessors; do not change lifecycle logic"), so this deliberately does not refactor
-    // the already-reviewed hot path to share a helper. AtHardLimit checks ConversationsCreated
+    // the already-reviewed hot path to share a helper. AtHardLimit checks conversationsCreated
     // alone (not the live path's more nuanced "!recycleNow && minted >= SequenceHardLimit" throw
     // gate) -- a slightly earlier, simpler "at risk" signal is the right tradeoff for a status
-    // display, which doesn't need to reproduce the exact throw condition.
-    private static AdapterRoleResidencyStatus ComputeResidencyStatus(RoleEntry entry)
+    // display, which doesn't need to reproduce the exact throw condition. Takes captured values,
+    // not a RoleEntry, so it can't accidentally re-read a volatile field a second time.
+    private static AdapterRoleResidencyStatus ComputeResidencyStatus(int conversationsCreated, bool forceRecycle)
     {
-        if (entry.ConversationsCreated >= SequenceHardLimit)
+        if (conversationsCreated >= SequenceHardLimit)
             return AdapterRoleResidencyStatus.AtHardLimit;
-        if (entry.ForceRecycle)
+        if (forceRecycle)
             return AdapterRoleResidencyStatus.Degraded;
-        if (entry.ConversationsCreated >= SequenceRecycleThreshold)
+        if (conversationsCreated >= SequenceRecycleThreshold)
             return AdapterRoleResidencyStatus.RecyclePending;
         return AdapterRoleResidencyStatus.Healthy;
     }
