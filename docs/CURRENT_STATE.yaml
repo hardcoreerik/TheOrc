@@ -85,16 +85,22 @@ subsystems:
       NativeWithFallbackRuntime mechanics and the one open gap it documents
       (benchmark reports record RuntimeName as a static label, not per-call
       fallback counts). As of 2026-07-19, docs/NATIVE_RUNTIME_V2_SPEC.md's
-      foundation-hardening Phases A-C are landed: VRAM admission is a single
-      authoritative, fail-closed boundary (AdapterManager's conversation-minting
-      is internal, reachable only through RuntimeOrchestrator's gate; a missing
-      budget now denies rather than silently loading unadmitted); the admission
-      budget is a live nvidia-smi read, not a static snapshot; and
-      RuntimeOrchestrator/AdapterManager telemetry (reservation state, adapter
-      residency, rejected-admission counts, measured per-process VRAM) is real
-      and partially surfaced in the Activity Log. This is foundation hardening,
+      foundation-hardening Phases A-C are landed, with one deliberate gap:
+      VRAM admission is a single authoritative, fail-closed boundary
+      (AdapterManager's conversation-minting is internal, reachable only
+      through RuntimeOrchestrator's gate; a missing budget now denies rather
+      than silently loading unadmitted); the admission budget's TOTAL/USED
+      read is now live via nvidia-smi, not a static snapshot -- but the
+      per-role VRAM cost ESTIMATE (OrcScheduler.EstimateRequiredBytes) is
+      still GGUF-file-size-only, not KV/rs-cache-aware; that half of Phase B
+      was deliberately deferred (PR #72) rather than shipping an ungrounded
+      generalization, and remains open alongside Phase D. RuntimeOrchestrator/
+      AdapterManager telemetry (reservation state, adapter residency,
+      rejected-admission counts, measured per-process VRAM) is real and
+      partially surfaced in the Activity Log. This is foundation hardening,
       not a default-runtime change -- Phase D (real-model native-path proof
-      lane) remains open, and the default-runtime flip is a separately gated
+      lane), the deferred cost-estimate work, and the default-runtime flip
+      all remain open, the last one separately gated
       future milestone per that spec's §6.
 
   llamacpp_server:
