@@ -140,14 +140,22 @@ public sealed class NativeLoadAllocationParserTests
     [Test]
     public void Suppress_Dispose_Is_Idempotent()
     {
+        // A lone scope's double-Dispose can't distinguish idempotent (depth 1->0, second call a
+        // no-op) from broken (depth 1->0->-1) -- Observe()'s guard is `> 0`, and both 0 and -1
+        // fail that check the same way, so accumulation resumes either way and the assertion
+        // would pass even with the idempotency guard removed entirely (CodeRabbit finding on
+        // PR #77's fix commit). An overlapping second scope that stays active makes the two
+        // cases diverge: idempotent keeps depth at 1 (still suppressed); broken drops it to 0
+        // (accumulation wrongly resumes).
         var acc = new NativeLoadAllocationAccumulator();
-        var scope = acc.Suppress();
+        var scope1 = acc.Suppress();
+        using var scope2 = acc.Suppress();
 
-        scope.Dispose();
-        scope.Dispose();
+        scope1.Dispose();
+        scope1.Dispose();
 
         acc.Observe("load_tensors:        CUDA0 model buffer size =  1918.36 MiB");
-        Assert.That(acc.TotalBytes, Is.EqualTo((long)(1918.36 * 1024 * 1024)),
-            "a double Dispose must not double-decrement the suppress depth");
+        Assert.That(acc.TotalBytes, Is.Null,
+            "a double Dispose must not double-decrement the suppress depth below the still-active second scope");
     }
 }
