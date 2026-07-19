@@ -7,11 +7,17 @@
 > **Implementation status (updated as phases land, not on every edit — check PR history for
 > the authoritative record):** as of 2026-07-19, [Phase A](#phase-a--authoritative-fail-closed-admission-boundary)
 > (admission boundary, PR #70), [Phase B](#phase-b--real-vram-budget--overhead-aware-estimate)
-> (live VRAM budget — the read-side only; the cost-*estimate* side was explicitly deferred, PR
-> #72), and [Phase C](#phase-c--real-telemetry-surfacing) (real telemetry, PR #73) are landed.
-> [Phase D](#phase-d--real-model-native-path-proof-lane) and Phase B's deferred estimate work
-> remain open. This section is the one place in the document allowed to describe *shipped*
-> state — the rest of the spec below is design intent for later PRs, per each phase's own
+> (live VRAM budget, PR #72, **and** the cost-*estimate* side — a GGUF-header-based KV/compute
+> formula, PR #76 — both landed), and [Phase C](#phase-c--real-telemetry-surfacing) (real
+> telemetry, PR #73) are landed. A further Phase B addendum — real load-time VRAM *measurement*
+> parsed from llama.cpp's own log lines, replacing the WDDM-dead nvidia-smi per-process read — is
+> in flight (PR #77). [Phase D](#phase-d--real-model-native-path-proof-lane) is open; one of its
+> named requirements — the negative "admission denial fails closed, no silent Ollama
+> substitution" test (§3.4) — landed early as an always-on (non-hardware-gated) test, since a
+> real capacity denial happens before any model load and needs no GGUF to exercise
+> (`NativeRuntimePhaseDTests.cs`). The rest of Phase D's E2E hardware-gated lane remains open.
+> This section is the one place in the document allowed to describe *shipped* state — the rest
+> of the spec below is design intent for later PRs, per each phase's own
 > `[Verified]`/`[Proposed]` markers at time of writing.
 >
 > **Scope discipline:** this spec does **not** change the product's default runtime.
@@ -525,14 +531,20 @@ both directions. TheOrc instead runs its own runtime and can *observe*:
 `NativeVramProbe.TryQueryLiveNvidiaBudget().ReservedBytes` before/after each step, and capture
 llama.cpp's `buffer size` log lines; compare against the header formula above.
 
-**Status:** design addendum only — implementation follows as its own reviewed PR(s), same
-process as Phases A–C. The one immediate code change riding in the same PR as this addendum
-is a stale-lane test fix: running the `THEORC_TEST_GGUF`-gated role-runtime lane for the first
-time since Phase A shipped revealed it constructs `NativeRoleRuntime` with no scheduler/budget
-— which Phase A now correctly fails closed. The lane (whose purpose is load/generate/stats,
-not admission) now uses the sanctioned `allowUnbudgetedExecution: true` harness opt-out, and
-all three real-model lanes pass green against a real GGUF on the reference box — the first
-live run of Phase D-adjacent verification in this workstream.
+**Status:** the cost-estimate half landed in PR #76 — `GgufMetadataReader` (header-only, memo-
+cached) plus the byte-exact KV/compute formula wired into `OrcScheduler.EstimateRequiredBytes`
+and `RuntimeOrchestrator.EnsureAdmitted`, tested against synthetic fixtures and a real GGUF. A
+further addendum (PR #77, in flight) replaces the *estimate* with a real *measurement*: parsing
+llama.cpp's own load-time "buffer size" log lines (exact, WDDM-proof) into
+`NativeLoadAllocationAccumulator`, feeding `LLamaSharpRuntime.EstimatedVramBytes` from measured
+bytes instead of the formula whenever a load has actually happened. The one immediate code
+change that rode in the original spike PR (#75) was a stale-lane test fix: running the
+`THEORC_TEST_GGUF`-gated role-runtime lane for the first time since Phase A shipped revealed it
+constructs `NativeRoleRuntime` with no scheduler/budget — which Phase A now correctly fails
+closed. The lane (whose purpose is load/generate/stats, not admission) now uses the sanctioned
+`allowUnbudgetedExecution: true` harness opt-out, and all three real-model lanes pass green
+against a real GGUF on the reference box — the first live run of Phase D-adjacent verification
+in this workstream.
 
 ---
 
@@ -577,7 +589,15 @@ live run of Phase D-adjacent verification in this workstream.
 - **Safety invariants:** all of [§5](#5-mandatory-requirements-traceability) — the lane is
   where they are proven together on real hardware.
 - **Targeted tests:** the lane itself (opt-in), plus the negative fail-closed test from
-  [§3.4](#34-verification-required-for-3-implemented-in-phase-d).
+  [§3.4](#34-verification-required-for-3-implemented-in-phase-d). **Landed early, always-on
+  (not hardware-gated):** `NativeRuntimePhaseDTests.RealAdmissionDenial_PropagatesThroughFallbackWrapper_WithoutInvokingFallback`
+  wires a real `OrcScheduler` denial (zero-budget `TryAdmit`, not the simpler "no scheduler
+  configured" case Phase A's own tests cover) through the real `RuntimeOrchestrator` and
+  `NativeWithFallbackRuntime`, and asserts `RuntimeAdmissionDeniedException` propagates with the
+  fallback runtime never invoked. Needs no GGUF/hardware gate because a real admission denial
+  happens before `SessionManager` ever opens a model file — this specific requirement runs in
+  every CI build rather than only the opt-in lane, a stronger guarantee than the DoD strictly
+  asked for.
 - **`/verify`:** run the full lane on a reference box end-to-end (discovery → selection →
   session → admission → adapter → inference → cancellation → telemetry → no-fallback) and
   attach the evidence artifact; separately confirm a native-routed job with native disabled
