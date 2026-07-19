@@ -173,6 +173,23 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
             catch (Exception ex)
             {
                 RecordFailure(role, binding, ex.Message);
+
+                // Native Runtime v2.0 Phase D (docs/NATIVE_RUNTIME_V2_SPEC.md, cancellation
+                // leg): a request that did not complete cleanly -- cancelled mid-generation, or
+                // failed for any other reason -- must not let the NEXT request on this role
+                // reuse a potentially corrupted persistent executor. Confirmed live: cancelling
+                // between a Prompt(token)/InferUntilReadyAsync pair left the executor unable to
+                // drain a subsequent conversation's prompt batch at all (>1024 decode passes,
+                // never NoKvSlot, never completing) even though this cancelled conversation's own
+                // TrackedConversation disposed and its ActiveCount released normally -- the same
+                // "disposed conversations not fully returning their cells" root cause already
+                // documented for NoKvSlot (AdapterManager.cs's ForceRecycle comment), just
+                // reached via cancellation instead. No CancellationToken passed here, matching
+                // MarkRoleDegraded's own NoKvSlot call site: the mark must survive this very
+                // request being cancelled, or the degraded executor would be silently reused by
+                // the next one.
+                await _orchestrator.MarkRoleDegraded(role).ConfigureAwait(false);
+
                 throw;
             }
 

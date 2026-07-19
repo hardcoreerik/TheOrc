@@ -590,6 +590,40 @@ live run of Phase D-adjacent verification in this workstream.
 - **Non-goals:** multi-machine HIVE validation (that is [§6](#6-later-milestone-default-runtime-flip-hive-gated),
   not this lane); making native the default.
 
+**Cancellation leg landed, and it caught a real bug.**
+`NativeRuntimePhaseDCancellationTests.Cancellation_MidGeneration_PropagatesAndLeavesRoleReusable`
+(real GGUF, `THEORC_TEST_GGUF`-gated) drives a real `NativeRoleRuntime` generation, consumes two
+real tokens, cancels mid-stream, and confirms cancellation propagates as
+`OperationCanceledException` with the `TrackedConversation`'s active count releasing normally.
+The first version of this test then made a SECOND, uncancelled request on the same role and
+found it reliably failed: `InferUntilReadyAsync` never observed `DecodeResult.NoKvSlot` (ruled
+out via `THEORC_KVCACHE_DIAGNOSTICS=1` — zero retry log lines) but also never saw
+`RequiresInference` clear within 1024 decode passes — the persistent BatchedExecutor-backed
+executor was left unable to serve the role at all after a cancellation, even though the
+cancelled conversation's own refcount released cleanly. A control test
+(`TwoSequentialUncancelledCalls_OnSameRole_BothSucceed`) confirmed two uncancelled calls in a row
+never hit this — isolating the corruption to cancellation specifically, not a general
+persistent-executor reuse bug.
+
+This is the same root cause `AdapterManager`'s existing `ForceRecycle`/`MarkForRecycle`
+mechanism already documents for `NoKvSlot` ("disposed conversations not fully returning their
+cells before the next one claims them"), just reached via a cancelled decode instead of a
+completed one. Rather than investigate the exact LLamaSharp/native mechanics of *why* a
+cancelled `Infer(ct)` call can leave cells stuck (a deeper native-interop question genuinely
+out of scope for this pass), the fix reuses the existing, already-proven mitigation instead of
+inventing a new one: `NativeRoleRuntime.StreamRoleCompletionAsync`'s existing `catch (Exception
+ex) { RecordFailure(...); throw; }` block (`IRoleRuntime.cs`) now also calls
+`_orchestrator.MarkRoleDegraded(role)` before rethrowing — ANY exception escaping the generation
+loop (cancellation or otherwise) now forces the next mint on that role to build a fresh executor
+rather than risk reusing one that didn't complete cleanly, mirroring `MarkForRecycle`'s own
+"prefer aggressive recycling over slow degradation" philosophy. Verified: the cancellation test
+passes reliably (3 repeated runs) with the fix, and the full 619-test suite (including all
+gated real-model lanes) stays green.
+
+**Still open for the full Phase D lane:** the discovery→...→telemetry happy path is already
+covered by the existing `THEORC_TEST_GGUF` lanes; the retained evidence artifact for a full
+successful run (reusing the `EvidenceStore` pattern) has not yet been built.
+
 ---
 
 ## 5. Mandatory requirements traceability
