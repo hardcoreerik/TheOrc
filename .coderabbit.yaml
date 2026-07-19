@@ -1,0 +1,20 @@
+# CodeRabbit configuration for TheOrc.
+#
+# This repo's Native Runtime v2.0 workstream pushes several fix commits per PR in response to
+# review findings (a normal AI-assisted-development iteration pattern). CodeRabbit's default
+# `auto_incremental_review: true` re-reviews on EVERY push, which burns a review credit each
+# time -- on the Pro Plus plan's 7-day fair-use throttle, a handful of PRs each iterated 2-4
+# times was enough to push per-developer availability down to "1 review/hour, one at a time"
+# (confirmed via `@coderabbitai rate limit`). The fix isn't a plan/billing issue -- it's that
+# every small fix-commit push was silently spending a review credit whether or not one was
+# actually wanted yet.
+#
+# auto_incremental_review: false keeps the useful part (CodeRabbit still reviews automatically
+# the FIRST time a PR is opened) while stopping it from re-reviewing every subsequent push on
+# its own. Review a batch of fix commits deliberately with `@coderabbitai review` (or
+# `@coderabbitai full review` to force a from-scratch pass) once the PR is actually ready to be
+# looked at again, instead of on every intermediate commit.
+reviews:
+  auto_review:
+    enabled: true
+    auto_incremental_review: false
