@@ -175,7 +175,7 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
             // against on their own gates — this class was missing the equivalent check).
             ThrowIfDisposed();
 
-            EnsureAdmitted(binding);
+            EnsureAdmitted(binding, options);
 
             var loadResult = await _sessionManager.LoadBindingAsync(binding, options, ct).ConfigureAwait(false);
             if (!loadResult.Success || loadResult.Binding is null)
@@ -190,10 +190,12 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
             // generation EnsureAdmitted saw. The load above may have been the one that bumped
             // WeightsGeneration (first-ever load) or left it untouched (same-base-model reuse);
             // tagging with whatever it actually is right now is what makes a LATER call's
-            // generation-match filter correct in both cases.
+            // generation-match filter correct in both cases. Same options as the admission
+            // check above — the ledger entry must be the same number TryAdmit was checked with,
+            // or a later role's admission would be judged against a different-sized footprint.
             if (_scheduler is not null && _budgetProvider is not null)
             {
-                var requiredBytes = OrcScheduler.EstimateRequiredBytes(binding);
+                var requiredBytes = OrcScheduler.EstimateRequiredBytes(binding, options);
                 lock (_telemetryGate)
                     _reservedByRole[binding.Role] = (requiredBytes, _runtime.WeightsGeneration);
             }
@@ -247,7 +249,7 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
     /// LLamaSharpRuntime.WeightsGeneration, a managed counter), so it can be exercised in
     /// isolation without a real model load, unlike the rest of GetConversationForBindingAsync.
     /// </summary>
-    internal void EnsureAdmitted(RuntimeRoleBinding binding)
+    internal void EnsureAdmitted(RuntimeRoleBinding binding, RuntimeOptions? options = null)
     {
         if (_scheduler is null || _budgetProvider is null)
         {
@@ -288,7 +290,7 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
                 .Sum(kv => kv.Value.Bytes);
         var budget = baseline with { ReservedBytes = baseline.ReservedBytes + otherRolesReserved };
 
-        var decision = _scheduler.TryAdmit(binding, budget);
+        var decision = _scheduler.TryAdmit(binding, budget, options);
         if (!decision.Admitted)
         {
             RecordRejection(decision.Reason);
