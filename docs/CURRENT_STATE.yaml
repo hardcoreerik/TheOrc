@@ -22,8 +22,8 @@
 # thing a human checks before writing "planned" or "shipped" in prose. Update this
 # file in the SAME commit/PR that changes a subsystem's status.
 #
-# last_reviewed: 2026-07-13
-# reviewed_against_release: v1.12.0
+# last_reviewed: 2026-07-19
+# reviewed_against_release: v1.13.0
 
 subsystems:
   swarm_orchestration:
@@ -84,7 +84,18 @@ subsystems:
       current/default/fallback picture per workload, including the real
       NativeWithFallbackRuntime mechanics and the one open gap it documents
       (benchmark reports record RuntimeName as a static label, not per-call
-      fallback counts).
+      fallback counts). As of 2026-07-19, docs/NATIVE_RUNTIME_V2_SPEC.md's
+      foundation-hardening Phases A-C are landed: VRAM admission is a single
+      authoritative, fail-closed boundary (AdapterManager's conversation-minting
+      is internal, reachable only through RuntimeOrchestrator's gate; a missing
+      budget now denies rather than silently loading unadmitted); the admission
+      budget is a live nvidia-smi read, not a static snapshot; and
+      RuntimeOrchestrator/AdapterManager telemetry (reservation state, adapter
+      residency, rejected-admission counts, measured per-process VRAM) is real
+      and partially surfaced in the Activity Log. This is foundation hardening,
+      not a default-runtime change -- Phase D (real-model native-path proof
+      lane) remains open, and the default-runtime flip is a separately gated
+      future milestone per that spec's §6.
 
   llamacpp_server:
     status: opt-in
