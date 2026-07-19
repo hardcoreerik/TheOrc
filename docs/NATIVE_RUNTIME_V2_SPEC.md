@@ -1,10 +1,18 @@
 # TheOrc Native Runtime — v2.0 Production-Readiness Spec
 
-> **Status:** Design / specification only. This document defines the concrete work
-> required to graduate the native runtime layer (`OrchestratorIDE/Core/Runtime/`) from
-> its current `opt-in` / partly-prototype state toward production readiness. **No
-> implementation lands with this document.** Each phase below is implemented and reviewed
-> in its own later PR.
+> **Status:** Design / specification only — this document itself defines requirements and
+> phases; it does not implement them. **No implementation lands with this document.** Each
+> phase below is implemented and reviewed in its own later PR.
+>
+> **Implementation status (updated as phases land, not on every edit — check PR history for
+> the authoritative record):** as of 2026-07-19, [Phase A](#phase-a--authoritative-fail-closed-admission-boundary)
+> (admission boundary, PR #70), [Phase B](#phase-b--real-vram-budget--overhead-aware-estimate)
+> (live VRAM budget — the read-side only; the cost-*estimate* side was explicitly deferred, PR
+> #72), and [Phase C](#phase-c--real-telemetry-surfacing) (real telemetry, PR #73) are landed.
+> [Phase D](#phase-d--real-model-native-path-proof-lane) and Phase B's deferred estimate work
+> remain open. This section is the one place in the document allowed to describe *shipped*
+> state — the rest of the spec below is design intent for later PRs, per each phase's own
+> `[Verified]`/`[Proposed]` markers at time of writing.
 >
 > **Scope discipline:** this spec does **not** change the product's default runtime.
 > Ollama remains the default and the fallback target. See [§0.3 Explicitly out of scope](#03-explicitly-out-of-scope).

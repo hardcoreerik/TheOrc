@@ -1,7 +1,11 @@
 # TheOrc — Roadmap
 
-> Last updated: 2026-07-17 (v1.13.0 — Context Fabric complete: the CF-7 benchmark gate closed GO on the honest un-marked corpus; the project now turns to the v2.0 Native Runtime direction. See below.).
-> This document is updated after every GitHub release. It reflects actual code state, not aspirations — features marked Shipped have been verified in the running app.
+> Last updated: 2026-07-19 (v1.13.0 — Context Fabric complete; since then, Native Runtime v2.0
+> foundation-hardening Phases A-C (admission boundary, live VRAM budget, real telemetry) landed
+> as three separate PRs ahead of any new tagged release. See the Native Runtime section below.).
+> This document is updated after every GitHub release, and incrementally between releases when a
+> section goes materially stale. It reflects actual code state, not aspirations — features marked
+> Shipped have been verified in the running app.
 
 ---
 
@@ -644,7 +648,14 @@ and run as a service before the GUI-as-client changeover happens.
 
 ## TheOrc Native Runtime — v2.0 direction
 
-> Full spec: [`docs/RUNTIME_PHASE0_SPEC.md`](RUNTIME_PHASE0_SPEC.md). Status changed after ORC ACADEMY v3 completed: early runtime groundwork has landed, but native runtime is still pre-production and not the default.
+> Contracts/design spec: [`docs/RUNTIME_PHASE0_SPEC.md`](RUNTIME_PHASE0_SPEC.md). Status changed after ORC ACADEMY v3 completed: early runtime groundwork has landed, but native runtime is still pre-production and not the default.
+>
+> Current foundation-hardening plan (the specific work the Phase 3/4 rows below flag as
+> "remaining"): [`docs/NATIVE_RUNTIME_V2_SPEC.md`](NATIVE_RUNTIME_V2_SPEC.md). As of 2026-07-19,
+> Phases A (fail-closed admission boundary, closing the AdapterManager bypass), B (live VRAM
+> budget), and C (real telemetry) are landed. Phase D (real-model native-path proof lane) is
+> still open. None of this changes the default runtime or Ollama's role as fallback — see that
+> spec's explicit out-of-scope list.
 
 **What it is:** an orchestration / swarm-aware layer *on top of* LLamaSharp (llama.cpp bindings) — **not** a from-scratch inference engine. llama.cpp owns the kernels; TheOrc owns scheduling, session management, adapter hot-swap, VRAM-aware dispatch, and direct Avalonia streaming. The moat is making the warband feel like one cohesive mind on the GPU instead of a series of independent HTTP calls.
 
@@ -656,8 +667,8 @@ and run as a service before the GUI-as-client changeover happens.
 | **1** | `LlamaCppServerRuntime` — wraps the **existing** `LlamaServerManager` + `InferenceBackend.LlamaCpp`. | ✅ Landed — server lifecycle and HTTP routing exist behind the runtime interface. | Low |
 | **2** | `LLamaSharpRuntime` — in-process GGUF streaming, embedded-template probing, stats, shared text tool-call parsing. | ⚠️ Prototype landed — useful for validation, not production/default. LoRA hot-swap, backend install flow, and full runtime selection are not complete. | Med |
 | **2.5** | Close abstraction leaks from the first migration. | ✅ Closed for `HiveWorkerAgent` and reviewer inference — both use `IModelRuntime`; SwarmSession's Ollama-specific eviction escape hatch and remote HIVE task-queue/node HTTP remain separate follow-up plumbing. | Med |
-| **3** | `ModelDepot` (local registry first; downloader later), `SessionManager` (persistent base model), `AdapterManager` (boss/worker/reviewer LoRAs), telemetry. | 🔶 Live opt-in proof path landed — ModelDepot, SessionManager, AdapterManager (per-role persistent executors, adapter attached once at creation per the §7 verdict), and `RuntimeOrchestrator` all landed; `IRoleRuntime`/`NativeRoleRuntime` now stream that role stack, `THEORC_TEST_GGUF` has an opt-in role-runtime smoke lane, Avalonia Settings exposes manual native smoke/fallback/evidence capture, and `HiveWorkerAgent` can opt into native role execution with logged fallback to the configured model runtime. Remaining: keep proving the real-model path, surface SessionManager/AdapterManager-backed telemetry, wire OrcScheduler into AdapterManager, and do not make native the main chat/swarm default yet. | Med-High |
-| **4** | `OrcScheduler` — capability + VRAM + lane-aware dispatch; pipeline boss→workers. | 🔶 Started — interface + data model + a real VRAM-budget admission check landed; `RuntimeOrchestrator` now tracks active per-role reservations (generation-tagged, serialized through one admission gate) instead of a static zero-reserved snapshot, closing the over-admission gap the static check left open. Still not wired into AdapterManager beyond `RuntimeOrchestrator`'s own gate, no live GPU dispatch or pipeline queueing. | High |
+| **3** | `ModelDepot` (local registry first; downloader later), `SessionManager` (persistent base model), `AdapterManager` (boss/worker/reviewer LoRAs), telemetry. | 🔶 Live opt-in proof path landed — ModelDepot, SessionManager, AdapterManager (per-role persistent executors, adapter attached once at creation per the §7 verdict), and `RuntimeOrchestrator` all landed; `IRoleRuntime`/`NativeRoleRuntime` now stream that role stack, `THEORC_TEST_GGUF` has an opt-in role-runtime smoke lane, Avalonia Settings exposes manual native smoke/fallback/evidence capture, and `HiveWorkerAgent` can opt into native role execution with logged fallback to the configured model runtime. Telemetry surfacing and the OrcScheduler/AdapterManager wiring below are now landed (NATIVE_RUNTIME_V2_SPEC.md Phases A/C). Remaining: keep proving the real-model path (Phase D); the per-role VRAM cost estimate is still GGUF-file-size-only, not KV/rs-cache-aware (Phase B's estimate half was deliberately deferred, not landed — see that PR); do not make native the main chat/swarm default yet. | Med-High |
+| **4** | `OrcScheduler` — capability + VRAM + lane-aware dispatch; pipeline boss→workers. | 🔶 Started — interface + data model + a real VRAM-budget admission check landed; `RuntimeOrchestrator` now tracks active per-role reservations (generation-tagged, serialized through one admission gate) instead of a static zero-reserved snapshot, closing the over-admission gap the static check left open. NATIVE_RUNTIME_V2_SPEC.md Phase A closed the "not wired into AdapterManager" gap this row used to flag: `AdapterManager`'s conversation-minting methods are now `internal`, reachable only through `RuntimeOrchestrator`'s admission gate, and admission fails closed (not open) when no budget is configured. Phase B added a live nvidia-smi VRAM read in place of the static zero-reserved snapshot. Still no live GPU dispatch or pipeline queueing. | High |
 | **5** | *(Research, non-blocking)* prefix KV cache for the shared warband prompt; multi-LoRA cache experiments. | ✅ Research closed — `Conversation.Fork()`/`MemorySequenceCopy` is a real, cheap shared-prefix mechanism, confirmed via LLamaSharp's own XML docs; blocked for cross-role sharing because `SetLoraAdapters` is context-scoped, not per-sequence — same-role prefix forking remains a viable future win, see `.grok/PREFIX_KV_CACHE_RESEARCH.md`. | Research |
 
 **Caveat (permanent, now mechanically confirmed — not just inferred):** shared KV cache across *different* LoRA-specialized agents is not guaranteed safe — adapters change activations, and LLamaSharp 0.27.0's `SetLoraAdapters` applies per-context, not per-sequence, so forked sequences sharing a context cannot run different adapters. Start with simple prefix caching of the common system prompt only **within one role**; cross-role sharing is research, never a promised deliverable. LoRA hot-swap requires a verification spike before it joins a committed phase — that spike ran (§7), and the verdict (separate persistent contexts per role) is implemented in `AdapterManager`.
