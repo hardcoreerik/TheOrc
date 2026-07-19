@@ -1,5 +1,6 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
+using System.Collections.Concurrent;
 using LLama.Batched;
 using LLama.Native;
 
@@ -41,7 +42,16 @@ public sealed class AdapterManager : IAsyncDisposable
 {
     private readonly LLamaSharpRuntime _runtime;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly Dictionary<RuntimeRole, RoleEntry> _entries = new();
+    // ConcurrentDictionary, not Dictionary: Native Runtime v2.0 Phase C adds GetResidencySnapshot,
+    // a synchronous, non-blocking telemetry read (docs/NATIVE_RUNTIME_V2_SPEC.md §2.3) that must
+    // never wait on _gate (the async minting/rebinding pipeline) -- the same "telemetry reads
+    // don't block behind an in-flight operation" rule RuntimeOrchestrator already follows via its
+    // own _telemetryGate. _gate still exclusively serializes the higher-level async mutation
+    // FLOW (check-then-act recycle decisions, native object creation) among concurrent minting
+    // callers -- that invariant is unchanged. ConcurrentDictionary only adds thread-safe
+    // enumeration/lookup so a lock-free telemetry read can never see a torn Dictionary mid-write
+    // (InvalidOperationException: Collection was modified) or corrupt internal state.
+    private readonly ConcurrentDictionary<RuntimeRole, RoleEntry> _entries = new();
     private int _lastSeenWeightsGeneration = -1;
     private bool _disposed;
 
@@ -194,7 +204,7 @@ public sealed class AdapterManager : IAsyncDisposable
                 LogKvDiagnostic(
                     $"role={binding.Role} RECYCLING minted={minted} activeCount={existing.ActiveCount} " +
                     $"threshold={SequenceRecycleThreshold} forced={existing.ForceRecycle}");
-                _entries.Remove(binding.Role);
+                _entries.TryRemove(binding.Role, out _);
                 // Best-effort, same contract as the stale-binding teardown below: the entry is
                 // already untracked, so a disposal fault must not block the replacement build.
                 try { existing.DisposeNative(); } catch { /* superseded entry — best effort only */ }
@@ -206,7 +216,7 @@ public sealed class AdapterManager : IAsyncDisposable
                     throw new InvalidOperationException(
                         $"Cannot rebuild role {binding.Role}: {stale.ActiveCount} conversation(s) " +
                         "still active on its current executor. Dispose them before rebinding.");
-                _entries.Remove(binding.Role);
+                _entries.TryRemove(binding.Role, out _);
                 // Best-effort: a failure disposing the SUPERSEDED entry must not block building
                 // the NEW one the caller actually asked for. The old entry is already removed
                 // from tracking either way, so a leak here is the worst case, not a crash.
@@ -323,6 +333,64 @@ public sealed class AdapterManager : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Native Runtime v2.0 Phase C (docs/NATIVE_RUNTIME_V2_SPEC.md §2.3) — a read-only,
+    /// point-in-time view of every currently-tracked role's residency and sequence-slot
+    /// pressure. Synchronous and non-blocking by design: never waits on <see cref="_gate"/>
+    /// (the async minting/rebinding pipeline), matching the same "telemetry reads don't block
+    /// behind an in-flight operation" rule <c>RuntimeOrchestrator.GetReservationSnapshot</c>
+    /// already follows. Safe to call concurrently with any in-flight mint/rebind/dispose —
+    /// <see cref="_entries"/> is a <see cref="ConcurrentDictionary{TKey,TValue}"/> specifically
+    /// so this never sees a torn read. Exposes only counts/status derived from
+    /// <see cref="RoleEntry"/> — the native <see cref="BatchedExecutor"/>/<see cref="LoraAdapter"/>
+    /// handles never leave this class.
+    /// </summary>
+    public IReadOnlyList<AdapterRoleResidency> GetResidencySnapshot()
+    {
+        ThrowIfDisposed();
+
+        return _entries
+            .Select(kv =>
+            {
+                // ActiveCount/ConversationsCreated/ForceRecycle are each an independent
+                // Volatile.Read -- capturing each ONCE here (rather than letting the record
+                // initializer and ComputeResidencyStatus each re-read RoleEntry separately) is
+                // what makes the displayed count and the displayed status describe the SAME
+                // instant. Without this, a concurrent mint between reads could show e.g.
+                // ConversationsCreated=23 alongside Status=RecyclePending, which needs >= 24
+                // (CodeRabbit finding on this PR).
+                var activeCount = kv.Value.ActiveCount;
+                var conversationsCreated = kv.Value.ConversationsCreated;
+                var forceRecycle = kv.Value.ForceRecycle;
+                return new AdapterRoleResidency(
+                    Role: kv.Key,
+                    Binding: kv.Value.Binding,
+                    ActiveCount: activeCount,
+                    ConversationsCreated: conversationsCreated,
+                    Status: ComputeResidencyStatus(conversationsCreated, forceRecycle));
+            })
+            .ToArray();
+    }
+
+    // Independently computed for display, not literally shared with GetOrCreateConversationAsync's
+    // live recycle-check branch above -- Phase C is read-only additive telemetry (per spec: "add
+    // read-only accessors; do not change lifecycle logic"), so this deliberately does not refactor
+    // the already-reviewed hot path to share a helper. AtHardLimit checks conversationsCreated
+    // alone (not the live path's more nuanced "!recycleNow && minted >= SequenceHardLimit" throw
+    // gate) -- a slightly earlier, simpler "at risk" signal is the right tradeoff for a status
+    // display, which doesn't need to reproduce the exact throw condition. Takes captured values,
+    // not a RoleEntry, so it can't accidentally re-read a volatile field a second time.
+    private static AdapterRoleResidencyStatus ComputeResidencyStatus(int conversationsCreated, bool forceRecycle)
+    {
+        if (conversationsCreated >= SequenceHardLimit)
+            return AdapterRoleResidencyStatus.AtHardLimit;
+        if (forceRecycle)
+            return AdapterRoleResidencyStatus.Degraded;
+        if (conversationsCreated >= SequenceRecycleThreshold)
+            return AdapterRoleResidencyStatus.RecyclePending;
+        return AdapterRoleResidencyStatus.Healthy;
+    }
+
     public async ValueTask DisposeAsync()
     {
         await _gate.WaitAsync().ConfigureAwait(false);
@@ -434,6 +502,35 @@ public sealed class AdapterManager : IAsyncDisposable
             throw;
         }
     }
+}
+
+/// <summary>
+/// One role's residency and sequence-slot pressure at the moment <see cref="AdapterManager.GetResidencySnapshot"/>
+/// was called. <see cref="Binding"/> is already-public information (paths/display names, no
+/// native handle) — included so a diagnostics consumer can tell WHAT is resident, not just how many.
+/// </summary>
+public sealed record AdapterRoleResidency(
+    RuntimeRole Role,
+    RuntimeRoleBinding Binding,
+    int ActiveCount,
+    int ConversationsCreated,
+    AdapterRoleResidencyStatus Status);
+
+/// <summary>Ordered roughly least-to-most concerning, though callers should treat each as its own state, not a strict severity ladder.</summary>
+public enum AdapterRoleResidencyStatus
+{
+    /// <summary>Under the recycle threshold — normal operation.</summary>
+    Healthy,
+    /// <summary>At/over the recycle threshold but recycling is deferred because conversations
+    /// are still outstanding — will recycle as soon as the role goes idle.</summary>
+    RecyclePending,
+    /// <summary>Marked degraded by <see cref="AdapterManager.MarkForRecycle"/> (a NoKvSlot was
+    /// observed on this role) — recycling as soon as the role goes idle, regardless of the
+    /// normal threshold.</summary>
+    Degraded,
+    /// <summary>At or past the native sequence-slot hard limit — the next mint attempt for this
+    /// role may throw rather than risk the native slot-exhaustion crash.</summary>
+    AtHardLimit,
 }
 
 /// <summary>

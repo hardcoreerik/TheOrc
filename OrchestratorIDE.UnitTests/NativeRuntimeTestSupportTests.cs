@@ -477,7 +477,12 @@ public sealed class NativeRuntimeTestSupportTests
             Assert.That(attempt.Health.IsAvailable, Is.False);
             Assert.That(attempt.Health.Message, Does.Contain("Runtime admission denied"));
             Assert.That(attempt.Health.ActiveModel, Does.Contain("worker-base.gguf"));
-            Assert.That(attempt.Stats.EstimatedVramBytes, Is.Not.Null.And.GreaterThan(0));
+            // Native Runtime v2.0 Phase C: EstimatedVramBytes is now a real nvidia-smi
+            // per-process reading, not a base+adapter file-size guess. No model was ever
+            // loaded here (admission was denied before the load attempt), so this test process
+            // holds no GPU allocation -- null is the correct, honest answer, not a leftover
+            // file-size number for a load that never happened.
+            Assert.That(attempt.Stats.EstimatedVramBytes, Is.Null);
         });
     }
 
