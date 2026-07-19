@@ -497,9 +497,16 @@ public sealed class NativeRuntimeTestSupportTests
         if (string.IsNullOrWhiteSpace(root))
             Assert.Fail("THEORC_TEST_GGUF must point to a GGUF file.");
 
+        // allowUnbudgetedExecution: this lane proves load/generate/stats, not admission (the
+        // EnsureAdmitted_TracksReservations test covers real-budget admission with a real model).
+        // Without the opt-out, Phase A's fail-closed default (no scheduler/budget configured =>
+        // denied) fails this lane before the model ever loads -- found live the first time this
+        // gated test actually ran after Phase A shipped, on 2026-07-19 with a real GGUF. Same
+        // sanctioned harness convention as ContextFabricBench.
         await using var runtime = new NativeRoleRuntime(
             ModelDepot.Scan(root!),
-            new RuntimeOptions(ContextLength: 2048, GpuLayers: -1));
+            new RuntimeOptions(ContextLength: 2048, GpuLayers: -1),
+            allowUnbudgetedExecution: true);
 
         var attempt = await NativeRuntimeTestRunner.RunRoleAsync(
             runtime,

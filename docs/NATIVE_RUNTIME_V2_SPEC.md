@@ -459,6 +459,81 @@ negative-path coverage for its safety-critical behavior.
 - **Non-goals:** live GPU dispatch / pipeline queueing (out of scope for v2.0 foundation);
   multi-base-model concurrent residency (`RuntimeOrchestrator.cs:24-35` scope limitation).
 
+#### Phase B addendum (2026-07-19): the estimate half — spike findings and revised design
+
+> The live-budget *read* half of Phase B shipped in its implementation PR; the cost-*estimate*
+> half was deferred there because a flat rs-cache add-on would over-reserve for plain
+> transformers, and `RuntimeModelAsset` carried no architecture metadata to tell them apart.
+> A measurement spike on the reference box (RTX 5070 Ti, WDDM, real
+> Llama-3.2-3B-Q4_K_M GGUF, loaded via the real LLamaSharp path at n_ctx 2048/8192/16384,
+> SeqMax=40 matching `AdapterManager.SequenceHardLimit`) resolved the open questions with
+> data. Raw transcript: the spike ran as a throwaway harness, results recorded here; re-run
+> recipe is §"re-running the spike" below.
+
+**Spike findings (all [Verified], measured 2026-07-19):**
+
+1. **The architecture metadata is not missing — it is in the GGUF header.** `general.
+   architecture`, `{arch}.block_count`, `{arch}.attention.head_count_kv`, `{arch}.attention.
+   key_length` are plain KV pairs in a simple, documented binary format (a ~40-line parser
+   sufficed in the spike). The blocker that deferred this work does not actually exist.
+2. **The KV-cache formula is byte-exact for plain transformers.**
+   `2 (K+V) × block_count × n_ctx × head_count_kv × key_length × 2 bytes (f16)` predicted
+   224/896/1792 MB for n_ctx 2048/8192/16384 — llama.cpp's own allocator logged exactly
+   224.00/896.00/1792.00 MiB.
+3. **Today's file-size estimate is off by >2× at real context sizes.** Measured whole-GPU
+   deltas: weights 2136 MB (file: 1925 MB; includes ~200 MB CUDA runtime overhead) + context
+   2044 MB at n_ctx=16384 → **4180 MB actual vs 1925 MB estimated.**
+4. **The compute buffer resists prediction.** It *shrank* as context grew (285 → 267 →
+   261 MB) — a non-obvious llama.cpp scheduling artifact. This term argues for measurement,
+   not formula.
+5. **llama.cpp's own load-time log is perfect ground truth.** `load_tensors`/`llama_kv_cache`/
+   `sched_reserve` lines report every allocation exactly (model buffer, KV buffer, compute
+   buffer), per-component, attributed to this process by construction. TheOrc already wires
+   these log sinks (`NativeBackendBootstrap.EnsureConfigured(log)`). The components summed to
+   the whole-GPU delta within ~10 MB.
+6. **nvidia-smi per-process accounting is dead on WDDM** (the Windows consumer-GPU default —
+   verified on the reference box: every process reports `[N/A]`). Consequence:
+   `NativeVramProbe.TryQueryCurrentProcessVramBytes()` (shipped in Phase C for
+   `RuntimeStats.EstimatedVramBytes`) returns null on effectively every Windows machine. It
+   degrades honestly (null, never a fake number) but is a no-op on the fleet — a real Phase C
+   gap this spike exposed, to be fixed by the design below. Whole-GPU `memory.used` is
+   unaffected by WDDM, so the Phase B live-budget read is fine.
+
+**Revised design — measure-and-remember, not predict (how this differs from Ollama):** Ollama
+estimates VRAM from static metadata via a hand-maintained per-architecture formula
+(`llm/memory.go`) that needs patching for every new architecture and is chronically wrong in
+both directions. TheOrc instead runs its own runtime and can *observe*:
+
+- **Cold start (first load of a model × options config):** GGUF-header formula for the KV term
+  (byte-exact, finding 2) + measured weights cost estimate (file size + fixed CUDA overhead
+  allowance) + a conservative compute-buffer allowance. Architecture name from the header
+  gates the hybrid rs-cache term (`SequenceHardLimit × ~50 MB/slot`, the empirical
+  `AdapterManager.cs` number) so plain transformers never pay it — the exact over-reserve
+  hazard that deferred this work.
+- **Warm (config seen before):** a small per-machine calibration cache (JSON beside the depot,
+  keyed by model hash + context length + gpu layers + SeqMax) stores the *measured* cost of
+  each successful load, sourced from llama.cpp's own allocation log lines (finding 5, exact and
+  WDDM-proof) cross-checked against the whole-GPU delta. Subsequent admissions use the
+  measurement — self-calibrating, architecture-agnostic, zero formula maintenance. Estimate
+  error (predicted vs measured) becomes telemetry, surfaced alongside the Phase C snapshots.
+- **Per-machine is the point:** each HIVE node calibrates itself — precisely the
+  capability-awareness the [§6](#6-later-milestone-default-runtime-flip-hive-gated) milestone
+  needs from fleet nodes later.
+
+**Re-running the spike:** load a real GGUF via `LLamaWeights.LoadFromFile` +
+`weights.CreateContext` at each n_ctx with `SeqMax = 40`, sample
+`NativeVramProbe.TryQueryLiveNvidiaBudget().ReservedBytes` before/after each step, and capture
+llama.cpp's `buffer size` log lines; compare against the header formula above.
+
+**Status:** design addendum only — implementation follows as its own reviewed PR(s), same
+process as Phases A–C. The one immediate code change riding in the same PR as this addendum
+is a stale-lane test fix: running the `THEORC_TEST_GGUF`-gated role-runtime lane for the first
+time since Phase A shipped revealed it constructs `NativeRoleRuntime` with no scheduler/budget
+— which Phase A now correctly fails closed. The lane (whose purpose is load/generate/stats,
+not admission) now uses the sanctioned `allowUnbudgetedExecution: true` harness opt-out, and
+all three real-model lanes pass green against a real GGUF on the reference box — the first
+live run of Phase D-adjacent verification in this workstream.
+
 ---
 
 ### Phase C — Real telemetry surfacing
