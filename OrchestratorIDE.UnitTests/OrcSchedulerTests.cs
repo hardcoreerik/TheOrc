@@ -184,6 +184,147 @@ public sealed class OrcSchedulerTests
         });
     }
 
+    // ── Phase B addendum: context-aware estimate (docs/NATIVE_RUNTIME_V2_SPEC.md) ──────────
+
+    [Test]
+    public void EstimateRequiredBytes_Without_Options_Preserves_Legacy_FileSize_Behavior()
+    {
+        var binding = Binding(RuntimeRole.Boss, baseSizeBytes: GB(4), adapterSizeBytes: GB(0.1));
+
+        Assert.That(OrcScheduler.EstimateRequiredBytes(binding, options: null),
+            Is.EqualTo(GB(4) + GB(0.1)));
+    }
+
+    [Test]
+    public void EstimateRequiredBytes_With_Options_Falls_Back_To_Legacy_When_Header_Unreadable()
+    {
+        // "base.gguf" doesn't exist on disk — header read fails => estimation must degrade to
+        // the pre-addendum behavior, never make admission WORSE than before. Adapter: null (no
+        // adapter at all — the Binding() helper's adapterSizeBytes:null instead means an
+        // UNSIZED adapter, which legitimately adds the 512MB fallback).
+        var binding = new RuntimeRoleBinding(
+            RuntimeRole.Boss, BaseModelAsset(RuntimeRole.Boss, GB(4)), Adapter: null);
+
+        Assert.That(
+            OrcScheduler.EstimateRequiredBytes(binding, new RuntimeOptions(ContextLength: 8192)),
+            Is.EqualTo(GB(4)));
+    }
+
+    [Test]
+    public void EstimateRequiredBytes_With_Options_And_Real_Header_Adds_Kv_And_Allowances()
+    {
+        // Fixture mirrors Llama-3.2-3B's real dims: the spike validated this exact formula
+        // byte-exactly against llama.cpp's allocator (896 MiB at n_ctx=8192).
+        var path = WriteLlamaHeaderFixture(blockCount: 28, headCountKv: 8, keyLength: 128);
+        try
+        {
+            var baseModel = BaseModelAsset(RuntimeRole.Boss, GB(2)) with { Path = path };
+            var binding = new RuntimeRoleBinding(RuntimeRole.Boss, baseModel, Adapter: null);
+
+            var estimate = OrcScheduler.EstimateRequiredBytes(
+                binding, new RuntimeOptions(ContextLength: 8192));
+
+            long expectedKv = 28L * 8192 * 8 * (128 + 128) * 2; // 896 MiB, spike-validated
+            Assert.That(estimate, Is.EqualTo(
+                GB(2)
+                + OrcScheduler.CudaRuntimeOverheadBytes
+                + expectedKv
+                + OrcScheduler.ComputeBufferAllowanceBytes));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Test]
+    public void EstimateRequiredBytes_Adds_Recurrent_Term_Only_For_Known_Hybrid_Architectures()
+    {
+        var mambaPath = WriteHeaderFixture("mamba", blockCount: 28, headCountKv: 8, keyLength: 128);
+        var llamaPath = WriteLlamaHeaderFixture(blockCount: 28, headCountKv: 8, keyLength: 128);
+        try
+        {
+            var options = new RuntimeOptions(ContextLength: 2048);
+            var mamba = new RuntimeRoleBinding(RuntimeRole.Boss,
+                BaseModelAsset(RuntimeRole.Boss, GB(2)) with { Path = mambaPath }, Adapter: null);
+            var llama = new RuntimeRoleBinding(RuntimeRole.Boss,
+                BaseModelAsset(RuntimeRole.Boss, GB(2)) with { Path = llamaPath }, Adapter: null);
+
+            var difference = OrcScheduler.EstimateRequiredBytes(mamba, options)
+                           - OrcScheduler.EstimateRequiredBytes(llama, options);
+
+            // The ONLY difference between the two fixtures is the architecture name — so the
+            // delta must be exactly the recurrent-state term, and the plain transformer must
+            // not pay it (the over-reserve hazard that originally deferred this work).
+            Assert.That(difference, Is.EqualTo(
+                OrcScheduler.RecurrentStatePerSlotBytes * AdapterManager.SequenceHardLimit));
+        }
+        finally
+        {
+            File.Delete(mambaPath);
+            File.Delete(llamaPath);
+        }
+    }
+
+    [Test]
+    public void TryAdmit_With_Options_Denies_What_Legacy_FileSize_Estimate_Would_Admit()
+    {
+        // The 2.2x-underestimate scenario from the spike, in miniature: budget fits the file
+        // size exactly, but not file size + context costs. Legacy admits; context-aware denies.
+        var path = WriteLlamaHeaderFixture(blockCount: 28, headCountKv: 8, keyLength: 128);
+        try
+        {
+            var scheduler = new OrcScheduler();
+            var binding = new RuntimeRoleBinding(RuntimeRole.Boss,
+                BaseModelAsset(RuntimeRole.Boss, GB(2)) with { Path = path }, Adapter: null);
+            var budget = new VramBudget(TotalBytes: GB(2), ReservedBytes: 0);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(scheduler.TryAdmit(binding, budget).Admitted, Is.True,
+                    "legacy estimate admits the exact-file-size fit");
+                Assert.That(scheduler.TryAdmit(binding, budget, new RuntimeOptions(ContextLength: 8192)).Admitted,
+                    Is.False,
+                    "context-aware estimate must count KV + overheads and deny");
+            });
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static string WriteLlamaHeaderFixture(int blockCount, int headCountKv, int keyLength) =>
+        WriteHeaderFixture("llama", blockCount, headCountKv, keyLength);
+
+    /// <summary>Minimal valid GGUF v3 header — same writer logic GgufMetadataReaderTests
+    /// exercises in detail; duplicated minimally here to keep this file self-contained.</summary>
+    private static string WriteHeaderFixture(string arch, int blockCount, int headCountKv, int keyLength)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "orc-sched-gguf-" + Guid.NewGuid().ToString("N") + ".gguf");
+        using var stream = new FileStream(path, FileMode.Create, FileAccess.Write);
+        using var w = new BinaryWriter(stream, System.Text.Encoding.UTF8);
+
+        void Str(string s)
+        {
+            var b = System.Text.Encoding.UTF8.GetBytes(s);
+            w.Write((ulong)b.Length);
+            w.Write(b);
+        }
+        void KvU32(string key, uint value) { Str(key); w.Write(4u); w.Write(value); }
+
+        w.Write(0x46554747u); // "GGUF"
+        w.Write(3u);
+        w.Write(0ul);          // tensor_count
+        w.Write(5ul);          // kv_count
+        Str("general.architecture"); w.Write(8u); Str(arch);
+        KvU32($"{arch}.block_count", (uint)blockCount);
+        KvU32($"{arch}.attention.head_count_kv", (uint)headCountKv);
+        KvU32($"{arch}.attention.key_length", (uint)keyLength);
+        KvU32($"{arch}.attention.value_length", (uint)keyLength);
+        return path;
+    }
+
     private static long GB(double gb) => (long)(gb * 1024 * 1024 * 1024);
 
     private static RuntimeRoleBinding Binding(RuntimeRole role, long baseSizeBytes, long? adapterSizeBytes)
