@@ -29,9 +29,11 @@ public sealed record GgufModelHeader(
 /// and the formula it feeds byte-exactly against llama.cpp's own allocator logs
 /// (224.00/896.00/1792.00 MiB at n_ctx 2048/8192/16384 for Llama-3.2-3B).
 ///
-/// Reads early-exit as soon as the needed keys are found — in practice `general.architecture`
-/// and the `{arch}.*` keys precede the multi-megabyte tokenizer arrays, so a successful read
-/// touches only a few KB of the file.
+/// Walks the full KV section with sized skips (no early exit — GGUF key order is not
+/// guaranteed, and exiting early could skip an explicit value_length behind key_length,
+/// mis-sizing asymmetric-head models). One remaining ordering assumption: `general.architecture`
+/// must precede the `{arch}.*` keys — true of every llama.cpp-written file (its writer emits
+/// general.* first); a file violating it just yields null and the legacy-estimate fallback.
 ///
 /// Never throws to callers: any I/O or parse failure returns null, and the caller
 /// (<see cref="OrcScheduler"/>) falls back to the legacy file-size-only estimate — estimation
@@ -121,11 +123,13 @@ public static class GgufMetadataReader
                 default: SkipValue(reader, type); break;
             }
 
-            // Early exit: once everything needed (including the key_length fallback inputs) is
-            // in hand, stop — the tokenizer arrays that follow can be megabytes.
-            if (arch is not null && blockCount is not null && headCountKv is not null &&
-                (keyLength is not null || (embeddingLength is not null && headCount is not null)))
-                break;
+            // No early exit (CodeRabbit finding on the first cut): GGUF key order is not
+            // guaranteed, and llama.cpp's writer emits key_length/value_length adjacently — an
+            // exit that fires once key_length is in hand would skip an explicit value_length
+            // right behind it, silently mis-sizing asymmetric-head (MLA-style) models via the
+            // vl ?? kl fallback. A full walk of the KV section with sized skips is milliseconds
+            // even past the tokenizer arrays, runs once per (path, size, mtime) thanks to the
+            // memo, and removes the ordering assumption entirely for the {arch}.* keys.
         }
 
         if (arch is null || blockCount is null or <= 0 || headCountKv is null or <= 0)

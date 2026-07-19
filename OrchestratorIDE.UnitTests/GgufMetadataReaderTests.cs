@@ -98,6 +98,32 @@ public sealed class GgufMetadataReaderTests
     }
 
     [Test]
+    public void TryRead_Honors_Asymmetric_Value_Length_Written_After_Key_Length()
+    {
+        // Regression for a CodeRabbit finding on the first cut: an early-exit fired once
+        // key_length was in hand, skipping an explicit value_length written right behind it —
+        // silently mis-sizing asymmetric-head (MLA-style) models via the vl ?? kl fallback.
+        // llama.cpp's writer emits these keys adjacently in exactly this order.
+        var path = WriteGguf(w =>
+        {
+            WriteKvString(w, "general.architecture", "deepseek2");
+            WriteKvU32(w, "deepseek2.block_count", 27);
+            WriteKvU32(w, "deepseek2.attention.head_count_kv", 16);
+            WriteKvU32(w, "deepseek2.attention.key_length", 192);
+            WriteKvU32(w, "deepseek2.attention.value_length", 128); // asymmetric: dv != dk
+        });
+
+        var header = GgufMetadataReader.TryRead(path);
+
+        Assert.That(header, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(header!.KeyLength, Is.EqualTo(192));
+            Assert.That(header.ValueLength, Is.EqualTo(128), "must not fall back to KeyLength");
+        });
+    }
+
+    [Test]
     public void TryRead_Returns_Null_For_Wrong_Magic()
     {
         var path = NewTempFile();
