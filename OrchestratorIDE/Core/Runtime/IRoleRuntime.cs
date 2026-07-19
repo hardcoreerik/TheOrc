@@ -359,10 +359,7 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
                 ? completionTokens / elapsed.TotalSeconds
                 : null,
             LastTimeToFirstToken: firstTokenAt == default ? null : firstTokenAt - started,
-            // Native Runtime v2.0 Phase C (docs/NATIVE_RUNTIME_V2_SPEC.md §2.3): a real,
-            // measured reading (nvidia-smi's per-process accounting), not the old base+adapter
-            // file-size guess. Null when unmeasurable, never a proxy dressed as measurement.
-            EstimatedVramBytes: NativeVramProbe.TryQueryCurrentProcessVramBytes());
+            EstimatedVramBytes: MeasuredVramBytes());
 
         var health = _runtime.GetHealth() with
         {
@@ -472,8 +469,21 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
             _lastStatsByRole[role] = new RuntimeStats(
                 RuntimeName,
                 ActiveModel: FormatActiveModel(binding),
-                EstimatedVramBytes: NativeVramProbe.TryQueryCurrentProcessVramBytes());
+                EstimatedVramBytes: MeasuredVramBytes());
             _lastPromptPathByRole[role] = _runtime.GetLastPromptPath();
         }
     }
+
+    /// <summary>
+    /// Native Runtime v2.0 Phase B addendum (docs/NATIVE_RUNTIME_V2_SPEC.md): prefers
+    /// <see cref="LLamaSharpRuntime.LastMeasuredVramBytes"/> — real numbers parsed from
+    /// llama.cpp's own load-time log lines, exact and unaffected by WDDM — over
+    /// <see cref="NativeVramProbe.TryQueryCurrentProcessVramBytes"/> (Phase C), which the
+    /// same-day spike found returns null on effectively every Windows box (WDDM makes
+    /// nvidia-smi's per-process query dead there). The nvidia-smi read stays as a fallback for
+    /// whatever it can still cover (e.g. a future non-WDDM environment) — never worse than
+    /// Phase C shipped, only more often non-null.
+    /// </summary>
+    private long? MeasuredVramBytes() =>
+        _runtime.LastMeasuredVramBytes ?? NativeVramProbe.TryQueryCurrentProcessVramBytes();
 }
