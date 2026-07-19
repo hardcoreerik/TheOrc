@@ -131,6 +131,37 @@ public sealed class RuntimeOrchestratorTests
     }
 
     [Test]
+    public async Task GetReservationSnapshot_Reports_RejectedAdmissionCount_After_A_Real_Denial()
+    {
+        // Native Runtime v2.0 Phase C (docs/NATIVE_RUNTIME_V2_SPEC.md §2.3): the rejected-
+        // admission counter is a lifetime tally, distinct from the "no scheduler/budget
+        // configured" case above (which GetReservationSnapshot can't even report on, since it
+        // returns null in that configuration) -- this exercises a REAL scheduler+budget denial.
+        var binding = new RuntimeRoleBinding(RuntimeRole.Boss, FakeBaseModel(), Adapter: null);
+        var tooSmallBudget = new VramBudget(TotalBytes: 100, ReservedBytes: 0); // FakeBaseModel is 1,000,000 bytes
+
+        await using var runtime = new LLamaSharpRuntime();
+        await using var orchestrator = new RuntimeOrchestrator(
+            runtime, scheduler: new OrcScheduler(), budgetProvider: () => tooSmallBudget);
+
+        Assert.ThrowsAsync<RuntimeAdmissionDeniedException>(
+            async () => await orchestrator.GetConversationForBindingAsync(binding));
+
+        var snapshot = orchestrator.GetReservationSnapshot();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(snapshot, Is.Not.Null);
+            Assert.That(snapshot!.RejectedAdmissionCount, Is.EqualTo(1));
+            Assert.That(snapshot.LastRejectionReason, Does.Contain("GB"));
+            // Consistency across an induced failure (§2.4): a denial commits nothing -- no
+            // phantom reservation for a role whose admission never succeeded.
+            Assert.That(snapshot.Reservations, Is.Empty);
+            Assert.That(snapshot.ReservedBytes, Is.EqualTo(0));
+        });
+    }
+
+    [Test]
     public async Task EnsureAdmitted_Does_Not_Throw_When_AllowUnbudgetedExecution_Is_True_And_No_Scheduler_Or_Budget()
     {
         // The deliberate opt-out (e.g. ContextFabricBench) must bypass the fail-closed denial

@@ -49,8 +49,8 @@ public sealed class SessionManagerTests
             Assert.That(runtime.LoadCount, Is.EqualTo(1));
             Assert.That(runtime.LastBasePath, Is.EqualTo(Path.GetFullPath(basePath)));
             Assert.That(runtime.LastAdapterPath, Is.Null);
-            Assert.That(manager.GetSnapshot().HasPendingAdapter, Is.True);
-            Assert.That(result.Message, Is.EqualTo("Base model loaded; adapter is pending AdapterManager support."));
+            Assert.That(manager.GetSnapshot().HasBoundAdapter, Is.True);
+            Assert.That(result.Message, Is.EqualTo("Base model loaded; adapter is applied separately by AdapterManager."));
         });
     }
 

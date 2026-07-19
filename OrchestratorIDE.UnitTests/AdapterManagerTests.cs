@@ -45,6 +45,27 @@ public sealed class AdapterManagerTests
     }
 
     [Test]
+    public async Task GetResidencySnapshot_Returns_Empty_When_No_Roles_Tracked()
+    {
+        await using var runtime = new LLamaSharpRuntime();
+        await using var manager = new AdapterManager(runtime);
+
+        Assert.That(manager.GetResidencySnapshot(), Is.Empty);
+    }
+
+    [Test]
+    public async Task GetResidencySnapshot_Throws_After_Dispose()
+    {
+        var runtime = new LLamaSharpRuntime();
+        var manager = new AdapterManager(runtime);
+        await manager.DisposeAsync();
+
+        Assert.Throws<ObjectDisposedException>(() => manager.GetResidencySnapshot());
+
+        await runtime.DisposeAsync();
+    }
+
+    [Test]
     public void BindingMatches_True_For_Identical_Bindings()
     {
         var binding = Boss("base.gguf", "boss-lora.gguf");

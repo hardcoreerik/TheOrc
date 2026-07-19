@@ -41,6 +41,21 @@ public interface IRoleRuntime
     RuntimeHealth GetHealth(RuntimeRole? role = null);
 
     RuntimeStats GetStats(RuntimeRole? role = null);
+
+    /// <summary>
+    /// Native Runtime v2.0 Phase C (docs/NATIVE_RUNTIME_V2_SPEC.md §2.3) — point-in-time VRAM
+    /// admission state, if this runtime tracks one. Default implementation returns null: fakes,
+    /// scripted test runtimes, and the Ollama-backed fallback path have no admission concept of
+    /// their own, and null is the honest answer for them, not a workaround.
+    /// </summary>
+    RuntimeReservationSnapshot? GetReservationSnapshot() => null;
+
+    /// <summary>
+    /// Native Runtime v2.0 Phase C (docs/NATIVE_RUNTIME_V2_SPEC.md §2.3) — point-in-time adapter
+    /// residency, if this runtime tracks one. Default implementation returns empty for the same
+    /// reason as <see cref="GetReservationSnapshot"/>.
+    /// </summary>
+    IReadOnlyList<AdapterRoleResidency> GetResidencySnapshot() => [];
 }
 
 /// <summary>
@@ -194,6 +209,20 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
         return runtimeStats with { RuntimeName = RuntimeName };
     }
 
+    /// <summary>Native Runtime v2.0 Phase C — forwards to <see cref="_orchestrator"/>.</summary>
+    public RuntimeReservationSnapshot? GetReservationSnapshot()
+    {
+        ThrowIfDisposed();
+        return _orchestrator.GetReservationSnapshot();
+    }
+
+    /// <summary>Native Runtime v2.0 Phase C — forwards to <see cref="_orchestrator"/>.</summary>
+    public IReadOnlyList<AdapterRoleResidency> GetResidencySnapshot()
+    {
+        ThrowIfDisposed();
+        return _orchestrator.GetResidencySnapshot();
+    }
+
     public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) =>
         Task.FromResult<int?>(_options.ContextLength);
 
@@ -330,7 +359,10 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
                 ? completionTokens / elapsed.TotalSeconds
                 : null,
             LastTimeToFirstToken: firstTokenAt == default ? null : firstTokenAt - started,
-            EstimatedVramBytes: EstimateBindingBytes(binding));
+            // Native Runtime v2.0 Phase C (docs/NATIVE_RUNTIME_V2_SPEC.md §2.3): a real,
+            // measured reading (nvidia-smi's per-process accounting), not the old base+adapter
+            // file-size guess. Null when unmeasurable, never a proxy dressed as measurement.
+            EstimatedVramBytes: NativeVramProbe.TryQueryCurrentProcessVramBytes());
 
         var health = _runtime.GetHealth() with
         {
@@ -423,14 +455,6 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
             ? $"{binding.Role}:{binding.BaseModel.DisplayName}"
             : $"{binding.Role}:{binding.BaseModel.DisplayName} + {binding.Adapter.DisplayName}";
 
-    private static long? EstimateBindingBytes(RuntimeRoleBinding binding)
-    {
-        var baseBytes = binding.BaseModel.SizeBytes ?? 0;
-        var adapterBytes = binding.Adapter?.SizeBytes ?? 0;
-        var total = baseBytes + adapterBytes;
-        return total > 0 ? total : null;
-    }
-
     private void RecordFailure(RuntimeRole role, RuntimeRoleBinding binding, string? runtimeMessage)
     {
         lock (_telemetryGate)
@@ -448,7 +472,7 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
             _lastStatsByRole[role] = new RuntimeStats(
                 RuntimeName,
                 ActiveModel: FormatActiveModel(binding),
-                EstimatedVramBytes: EstimateBindingBytes(binding));
+                EstimatedVramBytes: NativeVramProbe.TryQueryCurrentProcessVramBytes());
             _lastPromptPathByRole[role] = _runtime.GetLastPromptPath();
         }
     }

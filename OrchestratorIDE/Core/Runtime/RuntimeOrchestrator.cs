@@ -81,6 +81,15 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
     // admission costs nothing and a successful one is recorded with the generation it actually
     // landed under.
     private readonly Dictionary<RuntimeRole, (long Bytes, int Generation)> _reservedByRole = new();
+    // Native Runtime v2.0 Phase C (docs/NATIVE_RUNTIME_V2_SPEC.md §2.3): a lifetime counter of
+    // every admission denial (both the fail-closed "no scheduler/budget configured" case and a
+    // real capacity denial), plus the most recent reason -- guarded by _telemetryGate like
+    // _reservedByRole, for the same reason (EnsureAdmitted writes it from the async admission
+    // flow; GetReservationSnapshot reads it synchronously without waiting on _admissionGate).
+    // Not cleared on dispose -- ThrowIfDisposed already blocks reads after disposal, so there is
+    // nothing left to protect by resetting it.
+    private long _rejectedAdmissionCount;
+    private string? _lastRejectionReason;
     private readonly SemaphoreSlim _admissionGate = new(1, 1);
     // Separate from _admissionGate: that semaphore serializes the async admission DECISION
     // pipeline (check -> load -> commit), but Dictionary itself is not thread-safe even for a
@@ -206,6 +215,20 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
         _adapterManager.MarkForRecycle(role);
 
     /// <summary>
+    /// Forwards to <see cref="AdapterManager.GetResidencySnapshot"/> — Native Runtime v2.0
+    /// Phase C (docs/NATIVE_RUNTIME_V2_SPEC.md §2.3). Exposed here for the same reason as
+    /// <see cref="MarkRoleDegraded"/>: callers (IRoleRuntime) only hold a RuntimeOrchestrator
+    /// reference, not the AdapterManager directly. ThrowIfDisposed at this level for a
+    /// consistent exception (same pattern as <see cref="GetReservationSnapshot"/>), even though
+    /// AdapterManager's own accessor would eventually throw too once disposed.
+    /// </summary>
+    public IReadOnlyList<AdapterRoleResidency> GetResidencySnapshot()
+    {
+        ThrowIfDisposed();
+        return _adapterManager.GetResidencySnapshot();
+    }
+
+    /// <summary>
     /// Pure check, no bookkeeping write — the caller (<see cref="GetConversationForBindingAsync"/>,
     /// holding <see cref="_admissionGate"/> for the whole pipeline) only commits a reservation
     /// after the load and conversation build both succeed. Throws
@@ -240,6 +263,7 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
                         "cannot be evaluated. Failing closed rather than loading unadmitted " +
                         "(Native Runtime v2.0 Phase A). Construct the runtime with a scheduler + " +
                         "budgetProvider, or pass allowUnbudgetedExecution: true to explicitly opt out.");
+            RecordRejection(unavailableDecision.Reason);
             throw new RuntimeAdmissionDeniedException(
                 binding, new VramBudget(TotalBytes: 0, ReservedBytes: 0), unavailableDecision);
         }
@@ -266,7 +290,19 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
 
         var decision = _scheduler.TryAdmit(binding, budget);
         if (!decision.Admitted)
+        {
+            RecordRejection(decision.Reason);
             throw new RuntimeAdmissionDeniedException(binding, budget, decision);
+        }
+    }
+
+    private void RecordRejection(string? reason)
+    {
+        lock (_telemetryGate)
+        {
+            _rejectedAdmissionCount++;
+            _lastRejectionReason = reason;
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -347,18 +383,26 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
 
         var currentGeneration = _runtime.WeightsGeneration;
         List<RuntimeRoleReservation> active;
+        long rejectedCount;
+        string? lastRejectionReason;
         lock (_telemetryGate)
+        {
             active = _reservedByRole
                 .Where(kv => kv.Value.Generation == currentGeneration)
                 .Select(kv => new RuntimeRoleReservation(kv.Key, kv.Value.Bytes))
                 .ToList();
+            rejectedCount = _rejectedAdmissionCount;
+            lastRejectionReason = _lastRejectionReason;
+        }
         var reservedBytes = baseline.ReservedBytes + active.Sum(r => r.Bytes);
 
         return new RuntimeReservationSnapshot(
             active,
             baseline.TotalBytes,
             reservedBytes,
-            AvailableBytes: Math.Max(0, baseline.TotalBytes - reservedBytes));
+            AvailableBytes: Math.Max(0, baseline.TotalBytes - reservedBytes),
+            RejectedAdmissionCount: rejectedCount,
+            LastRejectionReason: lastRejectionReason);
     }
 
     private void ThrowIfDisposed()
@@ -375,13 +419,18 @@ public sealed record RuntimeRoleReservation(RuntimeRole Role, long Bytes);
 /// Point-in-time view of <see cref="RuntimeOrchestrator"/>'s admission state. <see cref="Reservations"/>
 /// lists only roles whose reservation generation still matches the runtime's current generation —
 /// stale entries (torn down by an intervening reload) are excluded, same filter <see cref="RuntimeOrchestrator"/>
-/// itself uses for admission decisions.
+/// itself uses for admission decisions. <see cref="RejectedAdmissionCount"/>/<see cref="LastRejectionReason"/>
+/// are lifetime counters (Native Runtime v2.0 Phase C) — every denial since construction, not
+/// just ones still "active"; unlike <see cref="Reservations"/> they are never generation-filtered
+/// since a past denial doesn't become stale the way a live reservation does.
 /// </summary>
 public sealed record RuntimeReservationSnapshot(
     IReadOnlyList<RuntimeRoleReservation> Reservations,
     long TotalBytes,
     long ReservedBytes,
-    long AvailableBytes);
+    long AvailableBytes,
+    long RejectedAdmissionCount,
+    string? LastRejectionReason);
 
 public sealed class RuntimeAdmissionDeniedException : InvalidOperationException
 {

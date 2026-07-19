@@ -17,14 +17,19 @@ public sealed record RuntimeSessionSnapshot(
     ModelLoadResult? LastLoad,
     RuntimeHealth Health,
     RuntimeStats Stats,
-    bool HasPendingAdapter);
+    bool HasBoundAdapter);
 
 /// <summary>
 /// Coordinates a persistent local runtime session for Native Runtime Phase 3.
 /// This layer keeps the resolved base GGUF loaded instead of forcing callers to
-/// reload per request. Adapter application is intentionally deferred to the
-/// later AdapterManager/hot-swap spike; role adapters discovered by ModelDepot
-/// are surfaced as pending metadata only.
+/// reload per request. Adapter application is a separate concern, owned by
+/// <see cref="AdapterManager"/> — <see cref="RuntimeOrchestrator"/> coordinates
+/// this class (base model load) alongside AdapterManager (adapter attach) for
+/// each role admission. SessionManager itself never touches adapter state, so
+/// its snapshot can only report whether the resolved binding SPECIFIES an
+/// adapter (<see cref="RuntimeSessionSnapshot.HasBoundAdapter"/>), not whether
+/// AdapterManager has actually attached it — that lives on AdapterManager's own
+/// residency accessors.
 /// </summary>
 public sealed class SessionManager : IAsyncDisposable
 {
@@ -98,7 +103,7 @@ public sealed class SessionManager : IAsyncDisposable
             LastLoad: _lastLoad,
             Health: _runtime.GetHealth(),
             Stats: _runtime.GetStats(),
-            HasPendingAdapter: _currentBinding?.Adapter is not null);
+            HasBoundAdapter: _currentBinding?.Adapter is not null);
     }
 
     public async Task<RuntimeSessionLoadResult> LoadRoleAsync(
@@ -198,7 +203,7 @@ public sealed class SessionManager : IAsyncDisposable
                 ReusedExistingSession: false,
                 Message: binding.Adapter is null
                     ? load.Message
-                    : "Base model loaded; adapter is pending AdapterManager support.");
+                    : "Base model loaded; adapter is applied separately by AdapterManager.");
         }
         finally
         {

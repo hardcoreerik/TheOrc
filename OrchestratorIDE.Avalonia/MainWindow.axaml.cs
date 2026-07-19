@@ -2288,7 +2288,7 @@ public partial class MainWindow : Window
             if (depot.ResolveRole(RuntimeRole.Reviewer, RuntimeWorkloadKind.ContextFabricReviewer) is { } reviewerBinding)
                 roleBindings[RuntimeRole.Reviewer] = reviewerBinding;
 
-            return new NativeRoleRuntime(
+            var nativeRuntime = new NativeRoleRuntime(
                 depot,
                 new RuntimeOptions(
                     ContextLength: Math.Max(512, _settings.NativeRuntimeContextSize),
@@ -2303,6 +2303,21 @@ public partial class MainWindow : Window
                 // worse than the pre-Phase-B behavior, only ever more accurate.
                 budgetProvider: TryBuildNativeHiveBudget,
                 roleBindings: roleBindings);
+
+            // Native Runtime v2.0 Phase C (docs/NATIVE_RUNTIME_V2_SPEC.md §2.3): surface the
+            // admission state Phase A/B already track but nothing displayed. Residency isn't
+            // logged here -- no role has streamed a completion yet at construction time, so it
+            // would always be empty; it's genuinely meaningful only mid-flight, which has no
+            // natural hook in this method (would need touching the chat-streaming call sites,
+            // out of scope for this read-only accessor phase).
+            if (nativeRuntime.GetReservationSnapshot() is { } admission)
+                AddActivity(new ActivityEvent(ActivityKind.Info, "Native Runtime",
+                    $"VRAM admission: {FormatGb(admission.TotalBytes)} total, " +
+                    $"{FormatGb(admission.ReservedBytes)} reserved, " +
+                    $"{FormatGb(admission.AvailableBytes)} available.",
+                    DateTime.Now));
+
+            return nativeRuntime;
         }
         catch (Exception ex)
         {
@@ -2328,6 +2343,8 @@ public partial class MainWindow : Window
         var totalBytes = (long)(detectedVramGb * 1024 * 1024 * 1024);
         return totalBytes > 0 ? new VramBudget(totalBytes, ReservedBytes: 0) : null;
     }
+
+    private static string FormatGb(long bytes) => $"{bytes / (1024.0 * 1024 * 1024):F1} GB";
 
     /// <summary>
     /// Runtime for the single-agent chat loop (<c>_loop</c>). Native opt-in is OFF by default —
