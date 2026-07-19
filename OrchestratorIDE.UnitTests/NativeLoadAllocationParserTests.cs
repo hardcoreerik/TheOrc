@@ -82,4 +82,72 @@ public sealed class NativeLoadAllocationParserTests
 
         Assert.That(acc.TotalBytes, Is.EqualTo(500L * 1024 * 1024));
     }
+
+    [Test]
+    public void Observe_During_Suppress_Scope_Does_Not_Accumulate()
+    {
+        // Mirrors StreamCompletionAsync's ephemeral StatelessExecutor lifetime: the persistent
+        // load's totals must survive untouched by a stateless call's transient KV/compute lines.
+        var acc = new NativeLoadAllocationAccumulator();
+        acc.Observe("load_tensors:        CUDA0 model buffer size =  1918.36 MiB");
+
+        using (acc.Suppress())
+        {
+            acc.Observe("llama_kv_cache:      CUDA0 KV buffer size =   224.00 MiB");
+            acc.Observe("sched_reserve:      CUDA0 compute buffer size =   284.90 MiB");
+        }
+
+        Assert.That(acc.TotalBytes, Is.EqualTo((long)(1918.36 * 1024 * 1024)),
+            "lines observed while suppressed must not be counted, even after the scope ends");
+    }
+
+    [Test]
+    public void Observe_Resumes_After_Suppress_Scope_Disposed()
+    {
+        var acc = new NativeLoadAllocationAccumulator();
+
+        using (acc.Suppress())
+        {
+            acc.Observe("load_tensors:        CUDA0 model buffer size =  1918.36 MiB");
+        }
+
+        acc.Observe("llama_kv_cache:      CUDA0 KV buffer size =   224.00 MiB");
+
+        Assert.That(acc.TotalBytes, Is.EqualTo(224L * 1024 * 1024),
+            "accumulation must resume once the suppress scope is disposed");
+    }
+
+    [Test]
+    public void Overlapping_Suppress_Scopes_Only_Resume_After_All_Dispose()
+    {
+        // Reference-counted, not boolean: two concurrent stateless calls must not let the first
+        // to finish re-enable accumulation while the second is still in flight.
+        var acc = new NativeLoadAllocationAccumulator();
+
+        var outer = acc.Suppress();
+        var inner = acc.Suppress();
+
+        inner.Dispose();
+        acc.Observe("load_tensors:        CUDA0 model buffer size =  1918.36 MiB");
+        Assert.That(acc.TotalBytes, Is.Null, "still suppressed while the outer scope is active");
+
+        outer.Dispose();
+        acc.Observe("load_tensors:        CUDA0 model buffer size =  1918.36 MiB");
+        Assert.That(acc.TotalBytes, Is.EqualTo((long)(1918.36 * 1024 * 1024)),
+            "accumulation resumes only once every active scope has disposed");
+    }
+
+    [Test]
+    public void Suppress_Dispose_Is_Idempotent()
+    {
+        var acc = new NativeLoadAllocationAccumulator();
+        var scope = acc.Suppress();
+
+        scope.Dispose();
+        scope.Dispose();
+
+        acc.Observe("load_tensors:        CUDA0 model buffer size =  1918.36 MiB");
+        Assert.That(acc.TotalBytes, Is.EqualTo((long)(1918.36 * 1024 * 1024)),
+            "a double Dispose must not double-decrement the suppress depth");
+    }
 }

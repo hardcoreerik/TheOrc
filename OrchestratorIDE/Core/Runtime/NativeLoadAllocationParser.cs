@@ -73,6 +73,7 @@ public sealed class NativeLoadAllocationAccumulator
     private long _modelBytes;
     private long _kvBytes;
     private long _computeBytes;
+    private int _suppressDepth;
 
     /// <summary>Total measured VRAM across every recognized category. Null if nothing was ever
     /// observed (e.g. a non-NVIDIA backend, or the log sink wasn't active) — never a fabricated
@@ -90,9 +91,13 @@ public sealed class NativeLoadAllocationAccumulator
     }
 
     /// <summary>Feed one native log line. Safe to call from the native log callback thread —
-    /// llama.cpp's log callback is not guaranteed to run on the calling thread.</summary>
+    /// llama.cpp's log callback is not guaranteed to run on the calling thread. A no-op while
+    /// <see cref="Suppress"/> is active (see that method's doc for why).</summary>
     public void Observe(string line)
     {
+        if (Volatile.Read(ref _suppressDepth) > 0)
+            return;
+
         var parsed = NativeLoadAllocationParser.TryParseVramLine(line);
         if (parsed is not { } p)
             return;
@@ -105,6 +110,40 @@ public sealed class NativeLoadAllocationAccumulator
                 case "KV": _kvBytes += p.Bytes; break;
                 case "compute": _computeBytes += p.Bytes; break;
             }
+        }
+    }
+
+    /// <summary>
+    /// Suspends accumulation for the returned scope's lifetime — CodeRabbit finding on the
+    /// first cut of this PR: <see cref="LLamaSharpRuntime.StreamCompletionAsync"/> creates and
+    /// disposes a fresh <c>StatelessExecutor</c> (and its native context) on every call. Without
+    /// this, its "KV buffer size"/"compute buffer size" allocation lines would ADD to the
+    /// running total on every stateless call with no corresponding subtraction on disposal —
+    /// unboundedly inflating <see cref="TotalBytes"/> the longer the process runs. Rather than
+    /// parse llama.cpp's context-DESTRUCTION log lines (an unverified format this codebase has
+    /// never captured, and a wrong subtraction would silently corrupt the total either way),
+    /// suppression at the source is the more robust fix: nothing observed during an ephemeral
+    /// context's lifetime is ever added in the first place, so there is nothing to net out.
+    ///
+    /// Reference-counted (not a bool) so overlapping <see cref="Suppress"/> scopes — e.g. two
+    /// concurrent stateless calls — compose correctly: accumulation only resumes once EVERY
+    /// active scope has disposed, regardless of the order they started or finish in.
+    /// </summary>
+    public IDisposable Suppress()
+    {
+        Interlocked.Increment(ref _suppressDepth);
+        return new SuppressScope(this);
+    }
+
+    private sealed class SuppressScope(NativeLoadAllocationAccumulator owner) : IDisposable
+    {
+        private bool _disposed;
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            Interlocked.Decrement(ref owner._suppressDepth);
         }
     }
 

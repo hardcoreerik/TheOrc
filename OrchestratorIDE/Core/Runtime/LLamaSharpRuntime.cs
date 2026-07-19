@@ -152,6 +152,15 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         // this executor only ever runs a single sequence per call, so reusing the persistent-
         // executor params would reserve the same hybrid-architecture rs-cache VRAM budget on
         // every stateless call for no benefit (CodeRabbit review, PR #56).
+        //
+        // Suppress _loadMeasurement for this executor's entire lifetime (CodeRabbit finding,
+        // Phase B addendum PR #77): its KV/compute buffer allocations would otherwise ADD to
+        // the running VRAM total on every call with no corresponding subtraction on disposal,
+        // unboundedly inflating EstimatedVramBytes the longer the process runs. Covers the full
+        // async-iterator lifetime including the yield loop and early caller abandonment -- a
+        // `using` inside an async IAsyncEnumerable method runs on the state machine's cleanup
+        // regardless of how the iteration ends.
+        using var suppressMeasurement = _loadMeasurement.Suppress();
         var executor = new StatelessExecutor(_weights, _statelessModelParams);
         try
         {
