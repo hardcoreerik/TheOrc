@@ -653,8 +653,8 @@ JSON evidence artifact (`NativeE2ELaneEvidenceStore`, sibling to the existing
 `.orc/native-e2e-lane/`) regardless of pass or fail. A real run captured genuinely interesting,
 correct telemetry: residency (`ActiveCount`) drops to 0 once the conversation disposes, but the
 VRAM *reservation* deliberately stays live with the loaded model rather than releasing —
-confirming those two lifecycles are intentionally decoupled, not a leak. 25.7 tok/s, 284ms TTFT,
-2.5GB measured VRAM on the reference box; verified passing across 3 repeated runs.
+confirming those two lifecycles are intentionally decoupled, not a leak. 25.7 tok/s, 284 ms TTFT,
+2.5 GB measured VRAM on the reference box; verified passing across 3 repeated runs.
 
 **Still open for the full Phase D lane:** the standardized lane currently exercises one role
 (Worker); extending it to a second concurrent role (proving cross-role admission accounting

@@ -58,6 +58,11 @@ public sealed class NativeRuntimeE2ELaneTests
         string? errorMessage = null;
         var success = false;
 
+        // Bounded: a real-hardware stall (driver/GPU issue) during this real streaming call
+        // must fail the test with retained evidence, not hang the run indefinitely
+        // (CodeRabbit finding on the PR that introduced this lane).
+        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+
         try
         {
             var messages = NativeRuntimeTestPrompt.BuildMessages(NativeRuntimeTestPrompt.PromptText);
@@ -67,7 +72,7 @@ public sealed class NativeRuntimeE2ELaneTests
             // 2-5: selection, session creation, admission, adapter lifecycle, and real inference
             // all happen inside this one call -- StreamRoleCompletionAsync is the real public
             // entry point a caller actually uses, not an internal shortcut.
-            await foreach (var token in runtime.StreamRoleCompletionAsync(RuntimeRole.Worker, messages, maxTokens: 64))
+            await foreach (var token in runtime.StreamRoleCompletionAsync(RuntimeRole.Worker, messages, maxTokens: 64, ct: cts.Token))
             {
                 sb.Append(token);
                 if (!capturedMidFlight)
@@ -109,7 +114,10 @@ public sealed class NativeRuntimeE2ELaneTests
             output,
             errorMessage);
 
-        var evidencePath = await NativeE2ELaneEvidenceStore.WriteAsync(result);
+        // Explicit workspace root: without it, WriteAsync falls back to %AppData%, scattering
+        // evidence outside the repo instead of the discoverable .orc/native-e2e-lane/ convention
+        // every other evidence store in this workstream uses (CodeRabbit finding).
+        var evidencePath = await NativeE2ELaneEvidenceStore.WriteAsync(result, FindRepoRoot());
         TestContext.WriteLine($"Native E2E lane evidence written to: {evidencePath}");
 
         Assert.Multiple(() =>
@@ -136,5 +144,23 @@ public sealed class NativeRuntimeE2ELaneTests
             reservation?.AvailableBytes,
             workerResidency?.ActiveCount,
             workerResidency?.Status.ToString());
+    }
+
+    /// <summary>Walks up from the test binary's output directory to the repo root (marked by
+    /// the solution file), so retained evidence lands in the discoverable .orc/native-e2e-lane/
+    /// convention instead of NativeE2ELaneEvidenceStore's %AppData% fallback. Returns null (same
+    /// fallback behavior as before) if no marker is found, e.g. a packaged test run outside a
+    /// full checkout.</summary>
+    private static string? FindRepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            if (dir.GetFiles("OrchestratorIDE.slnx").Length > 0)
+                return dir.FullName;
+            dir = dir.Parent;
+        }
+
+        return null;
     }
 }

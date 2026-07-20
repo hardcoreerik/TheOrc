@@ -75,16 +75,20 @@ public static class NativeE2ELaneEvidenceStore
         ArgumentNullException.ThrowIfNull(result);
 
         var root = ResolveDirectory(workspaceRoot);
-        var path = Path.Combine(root, $"native_e2e_lane_{DateTime.Now:yyyyMMdd_HHmmss_fff}.json");
-        var record = BuildRecord(result, workspaceRoot);
+        // One captured instant for both the filename and the record -- using DateTime.Now for
+        // the filename while the record's own timestamp_utc used UtcNow meant the two could
+        // disagree (and sort inconsistently across machine timezones), CodeRabbit finding.
+        var capturedAt = DateTimeOffset.UtcNow;
+        var path = Path.Combine(root, $"native_e2e_lane_{capturedAt:yyyyMMdd_HHmmss_fff}.json");
+        var record = BuildRecord(result, workspaceRoot, capturedAt);
         await File.WriteAllTextAsync(path, JsonSerializer.Serialize(record, _json), ct).ConfigureAwait(false);
         return path;
     }
 
-    private static object BuildRecord(NativeE2ELaneRunResult result, string? workspaceRoot) => new
+    private static object BuildRecord(NativeE2ELaneRunResult result, string? workspaceRoot, DateTimeOffset capturedAt) => new
     {
         schema_version = "1",
-        timestamp_utc = DateTimeOffset.UtcNow.ToString("O"),
+        timestamp_utc = capturedAt.ToString("O"),
         app_version = CurrentAppVersion(),
         workspace_root = workspaceRoot,
         pass = result.Success,
