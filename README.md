@@ -203,6 +203,18 @@ Tell Pit Boss what you want the swarm to get better at — eight questions about
 
 ---
 
+## Flagship system: TheOrc Foundry
+
+Every so often a worker's response comes back without a clean, parseable tool call in it — not often, but often enough to be annoying, and the usual fix is "throw a bigger model at it." TheOrc did the opposite: it trained a **tiny 1.5-billion-parameter specialist** whose only job is recognizing exactly that one failure and either proposing the correct tool call or correctly refusing — nothing else, no general chat, one narrow job done well.
+
+**The proof isn't a demo, it's a sealed exam the model never saw the answers to.** Against a 260-example held-out set the training data never touched, decision accuracy went from **63.9%** on the un-tuned base model to **97.3%** for the first trained specialist — and a later refinement round pushed that further to **98.5%**. That's the easy half of the problem, though. The harder half is a model that *knows when not to act*: a **Refusal Gauntlet** throws thousands of deterministic adversarial cases at it — foreign tools, out-of-role requests, near-miss tool names, prompt injection, missing arguments, ordinary conversation with no tool need at all — and scores the result with proper statistical confidence bounds, not an optimistic best-case number. On that harder test, safety against fabricating a tool call that shouldn't exist climbed from **90.3% to 98.3%**.
+
+**It ships the way everything in TheOrc ships: opt-in, and it can't make things worse.** The specialist runs as a repair lane, not a replacement — only when a worker's own response has no parseable tool call does the specialist get one shot at proposing one, and that proposal still has to pass the exact same tool-policy checks as anything else. If it doesn't help, the system falls back to today's behavior. It's off by default, and it keeps getting better from real usage — both Swarm tool-call decisions and OrcChat conversations feed the next training round, both behind the same single settings toggle.
+
+That's the pattern behind every one of TheOrc's flagship systems, really: find the one job worth being excellent at, prove it against a test the model can't cheat on, and never let a new version ship unless it actually earns it.
+
+---
+
 ## The road to v2.0
 
 With Context Fabric complete, v2.0 is about two things: making the **native runtime the default**, and giving agents **real operational reach** beyond generating text. Four workstreams define the release. None of these are claimed as shipped — this is what the project is building next, in priority order.
