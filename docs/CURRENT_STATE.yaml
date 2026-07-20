@@ -84,24 +84,32 @@ subsystems:
       current/default/fallback picture per workload, including the real
       NativeWithFallbackRuntime mechanics and the one open gap it documents
       (benchmark reports record RuntimeName as a static label, not per-call
-      fallback counts). As of 2026-07-19, docs/NATIVE_RUNTIME_V2_SPEC.md's
-      foundation-hardening Phases A-C are landed, with one deliberate gap:
-      VRAM admission is a single authoritative, fail-closed boundary
-      (AdapterManager's conversation-minting is internal, reachable only
-      through RuntimeOrchestrator's gate; a missing budget now denies rather
-      than silently loading unadmitted); the admission budget's TOTAL/USED
-      read is now live via nvidia-smi, not a static snapshot -- but the
-      per-role VRAM cost ESTIMATE (OrcScheduler.EstimateRequiredBytes) is
-      still GGUF-file-size-only, not KV/rs-cache-aware; that half of Phase B
-      was deliberately deferred (PR #72) rather than shipping an ungrounded
-      generalization, and remains open alongside Phase D. RuntimeOrchestrator/
+      fallback counts). As of 2026-07-20, docs/NATIVE_RUNTIME_V2_SPEC.md's
+      foundation-hardening Phases A-C are landed: VRAM admission is a single
+      authoritative, fail-closed boundary (AdapterManager's conversation-
+      minting is internal, reachable only through RuntimeOrchestrator's gate;
+      a missing budget now denies rather than silently loading unadmitted);
+      the admission budget's TOTAL/USED read is live via nvidia-smi; the
+      per-role VRAM cost ESTIMATE (OrcScheduler.EstimateRequiredBytes) is now
+      KV/rs-cache-aware (a byte-exact GGUF-header formula, arch-gated for
+      recurrent architectures) rather than file-size-only -- the deferred half
+      of Phase B landed too (PR #76), plus a real load-time VRAM MEASUREMENT
+      parsed from llama.cpp's own log lines (PR #77), replacing the WDDM-dead
+      nvidia-smi per-process read Phase C originally shipped. RuntimeOrchestrator/
       AdapterManager telemetry (reservation state, adapter residency,
-      rejected-admission counts, measured per-process VRAM) is real and
-      partially surfaced in the Activity Log. This is foundation hardening,
-      not a default-runtime change -- Phase D (real-model native-path proof
-      lane), the deferred cost-estimate work, and the default-runtime flip
-      all remain open, the last one separately gated
-      future milestone per that spec's §6.
+      rejected-admission counts, measured VRAM) is real and partially surfaced
+      in the Activity Log. Phase D (real-model native-path proof lane) is
+      essentially complete: a negative fail-closed test (no silent Ollama
+      substitution on admission denial, PR #78), a cancellation-corruption bug
+      found and fixed (cancelling mid-generation could permanently break a
+      role's executor; fixed by extending the existing MarkForRecycle
+      mitigation to any failed generation, not just NoKvSlot, PR #79), and a
+      real-model E2E lane with a retained JSON evidence artifact (discovery
+      through real admission through inference through telemetry;
+      25.7 tok/s, 284ms TTFT, 2.5GB measured VRAM on the reference box) are
+      built and verified on real hardware. This is foundation hardening, not
+      a default-runtime change -- the default-runtime flip remains a
+      separately gated future milestone per that spec's Section 6.
 
   llamacpp_server:
     status: opt-in
