@@ -183,6 +183,26 @@ Context Fabric is what makes TheOrc more than "an AI swarm for code": a local sy
 
 ---
 
+## Flagship system: ORC ACADEMY — the swarm teaches itself
+
+Here's the part that gets genuinely weird in the best way: **TheOrc trains itself.**
+
+Every good swarm run captures the boss's plan. Those captures go through a review pipeline. When you have enough reviewed examples, ORC ACADEMY trains a LoRA adapter on your own GPU — no cloud training service, no API bill. The new boss model is better at planning the next run. Which produces better captures. Which trains a better adapter. You get the idea.
+
+**v1 shipped — and it's the one still running today.** 900 reviewed boss plans, harvested overnight while the machine sat idle, trained locally in 148 minutes on a single consumer GPU. Result: **99.3% structured planning pass rate**, up from 94.5% on the un-tuned base model. It shipped as a 125 MB adapter file anyone running TheOrc can pull today.
+
+**And here's the part most projects would never put in a README: v2 made things worse, and we said so.** A later training run used nearly twice the data — and a quiet labeling mistake taught the boss the exact wrong lesson for half of it. The result measurably regressed: planning quality dropped from 99.3% down to 77.8%. We caught it, retired the adapter, and kept the original v1 in production rather than ship a worse model because it was newer. **v3 fixed the root cause** — a data-quality gate that now catches that exact contamination before a single GPU-hour is spent on it — and re-ran clean. It still didn't clear the bar to replace v1, so v1 remains the production adapter. No spin, no "technically an improvement somewhere" — the number simply has to go up, or the new model doesn't ship.
+
+That standard — **a new model earns its spot, or it doesn't deploy** — is the whole reason this loop is trustworthy instead of just a fun toy. *Run → capture → review → gate → train → deploy* is part of the product, not a research side-quest, and every step of it happens on your own hardware. Nothing about how TheOrc gets smarter requires sending your data anywhere.
+
+### Pit Boss — making it self-serve
+
+Training your own model sounds like a research project. ORC ACADEMY plus **Pit Boss** makes it a form.
+
+Tell Pit Boss what you want the swarm to get better at — eight questions about goal types, languages, edge cases, and how many examples you want — and it turns your answers into a structured training plan, kicks off dataset generation, and hands the finished dataset to ORC ACADEMY for training on your own GPU. You go from "I want a smarter boss" to a queued training run without writing a script or touching a command line.
+
+---
+
 ## The road to v2.0
 
 With Context Fabric complete, v2.0 is about two things: making the **native runtime the default**, and giving agents **real operational reach** beyond generating text. Four workstreams define the release. None of these are claimed as shipped — this is what the project is building next, in priority order.
@@ -438,54 +458,6 @@ The biggest release since the swarm itself. v1.5 closes the training loop — fr
 | **Worktree isolation** | Each swarm task gets its own git worktree — parallel runs are conflict-free by construction |
 | **Reviewer Quality Gate** | Swarm output isn't authoritative until a Reviewer passes it, formalized at the merge step |
 | **ORC ACADEMY v1** | Fine-tuned boss adapter trained, evaluated, and deployed — `theorc-boss:gemma4-ft` is live |
-
----
-
-## ORC ACADEMY — the swarm teaches itself
-
-Here's the part that gets genuinely weird in the best way.
-
-Every good swarm run captures the boss's plan. Those captures go through a review pipeline. When you have enough reviewed examples, **ORC ACADEMY** trains a LoRA adapter on your own GPU. The new boss model is better at planning the next run. Which produces better captures. Which trains a better adapter. You get the idea.
-
-**v1 shipped — June 2026 ✅**
-- 900 reviewed boss plans, harvested overnight by GOBLIN HARVEST while the PC sat idle
-- LoRA trained locally in **148 minutes** on an RTX 5070 Ti
-- Result: **99.3% structured planning pass rate**, up from 94.5% on the base model
-- Shipped as `theorc-boss:gemma4-ft` — a 125 MB GGUF LoRA you can pull right now
-
-**v2 post-mortem ❌**
-- Trained on 1,784 examples from Pit Boss + Cerebras generation
-- Suitability audit later found 51.3% of examples had write tasks assigned to TESTER-lane roles — teaching the boss exactly the wrong behavior
-- A/B result: structured-plan pass rate dropped from 99.3% (v1) to 77.8%, perfect plans 71% → 54%
-- v1 remains the active production adapter; v2 was retired and the data repurposed
-
-**v3 in progress — June 2026 🔄**
-- Root cause fixed: suitability gate (pre-training contamination check) now blocks tester-poison examples before VRAM is allocated
-- Clean dataset: 906 train / 87 eval (zero tester-poison, zero leakage)
-- Training on RTX 5070 Ti, rubric-in-the-loop checkpoint selection
-- v1 baseline holds until v3 passes A/B eval at ≥ 99%
-
-The loop — *run → capture → review → gate → train → deploy* — is part of the product. TheOrc is designed to get better the more you use it, entirely on your own hardware, with no data leaving your machine.
-
----
-
-## PIT BOSS — the training wizard
-
-ORC ACADEMY is powerful. Pit Boss makes it self-serve.
-
-Tell Pit Boss what you want the swarm to get better at. It runs a short interview — eight questions about goal types, languages, edge cases, example count — and turns your answers into a structured training plan. Then it kicks off dataset generation (via Cerebras cloud or local Ollama) and hands the finished dataset off to ORC ACADEMY's Forge for LoRA training on your GPU.
-
-You go from "I want a smarter boss" to a queued training run without writing a script or touching the command line.
-
-This is the exact pipeline that generated the v2 dataset:
-```
-1. Pit Boss interview (in-app) → structured training plan
-2. Dataset gen via Cerebras gpt-oss-120b — ~1,200 examples, ~20 min, free tier, zero API cost
-3. Pit Boss hands off to Forge → train_lora.py on your GPU
-4. New adapter registered in Ollama, ready to pull
-```
-
-The full loop — from "I want better planning" to a deployed adapter — is now in the app UI.
 
 ---
 
