@@ -660,7 +660,7 @@ and run as a service before the GUI-as-client changeover happens.
 > anymore), and C (real telemetry) are landed. Phase D (real-model native-path proof lane) is
 > essentially complete: the negative fail-closed test and the cancellation leg (which caught and
 > fixed a real executor-corruption bug) are landed; the real-model E2E lane with a retained
-> evidence artifact is built, verified on real hardware, and pending merge. None of this changes
+> evidence artifact (PR #81) has landed too, verified on real hardware. None of this changes
 > the default runtime or Ollama's role as fallback — see that spec's explicit out-of-scope list.
 
 **What it is:** an orchestration / swarm-aware layer *on top of* LLamaSharp (llama.cpp bindings) — **not** a from-scratch inference engine. llama.cpp owns the kernels; TheOrc owns scheduling, session management, adapter hot-swap, VRAM-aware dispatch, and direct Avalonia streaming. The moat is making the warband feel like one cohesive mind on the GPU instead of a series of independent HTTP calls.

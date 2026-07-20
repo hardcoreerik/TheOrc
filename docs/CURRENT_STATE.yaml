@@ -106,8 +106,8 @@ subsystems:
       mitigation to any failed generation, not just NoKvSlot, PR #79), and a
       real-model E2E lane with a retained JSON evidence artifact (discovery
       through real admission through inference through telemetry;
-      25.7 tok/s, 284ms TTFT, 2.5GB measured VRAM on the reference box) are
-      built and verified on real hardware. This is foundation hardening, not
+      25.7 tok/s, 284ms TTFT, 2.5GB measured VRAM on the reference box, PR
+      #81) has landed too, verified on real hardware. This is foundation hardening, not
       a default-runtime change -- the default-runtime flip remains a
       separately gated future milestone per that spec's Section 6.
 
