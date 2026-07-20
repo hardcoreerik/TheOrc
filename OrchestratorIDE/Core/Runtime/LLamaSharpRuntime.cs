@@ -38,6 +38,13 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     private string? _activeAdapterPath;
     private RuntimeOptions _options = new();
 
+    // Native Runtime v2.0 Phase B addendum (docs/NATIVE_RUNTIME_V2_SPEC.md) -- accumulates
+    // real VRAM measurements parsed from llama.cpp's own load-time log lines. See
+    // NativeLoadAllocationParser's doc comment for why this exists (WDDM makes nvidia-smi's
+    // per-process query dead on Windows) and its known limitation (the underlying native log
+    // sink is process-wide, not per-instance -- see LoadModelAsync's registration comment).
+    private readonly NativeLoadAllocationAccumulator _loadMeasurement = new();
+
     // Telemetry tracking — updated on each completed generation call (not cancelled ones).
     private double? _lastTokensPerSecond;
     private TimeSpan? _lastTimeToFirstToken;
@@ -145,6 +152,15 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         // this executor only ever runs a single sequence per call, so reusing the persistent-
         // executor params would reserve the same hybrid-architecture rs-cache VRAM budget on
         // every stateless call for no benefit (CodeRabbit review, PR #56).
+        //
+        // Suppress _loadMeasurement for this executor's entire lifetime (CodeRabbit finding,
+        // Phase B addendum PR #77): its KV/compute buffer allocations would otherwise ADD to
+        // the running VRAM total on every call with no corresponding subtraction on disposal,
+        // unboundedly inflating EstimatedVramBytes the longer the process runs. Covers the full
+        // async-iterator lifetime including the yield loop and early caller abandonment -- a
+        // `using` inside an async IAsyncEnumerable method runs on the state machine's cleanup
+        // regardless of how the iteration ends.
+        using var suppressMeasurement = _loadMeasurement.Suppress();
         var executor = new StatelessExecutor(_weights, _statelessModelParams);
         try
         {
@@ -217,7 +233,17 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         ActiveModel: ActiveModelName,
         TokensPerSecond: _lastTokensPerSecond,
         LastTimeToFirstToken: _lastTimeToFirstToken,
-        EstimatedVramBytes: null);  // LLamaSharp doesn't expose per-process VRAM via managed API
+        // Native Runtime v2.0 Phase B addendum: real measurement parsed from llama.cpp's own
+        // load-time log lines (LLamaSharp still exposes no managed VRAM-query API directly).
+        // Null until at least one recognized CUDA allocation line has been observed -- e.g. no
+        // model loaded yet, or a non-CUDA backend whose log format this parser doesn't match.
+        EstimatedVramBytes: _loadMeasurement.TotalBytes);
+
+    /// <summary>Real VRAM measured from llama.cpp's own load-time log lines (Phase B
+    /// addendum) -- see <see cref="NativeLoadAllocationAccumulator"/>. Internal: NativeRoleRuntime
+    /// prefers this (exact, WDDM-proof) over <see cref="NativeVramProbe.TryQueryCurrentProcessVramBytes"/>
+    /// (dead on Windows WDDM) when both are available.</summary>
+    internal long? LastMeasuredVramBytes => _loadMeasurement.TotalBytes;
 
     internal string? GetLastPromptPath() => _lastPromptPath;
 
@@ -234,15 +260,32 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         // Captured (not discarded) so a load failure below can report exactly what the backend
         // pre-flight found/tried, instead of only the generic NativeApi TypeInitializationException.
         //
-        // Opt-in native log sink for the Gemma-specific NoKvSlot investigation
-        // (docs/CONTEXT_FABRIC_BUG_HISTORY.md §7): llama.cpp emits its own WARN/ERROR lines
-        // right when a decode fails to find a KV slot (e.g. cell-count or batch-size detail our
-        // managed DecodeResult enum doesn't carry). Reuses THEORC_KVCACHE_DIAGNOSTICS so a single
-        // env var turns on every diagnostic this investigation has added. stdout, not stderr --
-        // same PowerShell/Tee-Object hazard as AdapterManager's LogKvDiagnostic.
-        var backendReport = Environment.GetEnvironmentVariable("THEORC_KVCACHE_DIAGNOSTICS") == "1"
-            ? NativeBackendBootstrap.EnsureConfigured(line => Console.WriteLine($"[NativeLog] {line}"))
-            : NativeBackendBootstrap.EnsureConfigured();
+        // The native log sink now always runs _loadMeasurement.Observe (Phase B addendum —
+        // parses real VRAM allocations from llama.cpp's own log lines, see
+        // NativeLoadAllocationParser), combined with the pre-existing opt-in console mirror for
+        // the Gemma-specific NoKvSlot investigation (docs/CONTEXT_FABRIC_BUG_HISTORY.md §7):
+        // llama.cpp emits its own WARN/ERROR lines right when a decode fails to find a KV slot
+        // (e.g. cell-count or batch-size detail our managed DecodeResult enum doesn't carry).
+        // Reuses THEORC_KVCACHE_DIAGNOSTICS so a single env var turns on every diagnostic this
+        // investigation has added. stdout, not stderr -- same PowerShell/Tee-Object hazard as
+        // AdapterManager's LogKvDiagnostic.
+        //
+        // KNOWN LIMITATION: NativeBackendBootstrap's log sink is process-wide, not per-runtime
+        // instance (see its own doc comment). If more than one LLamaSharpRuntime is loading
+        // concurrently in the same process (e.g. the documented HIVE-worker + main-chat
+        // "VRAM double-booking" dual-runtime configuration), each LoadModelAsync call
+        // re-registers the sink and can steal it from another instance's in-flight load,
+        // producing an inaccurate accumulation for whichever instance loses the race. Correct
+        // for the common single-native-runtime case; a real fix needs per-instance log
+        // correlation, which is a larger change than this addendum's scope.
+        _loadMeasurement.Reset();
+        var diagnosticsEnabled = Environment.GetEnvironmentVariable("THEORC_KVCACHE_DIAGNOSTICS") == "1";
+        var backendReport = NativeBackendBootstrap.EnsureConfigured(line =>
+        {
+            _loadMeasurement.Observe(line);
+            if (diagnosticsEnabled)
+                Console.WriteLine($"[NativeLog] {line}");
+        });
 
         await DisposeAsync();  // unload previous model
 
@@ -366,6 +409,7 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         _foldSystemIntoUser   = false;
         _lastPromptPath       = null;
         _templateSupportsThinkingSuppression = null;
+        _loadMeasurement.Reset(); // stats must not report a since-unloaded model's VRAM
         if (hadWeights) Interlocked.Increment(ref _weightsGeneration);
         return ValueTask.CompletedTask;
     }

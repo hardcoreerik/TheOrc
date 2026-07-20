@@ -33,6 +33,7 @@
     <Compile Include="..\OrchestratorIDE\Core\Runtime\OrcScheduler.cs" Link="Runtime\OrcScheduler.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\NativeVramProbe.cs" Link="Runtime\NativeVramProbe.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\GgufMetadataReader.cs" Link="Runtime\GgufMetadataReader.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\NativeLoadAllocationParser.cs" Link="Runtime\NativeLoadAllocationParser.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\NativeRuntimeTestSupport.cs" Link="Runtime\NativeRuntimeTestSupport.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\ModelBenchCorpus.cs" Link="Runtime\ModelBenchCorpus.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\ModelBenchRunner.cs" Link="Runtime\ModelBenchRunner.cs" />

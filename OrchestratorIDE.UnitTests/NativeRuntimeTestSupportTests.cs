@@ -519,6 +519,11 @@ public sealed class NativeRuntimeTestSupportTests
             Assert.That(attempt.Output, Is.Not.Null.And.Not.Empty);
             Assert.That(attempt.Stats.LastTimeToFirstToken, Is.Not.Null);
             Assert.That(attempt.Stats.TokensPerSecond, Is.Not.Null);
+            // Phase B addendum (docs/NATIVE_RUNTIME_V2_SPEC.md): a real load through this exact
+            // path must produce a real, non-null, non-trivial VRAM measurement -- parsed from
+            // llama.cpp's own load-time log lines, not the WDDM-dead nvidia-smi per-process
+            // read Phase C shipped (confirmed dead on this box's Windows/WDDM driver mode).
+            Assert.That(attempt.Stats.EstimatedVramBytes, Is.Not.Null.And.GreaterThan(100L * 1024 * 1024));
         });
     }
 
