@@ -66,6 +66,27 @@ evidence (same discipline as the Phase D E2E lane's `.orc/native-e2e-lane/` arti
 5. **Single-box lane gate:** the PR #81 E2E lane green on each box with retained evidence —
    three per-box artifacts recording tok/s, TTFT, measured VRAM. This is the per-box floor
    under every multi-machine phase.
+6. **HIVE service liveness gate (found 2026-07-20, not yet closed):** the HIVE control-plane
+   listener (port 7078) must actually be running on every box before any cross-machine test is
+   possible — SSH/build/test connectivity working is a separate thing from the app-level HIVE
+   listener being up. `swarmcli --worker --warchief-url <url> --lanes <lanes>` is the lightweight
+   headless host for this (no full GUI needed) — confirmed via its own docstring ("polls a
+   remote Warchief and executes tasks as they arrive; runs until Ctrl+C"). Starting persistent
+   background listeners on remote boxes is a bigger step than the read-only checks this plan has
+   done so far — get a go-ahead before leaving them running unattended, and track their PIDs so
+   they can be cleanly stopped.
+7. **Controller-authorization gate (found 2026-07-20, not yet resolved):** each worker's own
+   `hive-peers.json` currently records NewcorePC as `role=Observer` (confirmed live via
+   `swarmcli --show-identity`'s `SelfRole` field, not just the stored snapshot). Being the HIVE's
+   `Founder` grants cert-issuance but NOT automatic `Controller` authority toward peers who
+   haven't separately, deliberately promoted it — this is documented as intentional in
+   `HIVE_MEMBERSHIP_SPEC.md` ("promoting a peer to Controller-eligible must be a deliberate...
+   action"), not a bug. `swarmcli --declare-warchief` is the built-in broadcast for requesting
+   this (honored only if the receiving peer's own `AcceptControlFrom` policy allows it), but it
+   could not be tested yet because of gate 6 (every attempt timed out with no listener to reach).
+   Retry once gate 6 is closed; if peers still don't accept the role-assign, that's the real
+   HV-1 blocker to solve, and it's a trust decision for the human running each machine, not
+   something to force through automatically.
 
 ### HV-1 — Native workloads across machine roles
 
