@@ -168,6 +168,24 @@ Context Fabric is what makes TheOrc more than "an AI swarm for code": a local sy
 
 ---
 
+## Flagship system: HIVE MIND
+
+**Every idle machine on your network is a wasted goblin.** HIVE MIND is TheOrc's answer to that: instead of one computer doing all the thinking, a whole fleet of them can share the work — your gaming rig plans and coordinates while your old workstation and your laptop pick up tasks in parallel, over your LAN or across the internet via Tailscale, with no cloud service in the loop at all.
+
+**The hard part was never "send a task over the network."** The hard part is doing that *safely* — so that plugging in a new machine can't accidentally hand it the keys to your whole fleet, and so two machines racing for the same task can't both grab it and duplicate work. HIVE MIND solves both:
+
+- **Trust is a handshake, not a login.** Two machines pair by exchanging a human-readable fingerprint — an eight-word phrase, the same idea Signal and PGP use for key verification — so you can *look at both screens and confirm* you're pairing the machines you think you are, before any task ever crosses the wire. Every request after that is cryptographically signed; nothing is trusted on IP address alone.
+- **No machine can silently promote itself.** Founding a hive gives a machine the authority to vouch for new members, but *not* automatic control over machines that already trust each other. Becoming another machine's controller is always a deliberate, explicit step — never something that happens quietly in the background because two machines happened to find each other on the network.
+- **Tasks can't be double-claimed.** The moment a worker grabs a task off the queue, that claim is atomic — a second worker reaching for the same task gets turned away, not a race condition. Nothing ever runs twice by accident.
+
+**And on 2026-07-20, we stopped taking that on faith and actually watched it happen.** Two separate physical machines — one reached over the local network, the other over a Tailscale VPN tunnel — were pointed at a boss running on a third. The boss took a plain-English goal, broke it into a real task, and put it on the queue. A remote worker picked it up, wrote the code, and reported back — all the way from a general goal down to a working file, over an honest-to-god network, on separate hardware.
+
+That's HIVE MIND doing the one thing that actually matters: turning "the machines can technically talk to each other" into "the swarm just did real work I didn't have to babysit."
+
+**Where it stands today:** local discovery, secure pairing, and worker polling have been shipped and hardened for a while. What's new is that full end-to-end distributed execution — plan, dispatch, claim, execute, verify, and complete, across a real multi-machine network — is now proven working, not just designed. Scaling that from "one task, proven" to "a whole fleet, routinely" is the active work behind [v2.0's native-runtime-default milestone](#the-road-to-v20) below.
+
+---
+
 ## The road to v2.0
 
 With Context Fabric complete, v2.0 is about two things: making the **native runtime the default**, and giving agents **real operational reach** beyond generating text. Four workstreams define the release. None of these are claimed as shipped — this is what the project is building next, in priority order.
@@ -561,7 +579,7 @@ Here's what's on the workbench — this is where support goes:
 The v1 adapter was trained on 900 plans, almost all C# feature work. v2 fixes that: the Pit Boss pipeline is already generating ~1,200 synthetic examples covering bugfixes, refactors, tests, integrations, and docs across a dozen languages — using Cerebras cloud inference at no cost. Once reviewed, v2 trains a boss that handles real-world requests, not just TheOrc building itself.
 
 ### 🌐 HIVE MIND — distributed swarm across your whole network
-HIVE MIND lets multiple TheOrc machines coordinate over your local network. One machine runs the boss and hands off worker tasks to others. Your gaming rig does the planning, your NAS runs a coder, the old workstation in the corner finally earns its keep. Phase A is shipped (LAN discovery, queue, worker polling). Phase B is full distributed task execution and remote harvest.
+HIVE MIND lets multiple TheOrc machines coordinate over your local network — or across the internet via Tailscale. One machine runs the boss and hands off worker tasks to others. Your gaming rig does the planning, your NAS runs a coder, the old workstation in the corner finally earns its keep. Secure pairing, discovery, and worker polling are shipped; full end-to-end distributed execution — plan, dispatch, remote claim, execute, verify, complete — is now proven working on real hardware over a real network. What's left is scaling that from "one task, proven" to routine multi-worker campaigns with full evidence capture.
 
 ### 🎓 On-platform self-improvement
 The long game: TheOrc writes its own training goals, runs them through the swarm, and feeds the results back into ORC ACADEMY — closing the loop with minimal human input. The Pit Boss pipeline makes the dataset generation side of this almost free. The remaining work is getting the swarm to generate and judge its own goals.
