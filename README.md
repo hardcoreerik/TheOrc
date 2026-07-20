@@ -168,6 +168,21 @@ Context Fabric is what makes TheOrc more than "an AI swarm for code": a local sy
 
 ---
 
+## Flagship system: Native Runtime
+
+**Ollama is a great piece of software, and TheOrc doesn't need it.** That's the whole pitch: instead of installing a separate server, managing its lifecycle, and talking to it over HTTP for every single message, TheOrc can load a model straight into its own process and run it directly — no subprocess, no local server to keep alive, no round trip. Ollama remains fully supported (it's still the default, on purpose — more on that below), but the native path is real, fast, and getting more real every week: **a genuine CUDA build measured 67.7 tok/s on an RTX 4060, versus ~6 tok/s CPU-only** — the difference between a tool that keeps up with you and one that doesn't.
+
+**The hard part was never "load a GGUF file and generate text."** Plenty of hobby projects do that. The hard part is doing it the way production software has to: never crash the GPU by overcommitting memory, never let a user-visible failure turn into a silent, unexplained personality-swap to a different backend, and never let one AI role's bad moment take the whole system down with it.
+
+- **It won't load a model it doesn't have room for — and it doesn't guess.** Before anything loads, TheOrc reads the model's own file header and computes a byte-exact prediction of how much GPU memory the request will actually need — cache, compute buffers, everything — then checks that against real, live-queried VRAM headroom. If it doesn't fit, the request is refused with a clear reason. No silent overcommit, no crash, no "it usually works."
+- **The prediction gets checked against reality, every time.** Once a model is actually loaded, TheOrc reads the exact allocation numbers straight out of the inference engine's own logs and reports *measured* memory usage, not a theoretical estimate — the same discipline a production monitoring system holds itself to, applied to a desktop app.
+- **A broken request never lies about what happened.** If native inference can't serve a request, it fails loudly and explicitly — it does not quietly hand the conversation to Ollama behind your back and pretend nothing happened. Silent backend swaps are exactly the kind of thing that erodes trust in a tool, so TheOrc simply doesn't do it. This is a tested guarantee, not a policy on paper: a dedicated always-on check proves it on every single build.
+- **Found a real bug by actually looking, and fixed it properly.** Cancelling a generation partway through turned out to be able to permanently wedge that AI role until restart — a genuinely nasty class of bug that only shows up under real, adversarial testing, not casual use. It was caught by a test built specifically to try it, root-caused, and fixed by reusing an existing, already-proven recovery mechanism rather than a quick patch. Verified fixed, repeatedly, on real hardware.
+
+**Where it stands today:** the native path is real, fast, measured, and — as of this release — has a full recorded proof of one complete real-model run: discovery, a genuine capacity check against live GPU memory, model load, real inference, and a full telemetry snapshot, all in one pass, with the results saved to disk. Ollama stays the default and the safety net until that same rigor has been proven not just on one machine, but across a real multi-machine HIVE fleet — see [the road to v2.0](#the-road-to-v20) below for exactly what that bar is.
+
+---
+
 ## The road to v2.0
 
 With Context Fabric complete, v2.0 is about two things: making the **native runtime the default**, and giving agents **real operational reach** beyond generating text. Four workstreams define the release. None of these are claimed as shipped — this is what the project is building next, in priority order.
