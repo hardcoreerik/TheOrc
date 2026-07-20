@@ -35,6 +35,7 @@
     <Compile Include="..\OrchestratorIDE\Core\Runtime\GgufMetadataReader.cs" Link="Runtime\GgufMetadataReader.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\NativeLoadAllocationParser.cs" Link="Runtime\NativeLoadAllocationParser.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\NativeRuntimeTestSupport.cs" Link="Runtime\NativeRuntimeTestSupport.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\NativeE2ELaneEvidence.cs" Link="Runtime\NativeE2ELaneEvidence.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\ModelBenchCorpus.cs" Link="Runtime\ModelBenchCorpus.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\ModelBenchRunner.cs" Link="Runtime\ModelBenchRunner.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\ModelBenchReportStore.cs" Link="Runtime\ModelBenchReportStore.cs" />

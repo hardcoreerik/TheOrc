@@ -5,20 +5,22 @@
 > phase below is implemented and reviewed in its own later PR.
 >
 > **Implementation status (updated as phases land, not on every edit — check PR history for
-> the authoritative record):** as of 2026-07-19, [Phase A](#phase-a--authoritative-fail-closed-admission-boundary)
+> the authoritative record):** as of 2026-07-20, [Phase A](#phase-a--authoritative-fail-closed-admission-boundary)
 > (admission boundary, PR #70), [Phase B](#phase-b--real-vram-budget--overhead-aware-estimate)
-> (live VRAM budget, PR #72, **and** the cost-*estimate* side — a GGUF-header-based KV/compute
-> formula, PR #76 — both landed), and [Phase C](#phase-c--real-telemetry-surfacing) (real
-> telemetry, PR #73) are landed. A further Phase B addendum — real load-time VRAM *measurement*
-> parsed from llama.cpp's own log lines, replacing the WDDM-dead nvidia-smi per-process read — is
-> in flight (PR #77). [Phase D](#phase-d--real-model-native-path-proof-lane) is open; one of its
-> named requirements — the negative "admission denial fails closed, no silent Ollama
-> substitution" test (§3.4) — landed early as an always-on (non-hardware-gated) test, since a
-> real capacity denial happens before any model load and needs no GGUF to exercise
-> (`NativeRuntimePhaseDTests.cs`). The rest of Phase D's E2E hardware-gated lane remains open.
-> This section is the one place in the document allowed to describe *shipped* state — the rest
-> of the spec below is design intent for later PRs, per each phase's own
-> `[Verified]`/`[Proposed]` markers at time of writing.
+> (live VRAM budget, PR #72, the cost-*estimate* side — a GGUF-header-based KV/compute formula,
+> PR #76 — and the load-time VRAM *measurement* side, parsed from llama.cpp's own log lines and
+> replacing the WDDM-dead nvidia-smi per-process read, PR #77 — all three landed), and
+> [Phase C](#phase-c--real-telemetry-surfacing) (real telemetry, PR #73) are landed.
+> [Phase D](#phase-d--real-model-native-path-proof-lane) is in progress: the negative
+> "admission denial fails closed, no silent Ollama substitution" test (§3.4, PR #78) and the
+> cancellation leg (PR #79 — found and fixed a real bug in the process, see the Phase D section
+> below) have both landed as always-on tests, one of them hardware-gated. The evidence-artifact
+> E2E lane (discovery through telemetry, with a real admission budget and a retained JSON
+> artifact) is in flight (PR pending). Still open: extending that lane to a second concurrent
+> role. This section is the one place in the document allowed to describe *shipped* state —
+> the rest of the spec
+> below is design intent for later PRs, per each phase's own `[Verified]`/`[Proposed]` markers
+> at time of writing.
 >
 > **Scope discipline:** this spec does **not** change the product's default runtime.
 > Ollama remains the default and the fallback target. See [§0.3 Explicitly out of scope](#03-explicitly-out-of-scope).
@@ -534,7 +536,7 @@ llama.cpp's `buffer size` log lines; compare against the header formula above.
 **Status:** the cost-estimate half landed in PR #76 — `GgufMetadataReader` (header-only, memo-
 cached) plus the byte-exact KV/compute formula wired into `OrcScheduler.EstimateRequiredBytes`
 and `RuntimeOrchestrator.EnsureAdmitted`, tested against synthetic fixtures and a real GGUF. A
-further addendum (PR #77, in flight) replaces the *estimate* with a real *measurement*: parsing
+further addendum (PR #77, landed) replaced the *estimate* with a real *measurement*: parsing
 llama.cpp's own load-time "buffer size" log lines (exact, WDDM-proof) into
 `NativeLoadAllocationAccumulator`, feeding `LLamaSharpRuntime.EstimatedVramBytes` from measured
 bytes instead of the formula whenever a load has actually happened. The one immediate code
@@ -640,9 +642,26 @@ rather than risk reusing one that didn't complete cleanly, mirroring `MarkForRec
 passes reliably (3 repeated runs) with the fix, and the full 619-test suite (including all
 gated real-model lanes) stays green.
 
-**Still open for the full Phase D lane:** the discovery→...→telemetry happy path is already
-covered by the existing `THEORC_TEST_GGUF` lanes; the retained evidence artifact for a full
-successful run (reusing the `EvidenceStore` pattern) has not yet been built.
+**Evidence-artifact E2E lane built and verified (PR pending — matches the banner's "in flight"
+status at the top of this document; will read "landed" once that PR actually merges, not
+before).** `NativeRuntimeE2ELaneTests.FullLifecycle_DiscoveryThroughTelemetry_Succeeds_WithRetainedEvidence`
+(`THEORC_TEST_GGUF`-gated) drives discovery (`ModelDepot.Scan`) → real admission (a real
+`OrcScheduler` against a real live-queried `NativeVramProbe.TryQueryLiveNvidiaBudget()` budget —
+deliberately NOT the `allowUnbudgetedExecution` opt-out every other gated lane in this
+workstream uses, since this lane's job is proving admission for real) → adapter lifecycle →
+inference → telemetry read at three stages (before/mid-flight/after), and writes a retained
+JSON evidence artifact (`NativeE2ELaneEvidenceStore`, sibling to the existing
+`NativeRuntimeFallbackEvidenceStore`/`NativeRuntimeComparisonReportStore` pattern under
+`.orc/native-e2e-lane/`) regardless of pass or fail. A real run captured genuinely interesting,
+correct telemetry: residency (`ActiveCount`) drops to 0 once the conversation disposes, but the
+VRAM *reservation* deliberately stays live with the loaded model rather than releasing —
+confirming those two lifecycles are intentionally decoupled, not a leak. 25.7 tok/s, 284 ms TTFT,
+2.5 GB measured VRAM on the reference box; verified passing across 3 repeated runs.
+
+**Still open for the full Phase D lane:** the standardized lane currently exercises one role
+(Worker); extending it to a second concurrent role (proving cross-role admission accounting
+end-to-end in the same evidence-bearing run, not just in isolated unit tests) is a natural next
+increment but not yet built.
 
 ---
 
