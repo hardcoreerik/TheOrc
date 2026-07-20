@@ -36,6 +36,7 @@ public sealed record NativeE2ELaneRunResult(
     TimeSpan? TimeToFirstToken,
     long? EstimatedVramBytes,
     string? Output,
+    string? ErrorType,
     string? ErrorMessage);
 
 public static class NativeE2ELaneEvidenceStore
@@ -109,6 +110,7 @@ public static class NativeE2ELaneEvidenceStore
         time_to_first_token_ms = result.TimeToFirstToken?.TotalMilliseconds,
         estimated_vram_bytes = result.EstimatedVramBytes,
         output = Sanitize(result.Output, OutputLimit),
+        error_type = result.ErrorType,
         error_message = Sanitize(result.ErrorMessage, ErrorLimit),
     };
 

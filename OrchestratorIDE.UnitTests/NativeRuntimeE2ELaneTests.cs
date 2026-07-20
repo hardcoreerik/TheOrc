@@ -55,6 +55,7 @@ public sealed class NativeRuntimeE2ELaneTests
         };
 
         string? output = null;
+        string? errorType = null;
         string? errorMessage = null;
         var success = false;
 
@@ -91,6 +92,11 @@ public sealed class NativeRuntimeE2ELaneTests
         }
         catch (Exception ex)
         {
+            // Same ErrorType + ErrorMessage split as NativeRuntimeFallbackEvidenceStore
+            // (NativeRuntimeTestSupport.cs) -- the sibling pattern this store's doc claims to
+            // follow. Without the type, a failed run's evidence can't distinguish an admission
+            // denial from a native load crash from a timeout (ultrareview finding).
+            errorType = ex.GetType().Name;
             errorMessage = ex.Message;
         }
 
@@ -112,6 +118,7 @@ public sealed class NativeRuntimeE2ELaneTests
             stats.LastTimeToFirstToken,
             stats.EstimatedVramBytes,
             output,
+            errorType,
             errorMessage);
 
         // Explicit workspace root: without it, WriteAsync falls back to %AppData%, scattering
@@ -125,8 +132,18 @@ public sealed class NativeRuntimeE2ELaneTests
             Assert.That(success, Is.True, errorMessage ?? "E2E lane run failed with no output");
             Assert.That(File.Exists(evidencePath), Is.True, "evidence artifact must be retained regardless of outcome");
             Assert.That(snapshots, Has.Count.EqualTo(3), "expected before/mid-flight/after telemetry stages");
+
+            // Guarded: the mid-flight snapshot is only appended once a token is actually
+            // yielded. A failure BEFORE the first token -- exactly the admission-denial/native-
+            // load-failure case this lane's real (not opted-out) admission is designed to expose
+            // -- leaves snapshots at Count 2, and indexing [1]/[2] unconditionally would throw
+            // ArgumentOutOfRangeException, burying the real failure (already surfaced above via
+            // `success`/`errorMessage`) under confusing noise (ultrareview finding).
+            if (snapshots.Count != 3)
+                return;
+
             Assert.That(snapshots[0].ResidentActiveCount ?? 0, Is.Zero, "nothing should be resident before the first call");
-            Assert.That(snapshots[1].ResidentActiveCount, Is.EqualTo(1), "exactly one conversation should be active mid-flight");
+            Assert.That(snapshots[1].ResidentActiveCount ?? 0, Is.EqualTo(1), "exactly one conversation should be active mid-flight");
             Assert.That(snapshots[2].ResidentActiveCount ?? 0, Is.Zero, "residency must return to baseline after disposal");
         });
     }

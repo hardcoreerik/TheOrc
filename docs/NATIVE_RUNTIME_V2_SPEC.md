@@ -536,7 +536,7 @@ llama.cpp's `buffer size` log lines; compare against the header formula above.
 **Status:** the cost-estimate half landed in PR #76 — `GgufMetadataReader` (header-only, memo-
 cached) plus the byte-exact KV/compute formula wired into `OrcScheduler.EstimateRequiredBytes`
 and `RuntimeOrchestrator.EnsureAdmitted`, tested against synthetic fixtures and a real GGUF. A
-further addendum (PR #77, in flight) replaces the *estimate* with a real *measurement*: parsing
+further addendum (PR #77, landed) replaced the *estimate* with a real *measurement*: parsing
 llama.cpp's own load-time "buffer size" log lines (exact, WDDM-proof) into
 `NativeLoadAllocationAccumulator`, feeding `LLamaSharpRuntime.EstimatedVramBytes` from measured
 bytes instead of the formula whenever a load has actually happened. The one immediate code
@@ -642,7 +642,9 @@ rather than risk reusing one that didn't complete cleanly, mirroring `MarkForRec
 passes reliably (3 repeated runs) with the fix, and the full 619-test suite (including all
 gated real-model lanes) stays green.
 
-**Evidence-artifact E2E lane landed.** `NativeRuntimeE2ELaneTests.FullLifecycle_DiscoveryThroughTelemetry_Succeeds_WithRetainedEvidence`
+**Evidence-artifact E2E lane built and verified (PR pending — matches the banner's "in flight"
+status at the top of this document; will read "landed" once that PR actually merges, not
+before).** `NativeRuntimeE2ELaneTests.FullLifecycle_DiscoveryThroughTelemetry_Succeeds_WithRetainedEvidence`
 (`THEORC_TEST_GGUF`-gated) drives discovery (`ModelDepot.Scan`) → real admission (a real
 `OrcScheduler` against a real live-queried `NativeVramProbe.TryQueryLiveNvidiaBudget()` budget —
 deliberately NOT the `allowUnbudgetedExecution` opt-out every other gated lane in this
