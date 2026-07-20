@@ -66,27 +66,23 @@ evidence (same discipline as the Phase D E2E lane's `.orc/native-e2e-lane/` arti
 5. **Single-box lane gate:** the PR #81 E2E lane green on each box with retained evidence —
    three per-box artifacts recording tok/s, TTFT, measured VRAM. This is the per-box floor
    under every multi-machine phase.
-6. **HIVE service liveness gate (found 2026-07-20, not yet closed):** the HIVE control-plane
-   listener (port 7078) must actually be running on every box before any cross-machine test is
-   possible — SSH/build/test connectivity working is a separate thing from the app-level HIVE
-   listener being up. `swarmcli --worker --warchief-url <url> --lanes <lanes>` is the lightweight
-   headless host for this (no full GUI needed) — confirmed via its own docstring ("polls a
-   remote Warchief and executes tasks as they arrive; runs until Ctrl+C"). Starting persistent
-   background listeners on remote boxes is a bigger step than the read-only checks this plan has
-   done so far — get a go-ahead before leaving them running unattended, and track their PIDs so
-   they can be cleanly stopped.
-7. **Controller-authorization gate (found 2026-07-20, not yet resolved):** each worker's own
-   `hive-peers.json` currently records NewcorePC as `role=Observer` (confirmed live via
-   `swarmcli --show-identity`'s `SelfRole` field, not just the stored snapshot). Being the HIVE's
-   `Founder` grants cert-issuance but NOT automatic `Controller` authority toward peers who
-   haven't separately, deliberately promoted it — this is documented as intentional in
-   `HIVE_MEMBERSHIP_SPEC.md` ("promoting a peer to Controller-eligible must be a deliberate...
-   action"), not a bug. `swarmcli --declare-warchief` is the built-in broadcast for requesting
-   this (honored only if the receiving peer's own `AcceptControlFrom` policy allows it), but it
-   could not be tested yet because of gate 6 (every attempt timed out with no listener to reach).
-   Retry once gate 6 is closed; if peers still don't accept the role-assign, that's the real
-   HV-1 blocker to solve, and it's a trust decision for the human running each machine, not
-   something to force through automatically.
+6. **HIVE service liveness gate — CLOSED 2026-07-20.** The HIVE control-plane listener wasn't
+   the right mechanism for a lightweight worker deployment: `swarmcli --worker` opens no inbound
+   listener at all, it's a pure outbound poller. Built and ran `swarmcli --worker
+   --warchief-url <lan-or-tailscale-ip>:7079 --lanes coder` on both HardcorePC (LAN) and
+   HardcoreLaptopMSI (Tailscale) — both connected and polled cleanly with no errors.
+7. **Controller-authorization gate — CLOSED 2026-07-20, resolved as NOT a blocker.** Each
+   worker's `hive-peers.json` does record NewcorePC as `role=Observer` (confirmed live via
+   `swarmcli --show-identity`'s `SelfRole` field, not a stale snapshot), and being the HIVE's
+   `Founder` does not grant automatic `Controller` authority toward peers — both true, per
+   `HIVE_MEMBERSHIP_SPEC.md`. But `--declare-warchief` (a control-plane RPC) was the wrong test
+   for this deployment shape — `--worker` mode has no listener for it to reach. The test that
+   actually matters proved dispatch works regardless: a real `swarmcli --warchief --goal "..."`
+   one-shot run had its single task claimed and completed by HARDCORELAPTOPMSI over the real
+   network, full retry-on-failure loop included. **Task-queue claim/complete authorization runs
+   on a separate HMAC-based mechanism from the control-plane role-assignment RPC — the
+   Observer/Controller distinction does not block campaign job dispatch.** Both remote worker
+   processes stopped and the disposable test workspace cleaned up afterward.
 
 ### HV-1 — Native workloads across machine roles
 
