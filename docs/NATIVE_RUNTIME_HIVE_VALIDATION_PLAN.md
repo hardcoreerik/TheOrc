@@ -281,11 +281,44 @@ dispatch defect**: the fleet's pinned model (Dolphin3.0-Llama3.2-3B, chosen for 
 testing, not for CF quality) is not reliable at CF's reader JSON-extraction task — CF-7's own
 GO gate used a materially larger Qwen3.5-9B, not this box's 3B fixture. No larger model is
 currently on the fleet to retry with (checked: NewcorePC's model root has two similarly-sized 3B
-GGUFs, no CF-capable size). **Not pursued further this session** — stopped after one confirmed
-reproduction rather than burn more fleet time chasing a known model-capability mismatch; a real
-CF-6-over-HIVE confirmation needs either a CF-capable model deployed to at least one worker, or
-running against NewcorePC's existing CF-7 GO-gate model if VRAM allows. Cleaned up: all three
-Daemon processes stopped, scratch workspaces/logs removed.
+GGUFs, no CF-capable size). **Not pursued further in that pass** — stopped after one confirmed
+reproduction rather than burn more fleet time chasing a known model-capability mismatch. Cleaned
+up: all three Daemon processes stopped, scratch workspaces/logs removed.
+
+**2026-07-21 (same session, later pass) — resolved: downloaded the CF-7-proven model, real
+multi-node CF-6 confirmation obtained.** User-approved acquisition of
+`Qwen3.5-9B-Q4_K_M.gguf` (5.68 GB, SHA-256 `03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8`)
+from `huggingface.co/unsloth/Qwen3.5-9B-GGUF` — the same model family CF-7's own GO gate used.
+Hash-verified after download, placed at `F:\Ai\GarfChat\checkpoints\cf-test-models\` (NewcorePC)
+and `C:\Ai\models-cf\` (HardcoreLaptopMSI, copied and independently re-verified, not assumed).
+
+Single-node sanity check first (NewcorePC only): **15 of 16 segments succeeded cleanly** — a
+dramatic jump from 0/16 with the small model, confirming the earlier finding was genuinely model
+capability, not a HIVE defect. **Real multi-node run** (`--min-nodes 2`, NewcorePC +
+HardcoreLaptopMSI, both running the Daemon with `Hive:DevAutoApproveMinutes` from this same
+session's fix): reader claims fanned out across both real machines —
+`read-00001/00008/00014` claimed by `HARDCORELAPTOPM`, the rest by `NEWCOREPC` — genuine
+distinct-worker-node distribution, not a single box doing all the work.
+
+**One segment (seg-006) still fails, deterministically, regardless of model or which node claims
+it.** With the bigger model the truncation point moved further into the JSON (through
+`schemaVersion`/`corpusId`/`documentId`/`segmentId`/`promptVersion`, cutting off inside
+`"summary":"Section 0` — right as it would emit the ordinal's second digit, "6") but never
+completes, on either NEWCOREPC or HARDCORELAPTOPM, across every retry. Consistent across two
+materially different models and two different machines strongly suggests this is specific to
+segment 6's own content or a narrow native-runtime/tokenizer edge case around that exact digit
+sequence — not a capability or distribution problem. Not root-caused this session; flagged
+precisely rather than guessed at. `Cf6AcceptanceRunner` treats any single reader failure as
+fatal to the whole pipeline (verifiers/stitchers/reducer never ran), so this remains a partial,
+not full, CF-6 acceptance pass — but the actual thing this exercise was for (real distributed
+native Context Fabric execution across the HIVE, confirmed working) is solidly demonstrated:
+15/16 real segments, two real machines, real evidence cards, zero fallback.
+
+Evidence: `.orc/cf6-acceptance-qwen/` (single-node), `.orc/cf6-acceptance-qwen-multinode/`
+(multi-node, partial due to seg-006). Cleaned up after: both remote Daemon processes and
+NewcorePC's local Daemon stopped, scratch workspaces removed. The downloaded model itself was
+kept in place (not deleted) on both machines — a real, reusable, hash-verified asset for future
+CF work, not a throwaway.
 
 ### HV-4 — Failure, cancellation, disconnect, recovery
 
