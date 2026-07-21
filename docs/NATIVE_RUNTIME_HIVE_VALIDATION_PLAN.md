@@ -122,6 +122,85 @@ the fleet's `hive-peers.json` (use the auto-resync tool, not hand edits).
   design; this proves it holds when dispatched remotely.
 - Pass: N≥5 jobs per worker, all native, zero fallback, evidence retained per job.
 
+**2026-07-21 — Driver built (`Tools/Hv1NativeCampaignRunner`, PR #87), real run against the
+fleet, PARTIAL PASS: HardcoreLaptopMSI closed, HardcorePC blocked by a genuine, newly-found
+capacity gap — not a driver or fleet-pairing defect.**
+
+**The driver**: submits a `CampaignDefinition` of `ExecutionKind=NativeAgent` work units directly
+to a live Warchief's `/hive/campaigns`, pinned per-worker via `ResourceRequirements.
+ExcludedWorkerIds` (no CLI flag existed for N-repeat or worker-targeted dispatch before this),
+polls each unit's `GET /hive/tasks/{id}` to a terminal state, and validates the exact evidence
+HV-1 asks for. That endpoint didn't expose `HiveTaskResult.Attestation`/`Metrics` at all before
+this work — only `OutputArtifacts` was surfaced — so `HiveTaskStatusResponse` gained those two
+fields as part of this PR. Optional `--gate-model-hash` makes `NativeModelHash` a live capability
+gate instead of just an echoed report value.
+
+**Real gap found: `swarmcli --worker` cannot execute `NativeAgent` work units at all.** It never
+calls `WorkerCapabilityDetector.DetectAsync` or constructs an `IHiveNativeRoleExecutor` (zero
+references to either in `Tools/SwarmCli/Program.cs`), so `HiveWorkerAgent.NativeRoleExecutor`
+stays null and any native-role job falls through to the Ollama/`CoderModel` path — which isn't
+configured on these boxes, so every job failed with "no model configured." The one-off ad-hoc
+dispatch test earlier in this campaign succeeded via swarmcli, but on inspection that used the
+default `LegacyAgent` execution kind (plain boss-decomposed goal dispatch through Ollama), not
+`NativeAgent` — it was never actually proof of native execution, only of task-queue dispatch.
+The real native worker for this deployment shape is `OrchestratorIDE.Daemon` (already exists,
+already cross-platform-proven on a Raspberry Pi), configured via `Hive:*` / `HIVE__*` env vars
+(`WorkerMode`, `NativeModelRoot`, `NativeVramMb`, `WarchiefUrl`, `WarchiefNodeId`, `WorkerLanes`)
+— it wires a real `NativeRoleRuntime` + `HiveNativeRoleExecutorAdapter` when `NativeVramMb > 0`
+and a GGUF is present in `NativeModelRoot`.
+
+**Real incident: switching to the Daemon clobbered HardcorePC's (and pre-emptively,
+HardcoreLaptopMSI's) HIVE identity — recovered by re-pairing, no data loss beyond the old
+keypairs.** `swarmcli` and `OrchestratorIDE.Daemon` share the same identity file path
+(`%AppData%\TheOrc\hive-identity.json`) but different encryption: swarmcli defaults to Windows
+DPAPI, the Daemon always forces AES-GCM (`Program.cs`'s own comments document this exact
+collision, for the Pi's benefit — read it, registered the risk, tripped it anyway on the first
+`--show-identity` call). Decryption failed silently, `HiveIdentity.Load()`'s catch-and-regenerate
+path fired, and a brand-new identity was generated and persisted, overwriting the old one.
+Confirmed via NewcorePC's own peer-store entries: HardcorePC's nodeId changed from `2bacaaef43fd…`
+to `5f366bd33add…`. Recovered by restarting the local Warchief with `--allow-fingerprint` for
+each box's new fingerprint and running `theorc-warband.exe --pair --target <ip>
+--expect-fingerprint <newcorepc's fingerprint>` from each worker (the Daemon must always
+initiate, never approve, pairing — no headless approval path exists). Both re-paired clean,
+confirmed via the updated peer-store entries (role=Worker, as before).
+
+**Real result — HardcoreLaptopMSI (RTX 4060 Laptop, 8 GB): CLEAN PASS, 5/5.** All five jobs
+completed, claimed by the correct target (`ClaimedBy` matched), `Attestation.RuntimeName ==
+"NativeRoleRuntime"` on every job, live model-hash capability match (`--gate-model-hash`) against
+the pinned fixture, real stats (`steps`/`prompt_tokens`/`completion_tokens`) on every job, zero
+fallback anywhere. Evidence: `.orc/hv-1-lane/hv1_native_campaign_20260721_032423.json`.
+
+**Real result — HardcorePC (RTX 3050, 6 GB): BLOCKED, 1/5 at best, reproducible across a fresh
+process restart.** The first native job on a freshly-started Daemon process always succeeds;
+every job after it — even in a completely clean process, even after the first job's task
+finished and control returned to the worker loop — is denied by a genuine, correctly-functioning
+`RuntimeAdmissionDeniedException`: `Requires ~3.4 GB, only 2.4 GB available. Budget total=6.0 GB,
+reserved=3.6 GB`. This is fail-closed working exactly as designed (no silent fallback, no
+overcommit) — the actual finding is that the first job's VRAM reservation for the `Worker` role
+never releases, so a second sequential job for the same role can never be admitted on a card this
+tight. HardcoreLaptopMSI's 8 GB apparently has enough headroom to absorb the same non-release
+across 5 jobs; HardcorePC's 6 GB does not, cleanly reproducing on the box HV-0 deliberately
+included *because* it's the fleet's low-VRAM class. Root cause is inside
+`NativeRoleRuntime`/`AdapterManager`'s conversation lifecycle (`HiveNativeRoleExecutorAdapter.
+ExecuteAgentAsync` never sees or disposes a conversation handle — that lifecycle is fully
+internal), not in the HIVE dispatch layer this campaign has been testing — genuinely out of
+scope to root-cause further inside this campaign. **Filed as an open follow-up, not fixed here.**
+
+**Minor evidence-quality gap noted, not fixed**: every job's `Attestation.Backend` reports `"cpu"`
+even though the Daemon's own startup log confirms `"CUDA backend selected (cuda12...)"` on both
+boxes — `HiveService.cs` calls `NativeBackendBootstrap.EnsureConfigured` for logging only and
+never passes its verdict into `WorkerCapabilityDetector.DetectAsync`'s `verifiedNativeBackend`
+parameter (which defaults to `"cpu"`). Doesn't affect whether native execution happened
+(`RuntimeName` already proves that), just makes the `Backend` field in evidence read wrong.
+
+**HV-1 verdict: PARTIAL, not closed.** The mechanism (real native dispatch, correct placement,
+zero fallback, live capability matching, evidence retained per job) is proven end-to-end on the
+mid/high-VRAM class. The fleet-wide N≥5-per-worker bar is met for HardcoreLaptopMSI, NOT met for
+HardcorePC pending the reservation-release investigation above. Cleaned up: both Daemon
+processes and the local Warchief stopped, remote scratch workspaces (`hv1-daemon-workspace`) and
+logs deleted, `.orc/hv-1-lane-smoke`/`-diag` scratch evidence removed locally — only the real
+evidence file retained.
+
 ### HV-2 — Capability/resource-aware scheduling
 
 Exploit the VRAM spread deliberately: submit jobs whose context-aware footprint (PR #76
