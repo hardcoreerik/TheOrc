@@ -193,13 +193,41 @@ never passes its verdict into `WorkerCapabilityDetector.DetectAsync`'s `verified
 parameter (which defaults to `"cpu"`). Doesn't affect whether native execution happened
 (`RuntimeName` already proves that), just makes the `Backend` field in evidence read wrong.
 
-**HV-1 verdict: PARTIAL, not closed.** The mechanism (real native dispatch, correct placement,
-zero fallback, live capability matching, evidence retained per job) is proven end-to-end on the
-mid/high-VRAM class. The fleet-wide N≥5-per-worker bar is met for HardcoreLaptopMSI, NOT met for
-HardcorePC pending the reservation-release investigation above. Cleaned up: both Daemon
-processes and the local Warchief stopped, remote scratch workspaces (`hv1-daemon-workspace`) and
-logs deleted, `.orc/hv-1-lane-smoke`/`-diag` scratch evidence removed locally — only the real
-evidence file retained.
+**2026-07-21 (later same session) — root cause found and fixed; HV-1 CLOSED for real, both
+boxes, at the original full context (8192).** The "reservation never releases" framing above was
+imprecise — the actual bug: `EnsureAdmitted`'s budget comes from a **live whole-GPU nvidia-smi
+read** (`NativeVramProbe`), whose `ReservedBytes` already includes a role's *resident* model once
+one is loaded. `TryAdmit` then charged a **full fresh-load `EstimateRequiredBytes`** for that same
+model on top — one resident model counted once as used (by the probe) and once as needed (by the
+estimate). On a card too tight to hold two phantom copies of the same model, every job after the
+first was denied. This is exactly analogous to the same-role exclusion `EnsureAdmitted` already
+applied to *other* roles' ledger entries (`_reservedByRole`, excluding `binding.Role` itself,
+`RuntimeOrchestrator.cs:286-290`) — it just didn't extend that exclusion to the *live probe's own*
+number. HardcoreLaptopMSI's 5/5 pass earlier was headroom, not correctness: 8 GB minus one
+double-counted ~3.4 GB model still left enough room for a second phantom copy; HardcorePC's 6 GB
+did not. Confirmed empirically before touching code: re-running at `NativeContextSize=2048`
+(shrinks the KV-cache-dominated estimate) got HardcorePC to 3/3 — proving the double-count was
+KV/context-sized, not a true leak.
+
+**Fix** (`RuntimeOrchestrator.EnsureAdmitted`): credit this role's own already-counted resident
+bytes back out of the live baseline before charging the estimate, clamped at zero so a probe that
+under-counts can't drive the budget negative. Cross-role accounting is unchanged. Regression test
+`EnsureAdmitted_ReadmitsSameRole_WithoutDoubleCountingResidentModel`
+(`OrchestratorIDE.UnitTests/RuntimeOrchestratorTests.cs`) reproduces the exact shape with a
+stateful stand-in for the live probe (idle → resident) — confirmed red before the fix, green
+after; full `RuntimeOrchestrator`/`Hive`/`OrcScheduler`/`AdapterManager` suite 155/155 green with
+`THEORC_TEST_GGUF` set.
+
+**Decisive re-run, same config that produced the 1/5 failure (full `NativeContextSize=8192`, 5
+jobs/worker, live `--gate-model-hash`): HARDCOREPC 5/5, HARDCORELAPTOPM 5/5, zero fallback.**
+Evidence: `.orc/hv-1-lane/hv1_native_campaign_20260721_051133.json`.
+
+**HV-1 verdict: CLOSED.** Real native dispatch, correct placement, zero fallback, live capability
+matching, evidence retained per job, N≥5 per worker — proven on both fleet machines, including
+the deliberately-included low-VRAM class, at the runtime's normal context size. Cleaned up: both
+Daemon processes and the local Warchief stopped, remote scratch workspaces
+(`hv1-daemon-workspace`) and logs deleted, all local scratch evidence directories (`-smoke`,
+`-diag`, `-ctx2048`) removed — only the real closing evidence file retained.
 
 ### HV-2 — Capability/resource-aware scheduling
 
