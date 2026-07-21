@@ -143,4 +143,56 @@ public sealed class ToolcallerServiceTests
         Assert.That(call.IsTextFormat, Is.True);
         Assert.That(call.ExplainWhy, Does.Contain("repair lane"));
     }
+
+    // ── Unknown-tool gap (found 2026-07-21): live tools outside the trained v0 set ─────
+    // (fetch_url, get_outline -- part of the capture-only v1 inventory, never trained or
+    // evaluated) must never reach the model's prompt, and must never execute even if a
+    // decision somehow names one anyway.
+
+    private static ToolDefinition FetchUrlTool() => new()
+    {
+        Name        = "fetch_url",
+        Description = "Fetch the contents of a URL.",
+        Parameters  = new() { ["url"] = new ToolParameter("string", "The URL to fetch.") },
+        Required    = ["url"],
+    };
+
+    [Test]
+    public void FilterToKnownTools_DropsToolsOutsideTrainedSet()
+    {
+        var tools = SampleTools().Append(FetchUrlTool()).ToList();
+        var known = ToolcallerService.FilterToKnownTools(tools);
+
+        Assert.That(known.Select(t => t.Name), Is.EquivalentTo(new[] { "read_file", "list_files" }));
+    }
+
+    [Test]
+    public void FilterToKnownTools_AllToolsUnknown_ReturnsEmpty()
+    {
+        var known = ToolcallerService.FilterToKnownTools([FetchUrlTool()]);
+        Assert.That(known, Is.Empty);
+    }
+
+    [Test]
+    public void BuildSystemPrompt_NeverRendersAToolOutsideTheTrainedSet()
+    {
+        var tools = SampleTools().Append(FetchUrlTool()).ToList();
+        var prompt = ToolcallerService.BuildSystemPrompt(
+            SwarmWorkerRole.Researcher, ToolcallerService.FilterToKnownTools(tools));
+
+        Assert.That(prompt, Does.Not.Contain("fetch_url"));
+    }
+
+    [Test]
+    public void ToToolCall_ToolOutsideTrainedSet_IsRejectedEvenWhenLiveAndPresent()
+    {
+        // Simulates a decision that somehow names fetch_url despite ProposeAsync never
+        // showing it to the model -- the defense-in-depth layer, not the primary guard.
+        var d = ToolcallerService.ParseDecision(
+            """{"decision": "call", "tool": "fetch_url", "arguments": {"url": "https://example.com"}}""");
+        var liveTools = SampleTools().Append(FetchUrlTool()).ToList(); // fetch_url IS live/real here
+
+        Assert.That(d, Is.Not.Null);
+        Assert.That(ToolcallerService.ToToolCall(d!, liveTools), Is.Null);
+    }
 }
