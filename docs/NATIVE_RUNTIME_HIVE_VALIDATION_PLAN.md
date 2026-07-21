@@ -251,6 +251,42 @@ estimator, large `ContextLength`) fits 16 GB and 8 GB but must be **denied** on 
 - Rebind/recycle: force a role recycle (the PR #79 `MarkRoleDegraded` path) remotely and prove
   the next job on that role gets a fresh, working executor.
 
+**2026-07-21 — Attempted a real Context Fabric (CF-6) run over this same fleet, as a richer
+multi-role exercise than synthetic marker-file jobs. Found and fixed a real Daemon gap along the
+way; the CF-6 run itself hit a genuine model-capability limit, not a HIVE defect.**
+
+`Tools/Cf6AcceptanceRunner` (the existing CF-6 acceptance harness) needs a Warchief with
+`ArtifactStore`/`ModelStore` wired — `swarmcli --warchief` (used for HV-1/HV-2's Warchief role)
+never sets these up, only `OrchestratorIDE.Daemon` does. Running the Daemon as NewcorePC's
+Warchief hit the exact gap HV-2 already found: `HiveService.cs` never subscribes to
+`OnPairingRequestReceived` and never calls `EnableDevAutoApprove`, so a Daemon-hosted Warchief
+can never approve an incoming peer. **Fixed properly this time** (PR pending): added
+`Hive:DevAutoApproveMinutes` (`HIVE__DEVAUTOAPPROVEMINUTES`), which opens
+`HiveNodeServer`'s existing time-boxed dev re-sync auto-approve window at startup — the missing
+headless approval path Program.cs's own comment says doesn't exist yet, using the mechanism
+already built for headless fleet re-sync rather than inventing a new one. Both workers re-paired
+against NewcorePC's Daemon identity cleanly through the open window. Note: NewcorePC's Daemon
+identity changed *again* between HV-2 and this session (third time) — `MachineKey.Load()`'s
+determinism across process restarts is now a suspected separate issue, not yet investigated.
+
+**CF-6 reader stage: real native dispatch, real per-segment retries, zero fallback — but the
+reader's structured JSON output was truncated, deterministically, for at least one segment.**
+Claimed and executed by NEWCOREPC (`Attestation.RuntimeName == "NativeRoleRuntime"`, real
+tok/s/TTFT), retried 3× per `MaxAttempts`, same truncation each time (consistent with
+temperature 0 — a deterministic model output, not flaky infra): `Model response could not be
+parsed as FabricEvidenceCard. Extracted: {"schemaVersion":..., "heading": "Sectio` (cut off
+mid-string, well under the 4096-token `ReaderMaxTokens` budget — not a token-limit cutoff, the
+model itself stopped generating early). **This is a model-capability finding, not a HIVE or
+dispatch defect**: the fleet's pinned model (Dolphin3.0-Llama3.2-3B, chosen for HV-1/HV-2's VRAM
+testing, not for CF quality) is not reliable at CF's reader JSON-extraction task — CF-7's own
+GO gate used a materially larger Qwen3.5-9B, not this box's 3B fixture. No larger model is
+currently on the fleet to retry with (checked: NewcorePC's model root has two similarly-sized 3B
+GGUFs, no CF-capable size). **Not pursued further this session** — stopped after one confirmed
+reproduction rather than burn more fleet time chasing a known model-capability mismatch; a real
+CF-6-over-HIVE confirmation needs either a CF-capable model deployed to at least one worker, or
+running against NewcorePC's existing CF-7 GO-gate model if VRAM allows. Cleaned up: all three
+Daemon processes stopped, scratch workspaces/logs removed.
+
 ### HV-4 — Failure, cancellation, disconnect, recovery
 
 All on real jobs mid-flight, all asserting fail-closed (no Ollama substitution) and clean
