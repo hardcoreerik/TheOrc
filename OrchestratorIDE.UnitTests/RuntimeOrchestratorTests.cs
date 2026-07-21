@@ -109,6 +109,64 @@ public sealed class RuntimeOrchestratorTests
     }
 
     [Test]
+    public async Task EnsureAdmitted_ReadmitsSameRole_WithoutDoubleCountingResidentModel()
+    {
+        var ggufPath = Environment.GetEnvironmentVariable("THEORC_TEST_GGUF");
+        if (string.IsNullOrWhiteSpace(ggufPath))
+            Assert.Ignore("Set THEORC_TEST_GGUF to run this native-load-dependent reservation test.");
+
+        // Regression for the HV-1 6 GB-box denial (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md
+        // HV-1, HardcorePC RTX 3050, 2026-07-21). A live nvidia-smi budget already counts a role's
+        // resident model in ReservedBytes; EnsureAdmitted then charged a full fresh-load estimate
+        // for the SAME model on top, double-counting it and denying every sequential job after the
+        // first on a card too tight to hold two phantom copies. The stateful provider below stands
+        // in for the live probe: 0 used before any load, then the resident model afterward — the
+        // exact shape that double-counted. No second load happens (same role+binding reuses the
+        // resident executor), so re-admission must credit back this role's own already-counted
+        // footprint and succeed.
+        var sizeBytes = new FileInfo(ggufPath!).Length;
+        var asset = new RuntimeModelAsset(
+            Id: "base",
+            Kind: RuntimeAssetKind.BaseModelGguf,
+            Path: ggufPath!,
+            DisplayName: "base",
+            SizeBytes: sizeBytes,
+            LastModifiedUtc: DateTimeOffset.UtcNow,
+            SuggestedRoles: [RuntimeRole.Worker]);
+        var workerBinding = new RuntimeRoleBinding(RuntimeRole.Worker, asset, null);
+
+        // Total fits ONE model with headroom, not two. First admission sees an idle GPU; every
+        // one after it sees the model resident — leaving less free than the model's own size, so a
+        // full-fresh-load charge would (wrongly) deny.
+        var admissionCalls = 0;
+        var totalBytes = (long)(sizeBytes * 1.5);
+        VramBudget Provider()
+        {
+            var reserved = admissionCalls == 0 ? 0L : sizeBytes;
+            admissionCalls++;
+            return new VramBudget(totalBytes, reserved);
+        }
+
+        await using var runtime = new LLamaSharpRuntime();
+        await using var orchestrator = new RuntimeOrchestrator(
+            runtime, scheduler: new OrcScheduler(), budgetProvider: Provider);
+
+        // First job: admitted against an idle GPU, loads and reserves the Worker model.
+        using (await orchestrator.GetConversationForBindingAsync(workerBinding).ConfigureAwait(false))
+        {
+        }
+
+        // Second job, same role+binding: the provider now reports the model resident. Before the
+        // fix this threw RuntimeAdmissionDeniedException; the reuse loads nothing, so it must admit.
+        using var second = await orchestrator
+            .GetConversationForBindingAsync(workerBinding)
+            .ConfigureAwait(false);
+
+        Assert.That(second, Is.Not.Null);
+        Assert.That(admissionCalls, Is.EqualTo(2), "both admissions should have consulted the live budget");
+    }
+
+    [Test]
     public async Task GetConversationForBindingAsync_Throws_RuntimeAdmissionDenied_When_No_Scheduler_Or_Budget_Configured()
     {
         // Native Runtime v2.0 Phase A (docs/NATIVE_RUNTIME_V2_SPEC.md §1.2 Gap 2): this used to

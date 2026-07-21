@@ -1163,6 +1163,8 @@ public sealed class HiveTaskQueue : IDisposable
             Result    = entry.ResultText,
             ErrorMsg  = entry.ErrorMsg,
             OutputArtifacts = entry.StructuredResult?.OutputArtifacts ?? [],
+            Attestation = entry.StructuredResult?.Attestation,
+            Metrics     = entry.StructuredResult?.Metrics ?? [],
         });
     }
 
