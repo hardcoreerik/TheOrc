@@ -187,12 +187,16 @@ internal static class Program
         var isNativeRuntime = attestation is not null &&
             string.Equals(attestation.RuntimeName, "NativeRoleRuntime", StringComparison.Ordinal);
         var errorMsg = last?.ErrorMsg;
-        // A real, fail-closed denial surfaces as a "failed" task whose error text is the
-        // RuntimeAdmissionDeniedException's own message (wrapped by HiveWorkerAgent's "Phase 3B
-        // does not fall back" guard) -- never a silent reroute to Ollama, and never a 200 with
-        // Attestation.RuntimeName pointing at anything other than NativeRoleRuntime.
-        var wasDenied = status == "failed" &&
-            (errorMsg?.Contains("admission", StringComparison.OrdinalIgnoreCase) ?? false);
+        // A real, fail-closed denial surfaces as a "failed" task -- but the task-level ErrorMsg
+        // the Warchief actually sees is HiveWorkerAgent's generic wrapper text ("native role
+        // runtime failed. Phase 3B does not fall back."), NOT the RuntimeAdmissionDeniedException's
+        // own detailed message (which only reaches the worker's own local log). Confirmed
+        // empirically during HV-2 calibration: a genuine admission denial with correct numbers
+        // ("Requires ~6.8 GB, only 5.6 GB available...") still produced this exact generic
+        // wrapper as ErrorMsg. So "failed" here (this shape can structurally never fall back
+        // instead) is what proves fail-closed; the SEPARATE /hive/native-telemetry check below
+        // is what proves it was specifically an admission denial with correct numbers.
+        var wasDenied = status == "failed";
         var wasAdmitted = status == "completed" && isNativeRuntime;
         var matchesExpectation = expectDenied ? wasDenied : wasAdmitted;
 
