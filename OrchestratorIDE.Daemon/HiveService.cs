@@ -111,6 +111,14 @@ public sealed class HiveService : BackgroundService
 
         _log.LogInformation("NodeServer listening on :{Port}", HiveNodeServer.ApiPort);
 
+        if (_cfg.DevAutoApproveMinutes > 0)
+        {
+            _nodeServer.EnableDevAutoApprove(TimeSpan.FromMinutes(_cfg.DevAutoApproveMinutes));
+            _log.LogWarning(
+                "DEV: HIVE re-sync auto-approve ON for {Minutes} min -- incoming pairing " +
+                "requests will be auto-trusted as Worker until it expires.", _cfg.DevAutoApproveMinutes);
+        }
+
         // ── UDP beacon (multicast peer discovery) ─────────────────────────────
         _beacon = new HiveBeacon();
         _beacon.Start(_cfg.NodeName, "", nativeModels,
