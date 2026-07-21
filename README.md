@@ -176,7 +176,7 @@ Context Fabric is what makes TheOrc more than "an AI swarm for code": a local sy
 
 - **Trust is a handshake, not a login.** Two machines pair by exchanging a human-readable fingerprint — an eight-word phrase, the same idea Signal and PGP use for key verification — so you can *look at both screens and confirm* you're pairing the machines you think you are, before any task ever crosses the wire. Every request after that is cryptographically signed; nothing is trusted on IP address alone.
 - **No machine can silently promote itself.** Founding a hive gives a machine the authority to vouch for new members, but *not* automatic control over machines that already trust each other. Becoming another machine's controller is always a deliberate, explicit step — never something that happens quietly in the background because two machines happened to find each other on the network.
-- **Tasks can't be double-claimed.** The moment a worker grabs a task off the queue, that claim is atomic — a second worker reaching for the same task gets turned away, not a race condition. Nothing ever runs twice by accident.
+- **Tasks can't be double-claimed.** The moment a worker grabs a task off the queue, that claim is atomic — a second worker reaching for the same task gets turned away, not a race condition, so two machines never duplicate the same piece of work.
 
 **And on 2026-07-20, we stopped taking that on faith and actually watched it happen.** Two separate physical machines — one reached over the local network, the other over a Tailscale VPN tunnel — were pointed at a boss running on a third. The boss took a plain-English goal, broke it into a real task, and put it on the queue. A remote worker picked it up, wrote the code, and reported back — all the way from a general goal down to a working file, over an honest-to-god network, on separate hardware.
 
@@ -591,7 +591,7 @@ TheOrc's desktop shell is Avalonia (.NET), built to run on Windows, macOS, and L
 
 ### 🖥️ We want your hardware
 
-Seriously. HIVE MIND needs real multi-machine testing and TheOrc needs to prove it runs well on hardware beyond the dev rig. If you have any of the following gathering dust, get in touch — you'd be doing the warband a real favour:
+Seriously. HIVE MIND has proven single-task dispatch across real machines — what it needs now is scale: more workers, more concurrent jobs, and evidence capture across a genuinely varied fleet, beyond the dev rig. If you have any of the following gathering dust, get in touch — you'd be doing the warband a real favour:
 
 | Hardware | What we'd test |
 |---|---|
@@ -599,7 +599,7 @@ Seriously. HIVE MIND needs real multi-machine testing and TheOrc needs to prove 
 | **AMD GPU (RX 7000 / RX 9000)** | ROCm + Ollama compatibility, full swarm on AMD |
 | **High VRAM card (24 GB+)** | Larger model support, bigger context, faster worker throughput |
 | **Low-spec machine (4–8 GB VRAM / CPU-only)** | Minimum viable swarm, small model combinations |
-| **Second Windows machine (any spec)** | HIVE MIND Phase B — multi-node job routing |
+| **Second Windows machine (any spec)** | Scaling HIVE MIND from one proven worker to routine multi-worker job routing |
 | **Mac (Apple Silicon)** | Groundwork for the cross-platform path |
 
 Drop a note in [Issues](https://github.com/hardcoreerik/TheOrc/issues) with the tag `test-lab` or reach out directly. Hardware contributors are credited in [docs/SPONSOR_TEST_LAB.md](docs/SPONSOR_TEST_LAB.md).
