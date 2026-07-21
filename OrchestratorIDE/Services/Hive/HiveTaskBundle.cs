@@ -165,6 +165,15 @@ public sealed class HiveTaskStatusResponse
     /// downstream campaign stage (e.g. CF-6 reducer) onto this unit's output digests without
     /// needing in-process access to the queue.</summary>
     public List<ArtifactRef> OutputArtifacts { get; set; } = [];
+    /// <summary>Populated once Status is "completed" -- the same per-job runtime/backend/model
+    /// evidence recorded server-side in HiveTaskResult.Attestation, surfaced here so an external
+    /// polling harness (e.g. a HIVE validation driver) can verify native-vs-fallback execution
+    /// without in-process access to the queue.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ExecutionAttestation? Attestation { get; set; }
+    /// <summary>Populated once Status is "completed" -- worker-reported stats (steps,
+    /// prompt_tokens, completion_tokens, etc.) from HiveTaskResult.Metrics.</summary>
+    public Dictionary<string, double> Metrics { get; set; } = [];
 }
 
 /// <summary>Response to GET /hive/tasks/status — full snapshot of queue state.</summary>
