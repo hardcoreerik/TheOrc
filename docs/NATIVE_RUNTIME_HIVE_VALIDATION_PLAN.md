@@ -66,6 +66,49 @@ evidence (same discipline as the Phase D E2E lane's `.orc/native-e2e-lane/` arti
 5. **Single-box lane gate:** the PR #81 E2E lane green on each box with retained evidence —
    three per-box artifacts recording tok/s, TTFT, measured VRAM. This is the per-box floor
    under every multi-machine phase.
+6. **Worker outbound-polling liveness — CLOSED 2026-07-20. Control-plane inbound-listener
+   reachability (the original scope of this gate, needed for `--declare-warchief`-style RPCs)
+   remains NOT closed and is not applicable to a `--worker`-only fleet.** `swarmcli --worker`
+   opens no inbound listener at all — it's a pure outbound poller — so there is nothing at port
+   7078 on a worker box for a control-plane RPC to reach, by design, regardless of how long the
+   process runs. That is a genuinely different, harder claim than "the worker is alive and
+   polling," and this entry does NOT claim the harder one is resolved. What IS proven: commands
+   run were `swarmcli --worker --warchief-url http://192.168.1.15:7079 --warchief-nodeid
+   f083b993d872cdb2d13fc4c8435764bfd5f2ecc149a9910146e5bad3106c4768 --lanes coder` on HardcorePC
+   (LAN) and `swarmcli --worker --warchief-url http://100.112.36.18:7079 --warchief-nodeid
+   f083b993d872cdb2d13fc4c8435764bfd5f2ecc149a9910146e5bad3106c4768 --lanes coder` on
+   HardcoreLaptopMSI (Tailscale) — both processes started with exit status 0, connected, and
+   polled cleanly with no errors for the duration of the test in item 7 below. If a future phase
+   needs the control-plane RPC path (e.g. remote role reassignment), that requires actually
+   running a listener-bearing mode (`--warchief`, or a future persistent worker-with-listener
+   mode) on the target box and re-testing `--declare-warchief` against it — starting a `--worker`
+   process for longer does not get there. Evidence caveat: the polling proof above was observed
+   as live session tool output, not written to a retained log file on either box — there is no
+   persisted artifact path for this gate the way the Phase D lane has `.orc/native-e2e-lane/`. A
+   future formal HV-1 run should redirect worker stdout to a retained per-box log file so this
+   gate has a durable artifact, not just a transcript claim.
+7. **Task-dispatch authorization gate — CLOSED 2026-07-20 (HMAC claim/complete path proven;
+   control-plane Controller-authorization remains untested and is not applicable to this
+   deployment shape).** Each worker's `hive-peers.json` does record NewcorePC as `role=Observer`
+   (confirmed live via `swarmcli --show-identity`'s `SelfRole` field, not a stale snapshot), and
+   being the HIVE's `Founder` does not grant automatic `Controller` authority toward peers —
+   both true, per `HIVE_MEMBERSHIP_SPEC.md`. `--declare-warchief` (the actual test for whether
+   the control-plane role-assignment RPC honors/rejects NewcorePC's authority over a peer) was
+   attempted but never reached either worker: `--worker` mode opens no inbound listener for that
+   RPC to connect to. **So the Controller-authorization question itself is still unverified for
+   this worker-only deployment shape — it was not resolved, only found not applicable to the
+   mechanism this phase actually needs.** What WAS proven, on the separate task-queue path: a
+   real `swarmcli --warchief --goal "Create a file named hello.txt containing the single line:
+   hive dispatch test ok"` one-shot run (workspace `F:\Ai\hive-test-scratch`) had its single
+   coder task dispatched to the HIVE queue and claimed/completed by HARDCORELAPTOPMSI over the
+   real Tailscale network (`[coder] 💻 Write create_file.py — ✅ completed by HARDCORELAPTOPMSI`),
+   including a full retry-on-test-failure loop (tester caught a missing `main.py`, boss
+   spawned a targeted fix task, coder wrote it, `python -m py_compile main.py` exited 0, swarm
+   completed). **Task-queue claim/complete uses a separate HMAC-based mechanism from the
+   control-plane role-assignment RPC, and that HMAC path does not gate on the Observer/Controller
+   role snapshot — this is sufficient for HV-1's dispatch requirement even though the
+   Controller-authorization RPC itself was never exercised.** Both remote worker processes
+   stopped and the disposable test workspace cleaned up afterward.
 
 ### HV-1 — Native workloads across machine roles
 
