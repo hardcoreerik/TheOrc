@@ -68,21 +68,39 @@ evidence (same discipline as the Phase D E2E lane's `.orc/native-e2e-lane/` arti
    under every multi-machine phase.
 6. **HIVE service liveness gate — CLOSED 2026-07-20.** The HIVE control-plane listener wasn't
    the right mechanism for a lightweight worker deployment: `swarmcli --worker` opens no inbound
-   listener at all, it's a pure outbound poller. Built and ran `swarmcli --worker
-   --warchief-url <lan-or-tailscale-ip>:7079 --lanes coder` on both HardcorePC (LAN) and
-   HardcoreLaptopMSI (Tailscale) — both connected and polled cleanly with no errors.
-7. **Controller-authorization gate — CLOSED 2026-07-20, resolved as NOT a blocker.** Each
-   worker's `hive-peers.json` does record NewcorePC as `role=Observer` (confirmed live via
-   `swarmcli --show-identity`'s `SelfRole` field, not a stale snapshot), and being the HIVE's
-   `Founder` does not grant automatic `Controller` authority toward peers — both true, per
-   `HIVE_MEMBERSHIP_SPEC.md`. But `--declare-warchief` (a control-plane RPC) was the wrong test
-   for this deployment shape — `--worker` mode has no listener for it to reach. The test that
-   actually matters proved dispatch works regardless: a real `swarmcli --warchief --goal "..."`
-   one-shot run had its single task claimed and completed by HARDCORELAPTOPMSI over the real
-   network, full retry-on-failure loop included. **Task-queue claim/complete authorization runs
-   on a separate HMAC-based mechanism from the control-plane role-assignment RPC — the
-   Observer/Controller distinction does not block campaign job dispatch.** Both remote worker
-   processes stopped and the disposable test workspace cleaned up afterward.
+   listener at all, it's a pure outbound poller. Commands run: `swarmcli --worker
+   --warchief-url http://192.168.1.15:7079 --warchief-nodeid f083b993d872cdb2d13fc4c8435764bfd5f2ecc149a9910146e5bad3106c4768
+   --lanes coder` on HardcorePC (LAN) and `swarmcli --worker
+   --warchief-url http://100.112.36.18:7079 --warchief-nodeid f083b993d872cdb2d13fc4c8435764bfd5f2ecc149a9910146e5bad3106c4768
+   --lanes coder` on HardcoreLaptopMSI (Tailscale) — both processes started with exit status 0,
+   connected, and polled cleanly with no errors for the duration of the test in item 7 below.
+   Evidence caveat: this was observed as live session tool output, not written to a retained
+   log file on either box — there is no persisted artifact path for this gate the way the
+   Phase D lane has `.orc/native-e2e-lane/`. A future formal HV-1 run should redirect worker
+   stdout to a retained per-box log file so this gate has a durable artifact, not just a
+   transcript claim.
+7. **Task-dispatch authorization gate — CLOSED 2026-07-20 (HMAC claim/complete path proven;
+   control-plane Controller-authorization remains untested and is not applicable to this
+   deployment shape).** Each worker's `hive-peers.json` does record NewcorePC as `role=Observer`
+   (confirmed live via `swarmcli --show-identity`'s `SelfRole` field, not a stale snapshot), and
+   being the HIVE's `Founder` does not grant automatic `Controller` authority toward peers —
+   both true, per `HIVE_MEMBERSHIP_SPEC.md`. `--declare-warchief` (the actual test for whether
+   the control-plane role-assignment RPC honors/rejects NewcorePC's authority over a peer) was
+   attempted but never reached either worker: `--worker` mode opens no inbound listener for that
+   RPC to connect to. **So the Controller-authorization question itself is still unverified for
+   this worker-only deployment shape — it was not resolved, only found not applicable to the
+   mechanism this phase actually needs.** What WAS proven, on the separate task-queue path: a
+   real `swarmcli --warchief --goal "Create a file named hello.txt containing the single line:
+   hive dispatch test ok"` one-shot run (workspace `F:\Ai\hive-test-scratch`) had its single
+   coder task dispatched to the HIVE queue and claimed/completed by HARDCORELAPTOPMSI over the
+   real Tailscale network (`[coder] 💻 Write create_file.py — ✅ completed by HARDCORELAPTOPMSI`),
+   including a full retry-on-test-failure loop (tester caught a missing `main.py`, boss
+   spawned a targeted fix task, coder wrote it, `python -m py_compile main.py` exited 0, swarm
+   completed). **Task-queue claim/complete uses a separate HMAC-based mechanism from the
+   control-plane role-assignment RPC, and that HMAC path does not gate on the Observer/Controller
+   role snapshot — this is sufficient for HV-1's dispatch requirement even though the
+   Controller-authorization RPC itself was never exercised.** Both remote worker processes
+   stopped and the disposable test workspace cleaned up afterward.
 
 ### HV-1 — Native workloads across machine roles
 
