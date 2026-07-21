@@ -65,6 +65,16 @@ public sealed class HiveNodeServer : IDisposable
     /// </summary>
     public Action? ShutdownCallback { get; set; }
 
+    /// <summary>
+    /// Injected by the app (Daemon: HiveService, after building its NativeRoleRuntime) so
+    /// GET /hive/native-telemetry can report this node's own admission/reservation state
+    /// (RuntimeReservationSnapshot: Reservations, Total/Reserved/AvailableBytes,
+    /// RejectedAdmissionCount, LastRejectionReason) without this class taking a hard
+    /// dependency on the native runtime types. Null when native execution isn't configured
+    /// on this node (e.g. Ollama-only) or before the runtime has been built.
+    /// </summary>
+    public Func<object?>? NativeTelemetryProvider { get; set; }
+
     // Pending pairing sessions: sessionId → (request, expiry, initiator-remote-ip)
     private readonly Dictionary<string, (HivePairingRequest Req, DateTime Expiry, string RemoteIp)> _pendingPairings = [];
     // Completed results: sessionId → (response, stored-at).  Pruned after 10 min.
@@ -433,6 +443,17 @@ public sealed class HiveNodeServer : IDisposable
             if (method == "GET" && path == "/hive/info")
             {
                 Ok(resp, JsonSerializer.Serialize(_info)); return;
+            }
+
+            // Read-only native-runtime admission telemetry — same unauthenticated posture as
+            // /hive/info (operational status, not a secret or control action). {} when native
+            // execution isn't configured on this node, rather than 404, so a fleet-wide poller
+            // doesn't need to special-case Ollama-only boxes.
+            if (method == "GET" && path == "/hive/native-telemetry")
+            {
+                var snapshot = NativeTelemetryProvider?.Invoke();
+                Ok(resp, JsonSerializer.Serialize(snapshot ?? new { }, _jsonOut));
+                return;
             }
 
             if (method == "POST" && path == "/hive/pair")
