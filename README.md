@@ -168,6 +168,53 @@ Context Fabric is what makes TheOrc more than "an AI swarm for code": a local sy
 
 ---
 
+## Flagship system: Native Runtime
+
+**Ollama is a great piece of software, and TheOrc doesn't need it.** That's the whole pitch: instead of installing a separate server, managing its lifecycle, and talking to it over HTTP for every single message, TheOrc can load a model straight into its own process and run it directly — no subprocess, no local server to keep alive, no round trip. Ollama remains fully supported (it's still the default, on purpose — more on that below), but the native path is real, fast, and getting more real every week: **a genuine CUDA build measured 67.7 tok/s on an RTX 4060, versus ~6 tok/s CPU-only** — the difference between a tool that keeps up with you and one that doesn't.
+
+**The hard part was never "load a GGUF file and generate text."** Plenty of hobby projects do that. The hard part is doing it the way production software has to: never crash the GPU by overcommitting memory, never let a user-visible failure turn into a silent, unexplained personality-swap to a different backend, and never let one AI role's bad moment take the whole system down with it.
+
+- **It won't load a model it doesn't have room for — and it doesn't guess.** Before anything loads, TheOrc reads the model's own file header and computes a byte-exact prediction of how much GPU memory the request will actually need — cache, compute buffers, everything — then checks that against real, live-queried VRAM headroom. If it doesn't fit, the request is refused with a clear reason. No silent overcommit, no crash, no "it usually works."
+- **The prediction gets checked against reality, every time.** Once a model is actually loaded, TheOrc reads the exact allocation numbers straight out of the inference engine's own logs and reports *measured* memory usage, not a theoretical estimate — the same discipline a production monitoring system holds itself to, applied to a desktop app.
+- **A broken request never lies about what happened.** If native inference can't serve a request, it fails loudly and explicitly — it does not quietly hand the conversation to Ollama behind your back and pretend nothing happened. Silent backend swaps are exactly the kind of thing that erodes trust in a tool, so TheOrc simply doesn't do it. This is a tested guarantee, not a policy on paper: a dedicated always-on check proves it on every single build.
+- **Found a real bug by actually looking, and fixed it properly.** Cancelling a generation partway through turned out to be able to permanently wedge that AI role until restart — a genuinely nasty class of bug that only shows up under real, adversarial testing, not casual use. It was caught by a test built specifically to try it, root-caused, and fixed by reusing an existing, already-proven recovery mechanism rather than a quick patch. Verified fixed, repeatedly, on real hardware.
+
+**Where it stands today:** the native path is real, fast, measured, and — as of this release — has a full recorded proof of one complete real-model run: discovery, a genuine capacity check against live GPU memory, model load, real inference, and a full telemetry snapshot, all in one pass, with the results saved to disk. Ollama stays the default and the safety net until that same rigor has been proven not just on one machine, but across a real multi-machine HIVE fleet — see [the road to v2.0](#the-road-to-v20) below for exactly what that bar is.
+
+---
+
+## Flagship system: ORC ACADEMY — the swarm teaches itself
+
+Here's the part that gets genuinely weird in the best way: **TheOrc trains itself.**
+
+Every good swarm run captures the boss's plan. Those captures go through a review pipeline. When you have enough reviewed examples, ORC ACADEMY trains a LoRA adapter on your own GPU — no cloud training service, no API bill. The new boss model is better at planning the next run. Which produces better captures. Which trains a better adapter. You get the idea.
+
+**v1 shipped — and it's the one still running today.** 900 reviewed boss plans, harvested overnight while the machine sat idle, trained locally in 148 minutes on a single consumer GPU. Result: **99.3% structured planning pass rate**, up from 94.5% on the un-tuned base model. It shipped as a 125 MB adapter file anyone running TheOrc can pull today.
+
+**And here's the part most projects would never put in a README: v2 made things worse, and we said so.** A later training run used nearly twice the data — and a quiet labeling mistake taught the boss the exact wrong lesson for half of it. The result measurably regressed: planning quality dropped from 99.3% down to 77.8%. We caught it, retired the adapter, and kept the original v1 in production rather than ship a worse model because it was newer. **v3 fixed the root cause** — a data-quality gate that now catches that exact contamination before a single GPU-hour is spent on it — and re-ran clean. It still didn't clear the bar to replace v1, so v1 remains the production adapter. No spin, no "technically an improvement somewhere" — the number simply has to go up, or the new model doesn't ship.
+
+That standard — **a new model earns its spot, or it doesn't deploy** — is the whole reason this loop is trustworthy instead of just a fun toy. *Run → capture → review → gate → train → deploy* is part of the product, not a research side-quest, and every step of it happens on your own hardware. Nothing about how TheOrc gets smarter requires sending your data anywhere.
+
+### Pit Boss — making it self-serve
+
+Training your own model sounds like a research project. ORC ACADEMY plus **Pit Boss** makes it a form.
+
+Tell Pit Boss what you want the swarm to get better at — eight questions about goal types, languages, edge cases, and how many examples you want — and it turns your answers into a structured training plan, kicks off dataset generation, and hands the finished dataset to ORC ACADEMY for training on your own GPU. You go from "I want a smarter boss" to a queued training run without writing a script or touching a command line.
+
+---
+
+## Flagship system: TheOrc Foundry
+
+Every so often a worker's response comes back without a clean, parseable tool call in it — not often, but often enough to be annoying, and the usual fix is "throw a bigger model at it." TheOrc did the opposite: it trained a **tiny 1.5-billion-parameter specialist** whose only job is recognizing exactly that one failure and either proposing the correct tool call or correctly refusing — nothing else, no general chat, one narrow job done well.
+
+**The proof isn't a demo, it's a sealed exam the model never saw the answers to.** Against a 260-example held-out set the training data never touched, decision accuracy went from **63.9%** on the un-tuned base model to **97.3%** for the first trained specialist — and a later refinement round pushed that further to **98.5%**. That's the easy half of the problem, though. The harder half is a model that *knows when not to act*: a **Refusal Gauntlet** throws thousands of deterministic adversarial cases at it — foreign tools, out-of-role requests, near-miss tool names, prompt injection, missing arguments, ordinary conversation with no tool need at all — and scores the result with proper statistical confidence bounds, not an optimistic best-case number. On that harder test, safety against fabricating a tool call that shouldn't exist climbed from **90.3% to 98.3%**.
+
+**It ships the way everything in TheOrc ships: opt-in, and it can't make things worse.** The specialist runs as a repair lane, not a replacement — only when a worker's own response has no parseable tool call does the specialist get one shot at proposing one, and that proposal still has to pass the exact same tool-policy checks as anything else. If it doesn't help, the system falls back to today's behavior. It's off by default, and it keeps getting better from real usage — both Swarm tool-call decisions and OrcChat conversations feed the next training round, both behind the same single settings toggle.
+
+That's the pattern behind every one of TheOrc's flagship systems, really: find the one job worth being excellent at, prove it against a test the model can't cheat on, and never let a new version ship unless it actually earns it.
+
+---
+
 ## Flagship system: HIVE MIND
 
 **Every idle machine on your network is a wasted goblin.** HIVE MIND is TheOrc's answer to that: instead of one computer doing all the thinking, a whole fleet of them can share the work — your gaming rig plans and coordinates while your old workstation and your laptop pick up tasks in parallel, over your LAN or across the internet via Tailscale, with no cloud service in the loop at all.
@@ -441,54 +488,6 @@ The biggest release since the swarm itself. v1.5 closes the training loop — fr
 | **Worktree isolation** | Each swarm task gets its own git worktree — parallel runs are conflict-free by construction |
 | **Reviewer Quality Gate** | Swarm output isn't authoritative until a Reviewer passes it, formalized at the merge step |
 | **ORC ACADEMY v1** | Fine-tuned boss adapter trained, evaluated, and deployed — `theorc-boss:gemma4-ft` is live |
-
----
-
-## ORC ACADEMY — the swarm teaches itself
-
-Here's the part that gets genuinely weird in the best way.
-
-Every good swarm run captures the boss's plan. Those captures go through a review pipeline. When you have enough reviewed examples, **ORC ACADEMY** trains a LoRA adapter on your own GPU. The new boss model is better at planning the next run. Which produces better captures. Which trains a better adapter. You get the idea.
-
-**v1 shipped — June 2026 ✅**
-- 900 reviewed boss plans, harvested overnight by GOBLIN HARVEST while the PC sat idle
-- LoRA trained locally in **148 minutes** on an RTX 5070 Ti
-- Result: **99.3% structured planning pass rate**, up from 94.5% on the base model
-- Shipped as `theorc-boss:gemma4-ft` — a 125 MB GGUF LoRA you can pull right now
-
-**v2 post-mortem ❌**
-- Trained on 1,784 examples from Pit Boss + Cerebras generation
-- Suitability audit later found 51.3% of examples had write tasks assigned to TESTER-lane roles — teaching the boss exactly the wrong behavior
-- A/B result: structured-plan pass rate dropped from 99.3% (v1) to 77.8%, perfect plans 71% → 54%
-- v1 remains the active production adapter; v2 was retired and the data repurposed
-
-**v3 in progress — June 2026 🔄**
-- Root cause fixed: suitability gate (pre-training contamination check) now blocks tester-poison examples before VRAM is allocated
-- Clean dataset: 906 train / 87 eval (zero tester-poison, zero leakage)
-- Training on RTX 5070 Ti, rubric-in-the-loop checkpoint selection
-- v1 baseline holds until v3 passes A/B eval at ≥ 99%
-
-The loop — *run → capture → review → gate → train → deploy* — is part of the product. TheOrc is designed to get better the more you use it, entirely on your own hardware, with no data leaving your machine.
-
----
-
-## PIT BOSS — the training wizard
-
-ORC ACADEMY is powerful. Pit Boss makes it self-serve.
-
-Tell Pit Boss what you want the swarm to get better at. It runs a short interview — eight questions about goal types, languages, edge cases, example count — and turns your answers into a structured training plan. Then it kicks off dataset generation (via Cerebras cloud or local Ollama) and hands the finished dataset off to ORC ACADEMY's Forge for LoRA training on your GPU.
-
-You go from "I want a smarter boss" to a queued training run without writing a script or touching the command line.
-
-This is the exact pipeline that generated the v2 dataset:
-```
-1. Pit Boss interview (in-app) → structured training plan
-2. Dataset gen via Cerebras gpt-oss-120b — ~1,200 examples, ~20 min, free tier, zero API cost
-3. Pit Boss hands off to Forge → train_lora.py on your GPU
-4. New adapter registered in Ollama, ready to pull
-```
-
-The full loop — from "I want better planning" to a deployed adapter — is now in the app UI.
 
 ---
 
