@@ -37,6 +37,11 @@ internal static class Program
         var jobsPerWorker = int.TryParse(GetArg(args, "--jobs-per-worker"), out var n) ? n : 5;
         var role = GetArg(args, "--role") ?? "Coder";
         var timeoutMs = int.TryParse(GetArg(args, "--timeout-ms"), out var t) ? t : 300_000;
+        // Opt-in: only workers whose Capabilities were populated via WorkerCapabilityDetector
+        // (OrchestratorIDE.Daemon's HiveService) actually report NativeModelHashes -- swarmcli's
+        // --worker mode never calls that detector, so gating on this against a swarmcli-based
+        // fleet would reject every worker unconditionally. Off by default for that reason.
+        var gateModelHash = Array.IndexOf(args, "--gate-model-hash") >= 0;
         Directory.CreateDirectory(outDir);
 
         using var http = new HttpClient { BaseAddress = new Uri(warchief), Timeout = TimeSpan.FromMinutes(10) };
@@ -49,6 +54,14 @@ internal static class Program
             WorkerB = workerB,
             JobsPerWorkerRequired = jobsPerWorker,
             StartedAt = DateTimeOffset.UtcNow,
+            ModelHashNote = gateModelHash
+                ? "ModelHash gating was ON (--gate-model-hash): each work unit required this hash in " +
+                  "the worker's advertised NativeModelHashes, so a completed job's Attestation.ModelHash " +
+                  "below is a live per-job capability match, not just an echoed value."
+                : "ModelHash gating was OFF (default): --model-hash is recorded for reference against " +
+                  "HV-0.2's separately-verified pinned fixture, not asserted as a live per-job capability " +
+                  "match. Workers whose Capabilities were never populated via WorkerCapabilityDetector " +
+                  "(e.g. swarmcli --worker) would otherwise be rejected unconditionally by this gate.",
         };
 
         try
@@ -71,8 +84,8 @@ internal static class Program
                         ExecutionKind = HiveExecutionKinds.NativeAgent,
                         Requirements = new ResourceRequirements
                         {
-                            NativeModelHash = modelHash,
                             ExcludedWorkerIds = [other],
+                            NativeModelHash = gateModelHash ? modelHash : "",
                         },
                         Spec = $"Create a file named hv1_proof.txt in the workspace root containing exactly " +
                                $"this single line and nothing else: {marker}",
@@ -219,6 +232,7 @@ internal sealed class Hv1Report
 {
     public string Warchief { get; set; } = "";
     public string ModelHash { get; set; } = "";
+    public string ModelHashNote { get; set; } = "";
     public string WorkerA { get; set; } = "";
     public string WorkerB { get; set; } = "";
     public int JobsPerWorkerRequired { get; set; }
