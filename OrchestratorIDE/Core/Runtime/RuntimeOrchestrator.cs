@@ -283,12 +283,32 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
         // admitting it again either reuses the existing executor (no new memory) or tears the old
         // one down before building the replacement (old footprint already gone by the time the
         // new one would exist) — counting it here would double-charge a role against itself.
+        //
+        // The same exclusion must extend to the provider's OWN ReservedBytes. When that provider
+        // is a live whole-GPU probe (NativeVramProbe / nvidia-smi), baseline.ReservedBytes already
+        // includes this role's resident model — and TryAdmit is about to charge a full fresh-load
+        // EstimateRequiredBytes for it AGAIN. Re-admitting this role loads nothing new (reuse) or
+        // frees the old footprint before building the replacement (rebind), so its resident bytes
+        // must be credited back out of the baseline, or the one resident model is counted twice —
+        // once as used (probe) and once as needed (estimate). Omitting this denied every job after
+        // the first on a card too tight to hold two phantom copies (HardcorePC, RTX 3050 6 GB:
+        // docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-1, 2026-07-21). Credit only up to what the
+        // baseline actually reports (a probe that under-counts must not drive the budget negative).
         long otherRolesReserved;
+        long thisRolePriorReserved;
         lock (_telemetryGate)
+        {
             otherRolesReserved = _reservedByRole
                 .Where(kv => kv.Key != binding.Role && kv.Value.Generation == currentGeneration)
                 .Sum(kv => kv.Value.Bytes);
-        var budget = baseline with { ReservedBytes = baseline.ReservedBytes + otherRolesReserved };
+            thisRolePriorReserved =
+                _reservedByRole.TryGetValue(binding.Role, out var own) && own.Generation == currentGeneration
+                    ? own.Bytes
+                    : 0;
+        }
+        var effectiveReserved = Math.Max(
+            0, baseline.ReservedBytes + otherRolesReserved - thisRolePriorReserved);
+        var budget = baseline with { ReservedBytes = effectiveReserved };
 
         var decision = _scheduler.TryAdmit(binding, budget, options);
         if (!decision.Admitted)
