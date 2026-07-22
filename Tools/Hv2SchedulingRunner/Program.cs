@@ -56,6 +56,10 @@ internal static class Program
             throw new InvalidOperationException(
                 "No workers configured. Pass --worker-a <id> --worker-a-node <http://ip:7078> (and -b/-c), " +
                 "plus --low-vram-worker <id> to mark which one is expected to deny in --phase large.");
+        if (phase == "large" && !workers.Any(w => w.ExpectDenied))
+            throw new InvalidOperationException(
+                "--phase large requires --low-vram-worker to match one of the configured --worker-* ids " +
+                "(otherwise the run can vacuously PASS without ever exercising a denial).");
 
         Directory.CreateDirectory(outDir);
         using var http = new HttpClient { BaseAddress = new Uri(warchief), Timeout = TimeSpan.FromMinutes(10) };
