@@ -241,6 +241,88 @@ estimator, large `ContextLength`) fits 16 GB and 8 GB but must be **denied** on 
 - Also run the inverse: a small job admitted on all three, proving denial is footprint-driven,
   not box-driven.
 
+**2026-07-21 — Driver built (`Tools/Hv2SchedulingRunner`, PR #88), real run against the fleet.
+CLOSED for the two-machine spread (6 GB deny / 8 GB admit); NewcorePC (16 GB) excluded — a
+genuine Daemon-architecture constraint, not a scheduling gap.**
+
+`NativeContextSize` is a per-worker-process startup config, not a per-job HIVE parameter, so
+the "large footprint" and "small footprint" checks run as two separate fleet configurations of
+the same machines rather than two job shapes against one running config (`--phase large|small`).
+Also added `GET /hive/native-telemetry` on `HiveNodeServer` (`RejectedAdmissionCount`,
+`LastRejectionReason`, VRAM totals) — this existed in-process but had no remote observability
+surface on a headless worker before this.
+
+**Calibration, computed before touching real hardware:** `OrcScheduler.EstimateRequiredBytes`
+is `legacy(base+adapter file size) + 256 MB (CUDA overhead) + 384 MB (compute buffer) + kvBytes`,
+where `kvBytes` scales linearly with `ContextLength`. Back-solving from HV-1's own observed
+figures (base ≈1.881 GB, ctx=8192 → ~3.4 GB total ⇒ kv(8192) ≈ 894 MB) gave `ctx=40000` ⇒
+≈6.77 GB total — denied on 6 GB, comfortable margin under 8 GB. Confirmed near-exact on real
+hardware: the actual denial read **"Requires ~6.8 GB, only 5.6 GB available."**
+
+**Large-context phase (ctx=40000), pinned per-worker via `ExcludedWorkerIds`:**
+- **HardcorePC (6 GB): DENIED**, a real `RuntimeAdmissionDeniedException` surfaced as `status:
+  "failed"` (this execution kind is structurally fail-closed — no Ollama fallback path is even
+  reachable). Confirmed via `/hive/native-telemetry`: `RejectedAdmissionCount` 3→6 (exactly the
+  3 retry attempts this run made), `LastRejectionReason: "Requires ~6.8 GB, only 5.6 GB
+  available."` — the "correct numbers in the reason" bar, met.
+- **HardcoreLaptopMSI (8 GB): ADMITTED**, completed normally, `Attestation.RuntimeName ==
+  "NativeRoleRuntime"`.
+- Evidence: `.orc/hv-2-lane/hv2_large_20260721_141745.json`.
+
+**Small-context (inverse) phase (ctx=8192, already proven safe from HV-1), same two boxes:**
+both completed normally — **the same HardcorePC that just denied at ctx=40000 admitted cleanly
+at ctx=8192**, the direct proof that the denial above was footprint-driven, not "HardcorePC
+always fails." Evidence: `.orc/hv-2-lane/hv2_small_20260721_141958.json`.
+
+**Driver bug found and fixed mid-campaign:** the task-level `HiveTaskResult.ErrorMsg` the
+Warchief actually sees is `HiveWorkerAgent`'s generic wrapper text ("native role runtime failed.
+Phase 3B does not fall back.") — the `RuntimeAdmissionDeniedException`'s own detailed message
+never reaches it, only the worker's local log does. The driver's first pass tried to classify
+denial by matching "admission" in that wrapper text and got it wrong (`matchesExpectation:
+false` on a genuinely-correct denial). Fixed: classify denial by task status alone (this
+execution kind can't fall back instead of failing), and let the separate
+`/hive/native-telemetry` check be the sole authority on whether it was specifically an admission
+denial with correct numbers — which is exactly why that endpoint needed to exist in the first
+place, not just as a nice-to-have.
+
+**Real infrastructure gap found, not fixed (system-settings change, correctly out of scope for
+an agent to make unilaterally): HardcorePC's inbound Windows Firewall doesn't allow port 7078
+from NewcorePC's LAN address**, so the driver's own remote telemetry fetch times out — confirmed
+this is general (even the pre-existing `/hive/info` times out the same way remotely, works fine
+over loopback) and not a bug in the new endpoint. Worked around by fetching telemetry via `ssh
+HardcorePC curl http://localhost:7078/hive/native-telemetry` instead and splicing it into the
+evidence file with a note. A future HV-2+ run should either open that inbound rule (an explicit,
+user-authorized action) or teach the driver an SSH-fetch fallback.
+
+**NewcorePC (16 GB) excluded from this run — a real, separate finding, not a scheduling gap.**
+Attempted to run `OrchestratorIDE.Daemon` locally on NewcorePC as Warchief+self-worker (to prove
+the "fits 16 GB" case); this **regenerated NewcorePC's own HIVE identity** (the same DPAPI/
+AES-GCM protector collision from the HV-1 campaign, this time on the box that had never run the
+Daemon binary before — NewcorePC's warchief role had only ever run via `swarmcli`, whose
+identity uses a different protector). Confirmed via `--show-identity`: new nodeId `e5333a93...`
+vs. the `f083b993...` both remote workers still had on file. Unlike the HV-1 recovery, **this
+one has no clean fix**: `OrchestratorIDE.Daemon`'s `HiveService.cs` never subscribes to
+`OnPairingRequestReceived` and never calls `HiveNodeServer.EnableDevAutoApprove` — by design
+(`Program.cs`'s own comment: "this daemon must always be the INITIATOR, never the responder,
+until a headless approval path exists"), so a Daemon-hosted Warchief can **never approve an
+incoming pairing request** the way `swarmcli --warchief --allow-fingerprint` can. The Daemon
+architecture assumes it is always a remote headless *worker* managed by an interactively-running
+GUI/swarmcli elsewhere, not something that can host the Warchief role for peers to pair against
+unattended. Reverted: killed the Daemon, restarted NewcorePC's Warchief via
+`swarmcli --warchief --no-run --allow-fingerprint` (unaffected — its identity was never
+touched), which the workers already trusted from the HV-1 fix, and the two-machine run above
+completed cleanly on the first real attempt afterward. **Filed as an open follow-up**: either
+give the Daemon a headless pairing-approval mode (env-var-gated auto-approve, mirroring
+`EnableDevAutoApprove`) or find another way to get a 16 GB box into the worker fleet without
+running the Daemon as its own Warchief.
+
+**HV-2 verdict: CLOSED for the 6 GB / 8 GB spread** (the decisive comparison — denial vs.
+admission on genuinely different VRAM classes, with correct real numbers and real telemetry).
+**The 16 GB "fits" leg is not yet run**, blocked on the Daemon pairing-approval gap above, not
+on any scheduling defect — NewcorePC's own native execution was never in question (proven
+extensively across Phase A-D). Cleaned up: both Daemon processes, local Warchief, remote scratch
+workspaces and logs all stopped/removed.
+
 ### HV-3 — Model/adapter lifecycle across machines
 
 - Sequential load → generate → dispose cycles per worker; residency (`ActiveCount`) returns to

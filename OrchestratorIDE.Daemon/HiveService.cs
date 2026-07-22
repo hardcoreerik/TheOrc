@@ -197,6 +197,11 @@ public sealed class HiveService : BackgroundService
                     roleBindings: roleBindings);
 
                 nativeExecutor = new HiveNativeRoleExecutorAdapter(nativeRuntime, _cfg.WorkspaceRoot);
+                // HV-2 (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md): RejectedAdmissionCount/
+                // LastRejectionReason existed in-process (RuntimeOrchestrator) but had no remote
+                // observability surface on a headless worker -- only the Avalonia GUI's own
+                // diagnostics panel could see them. Exposed read-only over GET /hive/native-telemetry.
+                _nodeServer.NativeTelemetryProvider = () => nativeRuntime.GetReservationSnapshot();
             }
 
             _worker = new HiveWorkerAgent
