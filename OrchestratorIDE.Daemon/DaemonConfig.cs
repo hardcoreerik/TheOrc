@@ -87,11 +87,18 @@ public sealed class DaemonConfig
     /// </summary>
     public string WarchiefNodeId { get; set; } = "";
 
+    /// <summary>Upper bound for <see cref="DevAutoApproveMinutes"/> -- 24 hours.</summary>
+    public const int MaxDevAutoApproveMinutes = 1440;
+
+    private int _devAutoApproveMinutes;
+
     /// <summary>
     /// Opens HiveNodeServer's time-boxed dev re-sync auto-approve window (see
     /// HiveNodeServer.EnableDevAutoApprove) for this many minutes at startup, so this Daemon
-    /// can approve incoming pairing requests from workers headlessly when it is acting as a
-    /// Warchief. 0 (default) leaves it off.
+    /// can approve incoming pairing requests from ALREADY-TRUSTED workers re-pairing headlessly
+    /// when it is acting as a Warchief (not new/unknown peers, which still require manual
+    /// fingerprint approval). 0 (default) leaves it off. Clamped to [0, MaxDevAutoApproveMinutes]
+    /// so a bad deployment value can't leave the relaxed-trust window open indefinitely.
     ///
     /// Found necessary 2026-07-21 running the Daemon as a Warchief for the first time (needed
     /// for its ArtifactStore/ModelStore wiring, which a lighter dispatcher like swarmcli's
@@ -105,5 +112,9 @@ public sealed class DaemonConfig
     /// fleet re-sync) as that missing headless approval path, rather than inventing a new one.
     /// Set via "Hive:DevAutoApproveMinutes" / HIVE__DEVAUTOAPPROVEMINUTES.
     /// </summary>
-    public int DevAutoApproveMinutes { get; set; }
+    public int DevAutoApproveMinutes
+    {
+        get => _devAutoApproveMinutes;
+        set => _devAutoApproveMinutes = Math.Clamp(value, 0, MaxDevAutoApproveMinutes);
+    }
 }

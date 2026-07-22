@@ -101,6 +101,19 @@ public sealed class HiveService : BackgroundService
             VramFreeMb:  checked((int)Math.Min(int.MaxValue, _cfg.NativeVramMb)),
             VramTotalMb: checked((int)Math.Min(int.MaxValue, _cfg.NativeVramMb)),
             Lanes:       nativeReady ? [.. _cfg.WorkerLanes] : []);
+
+        // Enable BEFORE Start so the listener never accepts a pairing request while the window
+        // is still closed -- closes a race where an early re-pair would be forced onto the
+        // manual-approval path instead of the intended headless one.
+        if (_cfg.DevAutoApproveMinutes > 0)
+        {
+            _nodeServer.EnableDevAutoApprove(TimeSpan.FromMinutes(_cfg.DevAutoApproveMinutes));
+            _log.LogWarning(
+                "DEV: HIVE re-sync auto-approve ON for {Minutes} min -- incoming re-pairing " +
+                "requests from ALREADY-TRUSTED workers will be auto-trusted until it expires " +
+                "(new/unknown peers still require manual fingerprint approval).", _cfg.DevAutoApproveMinutes);
+        }
+
         _nodeServer.Start(info);   // starts listener on HiveNodeServer.ApiPort (7078)
 
         // Wire election/heartbeat logs after Start (services auto-created inside Start).
@@ -110,14 +123,6 @@ public sealed class HiveService : BackgroundService
             hb.OnLog += msg => _log.LogInformation("[Heartbeat] {Msg}", msg);
 
         _log.LogInformation("NodeServer listening on :{Port}", HiveNodeServer.ApiPort);
-
-        if (_cfg.DevAutoApproveMinutes > 0)
-        {
-            _nodeServer.EnableDevAutoApprove(TimeSpan.FromMinutes(_cfg.DevAutoApproveMinutes));
-            _log.LogWarning(
-                "DEV: HIVE re-sync auto-approve ON for {Minutes} min -- incoming pairing " +
-                "requests will be auto-trusted as Worker until it expires.", _cfg.DevAutoApproveMinutes);
-        }
 
         // ── UDP beacon (multicast peer discovery) ─────────────────────────────
         _beacon = new HiveBeacon();
