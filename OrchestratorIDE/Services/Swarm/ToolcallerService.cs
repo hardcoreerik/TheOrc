@@ -42,6 +42,24 @@ public static class ToolcallerService
     /// </summary>
     public const string RepairProvenanceMarker = "toolcaller repair lane";
 
+    /// <summary>
+    /// The frozen v0 tool inventory the deployed model was actually trained on -- see
+    /// docs/TOOLCALLER_V0_FROZEN_INVENTORY.md and training_pit/schemas/toolcaller_v0_frozen_tools.json.
+    /// Found 2026-07-21: the LIVE per-role tool catalog (SwarmSession.GetWorkerTools) has since
+    /// grown to include tools outside this set (fetch_url, get_outline -- part of the v1
+    /// inventory, which is capture-only, never trained or evaluated). ProposeAsync's prompt is
+    /// built from whatever `tools` the caller passes, so without this filter the specialist
+    /// could be shown a tool it has never practiced generating arguments for, and the existing
+    /// live-list check in ToToolCall would not catch it (the tool genuinely IS live, just never
+    /// trained on). Filtering here keeps every rendered prompt drawn from exactly the vocabulary
+    /// the model was trained on -- never a new, untested combination -- until a new frozen
+    /// inventory revision + retraining round covers the additional tools.
+    /// </summary>
+    private static readonly HashSet<string> KnownToolNames = new(StringComparer.Ordinal)
+    {
+        "read_file", "list_files", "grep_code", "write_file", "run_shell", "ask_user",
+    };
+
     public sealed record Decision(
         string  Kind,        // call | no_tool | clarify | unsupported | (parse_error)
         string? Tool,
@@ -69,12 +87,17 @@ public static class ToolcallerService
         if (runtime is null && nodeClient is null)
             return null;
 
+        // Only ever show the model tools it was actually trained on -- see KnownToolNames.
+        var knownTools = FilterToKnownTools(tools);
+        if (knownTools.Count == 0)
+            return null; // every live tool for this call is outside the trained set; nothing safe to propose
+
         try
         {
             var history = new List<AgentMessage>
             {
-                new() { Role = MessageRole.System, Content = BuildSystemPrompt(role, tools), Status = MessageStatus.Complete },
-                new() { Role = MessageRole.User,   Content = request,                        Status = MessageStatus.Complete },
+                new() { Role = MessageRole.System, Content = BuildSystemPrompt(role, knownTools), Status = MessageStatus.Complete },
+                new() { Role = MessageRole.User,   Content = request,                             Status = MessageStatus.Complete },
             };
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -98,11 +121,14 @@ public static class ToolcallerService
 
     /// <summary>
     /// Convert a "call" decision into a runnable ToolCall, or null when the proposal
-    /// names a tool outside the live set (never execute an invented tool).
+    /// names a tool outside the live set (never execute an invented tool) or outside
+    /// KnownToolNames (defense in depth -- ProposeAsync already never shows the model an
+    /// unknown tool, so this only fires if a decision somehow names one anyway).
     /// </summary>
     public static ToolCall? ToToolCall(Decision d, IReadOnlyList<ToolDefinition> tools)
     {
         if (d.Kind != "call" || d.Tool is null) return null;
+        if (!KnownToolNames.Contains(d.Tool))   return null;
         if (!tools.Any(t => t.Name == d.Tool))  return null;
         return new ToolCall
         {
@@ -112,6 +138,12 @@ public static class ToolcallerService
             ExplainWhy   = $"proposed by {Model} ({RepairProvenanceMarker})",
         };
     }
+
+    /// <summary>Tools the specialist was actually trained on, in the caller's original order.
+    /// Exposed (internal) so the filtering decision is directly unit-testable without needing
+    /// to mock a full ProposeAsync round-trip.</summary>
+    internal static List<ToolDefinition> FilterToKnownTools(IReadOnlyList<ToolDefinition> tools) =>
+        tools.Where(t => KnownToolNames.Contains(t.Name)).ToList();
 
     // ── Prompt construction (byte-identical to export_toolcaller_dataset.py) ──
 
