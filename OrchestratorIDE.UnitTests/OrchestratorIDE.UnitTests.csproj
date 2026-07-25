@@ -30,6 +30,15 @@
     <Compile Include="..\OrchestratorIDE.UITests\Tests\T17_HiveSecurityTests.cs" />
     <Compile Include="..\OrchestratorIDE.UITests\Tests\T18_HivePersistenceTests.cs" />
     <Compile Include="..\OrchestratorIDE.UITests\Tests\T19_GraphRepositoryTests.cs" />
+    <!--
+      DaemonConfig.cs is a dependency-free POCO (System.* only) physically owned by
+      OrchestratorIDE.Daemon. A ProjectReference there is NOT viable: OrchestratorIDE.Daemon
+      and OrchestratorIDE.Avalonia (already referenced above) both compile the shared Hive/*
+      sources under the same "OrchestratorIDE" root namespace, so referencing both assemblies
+      at once collides on ~20 duplicate types (HiveIdentity, SqliteStore, HiveTaskQueue, etc.,
+      CS0433). Compiling just this one self-contained file in avoids that entirely.
+    -->
+    <Compile Include="..\OrchestratorIDE.Daemon\DaemonConfig.cs" Link="Daemon\DaemonConfig.cs" />
   </ItemGroup>
 
   <ItemGroup>

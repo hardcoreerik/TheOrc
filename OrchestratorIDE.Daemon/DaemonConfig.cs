@@ -86,4 +86,35 @@ public sealed class DaemonConfig
     /// resolve to similar hostnames).
     /// </summary>
     public string WarchiefNodeId { get; set; } = "";
+
+    /// <summary>Upper bound for <see cref="DevAutoApproveMinutes"/> -- 24 hours.</summary>
+    public const int MaxDevAutoApproveMinutes = 1440;
+
+    private int _devAutoApproveMinutes;
+
+    /// <summary>
+    /// Opens HiveNodeServer's time-boxed dev re-sync auto-approve window (see
+    /// HiveNodeServer.EnableDevAutoApprove) for this many minutes at startup, so this Daemon
+    /// can approve incoming pairing requests from ALREADY-TRUSTED workers re-pairing headlessly
+    /// when it is acting as a Warchief (not new/unknown peers, which still require manual
+    /// fingerprint approval). 0 (default) leaves it off. Clamped to [0, MaxDevAutoApproveMinutes]
+    /// so a bad deployment value can't leave the relaxed-trust window open indefinitely.
+    ///
+    /// Found necessary 2026-07-21 running the Daemon as a Warchief for the first time (needed
+    /// for its ArtifactStore/ModelStore wiring, which a lighter dispatcher like swarmcli's
+    /// --warchief mode never sets up -- required for any campaign that stages input artifacts,
+    /// e.g. Context Fabric's CF-6 reader/verifier/stitcher/reducer pipeline): HiveService never
+    /// subscribes to HiveNodeServer.OnPairingRequestReceived and never calls
+    /// EnableDevAutoApprove, by design (Program.cs: "this daemon must always be the INITIATOR,
+    /// never the responder, until a headless approval path exists") -- so a Daemon-hosted
+    /// Warchief could never approve an incoming peer at all. This config exposes the
+    /// already-existing, already time-boxed EnableDevAutoApprove mechanism (built for headless
+    /// fleet re-sync) as that missing headless approval path, rather than inventing a new one.
+    /// Set via "Hive:DevAutoApproveMinutes" / HIVE__DEVAUTOAPPROVEMINUTES.
+    /// </summary>
+    public int DevAutoApproveMinutes
+    {
+        get => _devAutoApproveMinutes;
+        set => _devAutoApproveMinutes = Math.Clamp(value, 0, MaxDevAutoApproveMinutes);
+    }
 }
