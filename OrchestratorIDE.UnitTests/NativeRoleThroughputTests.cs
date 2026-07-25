@@ -47,6 +47,12 @@ public sealed class NativeRoleThroughputTests
         if (string.IsNullOrWhiteSpace(ggufPath))
             Assert.Ignore("Set THEORC_TEST_GGUF to run the native role throughput lane.");
 
+        // Fail loudly on a bad env var. Without this, a typo'd path still yields a directory
+        // that ModelDepot happily scans, and the run dies later as an opaque role-resolution
+        // failure that reads like a runtime defect rather than a bad argument.
+        if (!File.Exists(ggufPath))
+            Assert.Fail($"THEORC_TEST_GGUF does not exist: {ggufPath}");
+
         var root = Path.GetDirectoryName(Path.GetFullPath(ggufPath!));
         if (string.IsNullOrWhiteSpace(root))
             Assert.Fail("THEORC_TEST_GGUF must point to a GGUF file.");
