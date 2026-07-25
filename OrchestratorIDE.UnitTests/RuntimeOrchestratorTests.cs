@@ -167,6 +167,82 @@ public sealed class RuntimeOrchestratorTests
     }
 
     [Test]
+    public async Task EnsureAdmitted_AdmitsSecondRole_SharingResidentBaseWeights_AgainstLiveProbe()
+    {
+        var ggufPath = Environment.GetEnvironmentVariable("THEORC_TEST_GGUF");
+        if (string.IsNullOrWhiteSpace(ggufPath))
+            Assert.Ignore("Set THEORC_TEST_GGUF to run this native-load-dependent reservation test.");
+
+        // Regression for the HV-3 concurrent-role denial (HardcorePC RTX 3050 6 GB, 2026-07-25):
+        // "Budget total=6.0 GB, reserved=10.3 GB, available=0.0 GB" -- reserved ABOVE the card's
+        // total. Two compounding errors, both fixed:
+        //   1. EnsureAdmitted summed the live probe (which already counts every resident model)
+        //      with the ledger for those same other roles, charging them twice.
+        //   2. Both roles resolve to the SAME GGUF and SessionManager keeps ONE shared base load,
+        //      but the second role was still charged a full fresh-load estimate -- billing an
+        //      entire extra model for something that only costs its own context.
+        // Together they made a concurrent second role permanently unadmittable on a card sized
+        // for one model, even though it genuinely fits.
+        var sizeBytes = new FileInfo(ggufPath!).Length;
+        var asset = new RuntimeModelAsset(
+            Id: "base",
+            Kind: RuntimeAssetKind.BaseModelGguf,
+            Path: ggufPath!,
+            DisplayName: "base",
+            SizeBytes: sizeBytes,
+            LastModifiedUtc: DateTimeOffset.UtcNow,
+            SuggestedRoles: [RuntimeRole.Worker, RuntimeRole.Researcher]);
+
+        // SAME base asset for both roles -- the real fleet shape (one coder GGUF serving every
+        // lane), and the only shape where reuse applies.
+        var workerBinding = new RuntimeRoleBinding(RuntimeRole.Worker, asset, null);
+        var researcherBinding = new RuntimeRoleBinding(RuntimeRole.Researcher, asset, null);
+
+        // Sized so ONE model plus a second context fits, but two full copies never could --
+        // exactly the 6 GB box. If the second role were still charged a whole model it would be
+        // denied here, which is what this test would have caught.
+        var loaded = false;
+        var totalBytes = (long)(sizeBytes * 1.4);
+        VramBudget Provider() => new(totalBytes, loaded ? sizeBytes : 0L);
+
+        await using var runtime = new LLamaSharpRuntime();
+        await using var orchestrator = new RuntimeOrchestrator(
+            runtime, scheduler: new OrcScheduler(), budgetProvider: Provider);
+
+        // Options are REQUIRED for the reuse discount to apply at all -- it exists only on the
+        // context-aware estimate path, where kvBytes prices the increment. This mirrors the fleet,
+        // whose workers all run with an explicit HIVE__NATIVECONTEXTSIZE.
+        var options = new RuntimeOptions(ContextLength: 2048, GpuLayers: -1);
+
+        using var first = await orchestrator
+            .GetConversationForBindingAsync(workerBinding, options)
+            .ConfigureAwait(false);
+        loaded = true;
+
+        // Second role, different RuntimeRole, same resident base weights. Held concurrently --
+        // the first conversation is deliberately still alive.
+        using var second = await orchestrator
+            .GetConversationForBindingAsync(researcherBinding, options)
+            .ConfigureAwait(false);
+
+        Assert.That(second, Is.Not.Null);
+
+        var snapshot = orchestrator.GetReservationSnapshot();
+        Assert.That(snapshot, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(snapshot!.Reservations, Has.Count.EqualTo(2),
+                "both roles should hold a reservation concurrently");
+            Assert.That(snapshot.ReservedBytes, Is.LessThanOrEqualTo(snapshot.TotalBytes),
+                "reserved must never exceed the card's total");
+            // The second role's ledger entry must reflect the incremental cost, not a whole model.
+            var researcher = snapshot.Reservations.Single(r => r.Role == RuntimeRole.Researcher);
+            Assert.That(researcher.Bytes, Is.LessThan(sizeBytes),
+                "a role reusing resident base weights must not be charged a full model");
+        });
+    }
+
+    [Test]
     public async Task GetReservationSnapshot_DoesNotDoubleCountResidentModel_AgainstLiveProbe()
     {
         var ggufPath = Environment.GetEnvironmentVariable("THEORC_TEST_GGUF");

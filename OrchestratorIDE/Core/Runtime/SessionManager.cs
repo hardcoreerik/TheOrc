@@ -236,6 +236,24 @@ public sealed class SessionManager : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Would admitting <paramref name="binding"/> reuse the base weights already in VRAM rather
+    /// than loading another copy? Deliberately delegates to the SAME predicate
+    /// <see cref="LoadBindingAsync"/> uses, so an admission estimate built on this answer cannot
+    /// drift from what the load actually does — the two disagreeing is precisely how a role gets
+    /// charged for a model it never loads (or, worse, admitted for one it does).
+    ///
+    /// <b>internal, not public</b>: this exists for RuntimeOrchestrator's admission accounting,
+    /// and a caller outside that flow reading "will this reuse?" without holding the admission
+    /// gate would get an answer that is already stale by the time it acts on it.
+    /// </summary>
+    internal bool WouldReuseLoadedBaseWeights(RuntimeRoleBinding binding, RuntimeOptions? options)
+    {
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(binding);
+        return CanReuseCurrentSession(binding, options ?? new RuntimeOptions(), _runtime.GetHealth());
+    }
+
     private bool CanReuseCurrentSession(
         RuntimeRoleBinding binding,
         RuntimeOptions options,
