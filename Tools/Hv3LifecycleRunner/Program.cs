@@ -286,19 +286,42 @@ internal static class Program
             using (var resp = await http.PostAsJsonAsync("/hive/campaigns", campaign, JsonOptions))
                 resp.EnsureSuccessStatusCode();
 
-            // Poll telemetry while the pair runs. The peak matters, not the endpoint: by the time
-            // both jobs are terminal the second role has already been disposed, so a single
-            // after-the-fact sample can never witness two roles resident at once.
+            // Poll telemetry while the pair runs, tracking the PEAK rather than the endpoint.
+            //
+            // What this phase can and cannot prove, established by reading HiveWorkerAgent rather
+            // than inferred from a red run: the worker's main loop is
+            // `while { PollLease -> await ClaimAndExecute }` -- strictly one task at a time. Two
+            // work units dispatched to the same worker therefore execute SERIALLY, and no amount
+            // of polling will ever catch two roles with ActiveCount > 0 simultaneously. That is an
+            // architectural property of the dispatch layer, not a scheduling or admission defect
+            // (same class as HV-2's finding that a Daemon-hosted Warchief cannot approve pairing).
+            //
+            // What HV-3 actually asks for here is cross-role ADMISSION ACCOUNTING, and that is
+            // observable: a reservation persists while the model stays loaded, outliving the
+            // conversation that created it (the documented decoupling this whole phase is built
+            // on). So two roles genuinely do hold reservations concurrently against one live
+            // budget, and that -- not simultaneous execution -- is the claim under test.
             using var pollCts = new CancellationTokenSource();
-            var peak = 0;
-            var peakRoles = Array.Empty<string>();
+            var peakReserved = 0;
+            var peakReservedRoles = Array.Empty<int>();
+            var peakResident = 0;
+            var reservedEverExceededTotal = false;
             var pollTask = Task.Run(async () =>
             {
                 while (!pollCts.IsCancellationRequested)
                 {
                     var s = await SampleAsync(w.NodeUrl, "mid-flight");
-                    var live = s.ResidentRoles.Length;
-                    if (live > peak) { peak = live; peakRoles = s.ResidentRoles; }
+                    if (s.ReservedRoles.Length > peakReserved)
+                    {
+                        peakReserved = s.ReservedRoles.Length;
+                        peakReservedRoles = s.ReservedRoles;
+                    }
+                    if (s.ResidentRoles.Length > peakResident) peakResident = s.ResidentRoles.Length;
+                    // The defect this phase originally exposed published reserved > total. Watch
+                    // for it throughout rather than only at the end, so a transient impossible
+                    // reading cannot slip past between samples.
+                    if (s.Reachable && s.TotalBytes > 0 && s.ReservedBytes > s.TotalBytes)
+                        reservedEverExceededTotal = true;
                     report.Samples.Add(s with { WorkerId = w.Id });
                     try { await Task.Delay(1500, pollCts.Token); } catch (OperationCanceledException) { break; }
                 }
@@ -317,9 +340,22 @@ internal static class Program
             report.LifecycleChecks.Add(new Hv3LifecycleCheck
             {
                 WorkerId = w.Id,
-                Name = "two-roles-resident-concurrently",
-                Passed = peak >= 2,
-                Detail = $"peak distinct resident roles={peak} [{string.Join(", ", peakRoles)}]",
+                Name = "two-roles-hold-reservations-concurrently",
+                Passed = peakReserved >= 2,
+                Detail = $"peak concurrent role reservations={peakReserved} " +
+                         $"[roles {string.Join(", ", peakReservedRoles)}]; " +
+                         $"peak simultaneously-resident roles={peakResident} " +
+                         "(1 is expected and correct — HiveWorkerAgent executes one task at a time)",
+            });
+
+            report.LifecycleChecks.Add(new Hv3LifecycleCheck
+            {
+                WorkerId = w.Id,
+                Name = "cross-role-accounting-stays-physical",
+                Passed = !reservedEverExceededTotal,
+                Detail = reservedEverExceededTotal
+                    ? "reservedBytes exceeded totalBytes at least once — the cross-role double-count is back"
+                    : "reservedBytes stayed within totalBytes across every sample",
             });
         }
     }
@@ -393,9 +429,11 @@ internal static class Program
             Reachable = t is not null,
             ReservedBytes = t?.ReservedBytes ?? -1,
             AvailableBytes = t?.AvailableBytes ?? -1,
+            TotalBytes = t?.TotalBytes ?? -1,
             TotalActiveCount = residency.Sum(r => r.ActiveCount),
             MaxConversationsCreated = residency.Count > 0 ? residency.Max(r => r.ConversationsCreated) : 0,
             ResidentRoles = residency.Where(r => r.ActiveCount > 0).Select(r => r.Role).ToArray(),
+            ReservedRoles = (t?.Reservations ?? []).Select(r => r.Role).ToArray(),
             Residency = residency,
         };
     }
@@ -434,7 +472,15 @@ internal sealed class NativeTelemetry
     public long TotalBytes { get; set; }
     public long ReservedBytes { get; set; }
     public long AvailableBytes { get; set; }
+    public List<ReservationEntry> Reservations { get; set; } = [];
     public List<ResidencyEntry> Residency { get; set; } = [];
+}
+
+internal sealed class ReservationEntry
+{
+    // Serialized as the RuntimeRole enum's numeric value by the worker's telemetry endpoint.
+    public int Role { get; set; }
+    public long Bytes { get; set; }
 }
 
 internal sealed class ResidencyEntry
@@ -455,9 +501,11 @@ internal sealed record Hv3TelemetrySample
     public bool Reachable { get; init; }
     public long ReservedBytes { get; init; }
     public long AvailableBytes { get; init; }
+    public long TotalBytes { get; init; }
     public int TotalActiveCount { get; init; }
     public int MaxConversationsCreated { get; init; }
     public string[] ResidentRoles { get; init; } = [];
+    public int[] ReservedRoles { get; init; } = [];
     public List<ResidencyEntry> Residency { get; init; } = [];
 }
 
