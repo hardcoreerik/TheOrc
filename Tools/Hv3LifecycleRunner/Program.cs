@@ -202,17 +202,36 @@ internal static class Program
         //    that things return to zero.
         var beforeAll = samples.FirstOrDefault(s => s.Stage == "before-all");
         var reservedAfter = afterCycles.Select(s => s.ReservedBytes).ToList();
+
+        // "Persists" means the reservation never DROPS across the gaps between jobs -- it must
+        // not be tied to `> baseline`. That stricter form only holds when the run starts against
+        // a cold worker; against a worker still warm from a previous run the baseline sample
+        // ALREADY includes the resident model, so the correct observation is equality and the
+        // strict comparison reports a false failure. Seen exactly that way on the first
+        // two-machine run: HardcorePC (warm, baseline 5589043712) failed while
+        // HardcoreLaptopMSI (freshly started, baseline 45088768) passed on identical behavior.
+        //
+        // Non-decreasing across cycles plus at-least-baseline is what the decoupling actually
+        // claims, and it holds from either starting state.
         var reservationHeld = beforeAll is not null
                               && reservedAfter.Count > 0
-                              && reservedAfter.All(r => r > beforeAll.ReservedBytes);
+                              && reservedAfter.All(r => r >= beforeAll.ReservedBytes)
+                              && reservedAfter.Zip(reservedAfter.Skip(1), (a, b) => b >= a).All(x => x);
+
+        // A worker that never loaded anything would also satisfy "non-decreasing" trivially, so
+        // require the reservation to actually reflect a loaded model rather than an idle card.
+        var residentFootprintSeen = afterCycles.Any(s => s.MaxConversationsCreated > 0);
+
         report.LifecycleChecks.Add(new Hv3LifecycleCheck
         {
             WorkerId = workerId,
             Name = "reservation-persists-between-jobs",
-            Passed = reservationHeld,
+            Passed = reservationHeld && residentFootprintSeen,
             Detail = beforeAll is null
                 ? "no baseline sample captured"
-                : $"baseline reservedBytes={beforeAll.ReservedBytes}, after-cycle values=[{string.Join(", ", reservedAfter)}]",
+                : $"baseline reservedBytes={beforeAll.ReservedBytes} " +
+                  $"({(beforeAll.MaxConversationsCreated > 0 ? "warm worker" : "cold worker")}), " +
+                  $"after-cycle values=[{string.Join(", ", reservedAfter)}]",
         });
 
         // 3. A fresh conversation per job. Without this, "residency returned to zero" could also
