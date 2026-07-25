@@ -416,7 +416,28 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
             rejectedCount = _rejectedAdmissionCount;
             lastRejectionReason = _lastRejectionReason;
         }
-        var reservedBytes = baseline.ReservedBytes + active.Sum(r => r.Bytes);
+        // MAX, not SUM. The two inputs measure overlapping things, so adding them double-counts
+        // every resident model — the same trap EnsureAdmitted documents above, in the reporting
+        // path this time. When the provider is a live whole-GPU probe (NativeVramProbe /
+        // nvidia-smi, which is what the daemon and the app both use),
+        // baseline.ReservedBytes ALREADY includes every model currently loaded, and the ledger
+        // entries below are this orchestrator's own accounting of those same models. Summing them
+        // produced physically impossible telemetry: HV-3's first real run on HardcorePC (RTX 3050,
+        // 6 GB) reported reservedBytes = 11.04 GB against totalBytes = 6.44 GB with
+        // availableBytes pinned to 0, the excess matching the job's est_vram exactly
+        // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-25).
+        //
+        // Taking the larger keeps both providers honest: with a live probe the probe wins (it is
+        // authoritative for what is physically in use, including non-TheOrc consumers on the same
+        // card), and with the static fallback budget — VramBudget(total, ReservedBytes: 0), used
+        // when nvidia-smi is unavailable — the ledger wins, which is the only signal there is in
+        // that case. Known imprecision, accepted deliberately: a role that has been RESERVED but
+        // whose model is not yet resident is not additive on top of the probe here, so this can
+        // under-report during the window between reservation and load. Under-reporting a
+        // telemetry read is strictly safer than reporting a number the hardware cannot produce,
+        // and admission correctness does not depend on this value — EnsureAdmitted does its own
+        // accounting and is unchanged by this fix.
+        var reservedBytes = Math.Max(baseline.ReservedBytes, active.Sum(r => r.Bytes));
 
         return new RuntimeReservationSnapshot(
             active,

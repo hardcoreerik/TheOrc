@@ -167,6 +167,61 @@ public sealed class RuntimeOrchestratorTests
     }
 
     [Test]
+    public async Task GetReservationSnapshot_DoesNotDoubleCountResidentModel_AgainstLiveProbe()
+    {
+        var ggufPath = Environment.GetEnvironmentVariable("THEORC_TEST_GGUF");
+        if (string.IsNullOrWhiteSpace(ggufPath))
+            Assert.Ignore("Set THEORC_TEST_GGUF to run this native-load-dependent reservation test.");
+
+        // Regression for the HV-3 telemetry defect (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md
+        // HV-3, HardcorePC RTX 3050 6 GB, 2026-07-25). The sibling of the HV-1 bug above, in the
+        // REPORTING path: GetReservationSnapshot summed the live probe's ReservedBytes (which
+        // already counts the resident model) with the ledger entry for that same model, so the
+        // first real HV-3 run published reservedBytes = 11.04 GB on a card whose totalBytes is
+        // 6.44 GB, with availableBytes stuck at 0. Admission was unaffected -- this was purely a
+        // telemetry surface publishing a number the hardware cannot produce.
+        var sizeBytes = new FileInfo(ggufPath!).Length;
+        var asset = new RuntimeModelAsset(
+            Id: "base",
+            Kind: RuntimeAssetKind.BaseModelGguf,
+            Path: ggufPath!,
+            DisplayName: "base",
+            SizeBytes: sizeBytes,
+            LastModifiedUtc: DateTimeOffset.UtcNow,
+            SuggestedRoles: [RuntimeRole.Worker]);
+        var workerBinding = new RuntimeRoleBinding(RuntimeRole.Worker, asset, null);
+
+        // Same stateful stand-in for the live probe as the HV-1 test: idle before any load, then
+        // reporting the resident model afterward.
+        var loaded = false;
+        var totalBytes = (long)(sizeBytes * 1.5);
+        VramBudget Provider() => new(totalBytes, loaded ? sizeBytes : 0L);
+
+        await using var runtime = new LLamaSharpRuntime();
+        await using var orchestrator = new RuntimeOrchestrator(
+            runtime, scheduler: new OrcScheduler(), budgetProvider: Provider);
+
+        using (await orchestrator.GetConversationForBindingAsync(workerBinding).ConfigureAwait(false))
+        {
+        }
+        loaded = true;
+
+        var snapshot = orchestrator.GetReservationSnapshot();
+
+        Assert.That(snapshot, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            // The core invariant. Before the fix this was sizeBytes * 2 -- above totalBytes.
+            Assert.That(snapshot!.ReservedBytes, Is.LessThanOrEqualTo(snapshot.TotalBytes),
+                "reserved must never exceed the card's total -- that is physically impossible");
+            Assert.That(snapshot.AvailableBytes, Is.GreaterThan(0),
+                "one resident model on a card sized for 1.5 of them must leave headroom");
+            // Still reports the real footprint rather than zeroing it out to satisfy the bound.
+            Assert.That(snapshot.ReservedBytes, Is.GreaterThanOrEqualTo(sizeBytes));
+        });
+    }
+
+    [Test]
     public async Task GetConversationForBindingAsync_Throws_RuntimeAdmissionDenied_When_No_Scheduler_Or_Budget_Configured()
     {
         // Native Runtime v2.0 Phase A (docs/NATIVE_RUNTIME_V2_SPEC.md §1.2 Gap 2): this used to
