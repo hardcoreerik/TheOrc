@@ -460,12 +460,60 @@ green; full `RuntimeOrchestrator` suite 13/13.
 All 3 jobs `completed`, `claimedBy=HardcorePC`, `Attestation.RuntimeName == "NativeRoleRuntime"`,
 zero fallback. Evidence: `.orc/hv-3-lane/hv3_sequential_20260725_111936.json`.
 
-**HV-3 verdict: NOT CLOSED — sequential lifecycle proven on one machine only.** Outstanding:
-(a) the concurrent second-role phase (`--phase concurrent`, built but not yet run); (b)
-HardcoreLaptopMSI, whose `TheOrcLaptopWorker` scheduled task starts but whose process does not
-survive, and whose `NativeModelRoot` contains a stray `2f` entry alongside the coder GGUF —
-`ModelDepot` auto-picks the smallest asset, so that box may bind the wrong thing and any evidence
-from it is suspect until resolved; (c) item 3 (forced role recycle across machines), which is
+**2026-07-25 (later) — both fleet workers restored, sequential phase PASSES on BOTH machines;
+concurrent-role phase FAILS on a real product defect.**
+
+`HardcoreLaptopMSI` was brought back into the fleet first. Two problems, both silent: its
+`NativeModelRoot` contained a subdirectory `2f` holding a 270 MB onboarding GGUF alongside the
+4.68 GB coder, and `ModelDepot.Scan` recurses and binds the **smallest** asset — so that worker
+had been running a 270 MB model while its config, its logs and this plan all said
+qwen2.5-coder:7b. Any evidence collected from it before this would have been invalid without
+looking wrong. The daemon's `GGUF assets: N` startup line is the tell; anything but 1 means the
+root is not model-specific. Stray directory moved aside; `HIVE__WARCHIEFNODEID` added to both
+workers' start scripts.
+
+**Sequential phase, both machines, 3 cycles each — PASS (6/6 jobs native, zero fallback).**
+Evidence: `.orc/hv-3-lane/hv3_sequential_20260725_112450.json`. Read together with the
+cold-start runs (`…111936` HardcorePC `432013312` → `5589043712`; `…112316` laptop `45088768` →
+`5589043712`), the pair gives the full decoupling picture: the reservation *appears* on first
+load and then *holds* across every subsequent gap, while residency returns to zero after each
+job.
+
+A driver bug was found and fixed here too: `reservation-persists-between-jobs` asserted
+`after > baseline`, which only holds from a cold worker — against a warm one the baseline sample
+already includes the resident model. The same correct behavior produced opposite verdicts purely
+from starting state (warm HardcorePC FAILED, freshly-started laptop PASSED) until the check was
+restated as "non-decreasing and at least baseline, with a loaded model actually observed."
+
+**Concurrent-role phase — FAILS, and the cause is a real admission defect, not the harness.**
+The `Coder` job completes on both boxes; the concurrent `Researcher` job is denied on both,
+fail-closed with no Ollama substitution (itself a clean HV-5 data point). The worker-local log
+carries the detail the Warchief never sees:
+
+> `Runtime admission denied for Researcher (qwen25-coder-7b.gguf, lane Background): Requires`
+> `~5.2 GB, only 0.0 GB available. Budget total=6.0 GB, reserved=10.3 GB, available=0.0 GB.`
+
+**`reserved=10.3 GB` on a 6.0 GB card** — the same double-count as the snapshot defect above,
+but in `EnsureAdmitted` this time. The HV-1 fix credits back only *this* role's prior
+reservation; the live nvidia-smi probe in `baseline.ReservedBytes` already counts **other** roles'
+resident models as well, so those are charged twice (`5.7 + 4.6 = 10.3`). Compounding it: both
+roles resolve to the SAME GGUF and `SessionManager` keeps a single shared base load
+(`CanReuseCurrentSession` short-circuits — no reload, no extra VRAM), yet
+`OrcScheduler.EstimateRequiredBytes` charges a full fresh-load 5.2 GB for the second role anyway.
+So a second role that would actually cost only its context is billed as an entire extra model,
+against a baseline that has already counted the first one twice.
+
+Honest reading: a 6 GB card genuinely cannot hold two full 4.6 GB copies, so *denial* is not
+self-evidently wrong on this hardware — but the number is physically impossible, and because of
+the shared-base-model reuse the true footprint was never actually evaluated. **Deliberately not
+fixed in-session:** admission is the safety gate, and it deserves a reviewed change rather than a
+late one. Filed as an open follow-up.
+
+**HV-3 verdict: NOT CLOSED — sequential lifecycle proven on both machines, concurrent-role
+blocked on an open admission defect.** Outstanding:
+(a) the concurrent second-role phase, which cannot pass until the cross-role admission
+double-count above is fixed — this is a genuine product blocker, not a missing test; (c) item 3
+(forced role recycle across machines), which is
 **deliberately out of scope for this driver** and recorded in every evidence file's
 `uncoveredItems` — `MarkRoleDegraded` is reachable only from the runtime's own NoKvSlot handling,
 and a remote trigger is a MUTATION needing an authenticated control endpoint plus its own
