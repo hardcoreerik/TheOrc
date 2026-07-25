@@ -402,6 +402,81 @@ NewcorePC's local Daemon stopped, scratch workspaces removed. The downloaded mod
 kept in place (not deleted) on both machines — a real, reusable, hash-verified asset for future
 CF work, not a throwaway.
 
+**2026-07-25 — Driver built (`Tools/Hv3LifecycleRunner`), sequential phase PASSES on HardcorePC.
+Still a PARTIAL: one worker only, concurrent-role phase not yet run, item 3 out of scope.**
+
+**The driver** submits one work unit per campaign and awaits it to a terminal state before
+submitting the next — submitting all N up front would let the Warchief overlap them and destroy
+the very thing the phase measures. A `/hive/native-telemetry` sample is taken before the run and
+after each cycle, and three checks are evaluated against those samples rather than asserted in
+prose: `residency-returns-to-baseline`, `reservation-persists-between-jobs`, and
+`fresh-conversation-per-job` (strictly increasing `ConversationsCreated` — what separates "a
+fresh conversation per job" from "one conversation silently reused and never re-counted").
+
+**Prerequisite closed first: residency had no remote observability.** The daemon wired
+`NativeTelemetryProvider` to `GetReservationSnapshot()` alone, so `ActiveCount`/
+`ConversationsCreated`/`Status` existed in-process and nowhere else — the same shape of gap HV-2
+found for admission counters, one level down. `/hive/native-telemetry` now carries a `residency`
+array. Kept strictly additive (reservation fields keep their top-level position) because
+`Tools/Hv2SchedulingRunner` binds them there and HV-6 re-runs that driver unattended 3×.
+`AdapterRoleResidency.Binding` is projected to display names rather than serialized whole: it
+carries absolute GGUF paths and this endpoint is unauthenticated.
+
+**Two real fleet defects found before any evidence could be collected**, both worth recording
+because they cost more time than the phase itself:
+
+1. **The Warchief was not running at all**, and the `swarmcli` binary in `bin/Release` was dated
+   2026-06-22 — a month stale, predating the `req.IsLocal` local-trust exemption added
+   2026-06-24. Every submission, including a plain `curl` to `/hive/info`, returned
+   `401 missing HIVE auth headers`. Stale binaries on the fleet are a live evidence-validity
+   hazard, hit twice in one session (this, and HardcoreLaptopMSI's stale `bin/Debug` output).
+2. **`HIVE__WARCHIEFNODEID` was never set in the worker start scripts.** Re-pairing alone did NOT
+   restore claiming — jobs submitted fine and sat unclaimed. `swarmcli --help` documents this
+   flag as what avoids "IP-vs-hostname shared-secret lookup misses"; without it the worker's
+   signed claims never matched. Added to HardcorePC's `start-worker.bat` (`.bak` retained).
+   NewcorePC's Warchief identity had also churned again (`fbf93f48…`, vs the `f083b993…` the
+   workers had on file) — the recurring DPAPI/AES-GCM collision, now on its fourth observation.
+
+**Real defect found BY the phase, fixed here: the reservation snapshot published impossible
+numbers.** The first passing run reported `reservedBytes` 11.04 GB against `totalBytes` 6.44 GB
+with `availableBytes` pinned to 0, the excess matching that job's `est_vram=4.6GB` exactly.
+`GetReservationSnapshot` computed `baseline.ReservedBytes + ledger.Sum()`, but the daemon's
+budget provider is a live whole-GPU probe whose `ReservedBytes` already counts every resident
+model — the sibling of the HV-1 double-count, in the reporting path instead of the admission
+path. Admission was never affected (which is why jobs kept being admitted while telemetry lied),
+making it purely a diagnosability defect — and §6 requires consistent telemetry and
+diagnosability across machines, so it had to be right before HV-5 sweeps these values fleet-wide.
+Fixed by taking the MAX of the two rather than the sum (live probe wins when present; the static
+`ReservedBytes: 0` fallback budget lets the ledger win). Regression test confirmed red then
+green; full `RuntimeOrchestrator` suite 13/13.
+
+**Decisive run after the fix — HARDCOREPC, 3 sequential cycles, all three checks PASS:**
+- `residency-returns-to-baseline`: ActiveCount back to 0 after all 3 cycles.
+- `reservation-persists-between-jobs`: baseline `432013312` → `[5589043712 ×3]`, held across
+  every gap and now **below** `totalBytes` — and 5589043712 B = 5.20 GiB matches the 5212 MiB
+  `nvidia-smi` reported on the box at that moment, so the telemetry and the hardware now agree.
+- `fresh-conversation-per-job`: `ConversationsCreated = [1, 2, 3]` from a clean worker process.
+
+All 3 jobs `completed`, `claimedBy=HardcorePC`, `Attestation.RuntimeName == "NativeRoleRuntime"`,
+zero fallback. Evidence: `.orc/hv-3-lane/hv3_sequential_20260725_111936.json`.
+
+**HV-3 verdict: NOT CLOSED — sequential lifecycle proven on one machine only.** Outstanding:
+(a) the concurrent second-role phase (`--phase concurrent`, built but not yet run); (b)
+HardcoreLaptopMSI, whose `TheOrcLaptopWorker` scheduled task starts but whose process does not
+survive, and whose `NativeModelRoot` contains a stray `2f` entry alongside the coder GGUF —
+`ModelDepot` auto-picks the smallest asset, so that box may bind the wrong thing and any evidence
+from it is suspect until resolved; (c) item 3 (forced role recycle across machines), which is
+**deliberately out of scope for this driver** and recorded in every evidence file's
+`uncoveredItems` — `MarkRoleDegraded` is reachable only from the runtime's own NoKvSlot handling,
+and a remote trigger is a MUTATION needing an authenticated control endpoint plus its own
+security review, not something to attach to a read-only campaign driver. Since §6's criterion is
+lifecycle behavior *across machines*, a one-box pass cannot be promoted to a closure.
+
+**Throughput note (relevant to the §6 gate, not to HV-3):** the live worker log for these jobs
+reads `tok/s=8.3`, `13.1`, `10.2` — the fleet's "~7 tok/s" figure, observed directly in the HIVE
+path. Every one of those jobs is `steps: 1` with `completion_tokens: 13` against a 384-token
+prompt. See the throughput-gate finding: real decode on this same box is 42.5 tok/s.
+
 ### HV-4 — Failure, cancellation, disconnect, recovery
 
 All on real jobs mid-flight, all asserting fail-closed (no Ollama substitution) and clean
