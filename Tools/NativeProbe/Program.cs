@@ -104,6 +104,18 @@ async Task RunBenchAsync(string[] argv, int flagIndex)
     var ctxSize   = ArgAt(2, 4096);
     var maxTokens = ArgAt(3, 128);
 
+    // Validate before ModelParams sees these. SeqMax/ContextSize are uint there, so a negative
+    // value wraps to an enormous unsigned number and reaches the native load path as a plausible
+    // request -- which fails as a confusing allocation error rather than a bad-argument message.
+    // gpuLayers is deliberately NOT range-checked: -1 is meaningful (offload all layers).
+    if (seqMax <= 0 || ctxSize <= 0 || maxTokens <= 0)
+    {
+        Console.WriteLine(
+            $"  invalid bench arguments (seqMax={seqMax}, ctx={ctxSize}, maxTokens={maxTokens}); " +
+            "all three must be positive integers.");
+        return;
+    }
+
     Console.WriteLine("--- Throughput bench ---");
     Console.WriteLine($"  model     : {modelPath}");
     Console.WriteLine($"  gpuLayers : {gpuLayers}");
@@ -125,14 +137,37 @@ async Task RunBenchAsync(string[] argv, int flagIndex)
         SeqMax        = (uint)seqMax,
     };
 
+    // Same LOAD THREW + inner-exception walk as the non-bench path above. A bench run that dies
+    // on TypeInitializationException is exactly the deployment failure this probe exists to
+    // diagnose, and it must not escape as a bare stack trace just because it took this branch.
+    // `weights` is declared outside so it can be constructed inside the try.
+    LLamaWeights? weights = null;
+    StatelessExecutor executor;
     var loadWatch = Stopwatch.StartNew();
-    using var weights = LLamaWeights.LoadFromFile(mp);
-    loadWatch.Stop();
-    Console.WriteLine($"  model load: {loadWatch.Elapsed.TotalSeconds:F2}s");
+    try
+    {
+        weights = LLamaWeights.LoadFromFile(mp);
+        loadWatch.Stop();
+        Console.WriteLine($"  model load: {loadWatch.Elapsed.TotalSeconds:F2}s");
 
-    // StatelessExecutor builds its own context from these exact params, so SeqMax/ContextSize
-    // reach llama.cpp unchanged -- which is the whole point of parameterizing them here.
-    var executor = new StatelessExecutor(weights, mp);
+        // StatelessExecutor builds its own context from these exact params, so SeqMax/ContextSize
+        // reach llama.cpp unchanged -- which is the whole point of parameterizing them here.
+        // Constructed inside the try because context creation is a native allocation that can
+        // fail on its own (an oversized SeqMax/ContextSize for the card), and that failure
+        // deserves the same diagnostics as the weight load.
+        executor = new StatelessExecutor(weights, mp);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"  LOAD THREW: {ex.GetType().Name}: {ex.Message}");
+        for (var inner = ex.InnerException; inner is not null; inner = inner.InnerException)
+            Console.WriteLine($"    inner: {inner.GetType().Name}: {inner.Message}");
+        weights?.Dispose();
+        return;
+    }
+
+    using var ownedWeights = weights;
+
     var inference = new InferenceParams
     {
         MaxTokens         = maxTokens,

@@ -53,6 +53,13 @@ public sealed class NativeRoleThroughputTests
 
         var depot = ModelDepot.Scan(root!);
 
+        // THEORC_TEST_GGUF names a FILE, but the depot scans that file's whole directory and
+        // resolves the role itself (picking the smallest GGUF present). Reporting the env-var
+        // path as "the model measured" would be a lie whenever the directory holds more than
+        // one -- so report what the depot actually bound, and say so when they differ.
+        var resolvedBinding = depot.ResolveRole(RuntimeRole.Worker);
+        var measuredModel = resolvedBinding?.BaseModel.DisplayName ?? "<unresolved>";
+
         // Context 4096 deliberately matches the fleet workers' HIVE__NATIVECONTEXTSIZE and the
         // Tools/NativeProbe --bench run this is being compared against. A different context size
         // would change KV-cache sizing and make the comparison meaningless.
@@ -92,11 +99,19 @@ public sealed class NativeRoleThroughputTests
         var watch = Stopwatch.StartNew();
         TimeSpan? ttft = null;
         var chunks = 0;
+        // Chars produced strictly AFTER the first chunk. The first chunk arrives at the end of
+        // the TTFT window, so charging it against the decode window (which excludes TTFT) would
+        // divide a numerator and denominator that cover different spans and overstate the rate.
+        var decodeWindowChars = 0;
 
         await foreach (var token in runtime.StreamRoleCompletionAsync(
                            RuntimeRole.Worker, messages, maxTokens: MaxTokens, ct: cts.Token))
         {
-            ttft ??= watch.Elapsed;
+            if (ttft is null)
+                ttft = watch.Elapsed;
+            else
+                decodeWindowChars += token.Length;
+
             sb.Append(token);
             chunks++;
         }
@@ -116,13 +131,19 @@ public sealed class NativeRoleThroughputTests
         var chunkRate = decodeSeconds > 0 && chunks > 1 ? (chunks - 1) / decodeSeconds : 0;
 
         var estimatedTokens = OrchestratorIDE.Core.ContextManager.EstimateTokens(output);
-        var estimatedDecodeRate = decodeSeconds > 0 ? estimatedTokens / decodeSeconds : 0;
+
+        // Estimated over the decode window only, to match decodeSeconds. Deliberately NOT
+        // ContextManager.EstimateTokens: its Math.Max(1, ...) floor would report a phantom token
+        // for an empty decode window, turning "nothing was decoded" into a nonzero rate.
+        var decodeWindowTokens = decodeWindowChars / 4.0;
+        var estimatedDecodeRate = decodeSeconds > 0 ? decodeWindowTokens / decodeSeconds : 0;
 
         var stats = runtime.GetStats(RuntimeRole.Worker);
         var selfReported = stats.TokensPerSecond ?? 0;
 
         TestContext.WriteLine("=== Native role-path throughput ===");
-        TestContext.WriteLine($"  model                     : {ggufPath}");
+        TestContext.WriteLine($"  THEORC_TEST_GGUF          : {ggufPath}");
+        TestContext.WriteLine($"  model actually measured   : {measuredModel}");
         TestContext.WriteLine("  -- cold call (model load inside the measured call) --");
         TestContext.WriteLine($"  cold output chars         : {coldChars}");
         TestContext.WriteLine($"  cold wall                 : {coldWatch.Elapsed.TotalSeconds:F2} s");
