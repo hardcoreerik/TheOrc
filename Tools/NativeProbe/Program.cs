@@ -12,9 +12,21 @@
 //   native-probe                                  # backend selection + native log only
 //   native-probe <path-to-model.gguf>             # also load the model, GpuLayerCount=-1 (all on GPU)
 //   native-probe <path-to-model.gguf> <gpuLayers> # explicit GPU layer count (0 = CPU)
+//   native-probe <model> <gpuLayers> --bench [seqMax] [ctx] [maxTokens]
+//                                                 # measure real decode throughput (tok/s) and TTFT
+//
+// The --bench mode exists for the Native Runtime v2 §6 throughput gate: "is native fast enough to
+// be the default?" is a measurement, not an opinion, and it has to be answerable on a fleet box
+// without dragging the HIVE stack along. It deliberately takes seqMax as a parameter because
+// ModelParams.SeqMax is set to AdapterManager.SequenceHardLimit on the persistent role executor
+// (LLamaSharpRuntime.cs) but left at the native default of 1 on the stateless executor -- so the
+// two production paths run llama.cpp with materially different context params, and comparing them
+// back-to-back on one box is the only honest way to attribute a throughput difference to it.
 
+using System.Diagnostics;
 using LLama;
 using LLama.Common;
+using LLama.Sampling;
 using OrchestratorIDE.Core.Runtime;
 
 Console.WriteLine("=== TheOrc LLamaSharp native probe ===");
@@ -39,7 +51,13 @@ Console.WriteLine($"Selected mtmd    : {report.SelectedMtmd}");
 Console.WriteLine($"VERDICT          : {report.Verdict}");
 Console.WriteLine();
 
-if (args.Length > 0)
+var benchIndex = Array.IndexOf(args, "--bench");
+
+if (benchIndex >= 0)
+{
+    await RunBenchAsync(args, benchIndex);
+}
+else if (args.Length > 0)
 {
     var modelPath = args[0];
     var gpuLayers = args.Length > 1 && int.TryParse(args[1], out var g) ? g : -1;
@@ -70,3 +88,115 @@ if (args.Length > 0)
 Console.WriteLine();
 Console.WriteLine("=== probe complete ===");
 return 0;
+
+// Measures decode throughput the way a user actually experiences it: time to first token, then
+// tokens/second over the remaining decode. Reports both, because they have different causes -- a
+// bad TTFT is prompt-processing/offload, a bad tok/s is decode bandwidth or an oversized cache.
+async Task RunBenchAsync(string[] argv, int flagIndex)
+{
+    var modelPath = argv[0];
+    var gpuLayers = argv.Length > 1 && int.TryParse(argv[1], out var g) ? g : -1;
+
+    int ArgAt(int offset, int fallback) =>
+        argv.Length > flagIndex + offset && int.TryParse(argv[flagIndex + offset], out var v) ? v : fallback;
+
+    var seqMax    = ArgAt(1, 1);
+    var ctxSize   = ArgAt(2, 4096);
+    var maxTokens = ArgAt(3, 128);
+
+    // Validate before ModelParams sees these. SeqMax/ContextSize are uint there, so a negative
+    // value wraps to an enormous unsigned number and reaches the native load path as a plausible
+    // request -- which fails as a confusing allocation error rather than a bad-argument message.
+    // gpuLayers is deliberately NOT range-checked: -1 is meaningful (offload all layers).
+    if (seqMax <= 0 || ctxSize <= 0 || maxTokens <= 0)
+    {
+        Console.WriteLine(
+            $"  invalid bench arguments (seqMax={seqMax}, ctx={ctxSize}, maxTokens={maxTokens}); " +
+            "all three must be positive integers.");
+        return;
+    }
+
+    Console.WriteLine("--- Throughput bench ---");
+    Console.WriteLine($"  model     : {modelPath}");
+    Console.WriteLine($"  gpuLayers : {gpuLayers}");
+    Console.WriteLine($"  seqMax    : {seqMax}");
+    Console.WriteLine($"  ctxSize   : {ctxSize}");
+    Console.WriteLine($"  maxTokens : {maxTokens}");
+    Console.WriteLine();
+
+    if (!File.Exists(modelPath))
+    {
+        Console.WriteLine("  model file does not exist; skipping bench.");
+        return;
+    }
+
+    var mp = new ModelParams(modelPath)
+    {
+        ContextSize   = (uint)ctxSize,
+        GpuLayerCount = gpuLayers,
+        SeqMax        = (uint)seqMax,
+    };
+
+    // Same LOAD THREW + inner-exception walk as the non-bench path above. A bench run that dies
+    // on TypeInitializationException is exactly the deployment failure this probe exists to
+    // diagnose, and it must not escape as a bare stack trace just because it took this branch.
+    // `weights` is declared outside so it can be constructed inside the try.
+    LLamaWeights? weights = null;
+    StatelessExecutor executor;
+    var loadWatch = Stopwatch.StartNew();
+    try
+    {
+        weights = LLamaWeights.LoadFromFile(mp);
+        loadWatch.Stop();
+        Console.WriteLine($"  model load: {loadWatch.Elapsed.TotalSeconds:F2}s");
+
+        // StatelessExecutor builds its own context from these exact params, so SeqMax/ContextSize
+        // reach llama.cpp unchanged -- which is the whole point of parameterizing them here.
+        // Constructed inside the try because context creation is a native allocation that can
+        // fail on its own (an oversized SeqMax/ContextSize for the card), and that failure
+        // deserves the same diagnostics as the weight load.
+        executor = new StatelessExecutor(weights, mp);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"  LOAD THREW: {ex.GetType().Name}: {ex.Message}");
+        for (var inner = ex.InnerException; inner is not null; inner = inner.InnerException)
+            Console.WriteLine($"    inner: {inner.GetType().Name}: {inner.Message}");
+        weights?.Dispose();
+        return;
+    }
+
+    using var ownedWeights = weights;
+
+    var inference = new InferenceParams
+    {
+        MaxTokens         = maxTokens,
+        AntiPrompts       = [],
+        SamplingPipeline  = new DefaultSamplingPipeline { Temperature = 0f },
+    };
+
+    const string prompt =
+        "Write a short technical explanation of how a hash table resolves collisions.";
+
+    var watch  = Stopwatch.StartNew();
+    TimeSpan? ttft = null;
+    var tokens = 0;
+
+    await foreach (var _ in executor.InferAsync(prompt, inference))
+    {
+        ttft ??= watch.Elapsed;
+        tokens++;
+    }
+    watch.Stop();
+
+    // Decode rate excludes prompt processing: charging TTFT against the token count would blend
+    // two different bottlenecks into one number and make the result useless for diagnosis.
+    var decodeSeconds = (watch.Elapsed - (ttft ?? TimeSpan.Zero)).TotalSeconds;
+    var decodeRate    = decodeSeconds > 0 && tokens > 1 ? (tokens - 1) / decodeSeconds : 0;
+
+    Console.WriteLine();
+    Console.WriteLine($"  RESULT tokens        : {tokens}");
+    Console.WriteLine($"  RESULT ttft          : {ttft?.TotalMilliseconds ?? 0:F0} ms");
+    Console.WriteLine($"  RESULT wall          : {watch.Elapsed.TotalSeconds:F2} s");
+    Console.WriteLine($"  RESULT decode tok/s  : {decodeRate:F2}");
+}
