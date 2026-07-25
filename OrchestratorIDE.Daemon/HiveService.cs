@@ -214,7 +214,43 @@ public sealed class HiveService : BackgroundService
                 // LastRejectionReason existed in-process (RuntimeOrchestrator) but had no remote
                 // observability surface on a headless worker -- only the Avalonia GUI's own
                 // diagnostics panel could see them. Exposed read-only over GET /hive/native-telemetry.
-                _nodeServer.NativeTelemetryProvider = () => nativeRuntime.GetReservationSnapshot();
+                // HV-3 adds residency alongside reservation. The two are deliberately decoupled
+                // in the runtime (a reservation persists while the model stays loaded; residency
+                // drops as soon as the conversation is disposed), and HV-3's whole assertion is
+                // that ActiveCount returns to baseline BETWEEN jobs while the reservation does
+                // not -- which is unobservable on a headless worker with reservation alone.
+                //
+                // AdapterRoleResidency.Binding is projected down to display names rather than
+                // serialized whole: it carries absolute GGUF/adapter paths, and this endpoint is
+                // unauthenticated (same posture as /hive/info). Role, counts and status are what
+                // the phase actually asserts on; the local filesystem layout is not.
+                // Residency is added as an ADDITIVE key: the reservation fields stay exactly where
+                // they are at the top level. Tools/Hv2SchedulingRunner deserializes
+                // RejectedAdmissionCount/LastRejectionReason from there, and HV-6 requires the
+                // whole HV-1..HV-5 campaign to re-run 3x unattended -- nesting them to make this
+                // response tidier would break a driver the campaign depends on, for no gain.
+                _nodeServer.NativeTelemetryProvider = () =>
+                {
+                    var reservation = nativeRuntime.GetReservationSnapshot();
+                    return new
+                    {
+                        reservation?.Reservations,
+                        TotalBytes             = reservation?.TotalBytes,
+                        ReservedBytes          = reservation?.ReservedBytes,
+                        AvailableBytes         = reservation?.AvailableBytes,
+                        RejectedAdmissionCount = reservation?.RejectedAdmissionCount,
+                        LastRejectionReason    = reservation?.LastRejectionReason,
+                        Residency = nativeRuntime.GetResidencySnapshot().Select(r => new
+                        {
+                            Role      = r.Role.ToString(),
+                            BaseModel = r.Binding.BaseModel.DisplayName,
+                            Adapter   = r.Binding.Adapter?.DisplayName,
+                            r.ActiveCount,
+                            r.ConversationsCreated,
+                            Status    = r.Status.ToString(),
+                        }).ToList(),
+                    };
+                };
             }
 
             _worker = new HiveWorkerAgent
