@@ -183,17 +183,27 @@ internal static class Program
 
         // 1. Residency returns to baseline between jobs. Sampled AFTER each job completes, so a
         //    nonzero ActiveCount here means a conversation outlived the job that created it.
+        //
+        //    Requires evidence that work actually HAPPENED before it can pass. "ActiveCount is 0"
+        //    is trivially true on a worker that never ran anything, and this check reported PASS
+        //    on both machines during a run where every job sat unclaimed and the telemetry
+        //    endpoint was unreachable -- a green tick on an empty run is worse than no check,
+        //    because it reads as evidence. ConversationsCreated > 0 is the liveness proof.
+        var workDone = afterCycles.Any(s => s.Reachable && s.MaxConversationsCreated > 0);
         var leaked = afterCycles.Where(s => s.TotalActiveCount > 0).Select(s => s.Stage).ToList();
         report.LifecycleChecks.Add(new Hv3LifecycleCheck
         {
             WorkerId = workerId,
             Name = "residency-returns-to-baseline",
-            Passed = afterCycles.Count > 0 && leaked.Count == 0,
+            Passed = afterCycles.Count > 0 && workDone && leaked.Count == 0,
             Detail = afterCycles.Count == 0
                 ? "no post-cycle samples captured"
-                : leaked.Count == 0
-                    ? $"ActiveCount back to 0 after all {afterCycles.Count} cycle(s)"
-                    : $"ActiveCount still nonzero after: {string.Join(", ", leaked)}",
+                : !workDone
+                    ? "VACUOUS — no conversation was ever created on this worker (unreachable " +
+                      "telemetry or unclaimed jobs); residency being zero proves nothing here"
+                    : leaked.Count == 0
+                        ? $"ActiveCount back to 0 after all {afterCycles.Count} cycle(s)"
+                        : $"ActiveCount still nonzero after: {string.Join(", ", leaked)}",
         });
 
         // 2. Reservation persists across the gap. The model stays loaded between jobs, so the

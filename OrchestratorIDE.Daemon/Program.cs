@@ -37,7 +37,7 @@ using OrchestratorIDE.Services.Hive;
 // AesGcm-protected) content and generate yet another new one -- recoverable via re-pairing,
 // not data loss, but avoidable: don't run these CLI modes against a machine that already
 // has a live GUI-owned HIVE identity. Headless-only boxes (this Pi) have no such collision.
-if (args.Contains("--show-identity") || args.Contains("--pair"))
+if (args.Contains("--show-identity") || args.Contains("--pair") || args.Contains("--leave-hive"))
     SecretProtection.Initialize(new AesGcmSecretProtector(MachineKey.Load()));
 
 if (args.Contains("--show-identity"))
@@ -45,6 +45,50 @@ if (args.Contains("--show-identity"))
     var identity = HiveIdentity.Load();
     Console.WriteLine($"NodeId: {identity.NodeId}");
     Console.WriteLine($"Fingerprint: {identity.Fingerprint}");
+    return 0;
+}
+
+// Headless equivalent of the GUI's HivePanel "Leave current hive" item. HiveIdentity.LeaveHive
+// existed but was reachable ONLY from the GUI, which strands a headless worker permanently the
+// moment its HiveId diverges from the Warchief's: §4.3 refuses to bridge two hives, so pairing
+// can never recover it and there is no other operator surface. Observed on both fleet workers
+// during HV-3 (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md, 2026-07-25) -- re-pair returned
+// "already belongs to a different hive" on machines with no GUI to click.
+//
+// This does NOT weaken §4.3's "no silent bridge" guarantee. Leaving stays an explicit, deliberate
+// operator action -- it just becomes one an operator can perform on a machine that has no screen.
+// Pairing still never leaves a hive on its own, and the confirmation gate below keeps this from
+// being something a stray script or a mistyped flag can do by accident.
+//
+// Membership only: signing/exchange keys, NodeId and paired-peer shared secrets all survive
+// (see HiveIdentity.LeaveHive). The own-membership cert is cleared because the hive that issued
+// it is the one being left.
+if (args.Contains("--leave-hive"))
+{
+    var identity = HiveIdentity.Load();
+    if (string.IsNullOrEmpty(identity.HiveId))
+    {
+        Console.WriteLine("This node is not currently in a hive — nothing to leave.");
+        return 0;
+    }
+
+    // Deliberately requires an explicit confirmation flag rather than acting on --leave-hive
+    // alone. The spec frames leaving as a decision a human makes; on a headless box there is no
+    // dialog to serve that role, so the second flag is what makes the intent unambiguous.
+    if (!args.Contains("--yes"))
+    {
+        Console.Error.WriteLine(
+            $"--leave-hive would abandon hive {identity.HiveId} (role {identity.HiveRole}) on " +
+            $"{Environment.MachineName}, resetting membership so this node can pair into a " +
+            "different hive. NodeId, keys and existing peer secrets are kept.");
+        Console.Error.WriteLine("Re-run with --leave-hive --yes to confirm.");
+        return 1;
+    }
+
+    var leftHiveId = identity.HiveId;
+    identity.LeaveHive();
+    Console.WriteLine($"Left hive {leftHiveId}. NodeId {identity.NodeId} unchanged.");
+    Console.WriteLine("Pair again with: --pair --target <host> --expect-fingerprint \"<phrase>\"");
     return 0;
 }
 
@@ -123,7 +167,9 @@ if (args.Contains("--pair"))
 if (args.Length > 0)
 {
     Console.Error.WriteLine($"Unknown argument(s): {string.Join(' ', args)}");
-    Console.Error.WriteLine("Recognized modes: --show-identity, --pair --target <host> --expect-fingerprint \"<phrase>\"");
+    Console.Error.WriteLine(
+        "Recognized modes: --show-identity, --pair --target <host> --expect-fingerprint \"<phrase>\", " +
+        "--leave-hive --yes");
     Console.Error.WriteLine("Normal (long-running daemon) mode takes no arguments.");
     return 1;
 }
