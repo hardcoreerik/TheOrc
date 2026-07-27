@@ -61,6 +61,10 @@ internal static class Program
             WorkerBSsh  = GetArg(args, "--worker-b-ssh") ?? "100.114.151.4",
             WorkerBTask = GetArg(args, "--worker-b-task") ?? "TheOrcLaptopWorker",
             WorkerBLog  = GetArg(args, "--worker-b-log") ?? @"C:\Ai\OrchestratorIDE-dev\worker_laptop.log",
+            // Defaults to worker A because that is HardcorePC's 6 GB card against the laptop's 8 GB.
+            // Override when the fleet shape changes; HV-2's `large` phase is meaningless if this
+            // names the box with headroom.
+            LowVramWorkerId = GetArg(args, "--low-vram-worker") ?? GetArg(args, "--worker-a") ?? "HardcorePC",
         };
 
         // Opt-out for lanes a given environment cannot currently drive. Named rather than silently
@@ -189,10 +193,14 @@ internal static class Program
             new Lane("hv1", Exe("Hv1NativeCampaignRunner", "hv1-native-campaign-runner"),
                 $"--warchief {warchief} --model-hash {modelHash} --worker-a {f.WorkerAId} --worker-b {f.WorkerBId}"),
 
+            // HV-2 needs node URLs AND --low-vram-worker: its `large` phase asserts that the
+            // smaller-VRAM box DENIES admission, so it has to be told which box that is. Caught by
+            // running it — without these it throws "No workers configured" before doing anything,
+            // which as an HV-6 lane would have read as a lane failure rather than a driver misuse.
             new Lane("hv2-large", Exe("Hv2SchedulingRunner", "hv2-scheduling-runner"),
-                $"--warchief {warchief} --phase large --worker-a {f.WorkerAId} --worker-b {f.WorkerBId}"),
+                $"--warchief {warchief} --phase large {nodeArgs} --low-vram-worker {f.LowVramWorkerId}"),
             new Lane("hv2-small", Exe("Hv2SchedulingRunner", "hv2-scheduling-runner"),
-                $"--warchief {warchief} --phase small --worker-a {f.WorkerAId} --worker-b {f.WorkerBId}"),
+                $"--warchief {warchief} --phase small {nodeArgs} --low-vram-worker {f.LowVramWorkerId}"),
 
             new Lane("hv3-sequential", Exe("Hv3LifecycleRunner", "hv3-lifecycle-runner"),
                 $"--warchief {warchief} --phase sequential --cycles 3 {nodeArgs}"),
@@ -363,6 +371,8 @@ internal sealed class Fleet
     public string WorkerBSsh { get; init; } = "";
     public string WorkerBTask { get; init; } = "";
     public string WorkerBLog { get; init; } = "";
+    /// <summary>Which box HV-2's `large` phase expects to DENY admission — the smaller card.</summary>
+    public string LowVramWorkerId { get; init; } = "";
 }
 
 internal sealed class Hv6LaneResult
