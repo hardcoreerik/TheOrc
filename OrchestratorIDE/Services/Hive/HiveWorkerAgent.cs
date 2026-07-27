@@ -555,9 +555,16 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         // a starved loop's sends still succeed, just too late to matter.
         var lastBeat = DateTime.UtcNow;
 
+        var beatFailed = false;
+
         while (!ct.IsCancellationRequested)
         {
-            try { await Task.Delay(10_000, ct).ConfigureAwait(false); } catch { break; }
+            // Retry sooner after a failure. At the normal 10s cadence a worker only gets four
+            // attempts inside the queue's 45s window, so two slow beats in a row are already
+            // most of the budget; backing off the full interval after a miss spends what is
+            // left. 3s keeps a recovering worker alive without hammering an unreachable one.
+            var wait = beatFailed ? 3_000 : 10_000;
+            try { await Task.Delay(wait, ct).ConfigureAwait(false); } catch { break; }
             if (ct.IsCancellationRequested) break;
 
             try
@@ -578,17 +585,32 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                     new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
                 SignIfPaired(req, hbBytes);
 
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+                // 5s was too tight and cost real jobs. A worker mid-inference is CPU-saturated
+                // (HeadlessAgentLoop runs up to 12 steps of 4096 tokens back-to-back), which
+                // delays this outbound request's async continuations well past 5s even though the
+                // worker's own inbound listener stays responsive — measured at ~0.09s while a
+                // heartbeat was timing out. Every beat then died as
+                // "TaskCanceledException: ... HttpClient.Timeout of 5 seconds elapsing", three in
+                // a row reached the queue's 45s cutoff, and a healthy worker was declared dead
+                // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-27).
+                //
+                // 20s: generous enough to ride out that contention, still under the 45s cutoff so
+                // a genuinely unreachable Warchief is detected well within the window rather than
+                // masked. Deliberately not unbounded — a hung send must not stall the loop past
+                // the point where the re-queue it was meant to prevent has already happened.
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
                 using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
                 if (resp.IsSuccessStatusCode)
                 {
-                    lastBeat = DateTime.UtcNow;
+                    lastBeat   = DateTime.UtcNow;
+                    beatFailed = false;
                 }
                 else
                 {
                     // The response was previously discarded entirely, so a heartbeat rejected for
                     // a stale claim token or a signature problem was indistinguishable from a
                     // healthy one right up until the Warchief declared the worker dead.
+                    beatFailed = true;
                     var reason = await ReadReasonAsync(resp, ct).ConfigureAwait(false);
                     Log($"⚠ Heartbeat for '{bundle.Title}' rejected: HTTP {(int)resp.StatusCode}" +
                         (string.IsNullOrWhiteSpace(reason) ? "" : $" — {reason}"));
@@ -602,6 +624,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             {
                 // Still non-fatal — a missed beat must never take down a running job — but no
                 // longer silent.
+                beatFailed = true;
                 Log($"⚠ Heartbeat for '{bundle.Title}' failed to send: {ex.GetType().Name}: {ex.Message}");
             }
         }
