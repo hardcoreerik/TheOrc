@@ -196,6 +196,16 @@ public sealed class HiveTaskQueue : IDisposable
         {
             _ = ServeAsync(_cts.Token);
             Log($"🐝 HiveTaskQueue listening on :{port} — workers connect to {BaseUrl}");
+            // State the diagnostics setting positively at startup. An empty receipt log means
+            // "no beat arrived" only if the log was switched ON, and there was no way to tell
+            // the two apart from the log itself — the same ambiguity the worker-side
+            // "♥ Heartbeat established" line exists to close
+            // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3).
+            Log(s_heartbeatDiagnostics
+                ? "🐝 Heartbeat receipt diagnostics ON (THEORC_HIVE_HEARTBEAT_DIAGNOSTICS=1) — " +
+                  "every beat will be logged with its outcome."
+                : "🐝 Heartbeat receipt diagnostics OFF — set THEORC_HIVE_HEARTBEAT_DIAGNOSTICS=1 " +
+                  "before concluding anything from an absence of [HeartbeatDiag] lines.");
         }
         else
         {

@@ -461,6 +461,40 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             ClaimToken = claimToken,
             Attempt    = bundle.Attempt,
         };
+        // Uploading output artifacts must not be able to swallow the task.
+        //
+        // These two calls sit AFTER the try/catch around execution, so an upload failure used to
+        // propagate straight out of this method into RunLoopAsync's generic handler. PostResultAsync
+        // below was then never reached: the task stayed "claimed" with its heartbeat loop already
+        // cancelled in the finally above, and 45s later the Warchief's watchdog re-queued it as a
+        // HEARTBEAT TIMEOUT. Three attempts of that produced "exhausted 3 attempts after heartbeat
+        // loss" against a worker that had finished the job successfully and was heartbeating
+        // correctly the whole time -- which is what sent this investigation after the heartbeat for
+        // two sessions (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-27).
+        //
+        // The trigger was real and reproducible on both machines: `swarmcli --warchief` never wired
+        // an ArtifactStore, so every PUT /hive/artifacts/{digest} answered 503. That wiring is fixed
+        // separately, but the failure MODE has to be fixed here too -- an unreachable or misconfigured
+        // artifact store must make the task fail VISIBLY, with the real reason, not impersonate a dead
+        // worker. Fail-closed: the result is still posted, marked failed, carrying the upload error.
+        async Task<IReadOnlyList<ArtifactRef>> UploadOrFailAsync(string outputDirectory)
+        {
+            try
+            {
+                return await UploadOutputArtifactsAsync(bundle, outputDirectory, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                status   = "failed";
+                errorMsg = $"Output artifact upload failed: {ex.Message}";
+                taskResult.Status   = status;
+                taskResult.ErrorMsg = errorMsg;
+                Log($"⚠ [{bundle.Role}] '{bundle.Title}' — {errorMsg}");
+                return [];
+            }
+        }
+
         if (_lastAgentExecution is { } execution)
         {
             taskResult.Metrics["steps"] = execution.Steps;
@@ -477,7 +511,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 InputDigests = bundle.InputArtifacts.ToDictionary(a => a.Name, a => a.DigestSha256),
             };
             taskResult.OutputArtifacts.AddRange(
-                await UploadOutputArtifactsAsync(bundle, execution.OutputDirectory, ct).ConfigureAwait(false));
+                await UploadOrFailAsync(execution.OutputDirectory).ConfigureAwait(false));
         }
         if (_lastContainerExecution is { } container)
         {
@@ -489,7 +523,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 InputDigests = new Dictionary<string, string>(container.InputDigests),
             };
             taskResult.OutputArtifacts.AddRange(
-                await UploadOutputArtifactsAsync(bundle, container.OutputDirectory, ct).ConfigureAwait(false));
+                await UploadOrFailAsync(container.OutputDirectory).ConfigureAwait(false));
         }
 
         var action = status == "completed" ? "complete" : "fail";
