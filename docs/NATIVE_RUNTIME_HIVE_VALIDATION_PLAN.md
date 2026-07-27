@@ -607,6 +607,47 @@ under controlled conditions. Do not treat it as established.
 **Recommended way to resume:** pin one AppData view explicitly, assert exactly one Warchief
 process, then re-run the pair → auth check. Only if it still fails is there a product bug to chase.
 
+**2026-07-27 (resolved) — the blocker was HOW the Warchief was launched, not HIVE auth.**
+
+Running that controlled re-test with both AppData views cleared to byte-identical state, the
+worker's peer store deleted, and exactly one `swarmcli` process bound to 7078, the two launch
+methods gave OPPOSITE results against the same on-disk trust state:
+
+| Warchief launched via | Pairing result |
+|---|---|
+| `Win32_Process.Create` (WMI, from `start-warchief.bat`) | `already_paired` — `IsTrusted` true for a node absent from every store found on disk |
+| direct child process of the shell | `✓ Paired … fingerprint verified. Shared secret stored.` |
+
+The WMI-spawned process resolves its HIVE state directory somewhere other than the file the rest
+of the tooling reads, so it authenticates against a stale peer entry — which is what produced the
+`HMAC mismatch`, the "cleared the store and it still says already_paired", and the phantom
+in-memory-peer readings throughout this campaign. No system-profile copy exists
+(`systemprofile` / `Users\Default` / `Users\Public` all checked and absent), so the exact
+redirection is not yet identified — but the operational rule is unambiguous:
+
+> **Launch the Warchief as a direct child process, never via WMI/`Win32_Process.Create`.**
+> Then verify `swarmcli` count == 1 and that port 7078 has exactly one listener before pairing.
+
+**HV-3 sequential — PASS on HardcorePC from a COLD worker** (the stronger form: the reservation
+is observed appearing on first load *and* holding across every gap, rather than only holding):
+
+```
+residency-returns-to-baseline:     PASS — ActiveCount back to 0 after all 3 cycles
+reservation-persists-between-jobs: PASS — baseline 584056832 (cold) → [5617221632 ×3]
+fresh-conversation-per-job:        PASS — ConversationsCreated = [1, 2, 3]
+```
+
+3/3 jobs `completed`, `Attestation.RuntimeName == "NativeRoleRuntime"`, zero fallback. Evidence:
+`.orc/hv-3-lane/hv3_sequential_20260727_092800.json`. **This is also the regression check for the
+cross-role admission fix** — that change altered the admission path, and the previously-passing
+sequential phase still passes with it in place.
+
+Cross-role admission accounting observed live during the concurrent phase on the same 6 GB box:
+`reservations [(Worker, 637534208), (Researcher, 637534208)]`, `reservedBytes 6107955200` against
+`totalBytes 6442450944`, `rejectedAdmissionCount 0` — two roles holding reservations at once,
+each charged its incremental context cost rather than a whole extra model, and the total still
+physically possible.
+
 ### HV-4 — Failure, cancellation, disconnect, recovery
 
 All on real jobs mid-flight, all asserting fail-closed (no Ollama substitution) and clean
