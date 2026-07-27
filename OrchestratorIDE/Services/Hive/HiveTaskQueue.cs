@@ -881,6 +881,21 @@ public sealed class HiveTaskQueue : IDisposable
         catch { return 0; }
     }
 
+    // Opt-in, zero-cost-by-default receipt log for the open heartbeat-timeout investigation
+    // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3). The worker side already reports send
+    // failures and rejections, and reported NEITHER across runs the Warchief nonetheless timed
+    // out — so the missing evidence is on this side: whether a beat arrived at all, and if it did,
+    // whether it was credited. Without that, "never sent" and "sent but uncredited" are the same
+    // observation. Set THEORC_HIVE_HEARTBEAT_DIAGNOSTICS=1 to enable; unset, this is one cached
+    // bool read per beat. Same idiom as AdapterManager's KV-cache diagnostics.
+    private static readonly bool s_heartbeatDiagnostics =
+        Environment.GetEnvironmentVariable("THEORC_HIVE_HEARTBEAT_DIAGNOSTICS") == "1";
+
+    private void HeartbeatDiag(string message)
+    {
+        if (s_heartbeatDiagnostics) OnLog?.Invoke($"[HeartbeatDiag] {message}");
+    }
+
     private async Task HandleHeartbeatAsync(HttpListenerContext ctx, string taskId, byte[] body)
     {
         var hb = ReadJson<HiveHeartbeatRequest>(body);
@@ -890,7 +905,21 @@ public sealed class HiveTaskQueue : IDisposable
         {
             if (!_tasks.TryGetValue(taskId, out var entry) || entry.Status != "claimed")
             {
+                // 409, not 200. This branch does NOT refresh LastHeartbeat, so answering 200 made
+                // an uncredited beat indistinguishable from a credited one at the worker: once the
+                // watchdog re-queued a task (Status -> "pending", token rotated, LastHeartbeat
+                // cleared) the still-running worker kept beating into here, saw success, logged
+                // nothing, and carried on executing a lease it no longer held — while the task was
+                // re-claimed and executed AGAIN. That is why the Researcher role's
+                // ConversationsCreated climbed in multiples of its step budget across a run whose
+                // worker log contained zero heartbeat complaints
+                // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-27).
+                //
+                // Same shape as the stale-token rejection below, which was already a visible 409.
+                ctx.Response.StatusCode = 409;
                 WriteJson(ctx, new { taskId, status = "not-claimed" });
+                HeartbeatDiag($"not-claimed taskId={taskId} " +
+                              $"entryStatus={(entry is null ? "<missing>" : entry.Status)}");
                 return;
             }
 
@@ -901,10 +930,14 @@ public sealed class HiveTaskQueue : IDisposable
             {
                 ctx.Response.StatusCode = 409;
                 WriteJson(ctx, new { taskId, status = "stale" });
+                HeartbeatDiag($"stale-token taskId={taskId} worker={entry.ClaimedBy ?? "?"}");
                 return;
             }
 
+            var sinceLast = entry.LastHeartbeat is { } prev ? DateTime.UtcNow - prev : TimeSpan.Zero;
             entry.LastHeartbeat = DateTime.UtcNow;
+            HeartbeatDiag($"credited taskId={taskId} worker={entry.ClaimedBy ?? "?"} " +
+                          $"sinceLast={sinceLast.TotalSeconds:F1}s");
             WriteJson(ctx, new { taskId, status = "alive" });
         }
         finally { _claimLock.Release(); }
