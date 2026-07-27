@@ -42,6 +42,16 @@ internal static class Program
 
     public static async Task<int> Main(string[] args)
     {
+        // ExcludedWorkerIds is the ONLY pinning mechanism these phases have, and it is built by
+        // excluding the OTHER configured workers -- so a run configured with a single --worker-a
+        // excludes nobody and any live worker in the fleet can claim its jobs. That silently
+        // invalidated a targeted run: a phase aimed at HardcoreLaptopMSI had its second work unit
+        // claimed by HardcorePC, whose 6 GB card then produced the very timeout the run was
+        // trying to attribute to the laptop. The evidence file recorded the intended worker, not
+        // the one that actually ran it, so the result looked like a finding rather than a
+        // mis-targeted job. Warn loudly rather than fail: single-worker runs are legitimate when
+        // the operator has genuinely stopped the other workers, which is exactly what the message
+        // tells them to confirm.
         var warchief = GetArg(args, "--warchief") ?? "http://localhost:7079";
         var outDir = GetArg(args, "--out") ?? Path.Combine(Environment.CurrentDirectory, ".orc", "hv-3-lane");
         var phase = GetArg(args, "--phase") ?? "sequential";
@@ -63,6 +73,16 @@ internal static class Program
         if (workers.Count == 0)
             throw new InvalidOperationException(
                 "No workers configured. Pass --worker-a <id> --worker-a-node <http://ip:7078> (and -b/-c).");
+
+        if (workers.Count == 1)
+        {
+            Console.WriteLine(
+                $"WARNING: only one worker configured ({workers[0].Id}), so ExcludedWorkerIds is " +
+                "empty and NOTHING pins these jobs to it — any other live worker in the fleet can " +
+                "claim them, and the evidence file would still record the intended target. " +
+                "Confirm every other worker is stopped, or pass the others via --worker-b/-c so " +
+                "they are excluded explicitly.");
+        }
 
         Directory.CreateDirectory(outDir);
 
@@ -90,8 +110,17 @@ internal static class Program
                 await RunConcurrentAsync(http, workers, report, primaryRole, secondaryRole, timeoutMs);
 
             report.FinishedAt = DateTimeOffset.UtcNow;
+            // ClaimedByExpected is part of the verdict, not just a recorded field. It was already
+            // being captured per job and then ignored, so a work unit claimed by a DIFFERENT
+            // worker than the phase targeted could still produce a green run whose evidence named
+            // the intended machine. That is exactly how a laptop-targeted phase got its second
+            // job executed on the 6 GB box and the resulting timeout misread as a laptop result.
+            // A phase that cannot prove WHICH machine ran the work proves nothing about "across
+            // machines", which is the entire §6 criterion this campaign exists to evidence.
             report.Passed = report.Jobs.Count > 0
-                            && report.Jobs.All(j => j.Status == "completed" && j.IsNativeRuntime)
+                            && report.Jobs.All(j => j.Status == "completed"
+                                                    && j.IsNativeRuntime
+                                                    && j.ClaimedByExpected)
                             && report.LifecycleChecks.All(l => l.Passed);
         }
         catch (Exception ex)
