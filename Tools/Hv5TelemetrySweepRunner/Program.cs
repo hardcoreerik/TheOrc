@@ -620,6 +620,15 @@ internal static class Program
                     last = body;
                     if (body.Status is "claimed" or "running") seenClaimed = true;
                     if (body.Status is "completed" or "failed" or "timeout" or "cancelled") break;
+
+                    // An unsatisfiable unit is terminal in every sense that matters here: its reason
+                    // is a capability mismatch against every worker that has polled, and nothing in
+                    // this campaign will change the fleet's capabilities mid-run. It legitimately
+                    // stays `pending` (a capable worker joining later should still pick it up), so
+                    // there is nothing to wait FOR — and waiting cost the drill its full ~6.5 min
+                    // deadline per box for information it already had within seconds. HV-6 multiplies
+                    // that by rounds × boxes, which is the reason this matters enough to special-case.
+                    if (!string.IsNullOrWhiteSpace(body.UnsatisfiableReason)) break;
                 }
             }
             else if (resp.StatusCode == System.Net.HttpStatusCode.NotFound && seenClaimed)

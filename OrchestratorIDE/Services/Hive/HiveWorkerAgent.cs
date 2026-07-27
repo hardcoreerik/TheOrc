@@ -440,8 +440,18 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         catch (Exception ex)
         {
             status   = "failed";
-            errorMsg = ex.Message;
-            Log($"⚠ [{bundle.Role}] '{bundle.Title}' — execution failed: {ex.Message}");
+            // The FULL chain, not just ex.Message. Every native failure is wrapped for fail-closed
+            // reporting ("Worker: native role runtime failed. Phase 3B does not fall back.") and
+            // that outer message names the LAYER, never the cause — so the only text reaching the
+            // Warchief said nothing actionable, while the actual reason sat in an inner exception
+            // that was discarded here. HV-5's diagnosability drill caught it on both machines: an
+            // induced failure produced a correctly failed, correctly fail-closed job whose retained
+            // error could not be diagnosed from the evidence alone
+            // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-5, 2026-07-27). §6 requires the
+            // retained diagnostics to be sufficient to identify a cause without interactive
+            // debugging, and a wrapper message alone never is.
+            errorMsg = DescribeExceptionChain(ex);
+            Log($"⚠ [{bundle.Role}] '{bundle.Title}' — execution failed: {errorMsg}");
         }
         finally
         {
@@ -1305,6 +1315,29 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             await http.SendAsync(req, ct).ConfigureAwait(false);
         }
         catch { /* non-fatal — observability must not break execution */ }
+    }
+
+    /// <summary>
+    /// Flattens an exception chain into one line: outer, then each inner cause, most general first.
+    /// Types are included because the wrapper messages are all InvalidOperationException and the
+    /// inner type is often the most identifying thing available (HttpRequestException,
+    /// EndOfStreamException, JsonException).
+    ///
+    /// Depth-capped and de-duplicated: an AggregateException from a faulted Task can nest the same
+    /// message several layers deep, and a result payload is not the place for a wall of repeats.
+    /// </summary>
+    internal static string DescribeExceptionChain(Exception ex)
+    {
+        var parts = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (Exception? cur = ex; cur is not null && parts.Count < 5; cur = cur.InnerException)
+        {
+            var message = cur.Message.Trim();
+            if (message.Length == 0) continue;
+            var part = $"{cur.GetType().Name}: {message}";
+            if (seen.Add(part)) parts.Add(part);
+        }
+        return parts.Count == 0 ? ex.GetType().Name : string.Join(" ← ", parts);
     }
 
     private void Log(string msg)          => OnLog?.Invoke(msg);
