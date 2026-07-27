@@ -589,6 +589,15 @@ public sealed class HiveTaskQueue : IDisposable
             // A lane mismatch is this worker declining a role, not the unit being unsatisfiable.
             if (lanes.Count > 0 && !lanes.Contains(entry.Bundle.Role.ToLowerInvariant())) continue;
 
+            // An exclusion is TARGETING, not unsatisfiability, and conflating the two made this
+            // diagnostic actively harmful: every HV driver pins its units with ExcludedWorkerIds
+            // naming the other boxes, so a perfectly satisfiable unit accumulated a "reason" from
+            // every worker it was deliberately kept away from and then reported itself as
+            // unrunnable. A driver that had learned to trust the field stopped waiting and declared
+            // a healthy unit undiagnosable before its intended worker had even polled.
+            if (entry.Bundle.Requirements.ExcludedWorkerIds
+                .Contains(request.WorkerId, StringComparer.OrdinalIgnoreCase)) continue;
+
             var reason = CampaignCapabilityMatcher.ExplainIneligibility(entry.Bundle, request.Capabilities);
             if (reason is null) continue;   // eligible but out-scored, or claimed in this same pass
 
@@ -606,13 +615,19 @@ public sealed class HiveTaskQueue : IDisposable
 
     /// <summary>
     /// The recorded reason a pending unit is not running, or null if there isn't one. Composed at
-    /// read time rather than stored, so it always reflects the current fleet rather than whichever
-    /// worker polled last.
+    /// read time rather than stored, so it always reflects every rejection seen so far rather than
+    /// whichever worker polled last.
+    ///
+    /// The wording is deliberately scoped to workers that HAVE POLLED. The queue does not maintain a
+    /// live worker roster — it only learns a worker exists when that worker asks for work — so
+    /// "no live worker can satisfy this" would be a claim about a set it cannot see, and would be
+    /// wrong the moment a capable box was merely slow to poll. What is always true, and still
+    /// actionable, is the list of who declined and why.
     /// </summary>
     private static string? UnsatisfiableReasonFor(QueuedTask entry)
     {
         if (entry.Status != "pending" || entry.IneligibleFor.Count == 0) return null;
-        return "No live worker can satisfy this unit's requirements — "
+        return $"No worker that has polled for this unit can run it ({entry.IneligibleFor.Count} declined) — "
                + string.Join("; ", entry.IneligibleFor.Select(kv => $"{kv.Key} {kv.Value}"));
     }
 
@@ -1002,6 +1017,45 @@ public sealed class HiveTaskQueue : IDisposable
 
     internal DateTime? GetLastHeartbeatForTest(string taskId)
         => _tasks.TryGetValue(taskId, out var e) ? e.LastHeartbeat : null;
+
+    /// <summary>
+    /// Seeds a PENDING campaign unit so the ineligibility bookkeeping can be driven without an
+    /// HttpListener, a live worker or a model load.
+    /// </summary>
+    /// <param name="executionKind">
+    /// Defaults to NativeAgent, matching every HV campaign unit. Worth stating explicitly rather
+    /// than inheriting <see cref="HiveTaskBundle"/>'s legacy_agent default: a legacy_agent bundle is
+    /// ineligible for the native-only fleet on execution kind alone, which silently short-circuits
+    /// every requirement-level assertion a caller might be trying to make.
+    /// </param>
+    internal void SeedPendingCampaignUnitForTest(
+        string taskId,
+        ResourceRequirements requirements,
+        string executionKind = HiveExecutionKinds.NativeAgent)
+    {
+        _tasks[taskId] = new QueuedTask
+        {
+            Bundle = new HiveTaskBundle
+            {
+                TaskId        = taskId,
+                CampaignId    = "campaign-1",
+                WorkUnitId    = "unit-1",
+                Title         = "seeded pending unit",
+                Role          = "Coder",
+                ExecutionKind = executionKind,
+                Requirements  = requirements,
+            },
+            Status = "pending",
+        };
+    }
+
+    /// <summary>Drives the empty-handed lease path's bookkeeping directly — same seam rationale as
+    /// <see cref="HeartbeatCoreAsync"/>: HttpListenerContext is sealed and cannot be constructed.</summary>
+    internal void RecordIneligibilityForTest(HiveLeaseRequest request)
+        => RecordIneligibility(request, request.Lanes.Select(l => l.Trim().ToLowerInvariant()).ToHashSet());
+
+    internal string? GetUnsatisfiableReasonForTest(string taskId)
+        => _tasks.TryGetValue(taskId, out var e) ? UnsatisfiableReasonFor(e) : null;
 
     internal void SetStatusForTest(string taskId, string status)
     {
