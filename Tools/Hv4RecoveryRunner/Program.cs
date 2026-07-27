@@ -317,11 +317,62 @@ internal static class Program
         // it, and a full network drop would also cut the SSH session used to undo the rule.
         try
         {
-            Ssh(w.SshHost!,
+            // Create AND verify in ONE pipe-free call. Two separate ssh round trips gave this box
+            // time to drop the connection between them (its sshd goes unreachable for minutes
+            // while the machine itself stays healthy), and the `| Out-Null` in the original create
+            // did not survive the ssh → cmd → powershell quoting chain intact: the create reported
+            // success and left no rule behind, three runs running, while the identical command
+            // typed by hand worked. Redirect to $null instead of piping, sleep so the new rule is
+            // visible to Get-NetFirewallRule, and make the count the command's ONLY output so
+            // there is nothing left to misparse.
+            var ruleCount = Ssh(w.SshHost!,
                 $"powershell -NoProfile -Command \"New-NetFirewallRule -DisplayName '{ruleName}' " +
                 $"-Direction Outbound -Action Block -Protocol TCP -RemotePort {warchiefPort} " +
-                "-ErrorAction SilentlyContinue | Out-Null; 'blocked'\"");
-            Console.WriteLine($"[disconnect] {w.Id}: outbound TCP/{warchiefPort} blocked.");
+                "-ErrorAction SilentlyContinue > $null; Start-Sleep -Seconds 3; " +
+                $"@(Get-NetFirewallRule -DisplayName '{ruleName}' -ErrorAction SilentlyContinue).Count\"")
+                .Trim();
+            Console.WriteLine($"[disconnect] {w.Id}: block rule count = '{ruleCount}'");
+            // Same landed-gate discipline as the kill phase, and for the same reason: the ssh that
+            // creates the rule can silently not land (HardcoreLaptopMSI's sshd drops out for
+            // minutes at a time), the job then rides straight through an uncut link and finishes,
+            // and the phase reports on a disruption that never happened. Verify the rule EXISTS
+            // before believing anything measured after it.
+            var cutLanded = ruleCount is "1";
+            report.Checks.Add(new Hv4Check
+            {
+                WorkerId = w.Id,
+                Name = "disconnect/cut-actually-landed",
+                Passed = cutLanded,
+                Detail = cutLanded
+                    ? $"outbound TCP/{warchiefPort} block rule '{ruleName}' is present on the worker"
+                    : $"block rule not present (Get-NetFirewallRule returned '{ruleCount}') — the "
+                      + "link was never cut, so every later check in this phase would be vacuous",
+            });
+            if (!cutLanded) return;
+
+            // The cut has to land while the job is STILL RUNNING. Applying it takes ~10s of wall
+            // clock, and a fast box can finish inside that window -- which is exactly what happened
+            // on HardcoreLaptopMSI (job done in 14.5s, link cut afterwards, nothing disrupted).
+            // Without this the phase would go on to "measure" an undisturbed run.
+            using (var stillResp = await http.GetAsync($"/hive/tasks/{taskId}"))
+            {
+                var stillBody = stillResp.IsSuccessStatusCode
+                    ? await stillResp.Content.ReadFromJsonAsync<HiveTaskStatusResponse>(JsonOptions)
+                    : null;
+                var stillRunning = stillBody?.Status is "claimed" or "running";
+                report.Checks.Add(new Hv4Check
+                {
+                    WorkerId = w.Id,
+                    Name = "disconnect/job-still-running-when-cut-landed",
+                    Passed = stillRunning,
+                    Detail = stillRunning
+                        ? $"task was still {stillBody!.Status} when the link went down"
+                        : $"task had already reached {stillBody?.Status ?? "unknown"} before the cut "
+                          + "landed — the job outran the disruption, so this run proves nothing "
+                          + "about link loss (use a longer job or a slower box)",
+                });
+                if (!stillRunning) return;
+            }
 
             // Same definition of "visible" as the kill phase, for the same reason: a worker that
             // cannot reach the Warchief has its job re-queued, not failed outright.
@@ -484,12 +535,18 @@ internal static class Program
     // ── Shared helpers ─────────────────────────────────────────────────────────
 
     // Long enough that the disruption genuinely lands mid-generation rather than racing the job's
-    // own completion. HeadlessAgentLoop runs up to MaxSteps 12, and a multi-part spec reliably
-    // spends several of them.
+    // own completion. This matters more than it looks: landing a cut takes ~10s of wall clock
+    // (claim poll, an ssh round trip to apply it, another to verify), and HardcoreLaptopMSI
+    // finished the previous, shorter version of this spec in 14.5s -- so the job was essentially
+    // over before the link was cut, and the phase measured nothing. Sized to occupy the full
+    // MaxSteps 12 budget on the FASTEST box in the fleet, not the slowest.
     private const string LongSpec =
-        "Write a detailed multi-section design note, at least eight paragraphs long, covering: " +
-        "goals, non-goals, architecture, failure modes, telemetry, rollout, testing, and open " +
-        "questions. Take your time and be thorough.";
+        "Write an exhaustive technical design document, at least twenty sections long. For EACH " +
+        "of these, write several full paragraphs: goals, non-goals, glossary, architecture " +
+        "overview, component breakdown, data model, API surface, concurrency model, failure " +
+        "modes, retry semantics, telemetry, logging, security model, threat model, capacity " +
+        "planning, rollout plan, rollback plan, testing strategy, migration notes, open " +
+        "questions. Do not summarise or abbreviate any section.";
 
     private const string ShortSpec =
         "Create a file named hv4_proof.txt in the workspace root containing exactly this single " +
