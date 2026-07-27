@@ -648,6 +648,106 @@ Cross-role admission accounting observed live during the concurrent phase on the
 each charged its incremental context cost rather than a whole extra model, and the total still
 physically possible.
 
+**2026-07-27 (resolved) — the "heartbeat loss" was never the heartbeat. The Warchief had no
+artifact store, so workers could not deliver their results.**
+
+Read this before touching heartbeat code again: three fixes were made against a mechanism that was
+working correctly the whole time, and the reason they could not be falsified was that a *successful*
+beat logged nothing.
+
+`b90fd13d` added the missing positive signal (first successful beat per task) and the queue side
+was put behind `THEORC_HIVE_HEARTBEAT_DIAGNOSTICS=1`, which now also announces itself at startup so
+an empty receipt log can never again be read as "no beat arrived". With both in place the answer
+came in one run, from the worker's own log:
+
+```
+♥ Heartbeat established for 'HV-3 concurrent Researcher on HardcorePC' (10s after claim).
+[Researcher] '…' — native agent completed in 2 steps (runtime=NativeRoleRuntime, …)
+⚠ Worker loop error: Response status code does not indicate success: 503 (Service Unavailable).
+```
+
+and from the Warchief's, beats arriving and being **credited** at `sinceLast=10.2s` right up to the
+job finishing. Job done, beats landing, result never delivered.
+
+**Root cause:** `swarmcli --warchief` never wired an `ArtifactStore`. Every
+`PUT /hive/artifacts/{digest}` answered 503 from `HiveTaskQueue`'s "store is null" branch. The
+upload sat *after* the try/catch around execution, so the throw escaped past `PostResultAsync` into
+`RunLoopAsync`'s generic handler — the task stayed `claimed` with its heartbeat loop already
+cancelled in the `finally`, and 45s later the watchdog re-queued it as a heartbeat timeout. Three
+attempts of that produced `exhausted 3 attempts after heartbeat loss` against a healthy worker.
+Reproduced identically on HardcorePC and HardcoreLaptopMSI.
+
+The gap was already known from the other side — CF-6's acceptance runner needed a Daemon-hosted
+Warchief for exactly this reason (2026-07-21 above) — but it was recorded as a property of *that
+runner* rather than as a defect, so any campaign whose jobs emit output files silently required the
+Daemon. `ModelStore` was missing for the same reason, which is the
+`Approved-model catalog rejected by Warchief: HTTP 503` every worker logs on a one-minute cycle.
+
+Fixed on both sides (`0e9db763`): the stores are wired in `swarmcli --warchief` mirroring
+`HiveService.cs`, **and** an upload failure now fails closed and visibly — the result is still
+posted, marked failed, carrying the real upload error — so a misconfigured artifact store can never
+again impersonate a dead worker. That second half is also HV-4's "job fails visibly" requirement.
+
+Not unit-tested: driving this path needs a full native execution harness, which is disproportionate
+for a five-line catch. The evidence is the live two-machine reproduction and fix, recorded here.
+
+**Why the earlier heartbeat fixes read as ineffective:** they were. `203dfeb3` (5s→20s timeout),
+`f438d1a9` (dedicated thread) and `f390ac57` (409 instead of 200) are each correct on their own
+merits and are kept, but none of them addressed this. Note also that `f438d1a9`'s "no measurable
+effect" was measured against HardcorePC, whose checkout was at `570b23d` and therefore did not
+contain the fix at all — verify what a worker is actually *running*, not what its repo says.
+
+**HV-3 concurrent — PASS on BOTH machines.** 4/4 jobs `completed`, `NativeRoleRuntime`,
+`ClaimedByExpected` true, zero fallback:
+
+```
+[HardcorePC]        two-roles-hold-reservations-concurrently: PASS — peak role reservations=2 [roles 1, 2]
+[HardcorePC]        cross-role-accounting-stays-physical:     PASS — reservedBytes within totalBytes, every sample
+[HardcoreLaptopMSI] two-roles-hold-reservations-concurrently: PASS — peak role reservations=2 [roles 1, 2]
+[HardcoreLaptopMSI] cross-role-accounting-stays-physical:     PASS — reservedBytes within totalBytes, every sample
+```
+
+Evidence: `.orc/hv-3-lane/hv3_concurrent_20260727_165522.json`. The failing run immediately before
+it, on the same build minus the fix, is retained as the paired negative control:
+`.orc/hv-3-lane/hv3_concurrent_20260727_165114.json` — identical checks PASS, both Researcher jobs
+`failed`.
+
+**Driver check corrected in the same pass — `reservation-persists-between-jobs` was measuring the
+wrong quantity, for the second time.** Re-running sequential on the fixed build failed it on a
+~27 MB drift (`6226577920` → `6198132736`) while every role held its reservation correctly.
+`reservedBytes` is not the ledger: `GetReservationSnapshot` publishes the MAX of the ledger and a
+live whole-GPU probe, and on a card this full the probe wins — so asserting a monotonic property of
+it asserts that nothing else on the machine may allocate a byte of VRAM. The first false failure
+from this same check was the `> baseline` form, which only held from a cold worker. Both times the
+check had drifted onto a convenient aggregate rather than the quantity under test.
+
+Restated on the role's reservation entry, which is what the decoupling actually claims: every
+post-job sample must still show the role holding a reservation, and no role may lose one it held
+after the previous job. Byte values are still recorded as evidence, but not asserted. Worth knowing
+for future readings: a role's reservation legitimately SHRINKS from a full-model charge to an
+incremental context charge once another role has the base model resident — on this run role 1 went
+`5589043712` → `637534208` while the physical footprint stayed at 6.2 GB. The model never left the
+card; only the ledger's attribution changed.
+
+**Sequential re-run on the fixed build — PASS on BOTH machines** (so both phases now rest on one
+build's evidence rather than two):
+
+```
+[HardcorePC]        residency-returns-to-baseline / reservation-persists / fresh-conversation: PASS
+                    reserved roles after each cycle=[1,2 | 1,2 | 1,2], ConversationsCreated=[5, 6, 7]
+[HardcoreLaptopMSI] residency-returns-to-baseline / reservation-persists / fresh-conversation: PASS
+                    reserved roles after each cycle=[1,2 | 1,2 | 1,2], ConversationsCreated=[5, 6, 7]
+```
+
+Evidence: `.orc/hv-3-lane/hv3_sequential_20260727_165823.json`.
+
+**HV-3 verdict: items 1 and 2 CLOSED across machines; item 3 remains out of scope.** Forced role
+recycle (`MarkRoleDegraded`) is still reachable only from the runtime's own NoKvSlot handling, and
+a remote trigger is a mutation needing an authenticated control endpoint plus its own security
+review — recorded in every evidence file's `uncoveredItems`. HV-3 must therefore not be reported as
+fully closed; §6's "verified model and adapter lifecycle behavior across machines" is now
+substantially, but not completely, evidenced.
+
 ### HV-4 — Failure, cancellation, disconnect, recovery
 
 All on real jobs mid-flight, all asserting fail-closed (no Ollama substitution) and clean

@@ -242,35 +242,57 @@ internal static class Program
         var beforeAll = samples.FirstOrDefault(s => s.Stage == "before-all");
         var reservedAfter = afterCycles.Select(s => s.ReservedBytes).ToList();
 
-        // "Persists" means the reservation never DROPS across the gaps between jobs -- it must
-        // not be tied to `> baseline`. That stricter form only holds when the run starts against
-        // a cold worker; against a worker still warm from a previous run the baseline sample
-        // ALREADY includes the resident model, so the correct observation is equality and the
-        // strict comparison reports a false failure. Seen exactly that way on the first
-        // two-machine run: HardcorePC (warm, baseline 5589043712) failed while
-        // HardcoreLaptopMSI (freshly started, baseline 45088768) passed on identical behavior.
+        // "Persists" is a claim about the ROLE'S RESERVATION ENTRY, and it has to be measured on
+        // that entry -- not on `reservedBytes`.
         //
-        // Non-decreasing across cycles plus at-least-baseline is what the decoupling actually
-        // claims, and it holds from either starting state.
-        var reservationHeld = beforeAll is not null
-                              && reservedAfter.Count > 0
-                              && reservedAfter.All(r => r >= beforeAll.ReservedBytes)
-                              && reservedAfter.Zip(reservedAfter.Skip(1), (a, b) => b >= a).All(x => x);
+        // `reservedBytes` is not the ledger. GetReservationSnapshot publishes the MAX of the ledger
+        // and a live whole-GPU nvidia-smi probe, and on a card this full the probe wins. Asserting
+        // any monotonic property of a live physical measurement is asserting that nothing else on
+        // the machine may allocate a byte of VRAM for the duration, which is not what HV-3 claims
+        // and not something the runtime controls. It duly failed on a ~27 MB drift
+        // (6226577920 -> 6198132736) while every role held its reservation correctly throughout.
+        //
+        // This is the SECOND false failure from this one check. The first was the `> baseline` form,
+        // which only held from a cold worker -- warm HardcorePC failed while a freshly-started
+        // laptop passed on identical behavior. Restating it as non-decreasing fixed that case and
+        // left this one. The lesson both times is the same: the check drifted onto an aggregate
+        // that is convenient to read rather than the quantity under test.
+        //
+        // What the decoupling actually claims: residency returns to zero between jobs while the
+        // role's RESERVATION does not disappear. So: every post-job sample must still show the role
+        // holding a reservation, and no role may lose one it held after the previous job. That is
+        // exact, immune to warm-vs-cold starting state, and immune to whole-GPU drift.
+        //
+        // Byte values are still recorded in Detail -- they are evidence worth keeping -- but they
+        // are not asserted. Note in particular that a role's reservation legitimately SHRINKS from
+        // a full-model charge to an incremental context charge once another role has the base model
+        // resident (the shared-base behavior the cross-role admission fix introduced): on this run
+        // role 1 went 5589043712 -> 637534208 while the physical footprint stayed at 6.2 GB. The
+        // model never left the card; only the ledger's attribution changed.
+        var reservedRoleSets = afterCycles.Select(s => s.ReservedRoles.ToHashSet()).ToList();
+        var everyGapHoldsAReservation = reservedRoleSets.Count > 0
+                                        && reservedRoleSets.All(set => set.Count > 0);
+        var noRoleLostItsReservation = reservedRoleSets
+            .Zip(reservedRoleSets.Skip(1), (prev, next) => prev.IsSubsetOf(next))
+            .All(x => x);
 
-        // A worker that never loaded anything would also satisfy "non-decreasing" trivially, so
-        // require the reservation to actually reflect a loaded model rather than an idle card.
+        // A worker that never loaded anything would satisfy the above trivially, so require proof
+        // that work actually happened rather than an idle card.
         var residentFootprintSeen = afterCycles.Any(s => s.MaxConversationsCreated > 0);
 
         report.LifecycleChecks.Add(new Hv3LifecycleCheck
         {
             WorkerId = workerId,
             Name = "reservation-persists-between-jobs",
-            Passed = reservationHeld && residentFootprintSeen,
+            Passed = everyGapHoldsAReservation && noRoleLostItsReservation && residentFootprintSeen,
             Detail = beforeAll is null
                 ? "no baseline sample captured"
-                : $"baseline reservedBytes={beforeAll.ReservedBytes} " +
+                : $"reserved roles after each cycle=[" +
+                  string.Join(" | ", reservedRoleSets.Select(s => string.Join(",", s.OrderBy(r => r)))) +
+                  $"]; reservedBytes (recorded, not asserted — live whole-GPU probe) " +
+                  $"baseline={beforeAll.ReservedBytes} " +
                   $"({(beforeAll.MaxConversationsCreated > 0 ? "warm worker" : "cold worker")}), " +
-                  $"after-cycle values=[{string.Join(", ", reservedAfter)}]",
+                  $"after-cycle=[{string.Join(", ", reservedAfter)}]",
         });
 
         // 3. A fresh conversation per job. Without this, "residency returned to zero" could also
