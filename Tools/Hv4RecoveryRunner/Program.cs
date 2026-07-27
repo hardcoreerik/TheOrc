@@ -185,31 +185,76 @@ internal static class Program
         });
         if (!claimed) return;
 
-        var killed = Ssh(w.SshHost!,
+        Ssh(w.SshHost!,
             "powershell -NoProfile -Command \"Get-Process theorc-warband -ErrorAction SilentlyContinue " +
-            "| Stop-Process -Force; 'killed'\"");
-        Console.WriteLine($"[kill] {w.Id}: {killed.Trim()}");
+            "| Stop-Process -Force\"");
+        var survivors = Ssh(w.SshHost!,
+            "powershell -NoProfile -Command \"@(Get-Process theorc-warband -ErrorAction SilentlyContinue).Count\"")
+            .Trim();
+        Console.WriteLine($"[kill] {w.Id}: worker processes remaining = '{survivors}'");
+
+        // Prove the disruption LANDED before judging anything by it. On one run the ssh call
+        // returned nothing and the laptop's worker simply kept running; the job then completed
+        // normally and the visibility check below scored that as a pass, because "reached a
+        // terminal state" is trivially true of a job that was never disrupted. A phase that can go
+        // green without doing the thing it is named after is worse than no phase.
+        var killLanded = survivors is "0";
+        report.Checks.Add(new Hv4Check
+        {
+            WorkerId = w.Id,
+            Name = "kill/kill-actually-landed",
+            Passed = killLanded,
+            Detail = killLanded
+                ? "no theorc-warband process remained after the kill"
+                : $"worker still running after the kill (remaining='{survivors}') — nothing was "
+                  + "disrupted, so every later check in this phase would be vacuous",
+        });
+        if (!killLanded) return;
 
         // The whole point: the Warchief must NOTICE and report, rather than leaving the job claimed
         // forever. This is the exact behaviour the HV-3 investigation kept mis-attributing -- a
         // healthy worker being declared dead. Here the worker really IS dead, so the same watchdog
-        // firing is the CORRECT outcome, and the job must end in a terminal state.
-        var last = await PollToTerminalAsync(http, taskId, timeoutMs);
-        var terminal = last?.Status is "failed" or "timeout" or "cancelled";
+        // firing is the CORRECT outcome.
+        //
+        // "Visible" is deliberately NOT "terminal". A killed worker's job is re-queued to pending
+        // with its attempt advanced, and it stays there because attempts only advance when a worker
+        // claims and then goes silent -- with the box down, nobody claims. Demanding a terminal
+        // status here would fail the CORRECT behaviour (the work is retryable and was not lost) and
+        // would only ever pass by waiting out a timeout. What death visibility actually means is
+        // that the job stops being attributed to the dead worker, promptly, and the Warchief says
+        // so: "heartbeat timeout from <worker> — re-queued (attempt N)".
+        var (leftClaimed, afterDeath) = await WaitForLeavesClaimedAsync(
+            http, taskId, w.Id, TimeSpan.FromMinutes(3));
+        // "completed" is explicitly NOT a pass here even though it is terminal: a job that finished
+        // was not disrupted, so it evidences nothing about death detection. The kill-actually-landed
+        // gate above already catches the common case, but a kill that lands in the last second of a
+        // job would otherwise slip through as a green tick.
+        var deathVisible = leftClaimed && afterDeath?.Status != "completed";
         report.Checks.Add(new Hv4Check
         {
             WorkerId = w.Id,
             Name = "kill/death-is-visible-not-silent",
-            Passed = terminal,
-            Detail = $"terminal status={last?.Status ?? "none"}"
-                     + (last?.ErrorMsg is { Length: > 0 } e ? $", error=\"{e}\"" : ""),
+            Passed = deathVisible,
+            Detail = deathVisible
+                ? $"job stopped being attributed to the dead worker within 3 min: "
+                  + $"status={afterDeath?.Status ?? "none"}, "
+                  + $"claimedBy={afterDeath?.ClaimedBy ?? "none"}"
+                : $"job still claimed by the dead worker after 3 min (status={afterDeath?.Status ?? "none"}) "
+                  + "— the Warchief never noticed the death",
         });
-        report.Jobs.Add(BuildJobEvidence(taskId, w.Id, role, "kill", last));
+        report.Jobs.Add(BuildJobEvidence(taskId, w.Id, role, "kill", afterDeath));
 
         // Recovery: restart via the scheduled task the fleet actually uses, then prove the worker
         // rejoined by having it serve a NEW job -- not merely by seeing its process exist.
         Console.WriteLine($"[kill] {w.Id}: restarting via scheduled task {w.TaskName}...");
-        Ssh(w.SshHost!, $"powershell -NoProfile -Command \"Start-ScheduledTask -TaskName {w.TaskName}\"");
+        // Stop THEN start. Killing the daemon leaves the scheduled task's own state ambiguous --
+        // it can still report Running for the cmd wrapper -- and Start-ScheduledTask on a task the
+        // scheduler already considers running is a no-op. The worker would then never come back and
+        // the phase would blame recovery for what was really a scheduler-state quirk.
+        Ssh(w.SshHost!,
+            $"powershell -NoProfile -Command \"Stop-ScheduledTask -TaskName {w.TaskName} " +
+            $"-ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; " +
+            $"Start-ScheduledTask -TaskName {w.TaskName}\"");
         var rejoined = await WaitForTelemetryAsync(w.NodeUrl, TimeSpan.FromMinutes(3));
         report.Checks.Add(new Hv4Check
         {
@@ -220,6 +265,22 @@ internal static class Program
                 ? "worker answered /hive/native-telemetry again after restart"
                 : "worker never came back within 3 minutes",
         });
+
+        // The re-queued work must actually be RECOVERED, not merely re-queued. This is the half
+        // that proves the lease/queue behaviour was correct across the death: the same work unit,
+        // on its next attempt, reaches a terminal state on the restarted worker. Losing it here
+        // would mean the retry budget was spent on a box that could not answer.
+        var recovered = await PollToTerminalAsync(http, taskId, timeoutMs);
+        report.Checks.Add(new Hv4Check
+        {
+            WorkerId = w.Id,
+            Name = "kill/requeued-work-is-recovered",
+            Passed = recovered?.Status is "completed" or "failed",
+            Detail = $"the SAME work unit reached status={recovered?.Status ?? "none"} after the "
+                     + $"restart (claimedBy={recovered?.ClaimedBy ?? "none"}, "
+                     + $"runtime={recovered?.Attestation?.RuntimeName ?? "none"})",
+        });
+        report.Jobs.Add(BuildJobEvidence(taskId, w.Id, role, "kill-recovered", recovered));
 
         await ProveServesANewJobAsync(http, all, w, report, role, "kill", timeoutMs);
     }
@@ -259,17 +320,25 @@ internal static class Program
                 "-ErrorAction SilentlyContinue | Out-Null; 'blocked'\"");
             Console.WriteLine($"[disconnect] {w.Id}: outbound TCP/{warchiefPort} blocked.");
 
-            var last = await PollToTerminalAsync(http, taskId, timeoutMs);
-            var terminal = last?.Status is "failed" or "timeout" or "cancelled";
+            // Same definition of "visible" as the kill phase, for the same reason: a worker that
+            // cannot reach the Warchief has its job re-queued, not failed outright.
+            var (leftClaimed, afterCut) = await WaitForLeavesClaimedAsync(
+                http, taskId, w.Id, TimeSpan.FromMinutes(3));
+            // Same exclusion as the kill phase: a job that completed rode straight through the cut
+            // and proves nothing about loss detection.
+            var lossVisible = leftClaimed && afterCut?.Status != "completed";
             report.Checks.Add(new Hv4Check
             {
                 WorkerId = w.Id,
                 Name = "disconnect/loss-is-visible-not-silent",
-                Passed = terminal,
-                Detail = $"terminal status={last?.Status ?? "none"}"
-                         + (last?.ErrorMsg is { Length: > 0 } e ? $", error=\"{e}\"" : ""),
+                Passed = lossVisible,
+                Detail = lossVisible
+                    ? $"job stopped being attributed to the unreachable worker within 3 min: "
+                      + $"status={afterCut?.Status ?? "none"}"
+                    : $"job still claimed after 3 min (status={afterCut?.Status ?? "none"}) — the "
+                      + "Warchief never noticed the link loss",
             });
-            report.Jobs.Add(BuildJobEvidence(taskId, w.Id, role, "disconnect", last));
+            report.Jobs.Add(BuildJobEvidence(taskId, w.Id, role, "disconnect", afterCut));
         }
         finally
         {
@@ -473,6 +542,37 @@ internal static class Program
             await Task.Delay(1500);
         }
         return false;
+    }
+
+    /// <summary>
+    /// Waits for a task to stop being attributed to <paramref name="workerId"/> -- either it went
+    /// terminal, or the watchdog re-queued it (status back to pending, ClaimedBy cleared, attempt
+    /// advanced). Returns the last status seen either way, so a failing check can report what the
+    /// job was actually doing rather than just "not what I wanted".
+    /// </summary>
+    private static async Task<(bool Left, HiveTaskStatusResponse? Last)> WaitForLeavesClaimedAsync(
+        HttpClient http, string taskId, string workerId, TimeSpan within)
+    {
+        var deadline = DateTime.UtcNow + within;
+        HiveTaskStatusResponse? last = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            using var resp = await http.GetAsync($"/hive/tasks/{taskId}");
+            if (resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadFromJsonAsync<HiveTaskStatusResponse>(JsonOptions);
+                if (body is not null)
+                {
+                    last = body;
+                    if (body.Status is "completed" or "failed" or "timeout" or "cancelled")
+                        return (true, body);
+                    if (!string.Equals(body.ClaimedBy, workerId, StringComparison.OrdinalIgnoreCase))
+                        return (true, body);
+                }
+            }
+            await Task.Delay(2000);
+        }
+        return (false, last);
     }
 
     private static async Task<bool> WaitForTelemetryAsync(string nodeUrl, TimeSpan within)
