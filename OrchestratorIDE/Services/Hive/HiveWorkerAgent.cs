@@ -179,7 +179,16 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         using var catalogResponse = await http.SendAsync(catalogRequest, ct).ConfigureAwait(false);
         if (!catalogResponse.IsSuccessStatusCode)
         {
-            Log($"⚠ Approved-model catalog rejected by Warchief: HTTP {(int)catalogResponse.StatusCode}");
+            // Include the body. HiveAuthMiddleware.ValidateCore already distinguishes "unknown or
+            // revoked node" / "no shared secret for peer" / "clock skew too large (Ns)" /
+            // "HMAC mismatch" / "nonce already seen (replay)", and HiveTaskQueue returns that
+            // string as {"error": ...} -- but the worker was logging only the status code and
+            // discarding it, leaving an operator with a bare 401 and no way to tell a stale
+            // secret from clock skew from a replay. Cost two full sessions of black-box guessing
+            // during the HV-3 campaign. Bounded because this is an untrusted remote response.
+            var catalogReason = await ReadReasonAsync(catalogResponse, ct).ConfigureAwait(false);
+            Log($"⚠ Approved-model catalog rejected by Warchief: HTTP {(int)catalogResponse.StatusCode}" +
+                (string.IsNullOrWhiteSpace(catalogReason) ? "" : $" — {catalogReason}"));
             // A 401 here is the canonical "my trust for the Warchief went stale" signal (this
             // runs once a minute, so it's a natural self-heal checkpoint). Auto-resync when the
             // operator has opted in and the cooldown has elapsed — completes headlessly only if
@@ -330,6 +339,41 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
         var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         return JsonSerializer.Deserialize<HiveTaskBundle>(json, _json);
+    }
+
+    /// <summary>
+    /// Best-effort extraction of the Warchief's own rejection reason from an error response, for
+    /// logging only. The queue answers auth failures with {"error": "&lt;reason&gt;"} carrying
+    /// HiveAuthMiddleware's precise verdict; without surfacing it a worker's log shows a bare
+    /// status code and the operator cannot distinguish a stale secret from clock skew from a
+    /// replay. Truncated and exception-swallowing on purpose: this is an untrusted remote body
+    /// read on a diagnostic path, and it must never turn a handled HTTP error into a crash.
+    /// </summary>
+    private static async Task<string?> ReadReasonAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(body)) return null;
+
+            if (body.Length > 400) body = body[..400] + "…";
+
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object
+                    && doc.RootElement.TryGetProperty("error", out var err)
+                    && err.ValueKind == JsonValueKind.String)
+                    return err.GetString();
+            }
+            catch (JsonException) { /* not JSON — fall through to the raw body */ }
+
+            return body.Trim();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private async Task<HiveLeaseResponse?> PollLeaseAsync(CancellationToken ct)

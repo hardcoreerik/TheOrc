@@ -215,13 +215,50 @@ public sealed class HiveMeshHeartbeat : IDisposable
             if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized
                                     or System.Net.HttpStatusCode.Forbidden)
             {
-                Log($"⚠ Heartbeat to {peerNodeId[..8]}… rejected ({(int)response.StatusCode}) — counting as missed");
+                // Same reasoning as HiveWorkerAgent's catalog rejection: the responder already
+                // knows exactly why (unknown peer / stale secret / clock skew / replay) and says
+                // so in the body, so log it rather than leaving the operator a bare status code.
+                var reason = await ReadRejectionReasonAsync(response, ct).ConfigureAwait(false);
+                Log($"⚠ Heartbeat to {peerNodeId[..8]}… rejected ({(int)response.StatusCode})" +
+                    (string.IsNullOrWhiteSpace(reason) ? "" : $" — {reason}") + " — counting as missed");
                 return false;
             }
 
             return true;
         }
         catch { return false; }  // exception = connection failed = peer is down
+    }
+
+    /// <summary>
+    /// Best-effort read of a peer's rejection reason for logging only. Truncated and
+    /// exception-swallowing on purpose — an untrusted remote body on a diagnostic path must never
+    /// turn a handled HTTP error into a crash.
+    /// </summary>
+    private static async Task<string?> ReadRejectionReasonAsync(
+        HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(body)) return null;
+            if (body.Length > 400) body = body[..400] + "…";
+
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object
+                    && doc.RootElement.TryGetProperty("error", out var err)
+                    && err.ValueKind == JsonValueKind.String)
+                    return err.GetString();
+            }
+            catch (JsonException) { /* not JSON — fall through to the raw body */ }
+
+            return body.Trim();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void Log(string msg) => OnLog?.Invoke(msg);
