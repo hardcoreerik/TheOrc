@@ -539,6 +539,22 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             ClaimToken = claimToken,
         }, _json));
 
+        // HiveTaskQueue re-queues a claimed task after HeartbeatTimeoutSec (45s) of silence, so a
+        // legitimately long job — HeadlessAgentLoop allows MaxSteps 12 at 4096 tokens each, i.e.
+        // minutes of continuous native inference — survives only if this loop keeps landing beats.
+        // It was not landing them, and there was no way to tell why: the send result was never
+        // inspected and every failure was swallowed, so a STARVED loop (thread pool saturated by
+        // back-to-back synchronous native calls) and a REJECTED beat looked identical, and both
+        // looked identical to a healthy one. Observed as "exhausted 3 attempts after heartbeat
+        // loss" against a worker that was demonstrably still working
+        // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-27).
+        //
+        // Now: non-success responses are logged with the responder's own reason, exceptions are
+        // logged, and an oversized gap between beats is logged even when the send SUCCEEDS —
+        // that last one is the only signal that distinguishes starvation from rejection, because
+        // a starved loop's sends still succeed, just too late to matter.
+        var lastBeat = DateTime.UtcNow;
+
         while (!ct.IsCancellationRequested)
         {
             try { await Task.Delay(10_000, ct).ConfigureAwait(false); } catch { break; }
@@ -546,6 +562,15 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
             try
             {
+                var gap = DateTime.UtcNow - lastBeat;
+                // 30s: comfortably above the 10s cadence (so ordinary jitter stays quiet) and
+                // below the queue's 45s cutoff, so this fires BEFORE the re-queue rather than
+                // explaining it afterwards.
+                if (gap > TimeSpan.FromSeconds(30))
+                    Log($"⚠ Heartbeat loop stalled {gap.TotalSeconds:F0}s between beats " +
+                        $"(cadence is 10s, Warchief re-queues at 45s) — task '{bundle.Title}' " +
+                        "may be re-queued despite this worker still running it.");
+
                 var url = $"{WarchiefUrl.TrimEnd('/')}/hive/tasks/{bundle.TaskId}/heartbeat";
                 using var req = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, url)
                     { Content = new System.Net.Http.ByteArrayContent(hbBytes) };
@@ -554,9 +579,31 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 SignIfPaired(req, hbBytes);
 
                 using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-                await http.SendAsync(req, ct).ConfigureAwait(false);
+                using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+                if (resp.IsSuccessStatusCode)
+                {
+                    lastBeat = DateTime.UtcNow;
+                }
+                else
+                {
+                    // The response was previously discarded entirely, so a heartbeat rejected for
+                    // a stale claim token or a signature problem was indistinguishable from a
+                    // healthy one right up until the Warchief declared the worker dead.
+                    var reason = await ReadReasonAsync(resp, ct).ConfigureAwait(false);
+                    Log($"⚠ Heartbeat for '{bundle.Title}' rejected: HTTP {(int)resp.StatusCode}" +
+                        (string.IsNullOrWhiteSpace(reason) ? "" : $" — {reason}"));
+                }
             }
-            catch { /* non-fatal */ }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;  // normal shutdown of the beat loop, not a failure
+            }
+            catch (Exception ex)
+            {
+                // Still non-fatal — a missed beat must never take down a running job — but no
+                // longer silent.
+                Log($"⚠ Heartbeat for '{bundle.Title}' failed to send: {ex.GetType().Name}: {ex.Message}");
+            }
         }
     }
 
