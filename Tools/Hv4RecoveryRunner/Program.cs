@@ -188,25 +188,28 @@ internal static class Program
         Ssh(w.SshHost!,
             "powershell -NoProfile -Command \"Get-Process theorc-warband -ErrorAction SilentlyContinue " +
             "| Stop-Process -Force\"");
-        var survivors = Ssh(w.SshHost!,
-            "powershell -NoProfile -Command \"@(Get-Process theorc-warband -ErrorAction SilentlyContinue).Count\"")
-            .Trim();
-        Console.WriteLine($"[kill] {w.Id}: worker processes remaining = '{survivors}'");
-
-        // Prove the disruption LANDED before judging anything by it. On one run the ssh call
-        // returned nothing and the laptop's worker simply kept running; the job then completed
-        // normally and the visibility check below scored that as a pass, because "reached a
-        // terminal state" is trivially true of a job that was never disrupted. A phase that can go
-        // green without doing the thing it is named after is worse than no phase.
-        var killLanded = survivors is "0";
+        // Prove the disruption LANDED before judging anything by it. On one run the ssh kill
+        // returned nothing, the laptop's worker kept running, its job completed normally, and the
+        // visibility check below scored that as a pass -- "reached a terminal state" is trivially
+        // true of a job that was never disrupted. A phase that can go green without doing the thing
+        // it is named after is worse than no phase.
+        //
+        // Confirmed by the worker's OWN endpoint going dark rather than by an ssh process count.
+        // Two reasons: a remote `Get-Process | .Count` came back as an empty string rather than "0"
+        // from inside this driver (it works by hand, so something in the ssh/argument path eats it,
+        // and a check that cannot distinguish "0" from "no answer" is not a check); and more
+        // importantly, telemetry silence is the stronger claim anyway -- it says the worker is not
+        // SERVING, which is what the phase is about, rather than that a process table entry is gone.
+        var killLanded = await WaitForTelemetryGoneAsync(w.NodeUrl, TimeSpan.FromSeconds(60));
+        Console.WriteLine($"[kill] {w.Id}: worker telemetry {(killLanded ? "went dark" : "still answering")}");
         report.Checks.Add(new Hv4Check
         {
             WorkerId = w.Id,
             Name = "kill/kill-actually-landed",
             Passed = killLanded,
             Detail = killLanded
-                ? "no theorc-warband process remained after the kill"
-                : $"worker still running after the kill (remaining='{survivors}') — nothing was "
+                ? "worker stopped answering /hive/native-telemetry within 60s of the kill"
+                : "worker still answering /hive/native-telemetry 60s after the kill — nothing was "
                   + "disrupted, so every later check in this phase would be vacuous",
         });
         if (!killLanded) return;
@@ -575,6 +578,27 @@ internal static class Program
         return (false, last);
     }
 
+    /// <summary>
+    /// Inverse of <see cref="WaitForTelemetryAsync"/>: waits for a worker to STOP answering. Two
+    /// consecutive misses are required so a single dropped request cannot be read as a dead worker
+    /// — the whole point of this helper is to be a precondition strong enough to gate a phase on.
+    /// </summary>
+    private static async Task<bool> WaitForTelemetryGoneAsync(string nodeUrl, TimeSpan within)
+    {
+        var deadline = DateTime.UtcNow + within;
+        var misses = 0;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (await TryFetchTelemetryAsync(nodeUrl) is null)
+            {
+                if (++misses >= 2) return true;
+            }
+            else misses = 0;
+            await Task.Delay(2000);
+        }
+        return false;
+    }
+
     private static async Task<bool> WaitForTelemetryAsync(string nodeUrl, TimeSpan within)
     {
         var deadline = DateTime.UtcNow + within;
@@ -669,7 +693,21 @@ internal static class Program
     /// as text rather than thrown, because a phase that cannot take a box down still needs to say
     /// so in its verdict instead of aborting the whole run.
     /// </summary>
+    /// <summary>
+    /// Retries once. HardcoreLaptopMSI's sshd went unreachable mid-campaign for a couple of minutes
+    /// while the box itself stayed healthy (ping 5 ms, /hive/native-telemetry answering 200), which
+    /// silently turned a kill into a no-op the first time it happened. The landed-gate now catches
+    /// that, but a transient blip should not cost a whole phase either.
+    /// </summary>
     private static string Ssh(string host, string command)
+    {
+        var first = SshOnce(host, command);
+        if (!string.IsNullOrWhiteSpace(first)) return first;
+        Thread.Sleep(3000);
+        return SshOnce(host, command);
+    }
+
+    private static string SshOnce(string host, string command)
     {
         var psi = new ProcessStartInfo("ssh")
         {

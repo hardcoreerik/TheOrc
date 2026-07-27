@@ -764,6 +764,73 @@ recovery:
    natively; a deliberately broken native config on that worker fails closed with an explicit
    native error — CF-6's "Ollama-absence death test" precedent, now fleet-wide.
 
+**2026-07-27 — driver built (`Tools/Hv4RecoveryRunner`); kill, disconnect, ollama and the
+Warchief-side half of cancel exercised on real jobs mid-flight.**
+
+**"Visible failure" had to be defined against what actually happens, not against what reads well
+in a plan.** A killed or disconnected worker's job is re-queued to `pending` with its attempt
+advanced, and it *stays* there — attempts only advance when a worker claims and then goes silent,
+so with the box down nobody claims. The first version of the check demanded a terminal status and
+so failed the CORRECT behaviour (the work is retryable and was not lost); it could only ever have
+passed by waiting out a timeout. Visibility is now "the job stops being attributed to the dead
+worker, promptly", which is exactly what the Warchief reports:
+
+> `⚠ Task 'HV-4 kill on HardcorePC' heartbeat timeout from HardcorePC — re-queued (attempt 2)`
+
+and a separate check proves the re-queued work is actually **recovered** on the restarted worker
+rather than merely re-queued.
+
+**A phase that can go green without doing the thing it is named after is worse than no phase.**
+On the first two-machine kill run the ssh kill returned empty against HardcoreLaptopMSI, the worker
+kept running, its job completed normally — and every check went green, because "reached a terminal
+state" is trivially true of a job that was never disrupted. HardcorePC's half of the same run was
+genuine, so the evidence file read as a clean two-machine pass with one half fabricated. Fixed
+with a `kill-actually-landed` gate that abandons the phase loudly, and by refusing `completed` as
+evidence of visible failure. The gate confirms the kill via the **worker's own telemetry going
+dark** rather than an ssh process count: a remote `Get-Process | .Count` returned an empty string
+rather than `0` from inside the driver, and a check that cannot tell "0" from "no answer" is not a
+check — while telemetry silence is the stronger claim anyway, since it says the worker is not
+*serving*.
+
+**Results — PASS on BOTH machines** (evidence in `.orc/hv-4-lane/`):
+
+```
+kill        HardcorePC + HardcoreLaptopMSI   kill landed (telemetry dark), death visible
+                                             (status=pending, claimedBy=none), worker rejoined,
+                                             re-queued unit RECOVERED on NativeRoleRuntime,
+                                             role reusable
+disconnect  HardcorePC                       outbound TCP/7079 blocked mid-job → loss visible,
+                                             firewall rule auto-restored, role reusable
+ollama      HardcorePC + HardcoreLaptopMSI   ollama stopped (before=1/2 → after=0), native job
+                                             still completed on NativeRoleRuntime
+cancel      HardcorePC                       campaign cancel → task cancelled, role reusable
+```
+
+Two operational notes worth keeping. The Ollama stop must kill the tray supervisor `ollama app`
+(with a space) as well as the server — matching only the exact process name left it restarting
+within seconds, and absence never stuck. And **HardcoreLaptopMSI's sshd goes unreachable for
+minutes at a time while the box itself stays healthy** (ping 5 ms, `/hive/native-telemetry`
+answering 200); it is the reason the first laptop kill silently no-opped. The driver retries once,
+and the landed-gate turns any remaining flake into a loud failure rather than a fabricated pass.
+
+**Item 1 is only half-covered, and this is a product gap, not a harness one.** The plan asks for
+cancellation to surface mid-**generation** as an `OperationCanceledException` on the worker. There
+is no remote trigger: the worker's only inbound listener is `HiveNodeServer`
+(`pair` / `info` / `native-telemetry` / `mesh` / `update`) and it has no task-cancel endpoint, so
+cancelling a campaign marks the task cancelled on the Warchief while the worker generates happily
+to completion. The `cancel` phase proves the Warchief-side outcome and role reusability and says so
+in its own check name. Adding the endpoint is a MUTATION needing authentication and its own
+security review — the same call already made for HV-3's `MarkRoleDegraded` item.
+
+Item 4's second half (a deliberately broken native config failing closed with an explicit native
+error) is covered by HV-5's `diagnose` phase rather than duplicated here.
+
+**HV-4 verdict: items 2, 3 and 4 evidenced across machines; item 1 half-covered pending a
+worker-side cancel endpoint.** Also folded in here, from the HV-3 investigation: a healthy worker
+being declared dead (root-caused to the missing artifact store, fixed in `0e9db763`) and the
+fail-closed no-fallback behaviour observed throughout — every completing job in every phase above
+carries `Attestation.RuntimeName == "NativeRoleRuntime"`.
+
 ### HV-5 — Telemetry consistency + no-silent-fallback sweep
 
 - Same evidence JSON schema from all three boxes for one shared campaign; per-box
