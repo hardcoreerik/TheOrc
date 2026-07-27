@@ -525,6 +525,48 @@ reads `tok/s=8.3`, `13.1`, `10.2` — the fleet's "~7 tok/s" figure, observed di
 path. Every one of those jobs is `steps: 1` with `completion_tokens: 13` against a 384-token
 prompt. See the throughput-gate finding: real decode on this same box is 42.5 tok/s.
 
+**2026-07-27 — campaign halted on a HIVE authentication defect, not a runtime one. No worker
+can lease; every phase stalls with jobs `pending`.**
+
+Recorded here because the next person to pick this up will otherwise repeat two sessions of
+black-box guessing. The runtime work is sound — the admission fix and the sequential phase both
+passed on real hardware before this — but the fleet cannot dispatch at all.
+
+**The symptom chain, and how much of it was misdiagnosis.** A dead Warchief looks exactly like a
+HIVE fault from every other vantage point. Three separate causes were mistaken for HIVE bugs
+before being pinned down:
+1. `swarmcli --warchief --timeout N` is a **self-terminate**, not an idle timeout — the process
+   exits mid-campaign printing a tidy `Shutting down...`. A 7200s value ended a session at
+   exactly the two-hour mark.
+2. The Warchief **dies on Ctrl+C from the launching shell's console**, so any interrupted command
+   killed it. `warchief.log` ends in a bare `^C` every time. Fixed by giving it its own console
+   (`start-warchief.bat`).
+3. `warchief.log` and `worker_*.log` are **fully buffered** — they show only the startup banner
+   until the process exits. An apparently-empty log was read as "the worker never leased" and a
+   healthy run was killed on the strength of it. Use `GET /hive/native-telemetry` for live state.
+
+**The real blocker: `HMAC mismatch`.** Worker rejection reasons were invisible until they were
+surfaced (`HiveAuthMiddleware.ValidateCore` has always distinguished unknown-peer / stale-secret /
+clock-skew / replay / HMAC-mismatch, and `HiveTaskQueue` returns the verdict in the 401 body — the
+worker logged only the status code and discarded it). With that logged, the answer is unambiguous
+and narrow. Ruled out by direct inspection: peer enrolment (both stores hold the other side, role
+Worker, not revoked, secrets present, written by the *same* ceremony one second apart), clock skew
+(fleet within 2s), `MachineKey.Load()` determinism (env → file → generate-once, so both HardcorePC
+processes read the same AES-GCM key), and a DPAPI decrypt failure on the Warchief (that path
+returns `(false, null)` and would report "no shared secret for peer" instead).
+
+**So both sides finish a mutually-successful pairing ceremony holding different shared-secret
+bytes.** That is a crypto/pairing defect, and the next step is a focused unit test over the two
+derivation call sites (`HiveNodeServer`'s approve path from `req.ExchangePublicKeyDer`, and
+`HivePairingClient.CompletePairing` from the response) asserting both produce identical bytes
+under fixed key material — not further live fleet poking.
+
+**Also found: `--leave-hive` is a footgun as shipped.** It clears `HiveId` correctly, but the
+daemon **founds a brand-new hive on its next normal start**, so a worker "recovered" this way ends
+up in a *different* hive than the Warchief and is then permanently refused by §4.3 — strictly
+worse than before. The ordering that works is `--leave-hive --yes` and `--pair` chained in one
+invocation, **before any daemon start**. Filed as an open follow-up.
+
 ### HV-4 — Failure, cancellation, disconnect, recovery
 
 All on real jobs mid-flight, all asserting fail-closed (no Ollama substitution) and clean
