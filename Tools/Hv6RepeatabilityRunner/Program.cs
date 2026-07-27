@@ -49,6 +49,14 @@ internal static class Program
                         ?? throw new InvalidOperationException(
                             "--model-hash is required (the pinned fleet GGUF's SHA-256) — HV-1 records it per job.");
 
+        // The two fleet configurations the campaign needs. HV-6's requirement is the full campaign
+        // "run 3x back-to-back, all green, NO MANUAL INTERVENTION between runs", and HV-2's large
+        // phase only means anything against a context size whose footprint exceeds the low-VRAM
+        // box's budget — so switching between them has to be part of the run, not something an
+        // operator does by hand halfway through.
+        var stdContextSize = int.TryParse(GetArg(args, "--context-size"), out var cs) ? cs : 4096;
+        var largeContextSize = int.TryParse(GetArg(args, "--large-context-size"), out var lcs) ? lcs : 32768;
+
         var fleet = new Fleet
         {
             WorkerAId   = GetArg(args, "--worker-a") ?? "HardcorePC",
@@ -64,6 +72,8 @@ internal static class Program
             // Defaults to worker A because that is HardcorePC's 6 GB card against the laptop's 8 GB.
             // Override when the fleet shape changes; HV-2's `large` phase is meaningless if this
             // names the box with headroom.
+            WorkerADir  = GetArg(args, "--worker-a-dir") ?? @"F:\Ai\OrchestratorIDE-dev",
+            WorkerBDir  = GetArg(args, "--worker-b-dir") ?? @"C:\Ai\OrchestratorIDE-dev",
             LowVramWorkerId = GetArg(args, "--low-vram-worker") ?? GetArg(args, "--worker-a") ?? "HardcorePC",
         };
 
@@ -76,7 +86,7 @@ internal static class Program
             .Select(s => s.Trim())
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var lanes = BuildLanes(toolsRoot, warchief, fleet, modelHash)
+        var lanes = BuildLanes(toolsRoot, warchief, fleet, modelHash, largeContextSize)
             .Where(l => !skip.Contains(l.Name))
             .ToList();
         if (lanes.Count == 0)
@@ -100,6 +110,18 @@ internal static class Program
                     $"Lane '{lane.Name}' runner not found at {lane.ExePath}. Build the Tools/ " +
                     "projects in Release before running HV-6.", lane.ExePath);
 
+        // Lanes are ordered so every standard-config lane runs before any that needs a different
+        // one, which keeps reconfigurations to at most one per round instead of thrashing the fleet
+        // between lanes. Stable sort, so the authored order inside each group is preserved.
+        lanes = lanes.OrderBy(l => l.ContextSize is null ? 0 : 1).ToList();
+
+        // Whatever happens — a failed lane, a thrown reconfiguration, a crash — the fleet goes back
+        // to the standard context size before this process exits. Leaving it on the large config
+        // would silently break every later campaign, and the symptom (jobs denied on the small box)
+        // looks like a runtime regression rather than leftover state.
+        var currentContextSize = stdContextSize;
+        try
+        {
         for (var round = 1; round <= rounds; round++)
         {
             Console.WriteLine();
@@ -108,7 +130,36 @@ internal static class Program
 
             foreach (var lane in lanes)
             {
-                Console.WriteLine($"  ── {lane.Name} …");
+                var required = lane.ContextSize ?? stdContextSize;
+                if (required != currentContextSize)
+                {
+                    if (!await SetFleetContextSizeAsync(fleet, required))
+                    {
+                        // Record the lane as unrun rather than running it against the wrong config.
+                        // A lane that silently ran under the wrong fleet configuration is how HV-2's
+                        // large phase came to report a denial that never happened.
+                        roundResult.Lanes.Add(new Hv6LaneResult
+                        {
+                            Lane = lane.Name,
+                            ExitCode = -1,
+                            Verdict = "NOT-RUN(reconfigure-failed)",
+                            FailedChecks =
+                            [
+                                $"fleet could not be set to NATIVECONTEXTSIZE={required}; lane skipped "
+                                + "rather than run against the wrong configuration",
+                            ],
+                            StartedAt = DateTimeOffset.UtcNow,
+                            FinishedAt = DateTimeOffset.UtcNow,
+                        });
+                        Console.WriteLine($"     NOT-RUN — could not reconfigure to {required}");
+                        continue;
+                    }
+                    currentContextSize = required;
+                    report.Reconfigurations++;
+                }
+
+                Console.WriteLine($"  ── {lane.Name} …"
+                                  + (lane.ContextSize is null ? "" : $" (ctx={lane.ContextSize})"));
                 var started = DateTimeOffset.UtcNow;
                 var (exitCode, stdout) = await RunLaneAsync(lane);
                 var finished = DateTimeOffset.UtcNow;
@@ -145,6 +196,31 @@ internal static class Program
             // campaign is REPEATABLE, and "round 2 failed, rounds 1 and 3 passed" is a far more
             // useful answer than "stopped at round 2" — intermittency is exactly what this lane is
             // built to surface, and stopping early hides it.
+
+            // Back to the standard config before the next round, so every round starts from the
+            // same fleet state. Without this, round 2 would begin on whatever the last lane of
+            // round 1 happened to leave behind, and "repeatable" would be measuring three
+            // different setups.
+            if (currentContextSize != stdContextSize && round < rounds)
+            {
+                if (await SetFleetContextSizeAsync(fleet, stdContextSize))
+                {
+                    currentContextSize = stdContextSize;
+                    report.Reconfigurations++;
+                }
+            }
+        }
+        }
+        finally
+        {
+            if (currentContextSize != stdContextSize)
+            {
+                Console.WriteLine();
+                Console.WriteLine("Restoring fleet to the standard context size …");
+                report.FleetRestored = await SetFleetContextSizeAsync(fleet, stdContextSize);
+                report.Reconfigurations++;
+            }
+            else report.FleetRestored = true;
         }
 
         report.FinishedAt = DateTimeOffset.UtcNow;
@@ -170,7 +246,7 @@ internal static class Program
     /// The campaign, in order. HV-3 and HV-4 appear once per phase because each phase writes its own
     /// evidence file and carries its own verdict — collapsing them would lose which phase regressed.
     /// </summary>
-    private static List<Lane> BuildLanes(string toolsRoot, string warchief, Fleet f, string modelHash)
+    private static List<Lane> BuildLanes(string toolsRoot, string warchief, Fleet f, string modelHash, int largeContextSize)
     {
         string Exe(string project, string exeName) =>
             Path.Combine(toolsRoot, project, "bin", "Release", "net10.0", exeName + ".exe");
@@ -198,7 +274,8 @@ internal static class Program
             // running it — without these it throws "No workers configured" before doing anything,
             // which as an HV-6 lane would have read as a lane failure rather than a driver misuse.
             new Lane("hv2-large", Exe("Hv2SchedulingRunner", "hv2-scheduling-runner"),
-                $"--warchief {warchief} --phase large {nodeArgs} --low-vram-worker {f.LowVramWorkerId}"),
+                $"--warchief {warchief} --phase large {nodeArgs} --low-vram-worker {f.LowVramWorkerId}",
+                ContextSize: largeContextSize),
             new Lane("hv2-small", Exe("Hv2SchedulingRunner", "hv2-scheduling-runner"),
                 $"--warchief {warchief} --phase small {nodeArgs} --low-vram-worker {f.LowVramWorkerId}"),
 
@@ -219,6 +296,110 @@ internal static class Program
             new Lane("hv5", Exe("Hv5TelemetrySweepRunner", "hv5-telemetry-sweep-runner"),
                 $"--warchief {warchief} --phase all {sshLogArgs}"),
         ];
+    }
+
+    // ── Fleet reconfiguration ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Rewrites HIVE__NATIVECONTEXTSIZE in each worker's start script and restarts it, then proves
+    /// the value took by reading it back.
+    ///
+    /// This is the ONE thing this driver does that is not "invoke a runner and read its evidence",
+    /// and it is deliberate: HV-6 requires the campaign to run 3x with no manual intervention
+    /// between runs, and HV-2's large phase is a fleet configuration rather than a job shape. An
+    /// operator reconfiguring the fleet halfway through IS the intervention the requirement forbids.
+    ///
+    /// It is box administration, not HIVE traffic — the same ssh-driven shape HV-4 already uses for
+    /// killing and firewalling workers, and the reason that pattern is trusted here is that HV-4's
+    /// try/finally restore worked on every run and was verified clean afterwards each time.
+    ///
+    /// Verified, not assumed. A silent no-op here would leave HV-2's large phase running against a
+    /// config where nothing can be denied — which is exactly how it reported the low-VRAM box
+    /// completing a job it was supposed to refuse.
+    /// </summary>
+    private static async Task<bool> SetFleetContextSizeAsync(Fleet f, int contextSize)
+    {
+        Console.WriteLine($"  ⚙ reconfiguring fleet to NATIVECONTEXTSIZE={contextSize} …");
+        var ok = true;
+
+        foreach (var (ssh, dir, task) in new[]
+        {
+            (f.WorkerASsh, f.WorkerADir, f.WorkerATask),
+            (f.WorkerBSsh, f.WorkerBDir, f.WorkerBTask),
+        })
+        {
+            var script = $@"{dir}\start-worker.bat";
+            // One call: rewrite, restart, read back. Fewer ssh round trips is not cosmetic here —
+            // HardcoreLaptopMSI's sshd drops out for minutes at a time while the box stays healthy,
+            // and every extra hop is another chance to land half a reconfiguration.
+            var readBack = Ssh(ssh,
+                "powershell -NoProfile -Command \"" +
+                $"(Get-Content '{script}') -replace 'NATIVECONTEXTSIZE=\\d+','NATIVECONTEXTSIZE={contextSize}' " +
+                $"| Set-Content '{script}'; " +
+                $"Stop-ScheduledTask -TaskName {task} -ErrorAction SilentlyContinue; Start-Sleep -Seconds 3; " +
+                "Get-Process theorc-warband -ErrorAction SilentlyContinue | Stop-Process -Force; " +
+                $"Start-Sleep -Seconds 2; Start-ScheduledTask -TaskName {task}; Start-Sleep -Seconds 12; " +
+                $"(Select-String -Path '{script}' -Pattern 'NATIVECONTEXTSIZE=(\\d+)').Matches.Groups[1].Value\"");
+
+            var applied = readBack.Trim();
+            if (applied != contextSize.ToString())
+            {
+                Console.WriteLine($"     ✗ {ssh}: start script reports '{applied}', expected {contextSize}");
+                ok = false;
+            }
+        }
+
+        // The script says the right thing; now confirm the worker actually came back, because a
+        // reconfigured-but-dead worker fails every following lane for a reason that looks nothing
+        // like a config problem.
+        foreach (var node in new[] { f.WorkerANode, f.WorkerBNode })
+        {
+            if (await WaitForTelemetryAsync(node, TimeSpan.FromMinutes(3))) continue;
+            Console.WriteLine($"     ✗ {node}: worker did not come back after restart");
+            ok = false;
+        }
+
+        Console.WriteLine(ok ? "     ✓ fleet reconfigured" : "     ✗ fleet reconfiguration INCOMPLETE");
+        return ok;
+    }
+
+    private static async Task<bool> WaitForTelemetryAsync(string nodeUrl, TimeSpan within)
+    {
+        var deadline = DateTime.UtcNow + within;
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                using var resp = await http.GetAsync($"{nodeUrl.TrimEnd('/')}/hive/native-telemetry");
+                if (resp.IsSuccessStatusCode) return true;
+            }
+            catch { /* still down */ }
+            await Task.Delay(3000);
+        }
+        return false;
+    }
+
+    private static string Ssh(string host, string command)
+    {
+        var psi = new ProcessStartInfo("ssh")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add("ConnectTimeout=15");
+        psi.ArgumentList.Add(host);
+        psi.ArgumentList.Add(command);
+
+        using var p = Process.Start(psi)!;
+        var stdout = p.StandardOutput.ReadToEnd();
+        // Drained but discarded: current OpenSSH writes a post-quantum advisory to stderr on every
+        // connection, and folding it into the result makes every parsed value wrong.
+        _ = p.StandardError.ReadToEnd();
+        p.WaitForExit(180_000);
+        return stdout;
     }
 
     // ── Child process plumbing ─────────────────────────────────────────────────
@@ -357,7 +538,14 @@ internal static class Program
 
 // ── DTOs ───────────────────────────────────────────────────────────────────────
 
-internal sealed record Lane(string Name, string ExePath, string Args);
+/// <param name="ContextSize">
+/// The fleet NativeContextSize this lane requires, or null for the standard configuration.
+/// HV-2's `large` phase is not a job shape — it is a FLEET CONFIGURATION, and its own docs say to
+/// run it "against a fleet already reconfigured (NativeContextSize env var) and restarted for that
+/// phase". Against the standard config it cannot deny anything and reports the low-VRAM box
+/// completing a job it was supposed to refuse.
+/// </param>
+internal sealed record Lane(string Name, string ExePath, string Args, int? ContextSize = null);
 
 internal sealed class Fleet
 {
@@ -371,6 +559,9 @@ internal sealed class Fleet
     public string WorkerBSsh { get; init; } = "";
     public string WorkerBTask { get; init; } = "";
     public string WorkerBLog { get; init; } = "";
+    /// <summary>Checkout directory holding each worker's start-worker.bat, for context-size edits.</summary>
+    public string WorkerADir { get; init; } = "";
+    public string WorkerBDir { get; init; } = "";
     /// <summary>Which box HV-2's `large` phase expects to DENY admission — the smaller card.</summary>
     public string LowVramWorkerId { get; init; } = "";
 }
@@ -408,4 +599,9 @@ internal sealed class Hv6Report
     public bool Passed { get; set; }
     /// <summary>In-band disclaimer, so this verdict cannot be quoted as a §6 flip authorisation.</summary>
     public string FlipClaim { get; set; } = "";
+    /// <summary>How many times the fleet's context size was rewritten during this campaign.</summary>
+    public int Reconfigurations { get; set; }
+    /// <summary>Whether the fleet was left on the standard context size. A false here means a box
+    /// needs manual attention before the next campaign.</summary>
+    public bool FleetRestored { get; set; }
 }
