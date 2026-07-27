@@ -531,7 +531,43 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         return "";
     }
 
-    private async Task HeartbeatLoopAsync(HiveTaskBundle bundle, string claimToken, CancellationToken ct)
+    /// <summary>
+    /// Runs the keep-alive on a DEDICATED thread rather than the managed thread pool.
+    ///
+    /// This loop's whole job is to prove liveness while the worker is busy, and "busy" here means
+    /// a native agent loop running up to 12 steps of 4096 tokens back-to-back — CPU-saturating by
+    /// construction. On the pool, both the Task.Delay continuation and the send's continuations
+    /// queue behind that work, so the beat is not merely slow to complete, it is late to be
+    /// ATTEMPTED. Raising the send timeout (5s -> 20s) measurably helped but could not fix that,
+    /// because a longer timeout only matters once the send has started: against a recorded
+    /// baseline, a full post-fix run still produced a new heartbeat timeout and the Researcher
+    /// task still ended "failed" after heartbeat loss.
+    ///
+    /// The worker's own inbound HttpListener stayed responsive throughout (~0.09s) precisely
+    /// because it does not share the pool — which is the same reason this belongs on its own
+    /// thread (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-27).
+    ///
+    /// Returns a Task that completes when the thread exits, so the existing await in
+    /// ClaimAndExecuteAsync is unchanged.
+    /// </summary>
+    private Task HeartbeatLoopAsync(HiveTaskBundle bundle, string claimToken, CancellationToken ct)
+    {
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
+        {
+            try { HeartbeatLoop(bundle, claimToken, ct); }
+            catch (Exception ex) { Log($"⚠ Heartbeat thread for '{bundle.Title}' ended: {ex.GetType().Name}: {ex.Message}"); }
+            finally { done.TrySetResult(); }
+        })
+        {
+            IsBackground = true,   // must never keep the process alive on shutdown
+            Name         = $"hive-heartbeat-{bundle.TaskId}",
+        };
+        thread.Start();
+        return done.Task;
+    }
+
+    private void HeartbeatLoop(HiveTaskBundle bundle, string claimToken, CancellationToken ct)
     {
         var hbBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new HiveHeartbeatRequest
         {
@@ -563,8 +599,12 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             // attempts inside the queue's 45s window, so two slow beats in a row are already
             // most of the budget; backing off the full interval after a miss spends what is
             // left. 3s keeps a recovering worker alive without hammering an unreachable one.
+            // Thread.Sleep, not Task.Delay: this thread exists precisely so the interval cannot
+            // be deferred by pool contention. Sliced so cancellation is still observed promptly
+            // on shutdown rather than after a full interval.
             var wait = beatFailed ? 3_000 : 10_000;
-            try { await Task.Delay(wait, ct).ConfigureAwait(false); } catch { break; }
+            var slept = 0;
+            while (slept < wait && !ct.IsCancellationRequested) { Thread.Sleep(250); slept += 250; }
             if (ct.IsCancellationRequested) break;
 
             try
@@ -598,8 +638,10 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 // a genuinely unreachable Warchief is detected well within the window rather than
                 // masked. Deliberately not unbounded — a hung send must not stall the loop past
                 // the point where the re-queue it was meant to prevent has already happened.
+                // Blocking Send on this dedicated thread — no continuation to be scheduled, so
+                // the response cannot be stranded behind inference work the way SendAsync was.
                 using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-                using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+                using var resp = http.Send(req, ct);
                 if (resp.IsSuccessStatusCode)
                 {
                     lastBeat   = DateTime.UtcNow;
@@ -611,7 +653,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                     // a stale claim token or a signature problem was indistinguishable from a
                     // healthy one right up until the Warchief declared the worker dead.
                     beatFailed = true;
-                    var reason = await ReadReasonAsync(resp, ct).ConfigureAwait(false);
+                    var reason = ReadReasonAsync(resp, ct).GetAwaiter().GetResult();
                     Log($"⚠ Heartbeat for '{bundle.Title}' rejected: HTTP {(int)resp.StatusCode}" +
                         (string.IsNullOrWhiteSpace(reason) ? "" : $" — {reason}"));
                 }
