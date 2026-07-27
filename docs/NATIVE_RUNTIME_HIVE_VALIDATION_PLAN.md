@@ -567,6 +567,46 @@ up in a *different* hive than the Warchief and is then permanently refused by §
 worse than before. The ordering that works is `--leave-hive --yes` and `--pair` chained in one
 invocation, **before any daemon start**. Filed as an open follow-up.
 
+**2026-07-27 (later) — auth investigation suspended. Read this before resuming; several
+"findings" below are environment artifacts, not product bugs, and re-deriving them costs hours.**
+
+**What is solid (test-backed, keep):**
+- Secret derivation and salting are correct — `HivePairingSecretDerivationTests`, 4/4. Both call
+  sites pass node ids in opposite order; `XorNodeIds` is genuinely commutative, padding branch
+  included.
+- Sign → validate round-trips for the real request shapes — `HiveAuthSignRoundTripTests`, 4/4,
+  covering `GET /hive/models` (empty body), the POST heartbeat (JSON body), and a query string.
+  The negative control pins the exact reason string `HMAC mismatch`.
+- Worker rejection reasons are now logged (`HiveAuthMiddleware` always distinguished
+  unknown-peer / stale-secret / clock-skew / replay / HMAC-mismatch, and `HiveTaskQueue` returns
+  it in the 401 body; the worker was discarding it).
+- Auth IS validated before endpoint routing (`HiveTaskQueue` ~L345 vs routing ~L373), so a 503
+  from `/hive/models` genuinely means the signature was accepted.
+
+**What turned out to be an artifact of the debugging environment, NOT a HIVE defect:**
+- **There are two AppData views on NewcorePC.** `%APPDATA%\TheOrc\` and
+  `…\AppData\Local\Packages\Claude_*\LocalCache\Roaming\TheOrc\` each hold their own
+  `hive-peers.json`, `hive-identity.json` and `machine.key`. Tooling launched under the packaged
+  app writes through the redirected view; other tooling writes the real one. Every "I cleared the
+  peer store and it still says already_paired" observation in this campaign is suspect for that
+  reason, and the previously-unexplained note in `HiveNodeServer` — that the on-disk file "was
+  repeatedly NOT sufficient to explain a stuck already_paired" — is very plausibly the same thing
+  rather than a phantom in-memory entry. **Check which file a given process actually reads before
+  concluding anything about trust state.**
+- A **running Warchief rewrites `hive-peers.json` wholesale** from its in-memory list, so the
+  store may only be edited while it is stopped.
+- The apparent "attached Warchief works, detached does not" split was a **port conflict**: a
+  previously-launched Warchief was still holding 7078/7079, so the newly-started one failed to
+  bind and the old process answered. Always confirm exactly one `swarmcli` is running.
+
+**Genuinely open, unproven either way:** whether the responder's shared secret survives a
+persist/reload correctly. The observation that motivated it (auth works pre-restart, fails
+post-restart) was collected while the two-AppData confound was active and has NOT been re-checked
+under controlled conditions. Do not treat it as established.
+
+**Recommended way to resume:** pin one AppData view explicitly, assert exactly one Warchief
+process, then re-run the pair → auth check. Only if it still fails is there a product bug to chase.
+
 ### HV-4 — Failure, cancellation, disconnect, recovery
 
 All on real jobs mid-flight, all asserting fail-closed (no Ollama substitution) and clean
