@@ -589,7 +589,9 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         // logged, and an oversized gap between beats is logged even when the send SUCCEEDS —
         // that last one is the only signal that distinguishes starvation from rejection, because
         // a starved loop's sends still succeed, just too late to matter.
-        var lastBeat = DateTime.UtcNow;
+        var lastBeat    = DateTime.UtcNow;
+        var loopStarted = DateTime.UtcNow;
+        var sentAny     = false;
 
         var beatFailed = false;
 
@@ -644,6 +646,21 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 using var resp = http.Send(req, ct);
                 if (resp.IsSuccessStatusCode)
                 {
+                    // Positive confirmation of the FIRST beat for this task, once. Successful
+                    // beats are otherwise silent, which meant a clean worker log was read
+                    // throughout this investigation as "beats are being sent successfully" when
+                    // it was equally consistent with never sending one at all — the queue-side
+                    // tests have since proven bookkeeping correct, so delivery is the open half
+                    // and its silence must stop being ambiguous
+                    // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-27).
+                    // One line per task, not per beat: enough to distinguish "never sent" from
+                    // "sent and later stopped", without a line every 10s per running job.
+                    if (!sentAny)
+                    {
+                        sentAny = true;
+                        Log($"♥ Heartbeat established for '{bundle.Title}' " +
+                            $"({(DateTime.UtcNow - loopStarted).TotalSeconds:F0}s after claim).");
+                    }
                     lastBeat   = DateTime.UtcNow;
                     beatFailed = false;
                 }
@@ -656,6 +673,21 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                     var reason = ReadReasonAsync(resp, ct).GetAwaiter().GetResult();
                     Log($"⚠ Heartbeat for '{bundle.Title}' rejected: HTTP {(int)resp.StatusCode}" +
                         (string.IsNullOrWhiteSpace(reason) ? "" : $" — {reason}"));
+
+                    // 409 means this worker no longer holds the lease — the task was re-queued
+                    // (not-claimed) or re-claimed by someone else (stale token). Beating on is
+                    // pointless: the queue will never credit it. Stop the loop so the log shows
+                    // one clear "lost the lease" line instead of an endless rejection stream, and
+                    // so a zombie can never appear to keep a re-assigned task alive. The job
+                    // itself is deliberately NOT cancelled here — abandoning in-flight work is a
+                    // separate policy decision, and the result post will be rejected on its own
+                    // token check anyway.
+                    if (resp.StatusCode == System.Net.HttpStatusCode.Conflict)
+                    {
+                        Log($"⚠ Lease for '{bundle.Title}' is no longer held by this worker — " +
+                            "stopping heartbeats for it.");
+                        break;
+                    }
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
