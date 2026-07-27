@@ -896,6 +896,73 @@ public sealed class HiveTaskQueue : IDisposable
         if (s_heartbeatDiagnostics) OnLog?.Invoke($"[HeartbeatDiag] {message}");
     }
 
+    /// <summary>What a heartbeat did, independent of how it is reported over HTTP.</summary>
+    internal enum HeartbeatOutcome { Credited, NotClaimed, StaleToken }
+
+    // ── Test seams for the heartbeat lifecycle ────────────────────────────────
+    // Deliberately minimal and internal: enough to put an entry into the exact state the fleet
+    // was in when the watchdog killed a live job, without standing up an HttpListener, a worker
+    // and a 4.7 GB model load to get there. Same spirit as HivePeerStore.CreateForTest.
+
+    internal void SeedClaimedTaskForTest(string taskId, string claimToken, string worker = "test-worker")
+    {
+        _tasks[taskId] = new QueuedTask
+        {
+            Bundle        = new HiveTaskBundle { TaskId = taskId, Title = "seeded", Role = "Coder" },
+            Status        = "claimed",
+            ClaimedBy     = worker,
+            ClaimToken    = claimToken,
+            ClaimedAt     = DateTime.UtcNow,
+            LastHeartbeat = DateTime.UtcNow,
+        };
+    }
+
+    internal DateTime? GetLastHeartbeatForTest(string taskId)
+        => _tasks.TryGetValue(taskId, out var e) ? e.LastHeartbeat : null;
+
+    internal void SetStatusForTest(string taskId, string status)
+    {
+        if (_tasks.TryGetValue(taskId, out var e)) e.Status = status;
+    }
+
+    /// <summary>
+    /// The heartbeat decision, callable without an <see cref="HttpListenerContext"/> (which is
+    /// sealed and cannot be constructed in a test) — same seam
+    /// <see cref="HiveAuthMiddleware.ValidateCore"/> uses for the same reason.
+    ///
+    /// Exists because three fleet-driven attempts at the HV-3 heartbeat-timeout bug landed with
+    /// only one confirmed effect, at the cost of a worker restart and a cold model load per
+    /// iteration, while the actual question — does a beat for a live claim advance
+    /// LastHeartbeat? — is answerable in milliseconds. Caller holds no lock; this takes
+    /// _claimLock itself, exactly as the HTTP handler did.
+    /// </summary>
+    internal async Task<HeartbeatOutcome> HeartbeatCoreAsync(string taskId, string? claimToken)
+    {
+        await _claimLock.WaitAsync();
+        try
+        {
+            if (!_tasks.TryGetValue(taskId, out var entry) || entry.Status != "claimed")
+            {
+                HeartbeatDiag($"not-claimed taskId={taskId} " +
+                              $"entryStatus={(entry is null ? "<missing>" : entry.Status)}");
+                return HeartbeatOutcome.NotClaimed;
+            }
+
+            if (!string.IsNullOrEmpty(entry.ClaimToken) && claimToken != entry.ClaimToken)
+            {
+                HeartbeatDiag($"stale-token taskId={taskId} worker={entry.ClaimedBy ?? "?"}");
+                return HeartbeatOutcome.StaleToken;
+            }
+
+            var since = entry.LastHeartbeat is { } prev ? DateTime.UtcNow - prev : TimeSpan.Zero;
+            entry.LastHeartbeat = DateTime.UtcNow;
+            HeartbeatDiag($"credited taskId={taskId} worker={entry.ClaimedBy ?? "?"} " +
+                          $"sinceLast={since.TotalSeconds:F1}s");
+            return HeartbeatOutcome.Credited;
+        }
+        finally { _claimLock.Release(); }
+    }
+
     private async Task HandleHeartbeatAsync(HttpListenerContext ctx, string taskId, byte[] body)
     {
         var hb = ReadJson<HiveHeartbeatRequest>(body);
