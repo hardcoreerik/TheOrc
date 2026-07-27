@@ -12,6 +12,11 @@
   <ItemGroup>
     <Compile Include="..\..\OrchestratorIDE\Services\Hive\CampaignContracts.cs" Link="Hive\CampaignContracts.cs" />
     <Compile Include="..\..\OrchestratorIDE\Services\Hive\HiveTaskBundle.cs" Link="Hive\HiveTaskBundle.cs" />
+    <!-- The diagnosability drill shapes its induced failure as a Context Fabric reader, which is
+         the only execution path that fetches a declared input artifact before generating. Linked
+         rather than hard-coding "theorc.context-fabric" so the pack id can never drift out of sync
+         with the worker's dispatch check. -->
+    <Compile Include="..\..\OrchestratorIDE\Services\Hive\CampaignPackCatalog.cs" Link="Hive\CampaignPackCatalog.cs" />
   </ItemGroup>
 
 </Project>

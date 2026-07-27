@@ -76,6 +76,24 @@ public sealed class HiveTaskQueue : IDisposable
         /// <summary>Set on failure, same reasoning as <see cref="ResultText"/>.</summary>
         public string?                              ErrorMsg      { get; set; }
 
+        /// <summary>
+        /// Why each worker that has polled could not take this unit, keyed by worker id. Written
+        /// only for units that are still pending and were found ineligible for a polling worker.
+        ///
+        /// This is the diagnostic that did not exist. Campaign units are exempt from
+        /// PendingTimeoutSec, so a unit no worker can satisfy sits `pending` indefinitely with no
+        /// error, no timeout and nothing recorded anywhere — HV-5's diagnosability drill had to
+        /// wait out a poll deadline just to demonstrate the silence
+        /// (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-5, 2026-07-27). Kept per-worker rather
+        /// than as a single string because "nobody can run this" and "the one box that could is
+        /// busy" are different situations and the reasons differ per box.
+        ///
+        /// Bounded by the number of distinct workers that have ever polled, which is the fleet
+        /// size. Cleared when the unit is claimed, so a unit that eventually runs does not carry
+        /// stale rejections around.
+        /// </summary>
+        public Dictionary<string, string>           IneligibleFor { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>Verification leases are internal siblings and do not increase logical campaign totals.</summary>
         public bool                                 IsVerification { get; init; }
         public string?                              VerificationParentTaskId { get; init; }
@@ -552,6 +570,52 @@ public sealed class HiveTaskQueue : IDisposable
     /// Atomically selects and claims the best pending task that the worker can execute. This
     /// removes the Phase 3A GET-next/POST-claim race while leaving those endpoints compatible.
     /// </summary>
+    /// <summary>
+    /// Records, per pending campaign unit, why the polling worker could not take it, and logs the
+    /// first time a unit is found unsatisfiable by every worker that has ever polled.
+    ///
+    /// Caller holds _claimLock. Deliberately does NOT change dispatch: nothing is failed, timed out
+    /// or re-ordered here. An unsatisfiable unit still waits, exactly as before — the only
+    /// difference is that it now says why, instead of sitting silent forever because campaign units
+    /// are exempt from PendingTimeoutSec.
+    /// </summary>
+    private void RecordIneligibility(HiveLeaseRequest request, HashSet<string> lanes)
+    {
+        foreach (var (taskId, entry) in _tasks)
+        {
+            if (entry.Status != "pending") continue;
+            if (entry.Bundle.CampaignId.Length == 0) continue;
+            if (!AreDependenciesSatisfied(entry)) continue;
+            // A lane mismatch is this worker declining a role, not the unit being unsatisfiable.
+            if (lanes.Count > 0 && !lanes.Contains(entry.Bundle.Role.ToLowerInvariant())) continue;
+
+            var reason = CampaignCapabilityMatcher.ExplainIneligibility(entry.Bundle, request.Capabilities);
+            if (reason is null) continue;   // eligible but out-scored, or claimed in this same pass
+
+            var alreadyKnown = entry.IneligibleFor.TryGetValue(request.WorkerId, out var prior)
+                               && prior == reason;
+            entry.IneligibleFor[request.WorkerId] = reason;
+            if (alreadyKnown) continue;
+
+            Log($"⚠ Work unit '{entry.Bundle.Title}' cannot run on {request.WorkerId}: {reason}");
+            Events.Append("task_ineligible",
+                $"{entry.Bundle.Title} cannot run on {request.WorkerId}: {reason}",
+                taskId, request.WorkerId);
+        }
+    }
+
+    /// <summary>
+    /// The recorded reason a pending unit is not running, or null if there isn't one. Composed at
+    /// read time rather than stored, so it always reflects the current fleet rather than whichever
+    /// worker polled last.
+    /// </summary>
+    private static string? UnsatisfiableReasonFor(QueuedTask entry)
+    {
+        if (entry.Status != "pending" || entry.IneligibleFor.Count == 0) return null;
+        return "No live worker can satisfy this unit's requirements — "
+               + string.Join("; ", entry.IneligibleFor.Select(kv => $"{kv.Key} {kv.Value}"));
+    }
+
     private async Task HandleLeaseAsync(HttpListenerContext ctx, byte[] body, string authNode)
     {
         var request = ReadJson<HiveLeaseRequest>(body);
@@ -580,11 +644,20 @@ public sealed class HiveTaskQueue : IDisposable
 
             if (selected.Value is null)
             {
+                // Nothing for this worker. Before answering 204, record WHY each still-pending
+                // campaign unit was passed over, so an operator can tell "no box can satisfy this"
+                // from "the queue is just empty". Runs only on the empty-handed path, so it costs
+                // nothing while work is flowing, and only for units whose dependencies are already
+                // satisfied — a unit waiting on a barrier is not unsatisfiable, it is just early.
+                RecordIneligibility(request, lanes);
                 ctx.Response.StatusCode = 204;
                 return;
             }
 
             var entry = selected.Value;
+            // A unit that just got claimed is by definition satisfiable; drop any rejections it
+            // accumulated while it waited so the diagnostic never reads as stale.
+            entry.IneligibleFor.Clear();
             entry.ClaimToken    = Guid.NewGuid().ToString("N")[..12];
             entry.Status        = "claimed";
             entry.ClaimedBy     = request.WorkerId;
@@ -1275,6 +1348,7 @@ public sealed class HiveTaskQueue : IDisposable
             OutputArtifacts = entry.StructuredResult?.OutputArtifacts ?? [],
             Attestation = entry.StructuredResult?.Attestation,
             Metrics     = entry.StructuredResult?.Metrics ?? [],
+            UnsatisfiableReason = UnsatisfiableReasonFor(entry),
         });
     }
 

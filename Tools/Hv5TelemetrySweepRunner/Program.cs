@@ -305,12 +305,19 @@ internal static class Program
         {
             Console.WriteLine($"[diagnose] {w.Id}: inducing a native failure...");
 
-            // Induced failure: demand a native model hash the box cannot possibly hold. This is
-            // reversible, needs no reconfiguration of the box, and exercises the exact path §6
-            // cares about -- the runtime must refuse rather than quietly serve the job some other
-            // way. A VRAM-based inducement was rejected for this: an impossible MinVramMb is
-            // filtered at CLAIM time, so the job would sit pending and produce no diagnostics at
-            // all, which tests the scheduler rather than the runtime's failure reporting.
+            // TWO inducements, because there are two distinct failure surfaces and only one of
+            // them was reachable the way this drill was first written.
+            //
+            // (a) Unsatisfiable REQUIREMENT — a native model hash no box holds. Every field of
+            //     ResourceRequirements is matched at CLAIM time (CampaignContracts.Matches), so
+            //     this never reaches a runtime: the unit simply sits `pending`. That is itself a
+            //     diagnosability result worth asserting rather than designing around, and it is
+            //     asserted below as its own check.
+            //
+            // (b) Failure DURING EXECUTION — an input artifact whose digest does not exist. Input
+            //     artifacts are not part of claim matching, so the unit IS claimed and then fails
+            //     while fetching, which is the surface §6's "retained diagnostics are sufficient to
+            //     identify the cause" question is actually about.
             var unitId = $"hv5-diag-{w.Id}";
             var campaign = new CampaignDefinition
             {
@@ -355,19 +362,40 @@ internal static class Program
                 ErrorMsg = last?.ErrorMsg,
             });
 
+            // An unsatisfiable requirement produces NO diagnostic at all: PendingTimeoutSec only
+            // applies to non-campaign tasks, so a campaign unit no worker can satisfy stays
+            // `pending` forever, with no error, no timeout and nothing in the evidence to say why.
+            // §6 asks for diagnosability across machines; silence is the opposite of that, so this
+            // is asserted as a real check rather than quietly avoided by picking a friendlier
+            // inducement.
+            // The assertion is on the REASON, not on the status. An unsatisfiable unit correctly
+            // stays pending -- it may still run if a capable worker joins, so failing it would be
+            // wrong -- but it must no longer be SILENT about why it is not running. That is the
+            // whole distinction: dispatch semantics unchanged, diagnosability added.
             report.Checks.Add(new Hv5Check
             {
                 WorkerId = w.Id,
-                Name = "diagnose/failure-is-terminal-not-hung",
-                Passed = last?.Status is "failed" or "timeout",
-                Detail = $"status={last?.Status ?? "none"}",
+                Name = "diagnose/unsatisfiable-requirement-is-reported-not-silent",
+                Passed = !string.IsNullOrWhiteSpace(last?.UnsatisfiableReason)
+                         || last?.Status is "failed" or "timeout",
+                Detail = !string.IsNullOrWhiteSpace(last?.UnsatisfiableReason)
+                    ? $"status={last!.Status}, and the queue states why: "
+                      + $"\"{Truncate(last.UnsatisfiableReason!, 400)}\""
+                    : last?.Status == "pending"
+                        ? "unit demanding an impossible native model hash sat PENDING with no error, "
+                          + "no timeout and no reason recorded — its cause is not recoverable from "
+                          + "the evidence at all (campaign units are exempt from PendingTimeoutSec)"
+                        : $"status={last?.Status ?? "none"}, no reason recorded",
             });
 
             // This is the actual HV-5 question, and it is deliberately asked of the RETAINED text
             // only: someone reading the evidence file cold, with no access to the box and no live
             // debugger, must be able to name the cause. An empty or generic error fails even if the
             // job correctly refused to run.
+            // Either surface is acceptable evidence here: a failed unit carries ErrorMsg, a pending
+            // unsatisfiable one carries UnsatisfiableReason. What is NOT acceptable is neither.
             var err = last?.ErrorMsg ?? "";
+            if (err.Length == 0) err = last?.UnsatisfiableReason ?? "";
             var namesTheCause = err.Length > 0
                                 && (err.Contains("hash", StringComparison.OrdinalIgnoreCase)
                                     || err.Contains("model", StringComparison.OrdinalIgnoreCase)
@@ -393,7 +421,131 @@ internal static class Program
                          + $"(post-failure rejectedAdmissionCount={after.RejectedAdmissionCount}, "
                          + $"lastRejectionReason=\"{Truncate(after.LastRejectionReason ?? "", 200)}\")",
             });
+
+            await RunExecutionFailureDrillAsync(http, workers, w, report, role, timeoutMs);
         }
+    }
+
+    /// <summary>
+    /// The second half of the drill: a failure that happens DURING EXECUTION rather than being
+    /// filtered out before a worker ever sees it.
+    ///
+    /// Getting here took two wrong turns worth recording, because both looked right on paper:
+    ///   * An unsatisfiable ResourceRequirements field never reaches a worker at all — every field
+    ///     is matched at claim time, so the unit just sits pending (asserted separately above).
+    ///   * A plain NativeAgent unit with a bogus input artifact COMPLETES. Declared `Inputs` are
+    ///     only ever fetched by the Context Fabric paths; for a generic native agent they are
+    ///     ignored — and still reported in the attestation's InputDigests as though they had been
+    ///     consumed. Filed as its own follow-up; it is an attestation-honesty problem, not a
+    ///     diagnosability one.
+    ///
+    /// So the unit here is shaped as a Context Fabric READER: PackId routes it into the CF branch,
+    /// which fetches its corpus artifact with EnsureSuccessStatusCode before generating anything.
+    /// PackId is not part of claim matching, so the unit is claimed normally, and the missing digest
+    /// then fails inside the worker's native path — which is both the surface §6's diagnosability
+    /// criterion is about and HV-4 item 4's "fails closed with an explicit native error".
+    /// </summary>
+    private static async Task RunExecutionFailureDrillAsync(
+        HttpClient http, List<WorkerTarget> workers, WorkerTarget w, Hv5Report report,
+        string role, int timeoutMs)
+    {
+        Console.WriteLine($"[diagnose] {w.Id}: inducing an EXECUTION-time failure...");
+
+        var unitId = $"hv5-diagx-{w.Id}";
+        var missingDigest = new string('e', 64);
+        var campaign = new CampaignDefinition
+        {
+            Name = $"hv5-diagnose-exec-{w.Id}",
+            WorkUnits =
+            [
+                new WorkUnit
+                {
+                    WorkUnitId = unitId,
+                    Title = $"HV-5 induced execution failure on {w.Id}",
+                    Role = role,
+                    ExecutionKind = HiveExecutionKinds.NativeAgent,
+                    // Routes into the CF branch, whose reader path fetches its corpus before
+                    // generating. NativeRole left empty on purpose: that is the reader, the only CF
+                    // sub-path that needs nothing but a corpus artifact.
+                    PackId = CampaignPackCatalog.ContextFabricPackId,
+                    PackVersion = CampaignPackCatalog.ContextFabricPackVersion,
+                    Requirements = new ResourceRequirements
+                    {
+                        ExcludedWorkerIds = workers
+                            .Where(x => !string.Equals(x.Id, w.Id, StringComparison.OrdinalIgnoreCase))
+                            .Select(x => x.Id).ToArray(),
+                    },
+                    Inputs =
+                    [
+                        new ArtifactRef
+                        {
+                            DigestSha256 = missingDigest,
+                            Name = "hv5-missing-corpus.json",
+                            SizeBytes = 1,
+                            MediaType = "application/json",
+                            Kind = "corpus",
+                        },
+                    ],
+                    Spec = "This unit is expected to fail: it is a Context Fabric reader whose " +
+                           "corpus artifact digest does not exist anywhere in the fleet.",
+                    TimeoutMs = timeoutMs,
+                },
+            ],
+        };
+
+        using (var resp = await http.PostAsJsonAsync("/hive/campaigns", campaign, JsonOptions))
+            resp.EnsureSuccessStatusCode();
+
+        var taskId = $"{campaign.CampaignId}-{unitId}";
+        var last = await PollToTerminalAsync(http, taskId, timeoutMs);
+
+        report.Jobs.Add(new Hv5JobEvidence
+        {
+            TaskId = taskId,
+            WorkerId = w.Id,
+            Role = role,
+            Status = last?.Status ?? "unknown",
+            ClaimedBy = last?.ClaimedBy,
+            RuntimeName = last?.Attestation?.RuntimeName,
+            IsNativeRuntime = last?.Attestation?.RuntimeName == "NativeRoleRuntime",
+            ErrorMsg = last?.ErrorMsg,
+        });
+
+        report.Checks.Add(new Hv5Check
+        {
+            WorkerId = w.Id,
+            Name = "diagnose/execution-failure-is-terminal-not-hung",
+            Passed = last?.Status is "failed" or "timeout",
+            Detail = $"status={last?.Status ?? "none"}, claimedBy={last?.ClaimedBy ?? "none"}",
+        });
+
+        // The whole question, asked of the retained text alone: could someone reading this
+        // evidence file cold, with no access to the box, name the cause? A generic or empty error
+        // fails even though the refusal itself was correct.
+        var err = last?.ErrorMsg ?? "";
+        var namesTheCause = err.Length > 0
+                            && (err.Contains("artifact", StringComparison.OrdinalIgnoreCase)
+                                || err.Contains("digest", StringComparison.OrdinalIgnoreCase)
+                                || err.Contains(missingDigest[..8], StringComparison.OrdinalIgnoreCase)
+                                || err.Contains("404", StringComparison.Ordinal)
+                                || err.Contains("not found", StringComparison.OrdinalIgnoreCase));
+        report.Checks.Add(new Hv5Check
+        {
+            WorkerId = w.Id,
+            Name = "diagnose/retained-error-identifies-the-execution-cause",
+            Passed = namesTheCause,
+            Detail = err.Length == 0
+                ? "no error text was retained — the cause is not recoverable from the evidence alone"
+                : $"retained error: \"{Truncate(err, 300)}\"",
+        });
+
+        report.Checks.Add(new Hv5Check
+        {
+            WorkerId = w.Id,
+            Name = "diagnose/no-fallback-on-execution-failure",
+            Passed = last?.Status != "completed",
+            Detail = $"status={last?.Status ?? "none"}, runtime={last?.Attestation?.RuntimeName ?? "none"}",
+        });
     }
 
     // ── Shared helpers ─────────────────────────────────────────────────────────

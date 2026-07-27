@@ -174,6 +174,24 @@ public sealed class HiveTaskStatusResponse
     /// <summary>Populated once Status is "completed" -- worker-reported stats (steps,
     /// prompt_tokens, completion_tokens, etc.) from HiveTaskResult.Metrics.</summary>
     public Dictionary<string, double> Metrics { get; set; } = [];
+
+    /// <summary>
+    /// Populated only while Status is "pending" and at least one worker has polled and been found
+    /// unable to take this unit -- names each worker and the specific requirement it fails.
+    ///
+    /// Exists because this state was previously invisible. Campaign work units are exempt from
+    /// PendingTimeoutSec, so a unit no worker can satisfy waits forever with no error, no timeout
+    /// and nothing to explain it; HV-5's diagnosability drill could only demonstrate the problem by
+    /// waiting out a poll deadline and reporting the silence
+    /// (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-5, 2026-07-27).
+    ///
+    /// Additive and nullable on purpose: it is omitted from the JSON when absent, so existing
+    /// pollers -- including the HV-1/HV-2 drivers that HV-6 re-runs unattended -- are unaffected.
+    /// It is a DIAGNOSTIC, not a verdict: the unit is still pending and may still run if a
+    /// capable worker joins.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? UnsatisfiableReason { get; set; }
 }
 
 /// <summary>Response to GET /hive/tasks/status — full snapshot of queue state.</summary>
