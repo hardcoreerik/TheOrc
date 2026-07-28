@@ -65,7 +65,43 @@ if (args.Contains("--show-identity"))
 // it is the one being left.
 if (args.Contains("--leave-hive"))
 {
-    var identity = HiveIdentity.Load();
+    // Reject mixed modes before anything else. `Contains("--leave-hive")` alone does not notice
+    // an operator error like `--leave-hive --yes --pair --target host` (a copy-paste leftover, or
+    // a genuine attempt to chain leave-then-pair in one call, which this daemon does NOT support
+    // atomically -- see the "pair immediately after --leave-hive --yes, before any daemon start"
+    // rule this exact footgun motivated elsewhere in the docs). Silently ignoring the extra flags
+    // would run leave-hive and drop --pair/--target/--expect-fingerprint/--show-identity on the
+    // floor without telling the operator their command did not do what its other half implied.
+    var incompatible = new[] { "--pair", "--show-identity" }.Where(args.Contains).ToArray();
+    if (incompatible.Length > 0)
+    {
+        Console.Error.WriteLine(
+            $"--leave-hive cannot be combined with {string.Join(", ", incompatible)} in one " +
+            "invocation. Run them as separate commands.");
+        return 1;
+    }
+
+    // Fail CLOSED here, not the lenient default every other caller uses. --leave-hive's entire
+    // contract is "clear membership, keep NodeId/keys/peer-secrets unchanged" -- silently
+    // regenerating a fresh identity on a transient decrypt failure (the two-AppData-views
+    // collision this file's own history documents is a real, observed cause) would make this
+    // command leave a hive using an identity that was never actually a member of it: no error, no
+    // sign anything unusual happened, and the real identity's membership just abandoned in place.
+    HiveIdentity identity;
+    try
+    {
+        identity = HiveIdentity.Load(regenerateOnCorruption: false);
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine(
+            $"Could not load the existing identity at '{HiveIdentity.IdentityPath}': {ex.Message}");
+        Console.Error.WriteLine(
+            "Refusing to proceed with --leave-hive against a freshly-generated identity that was " +
+            "never actually a member of any hive. If this file is genuinely unrecoverable, delete " +
+            "it manually and re-pair from scratch instead.");
+        return 1;
+    }
     if (string.IsNullOrEmpty(identity.HiveId))
     {
         Console.WriteLine("This node is not currently in a hive — nothing to leave.");

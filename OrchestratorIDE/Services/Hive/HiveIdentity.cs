@@ -25,7 +25,9 @@ public enum HiveRole { Unset, Founder, Member }
 /// </summary>
 public sealed class HiveIdentity : IDisposable
 {
-    private static readonly string IdentityPath = Path.Combine(
+    /// <summary>Public so a caller reporting a failed strict load (see <see cref="Load"/>'s
+    /// <c>regenerateOnCorruption</c> parameter) can name the actual file rather than describe it.</summary>
+    public static readonly string IdentityPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "TheOrc", "hive-identity.json");
 
@@ -234,9 +236,27 @@ public sealed class HiveIdentity : IDisposable
     /// <summary>
     /// Returns the singleton identity for this node.
     /// Generates and persists a new identity on first call; loads from disk thereafter.
-    /// Thread-safe. Silent on success, logs on regenerate.
+    /// Thread-safe.
     /// </summary>
-    public static HiveIdentity Load()
+    /// <param name="regenerateOnCorruption">
+    /// When true (the default, and every caller's behavior before this parameter existed): a
+    /// stored identity file that exists but fails to decrypt or parse is treated as corrupt or
+    /// belonging to a different secret protector, and this silently generates and persists a
+    /// brand-new identity in its place — NodeId, signing key, and exchange key all change.
+    ///
+    /// When false: the same failure THROWS instead of regenerating. Callers for whom silently
+    /// operating on a different identity than the one on disk would be actively dangerous must
+    /// opt into this — CodeRabbit found the concrete case: <c>--leave-hive</c>'s entire contract
+    /// is "clear hive membership, keep NodeId/keys/peer-secrets unchanged," and a transient decrypt
+    /// failure (the two-AppData-views collision this file's HiveNodeServer comments already
+    /// document is a real, observed cause) would otherwise make it silently leave a hive using a
+    /// FRESH identity that was never actually a member of it — no error, no indication anything
+    /// unusual happened, and the real identity's membership simply abandoned.
+    ///
+    /// Does NOT apply to first-run: a file that does not exist at all is a genuinely new node, not
+    /// corruption, and is created regardless of this parameter.
+    /// </param>
+    public static HiveIdentity Load(bool regenerateOnCorruption = true)
     {
         lock (_lock)
         {
@@ -260,8 +280,21 @@ public sealed class HiveIdentity : IDisposable
                             selfRole: stored.SelfRole, ownCertJson: stored.OwnMembershipCertJson);
                         return _instance;
                     }
+                    // Deserialized to null without throwing (e.g. the file held literal "null") —
+                    // same "existing file, unusable content" case as the catch below.
+                    if (!regenerateOnCorruption)
+                        throw new InvalidOperationException(
+                            $"Identity file at '{IdentityPath}' exists but deserialized to nothing. " +
+                            "Refusing to silently generate a replacement identity.");
                 }
-                catch { /* corrupt or wrong user — regenerate */ }
+                catch (Exception ex) when (regenerateOnCorruption)
+                {
+                    // Silent by design for every caller except the strict path: this branch is
+                    // reached routinely by legitimate first-time DPAPI/AES-GCM protector mismatches
+                    // (see this file's own two-AppData-views history), and logging here would fire
+                    // on ordinary operation for most callers, not just genuine corruption.
+                    _ = ex;
+                }
             }
 
             var newSign = ECDsa.Create(ECCurve.NamedCurves.nistP256);
