@@ -151,10 +151,20 @@ internal static class Program
         string role,
         int timeoutMs)
     {
+        // The residency role this phase actually exercises, so the conversation-count check below
+        // tracks THAT role's own counter rather than whichever role happens to have the largest
+        // number resident. Found necessary by running the campaign for real: hv3-concurrent (which
+        // loads Researcher) run immediately before this phase in the same HV-6 round left Researcher
+        // resident with ConversationsCreated=3, and MAX-across-roles then reported a false flatline
+        // ([3,3,3]) for two of three cycles while the Worker role's OWN counter was correctly
+        // climbing 1->2->3 underneath it the whole time. Not a product bug -- a driver aggregation
+        // bug that happened to be invisible until a second role was already resident.
+        var residencyRole = MapToResidencyRoleName(role);
+
         foreach (var w in workers)
         {
             var samples = new List<Hv3TelemetrySample>();
-            samples.Add(await SampleAsync(w.NodeUrl, "before-all"));
+            samples.Add(await SampleAsync(w.NodeUrl, "before-all", residencyRole));
 
             for (var i = 1; i <= cycles; i++)
             {
@@ -192,7 +202,7 @@ internal static class Program
 
                 var last = await PollToTerminalAsync(http, $"{campaign.CampaignId}-{unitId}", timeoutMs);
                 report.Jobs.Add(BuildJobEvidence(unitId, w.Id, role, last));
-                samples.Add(await SampleAsync(w.NodeUrl, $"after-cycle-{i}"));
+                samples.Add(await SampleAsync(w.NodeUrl, $"after-cycle-{i}", residencyRole));
                 Console.WriteLine($"  [{last?.Status ?? "unknown"}] {unitId}");
             }
 
@@ -479,10 +489,34 @@ internal static class Program
         };
     }
 
-    private static async Task<Hv3TelemetrySample> SampleAsync(string nodeUrl, string stage)
+    /// <summary>
+    /// Mirrors HiveNativeRoleExecutorAdapter.MapHiveRoleToRuntimeRole's tested logic (only
+    /// "researcher" maps to Researcher, everything else -- coder, uideveloper, tester, unknown
+    /// lanes, null -- maps to Worker) without pulling in the whole Core.Runtime project for one
+    /// mapping. If that mapping ever changes, this local copy has to change with it -- same risk
+    /// class as CampaignCapabilityMatcher.ExplainIneligibility mirroring IsEligible, accepted for
+    /// the same reason: a Tools/ driver project, not a reason to reference production internals.
+    /// </summary>
+    private static string MapToResidencyRoleName(string? hiveRole)
+        => string.Equals(hiveRole, "researcher", StringComparison.OrdinalIgnoreCase) ? "Researcher" : "Worker";
+
+    /// <param name="roleFilter">
+    /// When set, MaxConversationsCreated (despite the name, kept for evidence-file compatibility)
+    /// is THAT role's own ConversationsCreated rather than the max across every resident role.
+    /// Required for the sequential phase: a second role left resident by an earlier phase in the
+    /// same campaign round has its own, unrelated counter, and taking the max across roles reports
+    /// whichever role's count is currently larger -- which can flatline the metric for the role
+    /// actually under test while it is still genuinely climbing underneath. Concurrent's mid-flight
+    /// sampling deliberately omits this and wants the true cross-role max, since it is asking
+    /// whether TWO roles hold reservations at once.
+    /// </param>
+    private static async Task<Hv3TelemetrySample> SampleAsync(string nodeUrl, string stage, string? roleFilter = null)
     {
         var t = await TryFetchTelemetryAsync(nodeUrl);
         var residency = t?.Residency ?? [];
+        var forMetric = roleFilter is null
+            ? residency
+            : residency.Where(r => string.Equals(r.Role, roleFilter, StringComparison.OrdinalIgnoreCase)).ToList();
         return new Hv3TelemetrySample
         {
             Stage = stage,
@@ -492,7 +526,7 @@ internal static class Program
             AvailableBytes = t?.AvailableBytes ?? -1,
             TotalBytes = t?.TotalBytes ?? -1,
             TotalActiveCount = residency.Sum(r => r.ActiveCount),
-            MaxConversationsCreated = residency.Count > 0 ? residency.Max(r => r.ConversationsCreated) : 0,
+            MaxConversationsCreated = forMetric.Count > 0 ? forMetric.Max(r => r.ConversationsCreated) : 0,
             ResidentRoles = residency.Where(r => r.ActiveCount > 0).Select(r => r.Role).ToArray(),
             ReservedRoles = (t?.Reservations ?? []).Select(r => r.Role).ToArray(),
             Residency = residency,
