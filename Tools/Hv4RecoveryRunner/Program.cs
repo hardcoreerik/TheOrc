@@ -225,6 +225,41 @@ internal static class Program
         // returned — and the restart, which used to sit after this whole block, never ran. R2's
         // disconnect and R3's kill then failed against a worker this driver itself had killed and
         // abandoned, which read as cascading fleet instability but was self-inflicted.
+        //
+        // Restart is idempotent via `restartAttempted` and called from TWO places: inline once the
+        // happy path knows it needs a live worker before polling for recovery, and from `finally` to
+        // cover the early-return race path. It must never run twice — the second attempt found here
+        // during review, before this comment was written, called Ssh() again pointlessly and would
+        // have logged a duplicate "kill/worker-rejoins" check.
+        var restartAttempted = false;
+        var rejoined = false;
+
+        async Task EnsureRestartedAsync()
+        {
+            if (restartAttempted) return;
+            restartAttempted = true;
+
+            Console.WriteLine($"[kill] {w.Id}: restarting via scheduled task {w.TaskName}...");
+            // Stop THEN start. Killing the daemon leaves the scheduled task's own state ambiguous —
+            // it can still report Running for the cmd wrapper — and Start-ScheduledTask on a task
+            // the scheduler already considers running is a no-op. The worker would then never come
+            // back and the phase would blame recovery for what was really a scheduler-state quirk.
+            Ssh(w.SshHost!,
+                $"powershell -NoProfile -Command \"Stop-ScheduledTask -TaskName {w.TaskName} " +
+                $"-ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; " +
+                $"Start-ScheduledTask -TaskName {w.TaskName}\"");
+            rejoined = await WaitForTelemetryAsync(w.NodeUrl, TimeSpan.FromMinutes(3));
+            report.Checks.Add(new Hv4Check
+            {
+                WorkerId = w.Id,
+                Name = "kill/worker-rejoins",
+                Passed = rejoined,
+                Detail = rejoined
+                    ? "worker answered /hive/native-telemetry again after restart"
+                    : "worker never came back within 3 minutes",
+            });
+        }
+
         try
         {
             // The kill has to land while the job is STILL RUNNING. HardcoreLaptopMSI finishes these
@@ -284,53 +319,58 @@ internal static class Program
             });
             report.Jobs.Add(BuildJobEvidence(taskId, w.Id, role, "kill", afterDeath));
 
-            // The re-queued work must actually be RECOVERED, not merely re-queued. This is the half
-            // that proves the lease/queue behaviour was correct across the death: the same work
-            // unit, on its next attempt, reaches a terminal state. Losing it here would mean the
-            // retry budget was spent on a box that could not answer.
-            var recovered = await PollToTerminalAsync(http, taskId, timeoutMs);
-            report.Checks.Add(new Hv4Check
+            // Restart HERE, before polling for recovery. The re-queued unit is pinned to this worker
+            // via ExcludedWorkerIds, so nobody can claim it until this worker is alive again — the
+            // previous shape polled for recovery from inside this try block and restarted afterwards
+            // in a separate `finally`, which meant the recovery poll was always racing a worker that
+            // could not possibly answer yet. Caught by HardcorePC's own kill lane going red for the
+            // first time all day, on exactly this check, immediately after that restructuring landed.
+            await EnsureRestartedAsync();
+
+            if (rejoined)
             {
-                WorkerId = w.Id,
-                Name = "kill/requeued-work-is-recovered",
-                Passed = recovered?.Status is "completed" or "failed",
-                Detail = $"the SAME work unit reached status={recovered?.Status ?? "none"} after the "
-                         + $"restart (claimedBy={recovered?.ClaimedBy ?? "none"}, "
-                         + $"runtime={recovered?.Attestation?.RuntimeName ?? "none"})",
-            });
-            report.Jobs.Add(BuildJobEvidence(taskId, w.Id, role, "kill-recovered", recovered));
+                // The re-queued work must actually be RECOVERED, not merely re-queued. This is the
+                // half that proves the lease/queue behaviour was correct across the death: the same
+                // work unit, on its next attempt, reaches a terminal state on the restarted worker.
+                var recovered = await PollToTerminalAsync(http, taskId, timeoutMs);
+                report.Checks.Add(new Hv4Check
+                {
+                    WorkerId = w.Id,
+                    Name = "kill/requeued-work-is-recovered",
+                    Passed = recovered?.Status is "completed" or "failed",
+                    Detail = $"the SAME work unit reached status={recovered?.Status ?? "none"} after "
+                             + $"the restart (claimedBy={recovered?.ClaimedBy ?? "none"}, "
+                             + $"runtime={recovered?.Attestation?.RuntimeName ?? "none"})",
+                });
+                report.Jobs.Add(BuildJobEvidence(taskId, w.Id, role, "kill-recovered", recovered));
+            }
+            else
+            {
+                // Don't let this check silently disappear from the evidence just because the
+                // worker never came back — that would read as "not applicable" when it is actually
+                // the clearest possible failure of it.
+                report.Checks.Add(new Hv4Check
+                {
+                    WorkerId = w.Id,
+                    Name = "kill/requeued-work-is-recovered",
+                    Passed = false,
+                    Detail = "worker never rejoined after the restart, so the re-queued unit could "
+                             + "not be recovered",
+                });
+            }
         }
         finally
         {
-            // Recovery: restart via the scheduled task the fleet actually uses. Runs REGARDLESS of
-            // how the try block above ended — a `return` from the race-check branch above must
-            // still reach this line, because the worker was already killed before either branch ran.
-            Console.WriteLine($"[kill] {w.Id}: restarting via scheduled task {w.TaskName}...");
-            // Stop THEN start. Killing the daemon leaves the scheduled task's own state ambiguous —
-            // it can still report Running for the cmd wrapper — and Start-ScheduledTask on a task
-            // the scheduler already considers running is a no-op. The worker would then never come
-            // back and the phase would blame recovery for what was really a scheduler-state quirk.
-            Ssh(w.SshHost!,
-                $"powershell -NoProfile -Command \"Stop-ScheduledTask -TaskName {w.TaskName} " +
-                $"-ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; " +
-                $"Start-ScheduledTask -TaskName {w.TaskName}\"");
-            var rejoined = await WaitForTelemetryAsync(w.NodeUrl, TimeSpan.FromMinutes(3));
-            report.Checks.Add(new Hv4Check
-            {
-                WorkerId = w.Id,
-                Name = "kill/worker-rejoins",
-                Passed = rejoined,
-                Detail = rejoined
-                    ? "worker answered /hive/native-telemetry again after restart"
-                    : "worker never came back within 3 minutes",
-            });
-
-            // Prove the role is usable again REGARDLESS of how the race check above came out: even
-            // when the original job's death was never observably disruptive, this driver still owes
-            // the fleet a live, working worker before moving on to the next lane.
-            if (rejoined)
-                await ProveServesANewJobAsync(http, all, w, report, role, "kill", timeoutMs);
+            // Covers only the early-return race path above; EnsureRestartedAsync is a no-op if the
+            // happy path already ran it.
+            await EnsureRestartedAsync();
         }
+
+        // Prove the role is usable again REGARDLESS of how the race check above came out: even when
+        // the original job's death was never observably disruptive, this driver still owes the fleet
+        // a live, working worker before moving on to the next lane.
+        if (rejoined)
+            await ProveServesANewJobAsync(http, all, w, report, role, "kill", timeoutMs);
     }
 
     // ── Phase: worker's link to the Warchief blocked mid-job ───────────────────
