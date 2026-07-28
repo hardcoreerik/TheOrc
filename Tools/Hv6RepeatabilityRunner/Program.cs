@@ -6,9 +6,9 @@ using System.Text.Json;
 namespace Hv6RepeatabilityRunner;
 
 /// <summary>
-/// HV-6 driver (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md): runs the whole HV-1 → HV-5 campaign
-/// N times back-to-back with no intervention, and aggregates every lane's own evidence into one
-/// fleet report.
+/// HV-6 driver (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md): runs the HV-1 → HV-5 campaign N times
+/// back-to-back with no intervention, and aggregates every lane's own evidence into one fleet
+/// report.
 ///
 /// It deliberately talks to NOTHING. No Warchief, no worker, no HIVE contract is linked into this
 /// project. It invokes the five existing lane runners and reads what they already wrote, so:
@@ -16,6 +16,18 @@ namespace Hv6RepeatabilityRunner;
 ///   * a lane's verdict here is that lane's OWN verdict, not this driver's re-interpretation of raw
 ///     telemetry — which is the only way "the campaign is repeatable" means anything;
 ///   * adding a lane is adding a row to <see cref="BuildLanes"/>, not new assertion logic.
+///
+/// **HV-2's `large` phase runs as its OWN separate 3x campaign, under `--large-only`, not folded
+/// into the main one.** It is not a job shape but a fleet CONFIGURATION — its own docs say to run
+/// it "against a fleet already reconfigured (NativeContextSize env var) and restarted for that
+/// phase" — and a maintainer decision was made to keep the main campaign's fleet state untouched
+/// for its whole 3x run rather than have it switch configuration mid-campaign, even though that
+/// switch can be (and was) fully automated. Each invocation is still internally a complete,
+/// unattended 3x-with-no-intervention run in its own right, which is what the requirement actually
+/// asks of a single campaign; running two of them is not the same as manually intervening inside
+/// one. `SetFleetContextSizeAsync` still does the reconfiguration — once at the start of a
+/// `--large-only` invocation, restored once at the end — it is simply no longer interleaved between
+/// lanes of the main campaign.
 ///
 /// **This report does not, and must not, claim the §6 default-runtime flip.** It presents evidence
 /// for the maintainer's decision. Three green rounds prove repeatability, which is ONE of §6's eight
@@ -49,13 +61,16 @@ internal static class Program
                         ?? throw new InvalidOperationException(
                             "--model-hash is required (the pinned fleet GGUF's SHA-256) — HV-1 records it per job.");
 
-        // The two fleet configurations the campaign needs. HV-6's requirement is the full campaign
-        // "run 3x back-to-back, all green, NO MANUAL INTERVENTION between runs", and HV-2's large
-        // phase only means anything against a context size whose footprint exceeds the low-VRAM
-        // box's budget — so switching between them has to be part of the run, not something an
-        // operator does by hand halfway through.
+        // The two fleet configurations the campaign needs. HV-2's `large` phase only means anything
+        // against a context size whose footprint exceeds the low-VRAM box's budget.
         var stdContextSize = int.TryParse(GetArg(args, "--context-size"), out var cs) ? cs : 4096;
         var largeContextSize = int.TryParse(GetArg(args, "--large-context-size"), out var lcs) ? lcs : 32768;
+
+        // --large-only runs ONLY the large-context lane(s) (currently just hv2-large) as their own
+        // separate 3x campaign, under a fleet held at largeContextSize for the whole run. Omit it to
+        // run the main campaign, which never touches context size at all — see the type doc for why
+        // these are two invocations rather than one that switches mid-run.
+        var largeOnly = Array.IndexOf(args, "--large-only") >= 0;
 
         var fleet = new Fleet
         {
@@ -86,11 +101,25 @@ internal static class Program
             .Select(s => s.Trim())
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var lanes = BuildLanes(toolsRoot, warchief, fleet, modelHash, largeContextSize)
-            .Where(l => !skip.Contains(l.Name))
-            .ToList();
+        var allLanes = BuildLanes(toolsRoot, warchief, fleet, modelHash, largeContextSize);
+
+        // The split: large-context lanes (currently just hv2-large, identified generically by
+        // ContextSize being set rather than by name, so a future second large-context lane falls
+        // into the same group automatically) run only under --large-only; every other lane runs
+        // only in the main campaign. Neither invocation ever switches configuration mid-run.
+        var (lanePool, requiredContextSize, runKind) = largeOnly
+            ? (allLanes.Where(l => l.ContextSize is not null).ToList(),
+               RequireSingleContextSize(allLanes, largeContextSize),
+               $"large-context (NATIVECONTEXTSIZE={largeContextSize}) lanes only")
+            : (allLanes.Where(l => l.ContextSize is null).ToList(),
+               stdContextSize,
+               "standard-context lanes (large-context lanes run separately via --large-only)");
+
+        var lanes = lanePool.Where(l => !skip.Contains(l.Name)).ToList();
         if (lanes.Count == 0)
-            throw new InvalidOperationException("--skip excluded every lane; nothing to run.");
+            throw new InvalidOperationException(largeOnly
+                ? "No large-context lanes remain after --skip — nothing to run under --large-only."
+                : "--skip excluded every standard-context lane; nothing to run.");
 
         Directory.CreateDirectory(outDir);
 
@@ -102,6 +131,8 @@ internal static class Program
             SkippedLanes = skip.ToList(),
             StartedAt = DateTimeOffset.UtcNow,
             FlipClaim = FlipDisclaimer,
+            RunKind = runKind,
+            FleetContextSize = requiredContextSize,
         };
 
         foreach (var lane in lanes)
@@ -110,56 +141,32 @@ internal static class Program
                     $"Lane '{lane.Name}' runner not found at {lane.ExePath}. Build the Tools/ " +
                     "projects in Release before running HV-6.", lane.ExePath);
 
-        // Lanes are ordered so every standard-config lane runs before any that needs a different
-        // one, which keeps reconfigurations to at most one per round instead of thrashing the fleet
-        // between lanes. Stable sort, so the authored order inside each group is preserved.
-        lanes = lanes.OrderBy(l => l.ContextSize is null ? 0 : 1).ToList();
-
-        // Whatever happens — a failed lane, a thrown reconfiguration, a crash — the fleet goes back
-        // to the standard context size before this process exits. Leaving it on the large config
-        // would silently break every later campaign, and the symptom (jobs denied on the small box)
-        // looks like a runtime regression rather than leftover state.
-        var currentContextSize = stdContextSize;
+        // Reconfigure ONCE before the whole 3x run (only if this invocation actually needs a
+        // non-standard size — the main campaign never touches this at all), and restore ONCE in a
+        // finally regardless of what happens inside. No mid-campaign switching, by construction:
+        // the lane pool above is homogeneous, so there is nothing to switch between.
+        var reconfigured = requiredContextSize != stdContextSize;
         try
         {
+        if (reconfigured)
+        {
+            if (!await SetFleetContextSizeAsync(fleet, requiredContextSize))
+                throw new InvalidOperationException(
+                    $"Could not set the fleet to NATIVECONTEXTSIZE={requiredContextSize} before " +
+                    "starting the large-context campaign — aborting rather than running any lane " +
+                    "against the wrong configuration.");
+            report.Reconfigurations++;
+        }
+
         for (var round = 1; round <= rounds; round++)
         {
             Console.WriteLine();
-            Console.WriteLine($"═══ ROUND {round} of {rounds} ═══");
+            Console.WriteLine($"═══ ROUND {round} of {rounds} — {runKind} ═══");
             var roundResult = new Hv6Round { Round = round, StartedAt = DateTimeOffset.UtcNow };
 
             foreach (var lane in lanes)
             {
-                var required = lane.ContextSize ?? stdContextSize;
-                if (required != currentContextSize)
-                {
-                    if (!await SetFleetContextSizeAsync(fleet, required))
-                    {
-                        // Record the lane as unrun rather than running it against the wrong config.
-                        // A lane that silently ran under the wrong fleet configuration is how HV-2's
-                        // large phase came to report a denial that never happened.
-                        roundResult.Lanes.Add(new Hv6LaneResult
-                        {
-                            Lane = lane.Name,
-                            ExitCode = -1,
-                            Verdict = "NOT-RUN(reconfigure-failed)",
-                            FailedChecks =
-                            [
-                                $"fleet could not be set to NATIVECONTEXTSIZE={required}; lane skipped "
-                                + "rather than run against the wrong configuration",
-                            ],
-                            StartedAt = DateTimeOffset.UtcNow,
-                            FinishedAt = DateTimeOffset.UtcNow,
-                        });
-                        Console.WriteLine($"     NOT-RUN — could not reconfigure to {required}");
-                        continue;
-                    }
-                    currentContextSize = required;
-                    report.Reconfigurations++;
-                }
-
-                Console.WriteLine($"  ── {lane.Name} …"
-                                  + (lane.ContextSize is null ? "" : $" (ctx={lane.ContextSize})"));
+                Console.WriteLine($"  ── {lane.Name} …");
                 var started = DateTimeOffset.UtcNow;
                 var (exitCode, stdout) = await RunLaneAsync(lane);
                 var finished = DateTimeOffset.UtcNow;
@@ -195,25 +202,19 @@ internal static class Program
             // Keep going after a failed round rather than aborting. HV-6 is asking whether the
             // campaign is REPEATABLE, and "round 2 failed, rounds 1 and 3 passed" is a far more
             // useful answer than "stopped at round 2" — intermittency is exactly what this lane is
-            // built to surface, and stopping early hides it.
-
-            // Back to the standard config before the next round, so every round starts from the
-            // same fleet state. Without this, round 2 would begin on whatever the last lane of
-            // round 1 happened to leave behind, and "repeatable" would be measuring three
-            // different setups.
-            if (currentContextSize != stdContextSize && round < rounds)
-            {
-                if (await SetFleetContextSizeAsync(fleet, stdContextSize))
-                {
-                    currentContextSize = stdContextSize;
-                    report.Reconfigurations++;
-                }
-            }
+            // built to surface, and stopping early hides it. Every round in a given invocation runs
+            // at the SAME fleet configuration by construction (it is set once, above, before round
+            // 1), so there is no per-round drift to guard against here.
         }
         }
         finally
         {
-            if (currentContextSize != stdContextSize)
+            // Whatever happened — a failed lane, a thrown reconfiguration, a crash — the fleet goes
+            // back to the standard context size before this process exits if it was ever moved off
+            // it. Leaving it on the large config would silently break every later campaign, and the
+            // symptom (jobs denied on the small box) looks like a runtime regression rather than
+            // leftover state.
+            if (reconfigured)
             {
                 Console.WriteLine();
                 Console.WriteLine("Restoring fleet to the standard context size …");
@@ -238,6 +239,28 @@ internal static class Program
         Console.WriteLine($"Evidence written: {jsonPath}");
         Console.WriteLine($"Summary written:  {summaryPath}");
         return report.Passed ? 0 : 2;
+    }
+
+    /// <summary>
+    /// Guards against a future second large-context lane declaring a DIFFERENT size than the first —
+    /// --large-only assumes one large-context config per invocation, and silently picking one of two
+    /// disagreeing sizes would be worse than refusing to start.
+    /// </summary>
+    private static int RequireSingleContextSize(List<Lane> allLanes, int expected)
+    {
+        var sizes = allLanes.Where(l => l.ContextSize is not null).Select(l => l.ContextSize!.Value)
+            .Distinct().ToList();
+        if (sizes.Count == 0)
+            throw new InvalidOperationException("--large-only given but no lane declares a ContextSize.");
+        if (sizes.Count > 1)
+            throw new InvalidOperationException(
+                $"Large-context lanes declare different sizes ({string.Join(", ", sizes)}) — " +
+                "--large-only cannot pick one automatically. Run them as separate invocations.");
+        if (sizes[0] != expected)
+            throw new InvalidOperationException(
+                $"Large-context lane declares {sizes[0]} but --large-context-size (or its default) " +
+                $"is {expected} — these must agree.");
+        return expected;
     }
 
     // ── Lane table ─────────────────────────────────────────────────────────────
@@ -380,7 +403,27 @@ internal static class Program
         return false;
     }
 
+    /// <summary>
+    /// Retries with a lengthening connect timeout — same shape as Hv4RecoveryRunner's Ssh(), and for
+    /// the same reason: this call was single-attempt when a smoke test caught it going empty against
+    /// HardcoreLaptopMSI ("start script reports '', expected 32768"). SetFleetContextSizeAsync's own
+    /// verification correctly refused to trust that and the run restored the fleet rather than
+    /// leaving it split — but a transient blip should not cost the whole reconfiguration when a
+    /// retry would have ridden through it, exactly as it does for HV-4's box-level actions.
+    /// </summary>
     private static string Ssh(string host, string command)
+    {
+        int[] timeouts = [15, 25, 35];
+        for (var attempt = 0; attempt < timeouts.Length; attempt++)
+        {
+            var result = SshOnce(host, command, timeouts[attempt]);
+            if (!string.IsNullOrWhiteSpace(result)) return result;
+            if (attempt < timeouts.Length - 1) Thread.Sleep(3000 * (attempt + 1));
+        }
+        return "";
+    }
+
+    private static string SshOnce(string host, string command, int connectTimeoutSec)
     {
         var psi = new ProcessStartInfo("ssh")
         {
@@ -389,7 +432,11 @@ internal static class Program
             UseShellExecute = false,
         };
         psi.ArgumentList.Add("-o");
-        psi.ArgumentList.Add("ConnectTimeout=15");
+        psi.ArgumentList.Add($"ConnectTimeout={connectTimeoutSec}");
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add("ServerAliveInterval=5");
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add("ServerAliveCountMax=12");
         psi.ArgumentList.Add(host);
         psi.ArgumentList.Add(command);
 
@@ -474,6 +521,7 @@ internal static class Program
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("# HV-6 — repeatability + fleet report");
         sb.AppendLine();
+        sb.AppendLine($"- Run: {report.RunKind} (NATIVECONTEXTSIZE={report.FleetContextSize})");
         sb.AppendLine($"- Warchief: `{report.Warchief}`");
         sb.AppendLine($"- Rounds: {report.Rounds.Count} of {report.RoundsRequested} requested");
         sb.AppendLine($"- Started: {report.StartedAt:u}");
@@ -482,6 +530,11 @@ internal static class Program
             sb.AppendLine($"- **Lanes SKIPPED (not covered by this report): {string.Join(", ", report.SkippedLanes)}**");
         sb.AppendLine();
         sb.AppendLine($"> {report.FlipClaim}");
+        sb.AppendLine();
+        sb.AppendLine("> This report covers **only** the lanes listed below. HV-2's large-context "
+                      + "phase is a separate 3x invocation (`--large-only`) under a different fleet "
+                      + "configuration and has its own report — read both before concluding anything "
+                      + "about the full HV-1→HV-5 campaign.");
         sb.AppendLine();
 
         // Lane × round matrix — the shape that makes intermittency obvious at a glance, which is
@@ -599,9 +652,18 @@ internal sealed class Hv6Report
     public bool Passed { get; set; }
     /// <summary>In-band disclaimer, so this verdict cannot be quoted as a §6 flip authorisation.</summary>
     public string FlipClaim { get; set; } = "";
-    /// <summary>How many times the fleet's context size was rewritten during this campaign.</summary>
+    /// <summary>How many times the fleet's context size was rewritten during this campaign. At most
+    /// 2 for any invocation: once to enter a non-standard config (if this run needed one), once to
+    /// restore it — never more, because a single invocation's lane pool is homogeneous by
+    /// construction and there is no per-round or per-lane switching to do.</summary>
     public int Reconfigurations { get; set; }
     /// <summary>Whether the fleet was left on the standard context size. A false here means a box
     /// needs manual attention before the next campaign.</summary>
     public bool FleetRestored { get; set; }
+    /// <summary>"standard-context lanes" or "large-context lanes only" — which half of the split
+    /// campaign this report covers. The two are separate invocations; read both before concluding
+    /// anything about the full HV-1→HV-5 campaign.</summary>
+    public string RunKind { get; set; } = "";
+    /// <summary>The NATIVECONTEXTSIZE this entire run — every round, every lane — executed under.</summary>
+    public int FleetContextSize { get; set; }
 }
