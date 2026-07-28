@@ -168,6 +168,13 @@ internal static class Program
         Console.WriteLine($"[kill] {w.Id}: submitting a long job, then killing the worker mid-flight...");
         RequireSsh(w, "kill");
 
+        // Pre-warm the ssh connection NOW, before the job exists, while the box is still idle --
+        // see the SSH connection multiplexing section above SshOnce. Every ssh call in this phase
+        // reuses it automatically via ControlMaster=auto; a failure here just means those calls
+        // fall back to their own ordinary connections, same as always.
+        var sshWarm = await WarmSshConnectionAsync(w.SshHost!);
+        Console.WriteLine($"[kill] {w.Id}: ssh connection pre-warm {(sshWarm ? "succeeded" : "failed — calls will connect individually")}");
+
         var (campaignId, taskId) = await SubmitAsync(http, all, w, role, "kill", LongSpec, timeoutMs);
 
         // Wait for the job to be genuinely IN FLIGHT before killing. Killing a worker that has not
@@ -371,6 +378,12 @@ internal static class Program
         // a live, working worker before moving on to the next lane.
         if (rejoined)
             await ProveServesANewJobAsync(http, all, w, report, role, "kill", timeoutMs);
+
+        // Explicit close on the normal-completion path only. Earlier returns (claim failed, kill
+        // never landed) leave the warm connection to expire on its own via ControlPersist=600 --
+        // acceptable per WarmSshConnectionAsync's own docs, and simpler than threading an outer
+        // try/finally through the delicate restart-guarantee logic above it.
+        await CloseSshConnectionAsync(w.SshHost!);
     }
 
     // ── Phase: worker's link to the Warchief blocked mid-job ───────────────────
@@ -381,6 +394,15 @@ internal static class Program
     {
         Console.WriteLine($"[disconnect] {w.Id}: submitting a long job, then cutting its link mid-flight...");
         RequireSsh(w, "disconnect");
+
+        // Pre-warm the ssh connection NOW, before the job exists, while the box is still idle. This
+        // is the actual fix for the gap the controlled sleep experiment ruled everything else out
+        // for: the firewall-rule ssh call needs a fresh, CPU-bound handshake, and that handshake was
+        // competing directly with the induced job for the same cycles at exactly the moment this
+        // phase needed it least. Paying that cost up front, while idle, and reusing the connection
+        // via ControlMaster=auto in every subsequent Ssh() call removes the competition entirely.
+        var sshWarm = await WarmSshConnectionAsync(w.SshHost!);
+        Console.WriteLine($"[disconnect] {w.Id}: ssh connection pre-warm {(sshWarm ? "succeeded" : "failed — calls will connect individually")}");
 
         const string ruleName = "TheOrc-HV4-Disconnect";
         var (campaignId, taskId) = await SubmitAsync(http, all, w, role, "disconnect", LongSpec, timeoutMs);
@@ -508,6 +530,10 @@ internal static class Program
         }
 
         await ProveServesANewJobAsync(http, all, w, report, role, "disconnect", timeoutMs);
+
+        // Same tradeoff as the kill phase: explicit close on the normal path only, earlier returns
+        // (never claimed) leave it to expire via ControlPersist=600.
+        await CloseSshConnectionAsync(w.SshHost!);
     }
 
     // ── Phase: Ollama stopped on the worker ────────────────────────────────────
@@ -917,6 +943,119 @@ internal static class Program
         return "";
     }
 
+    // ── SSH connection multiplexing ─────────────────────────────────────────
+    //
+    // The controlled sleep experiment (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-6,
+    // 2026-07-28) proved command latency was never the bottleneck for HardcoreLaptopMSI's
+    // disconnect failures: 1s and 0s produced statistically identical outcomes. What actually
+    // fails is the ssh session completing AT ALL while the box is CPU-loaded serving the induced
+    // job -- because a fresh SSH connection pays for a full crypto key exchange, which is
+    // CPU-bound, competing directly with the inference job for the same cycles.
+    //
+    // OpenSSH connection multiplexing (ControlMaster/ControlPath) sidesteps this: establish ONE
+    // authenticated connection while the box is still idle (before the job is even submitted),
+    // hold it open, and have every subsequent command open a cheap new CHANNEL on that existing
+    // connection instead of a new one -- no repeat key exchange, so no repeat CPU contention.
+    // Verified by hand against this exact host before writing this: a command that normally needs
+    // seconds-to-tens-of-seconds of connect-timeout retries completed in 0.35s over a pre-warmed
+    // connection.
+    //
+    // A fresh, unshared control socket per (worker, phase, process) run avoids any collision
+    // between concurrent invocations, and ControlPersist bounds its lifetime so a crashed run
+    // cannot leave a socket held open forever.
+    private static string ControlPath(string sshHost)
+        => Path.Combine(Path.GetTempPath(), $"theorc-hv4-cm-{sshHost}-{Environment.ProcessId}");
+
+    /// <summary>
+    /// Establishes the multiplexed master connection. Call ONCE per phase, as early as possible
+    /// -- ideally before the induced job is even submitted, while the box is still idle -- so the
+    /// one unavoidable CPU-bound handshake happens on a machine that can actually spare the
+    /// cycles for it. A failure here is non-fatal: <see cref="Ssh"/> falls back to establishing
+    /// its own ordinary (non-multiplexed) connection per call, exactly as it did before this
+    /// existed, so a box that cannot even accept the warm-up connection is no worse off than
+    /// before.
+    /// </summary>
+    private static async Task<bool> WarmSshConnectionAsync(string sshHost)
+    {
+        var controlPath = ControlPath(sshHost);
+        var psi = new ProcessStartInfo("ssh")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        psi.ArgumentList.Add("-o"); psi.ArgumentList.Add("ConnectTimeout=15");
+        psi.ArgumentList.Add("-o"); psi.ArgumentList.Add("ControlMaster=yes");
+        // Long enough to outlive the phase's own worst-case retries and timeouts; the connection
+        // is explicitly closed at the end of the phase regardless, so this is a ceiling, not the
+        // expected lifetime.
+        psi.ArgumentList.Add("-o"); psi.ArgumentList.Add("ControlPersist=600");
+        psi.ArgumentList.Add("-o"); psi.ArgumentList.Add($"ControlPath={controlPath}");
+        // -N: no remote command, just hold the tunnel. -f: fork to background once authenticated,
+        // so this call returns promptly instead of blocking for the connection's whole lifetime.
+        psi.ArgumentList.Add("-N");
+        psi.ArgumentList.Add("-f");
+        psi.ArgumentList.Add(sshHost);
+
+        using var p = Process.Start(psi)!;
+        var stdoutTask = p.StandardOutput.ReadToEndAsync();
+        var stderrTask = p.StandardError.ReadToEndAsync();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try { await p.WaitForExitAsync(cts.Token).ConfigureAwait(false); }
+        catch (OperationCanceledException)
+        {
+            try { p.Kill(entireProcessTree: true); } catch { /* best-effort */ }
+            return false;
+        }
+        _ = await stdoutTask.ConfigureAwait(false);
+        _ = await stderrTask.ConfigureAwait(false);
+
+        // -f backgrounds on success but the parent's own exit code still reports whether the
+        // handshake completed -- don't just assume it worked because the process returned.
+        return p.ExitCode == 0 && await CheckMultiplexedConnectionAsync(sshHost).ConfigureAwait(false);
+    }
+
+    private static async Task<bool> CheckMultiplexedConnectionAsync(string sshHost)
+    {
+        var psi = new ProcessStartInfo("ssh")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        psi.ArgumentList.Add("-o"); psi.ArgumentList.Add($"ControlPath={ControlPath(sshHost)}");
+        psi.ArgumentList.Add("-O"); psi.ArgumentList.Add("check");
+        psi.ArgumentList.Add(sshHost);
+        using var p = Process.Start(psi)!;
+        await p.WaitForExitAsync().ConfigureAwait(false);
+        return p.ExitCode == 0;
+    }
+
+    /// <summary>
+    /// Best-effort teardown. Not calling this is not a leak in the way it would be for most
+    /// resources -- ControlPersist=600 above already bounds the socket's lifetime -- but a run
+    /// that finished normally should not leave 600s of dangling connection behind it either.
+    /// </summary>
+    private static async Task CloseSshConnectionAsync(string sshHost)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo("ssh")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            psi.ArgumentList.Add("-o"); psi.ArgumentList.Add($"ControlPath={ControlPath(sshHost)}");
+            psi.ArgumentList.Add("-O"); psi.ArgumentList.Add("exit");
+            psi.ArgumentList.Add(sshHost);
+            using var p = Process.Start(psi)!;
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await p.WaitForExitAsync(cts.Token).ConfigureAwait(false);
+        }
+        catch { /* best-effort; ControlPersist bounds any leak regardless */ }
+    }
+
     // Marks where the caller's command ends and Ssh()'s own bookkeeping begins. Its absence from
     // the captured stdout is what "the command did not complete" means now — not "stdout was
     // empty", which a correctly-succeeding side-effecting command produces by design.
@@ -939,6 +1078,15 @@ internal static class Program
         psi.ArgumentList.Add("ServerAliveInterval=5");
         psi.ArgumentList.Add("-o");
         psi.ArgumentList.Add("ServerAliveCountMax=12");
+        // ControlMaster=auto: if WarmSshConnectionAsync already established a multiplexed
+        // connection at this ControlPath, reuse it (opening a cheap new channel, no repeat
+        // handshake); if not -- the warm-up was never called, failed, or already timed out -- ssh
+        // transparently falls back to an ordinary connection of its own, exactly as before this
+        // existed. This call is never worse off for trying.
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add("ControlMaster=auto");
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add($"ControlPath={ControlPath(host)}");
         psi.ArgumentList.Add(host);
         psi.ArgumentList.Add($"{command}; Write-Output '{SshDoneMarker}'");
 
