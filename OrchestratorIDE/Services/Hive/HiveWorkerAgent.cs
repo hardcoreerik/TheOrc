@@ -639,6 +639,15 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
         var beatFailed = false;
 
+        // One HttpClient for this task's whole heartbeat lifetime, not one per beat. A fresh
+        // HttpClient per iteration re-pays DNS resolution and TCP (and TLS, if the Warchief is ever
+        // reached over https) setup on exactly the path this loop exists to keep timely — the
+        // opposite of what a 10s-cadence, timing-sensitive loop needs. Safe to hoist: this method
+        // runs on its OWN dedicated thread per task (see HeartbeatLoopAsync), so there is no
+        // cross-task sharing to worry about, and disposal at the end of the loop still happens via
+        // the same `using` discipline, just once instead of every beat.
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+
         while (!ct.IsCancellationRequested)
         {
             // Retry sooner after a failure. At the normal 10s cadence a worker only gets four
@@ -686,7 +695,6 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 // the point where the re-queue it was meant to prevent has already happened.
                 // Blocking Send on this dedicated thread — no continuation to be scheduled, so
                 // the response cannot be stranded behind inference work the way SendAsync was.
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
                 using var resp = http.Send(req, ct);
                 if (resp.IsSuccessStatusCode)
                 {
