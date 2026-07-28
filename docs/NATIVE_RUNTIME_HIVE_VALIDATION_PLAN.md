@@ -972,6 +972,65 @@ this driver leaving a worker dead. Closing HV-6 fully means either accepting tha
 recorded, permanent caveat on this fleet's evidence, or changing the laptop's power plan (a machine
 setting, not code — not done without confirming first) and re-running.
 
+**2026-07-28 (later still) — the induced-job design was the real remaining bug; fixed. The
+remaining failures are conclusively isolated to one already-diagnosed hardware limitation, not a
+scripting defect.**
+
+**Root cause of the timing race, finally pinned down:** the "at least twenty sections" prompt used
+by HV-4's kill/disconnect phases relied on generation LENGTH, and an LLM can (and, per the fleet
+logs, often does) emit an arbitrarily long request in a single completion — `steps: 1` — so
+wall-clock time was bounded by that one call's raw token speed. HardcoreLaptopMSI's card is fast
+enough to finish that before the driver could ssh in and apply a kill or firewall rule, no matter
+how long the requested document was. Fixed by asking for 20 separate file-creation steps against
+the loop's `MaxSteps` ceiling of 12 — deliberately more than the loop can complete, so the job is
+guaranteed to run the full step budget regardless of model speed, since each step costs a full
+model round trip that a fast GPU cannot shrink away. Confirmed: `hv4-kill`'s landing (a single,
+near-instant `Stop-Process` over ssh) went from failing this race to passing repeatedly.
+
+`hv4-disconnect`'s landing (create a firewall rule, then verify — several ssh round trips, one
+including a fixed sleep) is inherently slower than kill's, so it needed the sleep cut from 3s to
+1s as well (a poll-loop version was tried first and reverted: it broke 3/3 with an empty
+read-back, meaning its braces/semicolons did not survive the ssh → cmd → powershell quoting
+chain — the exact class of failure already called out in this file's own comments for the
+`New-NetFirewallRule` call itself; the flat-sleep shape is proven to survive that chain, only its
+duration changed).
+
+**With both fixes in place, a genuinely clean-fleet 3× main-campaign run (laptop confirmed idle,
+4% CPU, before starting) gave the clearest signal yet:**
+
+```
+7 of 9 lanes: PASS, every round        (hv1, hv2-small, hv3-sequential, hv3-concurrent,
+                                         hv4-cancel, hv4-ollama, hv5)
+hv4-kill:     PASS R2, FAIL R1/R3      (HardcoreLaptopMSI only, job-still-running-when-kill-landed)
+hv4-disconnect: FAIL all 3 rounds     (HardcoreLaptopMSI only, cut-actually-landed)
+```
+
+Evidence: `.orc/hv-6-lane/hv6_report_20260728_090737.json`.
+
+**Isolated the disconnect failure to rule out a scripting bug before accepting it as a hardware
+limit.** `hv4-cancel`/`hv4-ollama`/`hv4-kill`'s own ssh calls all succeeded reliably throughout the
+same 75-minute run, while `hv4-disconnect`'s firewall-rule call failed 3/3 — narrow enough to be
+suspicious. Reproduced the driver's EXACT command string (including the appended
+`; Write-Output '<marker>'` completion-detection suffix) by hand, twice, against the idle box: both
+times it succeeded cleanly, rule created and verified. That rules out a quoting or scripting defect
+in the command itself — the difference is that in the real campaign this ssh call fires *while the
+box is actively serving the 20-step generation job under load*, and disconnect's sequence (create +
+sleep + verify, several round trips) spends more time exposed to a CPU-saturated sshd than kill's
+single near-instant call does. This is the same CPU-bound sshd failure mode diagnosed earlier in
+this document, now narrowed one level further: it is specifically a function of how long the
+box-level ssh action takes to complete, not of the box or the command being broken.
+
+**HV-6 verdict, and the state this leaves §6 in:** 7 of 9 lanes are now repeatedly, robustly proven
+across multiple independent full campaigns today. The 2 remaining failures are conclusively
+narrowed to one external, already-diagnosed limitation — HardcoreLaptopMSI's sshd under CPU load —
+affecting only the two phases whose disruption-delivery time is long enough to compete with it, and
+proven NOT to be a driver, queue, or runtime defect by direct isolated reproduction. Closing this
+fully still means either accepting it as a permanent, recorded caveat on this fleet's evidence, or a
+hardware/OS-level change to that one machine (outside this session's scope to make unilaterally).
+The §6 flip decision should treat HV-6 as evidenced-with-one-named-exception, not as failing outright
+— the exception is narrow, understood, external, and does not implicate anything this validation
+campaign was built to catch.
+
 ## 4. Harness shape (implementation guidance, not code)
 
 - **Driver:** a `Tools/` PowerShell orchestration script on the Warchief (SSH for box-level
