@@ -44,7 +44,13 @@ internal static class Program
         "OllamaRuntime",
         "falling back to Ollama",
         "fallback to Ollama",
-        "11434",            // the Ollama HTTP port — a native-only worker has no business dialling it
+        // Anchored to the URL/host shape, not a bare "11434": the whole log is scanned
+        // case-insensitively for these substrings, and the raw digits alone match any timestamp
+        // fragment, byte count, task id or duration that happens to contain them — a false
+        // positive with no way to tell a real Ollama dial from noise. Found by CodeRabbit's review
+        // of this PR.
+        ":11434",
+        "localhost:11434",
     ];
 
     public static async Task<int> Main(string[] args)
@@ -96,7 +102,7 @@ internal static class Program
         try
         {
             if (phase is "telemetry" or "all") await RunTelemetryAsync(http, workers, report, role, timeoutMs);
-            if (phase is "sweep" or "all") RunSweep(workers, report);
+            if (phase is "sweep" or "all") await RunSweep(workers, report);
             if (phase is "diagnose" or "all") await RunDiagnoseAsync(http, workers, report, role, timeoutMs);
 
             report.FinishedAt = DateTimeOffset.UtcNow;
@@ -231,7 +237,7 @@ internal static class Program
 
     // ── Phase: no-silent-fallback + NoKvSlot log sweep ─────────────────────────
 
-    private static void RunSweep(List<WorkerTarget> workers, Hv5Report report)
+    private static async Task RunSweep(List<WorkerTarget> workers, Hv5Report report)
     {
         foreach (var w in workers)
         {
@@ -253,7 +259,7 @@ internal static class Program
 
             // Read the log once and match locally rather than running a grep per marker: fewer ssh
             // round-trips, and the retained Detail can quote what was actually found.
-            var log = Ssh(w.SshHost!,
+            var log = await Ssh(w.SshHost!,
                 $"powershell -NoProfile -Command \"if (Test-Path '{w.LogPath}') " +
                 $"{{ Get-Content '{w.LogPath}' -Raw }} else {{ '__MISSING__' }}\"");
 
@@ -645,11 +651,31 @@ internal static class Program
     }
 
     /// <summary>
-    /// stdout only, for the same reason as the HV-4 driver: current OpenSSH writes a multi-line
-    /// post-quantum advisory to stderr on every connection, and folding it into the returned text
-    /// makes every parsed remote result wrong.
+    /// Retries with a lengthening connect timeout — same shape as Hv4RecoveryRunner's Ssh(), fixed
+    /// there after CodeRabbit's review of this PR found two correctness bugs shared by every copy
+    /// of this helper: (1) treating empty stdout as failure re-runs side-effecting commands that
+    /// legitimately print nothing, and (2) synchronous `ReadToEnd()` has no timeout of its own, so a
+    /// genuinely hung ssh session blocks forever regardless of the `WaitForExit(ms)` that used to
+    /// follow it. This copy only ever reads (log content, telemetry), so (1) was never able to bite
+    /// here — but (2) could, so it gets the same fix for consistency and because a hang in ANY
+    /// caller (sweep, diagnose) would otherwise stall the whole HV-5 lane silently.
     /// </summary>
-    private static string Ssh(string host, string command)
+    private static async Task<string> Ssh(string host, string command)
+    {
+        int[] timeouts = [10, 20, 30];
+        for (var attempt = 0; attempt < timeouts.Length; attempt++)
+        {
+            var (ok, output) = await SshOnce(host, command, timeouts[attempt]).ConfigureAwait(false);
+            if (ok) return output;
+            if (attempt < timeouts.Length - 1) await Task.Delay(3000 * (attempt + 1)).ConfigureAwait(false);
+        }
+        return "";
+    }
+
+    private const string SshDoneMarker = "__HV5_SSH_DONE__";
+
+    private static async Task<(bool Ok, string Output)> SshOnce(
+        string host, string command, int connectTimeoutSec)
     {
         var psi = new ProcessStartInfo("ssh")
         {
@@ -658,15 +684,37 @@ internal static class Program
             UseShellExecute = false,
         };
         psi.ArgumentList.Add("-o");
-        psi.ArgumentList.Add("ConnectTimeout=10");
+        psi.ArgumentList.Add($"ConnectTimeout={connectTimeoutSec}");
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add("ServerAliveInterval=5");
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add("ServerAliveCountMax=12");
         psi.ArgumentList.Add(host);
-        psi.ArgumentList.Add(command);
+        psi.ArgumentList.Add($"{command}; Write-Output '{SshDoneMarker}'");
 
         using var p = Process.Start(psi)!;
-        var stdout = p.StandardOutput.ReadToEnd();
-        _ = p.StandardError.ReadToEnd();
-        p.WaitForExit(120_000);
-        return stdout;
+        var stdoutTask = p.StandardOutput.ReadToEndAsync();
+        var stderrTask = p.StandardError.ReadToEndAsync();
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(120_000));
+        try
+        {
+            await p.WaitForExitAsync(cts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            try { p.Kill(entireProcessTree: true); } catch { /* best-effort */ }
+            return (false, "");
+        }
+
+        var stdout = await stdoutTask.ConfigureAwait(false);
+        // Drained but discarded: current OpenSSH writes a post-quantum advisory to stderr on every
+        // connection, and folding it into the returned text makes every parsed remote result wrong.
+        _ = await stderrTask.ConfigureAwait(false);
+
+        var markerAt = stdout.LastIndexOf(SshDoneMarker, StringComparison.Ordinal);
+        if (markerAt < 0) return (false, "");
+        return (true, stdout[..markerAt].TrimEnd());
     }
 
     private static string Truncate(string s, int max)

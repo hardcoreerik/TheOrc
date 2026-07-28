@@ -810,8 +810,9 @@ Two operational notes worth keeping. The Ollama stop must kill the tray supervis
 (with a space) as well as the server — matching only the exact process name left it restarting
 within seconds, and absence never stuck. And **HardcoreLaptopMSI's sshd goes unreachable for
 minutes at a time while the box itself stays healthy** (ping 5 ms, `/hive/native-telemetry`
-answering 200); it is the reason the first laptop kill silently no-opped. The driver retries once,
-and the landed-gate turns any remaining flake into a loud failure rather than a fabricated pass.
+answering 200); it is the reason the first laptop kill silently no-opped. `Hv4RecoveryRunner.Ssh`
+makes three attempts (10s/20s/30s connect timeouts with backoff), and the landed-gate turns any
+remaining flake into a loud failure rather than a fabricated pass.
 
 **Item 1 is only half-covered, and this is a product gap, not a harness one.** The plan asks for
 cancellation to surface mid-**generation** as an `OperationCanceledException` on the worker. There
@@ -863,11 +864,17 @@ its own docs say to run it "against a fleet already reconfigured (NativeContextS
 restarted for that phase". Run against the standard config it cannot deny anything, and it duly
 reported the low-VRAM box completing a job it was supposed to refuse. Since HV-6's requirement is
 explicitly *no manual intervention between runs*, an operator switching that config mid-campaign is
-the very thing being forbidden — so HV-6 does it: lanes declare the context size they need,
-standard-config lanes are ordered first so a round needs at most one switch, the fleet returns to
-standard between rounds so every round starts identical, and a `finally` restores it whatever
-happens. Verified rather than assumed (value read back, telemetry waited on); if it cannot be
-applied the lane is recorded `NOT-RUN` rather than run against the wrong configuration.
+the very thing being forbidden. The FIRST version of the driver did the switch automatically inside
+the main campaign's round loop; a later maintainer decision (recorded below, "Split, not
+automated-switch") moved HV-2's large phase out into its own separate `--large-only` invocation
+instead, so the shipped driver never switches configuration mid-campaign at all — a large-context
+lane's size is set once before round 1 and restored once in a `finally`, with no per-round return to
+standard in between (there is nothing to return FROM, since a single invocation's lane pool is
+homogeneous by construction). It also aborts outright, rather than recording a lane as `NOT-RUN`, if that one reconfiguration
+cannot be applied — but the resulting exception no longer crashes the process before a report is
+written: `Main`'s outer `catch` records it as `report.Error` and the JSON/markdown are still
+produced, which is itself a fix from the same CodeRabbit review that caught this paragraph being
+stale.
 
 ```
 | Lane             | R1   | R2   | R3   |

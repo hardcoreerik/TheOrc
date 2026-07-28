@@ -36,7 +36,10 @@ public sealed class HiveHeartbeatBookkeepingTests
         var before = queue.GetLastHeartbeatForTest(TaskId);
         Assert.That(before, Is.Not.Null);
 
-        await Task.Delay(20);   // ensure a measurable advance rather than an identical timestamp
+        // 40ms, not 20ms: DateTime.UtcNow advances in ~15.6ms increments on default Windows timer
+        // resolution, so 20ms left two beats close enough to land on the same tick and fail
+        // Is.GreaterThan intermittently in CI. Found by CodeRabbit's review of this PR.
+        await Task.Delay(40);
         var outcome = await queue.HeartbeatCoreAsync(TaskId, Token);
 
         Assert.Multiple(() =>
@@ -111,7 +114,7 @@ public sealed class HiveHeartbeatBookkeepingTests
 
         for (var beat = 0; beat < 5; beat++)
         {
-            await Task.Delay(10);
+            await Task.Delay(40);  // same tick-granularity reasoning as the single-beat test above
             var outcome = await queue.HeartbeatCoreAsync(TaskId, Token);
             var now = queue.GetLastHeartbeatForTest(TaskId)!.Value;
 

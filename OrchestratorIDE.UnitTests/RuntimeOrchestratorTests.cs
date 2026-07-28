@@ -167,6 +167,66 @@ public sealed class RuntimeOrchestratorTests
     }
 
     [Test]
+    public async Task EnsureAdmitted_ReadmissionAfterOwnLoad_DoesNotShrinkThisRolesLedgerEntry()
+    {
+        var ggufPath = Environment.GetEnvironmentVariable("THEORC_TEST_GGUF");
+        if (string.IsNullOrWhiteSpace(ggufPath))
+            Assert.Ignore("Set THEORC_TEST_GGUF to run this native-load-dependent reservation test.");
+
+        // Found by Grok's review of this PR, not by any HV run -- the shrink needs exactly the two
+        // calls below, in this order, from the SAME role, which no fleet campaign happened to
+        // exercise. GetConversationForBindingAsync commits `_reservedByRole[role]` from
+        // EnsureAdmitted's returned requiredBytes, which is the FULL model footprint on this
+        // role's first (fresh) load, then the much smaller INCREMENTAL cost (KV cache/compute
+        // buffer/adapter only) once WouldReuseLoadedBaseWeights sees its own base already
+        // resident. Before the fix, the second call's smaller number overwrote the ledger entry
+        // outright -- even though nothing was freed on the GPU, the role's own resident base is
+        // still fully there. In the static-budget fallback (ReservedBytes: 0, no live probe) that
+        // ledger is the ONLY signal a later role's admission check has, so an artificially
+        // shrunk entry under-counts real VRAM usage and can over-admit into an actual OOM.
+        var sizeBytes = new FileInfo(ggufPath!).Length;
+        var asset = new RuntimeModelAsset(
+            Id: "base",
+            Kind: RuntimeAssetKind.BaseModelGguf,
+            Path: ggufPath!,
+            DisplayName: "base",
+            SizeBytes: sizeBytes,
+            LastModifiedUtc: DateTimeOffset.UtcNow,
+            SuggestedRoles: [RuntimeRole.Worker]);
+        var workerBinding = new RuntimeRoleBinding(RuntimeRole.Worker, asset, null);
+
+        // The static fallback shape itself: ReservedBytes always 0, exactly like
+        // MainWindow.TryBuildNativeHiveBudget when no live probe is configured -- the scenario in
+        // which the ledger is the only signal EnsureAdmitted has, so a shrunk entry here is not
+        // merely cosmetic telemetry, it changes the actual admission decision for a later role.
+        var totalBytes = sizeBytes * 4;
+        var budget = new VramBudget(totalBytes, ReservedBytes: 0);
+
+        await using var runtime = new LLamaSharpRuntime();
+        await using var orchestrator = new RuntimeOrchestrator(
+            runtime, scheduler: new OrcScheduler(), budgetProvider: () => budget);
+
+        using (await orchestrator.GetConversationForBindingAsync(workerBinding).ConfigureAwait(false))
+        {
+        }
+        var afterFirstLoad = orchestrator.GetReservationSnapshot()!.Reservations
+            .Single(r => r.Role == RuntimeRole.Worker).Bytes;
+        Assert.That(afterFirstLoad, Is.GreaterThan(0), "first (fresh) load must reserve something");
+
+        // Same role, same binding, base weights now resident from the call above -- this is the
+        // reuse admission whose returned requiredBytes is smaller than the first call's.
+        using (await orchestrator.GetConversationForBindingAsync(workerBinding).ConfigureAwait(false))
+        {
+        }
+        var afterReuse = orchestrator.GetReservationSnapshot()!.Reservations
+            .Single(r => r.Role == RuntimeRole.Worker).Bytes;
+
+        Assert.That(afterReuse, Is.GreaterThanOrEqualTo(afterFirstLoad),
+            "the role's ledger entry must never shrink within the same generation -- the resident " +
+            "base model this role itself loaded has not gone anywhere just because THIS call reused it");
+    }
+
+    [Test]
     public async Task EnsureAdmitted_AdmitsSecondRole_SharingResidentBaseWeights_AgainstLiveProbe()
     {
         var ggufPath = Environment.GetEnvironmentVariable("THEORC_TEST_GGUF");

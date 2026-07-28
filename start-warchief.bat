@@ -40,7 +40,11 @@ if not "%~1"=="run" (
     exit /b
 )
 
-cd /d F:\Ai\OrchestratorIDE-dev\Tools\SwarmCli\bin\Release\net10.0-windows
+cd /d "F:\Ai\OrchestratorIDE-dev\Tools\SwarmCli\bin\Release\net10.0-windows"
+if errorlevel 1 (
+    echo Failed to change to the SwarmCLI release directory. > F:\Ai\OrchestratorIDE-dev\warchief.log
+    exit /b 1
+)
 REM The redirect has to live on the swarmcli line itself, inside the new console, so a Warchief
 REM that printed usage and exited is distinguishable from a healthy one.
 REM Invoked by FULL PATH even though we just cd'd here: with NoDefaultCurrentDirectoryInExePath

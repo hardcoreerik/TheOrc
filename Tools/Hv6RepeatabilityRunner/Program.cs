@@ -148,6 +148,8 @@ internal static class Program
         var reconfigured = requiredContextSize != stdContextSize;
         try
         {
+        try
+        {
         if (reconfigured)
         {
             if (!await SetFleetContextSizeAsync(fleet, requiredContextSize))
@@ -223,9 +225,31 @@ internal static class Program
             }
             else report.FleetRestored = true;
         }
+        }
+        catch (Exception ex)
+        {
+            // Something in the HARNESS broke — a reconfiguration that could not be applied, a lane
+            // launch failure, anything outside a lane's own checks — as opposed to a lane reporting
+            // its own FAIL, which is handled per-lane above and never throws. Caught here specifically
+            // so this exception can never prevent the report from being written: before this, it
+            // propagated straight out of Main and the process exited with no JSON/markdown at all —
+            // exactly backwards for the run whose evidence is most needed when something breaks.
+            report.Error = ex.ToString();
+            Console.WriteLine();
+            Console.WriteLine($"HARNESS ERROR: {ex.Message}");
+        }
 
         report.FinishedAt = DateTimeOffset.UtcNow;
-        report.Passed = report.Rounds.Count == rounds && report.Rounds.All(x => x.Passed);
+        // FleetRestored folded in deliberately: report.Rounds.All(x => x.Passed) says nothing about
+        // whether this run left the fleet in a state that will silently break the NEXT campaign.
+        // Without this, a run could print PASS and exit 0 with the fleet still sitting on the large
+        // context size — the doc comment on FleetRestored already says a false there "needs manual
+        // attention"; this is what makes that visible in the actual outcome instead of only in a
+        // field a reader has to know to check.
+        report.Passed = report.Error is null
+                        && report.Rounds.Count == rounds
+                        && report.Rounds.All(x => x.Passed)
+                        && report.FleetRestored;
 
         var stamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
         var jsonPath = Path.Combine(outDir, $"hv6_report_{stamp}.json");
@@ -355,7 +379,7 @@ internal static class Program
             // One call: rewrite, restart, read back. Fewer ssh round trips is not cosmetic here —
             // HardcoreLaptopMSI's sshd drops out for minutes at a time while the box stays healthy,
             // and every extra hop is another chance to land half a reconfiguration.
-            var readBack = Ssh(ssh,
+            var readBack = await Ssh(ssh,
                 "powershell -NoProfile -Command \"" +
                 $"(Get-Content '{script}') -replace 'NATIVECONTEXTSIZE=\\d+','NATIVECONTEXTSIZE={contextSize}' " +
                 $"| Set-Content '{script}'; " +
@@ -404,26 +428,31 @@ internal static class Program
     }
 
     /// <summary>
-    /// Retries with a lengthening connect timeout — same shape as Hv4RecoveryRunner's Ssh(), and for
-    /// the same reason: this call was single-attempt when a smoke test caught it going empty against
-    /// HardcoreLaptopMSI ("start script reports '', expected 32768"). SetFleetContextSizeAsync's own
-    /// verification correctly refused to trust that and the run restored the fleet rather than
-    /// leaving it split — but a transient blip should not cost the whole reconfiguration when a
-    /// retry would have ridden through it, exactly as it does for HV-4's box-level actions.
+    /// Retries with a lengthening connect timeout — same shape as Hv4RecoveryRunner's Ssh(). Also
+    /// carries the two fixes CodeRabbit's review of this PR found shared across every copy of this
+    /// helper: (1) treating empty stdout as failure re-runs side-effecting commands that legitimately
+    /// print nothing — this call is a read-back so it always has real output to check, but the
+    /// underlying command also stops/starts a scheduled task, and a spurious retry of THAT is exactly
+    /// the class of bug that turned a single kill into three in Hv4RecoveryRunner; (2) synchronous
+    /// `ReadToEnd()` had no timeout of its own, so a hung ssh session used to block this call, and the
+    /// whole reconfiguration, forever regardless of the `WaitForExit(ms)` that followed it.
     /// </summary>
-    private static string Ssh(string host, string command)
+    private static async Task<string> Ssh(string host, string command)
     {
         int[] timeouts = [15, 25, 35];
         for (var attempt = 0; attempt < timeouts.Length; attempt++)
         {
-            var result = SshOnce(host, command, timeouts[attempt]);
-            if (!string.IsNullOrWhiteSpace(result)) return result;
-            if (attempt < timeouts.Length - 1) Thread.Sleep(3000 * (attempt + 1));
+            var (ok, output) = await SshOnce(host, command, timeouts[attempt]).ConfigureAwait(false);
+            if (ok) return output;
+            if (attempt < timeouts.Length - 1) await Task.Delay(3000 * (attempt + 1)).ConfigureAwait(false);
         }
         return "";
     }
 
-    private static string SshOnce(string host, string command, int connectTimeoutSec)
+    private const string SshDoneMarker = "__HV6_SSH_DONE__";
+
+    private static async Task<(bool Ok, string Output)> SshOnce(
+        string host, string command, int connectTimeoutSec)
     {
         var psi = new ProcessStartInfo("ssh")
         {
@@ -438,15 +467,31 @@ internal static class Program
         psi.ArgumentList.Add("-o");
         psi.ArgumentList.Add("ServerAliveCountMax=12");
         psi.ArgumentList.Add(host);
-        psi.ArgumentList.Add(command);
+        psi.ArgumentList.Add($"{command}; Write-Output '{SshDoneMarker}'");
 
         using var p = Process.Start(psi)!;
-        var stdout = p.StandardOutput.ReadToEnd();
+        var stdoutTask = p.StandardOutput.ReadToEndAsync();
+        var stderrTask = p.StandardError.ReadToEndAsync();
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(180_000));
+        try
+        {
+            await p.WaitForExitAsync(cts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            try { p.Kill(entireProcessTree: true); } catch { /* best-effort */ }
+            return (false, "");
+        }
+
+        var stdout = await stdoutTask.ConfigureAwait(false);
         // Drained but discarded: current OpenSSH writes a post-quantum advisory to stderr on every
         // connection, and folding it into the result makes every parsed value wrong.
-        _ = p.StandardError.ReadToEnd();
-        p.WaitForExit(180_000);
-        return stdout;
+        _ = await stderrTask.ConfigureAwait(false);
+
+        var markerAt = stdout.LastIndexOf(SshDoneMarker, StringComparison.Ordinal);
+        if (markerAt < 0) return (false, "");
+        return (true, stdout[..markerAt].TrimEnd());
     }
 
     // ── Child process plumbing ─────────────────────────────────────────────────
@@ -526,8 +571,18 @@ internal static class Program
         sb.AppendLine($"- Rounds: {report.Rounds.Count} of {report.RoundsRequested} requested");
         sb.AppendLine($"- Started: {report.StartedAt:u}");
         sb.AppendLine($"- Finished: {report.FinishedAt:u}");
+        sb.AppendLine($"- Fleet restored to standard config: {(report.FleetRestored ? "yes" : "**NO — needs manual attention**")}");
         if (report.SkippedLanes.Count > 0)
             sb.AppendLine($"- **Lanes SKIPPED (not covered by this report): {string.Join(", ", report.SkippedLanes)}**");
+        if (report.Error is not null)
+        {
+            sb.AppendLine();
+            sb.AppendLine("## HARNESS ERROR");
+            sb.AppendLine("The campaign itself failed outside any lane's own checks — this is not a lane result:");
+            sb.AppendLine("```");
+            sb.AppendLine(report.Error);
+            sb.AppendLine("```");
+        }
         sb.AppendLine();
         sb.AppendLine($"> {report.FlipClaim}");
         sb.AppendLine();
@@ -666,4 +721,11 @@ internal sealed class Hv6Report
     public string RunKind { get; set; } = "";
     /// <summary>The NATIVECONTEXTSIZE this entire run — every round, every lane — executed under.</summary>
     public int FleetContextSize { get; set; }
+    /// <summary>Set when the HARNESS itself failed — a reconfiguration that could not be applied, a
+    /// missing lane executable, anything outside a lane's own checks — rather than any lane's
+    /// findings. Caught here specifically so an exception can never prevent this report from being
+    /// written at all: per CodeRabbit's review, that used to be possible (the process would exit
+    /// before the JSON/markdown were produced), which is exactly backwards for the run that most
+    /// needs its evidence retained.</summary>
+    public string? Error { get; set; }
 }

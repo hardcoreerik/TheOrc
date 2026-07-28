@@ -200,7 +200,34 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
             if (_scheduler is not null && _budgetProvider is not null)
             {
                 lock (_telemetryGate)
-                    _reservedByRole[binding.Role] = (admittedBytes, _runtime.WeightsGeneration);
+                {
+                    // NEVER let this role's own ledger entry shrink within the same generation.
+                    // `admittedBytes` is `EnsureAdmitted`'s returned requiredBytes, which is the
+                    // INCREMENTAL cost when this call reuses the base already resident from an
+                    // earlier call by this same role, or the FULL footprint on a fresh load. A
+                    // role that already paid the full cost once, then later reuses its own
+                    // resident base, would otherwise have its entry silently overwritten with
+                    // the smaller reuse number here -- even though nothing was actually freed on
+                    // the GPU. In the static-budget fallback (`ReservedBytes: 0`, no live probe),
+                    // this ledger is the ONLY signal EnsureAdmitted has for a later role's
+                    // admission check, so an artificially shrunk entry under-counts real VRAM
+                    // usage and can over-admit into an actual OOM. Found by Grok's review of this
+                    // PR, not by any HV run -- the shrink needs two calls from the same role
+                    // across a reuse transition, which this session's evidence never happened to
+                    // exercise in that order.
+                    //
+                    // A genuine decrease must still be honoured, and can only ever be legitimate
+                    // alongside a generation change (a real recycle actually freed memory) --
+                    // hence the floor is generation-scoped, the same way EnsureAdmitted already
+                    // scopes `thisRolePriorReserved` a few lines above. A stale-generation prior
+                    // entry describes a footprint that no longer exists and must not pin anything.
+                    var newGeneration = _runtime.WeightsGeneration;
+                    var floorBytes = _reservedByRole.TryGetValue(binding.Role, out var prior)
+                                      && prior.Generation == newGeneration
+                        ? prior.Bytes
+                        : 0L;
+                    _reservedByRole[binding.Role] = (Math.Max(floorBytes, admittedBytes), newGeneration);
+                }
             }
 
             return conversation;

@@ -185,7 +185,7 @@ internal static class Program
         });
         if (!claimed) return;
 
-        Ssh(w.SshHost!,
+        await Ssh(w.SshHost!,
             "powershell -NoProfile -Command \"Get-Process theorc-warband -ErrorAction SilentlyContinue " +
             "| Stop-Process -Force\"");
         // Prove the disruption LANDED before judging anything by it. On one run the ssh kill
@@ -244,7 +244,7 @@ internal static class Program
             // it can still report Running for the cmd wrapper — and Start-ScheduledTask on a task
             // the scheduler already considers running is a no-op. The worker would then never come
             // back and the phase would blame recovery for what was really a scheduler-state quirk.
-            Ssh(w.SshHost!,
+            await Ssh(w.SshHost!,
                 $"powershell -NoProfile -Command \"Stop-ScheduledTask -TaskName {w.TaskName} " +
                 $"-ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; " +
                 $"Start-ScheduledTask -TaskName {w.TaskName}\"");
@@ -410,12 +410,13 @@ internal static class Program
             // typed by hand worked. Redirect to $null instead of piping, sleep so the new rule is
             // visible to Get-NetFirewallRule, and make the count the command's ONLY output so
             // there is nothing left to misparse.
-            var ruleCount = Ssh(w.SshHost!,
+            // Ssh() already trims trailing whitespace off what it returns (up to the completion
+            // marker), so no further .Trim() is needed here.
+            var ruleCount = await Ssh(w.SshHost!,
                 $"powershell -NoProfile -Command \"New-NetFirewallRule -DisplayName '{ruleName}' " +
                 $"-Direction Outbound -Action Block -Protocol TCP -RemotePort {warchiefPort} " +
                 "-ErrorAction SilentlyContinue > $null; Start-Sleep -Seconds 3; " +
-                $"@(Get-NetFirewallRule -DisplayName '{ruleName}' -ErrorAction SilentlyContinue).Count\"")
-                .Trim();
+                $"@(Get-NetFirewallRule -DisplayName '{ruleName}' -ErrorAction SilentlyContinue).Count\"");
             Console.WriteLine($"[disconnect] {w.Id}: block rule count = '{ruleCount}'");
             // Same landed-gate discipline as the kill phase, and for the same reason: the ssh that
             // creates the rule can silently not land (HardcoreLaptopMSI's sshd drops out for
@@ -484,7 +485,7 @@ internal static class Program
             // Always restore, including on an exception or a driver timeout: leaving a Block rule
             // behind would quietly break every later phase and every future campaign on that box,
             // and the symptom would look like a HIVE auth or claiming fault.
-            Ssh(w.SshHost!,
+            await Ssh(w.SshHost!,
                 $"powershell -NoProfile -Command \"Remove-NetFirewallRule -DisplayName '{ruleName}' " +
                 "-ErrorAction SilentlyContinue; 'unblocked'\"");
             Console.WriteLine($"[disconnect] {w.Id}: firewall rule removed.");
@@ -511,11 +512,11 @@ internal static class Program
         const string CountOllama =
             "powershell -NoProfile -Command \"@(Get-Process | Where-Object { $_.ProcessName -like 'ollama*' }).Count\"";
 
-        var before = Ssh(w.SshHost!, CountOllama);
-        Ssh(w.SshHost!,
+        var before = await Ssh(w.SshHost!, CountOllama);
+        await Ssh(w.SshHost!,
             "powershell -NoProfile -Command \"Get-Process | Where-Object { $_.ProcessName -like 'ollama*' } " +
             "| Sort-Object { $_.ProcessName -eq 'ollama' } | Stop-Process -Force; Start-Sleep -Seconds 4\"");
-        var after = Ssh(w.SshHost!, CountOllama);
+        var after = await Ssh(w.SshHost!, CountOllama);
 
         // Record what was actually true rather than assuming the stop worked. If Ollama was never
         // running, the phase still proves native execution but proves nothing about ABSENCE, and
@@ -847,20 +848,46 @@ internal static class Program
     ///
     /// Three attempts at 10s / 20s / 30s with backoff between. The landed-gates still decide
     /// whether a phase ran — this only stops a recoverable blip from being reported as one.
+    ///
+    /// Two correctness bugs found by CodeRabbit's review of this file, both fixed here together
+    /// since they live in the same two functions:
+    ///
+    /// (1) Retrying on empty stdout re-ran side-effecting commands. `Stop-Process` and
+    /// `Stop-ScheduledTask; Start-ScheduledTask` legitimately print nothing, so every kill/restart
+    /// was silently retried up to 3 times regardless of whether it worked the first time — the
+    /// restart in particular re-stopped a worker that had just come back up, racing
+    /// WaitForTelemetryAsync immediately afterward. This is a strong candidate for a good deal of
+    /// the "HardcoreLaptopMSI flakiness" attributed to sshd/power-plan limits earlier in this
+    /// campaign: a self-inflicted stop/start loop produces exactly the symptom of a worker that
+    /// flickers up and down under load. Fixed with an explicit completion marker appended to every
+    /// command — success is now "the marker arrived", not "stdout was non-empty" — so a legitimately
+    /// silent action is trusted on its first attempt.
+    ///
+    /// (2) `ReadToEnd()` blocks with no timeout of its own; the `WaitForExit(ms)` that followed it
+    /// could only ever run AFTER both reads returned, so a genuinely hung ssh session (network
+    /// partition mid-command, pipes never closed) blocked this call — and the whole driver —
+    /// forever, silently upgrading a recoverable blip into an unbounded hang. Fixed by racing the
+    /// reads against a real, cancellable timeout and killing the process tree if it fires.
     /// </summary>
-    private static string Ssh(string host, string command)
+    private static async Task<string> Ssh(string host, string command)
     {
         int[] timeouts = [10, 20, 30];
         for (var attempt = 0; attempt < timeouts.Length; attempt++)
         {
-            var result = SshOnce(host, command, timeouts[attempt]);
-            if (!string.IsNullOrWhiteSpace(result)) return result;
-            if (attempt < timeouts.Length - 1) Thread.Sleep(3000 * (attempt + 1));
+            var (ok, output) = await SshOnce(host, command, timeouts[attempt]).ConfigureAwait(false);
+            if (ok) return output;
+            if (attempt < timeouts.Length - 1) await Task.Delay(3000 * (attempt + 1)).ConfigureAwait(false);
         }
         return "";
     }
 
-    private static string SshOnce(string host, string command, int connectTimeoutSec)
+    // Marks where the caller's command ends and Ssh()'s own bookkeeping begins. Its absence from
+    // the captured stdout is what "the command did not complete" means now — not "stdout was
+    // empty", which a correctly-succeeding side-effecting command produces by design.
+    private const string SshDoneMarker = "__HV4_SSH_DONE__";
+
+    private static async Task<(bool Ok, string Output)> SshOnce(
+        string host, string command, int connectTimeoutSec)
     {
         var psi = new ProcessStartInfo("ssh")
         {
@@ -877,21 +904,31 @@ internal static class Program
         psi.ArgumentList.Add("-o");
         psi.ArgumentList.Add("ServerAliveCountMax=12");
         psi.ArgumentList.Add(host);
-        psi.ArgumentList.Add(command);
+        psi.ArgumentList.Add($"{command}; Write-Output '{SshDoneMarker}'");
 
         using var p = Process.Start(psi)!;
-        var stdout = p.StandardOutput.ReadToEnd();
-        _ = p.StandardError.ReadToEnd();
-        p.WaitForExit(60_000);
+        var stdoutTask = p.StandardOutput.ReadToEndAsync();
+        var stderrTask = p.StandardError.ReadToEndAsync();
 
-        // stdout ONLY. Folding stderr in here made every remote probe unparseable: current OpenSSH
-        // prints a multi-line post-quantum key-exchange advisory to stderr on every single
-        // connection, so a check reading "how many ollama processes are left" got that banner
-        // concatenated onto its number and failed a phase whose actual subject had passed.
-        // stderr is deliberately drained (not left to fill its pipe and block the child) but not
-        // returned: a genuinely failed remote command shows up as empty or unexpected stdout, which
-        // each caller already reports in its own Detail.
-        return stdout;
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(180_000));
+        try
+        {
+            await p.WaitForExitAsync(cts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            try { p.Kill(entireProcessTree: true); } catch { /* best-effort */ }
+            return (false, "");
+        }
+
+        var stdout = await stdoutTask.ConfigureAwait(false);
+        // Drained but discarded: current OpenSSH writes a post-quantum advisory to stderr on every
+        // connection, and folding it into the result makes every parsed value wrong.
+        _ = await stderrTask.ConfigureAwait(false);
+
+        var markerAt = stdout.LastIndexOf(SshDoneMarker, StringComparison.Ordinal);
+        if (markerAt < 0) return (false, "");
+        return (true, stdout[..markerAt].TrimEnd());
     }
 
     private static string? GetArg(string[] args, string name)

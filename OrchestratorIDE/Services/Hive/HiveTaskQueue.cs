@@ -91,8 +91,19 @@ public sealed class HiveTaskQueue : IDisposable
         /// Bounded by the number of distinct workers that have ever polled, which is the fleet
         /// size. Cleared when the unit is claimed, so a unit that eventually runs does not carry
         /// stale rejections around.
+        ///
+        /// ConcurrentDictionary, not a plain Dictionary guarded by _claimLock: RecordIneligibility
+        /// and the claim path write/clear it while holding that lock, but UnsatisfiableReasonFor is
+        /// read from HandleGetTaskAsync, which takes no lock at all — every request runs on its own
+        /// task (`_ = HandleAsync(ctx)`), so a status poll landing during a lease poll could
+        /// enumerate this while another thread mutated it: InvalidOperationException ("Collection
+        /// was modified"), swallowed by HandleAsync's blanket catch into a dropped or partial
+        /// response on exactly the polling path the HV drivers depend on. Caught by CodeRabbit's
+        /// review of this PR, not by any HV run — the race window is narrow enough that hours of
+        /// fleet polling never happened to hit it.
         /// </summary>
-        public Dictionary<string, string>           IneligibleFor { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public System.Collections.Concurrent.ConcurrentDictionary<string, string> IneligibleFor { get; }
+            = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>Verification leases are internal siblings and do not increase logical campaign totals.</summary>
         public bool                                 IsVerification { get; init; }
