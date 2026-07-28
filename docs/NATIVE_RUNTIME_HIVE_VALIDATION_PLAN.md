@@ -849,6 +849,56 @@ carries `Attestation.RuntimeName == "NativeRoleRuntime"`.
   §6 evidence bundle. The report explicitly does NOT claim the flip — it presents the
   evidence for the maintainer's §6 decision.
 
+**2026-07-28 — driver built (`Tools/Hv6RepeatabilityRunner`); first full 3× campaign run
+unattended, 56 minutes, 8 of 10 lanes green in all three rounds.**
+
+The driver talks to nothing. It invokes the five lane runners and aggregates what they already
+wrote, so a lane's verdict here is that lane's own verdict rather than a re-interpretation of raw
+telemetry — the only way "the campaign is repeatable" means anything. A failed round does not abort
+the run: "round 2 failed, 1 and 3 passed" is the useful answer, and intermittency is exactly what
+this lane exists to surface.
+
+**HV-2's `large` phase forced a design decision.** It is a fleet CONFIGURATION, not a job shape —
+its own docs say to run it "against a fleet already reconfigured (NativeContextSize env var) and
+restarted for that phase". Run against the standard config it cannot deny anything, and it duly
+reported the low-VRAM box completing a job it was supposed to refuse. Since HV-6's requirement is
+explicitly *no manual intervention between runs*, an operator switching that config mid-campaign is
+the very thing being forbidden — so HV-6 does it: lanes declare the context size they need,
+standard-config lanes are ordered first so a round needs at most one switch, the fleet returns to
+standard between rounds so every round starts identical, and a `finally` restores it whatever
+happens. Verified rather than assumed (value read back, telemetry waited on); if it cannot be
+applied the lane is recorded `NOT-RUN` rather than run against the wrong configuration.
+
+```
+| Lane             | R1   | R2   | R3   |
+| hv1              | PASS | PASS | PASS |
+| hv2-large        | PASS | PASS | PASS |
+| hv2-small        | PASS | PASS | PASS |
+| hv3-sequential   | PASS | PASS | PASS |
+| hv3-concurrent   | PASS | PASS | PASS |
+| hv4-cancel       | PASS | PASS | PASS |
+| hv4-ollama       | PASS | PASS | PASS |
+| hv4-kill         | FAIL | FAIL | PASS |
+| hv4-disconnect   | FAIL | FAIL | PASS |
+| hv5              | PASS | PASS | PASS |
+```
+
+Evidence: `.orc/hv-6-lane/hv6_report_20260728_004640.json` + `hv6_summary_20260728_004640.md`,
+with all 30 per-lane evidence files listed in it. `reconfigurations` and `fleetRestored` are
+recorded so a run that could not put the fleet back says so.
+
+**Every failure is HardcoreLaptopMSI, in the two lanes that deliver a box-level action mid-flight
+over ssh. HardcorePC passed every lane in every round.** Three of the four are the ssh call not
+landing at all (`kill-actually-landed`, `cut-actually-landed`); the fourth is that box finishing its
+job before the kill arrived. **No fabricated passes** — every one was caught by a landed-gate rather
+than being measured against an undisturbed worker, which is what those gates were added for.
+
+**The box, not the product.** That laptop's sshd goes unreachable for minutes while the machine
+stays healthy — ping 5 ms, `/hive/native-telemetry` answering 200, jobs completing. `sshd_config` is
+all defaults and the service is Running; the box is on the **Balanced** power plan, which fits the
+symptom exactly: a key exchange needs CPU and an already-established HTTP listener does not, so it
+fails precisely when the box is saturated doing the inference these phases need it to be doing.
+
 ## 4. Harness shape (implementation guidance, not code)
 
 - **Driver:** a `Tools/` PowerShell orchestration script on the Warchief (SSH for box-level

@@ -214,6 +214,31 @@ internal static class Program
         });
         if (!killLanded) return;
 
+        // The kill has to land while the job is STILL RUNNING, same as the disconnect phase.
+        // HardcoreLaptopMSI finishes these jobs fast enough to beat the ssh round trip: in HV-6
+        // round 1 the kill landed (telemetry went dark) against a job that had ALREADY completed,
+        // and the phase then reported "the Warchief never noticed the death" about a death that
+        // happened after there was anything left to notice.
+        using (var stillResp = await http.GetAsync($"/hive/tasks/{taskId}"))
+        {
+            var stillBody = stillResp.IsSuccessStatusCode
+                ? await stillResp.Content.ReadFromJsonAsync<HiveTaskStatusResponse>(JsonOptions)
+                : null;
+            var stillRunning = stillBody?.Status is "claimed" or "running";
+            report.Checks.Add(new Hv4Check
+            {
+                WorkerId = w.Id,
+                Name = "kill/job-still-running-when-kill-landed",
+                Passed = stillRunning,
+                Detail = stillRunning
+                    ? $"task was still {stillBody!.Status} when the worker died"
+                    : $"task had already reached {stillBody?.Status ?? "unknown"} before the kill "
+                      + "landed — the job outran the disruption, so this run proves nothing about "
+                      + "death detection (use a longer job or a slower box)",
+            });
+            if (!stillRunning) return;
+        }
+
         // The whole point: the Warchief must NOTICE and report, rather than leaving the job claimed
         // forever. This is the exact behaviour the HV-3 investigation kept mis-attributing -- a
         // healthy worker being declared dead. Here the worker really IS dead, so the same watchdog
@@ -751,20 +776,31 @@ internal static class Program
     /// so in its verdict instead of aborting the whole run.
     /// </summary>
     /// <summary>
-    /// Retries once. HardcoreLaptopMSI's sshd went unreachable mid-campaign for a couple of minutes
-    /// while the box itself stayed healthy (ping 5 ms, /hive/native-telemetry answering 200), which
-    /// silently turned a kill into a no-op the first time it happened. The landed-gate now catches
-    /// that, but a transient blip should not cost a whole phase either.
+    /// Retries with a lengthening connect timeout, because one retry was not enough.
+    ///
+    /// HardcoreLaptopMSI's sshd becomes unreachable for minutes at a time while the box itself stays
+    /// healthy — ping 5 ms, /hive/native-telemetry answering 200, jobs completing normally. It
+    /// correlates with the box being saturated doing inference, which is exactly when these phases
+    /// need to reach it: a key exchange needs CPU, and an already-established HTTP listener does
+    /// not. Across an HV-6 campaign it cost hv4-kill and hv4-disconnect two rounds out of three,
+    /// every failure on that one machine and none on HardcorePC.
+    ///
+    /// Three attempts at 10s / 20s / 30s with backoff between. The landed-gates still decide
+    /// whether a phase ran — this only stops a recoverable blip from being reported as one.
     /// </summary>
     private static string Ssh(string host, string command)
     {
-        var first = SshOnce(host, command);
-        if (!string.IsNullOrWhiteSpace(first)) return first;
-        Thread.Sleep(3000);
-        return SshOnce(host, command);
+        int[] timeouts = [10, 20, 30];
+        for (var attempt = 0; attempt < timeouts.Length; attempt++)
+        {
+            var result = SshOnce(host, command, timeouts[attempt]);
+            if (!string.IsNullOrWhiteSpace(result)) return result;
+            if (attempt < timeouts.Length - 1) Thread.Sleep(3000 * (attempt + 1));
+        }
+        return "";
     }
 
-    private static string SshOnce(string host, string command)
+    private static string SshOnce(string host, string command, int connectTimeoutSec)
     {
         var psi = new ProcessStartInfo("ssh")
         {
@@ -773,7 +809,13 @@ internal static class Program
             UseShellExecute = false,
         };
         psi.ArgumentList.Add("-o");
-        psi.ArgumentList.Add("ConnectTimeout=10");
+        psi.ArgumentList.Add($"ConnectTimeout={connectTimeoutSec}");
+        // Keep a slow session alive rather than letting it die mid-command: the box is often
+        // CPU-starved when we reach it, not unreachable.
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add("ServerAliveInterval=5");
+        psi.ArgumentList.Add("-o");
+        psi.ArgumentList.Add("ServerAliveCountMax=12");
         psi.ArgumentList.Add(host);
         psi.ArgumentList.Add(command);
 
