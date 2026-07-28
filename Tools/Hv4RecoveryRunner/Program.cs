@@ -412,10 +412,17 @@ internal static class Program
             // there is nothing left to misparse.
             // Ssh() already trims trailing whitespace off what it returns (up to the completion
             // marker), so no further .Trim() is needed here.
+            // A `for` loop with braces/semicolons was tried here to shrink this from a flat 3s sleep
+            // to a short poll, and it broke 3/3 -- empty string every time, not intermittently,
+            // which means the loop's syntax did not survive the ssh -> cmd -> powershell quoting
+            // chain intact. That is the exact class of failure the comment below already warns
+            // about for the New-NetFirewallRule call itself; a multi-statement for-loop is more of
+            // the same risk, not less. Reverted to the proven single-sleep shape, just shorter (1s
+            // instead of 3s) -- a smaller, safer win than gambling on more fragile syntax.
             var ruleCount = await Ssh(w.SshHost!,
                 $"powershell -NoProfile -Command \"New-NetFirewallRule -DisplayName '{ruleName}' " +
                 $"-Direction Outbound -Action Block -Protocol TCP -RemotePort {warchiefPort} " +
-                "-ErrorAction SilentlyContinue > $null; Start-Sleep -Seconds 3; " +
+                "-ErrorAction SilentlyContinue > $null; Start-Sleep -Seconds 1; " +
                 $"@(Get-NetFirewallRule -DisplayName '{ruleName}' -ErrorAction SilentlyContinue).Count\"");
             Console.WriteLine($"[disconnect] {w.Id}: block rule count = '{ruleCount}'");
             // Same landed-gate discipline as the kill phase, and for the same reason: the ssh that
@@ -624,15 +631,35 @@ internal static class Program
     // own completion. This matters more than it looks: landing a cut takes ~10s of wall clock
     // (claim poll, an ssh round trip to apply it, another to verify), and HardcoreLaptopMSI
     // finished the previous, shorter version of this spec in 14.5s -- so the job was essentially
-    // over before the link was cut, and the phase measured nothing. Sized to occupy the full
-    // MaxSteps 12 budget on the FASTEST box in the fleet, not the slowest.
+    // over before the link was cut, and the phase measured nothing.
+    //
+    // A single-turn "write a very long document" prompt does NOT reliably occupy MaxSteps: an LLM
+    // can (and, observed repeatedly in the fleet logs, often does) emit the whole thing in one
+    // completion -- `steps: 1` -- so wall-clock time is bounded purely by that one call's raw
+    // token-generation speed. A genuinely fast card can finish that in well under the time it
+    // takes this driver to ssh in and apply a kill/firewall rule, which is exactly the race seen
+    // repeatedly against HardcoreLaptopMSI even with the size bumped up.
+    //
+    // Forcing multiple DISCRETE TOOL-CALL STEPS is the reliable fix, because each step costs a full
+    // extra model round trip (generate -> execute tool -> re-invoke with the extended context) on
+    // top of raw generation speed -- overhead that does not shrink just because the GPU is fast.
+    // Ten steps costs roughly ten times one step's wall clock almost regardless of card speed,
+    // which a single long completion never guarantees. Kept under MaxSteps' ceiling of 12 with
+    // headroom rather than sized to exactly hit it.
+    // Confirmed against the fleet: 10 steps reliably outlasted `kill`'s landing (near-instant --
+    // a single ssh Stop-Process call) 3/3, but HardcoreLaptopMSI still finished all 10 before
+    // `disconnect`'s slower landing (ssh round trip + create-rule + verify, several times kill's
+    // latency) 2/3 times. Doubled to 20 rather than tuned per-phase: one spec shared by both
+    // phases is simpler than two, and 20 steps costs kill nothing it wasn't already comfortably
+    // beating.
     private const string LongSpec =
-        "Write an exhaustive technical design document, at least twenty sections long. For EACH " +
-        "of these, write several full paragraphs: goals, non-goals, glossary, architecture " +
-        "overview, component breakdown, data model, API surface, concurrency model, failure " +
-        "modes, retry semantics, telemetry, logging, security model, threat model, capacity " +
-        "planning, rollout plan, rollback plan, testing strategy, migration notes, open " +
-        "questions. Do not summarise or abbreviate any section.";
+        "Create twenty separate files, one at a time, named hv4_step_01.txt through hv4_step_20.txt. " +
+        "Do not create more than one file per response. After creating each file, wait for the " +
+        "result before creating the next one. Each file must contain a two-paragraph essay on a " +
+        "DIFFERENT subtopic of distributed systems design (e.g. consensus, replication, backpressure, " +
+        "idempotency, partitioning, consistent hashing, leader election, vector clocks, CRDTs, " +
+        "gossip protocols, quorum reads/writes) -- pick a new subtopic for each file, do not repeat " +
+        "one. Create all twenty files, each in its own separate step.";
 
     private const string ShortSpec =
         "Create a file named hv4_proof.txt in the workspace root containing exactly this single " +
