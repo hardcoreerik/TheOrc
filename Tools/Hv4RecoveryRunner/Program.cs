@@ -417,12 +417,21 @@ internal static class Program
             // which means the loop's syntax did not survive the ssh -> cmd -> powershell quoting
             // chain intact. That is the exact class of failure the comment below already warns
             // about for the New-NetFirewallRule call itself; a multi-statement for-loop is more of
-            // the same risk, not less. Reverted to the proven single-sleep shape, just shorter (1s
-            // instead of 3s) -- a smaller, safer win than gambling on more fragile syntax.
+            // the same risk, not less. The 3s->1s sleep cut still wasn't enough: a full HV-6 run on
+            // a confirmed-idle fleet showed this ssh call itself failing outright (empty read-back)
+            // 3/3 times specifically while the induced job ran under load, while every OTHER ssh
+            // call in the same 75-minute run (cancel, ollama, kill) succeeded -- isolated by hand,
+            // outside the campaign, to NOT be a scripting bug (the exact command with the 1s sleep
+            // reproduced clean, twice) -- so the sleep itself is dead weight on the one thing that
+            // actually matters here: how long this ssh call takes to complete while sshd is
+            // CPU-starved. New-NetFirewallRule via the NetSecurity module commits synchronously
+            // within its OWN PowerShell session -- Get-NetFirewallRule in the SAME session (no
+            // second ssh connection, so none of the cross-connection risk the comment above warns
+            // about) should see it with zero added delay. Removed rather than shortened further.
             var ruleCount = await Ssh(w.SshHost!,
                 $"powershell -NoProfile -Command \"New-NetFirewallRule -DisplayName '{ruleName}' " +
                 $"-Direction Outbound -Action Block -Protocol TCP -RemotePort {warchiefPort} " +
-                "-ErrorAction SilentlyContinue > $null; Start-Sleep -Seconds 1; " +
+                "-ErrorAction SilentlyContinue > $null; " +
                 $"@(Get-NetFirewallRule -DisplayName '{ruleName}' -ErrorAction SilentlyContinue).Count\"");
             Console.WriteLine($"[disconnect] {w.Id}: block rule count = '{ruleCount}'");
             // Same landed-gate discipline as the kill phase, and for the same reason: the ssh that

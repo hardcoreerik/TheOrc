@@ -1031,6 +1031,30 @@ The §6 flip decision should treat HV-6 as evidenced-with-one-named-exception, n
 — the exception is narrow, understood, external, and does not implicate anything this validation
 campaign was built to catch.
 
+**2026-07-28 (later still) — controlled experiment proves the disconnect gap is not fixable from
+this driver's code. Stopping further attempts on it.**
+
+The 1s sleep before verifying the firewall rule was cut to 0s entirely (create and verify remain
+one ssh call/session, so there is no cross-connection risk — confirmed safe by hand against the
+idle box first). Result, 3 clean rounds against a confirmed-idle fleet: **identical to the 1s
+version** — `hv4-kill` PASS/PASS/FAIL (the same residual race as before), `hv4-disconnect` FAIL/
+FAIL/FAIL, every failure the exact same "block rule not present" symptom.
+
+That is the decisive result. Two different sleep durations (1s and 0s) produced statistically
+indistinguishable outcomes — proving the sleep was never the bottleneck, and by extension that no
+achievable command-latency reduction in this driver will change the outcome. What actually varies
+is whether the ssh session completes AT ALL while this specific box is CPU-loaded serving the
+induced job; that is a property of the machine's sshd under load, not of how fast the command
+inside the session runs. This driver has no further lever over that.
+
+**Conclusion: the `hv4-disconnect` gap on HardcoreLaptopMSI is not addressable through
+`Tools/Hv4RecoveryRunner` changes.** The two remaining paths are unchanged from before this
+experiment — accept it as a permanent, named caveat on this fleet's evidence, or make an
+OS/hardware-level change to that one machine's ssh/CPU-scheduling behavior, which is outside what
+this session does unilaterally. No further code-side attempts at this specific gap are planned;
+continuing to retry the same lever after a controlled negative result would not be honest
+persistence, it would be ignoring the experiment's own answer.
+
 ## 4. Harness shape (implementation guidance, not code)
 
 - **Driver:** a `Tools/` PowerShell orchestration script on the Warchief (SSH for box-level
