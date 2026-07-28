@@ -450,8 +450,21 @@ internal static class Program
             // within its OWN PowerShell session -- Get-NetFirewallRule in the SAME session (no
             // second ssh connection, so none of the cross-connection risk the comment above warns
             // about) should see it with zero added delay. Removed rather than shortened further.
+            // Fourth lever, after sleep duration (x2) and SSH transport multiplexing were each
+            // ruled out by controlled experiment (see the doc history above): OS SCHEDULING
+            // PRIORITY. Neither of the first two touched what actually competes for CPU once this
+            // process is alive and running -- the induced job's native inference holds normal
+            // priority same as this remote PowerShell process, so the scheduler has no reason to
+            // prefer one over the other. Raising THIS process's own priority as its first statement
+            // is a real, standard, bounded technique for exactly this shape of problem (a
+            // short-lived administrative task that must stay responsive opposite a CPU-heavy
+            // workload) -- verified by hand against the idle box first. It does not address time
+            // spent BEFORE this process starts running (process creation itself), only time spent
+            // after -- if the bottleneck is spawn latency rather than in-process contention, this
+            // will not help, and that would itself be useful, narrower information.
             var ruleCount = await Ssh(w.SshHost!,
-                $"powershell -NoProfile -Command \"New-NetFirewallRule -DisplayName '{ruleName}' " +
+                "powershell -NoProfile -Command \"(Get-Process -Id $PID).PriorityClass = 'High'; " +
+                $"New-NetFirewallRule -DisplayName '{ruleName}' " +
                 $"-Direction Outbound -Action Block -Protocol TCP -RemotePort {warchiefPort} " +
                 "-ErrorAction SilentlyContinue > $null; " +
                 $"@(Get-NetFirewallRule -DisplayName '{ruleName}' -ErrorAction SilentlyContinue).Count\"");

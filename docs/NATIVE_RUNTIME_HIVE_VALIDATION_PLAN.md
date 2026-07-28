@@ -1065,6 +1065,37 @@ heartbeat fix, and the characterization is now confirmed stable across three sep
 runs today rather than a one-off. Nothing further planned on the `hv4-disconnect` gap specifically —
 see the three ruled-out experiments above.
 
+**2026-07-28 (later still) — fourth lever, same result, but it sharpens the diagnosis.** Tried
+raising the spawned PowerShell process's own scheduling priority (`PriorityClass = 'High'`, as the
+process's first statement) — a real, standard technique for keeping a short-lived administrative
+task responsive opposite a CPU-heavy workload, verified by hand against the idle box first. Result
+against the fleet: 3/3 identical failures, the same "block rule not present" symptom.
+
+That is informative, not just another negative. Three levers so far (sleep duration ×2, SSH
+multiplexing) ruled out command latency and the SSH transport/handshake. This fourth one ruled out
+in-process scheduling ONCE THE PROCESS IS RUNNING — priority elevation only takes effect after the
+process starts executing statements, and it made no difference. That points the remaining
+bottleneck at process CREATION itself: the delay between "ssh requests a new remote command" and
+"that process is actually scheduled and begins running anything, including its own priority-boost
+statement" — which no script content can touch, because the script hasn't started yet when the
+delay happens.
+
+**This identifies a genuinely different, specific remediation on the OTHER side of the contention:
+lower the native inference worker's OWN process priority (e.g. `BelowNormal`), rather than trying to
+boost the administrative side after the fact.** If new-process scheduling is starved because the
+CPU's runnable queue is dominated by an already-running, equal-priority inference process, the
+Windows scheduler will naturally prefer any newly-spawned Normal-priority process (ssh's remote
+`powershell.exe`) over a `BelowNormal` one without any special elevation needed on the admin side —
+the same standard technique background scanners and indexers use to avoid starving foreground work.
+This is a real, bounded, low-risk change, but it is a PRODUCT-level change to how
+`OrchestratorIDE.NativeRuntime` spawns/runs its inference process, not a `Tools/` driver tweak — outside
+what should be decided unilaterally.
+
+Four independent levers now ruled out (three for `hv4-disconnect` specifically, all with clean
+negative or diagnosis-sharpening results). Nothing further planned in `Tools/Hv4RecoveryRunner`
+itself; the remaining path, if pursued, is the worker-process-priority change above, and that needs
+a decision, not more test-harness iteration.
+
 ## 4. Harness shape (implementation guidance, not code)
 
 - **Driver:** a `Tools/` PowerShell orchestration script on the Warchief (SSH for box-level
