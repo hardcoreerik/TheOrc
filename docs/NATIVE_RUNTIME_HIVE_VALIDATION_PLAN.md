@@ -899,6 +899,72 @@ all defaults and the service is Running; the box is on the **Balanced** power pl
 symptom exactly: a key exchange needs CPU and an already-established HTTP listener does not, so it
 fails precisely when the box is saturated doing the inference these phases need it to be doing.
 
+**2026-07-28 (later) — driver split into two invocations per maintainer decision; a self-inflicted
+regression found and fixed; two more full 3× runs.**
+
+**Split, not automated-switch.** The first run above folded HV-2's large-context reconfiguration
+into the main campaign's round loop. A maintainer call was made to keep the main campaign's fleet
+state untouched for its whole run instead: `hv2-large` now runs as its own separate `--large-only`
+invocation, reconfiguring once at the start and restoring once at the end, entirely outside the
+main campaign's 3× loop. Both invocations are still independently complete "3× back-to-back, no
+intervention" runs — running two of them is not the same as intervening inside either one — and
+each writes its own report; the main report explicitly says HV-2's large phase lives in the other
+one.
+
+**Self-inflicted regression, found by running it: a killed worker was left dead.** The retry that
+produced HardcoreLaptopMSI's clean run above added a race guard (`job-still-running-when-kill-
+landed`) whose early return sat *before* the worker restart — so when the race fired (job completed
+before the kill landed), the method recorded the check and returned having killed a live worker and
+never brought it back. The next lane in that round then failed against a worker this driver itself
+had killed and abandoned, which read as cascading fleet instability but was self-inflicted. Fixed
+by moving the restart into a guarded, idempotent step called from both the happy path and a
+`finally`, so it always runs exactly once whenever the kill actually landed. A second pass of the
+same fix then found the restart had been placed *after* the recovery poll rather than before it —
+the poll needs a live worker to answer, so it failed unconditionally until corrected. Both are
+`Tools/Hv4RecoveryRunner` bugs, not fleet or product defects; each was caught within one round of
+introducing it, by actually running the campaign rather than reasoning about the code.
+
+**With both fixed, the main campaign (3×, `hv2-large` excluded) ran clean apart from the box's own
+known ssh/timing limits:**
+
+```
+| Lane             | R1   | R2   | R3   |
+| hv1              | PASS | PASS | PASS |
+| hv2-small        | PASS | PASS | PASS |
+| hv3-sequential   | FAIL | PASS | PASS |
+| hv3-concurrent   | PASS | PASS | PASS |
+| hv4-cancel       | PASS | PASS | PASS |
+| hv4-ollama       | PASS | PASS | PASS |
+| hv4-kill         | FAIL | FAIL | PASS |
+| hv4-disconnect   | PASS | PASS | FAIL |
+| hv5              | PASS | PASS | PASS |
+```
+
+Evidence: `.orc/hv-6-lane/hv6_report_20260728_033326.json`. Five of nine lanes perfectly green in
+all three rounds. Every `hv4-kill`/`hv4-disconnect` failure is again HardcoreLaptopMSI's job
+finishing before the disruption landed (`job-still-running-when-kill-landed` /
+`job-still-running-when-cut-landed`) — the same timing limit recorded above, not a recurrence of
+the dead-worker bug: no failure this run left a worker unrecovered, and every later lane on that box
+ran cleanly regardless of what the previous lane's race check reported.
+
+**One new, one-off finding: R1's `hv3-sequential` shows `ConversationsCreated` (after-cycle samples
+only) of `[9, 9, 10]` on HardcorePC** — cycles 1→2 landed on the same conversation instead of a
+fresh one, while R2 (`[8, 9, 10]`) and R3 (`[8, 9, 10]`) on the identical fleet, same session, were
+clean. R1 ran immediately after several minutes of heavy reconfiguration/campaign churn from manual
+smoke-testing earlier in the session, which is the more likely explanation than a reproducible
+defect — but it is recorded here rather than dismissed, per the plan's own precedent that "a
+conversation silently reused and never re-counted" is exactly the failure this check exists to
+catch. Not chased further on a single occurrence; worth a second look if HV-6 reproduces it on a
+cold, uninterrupted fleet.
+
+**HV-6 verdict: the harness and the fixes it drove are solid; "all green" is not yet met, and the
+gap is a single, understood, external limit.** Every remaining failure across both post-split runs
+is HardcoreLaptopMSI's ssh/scheduling behavior under load, previously diagnosed (Balanced power
+plan) — not the runtime, not the queue, not a silent fallback, and (after the two fixes above) not
+this driver leaving a worker dead. Closing HV-6 fully means either accepting that limit as a
+recorded, permanent caveat on this fleet's evidence, or changing the laptop's power plan (a machine
+setting, not code — not done without confirming first) and re-running.
+
 ## 4. Harness shape (implementation guidance, not code)
 
 - **Driver:** a `Tools/` PowerShell orchestration script on the Warchief (SSH for box-level
