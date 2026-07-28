@@ -1055,6 +1055,16 @@ this session does unilaterally. No further code-side attempts at this specific g
 continuing to retry the same lever after a controlled negative result would not be honest
 persistence, it would be ignoring the experiment's own answer.
 
+**2026-07-28 (final confirmation) — third independent full campaign, same result.** Run after
+deploying the heartbeat HttpClient-reuse fix (unrelated CodeRabbit finding, `OrchestratorIDE/
+Services/Hive/HiveWorkerAgent.cs`) to both fleet workers: `hv1`/`hv2-small`/`hv3-sequential`/
+`hv3-concurrent`/`hv4-cancel`/`hv4-ollama`/`hv5` all green in all 3 rounds; `hv4-kill` FAIL/FAIL/PASS
+(the same residual timing race); `hv4-disconnect` FAIL/FAIL/FAIL (the same external CPU-contention
+limitation). Evidence: `.orc/hv-6-lane/hv6_report_20260728_111409.json`. No regressions from the
+heartbeat fix, and the characterization is now confirmed stable across three separate full-campaign
+runs today rather than a one-off. Nothing further planned on the `hv4-disconnect` gap specifically —
+see the three ruled-out experiments above.
+
 ## 4. Harness shape (implementation guidance, not code)
 
 - **Driver:** a `Tools/` PowerShell orchestration script on the Warchief (SSH for box-level
