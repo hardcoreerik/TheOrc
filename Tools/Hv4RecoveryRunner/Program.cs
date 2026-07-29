@@ -694,6 +694,14 @@ internal static class Program
             });
             return;
         }
+        // Matches on HivePeer.Name against the --worker-a-style id (e.g. "HardcorePC") -- this
+        // fleet's actual pairing sets Name to the machine's display name, matching the same id
+        // used throughout this driver and --worker-a/-b/-c, verified working live repeatedly.
+        // CodeRabbit correctly flagged this as fragile in general (Name's source varies:
+        // WarchiefName, WarchiefNodeId, or a membership cert's subject name depending on the
+        // pairing path taken) -- not hardened further here since no more canonical
+        // human-readable identifier exists on HivePeer to match against, and a mismatch already
+        // fails safely below (a clear "no peer named X found" check, not a wrong action).
         var peer = HivePeerStore.Default.All()
             .FirstOrDefault(p => string.Equals(p.Name, w.Id, StringComparison.OrdinalIgnoreCase));
         var secret = peer is null ? null : HivePeerStore.Default.GetSharedSecret(peer.NodeId);
