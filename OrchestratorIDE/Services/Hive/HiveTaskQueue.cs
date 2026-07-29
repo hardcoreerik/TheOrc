@@ -1074,9 +1074,11 @@ public sealed class HiveTaskQueue : IDisposable
     }
 
     /// <summary>
-    /// The heartbeat decision, callable without an <see cref="HttpListenerContext"/> (which is
-    /// sealed and cannot be constructed in a test) — same seam
-    /// <see cref="HiveAuthMiddleware.ValidateCore"/> uses for the same reason.
+    /// The heartbeat decision. <see cref="HandleHeartbeatAsync"/> calls this and only translates
+    /// the outcome to an HTTP response; it does not duplicate the decision logic. Also callable
+    /// directly from tests without an <see cref="HttpListenerContext"/> (which is sealed and
+    /// cannot be constructed) — same seam <see cref="HiveAuthMiddleware.ValidateCore"/> uses for
+    /// the same reason.
     ///
     /// Exists because three fleet-driven attempts at the HV-3 heartbeat-timeout bug landed with
     /// only one confirmed effect, at the cost of a worker restart and a cold model load per
@@ -1115,47 +1117,30 @@ public sealed class HiveTaskQueue : IDisposable
     {
         var hb = ReadJson<HiveHeartbeatRequest>(body);
 
-        await _claimLock.WaitAsync();
-        try
+        // 409, not 200, on a rejection. Answering 200 for an uncredited beat made it
+        // indistinguishable from a credited one at the worker: once the watchdog re-queued a task
+        // (Status -> "pending", token rotated, LastHeartbeat cleared) the still-running worker
+        // kept beating into here, saw success, logged nothing, and carried on executing a lease it
+        // no longer held — while the task was re-claimed and executed AGAIN. That is why the
+        // Researcher role's ConversationsCreated climbed in multiples of its step budget across a
+        // run whose worker log contained zero heartbeat complaints
+        // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-27).
+        var outcome = await HeartbeatCoreAsync(taskId, hb?.ClaimToken);
+
+        switch (outcome)
         {
-            if (!_tasks.TryGetValue(taskId, out var entry) || entry.Status != "claimed")
-            {
-                // 409, not 200. This branch does NOT refresh LastHeartbeat, so answering 200 made
-                // an uncredited beat indistinguishable from a credited one at the worker: once the
-                // watchdog re-queued a task (Status -> "pending", token rotated, LastHeartbeat
-                // cleared) the still-running worker kept beating into here, saw success, logged
-                // nothing, and carried on executing a lease it no longer held — while the task was
-                // re-claimed and executed AGAIN. That is why the Researcher role's
-                // ConversationsCreated climbed in multiples of its step budget across a run whose
-                // worker log contained zero heartbeat complaints
-                // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-27).
-                //
-                // Same shape as the stale-token rejection below, which was already a visible 409.
+            case HeartbeatOutcome.NotClaimed:
                 ctx.Response.StatusCode = 409;
                 WriteJson(ctx, new { taskId, status = "not-claimed" });
-                HeartbeatDiag($"not-claimed taskId={taskId} " +
-                              $"entryStatus={(entry is null ? "<missing>" : entry.Status)}");
-                return;
-            }
-
-            // Reject heartbeats that don't carry the current claim token.
-            // Held under _claimLock so CheckTimeouts cannot rotate the token concurrently.
-            if (!string.IsNullOrEmpty(entry.ClaimToken)
-                && (hb is null || hb.ClaimToken != entry.ClaimToken))
-            {
+                break;
+            case HeartbeatOutcome.StaleToken:
                 ctx.Response.StatusCode = 409;
                 WriteJson(ctx, new { taskId, status = "stale" });
-                HeartbeatDiag($"stale-token taskId={taskId} worker={entry.ClaimedBy ?? "?"}");
-                return;
-            }
-
-            var sinceLast = entry.LastHeartbeat is { } prev ? DateTime.UtcNow - prev : TimeSpan.Zero;
-            entry.LastHeartbeat = DateTime.UtcNow;
-            HeartbeatDiag($"credited taskId={taskId} worker={entry.ClaimedBy ?? "?"} " +
-                          $"sinceLast={sinceLast.TotalSeconds:F1}s");
-            WriteJson(ctx, new { taskId, status = "alive" });
+                break;
+            case HeartbeatOutcome.Credited:
+                WriteJson(ctx, new { taskId, status = "alive" });
+                break;
         }
-        finally { _claimLock.Release(); }
     }
 
     private async Task HandleCompleteAsync(HttpListenerContext ctx, string taskId, byte[] body, string authNode)
