@@ -1013,6 +1013,13 @@ hv4-disconnect: FAIL all 3 rounds     (HardcoreLaptopMSI only, cut-actually-land
 
 Evidence: `.orc/hv-6-lane/hv6_report_20260728_090737.json`.
 
+**2026-07-28 (later) — HardcoreLaptopMSI went unreachable and HV-6 closure is blocked on it
+regardless of the power-plan question.** Two remediation paths remain open for when the machine
+is back: accept the disconnect gap as a permanent documented caveat on this fleet's evidence, or
+apply the power-plan changes below (minimum processor state 100%, High Performance mode, USB
+selective suspend disabled) and re-run the HV-4 lanes. Neither can proceed with the box offline;
+work shifted elsewhere rather than continuing to poll an unreachable machine.
+
 **Isolated the disconnect failure to rule out a scripting bug before accepting it as a hardware
 limit.** `hv4-cancel`/`hv4-ollama`/`hv4-kill`'s own ssh calls all succeeded reliably throughout the
 same 75-minute run, while `hv4-disconnect`'s firewall-rule call failed 3/3 — narrow enough to be
