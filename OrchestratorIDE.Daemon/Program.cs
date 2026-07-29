@@ -212,6 +212,33 @@ if (args.Length > 0)
 
 // ── Normal mode — long-running HIVE node host ───────────────────────────────
 
+// Drop process priority for the headless worker so Windows does not starve process
+// creation of equal-priority admin shells (sshd → powershell/cmd) while inference is
+// CPU-bound. Round 1 (2026-07-28) tried BelowNormal and measured a clean win — but only
+// against SYNTHETIC CPU burners. Round 2 (2026-07-29) disproved it under REAL ggml
+// inference: ggml's thread pool sets one compute-dispatch thread to Win32
+// THREAD_PRIORITY_HIGHEST, which is a +2 offset RELATIVE to the process's own priority
+// class, not absolute. At BelowNormal (base 6) that thread claws back up to base priority
+// 8 — the exact same default priority a freshly-spawned admin shell gets — making SSH
+// exec landing a coin flip under real load, confirmed via direct PID-before/after checks
+// (not telemetry silence, which produced a false "kill landed" reading during that round).
+// Round 3 (2026-07-29, same day) confirmed Idle instead: base 4 + the same +2 offset lands
+// the elevated thread at priority 6, comfortably below a fresh shell's 8. Verified 3/3 kills
+// landed via direct PID lookup under real sustained ggml compute load. GPU-bound tok/s is
+// not expected to move meaningfully; priority only affects the CPU scheduler's choice when
+// something else wants a core. See docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md (HV-6 /
+// hv4-disconnect, 2026-07-29 entries) for the full three-round trail.
+try
+{
+    System.Diagnostics.Process.GetCurrentProcess().PriorityClass =
+        System.Diagnostics.ProcessPriorityClass.Idle;
+}
+catch (Exception ex)
+{
+    // Non-fatal: some hosts deny priority changes; continue at default priority.
+    Console.Error.WriteLine($"[theorc-warband] could not set Idle priority: {ex.Message}");
+}
+
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices((ctx, services) =>
     {
