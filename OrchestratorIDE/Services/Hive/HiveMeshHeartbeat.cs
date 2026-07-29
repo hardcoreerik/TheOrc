@@ -249,17 +249,31 @@ public sealed class HiveMeshHeartbeat : IDisposable
                 if (doc.RootElement.ValueKind == JsonValueKind.Object
                     && doc.RootElement.TryGetProperty("error", out var err)
                     && err.ValueKind == JsonValueKind.String)
-                    return err.GetString();
+                    return Sanitize(err.GetString());
             }
             catch (JsonException) { /* not JSON — fall through to the raw body */ }
 
-            return body.Trim();
+            return Sanitize(body.Trim());
         }
         catch
         {
             return null;
         }
     }
+
+    /// <summary>
+    /// This text comes from an UNTRUSTED remote peer's HTTP response body and is logged verbatim
+    /// by the caller — without this, a malicious or compromised peer could return a rejection body
+    /// containing embedded newlines formatted to look like fake log entries (a classic log-forging
+    /// attack), making forged lines indistinguishable from genuine ones to an operator or an
+    /// automated log scanner. Collapsing all whitespace (not just \r\n) to single spaces keeps the
+    /// reason on exactly one physical line no matter what the peer sends, while still preserving
+    /// the content for a human to read.
+    /// </summary>
+    internal static string? Sanitize(string? text)
+        => text is null ? null : WhitespaceRun.Replace(text, " ").Trim();
+
+    private static readonly System.Text.RegularExpressions.Regex WhitespaceRun = new(@"\s+");
 
     private void Log(string msg) => OnLog?.Invoke(msg);
 
