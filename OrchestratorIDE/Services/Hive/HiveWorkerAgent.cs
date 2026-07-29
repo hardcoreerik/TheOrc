@@ -622,12 +622,13 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         // action/route.
         var action = status == "completed" ? "complete" : "fail";
         TaskDiag($"ClaimAndExecuteAsync taskId={bundle.TaskId} POSTING action={action} finalStatus={status} claimToken={taskResult.ClaimToken}");
-        await PostResultAsync(bundle.TaskId, action, taskResult, ct).ConfigureAwait(false);
-        TaskActivity(bundle.TaskId, status switch
+        var accepted = await PostResultAsync(bundle.TaskId, action, taskResult, ct).ConfigureAwait(false);
+        TaskActivity(bundle.TaskId, (accepted, status) switch
         {
-            "completed" => $"✅ Sent to Warchief ({taskResult.DurationMs / 1000.0:F1}s, {result?.Length ?? 0} chars)",
-            "cancelled" => "🛑 Cancellation reported to Warchief",
-            _           => $"⚠ Failure reported to Warchief: {errorMsg}",
+            (false, _)          => "⚠ Result REJECTED by Warchief (see log) — this worker's outcome was not recorded",
+            (true, "completed") => $"✅ Sent to Warchief ({taskResult.DurationMs / 1000.0:F1}s, {result?.Length ?? 0} chars)",
+            (true, "cancelled") => "🛑 Cancellation reported to Warchief",
+            (true, _)           => $"⚠ Failure reported to Warchief: {errorMsg}",
         });
     }
 
@@ -843,7 +844,13 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         }
     }
 
-    private async Task PostResultAsync(string taskId, string action, HiveTaskResult result, CancellationToken ct)
+    /// <returns>
+    /// True if the Warchief accepted the result. False on any non-success HTTP status — the
+    /// caller must reflect this in whatever it tells the operator (grok-review, PR #95's follow-
+    /// up: this method used to log a rejection but the caller still unconditionally reported
+    /// "Sent/reported to Warchief" regardless, so the visibility fix was only half-applied).
+    /// </returns>
+    private async Task<bool> PostResultAsync(string taskId, string action, HiveTaskResult result, CancellationToken ct)
     {
         var url   = $"{WarchiefUrl.TrimEnd('/')}/hive/tasks/{taskId}/{action}";
         var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(result, _json));
@@ -870,7 +877,9 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 $"HTTP {(int)resp.StatusCode} {body} — this worker's result was NOT recorded " +
                 "as it reported; the task's actual fate is whatever the Warchief's queue " +
                 "already decided independently (e.g. a heartbeat-timeout requeue).");
+            return false;
         }
+        return true;
     }
 
     private async Task<IReadOnlyList<ArtifactRef>> UploadOutputArtifactsAsync(

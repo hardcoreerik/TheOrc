@@ -46,11 +46,14 @@ internal static class Program
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
     };
 
+    // Stale as of the workercancel phase (grok-review, PR #95): the worker DOES now expose a
+    // task-cancel endpoint and item 1 IS exercised when that phase runs. Kept, but only stamped
+    // onto reports for phases that genuinely don't exercise it -- see its one call site.
     private const string RemoteCancelGap =
         "Item 1 (cancellation surfacing mid-generation as OperationCanceledException on the worker) " +
-        "is NOT exercised: the worker exposes no task-cancel endpoint, so a campaign cancel is " +
-        "visible only on the Warchief while the worker generates to completion. Adding one is a " +
-        "mutation needing an authenticated control endpoint plus its own security review.";
+        "is not exercised by this phase: only --phase workercancel (or all) drives the real " +
+        "/hive/tasks/cancel endpoint against an in-flight generation; this phase's own cancel " +
+        "check (if any) covers only the Warchief-side campaign-cancel path.";
 
     public static async Task<int> Main(string[] args)
     {
@@ -107,7 +110,9 @@ internal static class Program
             Warchief = warchief,
             Phase = phase,
             StartedAt = DateTimeOffset.UtcNow,
-            UncoveredItems = [RemoteCancelGap],
+            // "all" and "workercancel" both genuinely drive the real cancel endpoint against an
+            // in-flight generation (RunWorkerCancelAsync); every other phase selection does not.
+            UncoveredItems = phase is "workercancel" or "all" ? [] : [RemoteCancelGap],
         };
 
         using var http = new HttpClient
@@ -669,7 +674,26 @@ internal static class Program
     {
         Console.WriteLine($"[workercancel] {w.Id}: submitting a long job, then cancelling it via the direct worker endpoint...");
 
-        var identity = HiveIdentity.Load();
+        // regenerateOnCorruption: false -- this tool only ever needs to sign as the Warchief
+        // identity that already exists on this machine; Load()'s default (true) would silently
+        // mint and persist a BRAND NEW identity over the real one on any decrypt/deserialize
+        // failure, the exact footgun Program.cs's own --leave-hive handling was hardened against
+        // (grok-review, PR #95). A transient/corrupt read here should fail loudly, not overwrite
+        // the fleet's real Warchief keys.
+        HiveIdentity identity;
+        try { identity = HiveIdentity.Load(regenerateOnCorruption: false); }
+        catch (Exception ex)
+        {
+            report.Checks.Add(new Hv4Check
+            {
+                WorkerId = w.Id,
+                Name = "workercancel/identity-loaded",
+                Passed = false,
+                Detail = $"could not load this machine's existing HIVE identity: {ex.Message} — " +
+                    "refusing to regenerate one, since that would overwrite the real Warchief keys",
+            });
+            return;
+        }
         var peer = HivePeerStore.Default.All()
             .FirstOrDefault(p => string.Equals(p.Name, w.Id, StringComparison.OrdinalIgnoreCase));
         var secret = peer is null ? null : HivePeerStore.Default.GetSharedSecret(peer.NodeId);
