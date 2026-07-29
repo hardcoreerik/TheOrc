@@ -1376,30 +1376,36 @@ bug once real, independent evidence of a hardware/driver problem surfaced.**
 
 **Decisive test: same driver, same box, only the interface changed.** With an Ethernet cable
 connected (`192.168.1.179`, distinct from WiFi's `192.168.1.117`), both phases re-run against
-the Ethernet IP:
+the Ethernet IP — and, per HV-6's own repeatability bar, **3 consecutive rounds**, not one, each
+with the kill verified by a direct PID check (not telemetry) and the disconnect verified by
+actual firewall-rule presence/absence (not inferred from silence):
 
+```text
+hv4-kill,       round 1: PID 59984 -> 61608, new StartTime -- genuine kill+restart
+hv4-disconnect, round 1: block rule present (count=1) during cut, removed (count=0) after
+hv4-kill,       round 2: PID 61608 -> 64300, new StartTime -- genuine kill+restart
+hv4-disconnect, round 2: block rule present (count=1) during cut, removed (count=0) after
+hv4-kill,       round 3: PID 64300 -> 59756, new StartTime -- genuine kill+restart
+hv4-disconnect, round 3: block rule present (count=1) during cut, removed (count=0) after
 ```
-hv4-kill:       PID 59984 (before) -> PID 61608 (after), new StartTime -- genuine kill, genuine
-                restart, confirmed via direct PID check, not telemetry.
-hv4-disconnect: block rule present during the cut (verified count=1), fully removed afterward
-                (verified count=0) -- an independently-checkable fact, not inferred from silence.
-```
 
-Both phases: full `Verdict: PASS`, every check, including `role-reusable-after-recovery`. Worker
-confirmed healthy afterward (telemetry 200, `PriorityClass = Idle` intact through the restart).
-Evidence: `.orc/hv-4-lane/hv4_kill_20260729_154721.json`,
-`.orc/hv-4-lane/hv4_disconnect_20260729_162459.json`.
+All 6 runs: full `Verdict: PASS`, every check, including `role-reusable-after-recovery`. Worker
+confirmed healthy after the final round (telemetry 200, `PriorityClass = Idle` intact through
+every restart, firewall rule count 0). Evidence:
+`.orc/hv-4-lane/hv4_kill_20260729_154721.json`, `hv4_disconnect_20260729_162459.json`,
+`hv4_kill_20260729_165225.json`, `hv4_disconnect_20260729_165755.json`,
+`hv4_kill_20260729_170245.json`, `hv4_disconnect_20260729_170601.json`.
 
-**HV-6 verdict, final: the `hv4-disconnect`/`hv4-kill` gap on HardcoreLaptopMSI is CLOSED —
-over a stable network path.** The `Idle`-priority fix is now confirmed correct at the fleet
-level (not just via a throwaway process), and the driver itself has no defect — every prior
-"failure" on this box was either the pre-fix thread-priority contention (now fixed) or this
-box's WiFi driver dropping the connection mid-test (worked around by using Ethernet). The
-residual, honest caveat: this fleet's repeatable 3×-round evidence (HV-6's own bar) was all
-collected over WiFi/Tailscale before this session: HardcoreLaptopMSI should have a wired
-connection for future HV-4 kill/disconnect runs, or the WiFi driver issue itself should be
-tracked as a known instability on that specific machine, separate from anything this validation
-campaign was built to catch in TheOrc's own code.
+**HV-6 verdict, final: the `hv4-disconnect`/`hv4-kill` gap on HardcoreLaptopMSI is CLOSED, with
+genuine 3×-round repeatability evidence — not a single lucky pass.** The `Idle`-priority fix is
+now confirmed correct at the fleet level (not just via a throwaway process), and the driver
+itself has no defect — every prior "failure" on this box was either the pre-fix thread-priority
+contention (now fixed) or this box's WiFi driver dropping the connection mid-test (worked around
+by using Ethernet). The residual, honest caveat: this specific 3×-round evidence was collected
+over a wired connection, not WiFi/Tailscale — HardcoreLaptopMSI should stay on Ethernet for
+future HV-4 kill/disconnect runs, or the WiFi driver issue itself should be tracked and fixed as
+a known instability on that specific machine, separate from anything this validation campaign
+was built to catch in TheOrc's own code. **HV-6 is now 9 of 9 lanes closed.**
 
 ## 4. Harness shape (implementation guidance, not code)
 
@@ -1475,10 +1481,12 @@ re-validation initially produced three false positives over WiFi/Tailscale, trac
 laptop's WiFi driver dropping the connection mid-test (confirmed independently via
 `Get-WinEvent`'s WLAN-AutoConfig log and the user's own observation of a live "connection lost"
 state) — not a defect in the priority fix or the HIVE dispatch/scheduling/admission path. Re-run
-over a wired Ethernet connection, both `hv4-kill` and `hv4-disconnect` passed cleanly with
-independently-verifiable evidence (a genuine PID change for the kill; firewall-rule
-presence/absence for the disconnect — not telemetry silence). See the HV-6 section's final
-2026-07-29 entry for full detail. The residual caveat is now narrower still: HardcoreLaptopMSI's
-WiFi adapter has a known driver-level instability, worth a wired connection for future fleet
+over a wired Ethernet connection for a genuine 3× repeatability campaign (not a single pass —
+CodeRabbit correctly flagged an earlier draft of this entry for claiming closure on one round),
+both `hv4-kill` and `hv4-disconnect` passed cleanly all 3 rounds with independently-verifiable
+evidence each time (a genuine PID change for the kill; firewall-rule presence/absence for the
+disconnect — not telemetry silence). See the HV-6 section's final 2026-07-29 entry for the full
+6-run trail. The residual caveat is now narrower still: HardcoreLaptopMSI's WiFi adapter has a
+known driver-level instability, worth a wired connection for future fleet
 testing on that box, but this no longer implicates the runtime, the scheduler, or the validation
 harness in any way.

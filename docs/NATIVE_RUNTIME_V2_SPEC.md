@@ -798,10 +798,11 @@ native execution, scheduling, and telemetry on that machine are otherwise proven
 fleet-level failures after that fix landed turned out to be a separate, unrelated cause: this
 specific laptop's WiFi driver disconnecting mid-test (confirmed via its own WLAN-AutoConfig event
 log and directly observed by the user), not a defect in the fix, the driver, or anything this
-campaign was built to catch. Re-run over a wired Ethernet connection, both `hv4-kill` and
-`hv4-disconnect` passed cleanly with independently-verifiable evidence (a real PID change; real
-firewall-rule presence/absence). **HV-6 is now 9 of 9 lanes closed.** Full trail in
-`docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md`'s HV-6 section, final 2026-07-29 entries.
+campaign was built to catch. Re-run over a wired Ethernet connection for a full 3× repeatability
+campaign — HV-6's own bar, not a single pass — both `hv4-kill` and `hv4-disconnect` passed
+cleanly all 3 rounds with independently-verifiable evidence each time (a real PID change; real
+firewall-rule presence/absence). **HV-6 is now genuinely 9 of 9 lanes closed.** Full 6-run trail
+in `docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md`'s HV-6 section, final 2026-07-29 entries.
 
 This milestone was gated on **live multi-machine HIVE validation**, not single-box results —
 that gate was met. It supersedes the ROADMAP's prior position that Ollama stays default *"until
