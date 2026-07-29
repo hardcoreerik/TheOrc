@@ -949,6 +949,89 @@ heavy-dependency-construction problem documented in `HiveNodeServerAuthorization
 class doc comment (`HiveIdentity`'s constructor is private, only reachable via disk-touching
 static factories).
 
+**2026-07-29 (later same day) — item 1 fully closed for real, but only after live testing
+surfaced a second, deeper bug the grok BLOCKER fix alone didn't cover.** Built
+`Tools/Hv4RecoveryRunner --phase workercancel`: submits a real long-running job pinned to a
+target worker, waits for genuine claim, signs and POSTs directly to that worker's
+`/hive/tasks/cancel` (not the Warchief's campaign-cancel path — the actual new endpoint), then
+asserts the task's terminal status is `cancelled`, never `failed`/requeued/silently
+`completed`.
+
+**First live runs (Researcher role) failed on an unrelated pre-existing issue**: the 20-step
+`LongSpec` prompt combined with the Researcher role's system-prompt overhead exceeded
+HardcorePC's configured 4096 native context on the very first render — a genuine, previously
+undiscovered incompatibility (this exact role+box combination had never been exercised with
+`LongSpec` before; today's other HV-4 runs all targeted the laptop). Routed around it with
+`--role Worker`, not fixed (out of scope here).
+
+**With Worker role, a new and more serious anomaly appeared: a task reached a directly-observed
+`Status=cancelled` (confirmed via its `ErrorMsg` field, which only a successful, guarded write in
+`HandleFailAsync` can produce) and was LATER found `Status=completed` with real generated
+content — the same task, same taskId, re-executed and its stale cancellation error left behind.**
+Neither of the two obvious candidates explained it: `HandleFailAsync`'s own attempt-based requeue
+is bypassed for `wasCancelled` (confirmed by re-reading the code); `CheckTimeouts`' heartbeat
+watchdog has no `switch` case for `"cancelled"` at all, so it cannot touch a cancelled entry
+either. Manual code reading of every claim/lease/complete/fail guard, `PostResultAsync`,
+`CampaignRepository`, and `UpdateCampaignAfterTerminal` found no code path that moves
+`Status="cancelled"` back to claimable — consistent with a second full **Grok** review
+(`grok-review -Mode full -Focus "<the exact anomaly>"`, since **Codex** was unavailable — its CLI
+build is too old for the configured model and needs an upgrade, an environment issue not fixed
+in-session) confirming the same: *"There is no Status=cancelled → pending/claimed assignment
+anywhere... A true wasCancelled terminal write cannot be re-claimed by this code."*
+
+**Grok found the real, adjacent bugs instead — not a resurrection path, but silent
+data-consistency gaps that produced the exact symptom observed:**
+1. `HiveWorkerAgent.PostResultAsync` never checked the HTTP response status of its own
+   fail/complete POST — a rejected post (e.g. a race against the heartbeat watchdog) was
+   silently treated as success, logged as "reported to Warchief," and the worker moved on
+   blind to whether the Warchief's queue agreed.
+2. `HiveTaskQueue.HandleCompleteAsync` set `Status="completed"` but never cleared
+   `entry.ErrorMsg` — so any error a prior attempt on the same entry had written (a heartbeat
+   timeout requeue, or a cancellation) survived a later genuine success forever, producing
+   exactly the contradictory record observed.
+3. `HiveRepository`'s durable SQL upsert used `error_msg = COALESCE(excluded.error_msg,
+   hive_tasks.error_msg)` — a later completion posting `errorMsg: null` could never clear a
+   previously-persisted error in the DURABLE store either, the same bug one layer down.
+
+All three fixed. Since none of Grok's findings individually proved to be THE resurrection
+mechanism (the actual claim/lease code was confirmed clean), file-based diagnostic logging
+(`THEORC_HIVE_TASK_DIAGNOSTICS=1`, gated and zero-cost when off — same convention as
+`THEORC_KVCACHE_DIAGNOSTICS`/`THEORC_HIVE_HEARTBEAT_DIAGNOSTICS`, kept as a standing tool rather
+than removed) was added at every claim/lease/fail/complete decision point on both the Warchief
+and worker sides — `Log(...)`/console output being fully buffered and not visible until process
+exit was exactly the reason this took so long to pin down live. Warchief restarted as a direct
+child process via `Start-Process` (never WMI, per this doc's own earlier rule) with diagnostics
+on.
+
+**The instrumented re-run resolved it: the anomaly did not reproduce, and the trace shows the
+mechanism working exactly as designed.** Worker-side: task claimed, cancel found the CTS 153ms
+later (not already cancelled), `OperationCanceledException` caught 184ms after that, `cancelled`
+result posted 182ms after that — one clean execution attempt, no second registration for the same
+taskId. Warchief-side: exactly one `HandleLeaseAsync SELECT` for the taskId, one
+`HandleFailAsync ACCEPT` with `entry.Status=claimed` at write time — no second lease, ever. The
+earlier races and the one anomalous run most likely came down to the same inherent timing
+sensitivity already documented for `hv4-kill`/`hv4-disconnect` elsewhere in this doc: a `steps:1`
+completion has no interruption checkpoint *during* the model's single decode call, only
+before/after it, so whether a fast cancel wins depends on exactly when it lands relative to that
+one call — genuinely narrow, not a resurrection bug, and the three Grok-found bugs make the
+system meaningfully more honest regardless of that timing (a lost race now surfaces loudly
+instead of silently).
+
+**Confirmed with 3 consecutive clean runs against HardcorePC (not a single pass)**, all four
+checks PASS every time, including the direct `terminal status=cancelled` assertion:
+`.orc/hv-4-lane/hv4_workercancel_20260729_230906.json`,
+`..._231311.json`, `..._231332.json`.
+
+**HV-4 verdict, final: items 2, 3, and 4 evidenced across machines (as before); item 1 is now
+CLOSED with real evidence, not partial coverage** — a genuine remote mid-generation cancellation,
+authenticated, routed correctly, reported with its own terminal status that cannot be silently
+retried or lost, confirmed live and repeatably. §6's "failure, cancellation, disconnect, and
+recovery exercises across machines" criterion is materially stronger for it, and the investigation
+also hardened two real, previously-silent data-consistency gaps (`PostResultAsync`'s ignored
+response status; stale `ErrorMsg` surviving a genuine success in both the in-memory and durable
+stores) that were never specific to cancellation and could have masked other classes of failure
+the same way.
+
 ### HV-5 — Telemetry consistency + no-silent-fallback sweep
 
 - Same evidence JSON schema from all three boxes for one shared campaign; per-box

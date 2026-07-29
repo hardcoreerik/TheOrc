@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>hv4-recovery-runner</AssemblyName>
@@ -10,8 +10,21 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="..\..\OrchestratorIDE\Services\Hive\CampaignContracts.cs" Link="Hive\CampaignContracts.cs" />
     <Compile Include="..\..\OrchestratorIDE\Services\Hive\HiveTaskBundle.cs" Link="Hive\HiveTaskBundle.cs" />
+    <!-- HMAC signing for the workercancel phase's direct-to-worker /hive/tasks/cancel call
+         (the other phases only talk to the Warchief's own task queue, which needs no signing). -->
+    <Compile Include="..\..\OrchestratorIDE\Services\Hive\ISecretProtector.cs" Link="Hive\ISecretProtector.cs" />
+    <Compile Include="..\..\OrchestratorIDE\Services\Hive\SecretProtection.cs" Link="Hive\SecretProtection.cs" />
+    <Compile Include="..\..\OrchestratorIDE\Services\Hive\DpapiSecretProtector.cs" Link="Hive\DpapiSecretProtector.cs" />
+    <Compile Include="..\..\OrchestratorIDE\Services\Hive\HiveAuthMiddleware.cs" Link="Hive\HiveAuthMiddleware.cs" />
+    <Compile Include="..\..\OrchestratorIDE\Services\Hive\HiveIdentity.cs" Link="Hive\HiveIdentity.cs" />
+    <Compile Include="..\..\OrchestratorIDE\Services\Hive\HiveMembershipCert.cs" Link="Hive\HiveMembershipCert.cs" />
+    <Compile Include="..\..\OrchestratorIDE\Services\Hive\HivePeerStore.cs" Link="Hive\HivePeerStore.cs" />
   </ItemGroup>
 
 </Project>

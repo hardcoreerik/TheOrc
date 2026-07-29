@@ -98,7 +98,15 @@ public sealed class HiveRepository : RepositoryBase
                 claim_token       = COALESCE(excluded.claim_token, hive_tasks.claim_token),
                 result_blob       = COALESCE(excluded.result_blob, hive_tasks.result_blob),
                 duration_ms       = COALESCE(excluded.duration_ms, hive_tasks.duration_ms),
-                error_msg         = COALESCE(excluded.error_msg, hive_tasks.error_msg),
+                -- NOT coalesced, unlike the fields above: every PersistTask call site already
+                -- passes an authoritative errorMsg for that exact status transition (the real
+                -- error string, or explicitly null when there is none) -- same discipline as
+                -- `status` itself, which was never coalesced. COALESCE here meant a genuine
+                -- success could never clear an error a PRIOR attempt on the same task left
+                -- behind, so a task that failed once then completed on retry (or a cancelled
+                -- task that was somehow re-executed) reported success with a stale, permanently
+                -- stuck error message (grok-review finding, HV-4 item 1's own live verification).
+                error_msg         = excluded.error_msg,
                 updated_at        = excluded.updated_at,
                 retain_until      = excluded.retain_until
             """,
