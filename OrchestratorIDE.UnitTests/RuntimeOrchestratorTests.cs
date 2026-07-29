@@ -206,7 +206,14 @@ public sealed class RuntimeOrchestratorTests
         await using var orchestrator = new RuntimeOrchestrator(
             runtime, scheduler: new OrcScheduler(), budgetProvider: () => budget);
 
-        using (await orchestrator.GetConversationForBindingAsync(workerBinding).ConfigureAwait(false))
+        // Options are REQUIRED for the reuse discount to apply at all -- it exists only on the
+        // context-aware estimate path (see EstimateRequiredBytes: options is null => legacy
+        // file-size-only, unconditionally, with no reuse discount ever applied). Without this,
+        // both calls below return the identical "legacy" number regardless of residency, the
+        // floor is never exercised, and this test cannot actually catch the shrink it names.
+        var options = new RuntimeOptions(ContextLength: 2048, GpuLayers: -1);
+
+        using (await orchestrator.GetConversationForBindingAsync(workerBinding, options).ConfigureAwait(false))
         {
         }
         var afterFirstLoad = orchestrator.GetReservationSnapshot()!.Reservations
@@ -215,7 +222,7 @@ public sealed class RuntimeOrchestratorTests
 
         // Same role, same binding, base weights now resident from the call above -- this is the
         // reuse admission whose returned requiredBytes is smaller than the first call's.
-        using (await orchestrator.GetConversationForBindingAsync(workerBinding).ConfigureAwait(false))
+        using (await orchestrator.GetConversationForBindingAsync(workerBinding, options).ConfigureAwait(false))
         {
         }
         var afterReuse = orchestrator.GetReservationSnapshot()!.Reservations
