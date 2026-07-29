@@ -464,11 +464,23 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         }
         // Same distinction as RunLoopAsync: an HTTP-timeout TaskCanceledException is a task
         // failure to report back to the Warchief, not a worker shutdown — rethrowing it would
-        // orphan the lease with no fail result posted. A remote per-task cancel (taskCts tripped,
-        // ct itself still live) falls through to the generic handler below instead, exactly like
-        // any other execution failure — the plan's own "cancellation surfaces mid-generation as
-        // an OperationCanceledException, task fails visibly" requirement, not a worker shutdown.
+        // orphan the lease with no fail result posted.
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        // A remote per-task cancel (taskCts tripped, ct itself still live) is NOT the same as a
+        // genuine execution failure and must be reported as its own terminal status, not
+        // "failed" — caught live in code review (grok-review, PR #94): HiveTaskQueue.
+        // HandleFailAsync requeues campaign work while Attempt < MaxAttempts, so posting this as
+        // a plain failure would have let the SAME work silently come back for another attempt,
+        // the opposite of what an operator cancelling a task means. "cancelled" is already a
+        // first-class terminal status elsewhere in HiveTaskQueue (the Warchief-initiated
+        // campaign-cancel path) — HandleFailAsync now special-cases this exact string to skip
+        // its own requeue logic rather than inventing a second cancellation vocabulary.
+        catch (OperationCanceledException) when (taskCts.IsCancellationRequested)
+        {
+            status   = "cancelled";
+            errorMsg = "Cancelled via remote /hive/tasks/cancel request.";
+            Log($"🛑 [{bundle.Role}] '{bundle.Title}' — cancelled remotely");
+        }
         catch (Exception ex)
         {
             status   = "failed";
@@ -581,12 +593,17 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 await UploadOrFailAsync(container.OutputDirectory).ConfigureAwait(false));
         }
 
+        // "cancelled" rides the same wire action/endpoint as "failed" — HiveTaskQueue.
+        // HandleFailAsync distinguishes them by reading taskResult.Status, not by a different
+        // action/route.
         var action = status == "completed" ? "complete" : "fail";
         await PostResultAsync(bundle.TaskId, action, taskResult, ct).ConfigureAwait(false);
-        TaskActivity(bundle.TaskId,
-            status == "completed"
-                ? $"✅ Sent to Warchief ({taskResult.DurationMs / 1000.0:F1}s, {result?.Length ?? 0} chars)"
-                : $"⚠ Failure reported to Warchief: {errorMsg}");
+        TaskActivity(bundle.TaskId, status switch
+        {
+            "completed" => $"✅ Sent to Warchief ({taskResult.DurationMs / 1000.0:F1}s, {result?.Length ?? 0} chars)",
+            "cancelled" => "🛑 Cancellation reported to Warchief",
+            _           => $"⚠ Failure reported to Warchief: {errorMsg}",
+        });
     }
 
     private async Task<string?> ClaimTaskAsync(HiveTaskBundle bundle, CancellationToken ct)

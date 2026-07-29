@@ -558,8 +558,7 @@ public sealed class HiveNodeServer : IDisposable
             // Remote deploy — Warchief-only (authResult already enforced strict auth above)
             if (method == "POST" && path == "/hive/update/deploy")
             {
-                var wc = ElectionService?.WarchiefNodeId;
-                if (string.IsNullOrEmpty(wc) || wc != authResult.NodeId)
+                if (!IsWarchief(authResult.NodeId))
                 {
                     resp.StatusCode = 403;
                     Error(resp, "only the Warchief may deploy updates");
@@ -583,7 +582,7 @@ public sealed class HiveNodeServer : IDisposable
                     Error(resp, "only the Warchief may force a role recycle");
                     return;
                 }
-                HandleMarkRoleDegraded(body, resp);
+                await HandleMarkRoleDegradedAsync(body, resp).ConfigureAwait(false);
                 return;
             }
 
@@ -1004,7 +1003,7 @@ public sealed class HiveNodeServer : IDisposable
 
     private sealed record MarkRoleDegradedRequest(string Role);
 
-    private void HandleMarkRoleDegraded(byte[] body, HttpListenerResponse resp)
+    private async Task HandleMarkRoleDegradedAsync(byte[] body, HttpListenerResponse resp)
     {
         if (MarkRoleDegradedHandler is null)
         {
@@ -1023,16 +1022,23 @@ public sealed class HiveNodeServer : IDisposable
             return;
         }
 
-        // Fire the recycle, respond immediately — MarkRoleDegraded itself is a fast, in-memory
-        // flag set (AdapterManager.cs:317-334), but the actual recycle only happens lazily on the
-        // role's next mint, so there's nothing further to await before answering the caller.
-        Ok(resp, Json(new { status = "ok", role = role.ToString() }));
-        var handler = MarkRoleDegradedHandler;
-        _ = Task.Run(async () =>
+        // Awaited, not fire-and-forget: MarkRoleDegraded itself is a fast, in-memory flag set
+        // (AdapterManager.cs:317-334 — the actual recycle only happens lazily on the role's next
+        // mint), so there is no latency reason to respond before it completes. A fire-and-forget
+        // version of this shipped first and silently reported 200 for a call that threw
+        // (a real MissingMethodException, hit live during this endpoint's own deployment
+        // verification, PR #94 grok-review) — a mutation endpoint reporting success for a call
+        // that never actually ran is worse than a slower, honest response.
+        try
         {
-            try { await handler(role).ConfigureAwait(false); }
-            catch (Exception ex) { /* best-effort: the next mint will still recycle on its own detection paths */ Console.Error.WriteLine($"[HiveNodeServer] MarkRoleDegraded({role}) failed: {ex.Message}"); }
-        });
+            await MarkRoleDegradedHandler(role).ConfigureAwait(false);
+            Ok(resp, Json(new { status = "ok", role = role.ToString() }));
+        }
+        catch (Exception ex)
+        {
+            resp.StatusCode = 500;
+            Error(resp, $"MarkRoleDegraded({role}) failed: {ex.Message}");
+        }
     }
 
     // ── /hive/tasks/cancel ────────────────────────────────────────────────────

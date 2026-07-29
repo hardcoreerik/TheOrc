@@ -1229,6 +1229,7 @@ public sealed class HiveTaskQueue : IDisposable
         QueuedTask? entry    = null;
         HiveTaskResult? failResult = null;
         var requeued = false;
+        var wasCancelled = false;
         await _claimLock.WaitAsync();
         try
         {
@@ -1250,7 +1251,18 @@ public sealed class HiveTaskQueue : IDisposable
                 ErrorMsg = "Worker reported failure with no details",
             };
             entry.ErrorMsg = failResult.ErrorMsg;
-            if (entry.Bundle.CampaignId.Length > 0 && entry.Bundle.Attempt < entry.Bundle.MaxAttempts)
+
+            // A remote /hive/tasks/cancel request (HiveWorkerAgent.TryCancelTask) posts back
+            // here — the "fail" wire action, same as a genuine execution failure — but with
+            // Status == "cancelled" rather than "failed". Checked FIRST and unconditionally: an
+            // operator-cancelled task must never fall into the requeue branch below just because
+            // attempts remain, or cancel would silently resurrect the same work instead of
+            // stopping it (caught in code review, grok-review PR #94, before this ever shipped).
+            // "cancelled" is already a first-class terminal status elsewhere in this class (the
+            // Warchief-initiated campaign-cancel path a few hundred lines down) — reused here
+            // rather than inventing a second vocabulary for the same concept.
+            wasCancelled = failResult.Status == "cancelled";
+            if (!wasCancelled && entry.Bundle.CampaignId.Length > 0 && entry.Bundle.Attempt < entry.Bundle.MaxAttempts)
             {
                 entry.Bundle.Attempt++;
                 entry.Status = "pending";
@@ -1263,7 +1275,7 @@ public sealed class HiveTaskQueue : IDisposable
             }
             else
             {
-                entry.Status = "failed";
+                entry.Status = wasCancelled ? "cancelled" : "failed";
             }
         }
         finally { _claimLock.Release(); }
@@ -1284,13 +1296,15 @@ public sealed class HiveTaskQueue : IDisposable
 
         entry!.CompletionTcs.TrySetResult(failResult);
 
-        Log($"⚠ [{entry.Bundle.Role}] '{entry.Bundle.Title}' failed by {failResult!.WorkerId}: {failResult.ErrorMsg}");
-        Events.Append("task_failed",
-            $"[{failResult.WorkerId}] {entry.Bundle.Title} ✗ {failResult.ErrorMsg}",
+        var terminalStatus = wasCancelled ? "cancelled" : "failed";
+        Log($"{(wasCancelled ? "🛑" : "⚠")} [{entry.Bundle.Role}] '{entry.Bundle.Title}' {terminalStatus} " +
+            $"by {failResult!.WorkerId}: {failResult.ErrorMsg}");
+        Events.Append(wasCancelled ? "task_cancelled" : "task_failed",
+            $"[{failResult.WorkerId}] {entry.Bundle.Title} {(wasCancelled ? "🛑" : "✗")} {failResult.ErrorMsg}",
             taskId, failResult.WorkerId);
 
-        // Durable history: persist the failure + provenance.
-        PersistTask(taskId, entry.SessionId, entry.Bundle.Role, entry.Bundle.Title, "failed",
+        // Durable history: persist the failure/cancellation + provenance.
+        PersistTask(taskId, entry.SessionId, entry.Bundle.Role, entry.Bundle.Title, terminalStatus,
             authNode, failResult.WorkerId, authenticated: true, entry.ClaimToken,
             resultBlob: null, failResult.DurationMs, failResult.ErrorMsg, entry.EnqueuedAt);
         if (entry.Bundle.CampaignId.Length > 0)
@@ -1299,11 +1313,11 @@ public sealed class HiveTaskQueue : IDisposable
                 FinalizeVerificationGroup(entry.VerificationParentTaskId!);
             else
                 CampaignRepository?.UpdateWorkUnit(entry.Bundle.CampaignId, entry.Bundle.WorkUnitId,
-                    "failed", entry.Bundle.Attempt, authNode, error: failResult.ErrorMsg);
+                    terminalStatus, entry.Bundle.Attempt, authNode, error: failResult.ErrorMsg);
             UpdateCampaignAfterTerminal(entry.Bundle.CampaignId);
         }
 
-        WriteJson(ctx, new { taskId, status = "failed" });
+        WriteJson(ctx, new { taskId, status = terminalStatus });
     }
 
     private Task HandleGetStatusAsync(HttpListenerContext ctx)
