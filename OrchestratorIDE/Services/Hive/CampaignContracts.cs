@@ -182,6 +182,68 @@ public sealed record CampaignStatusSnapshot
 
 public static class CampaignCapabilityMatcher
 {
+    /// <summary>
+    /// Why <paramref name="worker"/> cannot take <paramref name="bundle"/>, or null if it can.
+    ///
+    /// Deliberately a SEPARATE function that mirrors <see cref="IsEligible"/> rather than a rewrite
+    /// of it: IsEligible is on the dispatch hot path, called once per pending task per lease poll,
+    /// and it must keep returning a bool with no allocation. This one runs only when a task has
+    /// already been found ineligible and somebody wants to know why.
+    ///
+    /// It exists because an unsatisfiable campaign work unit was completely silent. Campaign units
+    /// are exempt from PendingTimeoutSec, so a unit no worker can satisfy sits `pending` forever
+    /// with no error, no timeout and nothing in the evidence saying why — HV-5's diagnosability
+    /// drill found it by inducing exactly that and having to wait out a poll deadline to prove the
+    /// silence (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-5, 2026-07-27). §6 requires
+    /// diagnosability across machines; silence is the opposite of it.
+    ///
+    /// Returns the FIRST failing condition, in the same order IsEligible checks them, so the two
+    /// can never disagree about whether there is a reason at all.
+    /// </summary>
+    public static string? ExplainIneligibility(HiveTaskBundle bundle, WorkerCapabilities worker)
+    {
+        if (!worker.ExecutionKinds.Contains(bundle.ExecutionKind, StringComparer.OrdinalIgnoreCase))
+            return $"does not support executionKind '{bundle.ExecutionKind}' " +
+                   $"(supports: {Join(worker.ExecutionKinds)})";
+
+        var r = bundle.Requirements;
+        if (worker.CpuCores < Math.Max(1, r.MinCpuCores))
+            return $"has {worker.CpuCores} CPU core(s), needs {Math.Max(1, r.MinCpuCores)}";
+        if (worker.AvailableMemoryMb < r.MinMemoryMb)
+            return $"has {worker.AvailableMemoryMb} MB RAM available, needs {r.MinMemoryMb} MB";
+        if (worker.FreeVramMb < r.MinVramMb)
+            return $"has {worker.FreeVramMb} MB VRAM free, needs {r.MinVramMb} MB";
+        if (r.Os.Length > 0 && !worker.Os.Contains(r.Os, StringComparison.OrdinalIgnoreCase))
+            return $"runs OS '{worker.Os}', requirement is '{r.Os}'";
+        if (r.Architecture.Length > 0 && !worker.Architecture.Equals(r.Architecture, StringComparison.OrdinalIgnoreCase))
+            return $"is architecture '{worker.Architecture}', requirement is '{r.Architecture}'";
+        if (r.NativeModelHash.Length > 0 && !worker.NativeModelHashes.Contains(r.NativeModelHash, StringComparer.OrdinalIgnoreCase))
+            return $"does not hold native model hash '{Short(r.NativeModelHash)}' " +
+                   $"(holds: {Join(worker.NativeModelHashes.Select(Short))})";
+        if (r.NativeAdapterHash.Length > 0 && !worker.NativeAdapterHashes.Contains(r.NativeAdapterHash, StringComparer.OrdinalIgnoreCase))
+            return $"does not hold native adapter hash '{Short(r.NativeAdapterHash)}' " +
+                   $"(holds: {Join(worker.NativeAdapterHashes.Select(Short))})";
+        if (r.ContainerEngine.Length > 0 && !worker.ContainerEngine.Equals(r.ContainerEngine, StringComparison.OrdinalIgnoreCase))
+            return $"has container engine '{worker.ContainerEngine}', requirement is '{r.ContainerEngine}'";
+        if (r.ExcludedWorkerIds.Contains(worker.WorkerId, StringComparer.OrdinalIgnoreCase))
+            return "is in the unit's ExcludedWorkerIds";
+
+        var missingPacks = r.RequiredPacks
+            .Where(p => !worker.InstalledPacks.Contains(p, StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+        if (missingPacks.Length > 0)
+            return $"is missing required pack(s): {Join(missingPacks)}";
+
+        return null;
+
+        static string Short(string hash) => hash.Length > 12 ? hash[..12] + "…" : hash;
+        static string Join(IEnumerable<string> values)
+        {
+            var list = values.ToArray();
+            return list.Length == 0 ? "none" : string.Join(", ", list);
+        }
+    }
+
     public static bool IsEligible(HiveTaskBundle bundle, WorkerCapabilities worker)
     {
         if (!worker.ExecutionKinds.Contains(bundle.ExecutionKind, StringComparer.OrdinalIgnoreCase))

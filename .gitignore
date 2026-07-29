@@ -146,3 +146,9 @@ _deploy/
 # Death-test worker-id -> ssh-target map: machine addresses are deliberately local-only
 # (see death-fault.ps1 header).
 Tools/Cf6AcceptanceRunner/worker-map.json
+
+# Warchief/worker runtime logs written into the repo root by start-warchief.bat /
+# start-worker.bat. Fully buffered while the process runs -- never trust them for live
+# monitoring, and never commit them.
+warchief.log
+worker_*.log

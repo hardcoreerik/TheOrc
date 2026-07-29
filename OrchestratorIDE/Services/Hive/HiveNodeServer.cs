@@ -69,9 +69,14 @@ public sealed class HiveNodeServer : IDisposable
     /// Injected by the app (Daemon: HiveService, after building its NativeRoleRuntime) so
     /// GET /hive/native-telemetry can report this node's own admission/reservation state
     /// (RuntimeReservationSnapshot: Reservations, Total/Reserved/AvailableBytes,
-    /// RejectedAdmissionCount, LastRejectionReason) without this class taking a hard
+    /// RejectedAdmissionCount, LastRejectionReason) plus per-role residency (Role, BaseModel,
+    /// ActiveCount, ConversationsCreated, Status) without this class taking a hard
     /// dependency on the native runtime types. Null when native execution isn't configured
     /// on this node (e.g. Ollama-only) or before the runtime has been built.
+    ///
+    /// Consumers should treat the shape as additive-only: existing keys keep their position
+    /// (Tools/Hv2SchedulingRunner binds the reservation fields at the top level, and the HV-6
+    /// repeatability requirement re-runs that driver unattended).
     /// </summary>
     public Func<object?>? NativeTelemetryProvider { get; set; }
 

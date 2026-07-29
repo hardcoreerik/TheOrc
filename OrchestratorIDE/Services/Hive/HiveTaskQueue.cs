@@ -76,6 +76,35 @@ public sealed class HiveTaskQueue : IDisposable
         /// <summary>Set on failure, same reasoning as <see cref="ResultText"/>.</summary>
         public string?                              ErrorMsg      { get; set; }
 
+        /// <summary>
+        /// Why each worker that has polled could not take this unit, keyed by worker id. Written
+        /// only for units that are still pending and were found ineligible for a polling worker.
+        ///
+        /// This is the diagnostic that did not exist. Campaign units are exempt from
+        /// PendingTimeoutSec, so a unit no worker can satisfy sits `pending` indefinitely with no
+        /// error, no timeout and nothing recorded anywhere — HV-5's diagnosability drill had to
+        /// wait out a poll deadline just to demonstrate the silence
+        /// (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-5, 2026-07-27). Kept per-worker rather
+        /// than as a single string because "nobody can run this" and "the one box that could is
+        /// busy" are different situations and the reasons differ per box.
+        ///
+        /// Bounded by the number of distinct workers that have ever polled, which is the fleet
+        /// size. Cleared when the unit is claimed, so a unit that eventually runs does not carry
+        /// stale rejections around.
+        ///
+        /// ConcurrentDictionary, not a plain Dictionary guarded by _claimLock: RecordIneligibility
+        /// and the claim path write/clear it while holding that lock, but UnsatisfiableReasonFor is
+        /// read from HandleGetTaskAsync, which takes no lock at all — every request runs on its own
+        /// task (`_ = HandleAsync(ctx)`), so a status poll landing during a lease poll could
+        /// enumerate this while another thread mutated it: InvalidOperationException ("Collection
+        /// was modified"), swallowed by HandleAsync's blanket catch into a dropped or partial
+        /// response on exactly the polling path the HV drivers depend on. Caught by CodeRabbit's
+        /// review of this PR, not by any HV run — the race window is narrow enough that hours of
+        /// fleet polling never happened to hit it.
+        /// </summary>
+        public System.Collections.Concurrent.ConcurrentDictionary<string, string> IneligibleFor { get; }
+            = new(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>Verification leases are internal siblings and do not increase logical campaign totals.</summary>
         public bool                                 IsVerification { get; init; }
         public string?                              VerificationParentTaskId { get; init; }
@@ -196,6 +225,16 @@ public sealed class HiveTaskQueue : IDisposable
         {
             _ = ServeAsync(_cts.Token);
             Log($"🐝 HiveTaskQueue listening on :{port} — workers connect to {BaseUrl}");
+            // State the diagnostics setting positively at startup. An empty receipt log means
+            // "no beat arrived" only if the log was switched ON, and there was no way to tell
+            // the two apart from the log itself — the same ambiguity the worker-side
+            // "♥ Heartbeat established" line exists to close
+            // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3).
+            Log(s_heartbeatDiagnostics
+                ? "🐝 Heartbeat receipt diagnostics ON (THEORC_HIVE_HEARTBEAT_DIAGNOSTICS=1) — " +
+                  "every beat will be logged with its outcome."
+                : "🐝 Heartbeat receipt diagnostics OFF — set THEORC_HIVE_HEARTBEAT_DIAGNOSTICS=1 " +
+                  "before concluding anything from an absence of [HeartbeatDiag] lines.");
         }
         else
         {
@@ -542,6 +581,67 @@ public sealed class HiveTaskQueue : IDisposable
     /// Atomically selects and claims the best pending task that the worker can execute. This
     /// removes the Phase 3A GET-next/POST-claim race while leaving those endpoints compatible.
     /// </summary>
+    /// <summary>
+    /// Records, per pending campaign unit, why the polling worker could not take it, and logs the
+    /// first time a unit is found unsatisfiable by every worker that has ever polled.
+    ///
+    /// Caller holds _claimLock. Deliberately does NOT change dispatch: nothing is failed, timed out
+    /// or re-ordered here. An unsatisfiable unit still waits, exactly as before — the only
+    /// difference is that it now says why, instead of sitting silent forever because campaign units
+    /// are exempt from PendingTimeoutSec.
+    /// </summary>
+    private void RecordIneligibility(HiveLeaseRequest request, HashSet<string> lanes)
+    {
+        foreach (var (taskId, entry) in _tasks)
+        {
+            if (entry.Status != "pending") continue;
+            if (entry.Bundle.CampaignId.Length == 0) continue;
+            if (!AreDependenciesSatisfied(entry)) continue;
+            // A lane mismatch is this worker declining a role, not the unit being unsatisfiable.
+            if (lanes.Count > 0 && !lanes.Contains(entry.Bundle.Role.ToLowerInvariant())) continue;
+
+            // An exclusion is TARGETING, not unsatisfiability, and conflating the two made this
+            // diagnostic actively harmful: every HV driver pins its units with ExcludedWorkerIds
+            // naming the other boxes, so a perfectly satisfiable unit accumulated a "reason" from
+            // every worker it was deliberately kept away from and then reported itself as
+            // unrunnable. A driver that had learned to trust the field stopped waiting and declared
+            // a healthy unit undiagnosable before its intended worker had even polled.
+            if (entry.Bundle.Requirements.ExcludedWorkerIds
+                .Contains(request.WorkerId, StringComparer.OrdinalIgnoreCase)) continue;
+
+            var reason = CampaignCapabilityMatcher.ExplainIneligibility(entry.Bundle, request.Capabilities);
+            if (reason is null) continue;   // eligible but out-scored, or claimed in this same pass
+
+            var alreadyKnown = entry.IneligibleFor.TryGetValue(request.WorkerId, out var prior)
+                               && prior == reason;
+            entry.IneligibleFor[request.WorkerId] = reason;
+            if (alreadyKnown) continue;
+
+            Log($"⚠ Work unit '{entry.Bundle.Title}' cannot run on {request.WorkerId}: {reason}");
+            Events.Append("task_ineligible",
+                $"{entry.Bundle.Title} cannot run on {request.WorkerId}: {reason}",
+                taskId, request.WorkerId);
+        }
+    }
+
+    /// <summary>
+    /// The recorded reason a pending unit is not running, or null if there isn't one. Composed at
+    /// read time rather than stored, so it always reflects every rejection seen so far rather than
+    /// whichever worker polled last.
+    ///
+    /// The wording is deliberately scoped to workers that HAVE POLLED. The queue does not maintain a
+    /// live worker roster — it only learns a worker exists when that worker asks for work — so
+    /// "no live worker can satisfy this" would be a claim about a set it cannot see, and would be
+    /// wrong the moment a capable box was merely slow to poll. What is always true, and still
+    /// actionable, is the list of who declined and why.
+    /// </summary>
+    private static string? UnsatisfiableReasonFor(QueuedTask entry)
+    {
+        if (entry.Status != "pending" || entry.IneligibleFor.Count == 0) return null;
+        return $"No worker that has polled for this unit can run it ({entry.IneligibleFor.Count} declined) — "
+               + string.Join("; ", entry.IneligibleFor.Select(kv => $"{kv.Key} {kv.Value}"));
+    }
+
     private async Task HandleLeaseAsync(HttpListenerContext ctx, byte[] body, string authNode)
     {
         var request = ReadJson<HiveLeaseRequest>(body);
@@ -570,11 +670,20 @@ public sealed class HiveTaskQueue : IDisposable
 
             if (selected.Value is null)
             {
+                // Nothing for this worker. Before answering 204, record WHY each still-pending
+                // campaign unit was passed over, so an operator can tell "no box can satisfy this"
+                // from "the queue is just empty". Runs only on the empty-handed path, so it costs
+                // nothing while work is flowing, and only for units whose dependencies are already
+                // satisfied — a unit waiting on a barrier is not unsatisfiable, it is just early.
+                RecordIneligibility(request, lanes);
                 ctx.Response.StatusCode = 204;
                 return;
             }
 
             var entry = selected.Value;
+            // A unit that just got claimed is by definition satisfiable; drop any rejections it
+            // accumulated while it waited so the diagnostic never reads as stale.
+            entry.IneligibleFor.Clear();
             entry.ClaimToken    = Guid.NewGuid().ToString("N")[..12];
             entry.Status        = "claimed";
             entry.ClaimedBy     = request.WorkerId;
@@ -881,33 +990,157 @@ public sealed class HiveTaskQueue : IDisposable
         catch { return 0; }
     }
 
-    private async Task HandleHeartbeatAsync(HttpListenerContext ctx, string taskId, byte[] body)
-    {
-        var hb = ReadJson<HiveHeartbeatRequest>(body);
+    // Opt-in, zero-cost-by-default receipt log for the open heartbeat-timeout investigation
+    // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3). The worker side already reports send
+    // failures and rejections, and reported NEITHER across runs the Warchief nonetheless timed
+    // out — so the missing evidence is on this side: whether a beat arrived at all, and if it did,
+    // whether it was credited. Without that, "never sent" and "sent but uncredited" are the same
+    // observation. Set THEORC_HIVE_HEARTBEAT_DIAGNOSTICS=1 to enable; unset, this is one cached
+    // bool read per beat. Same idiom as AdapterManager's KV-cache diagnostics.
+    private static readonly bool s_heartbeatDiagnostics =
+        Environment.GetEnvironmentVariable("THEORC_HIVE_HEARTBEAT_DIAGNOSTICS") == "1";
 
+    private void HeartbeatDiag(string message)
+    {
+        if (s_heartbeatDiagnostics) OnLog?.Invoke($"[HeartbeatDiag] {message}");
+    }
+
+    /// <summary>What a heartbeat did, independent of how it is reported over HTTP.</summary>
+    internal enum HeartbeatOutcome { Credited, NotClaimed, StaleToken }
+
+    // ── Test seams for the heartbeat lifecycle ────────────────────────────────
+    // Deliberately minimal and internal: enough to put an entry into the exact state the fleet
+    // was in when the watchdog killed a live job, without standing up an HttpListener, a worker
+    // and a 4.7 GB model load to get there. Same spirit as HivePeerStore.CreateForTest.
+
+    internal void SeedClaimedTaskForTest(string taskId, string claimToken, string worker = "test-worker")
+    {
+        _tasks[taskId] = new QueuedTask
+        {
+            Bundle        = new HiveTaskBundle { TaskId = taskId, Title = "seeded", Role = "Coder" },
+            Status        = "claimed",
+            ClaimedBy     = worker,
+            ClaimToken    = claimToken,
+            ClaimedAt     = DateTime.UtcNow,
+            LastHeartbeat = DateTime.UtcNow,
+        };
+    }
+
+    internal DateTime? GetLastHeartbeatForTest(string taskId)
+        => _tasks.TryGetValue(taskId, out var e) ? e.LastHeartbeat : null;
+
+    /// <summary>
+    /// Seeds a PENDING campaign unit so the ineligibility bookkeeping can be driven without an
+    /// HttpListener, a live worker or a model load.
+    /// </summary>
+    /// <param name="executionKind">
+    /// Defaults to NativeAgent, matching every HV campaign unit. Worth stating explicitly rather
+    /// than inheriting <see cref="HiveTaskBundle"/>'s legacy_agent default: a legacy_agent bundle is
+    /// ineligible for the native-only fleet on execution kind alone, which silently short-circuits
+    /// every requirement-level assertion a caller might be trying to make.
+    /// </param>
+    internal void SeedPendingCampaignUnitForTest(
+        string taskId,
+        ResourceRequirements requirements,
+        string executionKind = HiveExecutionKinds.NativeAgent)
+    {
+        _tasks[taskId] = new QueuedTask
+        {
+            Bundle = new HiveTaskBundle
+            {
+                TaskId        = taskId,
+                CampaignId    = "campaign-1",
+                WorkUnitId    = "unit-1",
+                Title         = "seeded pending unit",
+                Role          = "Coder",
+                ExecutionKind = executionKind,
+                Requirements  = requirements,
+            },
+            Status = "pending",
+        };
+    }
+
+    /// <summary>Drives the empty-handed lease path's bookkeeping directly — same seam rationale as
+    /// <see cref="HeartbeatCoreAsync"/>: HttpListenerContext is sealed and cannot be constructed.</summary>
+    internal void RecordIneligibilityForTest(HiveLeaseRequest request)
+        => RecordIneligibility(request, request.Lanes.Select(l => l.Trim().ToLowerInvariant()).ToHashSet());
+
+    internal string? GetUnsatisfiableReasonForTest(string taskId)
+        => _tasks.TryGetValue(taskId, out var e) ? UnsatisfiableReasonFor(e) : null;
+
+    internal void SetStatusForTest(string taskId, string status)
+    {
+        if (_tasks.TryGetValue(taskId, out var e)) e.Status = status;
+    }
+
+    /// <summary>
+    /// The heartbeat decision. <see cref="HandleHeartbeatAsync"/> calls this and only translates
+    /// the outcome to an HTTP response; it does not duplicate the decision logic. Also callable
+    /// directly from tests without an <see cref="HttpListenerContext"/> (which is sealed and
+    /// cannot be constructed) — same seam <see cref="HiveAuthMiddleware.ValidateCore"/> uses for
+    /// the same reason.
+    ///
+    /// Exists because three fleet-driven attempts at the HV-3 heartbeat-timeout bug landed with
+    /// only one confirmed effect, at the cost of a worker restart and a cold model load per
+    /// iteration, while the actual question — does a beat for a live claim advance
+    /// LastHeartbeat? — is answerable in milliseconds. Caller holds no lock; this takes
+    /// _claimLock itself, exactly as the HTTP handler did.
+    /// </summary>
+    internal async Task<HeartbeatOutcome> HeartbeatCoreAsync(string taskId, string? claimToken)
+    {
         await _claimLock.WaitAsync();
         try
         {
             if (!_tasks.TryGetValue(taskId, out var entry) || entry.Status != "claimed")
             {
-                WriteJson(ctx, new { taskId, status = "not-claimed" });
-                return;
+                HeartbeatDiag($"not-claimed taskId={taskId} " +
+                              $"entryStatus={(entry is null ? "<missing>" : entry.Status)}");
+                return HeartbeatOutcome.NotClaimed;
             }
 
-            // Reject heartbeats that don't carry the current claim token.
-            // Held under _claimLock so CheckTimeouts cannot rotate the token concurrently.
-            if (!string.IsNullOrEmpty(entry.ClaimToken)
-                && (hb is null || hb.ClaimToken != entry.ClaimToken))
+            if (!string.IsNullOrEmpty(entry.ClaimToken) && claimToken != entry.ClaimToken)
             {
-                ctx.Response.StatusCode = 409;
-                WriteJson(ctx, new { taskId, status = "stale" });
-                return;
+                HeartbeatDiag($"stale-token taskId={taskId} worker={entry.ClaimedBy ?? "?"}");
+                return HeartbeatOutcome.StaleToken;
             }
 
+            var since = entry.LastHeartbeat is { } prev ? DateTime.UtcNow - prev : TimeSpan.Zero;
             entry.LastHeartbeat = DateTime.UtcNow;
-            WriteJson(ctx, new { taskId, status = "alive" });
+            HeartbeatDiag($"credited taskId={taskId} worker={entry.ClaimedBy ?? "?"} " +
+                          $"sinceLast={since.TotalSeconds:F1}s");
+            return HeartbeatOutcome.Credited;
         }
         finally { _claimLock.Release(); }
+    }
+
+    private async Task HandleHeartbeatAsync(HttpListenerContext ctx, string taskId, byte[] body)
+    {
+        var hb = ReadJson<HiveHeartbeatRequest>(body);
+
+        // 409, not 200, on a rejection. Answering 200 for an uncredited beat made it
+        // indistinguishable from a credited one at the worker: once the watchdog re-queued a task
+        // (Status -> "pending", token rotated, LastHeartbeat cleared) the still-running worker
+        // kept beating into here, saw success, logged nothing, and carried on executing a lease it
+        // no longer held — while the task was re-claimed and executed AGAIN. That is why the
+        // Researcher role's ConversationsCreated climbed in multiples of its step budget across a
+        // run whose worker log contained zero heartbeat complaints
+        // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-27).
+        var outcome = await HeartbeatCoreAsync(taskId, hb?.ClaimToken);
+
+        switch (outcome)
+        {
+            case HeartbeatOutcome.NotClaimed:
+                ctx.Response.StatusCode = 409;
+                WriteJson(ctx, new { taskId, status = "not-claimed" });
+                break;
+            case HeartbeatOutcome.StaleToken:
+                ctx.Response.StatusCode = 409;
+                WriteJson(ctx, new { taskId, status = "stale" });
+                break;
+            case HeartbeatOutcome.Credited:
+                WriteJson(ctx, new { taskId, status = "alive" });
+                break;
+        }
     }
 
     private async Task HandleCompleteAsync(HttpListenerContext ctx, string taskId, byte[] body, string authNode)
@@ -1165,6 +1398,7 @@ public sealed class HiveTaskQueue : IDisposable
             OutputArtifacts = entry.StructuredResult?.OutputArtifacts ?? [],
             Attestation = entry.StructuredResult?.Attestation,
             Metrics     = entry.StructuredResult?.Metrics ?? [],
+            UnsatisfiableReason = UnsatisfiableReasonFor(entry),
         });
     }
 

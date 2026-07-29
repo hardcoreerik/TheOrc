@@ -30,8 +30,15 @@ public interface IOrcScheduler
     /// decision function, not a stateful reservation system, so it stays trivially testable).
     /// <paramref name="options"/> (Phase B addendum) lets the estimate account for the actual
     /// context size the caller will create; null preserves the legacy file-size-only estimate.
+    /// <paramref name="baseWeightsAlreadyResident"/> lets a caller that has ESTABLISHED (not
+    /// guessed) that this admission will reuse loaded base weights be charged only its
+    /// incremental context cost; defaults to false so every existing caller is unchanged.
     /// </summary>
-    SchedulingDecision TryAdmit(RuntimeRoleBinding binding, VramBudget budget, RuntimeOptions? options = null);
+    SchedulingDecision TryAdmit(
+        RuntimeRoleBinding binding,
+        VramBudget budget,
+        RuntimeOptions? options = null,
+        bool baseWeightsAlreadyResident = false);
 }
 
 /// <summary>
@@ -110,7 +117,16 @@ public sealed class OrcScheduler : IOrcScheduler
 
     internal const long RecurrentStatePerSlotBytes = 50L * 1024 * 1024; // 50 MB, measured
 
-    public SchedulingDecision TryAdmit(RuntimeRoleBinding binding, VramBudget budget, RuntimeOptions? options = null)
+    /// <param name="baseWeightsAlreadyResident">
+    /// See <see cref="EstimateRequiredBytes"/>. Defaults to false so every existing caller keeps
+    /// its exact previous semantics — only a caller that has actually established reuse (i.e.
+    /// RuntimeOrchestrator, via SessionManager's own predicate) should pass true.
+    /// </param>
+    public SchedulingDecision TryAdmit(
+        RuntimeRoleBinding binding,
+        VramBudget budget,
+        RuntimeOptions? options = null,
+        bool baseWeightsAlreadyResident = false)
     {
         ArgumentNullException.ThrowIfNull(binding);
         ArgumentNullException.ThrowIfNull(budget);
@@ -119,7 +135,7 @@ public sealed class OrcScheduler : IOrcScheduler
             ? SchedulingLane.Interactive
             : SchedulingLane.Background;
 
-        var requiredBytes = EstimateRequiredBytes(binding, options);
+        var requiredBytes = EstimateRequiredBytes(binding, options, baseWeightsAlreadyResident);
         if (requiredBytes <= budget.AvailableBytes)
             return new SchedulingDecision(Admitted: true, Lane: lane);
 
@@ -132,7 +148,23 @@ public sealed class OrcScheduler : IOrcScheduler
     // internal (not private): RuntimeOrchestrator needs the same estimate to maintain its own
     // active-reservation accounting across concurrent role admissions (see its ReservedBytes
     // doc) — duplicating the estimate in two places would let them drift out of sync silently.
-    internal static long EstimateRequiredBytes(RuntimeRoleBinding binding, RuntimeOptions? options = null)
+    /// <param name="baseWeightsAlreadyResident">
+    /// True when the caller has established (via SessionManager's own reuse predicate, not a
+    /// guess) that admitting this binding will REUSE base weights already in VRAM instead of
+    /// loading a second copy. SessionManager keeps a single shared base load, so when two roles
+    /// resolve to the same GGUF the second one costs only its own context — charging it a full
+    /// fresh load is not conservatism, it is a wrong number, and on a card sized for one model it
+    /// makes a concurrent second role permanently unadmittable even though it fits. Found by
+    /// HV-3's concurrent-role phase (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md, 2026-07-25).
+    ///
+    /// Base weights and the one-time CUDA runtime overhead are dropped in that case; the KV
+    /// cache, compute buffer, recurrent state and adapter are NOT, because AdapterManager builds
+    /// a separate persistent executor (and therefore a separate context) per role.
+    /// </param>
+    internal static long EstimateRequiredBytes(
+        RuntimeRoleBinding binding,
+        RuntimeOptions? options = null,
+        bool baseWeightsAlreadyResident = false)
     {
         // BaseModel.SizeBytes is null only if ModelDepot ever classified a directory as
         // BaseModelGguf, which its own scan logic never does (BaseModelGguf is always a single
@@ -176,7 +208,19 @@ public sealed class OrcScheduler : IOrcScheduler
             ? RecurrentStatePerSlotBytes * AdapterManager.SequenceHardLimit
             : 0;
 
-        return legacy + CudaRuntimeOverheadBytes + kvBytes + ComputeBufferAllowanceBytes + recurrentBytes;
+        // The reuse discount is applied ONLY here, on the context-aware path -- never on the two
+        // legacy returns above. Those are file-size-only estimates with no term representing the
+        // context, so dropping the base there would charge a reusing role literally nothing and
+        // let roles over-commit VRAM without bound (caught by
+        // EnsureAdmitted_TracksReservationsAcrossRoles_DeniesSecondRoleWhenBudgetExhausted, which
+        // is exactly the protection that must not regress). Down here kvBytes and the compute
+        // buffer price the real increment, so removing the shared base is a correction rather
+        // than a giveaway. CUDA runtime overhead is likewise per-process, paid at the first load.
+        var sharedBaseCredit = baseWeightsAlreadyResident ? baseBytes : 0;
+        var cudaOverhead = baseWeightsAlreadyResident ? 0 : CudaRuntimeOverheadBytes;
+
+        return legacy - sharedBaseCredit + cudaOverhead + kvBytes
+               + ComputeBufferAllowanceBytes + recurrentBytes;
     }
 
     private static string FormatGb(long bytes) =>

@@ -854,6 +854,34 @@ if (warchiefMode)
             (allowFps.Count > 0 ? $" — auto-approving {allowFps.Count} fingerprint(s)" : " — no --allow-fingerprint set, all pairing rejected"));
 
     queue = new HiveTaskQueue();
+
+    // A Warchief without these two stores cannot receive what its workers produce, and the way it
+    // fails is actively misleading. Every PUT /hive/artifacts/{digest} answers 503 (HiveTaskQueue's
+    // "store is null" branch), the worker's upload throws before it can post its result, and the
+    // task sits "claimed" until the watchdog re-queues it as a HEARTBEAT TIMEOUT -- three times,
+    // then "exhausted 3 attempts after heartbeat loss". The worker was finished and healthy the
+    // whole time. HV-3's concurrent phase failed this way on BOTH machines across several sessions
+    // and cost two of them chasing the heartbeat, which was never broken
+    // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-27).
+    //
+    // The gap was already known from the other side: CF-6's acceptance runner needed a
+    // Daemon-hosted Warchief for exactly this reason (2026-07-21). Only OrchestratorIDE.Daemon's
+    // HiveService wired them, so any campaign whose jobs emit output files silently required the
+    // Daemon. Mirrors HiveService.cs's paths deliberately, so a campaign behaves the same whichever
+    // host is acting as Warchief.
+    queue.ArtifactStore = new ContentAddressedStore(
+        Path.Combine(workspace, ".orc", "campaign-artifacts"));
+    // Model catalog: same store shape, .gguf-scoped. Without it GET /hive/models also 503s, which
+    // is the "Approved-model catalog rejected by Warchief: HTTP 503" line every worker logs on a
+    // one-minute cycle. Falls back to the workspace when no native root is configured rather than
+    // staying null -- an empty catalog is a truthful answer, a 503 is not.
+    var warchiefModelRoot = Environment.GetEnvironmentVariable("HIVE__NATIVEMODELROOT");
+    queue.ModelStore = new ContentAddressedStore(
+        string.IsNullOrWhiteSpace(warchiefModelRoot)
+            ? Path.Combine(workspace, ".orc", "campaign-models")
+            : warchiefModelRoot,
+        fileExtension: ".gguf");
+
     queue.OnLog += msg => Console.WriteLine($"  [warchief] {msg}");
     queue.Start(new HiveSessionContext
     {

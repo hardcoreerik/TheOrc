@@ -215,7 +215,12 @@ public sealed class HiveMeshHeartbeat : IDisposable
             if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized
                                     or System.Net.HttpStatusCode.Forbidden)
             {
-                Log($"⚠ Heartbeat to {peerNodeId[..8]}… rejected ({(int)response.StatusCode}) — counting as missed");
+                // Same reasoning as HiveWorkerAgent's catalog rejection: the responder already
+                // knows exactly why (unknown peer / stale secret / clock skew / replay) and says
+                // so in the body, so log it rather than leaving the operator a bare status code.
+                var reason = await ReadRejectionReasonAsync(response, ct).ConfigureAwait(false);
+                Log($"⚠ Heartbeat to {peerNodeId[..8]}… rejected ({(int)response.StatusCode})" +
+                    (string.IsNullOrWhiteSpace(reason) ? "" : $" — {reason}") + " — counting as missed");
                 return false;
             }
 
@@ -223,6 +228,52 @@ public sealed class HiveMeshHeartbeat : IDisposable
         }
         catch { return false; }  // exception = connection failed = peer is down
     }
+
+    /// <summary>
+    /// Best-effort read of a peer's rejection reason for logging only. Truncated and
+    /// exception-swallowing on purpose — an untrusted remote body on a diagnostic path must never
+    /// turn a handled HTTP error into a crash.
+    /// </summary>
+    private static async Task<string?> ReadRejectionReasonAsync(
+        HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(body)) return null;
+            if (body.Length > 400) body = body[..400] + "…";
+
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object
+                    && doc.RootElement.TryGetProperty("error", out var err)
+                    && err.ValueKind == JsonValueKind.String)
+                    return Sanitize(err.GetString());
+            }
+            catch (JsonException) { /* not JSON — fall through to the raw body */ }
+
+            return Sanitize(body.Trim());
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// This text comes from an UNTRUSTED remote peer's HTTP response body and is logged verbatim
+    /// by the caller — without this, a malicious or compromised peer could return a rejection body
+    /// containing embedded newlines formatted to look like fake log entries (a classic log-forging
+    /// attack), making forged lines indistinguishable from genuine ones to an operator or an
+    /// automated log scanner. Collapsing all whitespace (not just \r\n) to single spaces keeps the
+    /// reason on exactly one physical line no matter what the peer sends, while still preserving
+    /// the content for a human to read.
+    /// </summary>
+    internal static string? Sanitize(string? text)
+        => text is null ? null : WhitespaceRun.Replace(text, " ").Trim();
+
+    private static readonly System.Text.RegularExpressions.Regex WhitespaceRun = new(@"\s+");
 
     private void Log(string msg) => OnLog?.Invoke(msg);
 

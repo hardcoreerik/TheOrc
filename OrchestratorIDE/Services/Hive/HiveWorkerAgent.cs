@@ -179,7 +179,16 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         using var catalogResponse = await http.SendAsync(catalogRequest, ct).ConfigureAwait(false);
         if (!catalogResponse.IsSuccessStatusCode)
         {
-            Log($"⚠ Approved-model catalog rejected by Warchief: HTTP {(int)catalogResponse.StatusCode}");
+            // Include the body. HiveAuthMiddleware.ValidateCore already distinguishes "unknown or
+            // revoked node" / "no shared secret for peer" / "clock skew too large (Ns)" /
+            // "HMAC mismatch" / "nonce already seen (replay)", and HiveTaskQueue returns that
+            // string as {"error": ...} -- but the worker was logging only the status code and
+            // discarding it, leaving an operator with a bare 401 and no way to tell a stale
+            // secret from clock skew from a replay. Cost two full sessions of black-box guessing
+            // during the HV-3 campaign. Bounded because this is an untrusted remote response.
+            var catalogReason = await ReadReasonAsync(catalogResponse, ct).ConfigureAwait(false);
+            Log($"⚠ Approved-model catalog rejected by Warchief: HTTP {(int)catalogResponse.StatusCode}" +
+                (string.IsNullOrWhiteSpace(catalogReason) ? "" : $" — {catalogReason}"));
             // A 401 here is the canonical "my trust for the Warchief went stale" signal (this
             // runs once a minute, so it's a natural self-heal checkpoint). Auto-resync when the
             // operator has opted in and the cooldown has elapsed — completes headlessly only if
@@ -332,6 +341,41 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         return JsonSerializer.Deserialize<HiveTaskBundle>(json, _json);
     }
 
+    /// <summary>
+    /// Best-effort extraction of the Warchief's own rejection reason from an error response, for
+    /// logging only. The queue answers auth failures with {"error": "&lt;reason&gt;"} carrying
+    /// HiveAuthMiddleware's precise verdict; without surfacing it a worker's log shows a bare
+    /// status code and the operator cannot distinguish a stale secret from clock skew from a
+    /// replay. Truncated and exception-swallowing on purpose: this is an untrusted remote body
+    /// read on a diagnostic path, and it must never turn a handled HTTP error into a crash.
+    /// </summary>
+    private static async Task<string?> ReadReasonAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(body)) return null;
+
+            if (body.Length > 400) body = body[..400] + "…";
+
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object
+                    && doc.RootElement.TryGetProperty("error", out var err)
+                    && err.ValueKind == JsonValueKind.String)
+                    return err.GetString();
+            }
+            catch (JsonException) { /* not JSON — fall through to the raw body */ }
+
+            return body.Trim();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private async Task<HiveLeaseResponse?> PollLeaseAsync(CancellationToken ct)
     {
         var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new HiveLeaseRequest
@@ -396,8 +440,18 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         catch (Exception ex)
         {
             status   = "failed";
-            errorMsg = ex.Message;
-            Log($"⚠ [{bundle.Role}] '{bundle.Title}' — execution failed: {ex.Message}");
+            // The FULL chain, not just ex.Message. Every native failure is wrapped for fail-closed
+            // reporting ("Worker: native role runtime failed. Phase 3B does not fall back.") and
+            // that outer message names the LAYER, never the cause — so the only text reaching the
+            // Warchief said nothing actionable, while the actual reason sat in an inner exception
+            // that was discarded here. HV-5's diagnosability drill caught it on both machines: an
+            // induced failure produced a correctly failed, correctly fail-closed job whose retained
+            // error could not be diagnosed from the evidence alone
+            // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-5, 2026-07-27). §6 requires the
+            // retained diagnostics to be sufficient to identify a cause without interactive
+            // debugging, and a wrapper message alone never is.
+            errorMsg = DescribeExceptionChain(ex);
+            Log($"⚠ [{bundle.Role}] '{bundle.Title}' — execution failed: {errorMsg}");
         }
         finally
         {
@@ -417,6 +471,52 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             ClaimToken = claimToken,
             Attempt    = bundle.Attempt,
         };
+        // Uploading output artifacts must not be able to swallow the task.
+        //
+        // These two calls sit AFTER the try/catch around execution, so an upload failure used to
+        // propagate straight out of this method into RunLoopAsync's generic handler. PostResultAsync
+        // below was then never reached: the task stayed "claimed" with its heartbeat loop already
+        // cancelled in the finally above, and 45s later the Warchief's watchdog re-queued it as a
+        // HEARTBEAT TIMEOUT. Three attempts of that produced "exhausted 3 attempts after heartbeat
+        // loss" against a worker that had finished the job successfully and was heartbeating
+        // correctly the whole time -- which is what sent this investigation after the heartbeat for
+        // two sessions (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-27).
+        //
+        // The trigger was real and reproducible on both machines: `swarmcli --warchief` never wired
+        // an ArtifactStore, so every PUT /hive/artifacts/{digest} answered 503. That wiring is fixed
+        // separately, but the failure MODE has to be fixed here too -- an unreachable or misconfigured
+        // artifact store must make the task fail VISIBLY, with the real reason, not impersonate a dead
+        // worker. Fail-closed: the result is still posted, marked failed, carrying the upload error.
+        async Task<IReadOnlyList<ArtifactRef>> UploadOrFailAsync(string outputDirectory)
+        {
+            try
+            {
+                return await UploadOutputArtifactsAsync(bundle, outputDirectory, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                // CodeRabbit finding: this used to overwrite errorMsg unconditionally, which loses
+                // the ORIGINAL cause whenever the agent execution itself already failed and the
+                // upload attempt then fails too (a plausible secondary failure -- if the worker or
+                // network is degraded enough to fail the upload, it may well have been what caused
+                // the execution to fail in the first place). That is the same class of bug the
+                // error-chain-preservation fix elsewhere in this file exists to prevent: losing the
+                // real cause behind a wrapper message. Append rather than replace when a real
+                // execution failure is already recorded; only become the SOLE error when the
+                // execution otherwise succeeded and the upload is the entire story.
+                var uploadError = $"Output artifact upload failed: {ex.Message}";
+                errorMsg = status == "failed" && !string.IsNullOrEmpty(errorMsg)
+                    ? $"{errorMsg} (additionally, {uploadError})"
+                    : uploadError;
+                status = "failed";
+                taskResult.Status   = status;
+                taskResult.ErrorMsg = errorMsg;
+                Log($"⚠ [{bundle.Role}] '{bundle.Title}' — {errorMsg}");
+                return [];
+            }
+        }
+
         if (_lastAgentExecution is { } execution)
         {
             taskResult.Metrics["steps"] = execution.Steps;
@@ -433,7 +533,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 InputDigests = bundle.InputArtifacts.ToDictionary(a => a.Name, a => a.DigestSha256),
             };
             taskResult.OutputArtifacts.AddRange(
-                await UploadOutputArtifactsAsync(bundle, execution.OutputDirectory, ct).ConfigureAwait(false));
+                await UploadOrFailAsync(execution.OutputDirectory).ConfigureAwait(false));
         }
         if (_lastContainerExecution is { } container)
         {
@@ -445,7 +545,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                 InputDigests = new Dictionary<string, string>(container.InputDigests),
             };
             taskResult.OutputArtifacts.AddRange(
-                await UploadOutputArtifactsAsync(bundle, container.OutputDirectory, ct).ConfigureAwait(false));
+                await UploadOrFailAsync(container.OutputDirectory).ConfigureAwait(false));
         }
 
         var action = status == "completed" ? "complete" : "fail";
@@ -487,7 +587,43 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         return "";
     }
 
-    private async Task HeartbeatLoopAsync(HiveTaskBundle bundle, string claimToken, CancellationToken ct)
+    /// <summary>
+    /// Runs the keep-alive on a DEDICATED thread rather than the managed thread pool.
+    ///
+    /// This loop's whole job is to prove liveness while the worker is busy, and "busy" here means
+    /// a native agent loop running up to 12 steps of 4096 tokens back-to-back — CPU-saturating by
+    /// construction. On the pool, both the Task.Delay continuation and the send's continuations
+    /// queue behind that work, so the beat is not merely slow to complete, it is late to be
+    /// ATTEMPTED. Raising the send timeout (5s -> 20s) measurably helped but could not fix that,
+    /// because a longer timeout only matters once the send has started: against a recorded
+    /// baseline, a full post-fix run still produced a new heartbeat timeout and the Researcher
+    /// task still ended "failed" after heartbeat loss.
+    ///
+    /// The worker's own inbound HttpListener stayed responsive throughout (~0.09s) precisely
+    /// because it does not share the pool — which is the same reason this belongs on its own
+    /// thread (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-27).
+    ///
+    /// Returns a Task that completes when the thread exits, so the existing await in
+    /// ClaimAndExecuteAsync is unchanged.
+    /// </summary>
+    private Task HeartbeatLoopAsync(HiveTaskBundle bundle, string claimToken, CancellationToken ct)
+    {
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var thread = new Thread(() =>
+        {
+            try { HeartbeatLoop(bundle, claimToken, ct); }
+            catch (Exception ex) { Log($"⚠ Heartbeat thread for '{bundle.Title}' ended: {ex.GetType().Name}: {ex.Message}"); }
+            finally { done.TrySetResult(); }
+        })
+        {
+            IsBackground = true,   // must never keep the process alive on shutdown
+            Name         = $"hive-heartbeat-{bundle.TaskId}",
+        };
+        thread.Start();
+        return done.Task;
+    }
+
+    private void HeartbeatLoop(HiveTaskBundle bundle, string claimToken, CancellationToken ct)
     {
         var hbBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new HiveHeartbeatRequest
         {
@@ -495,13 +631,60 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             ClaimToken = claimToken,
         }, _json));
 
+        // HiveTaskQueue re-queues a claimed task after HeartbeatTimeoutSec (45s) of silence, so a
+        // legitimately long job — HeadlessAgentLoop allows MaxSteps 12 at 4096 tokens each, i.e.
+        // minutes of continuous native inference — survives only if this loop keeps landing beats.
+        // It was not landing them, and there was no way to tell why: the send result was never
+        // inspected and every failure was swallowed, so a STARVED loop (thread pool saturated by
+        // back-to-back synchronous native calls) and a REJECTED beat looked identical, and both
+        // looked identical to a healthy one. Observed as "exhausted 3 attempts after heartbeat
+        // loss" against a worker that was demonstrably still working
+        // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-27).
+        //
+        // Now: non-success responses are logged with the responder's own reason, exceptions are
+        // logged, and an oversized gap between beats is logged even when the send SUCCEEDS —
+        // that last one is the only signal that distinguishes starvation from rejection, because
+        // a starved loop's sends still succeed, just too late to matter.
+        var lastBeat    = DateTime.UtcNow;
+        var loopStarted = DateTime.UtcNow;
+        var sentAny     = false;
+
+        var beatFailed = false;
+
+        // One HttpClient for this task's whole heartbeat lifetime, not one per beat. A fresh
+        // HttpClient per iteration re-pays DNS resolution and TCP (and TLS, if the Warchief is ever
+        // reached over https) setup on exactly the path this loop exists to keep timely — the
+        // opposite of what a 10s-cadence, timing-sensitive loop needs. Safe to hoist: this method
+        // runs on its OWN dedicated thread per task (see HeartbeatLoopAsync), so there is no
+        // cross-task sharing to worry about, and disposal at the end of the loop still happens via
+        // the same `using` discipline, just once instead of every beat.
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+
         while (!ct.IsCancellationRequested)
         {
-            try { await Task.Delay(10_000, ct).ConfigureAwait(false); } catch { break; }
+            // Retry sooner after a failure. At the normal 10s cadence a worker only gets four
+            // attempts inside the queue's 45s window, so two slow beats in a row are already
+            // most of the budget; backing off the full interval after a miss spends what is
+            // left. 3s keeps a recovering worker alive without hammering an unreachable one.
+            // Thread.Sleep, not Task.Delay: this thread exists precisely so the interval cannot
+            // be deferred by pool contention. Sliced so cancellation is still observed promptly
+            // on shutdown rather than after a full interval.
+            var wait = beatFailed ? 3_000 : 10_000;
+            var slept = 0;
+            while (slept < wait && !ct.IsCancellationRequested) { Thread.Sleep(250); slept += 250; }
             if (ct.IsCancellationRequested) break;
 
             try
             {
+                var gap = DateTime.UtcNow - lastBeat;
+                // 30s: comfortably above the 10s cadence (so ordinary jitter stays quiet) and
+                // below the queue's 45s cutoff, so this fires BEFORE the re-queue rather than
+                // explaining it afterwards.
+                if (gap > TimeSpan.FromSeconds(30))
+                    Log($"⚠ Heartbeat loop stalled {gap.TotalSeconds:F0}s between beats " +
+                        $"(cadence is 10s, Warchief re-queues at 45s) — task '{bundle.Title}' " +
+                        "may be re-queued despite this worker still running it.");
+
                 var url = $"{WarchiefUrl.TrimEnd('/')}/hive/tasks/{bundle.TaskId}/heartbeat";
                 using var req = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, url)
                     { Content = new System.Net.Http.ByteArrayContent(hbBytes) };
@@ -509,10 +692,79 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                     new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
                 SignIfPaired(req, hbBytes);
 
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-                await http.SendAsync(req, ct).ConfigureAwait(false);
+                // 5s was too tight and cost real jobs. A worker mid-inference is CPU-saturated
+                // (HeadlessAgentLoop runs up to 12 steps of 4096 tokens back-to-back), which
+                // delays this outbound request's async continuations well past 5s even though the
+                // worker's own inbound listener stays responsive — measured at ~0.09s while a
+                // heartbeat was timing out. Every beat then died as
+                // "TaskCanceledException: ... HttpClient.Timeout of 5 seconds elapsing", three in
+                // a row reached the queue's 45s cutoff, and a healthy worker was declared dead
+                // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-27).
+                //
+                // 20s: generous enough to ride out that contention, still under the 45s cutoff so
+                // a genuinely unreachable Warchief is detected well within the window rather than
+                // masked. Deliberately not unbounded — a hung send must not stall the loop past
+                // the point where the re-queue it was meant to prevent has already happened.
+                // Blocking Send on this dedicated thread — no continuation to be scheduled, so
+                // the response cannot be stranded behind inference work the way SendAsync was.
+                using var resp = http.Send(req, ct);
+                if (resp.IsSuccessStatusCode)
+                {
+                    // Positive confirmation of the FIRST beat for this task, once. Successful
+                    // beats are otherwise silent, which meant a clean worker log was read
+                    // throughout this investigation as "beats are being sent successfully" when
+                    // it was equally consistent with never sending one at all — the queue-side
+                    // tests have since proven bookkeeping correct, so delivery is the open half
+                    // and its silence must stop being ambiguous
+                    // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-27).
+                    // One line per task, not per beat: enough to distinguish "never sent" from
+                    // "sent and later stopped", without a line every 10s per running job.
+                    if (!sentAny)
+                    {
+                        sentAny = true;
+                        Log($"♥ Heartbeat established for '{bundle.Title}' " +
+                            $"({(DateTime.UtcNow - loopStarted).TotalSeconds:F0}s after claim).");
+                    }
+                    lastBeat   = DateTime.UtcNow;
+                    beatFailed = false;
+                }
+                else
+                {
+                    // The response was previously discarded entirely, so a heartbeat rejected for
+                    // a stale claim token or a signature problem was indistinguishable from a
+                    // healthy one right up until the Warchief declared the worker dead.
+                    beatFailed = true;
+                    var reason = ReadReasonAsync(resp, ct).GetAwaiter().GetResult();
+                    Log($"⚠ Heartbeat for '{bundle.Title}' rejected: HTTP {(int)resp.StatusCode}" +
+                        (string.IsNullOrWhiteSpace(reason) ? "" : $" — {reason}"));
+
+                    // 409 means this worker no longer holds the lease — the task was re-queued
+                    // (not-claimed) or re-claimed by someone else (stale token). Beating on is
+                    // pointless: the queue will never credit it. Stop the loop so the log shows
+                    // one clear "lost the lease" line instead of an endless rejection stream, and
+                    // so a zombie can never appear to keep a re-assigned task alive. The job
+                    // itself is deliberately NOT cancelled here — abandoning in-flight work is a
+                    // separate policy decision, and the result post will be rejected on its own
+                    // token check anyway.
+                    if (resp.StatusCode == System.Net.HttpStatusCode.Conflict)
+                    {
+                        Log($"⚠ Lease for '{bundle.Title}' is no longer held by this worker — " +
+                            "stopping heartbeats for it.");
+                        break;
+                    }
+                }
             }
-            catch { /* non-fatal */ }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;  // normal shutdown of the beat loop, not a failure
+            }
+            catch (Exception ex)
+            {
+                // Still non-fatal — a missed beat must never take down a running job — but no
+                // longer silent.
+                beatFailed = true;
+                Log($"⚠ Heartbeat for '{bundle.Title}' failed to send: {ex.GetType().Name}: {ex.Message}");
+            }
         }
     }
 
@@ -1083,6 +1335,29 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             await http.SendAsync(req, ct).ConfigureAwait(false);
         }
         catch { /* non-fatal — observability must not break execution */ }
+    }
+
+    /// <summary>
+    /// Flattens an exception chain into one line: outer, then each inner cause, most general first.
+    /// Types are included because the wrapper messages are all InvalidOperationException and the
+    /// inner type is often the most identifying thing available (HttpRequestException,
+    /// EndOfStreamException, JsonException).
+    ///
+    /// Depth-capped and de-duplicated: an AggregateException from a faulted Task can nest the same
+    /// message several layers deep, and a result payload is not the place for a wall of repeats.
+    /// </summary>
+    internal static string DescribeExceptionChain(Exception ex)
+    {
+        var parts = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (Exception? cur = ex; cur is not null && parts.Count < 5; cur = cur.InnerException)
+        {
+            var message = cur.Message.Trim();
+            if (message.Length == 0) continue;
+            var part = $"{cur.GetType().Name}: {message}";
+            if (seen.Add(part)) parts.Add(part);
+        }
+        return parts.Count == 0 ? ex.GetType().Name : string.Join(" ← ", parts);
     }
 
     private void Log(string msg)          => OnLog?.Invoke(msg);

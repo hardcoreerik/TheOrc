@@ -298,20 +298,26 @@ public class AppSettings
     public string HiveWorkerLanes { get; set; } = "";
 
     /// <summary>
-    /// Experimental Native Runtime opt-in for HIVE worker execution. Default remains false:
-    /// normal chat, swarm, and worker paths keep using the configured IModelRuntime unless
-    /// this is explicitly enabled.
+    /// Native Runtime for HIVE worker execution. Default flipped to true 2026-07-29 per
+    /// NATIVE_RUNTIME_V2_SPEC.md §6 — the explicit, recorded product decision, made against
+    /// HV-6 evidence of 7/9 lanes robustly green across multiple full fleet campaigns. One
+    /// named exception was open at flip time and accepted rather than blocking on it: SSH-based
+    /// admin actions (kill/disconnect) against HardcoreLaptopMSI are unreliable while that box
+    /// is under live inference load (see NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-6/HV-4) —
+    /// this affects only test-harness disruption delivery to that one machine, not native
+    /// execution, scheduling, or fallback correctness. Still settings-gated (not hardcoded) so
+    /// it can be turned back off per-install without a code change if needed.
     /// </summary>
-    public bool ExperimentalNativeHiveWorkerEnabled { get; set; } = false;
+    public bool ExperimentalNativeHiveWorkerEnabled { get; set; } = true;
 
     /// <summary>
-    /// Experimental Native Runtime opt-in for the main single-agent chat loop. Default remains
-    /// false: AgentLoop keeps using Ollama unless this is explicitly enabled. Independent of
-    /// <see cref="ExperimentalNativeHiveWorkerEnabled"/> — enabling both at once builds two
-    /// separate NativeRoleRuntime instances (no shared session yet), each loading its own copy
-    /// of the base model into VRAM.
+    /// Native Runtime for the main single-agent chat loop. Default flipped to true alongside
+    /// <see cref="ExperimentalNativeHiveWorkerEnabled"/> — see that property's doc for the
+    /// §6 decision basis. Independent of <see cref="ExperimentalNativeHiveWorkerEnabled"/> —
+    /// enabling both at once builds two separate NativeRoleRuntime instances (no shared session
+    /// yet), each loading its own copy of the base model into VRAM.
     /// </summary>
-    public bool ExperimentalNativeMainChatEnabled { get; set; } = false;
+    public bool ExperimentalNativeMainChatEnabled { get; set; } = true;
 
     /// <summary>
     /// Foundry F-1 dataset capture opt-in. When true, ToolcallerDatasetCapture stages real

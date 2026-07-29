@@ -175,7 +175,7 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
             // against on their own gates — this class was missing the equivalent check).
             ThrowIfDisposed();
 
-            EnsureAdmitted(binding, options);
+            var admittedBytes = EnsureAdmitted(binding, options);
 
             var loadResult = await _sessionManager.LoadBindingAsync(binding, options, ct).ConfigureAwait(false);
             if (!loadResult.Success || loadResult.Binding is null)
@@ -193,11 +193,41 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
             // generation-match filter correct in both cases. Same options as the admission
             // check above — the ledger entry must be the same number TryAdmit was checked with,
             // or a later role's admission would be judged against a different-sized footprint.
+            // That number is now RETURNED by EnsureAdmitted rather than recomputed here: the
+            // estimate depends on whether the base weights were already resident, and the load
+            // that just happened is exactly what changes that answer, so recomputing would record
+            // a first-ever load as though it had reused weights it actually paid for.
             if (_scheduler is not null && _budgetProvider is not null)
             {
-                var requiredBytes = OrcScheduler.EstimateRequiredBytes(binding, options);
                 lock (_telemetryGate)
-                    _reservedByRole[binding.Role] = (requiredBytes, _runtime.WeightsGeneration);
+                {
+                    // NEVER let this role's own ledger entry shrink within the same generation.
+                    // `admittedBytes` is `EnsureAdmitted`'s returned requiredBytes, which is the
+                    // INCREMENTAL cost when this call reuses the base already resident from an
+                    // earlier call by this same role, or the FULL footprint on a fresh load. A
+                    // role that already paid the full cost once, then later reuses its own
+                    // resident base, would otherwise have its entry silently overwritten with
+                    // the smaller reuse number here -- even though nothing was actually freed on
+                    // the GPU. In the static-budget fallback (`ReservedBytes: 0`, no live probe),
+                    // this ledger is the ONLY signal EnsureAdmitted has for a later role's
+                    // admission check, so an artificially shrunk entry under-counts real VRAM
+                    // usage and can over-admit into an actual OOM. Found by Grok's review of this
+                    // PR, not by any HV run -- the shrink needs two calls from the same role
+                    // across a reuse transition, which this session's evidence never happened to
+                    // exercise in that order.
+                    //
+                    // A genuine decrease must still be honoured, and can only ever be legitimate
+                    // alongside a generation change (a real recycle actually freed memory) --
+                    // hence the floor is generation-scoped, the same way EnsureAdmitted already
+                    // scopes `thisRolePriorReserved` a few lines above. A stale-generation prior
+                    // entry describes a footprint that no longer exists and must not pin anything.
+                    var newGeneration = _runtime.WeightsGeneration;
+                    var floorBytes = _reservedByRole.TryGetValue(binding.Role, out var prior)
+                                      && prior.Generation == newGeneration
+                        ? prior.Bytes
+                        : 0L;
+                    _reservedByRole[binding.Role] = (Math.Max(floorBytes, admittedBytes), newGeneration);
+                }
             }
 
             return conversation;
@@ -249,12 +279,17 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
     /// LLamaSharpRuntime.WeightsGeneration, a managed counter), so it can be exercised in
     /// isolation without a real model load, unlike the rest of GetConversationForBindingAsync.
     /// </summary>
-    internal void EnsureAdmitted(RuntimeRoleBinding binding, RuntimeOptions? options = null)
+    /// <returns>
+    /// The footprint this admission was granted against, for the caller to record verbatim in the
+    /// reservation ledger. Zero when admission is bypassed via allowUnbudgetedExecution (there is
+    /// no budget to account against in that mode).
+    /// </returns>
+    internal long EnsureAdmitted(RuntimeRoleBinding binding, RuntimeOptions? options = null)
     {
         if (_scheduler is null || _budgetProvider is null)
         {
             if (_allowUnbudgetedExecution)
-                return;
+                return 0;
 
             var unavailableDecision = new SchedulingDecision(
                 Admitted: false,
@@ -306,16 +341,42 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
                     ? own.Bytes
                     : 0;
         }
+        // MAX, not SUM -- the same overlap the reporting snapshot had, and the reason HV-3's
+        // concurrent-role phase could never pass. `baseline.ReservedBytes` from a live whole-GPU
+        // probe already counts EVERY resident model, this role's and every other role's. Adding
+        // otherRolesReserved on top charges the others twice: on HardcorePC (6 GB) admitting a
+        // second role while the first was resident produced "reserved=10.3 GB" against a 6.0 GB
+        // card and denied every concurrent role outright
+        // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-25).
+        //
+        // Subtracting this role's own prior footprint from the probe stays (that is the HV-1
+        // fix, and it is why the two operands are not simply symmetric): re-admitting a role
+        // loads nothing new, so its already-counted bytes must come back out before the estimate
+        // is charged. The ledger arm is the floor for the case where no live probe exists --
+        // the static VramBudget(total, ReservedBytes: 0) fallback -- where it is the only signal.
         var effectiveReserved = Math.Max(
-            0, baseline.ReservedBytes + otherRolesReserved - thisRolePriorReserved);
+            Math.Max(0, baseline.ReservedBytes - thisRolePriorReserved),
+            otherRolesReserved);
         var budget = baseline with { ReservedBytes = effectiveReserved };
 
-        var decision = _scheduler.TryAdmit(binding, budget, options);
+        // Ask SessionManager whether this admission will actually load weights or reuse the ones
+        // already resident, rather than assuming a fresh load. Same predicate the loader itself
+        // uses, so the estimate cannot disagree with what happens next.
+        var reusesBaseWeights = _sessionManager.WouldReuseLoadedBaseWeights(binding, options);
+        var requiredBytes = OrcScheduler.EstimateRequiredBytes(binding, options, reusesBaseWeights);
+
+        var decision = _scheduler.TryAdmit(binding, budget, options, reusesBaseWeights);
         if (!decision.Admitted)
         {
             RecordRejection(decision.Reason);
             throw new RuntimeAdmissionDeniedException(binding, budget, decision);
         }
+
+        // Returned so the caller commits the EXACT number that was admitted. Recomputing it after
+        // the load would silently use a different residency answer -- the first role's own load
+        // makes its base resident, so a post-load recompute would record it as if it had reused
+        // weights it actually paid for, under-reporting it to every later role.
+        return requiredBytes;
     }
 
     private void RecordRejection(string? reason)
@@ -416,7 +477,28 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
             rejectedCount = _rejectedAdmissionCount;
             lastRejectionReason = _lastRejectionReason;
         }
-        var reservedBytes = baseline.ReservedBytes + active.Sum(r => r.Bytes);
+        // MAX, not SUM. The two inputs measure overlapping things, so adding them double-counts
+        // every resident model — the same trap EnsureAdmitted documents above, in the reporting
+        // path this time. When the provider is a live whole-GPU probe (NativeVramProbe /
+        // nvidia-smi, which is what the daemon and the app both use),
+        // baseline.ReservedBytes ALREADY includes every model currently loaded, and the ledger
+        // entries below are this orchestrator's own accounting of those same models. Summing them
+        // produced physically impossible telemetry: HV-3's first real run on HardcorePC (RTX 3050,
+        // 6 GB) reported reservedBytes = 11.04 GB against totalBytes = 6.44 GB with
+        // availableBytes pinned to 0, the excess matching the job's est_vram exactly
+        // (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-3, 2026-07-25).
+        //
+        // Taking the larger keeps both providers honest: with a live probe the probe wins (it is
+        // authoritative for what is physically in use, including non-TheOrc consumers on the same
+        // card), and with the static fallback budget — VramBudget(total, ReservedBytes: 0), used
+        // when nvidia-smi is unavailable — the ledger wins, which is the only signal there is in
+        // that case. Known imprecision, accepted deliberately: a role that has been RESERVED but
+        // whose model is not yet resident is not additive on top of the probe here, so this can
+        // under-report during the window between reservation and load. Under-reporting a
+        // telemetry read is strictly safer than reporting a number the hardware cannot produce,
+        // and admission correctness does not depend on this value — EnsureAdmitted does its own
+        // accounting and is unchanged by this fix.
+        var reservedBytes = Math.Max(baseline.ReservedBytes, active.Sum(r => r.Bytes));
 
         return new RuntimeReservationSnapshot(
             active,

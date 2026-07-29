@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>hv6-repeatability-runner</AssemblyName>
+    <RootNamespace>Hv6RepeatabilityRunner</RootNamespace>
+  </PropertyGroup>
+
+  <!-- No linked Hive contracts on purpose: this driver never talks to the Warchief. It only
+       invokes the HV-1..HV-5 runners and aggregates what they already wrote, so it cannot drift
+       out of sync with a contract it does not use. -->
+
+</Project>

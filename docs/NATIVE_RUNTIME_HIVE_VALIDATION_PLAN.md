@@ -402,6 +402,352 @@ NewcorePC's local Daemon stopped, scratch workspaces removed. The downloaded mod
 kept in place (not deleted) on both machines — a real, reusable, hash-verified asset for future
 CF work, not a throwaway.
 
+**2026-07-25 — Driver built (`Tools/Hv3LifecycleRunner`), sequential phase PASSES on HardcorePC.
+Still a PARTIAL: one worker only, concurrent-role phase not yet run, item 3 out of scope.**
+
+**The driver** submits one work unit per campaign and awaits it to a terminal state before
+submitting the next — submitting all N up front would let the Warchief overlap them and destroy
+the very thing the phase measures. A `/hive/native-telemetry` sample is taken before the run and
+after each cycle, and three checks are evaluated against those samples rather than asserted in
+prose: `residency-returns-to-baseline`, `reservation-persists-between-jobs`, and
+`fresh-conversation-per-job` (strictly increasing `ConversationsCreated` — what separates "a
+fresh conversation per job" from "one conversation silently reused and never re-counted").
+
+**Prerequisite closed first: residency had no remote observability.** The daemon wired
+`NativeTelemetryProvider` to `GetReservationSnapshot()` alone, so `ActiveCount`/
+`ConversationsCreated`/`Status` existed in-process and nowhere else — the same shape of gap HV-2
+found for admission counters, one level down. `/hive/native-telemetry` now carries a `residency`
+array. Kept strictly additive (reservation fields keep their top-level position) because
+`Tools/Hv2SchedulingRunner` binds them there and HV-6 re-runs that driver unattended 3×.
+`AdapterRoleResidency.Binding` is projected to display names rather than serialized whole: it
+carries absolute GGUF paths and this endpoint is unauthenticated.
+
+**Two real fleet defects found before any evidence could be collected**, both worth recording
+because they cost more time than the phase itself:
+
+1. **The Warchief was not running at all**, and the `swarmcli` binary in `bin/Release` was dated
+   2026-06-22 — a month stale, predating the `req.IsLocal` local-trust exemption added
+   2026-06-24. Every submission, including a plain `curl` to `/hive/info`, returned
+   `401 missing HIVE auth headers`. Stale binaries on the fleet are a live evidence-validity
+   hazard, hit twice in one session (this, and HardcoreLaptopMSI's stale `bin/Debug` output).
+2. **`HIVE__WARCHIEFNODEID` was never set in the worker start scripts.** Re-pairing alone did NOT
+   restore claiming — jobs submitted fine and sat unclaimed. `swarmcli --help` documents this
+   flag as what avoids "IP-vs-hostname shared-secret lookup misses"; without it the worker's
+   signed claims never matched. Added to HardcorePC's `start-worker.bat` (`.bak` retained).
+   NewcorePC's Warchief identity had also churned again (`fbf93f48…`, vs the `f083b993…` the
+   workers had on file) — the recurring DPAPI/AES-GCM collision, now on its fourth observation.
+
+**Real defect found BY the phase, fixed here: the reservation snapshot published impossible
+numbers.** The first passing run reported `reservedBytes` 11.04 GB against `totalBytes` 6.44 GB
+with `availableBytes` pinned to 0, the excess matching that job's `est_vram=4.6GB` exactly.
+`GetReservationSnapshot` computed `baseline.ReservedBytes + ledger.Sum()`, but the daemon's
+budget provider is a live whole-GPU probe whose `ReservedBytes` already counts every resident
+model — the sibling of the HV-1 double-count, in the reporting path instead of the admission
+path. Admission was never affected (which is why jobs kept being admitted while telemetry lied),
+making it purely a diagnosability defect — and §6 requires consistent telemetry and
+diagnosability across machines, so it had to be right before HV-5 sweeps these values fleet-wide.
+Fixed by taking the MAX of the two rather than the sum (live probe wins when present; the static
+`ReservedBytes: 0` fallback budget lets the ledger win). Regression test confirmed red then
+green; full `RuntimeOrchestrator` suite 13/13.
+
+**Decisive run after the fix — HARDCOREPC, 3 sequential cycles, all three checks PASS:**
+- `residency-returns-to-baseline`: ActiveCount back to 0 after all 3 cycles.
+- `reservation-persists-between-jobs`: baseline `432013312` → `[5589043712 ×3]`, held across
+  every gap and now **below** `totalBytes` — and 5589043712 B = 5.20 GiB matches the 5212 MiB
+  `nvidia-smi` reported on the box at that moment, so the telemetry and the hardware now agree.
+- `fresh-conversation-per-job`: `ConversationsCreated = [1, 2, 3]` from a clean worker process.
+
+All 3 jobs `completed`, `claimedBy=HardcorePC`, `Attestation.RuntimeName == "NativeRoleRuntime"`,
+zero fallback. Evidence: `.orc/hv-3-lane/hv3_sequential_20260725_111936.json`.
+
+**2026-07-25 (later) — both fleet workers restored, sequential phase PASSES on BOTH machines;
+concurrent-role phase FAILS on a real product defect.**
+
+`HardcoreLaptopMSI` was brought back into the fleet first. Two problems, both silent: its
+`NativeModelRoot` contained a subdirectory `2f` holding a 270 MB onboarding GGUF alongside the
+4.68 GB coder, and `ModelDepot.Scan` recurses and binds the **smallest** asset — so that worker
+had been running a 270 MB model while its config, its logs and this plan all said
+qwen2.5-coder:7b. Any evidence collected from it before this would have been invalid without
+looking wrong. The daemon's `GGUF assets: N` startup line is the tell; anything but 1 means the
+root is not model-specific. Stray directory moved aside; `HIVE__WARCHIEFNODEID` added to both
+workers' start scripts.
+
+**Sequential phase, both machines, 3 cycles each — PASS (6/6 jobs native, zero fallback).**
+Evidence: `.orc/hv-3-lane/hv3_sequential_20260725_112450.json`. Read together with the
+cold-start runs (`…111936` HardcorePC `432013312` → `5589043712`; `…112316` laptop `45088768` →
+`5589043712`), the pair gives the full decoupling picture: the reservation *appears* on first
+load and then *holds* across every subsequent gap, while residency returns to zero after each
+job.
+
+A driver bug was found and fixed here too: `reservation-persists-between-jobs` asserted
+`after > baseline`, which only holds from a cold worker — against a warm one the baseline sample
+already includes the resident model. The same correct behavior produced opposite verdicts purely
+from starting state (warm HardcorePC FAILED, freshly-started laptop PASSED) until the check was
+restated as "non-decreasing and at least baseline, with a loaded model actually observed."
+
+**Concurrent-role phase — FAILS, and the cause is a real admission defect, not the harness.**
+The `Coder` job completes on both boxes; the concurrent `Researcher` job is denied on both,
+fail-closed with no Ollama substitution (itself a clean HV-5 data point). The worker-local log
+carries the detail the Warchief never sees:
+
+> `Runtime admission denied for Researcher (qwen25-coder-7b.gguf, lane Background): Requires`
+> `~5.2 GB, only 0.0 GB available. Budget total=6.0 GB, reserved=10.3 GB, available=0.0 GB.`
+
+**`reserved=10.3 GB` on a 6.0 GB card** — the same double-count as the snapshot defect above,
+but in `EnsureAdmitted` this time. The HV-1 fix credits back only *this* role's prior
+reservation; the live nvidia-smi probe in `baseline.ReservedBytes` already counts **other** roles'
+resident models as well, so those are charged twice (`5.7 + 4.6 = 10.3`). Compounding it: both
+roles resolve to the SAME GGUF and `SessionManager` keeps a single shared base load
+(`CanReuseCurrentSession` short-circuits — no reload, no extra VRAM), yet
+`OrcScheduler.EstimateRequiredBytes` charges a full fresh-load 5.2 GB for the second role anyway.
+So a second role that would actually cost only its context is billed as an entire extra model,
+against a baseline that has already counted the first one twice.
+
+Honest reading: a 6 GB card genuinely cannot hold two full 4.6 GB copies, so *denial* is not
+self-evidently wrong on this hardware — but the number is physically impossible, and because of
+the shared-base-model reuse the true footprint was never actually evaluated. **Deliberately not
+fixed in-session:** admission is the safety gate, and it deserves a reviewed change rather than a
+late one. Filed as an open follow-up.
+
+**HV-3 verdict: NOT CLOSED — sequential lifecycle proven on both machines, concurrent-role
+blocked on an open admission defect.** Outstanding:
+(a) the concurrent second-role phase, which cannot pass until the cross-role admission
+double-count above is fixed — this is a genuine product blocker, not a missing test; (c) item 3
+(forced role recycle across machines), which is
+**deliberately out of scope for this driver** and recorded in every evidence file's
+`uncoveredItems` — `MarkRoleDegraded` is reachable only from the runtime's own NoKvSlot handling,
+and a remote trigger is a MUTATION needing an authenticated control endpoint plus its own
+security review, not something to attach to a read-only campaign driver. Since §6's criterion is
+lifecycle behavior *across machines*, a one-box pass cannot be promoted to a closure.
+
+**Throughput note (relevant to the §6 gate, not to HV-3):** the live worker log for these jobs
+reads `tok/s=8.3`, `13.1`, `10.2` — the fleet's "~7 tok/s" figure, observed directly in the HIVE
+path. Every one of those jobs is `steps: 1` with `completion_tokens: 13` against a 384-token
+prompt. See the throughput-gate finding: real decode on this same box is 42.5 tok/s.
+
+**2026-07-27 — campaign halted on a HIVE authentication defect, not a runtime one. No worker
+can lease; every phase stalls with jobs `pending`.**
+
+Recorded here because the next person to pick this up will otherwise repeat two sessions of
+black-box guessing. The runtime work is sound — the admission fix and the sequential phase both
+passed on real hardware before this — but the fleet cannot dispatch at all.
+
+**The symptom chain, and how much of it was misdiagnosis.** A dead Warchief looks exactly like a
+HIVE fault from every other vantage point. Three separate causes were mistaken for HIVE bugs
+before being pinned down:
+1. `swarmcli --warchief --timeout N` is a **self-terminate**, not an idle timeout — the process
+   exits mid-campaign printing a tidy `Shutting down...`. A 7200s value ended a session at
+   exactly the two-hour mark.
+2. The Warchief **dies on Ctrl+C from the launching shell's console**, so any interrupted command
+   killed it. `warchief.log` ends in a bare `^C` every time. Fixed by giving it its own console
+   (`start-warchief.bat`).
+3. `warchief.log` and `worker_*.log` are **fully buffered** — they show only the startup banner
+   until the process exits. An apparently-empty log was read as "the worker never leased" and a
+   healthy run was killed on the strength of it. Use `GET /hive/native-telemetry` for live state.
+
+**The real blocker: `HMAC mismatch`.** Worker rejection reasons were invisible until they were
+surfaced (`HiveAuthMiddleware.ValidateCore` has always distinguished unknown-peer / stale-secret /
+clock-skew / replay / HMAC-mismatch, and `HiveTaskQueue` returns the verdict in the 401 body — the
+worker logged only the status code and discarded it). With that logged, the answer is unambiguous
+and narrow. Ruled out by direct inspection: peer enrolment (both stores hold the other side, role
+Worker, not revoked, secrets present, written by the *same* ceremony one second apart), clock skew
+(fleet within 2s), `MachineKey.Load()` determinism (env → file → generate-once, so both HardcorePC
+processes read the same AES-GCM key), and a DPAPI decrypt failure on the Warchief (that path
+returns `(false, null)` and would report "no shared secret for peer" instead).
+
+**So both sides finish a mutually-successful pairing ceremony holding different shared-secret
+bytes.** That is a crypto/pairing defect, and the next step is a focused unit test over the two
+derivation call sites (`HiveNodeServer`'s approve path from `req.ExchangePublicKeyDer`, and
+`HivePairingClient.CompletePairing` from the response) asserting both produce identical bytes
+under fixed key material — not further live fleet poking.
+
+**Also found: `--leave-hive` is a footgun as shipped.** It clears `HiveId` correctly, but the
+daemon **founds a brand-new hive on its next normal start**, so a worker "recovered" this way ends
+up in a *different* hive than the Warchief and is then permanently refused by §4.3 — strictly
+worse than before. The ordering that works is `--leave-hive --yes` and `--pair` chained in one
+invocation, **before any daemon start**. Filed as an open follow-up.
+
+**2026-07-27 (later) — auth investigation suspended. Read this before resuming; several
+"findings" below are environment artifacts, not product bugs, and re-deriving them costs hours.**
+
+**What is solid (test-backed, keep):**
+- Secret derivation and salting are correct — `HivePairingSecretDerivationTests`, 4/4. Both call
+  sites pass node ids in opposite order; `XorNodeIds` is genuinely commutative, padding branch
+  included.
+- Sign → validate round-trips for the real request shapes — `HiveAuthSignRoundTripTests`, 4/4,
+  covering `GET /hive/models` (empty body), the POST heartbeat (JSON body), and a query string.
+  The negative control pins the exact reason string `HMAC mismatch`.
+- Worker rejection reasons are now logged (`HiveAuthMiddleware` always distinguished
+  unknown-peer / stale-secret / clock-skew / replay / HMAC-mismatch, and `HiveTaskQueue` returns
+  it in the 401 body; the worker was discarding it).
+- Auth IS validated before endpoint routing (`HiveTaskQueue` ~L345 vs routing ~L373), so a 503
+  from `/hive/models` genuinely means the signature was accepted.
+
+**What turned out to be an artifact of the debugging environment, NOT a HIVE defect:**
+- **There are two AppData views on NewcorePC.** `%APPDATA%\TheOrc\` and
+  `…\AppData\Local\Packages\Claude_*\LocalCache\Roaming\TheOrc\` each hold their own
+  `hive-peers.json`, `hive-identity.json` and `machine.key`. Tooling launched under the packaged
+  app writes through the redirected view; other tooling writes the real one. Every "I cleared the
+  peer store and it still says already_paired" observation in this campaign is suspect for that
+  reason, and the previously-unexplained note in `HiveNodeServer` — that the on-disk file "was
+  repeatedly NOT sufficient to explain a stuck already_paired" — is very plausibly the same thing
+  rather than a phantom in-memory entry. **Check which file a given process actually reads before
+  concluding anything about trust state.**
+- A **running Warchief rewrites `hive-peers.json` wholesale** from its in-memory list, so the
+  store may only be edited while it is stopped.
+- The apparent "attached Warchief works, detached does not" split was a **port conflict**: a
+  previously-launched Warchief was still holding 7078/7079, so the newly-started one failed to
+  bind and the old process answered. Always confirm exactly one `swarmcli` is running.
+
+**Genuinely open, unproven either way:** whether the responder's shared secret survives a
+persist/reload correctly. The observation that motivated it (auth works pre-restart, fails
+post-restart) was collected while the two-AppData confound was active and has NOT been re-checked
+under controlled conditions. Do not treat it as established.
+
+**Recommended way to resume:** pin one AppData view explicitly, assert exactly one Warchief
+process, then re-run the pair → auth check. Only if it still fails is there a product bug to chase.
+
+**2026-07-27 (resolved) — the blocker was HOW the Warchief was launched, not HIVE auth.**
+
+Running that controlled re-test with both AppData views cleared to byte-identical state, the
+worker's peer store deleted, and exactly one `swarmcli` process bound to 7078, the two launch
+methods gave OPPOSITE results against the same on-disk trust state:
+
+| Warchief launched via | Pairing result |
+|---|---|
+| `Win32_Process.Create` (WMI, from `start-warchief.bat`) | `already_paired` — `IsTrusted` true for a node absent from every store found on disk |
+| direct child process of the shell | `✓ Paired … fingerprint verified. Shared secret stored.` |
+
+The WMI-spawned process resolves its HIVE state directory somewhere other than the file the rest
+of the tooling reads, so it authenticates against a stale peer entry — which is what produced the
+`HMAC mismatch`, the "cleared the store and it still says already_paired", and the phantom
+in-memory-peer readings throughout this campaign. No system-profile copy exists
+(`systemprofile` / `Users\Default` / `Users\Public` all checked and absent), so the exact
+redirection is not yet identified — but the operational rule is unambiguous:
+
+> **Launch the Warchief as a direct child process, never via WMI/`Win32_Process.Create`.**
+> Then verify `swarmcli` count == 1 and that port 7078 has exactly one listener before pairing.
+
+**HV-3 sequential — PASS on HardcorePC from a COLD worker** (the stronger form: the reservation
+is observed appearing on first load *and* holding across every gap, rather than only holding):
+
+```
+residency-returns-to-baseline:     PASS — ActiveCount back to 0 after all 3 cycles
+reservation-persists-between-jobs: PASS — baseline 584056832 (cold) → [5617221632 ×3]
+fresh-conversation-per-job:        PASS — ConversationsCreated = [1, 2, 3]
+```
+
+3/3 jobs `completed`, `Attestation.RuntimeName == "NativeRoleRuntime"`, zero fallback. Evidence:
+`.orc/hv-3-lane/hv3_sequential_20260727_092800.json`. **This is also the regression check for the
+cross-role admission fix** — that change altered the admission path, and the previously-passing
+sequential phase still passes with it in place.
+
+Cross-role admission accounting observed live during the concurrent phase on the same 6 GB box:
+`reservations [(Worker, 637534208), (Researcher, 637534208)]`, `reservedBytes 6107955200` against
+`totalBytes 6442450944`, `rejectedAdmissionCount 0` — two roles holding reservations at once,
+each charged its incremental context cost rather than a whole extra model, and the total still
+physically possible.
+
+**2026-07-27 (resolved) — the "heartbeat loss" was never the heartbeat. The Warchief had no
+artifact store, so workers could not deliver their results.**
+
+Read this before touching heartbeat code again: three fixes were made against a mechanism that was
+working correctly the whole time, and the reason they could not be falsified was that a *successful*
+beat logged nothing.
+
+`b90fd13d` added the missing positive signal (first successful beat per task) and the queue side
+was put behind `THEORC_HIVE_HEARTBEAT_DIAGNOSTICS=1`, which now also announces itself at startup so
+an empty receipt log can never again be read as "no beat arrived". With both in place the answer
+came in one run, from the worker's own log:
+
+```
+♥ Heartbeat established for 'HV-3 concurrent Researcher on HardcorePC' (10s after claim).
+[Researcher] '…' — native agent completed in 2 steps (runtime=NativeRoleRuntime, …)
+⚠ Worker loop error: Response status code does not indicate success: 503 (Service Unavailable).
+```
+
+and from the Warchief's, beats arriving and being **credited** at `sinceLast=10.2s` right up to the
+job finishing. Job done, beats landing, result never delivered.
+
+**Root cause:** `swarmcli --warchief` never wired an `ArtifactStore`. Every
+`PUT /hive/artifacts/{digest}` answered 503 from `HiveTaskQueue`'s "store is null" branch. The
+upload sat *after* the try/catch around execution, so the throw escaped past `PostResultAsync` into
+`RunLoopAsync`'s generic handler — the task stayed `claimed` with its heartbeat loop already
+cancelled in the `finally`, and 45s later the watchdog re-queued it as a heartbeat timeout. Three
+attempts of that produced `exhausted 3 attempts after heartbeat loss` against a healthy worker.
+Reproduced identically on HardcorePC and HardcoreLaptopMSI.
+
+The gap was already known from the other side — CF-6's acceptance runner needed a Daemon-hosted
+Warchief for exactly this reason (2026-07-21 above) — but it was recorded as a property of *that
+runner* rather than as a defect, so any campaign whose jobs emit output files silently required the
+Daemon. `ModelStore` was missing for the same reason, which is the
+`Approved-model catalog rejected by Warchief: HTTP 503` every worker logs on a one-minute cycle.
+
+Fixed on both sides (`0e9db763`): the stores are wired in `swarmcli --warchief` mirroring
+`HiveService.cs`, **and** an upload failure now fails closed and visibly — the result is still
+posted, marked failed, carrying the real upload error — so a misconfigured artifact store can never
+again impersonate a dead worker. That second half is also HV-4's "job fails visibly" requirement.
+
+Not unit-tested: driving this path needs a full native execution harness, which is disproportionate
+for a five-line catch. The evidence is the live two-machine reproduction and fix, recorded here.
+
+**Why the earlier heartbeat fixes read as ineffective:** they were. `203dfeb3` (5s→20s timeout),
+`f438d1a9` (dedicated thread) and `f390ac57` (409 instead of 200) are each correct on their own
+merits and are kept, but none of them addressed this. Note also that `f438d1a9`'s "no measurable
+effect" was measured against HardcorePC, whose checkout was at `570b23d` and therefore did not
+contain the fix at all — verify what a worker is actually *running*, not what its repo says.
+
+**HV-3 concurrent — PASS on BOTH machines.** 4/4 jobs `completed`, `NativeRoleRuntime`,
+`ClaimedByExpected` true, zero fallback:
+
+```
+[HardcorePC]        two-roles-hold-reservations-concurrently: PASS — peak role reservations=2 [roles 1, 2]
+[HardcorePC]        cross-role-accounting-stays-physical:     PASS — reservedBytes within totalBytes, every sample
+[HardcoreLaptopMSI] two-roles-hold-reservations-concurrently: PASS — peak role reservations=2 [roles 1, 2]
+[HardcoreLaptopMSI] cross-role-accounting-stays-physical:     PASS — reservedBytes within totalBytes, every sample
+```
+
+Evidence: `.orc/hv-3-lane/hv3_concurrent_20260727_165522.json`. The failing run immediately before
+it, on the same build minus the fix, is retained as the paired negative control:
+`.orc/hv-3-lane/hv3_concurrent_20260727_165114.json` — identical checks PASS, both Researcher jobs
+`failed`.
+
+**Driver check corrected in the same pass — `reservation-persists-between-jobs` was measuring the
+wrong quantity, for the second time.** Re-running sequential on the fixed build failed it on a
+~27 MB drift (`6226577920` → `6198132736`) while every role held its reservation correctly.
+`reservedBytes` is not the ledger: `GetReservationSnapshot` publishes the MAX of the ledger and a
+live whole-GPU probe, and on a card this full the probe wins — so asserting a monotonic property of
+it asserts that nothing else on the machine may allocate a byte of VRAM. The first false failure
+from this same check was the `> baseline` form, which only held from a cold worker. Both times the
+check had drifted onto a convenient aggregate rather than the quantity under test.
+
+Restated on the role's reservation entry, which is what the decoupling actually claims: every
+post-job sample must still show the role holding a reservation, and no role may lose one it held
+after the previous job. Byte values are still recorded as evidence, but not asserted. Worth knowing
+for future readings: a role's reservation legitimately SHRINKS from a full-model charge to an
+incremental context charge once another role has the base model resident — on this run role 1 went
+`5589043712` → `637534208` while the physical footprint stayed at 6.2 GB. The model never left the
+card; only the ledger's attribution changed.
+
+**Sequential re-run on the fixed build — PASS on BOTH machines** (so both phases now rest on one
+build's evidence rather than two):
+
+```
+[HardcorePC]        residency-returns-to-baseline / reservation-persists / fresh-conversation: PASS
+                    reserved roles after each cycle=[1,2 | 1,2 | 1,2], ConversationsCreated=[5, 6, 7]
+[HardcoreLaptopMSI] residency-returns-to-baseline / reservation-persists / fresh-conversation: PASS
+                    reserved roles after each cycle=[1,2 | 1,2 | 1,2], ConversationsCreated=[5, 6, 7]
+```
+
+Evidence: `.orc/hv-3-lane/hv3_sequential_20260727_165823.json`.
+
+**HV-3 verdict: items 1 and 2 CLOSED across machines; item 3 remains out of scope.** Forced role
+recycle (`MarkRoleDegraded`) is still reachable only from the runtime's own NoKvSlot handling, and
+a remote trigger is a mutation needing an authenticated control endpoint plus its own security
+review — recorded in every evidence file's `uncoveredItems`. HV-3 must therefore not be reported as
+fully closed; §6's "verified model and adapter lifecycle behavior across machines" is now
+substantially, but not completely, evidenced.
+
 ### HV-4 — Failure, cancellation, disconnect, recovery
 
 All on real jobs mid-flight, all asserting fail-closed (no Ollama substitution) and clean
@@ -417,6 +763,74 @@ recovery:
 4. **Ollama-absent worker**: with Ollama stopped on a worker, a native-routed job still runs
    natively; a deliberately broken native config on that worker fails closed with an explicit
    native error — CF-6's "Ollama-absence death test" precedent, now fleet-wide.
+
+**2026-07-27 — driver built (`Tools/Hv4RecoveryRunner`); kill, disconnect, ollama and the
+Warchief-side half of cancel exercised on real jobs mid-flight.**
+
+**"Visible failure" had to be defined against what actually happens, not against what reads well
+in a plan.** A killed or disconnected worker's job is re-queued to `pending` with its attempt
+advanced, and it *stays* there — attempts only advance when a worker claims and then goes silent,
+so with the box down nobody claims. The first version of the check demanded a terminal status and
+so failed the CORRECT behaviour (the work is retryable and was not lost); it could only ever have
+passed by waiting out a timeout. Visibility is now "the job stops being attributed to the dead
+worker, promptly", which is exactly what the Warchief reports:
+
+> `⚠ Task 'HV-4 kill on HardcorePC' heartbeat timeout from HardcorePC — re-queued (attempt 2)`
+
+and a separate check proves the re-queued work is actually **recovered** on the restarted worker
+rather than merely re-queued.
+
+**A phase that can go green without doing the thing it is named after is worse than no phase.**
+On the first two-machine kill run the ssh kill returned empty against HardcoreLaptopMSI, the worker
+kept running, its job completed normally — and every check went green, because "reached a terminal
+state" is trivially true of a job that was never disrupted. HardcorePC's half of the same run was
+genuine, so the evidence file read as a clean two-machine pass with one half fabricated. Fixed
+with a `kill-actually-landed` gate that abandons the phase loudly, and by refusing `completed` as
+evidence of visible failure. The gate confirms the kill via the **worker's own telemetry going
+dark** rather than an ssh process count: a remote `Get-Process | .Count` returned an empty string
+rather than `0` from inside the driver, and a check that cannot tell "0" from "no answer" is not a
+check — while telemetry silence is the stronger claim anyway, since it says the worker is not
+*serving*.
+
+**Results — PASS on BOTH machines** (evidence in `.orc/hv-4-lane/`):
+
+```
+kill        HardcorePC + HardcoreLaptopMSI   kill landed (telemetry dark), death visible
+                                             (status=pending, claimedBy=none), worker rejoined,
+                                             re-queued unit RECOVERED on NativeRoleRuntime,
+                                             role reusable
+disconnect  HardcorePC                       outbound TCP/7079 blocked mid-job → loss visible,
+                                             firewall rule auto-restored, role reusable
+ollama      HardcorePC + HardcoreLaptopMSI   ollama stopped (before=1/2 → after=0), native job
+                                             still completed on NativeRoleRuntime
+cancel      HardcorePC                       campaign cancel → task cancelled, role reusable
+```
+
+Two operational notes worth keeping. The Ollama stop must kill the tray supervisor `ollama app`
+(with a space) as well as the server — matching only the exact process name left it restarting
+within seconds, and absence never stuck. And **HardcoreLaptopMSI's sshd goes unreachable for
+minutes at a time while the box itself stays healthy** (ping 5 ms, `/hive/native-telemetry`
+answering 200); it is the reason the first laptop kill silently no-opped. `Hv4RecoveryRunner.Ssh`
+makes three attempts (10s/20s/30s connect timeouts with backoff), and the landed-gate turns any
+remaining flake into a loud failure rather than a fabricated pass.
+
+**Item 1 is only half-covered, and this is a product gap, not a harness one.** The plan asks for
+cancellation to surface mid-**generation** as an `OperationCanceledException` on the worker. There
+is no remote trigger: the worker's only inbound listener is `HiveNodeServer`
+(`pair` / `info` / `native-telemetry` / `mesh` / `update`) and it has no task-cancel endpoint, so
+cancelling a campaign marks the task cancelled on the Warchief while the worker generates happily
+to completion. The `cancel` phase proves the Warchief-side outcome and role reusability and says so
+in its own check name. Adding the endpoint is a MUTATION needing authentication and its own
+security review — the same call already made for HV-3's `MarkRoleDegraded` item.
+
+Item 4's second half (a deliberately broken native config failing closed with an explicit native
+error) is covered by HV-5's `diagnose` phase rather than duplicated here.
+
+**HV-4 verdict: items 2, 3 and 4 evidenced across machines; item 1 half-covered pending a
+worker-side cancel endpoint.** Also folded in here, from the HV-3 investigation: a healthy worker
+being declared dead (root-caused to the missing artifact store, fixed in `0e9db763`) and the
+fail-closed no-fallback behaviour observed throughout — every completing job in every phase above
+carries `Attestation.RuntimeName == "NativeRoleRuntime"`.
 
 ### HV-5 — Telemetry consistency + no-silent-fallback sweep
 
@@ -435,6 +849,501 @@ recovery:
 - Aggregate fleet report (per-box + campaign-level JSON and a human summary) retained as the
   §6 evidence bundle. The report explicitly does NOT claim the flip — it presents the
   evidence for the maintainer's §6 decision.
+
+**2026-07-28 — driver built (`Tools/Hv6RepeatabilityRunner`); first full 3× campaign run
+unattended, 56 minutes, 8 of 10 lanes green in all three rounds.**
+
+The driver talks to nothing. It invokes the five lane runners and aggregates what they already
+wrote, so a lane's verdict here is that lane's own verdict rather than a re-interpretation of raw
+telemetry — the only way "the campaign is repeatable" means anything. A failed round does not abort
+the run: "round 2 failed, 1 and 3 passed" is the useful answer, and intermittency is exactly what
+this lane exists to surface.
+
+**HV-2's `large` phase forced a design decision.** It is a fleet CONFIGURATION, not a job shape —
+its own docs say to run it "against a fleet already reconfigured (NativeContextSize env var) and
+restarted for that phase". Run against the standard config it cannot deny anything, and it duly
+reported the low-VRAM box completing a job it was supposed to refuse. Since HV-6's requirement is
+explicitly *no manual intervention between runs*, an operator switching that config mid-campaign is
+the very thing being forbidden. The FIRST version of the driver did the switch automatically inside
+the main campaign's round loop; a later maintainer decision (recorded below, "Split, not
+automated-switch") moved HV-2's large phase out into its own separate `--large-only` invocation
+instead, so the shipped driver never switches configuration mid-campaign at all — a large-context
+lane's size is set once before round 1 and restored once in a `finally`, with no per-round return to
+standard in between (there is nothing to return FROM, since a single invocation's lane pool is
+homogeneous by construction). It also aborts outright, rather than recording a lane as `NOT-RUN`, if that one reconfiguration
+cannot be applied — but the resulting exception no longer crashes the process before a report is
+written: `Main`'s outer `catch` records it as `report.Error` and the JSON/markdown are still
+produced, which is itself a fix from the same CodeRabbit review that caught this paragraph being
+stale.
+
+```
+| Lane             | R1   | R2   | R3   |
+| hv1              | PASS | PASS | PASS |
+| hv2-large        | PASS | PASS | PASS |
+| hv2-small        | PASS | PASS | PASS |
+| hv3-sequential   | PASS | PASS | PASS |
+| hv3-concurrent   | PASS | PASS | PASS |
+| hv4-cancel       | PASS | PASS | PASS |
+| hv4-ollama       | PASS | PASS | PASS |
+| hv4-kill         | FAIL | FAIL | PASS |
+| hv4-disconnect   | FAIL | FAIL | PASS |
+| hv5              | PASS | PASS | PASS |
+```
+
+Evidence: `.orc/hv-6-lane/hv6_report_20260728_004640.json` + `hv6_summary_20260728_004640.md`,
+with all 30 per-lane evidence files listed in it. `reconfigurations` and `fleetRestored` are
+recorded so a run that could not put the fleet back says so.
+
+**Every failure is HardcoreLaptopMSI, in the two lanes that deliver a box-level action mid-flight
+over ssh. HardcorePC passed every lane in every round.** Three of the four are the ssh call not
+landing at all (`kill-actually-landed`, `cut-actually-landed`); the fourth is that box finishing its
+job before the kill arrived. **No fabricated passes** — every one was caught by a landed-gate rather
+than being measured against an undisturbed worker, which is what those gates were added for.
+
+**The box, not the product.** That laptop's sshd goes unreachable for minutes while the machine
+stays healthy — ping 5 ms, `/hive/native-telemetry` answering 200, jobs completing. `sshd_config` is
+all defaults and the service is Running; the box is on the **Balanced** power plan, which fits the
+symptom exactly: a key exchange needs CPU and an already-established HTTP listener does not, so it
+fails precisely when the box is saturated doing the inference these phases need it to be doing.
+
+**2026-07-28 (later) — driver split into two invocations per maintainer decision; a self-inflicted
+regression found and fixed; two more full 3× runs.**
+
+**Split, not automated-switch.** The first run above folded HV-2's large-context reconfiguration
+into the main campaign's round loop. A maintainer call was made to keep the main campaign's fleet
+state untouched for its whole run instead: `hv2-large` now runs as its own separate `--large-only`
+invocation, reconfiguring once at the start and restoring once at the end, entirely outside the
+main campaign's 3× loop. Both invocations are still independently complete "3× back-to-back, no
+intervention" runs — running two of them is not the same as intervening inside either one — and
+each writes its own report; the main report explicitly says HV-2's large phase lives in the other
+one.
+
+**Self-inflicted regression, found by running it: a killed worker was left dead.** The retry that
+produced HardcoreLaptopMSI's clean run above added a race guard (`job-still-running-when-kill-
+landed`) whose early return sat *before* the worker restart — so when the race fired (job completed
+before the kill landed), the method recorded the check and returned having killed a live worker and
+never brought it back. The next lane in that round then failed against a worker this driver itself
+had killed and abandoned, which read as cascading fleet instability but was self-inflicted. Fixed
+by moving the restart into a guarded, idempotent step called from both the happy path and a
+`finally`, so it always runs exactly once whenever the kill actually landed. A second pass of the
+same fix then found the restart had been placed *after* the recovery poll rather than before it —
+the poll needs a live worker to answer, so it failed unconditionally until corrected. Both are
+`Tools/Hv4RecoveryRunner` bugs, not fleet or product defects; each was caught within one round of
+introducing it, by actually running the campaign rather than reasoning about the code.
+
+**With both fixed, the main campaign (3×, `hv2-large` excluded) ran clean apart from the box's own
+known ssh/timing limits:**
+
+```text
+| Lane             | R1   | R2   | R3   |
+| hv1              | PASS | PASS | PASS |
+| hv2-small        | PASS | PASS | PASS |
+| hv3-sequential   | FAIL | PASS | PASS |
+| hv3-concurrent   | PASS | PASS | PASS |
+| hv4-cancel       | PASS | PASS | PASS |
+| hv4-ollama       | PASS | PASS | PASS |
+| hv4-kill         | FAIL | FAIL | PASS |
+| hv4-disconnect   | PASS | PASS | FAIL |
+| hv5              | PASS | PASS | PASS |
+```
+
+Evidence: `.orc/hv-6-lane/hv6_report_20260728_033326.json`. Five of nine lanes perfectly green in
+all three rounds. Every `hv4-kill`/`hv4-disconnect` failure is again HardcoreLaptopMSI's job
+finishing before the disruption landed (`job-still-running-when-kill-landed` /
+`job-still-running-when-cut-landed`) — the same timing limit recorded above, not a recurrence of
+the dead-worker bug: no failure this run left a worker unrecovered, and every later lane on that box
+ran cleanly regardless of what the previous lane's race check reported.
+
+**One new, one-off finding: R1's `hv3-sequential` shows `ConversationsCreated` (after-cycle samples
+only) of `[9, 9, 10]` on HardcorePC** — cycles 1→2 landed on the same conversation instead of a
+fresh one, while R2 (`[8, 9, 10]`) and R3 (`[8, 9, 10]`) on the identical fleet, same session, were
+clean. R1 ran immediately after several minutes of heavy reconfiguration/campaign churn from manual
+smoke-testing earlier in the session, which is the more likely explanation than a reproducible
+defect — but it is recorded here rather than dismissed, per the plan's own precedent that "a
+conversation silently reused and never re-counted" is exactly the failure this check exists to
+catch. Not chased further on a single occurrence; worth a second look if HV-6 reproduces it on a
+cold, uninterrupted fleet.
+
+**HV-6 verdict: the harness and the fixes it drove are solid; "all green" is not yet met, and the
+main gap is a single, understood, external limit — with one unresolved internal anomaly kept
+explicitly open, not folded into that same explanation.** Every `hv4-kill`/`hv4-disconnect` failure
+across both post-split runs is HardcoreLaptopMSI's ssh/scheduling behavior under load, previously
+diagnosed (Balanced power plan) — not the runtime, not the queue, not a silent fallback, and (after
+the two fixes above) not this driver leaving a worker dead. Separately, R1's `hv3-sequential` FAIL
+on HardcorePC (the `[9, 9, 10]` conversation-count anomaly recorded above) is NOT a HardcoreLaptopMSI
+ssh issue and NOT yet resolved — it is a one-off, more-likely-explained-by-session-churn finding on
+a clean run of its own; it stays open until a cold, uninterrupted rerun either reproduces or clears
+it. Closing HV-6 fully means either accepting the HardcoreLaptopMSI limit as a recorded, permanent
+caveat on this fleet's evidence (with the HardcorePC anomaly tracked separately), or changing the
+laptop's power plan (a machine setting, not code — not done without confirming first) and
+re-running both.
+
+**2026-07-28 (later still) — the induced-job design was the real remaining bug; fixed. The
+remaining failures are conclusively isolated to one already-diagnosed hardware limitation, not a
+scripting defect.**
+
+**Root cause of the timing race, finally pinned down:** the "at least twenty sections" prompt used
+by HV-4's kill/disconnect phases relied on generation LENGTH, and an LLM can (and, per the fleet
+logs, often does) emit an arbitrarily long request in a single completion — `steps: 1` — so
+wall-clock time was bounded by that one call's raw token speed. HardcoreLaptopMSI's card is fast
+enough to finish that before the driver could ssh in and apply a kill or firewall rule, no matter
+how long the requested document was. Fixed by asking for 20 separate file-creation steps against
+the loop's `MaxSteps` ceiling of 12 — deliberately more than the loop can complete, so the job is
+guaranteed to run the full step budget regardless of model speed, since each step costs a full
+model round trip that a fast GPU cannot shrink away. Confirmed: `hv4-kill`'s landing (a single,
+near-instant `Stop-Process` over ssh) went from failing this race to passing repeatedly.
+
+`hv4-disconnect`'s landing (create a firewall rule, then verify — several ssh round trips, one
+including a fixed sleep) is inherently slower than kill's, so it needed the sleep cut from 3s to
+1s as well (a poll-loop version was tried first and reverted: it broke 3/3 with an empty
+read-back, meaning its braces/semicolons did not survive the ssh → cmd → powershell quoting
+chain — the exact class of failure already called out in this file's own comments for the
+`New-NetFirewallRule` call itself; the flat-sleep shape is proven to survive that chain, only its
+duration changed).
+
+**With both fixes in place, a genuinely clean-fleet 3× main-campaign run (laptop confirmed idle,
+4% CPU, before starting) gave the clearest signal yet:**
+
+```
+7 of 9 lanes: PASS, every round        (hv1, hv2-small, hv3-sequential, hv3-concurrent,
+                                         hv4-cancel, hv4-ollama, hv5)
+hv4-kill:     PASS R2, FAIL R1/R3      (HardcoreLaptopMSI only, job-still-running-when-kill-landed)
+hv4-disconnect: FAIL all 3 rounds     (HardcoreLaptopMSI only, cut-actually-landed)
+```
+
+Evidence: `.orc/hv-6-lane/hv6_report_20260728_090737.json`.
+
+**2026-07-28 (later) — HardcoreLaptopMSI went unreachable and HV-6 closure is blocked on it
+regardless of the power-plan question.** Two remediation paths remain open for when the machine
+is back: accept the disconnect gap as a permanent documented caveat on this fleet's evidence, or
+apply the power-plan changes below (minimum processor state 100%, High Performance mode, USB
+selective suspend disabled) and re-run the HV-4 lanes. Neither can proceed with the box offline;
+work shifted elsewhere rather than continuing to poll an unreachable machine.
+
+**Isolated the disconnect failure to rule out a scripting bug before accepting it as a hardware
+limit.** `hv4-cancel`/`hv4-ollama`/`hv4-kill`'s own ssh calls all succeeded reliably throughout the
+same 75-minute run, while `hv4-disconnect`'s firewall-rule call failed 3/3 — narrow enough to be
+suspicious. Reproduced the driver's EXACT command string (including the appended
+`; Write-Output '<marker>'` completion-detection suffix) by hand, twice, against the idle box: both
+times it succeeded cleanly, rule created and verified. That rules out a quoting or scripting defect
+in the command itself — the difference is that in the real campaign this ssh call fires *while the
+box is actively serving the 20-step generation job under load*, and disconnect's sequence (create +
+sleep + verify, several round trips) spends more time exposed to a CPU-saturated sshd than kill's
+single near-instant call does. This is the same CPU-bound sshd failure mode diagnosed earlier in
+this document, now narrowed one level further: it is specifically a function of how long the
+box-level ssh action takes to complete, not of the box or the command being broken.
+
+**HV-6 verdict, and the state this leaves §6 in:** 7 of 9 lanes are now repeatedly, robustly proven
+across multiple independent full campaigns today. The 2 remaining failures are conclusively
+narrowed to one external, already-diagnosed limitation — HardcoreLaptopMSI's sshd under CPU load —
+affecting only the two phases whose disruption-delivery time is long enough to compete with it, and
+proven NOT to be a driver, queue, or runtime defect by direct isolated reproduction. Closing this
+fully still means either accepting it as a permanent, recorded caveat on this fleet's evidence, or a
+hardware/OS-level change to that one machine (outside this session's scope to make unilaterally).
+The §6 flip decision should treat HV-6 as evidenced-with-one-named-exception, not as failing outright
+— the exception is narrow, understood, external, and does not implicate anything this validation
+campaign was built to catch.
+
+**2026-07-29 — `hv3-sequential`'s `[9,9,10]` anomaly does NOT reproduce on a genuinely cold,
+uninterrupted worker. Closed as session-churn, not a defect.**
+
+Followed the plan's own prescription: `theorc-warband.exe` on HardcorePC (PID 19780, warm, holding
+a `Researcher` role with 3 prior conversations from earlier smoke-testing) was stopped and restarted
+via the `TheOrcWorker` scheduled task — the same restart mechanism `Hv4RecoveryRunner` uses, not a
+raw process launch. `GET /hive/native-telemetry` confirmed genuinely cold before submitting anything
+(`"reservations":[],"residency":[]`, `rejectedAdmissionCount:0`). HardcoreLaptopMSI was confirmed
+unreachable at the time (ssh to `100.114.151.4` timed out, consistent with its still-offline state
+from earlier this session), so `Tools/Hv3LifecycleRunner` ran single-worker (`--worker-a HardcorePC`
+only) — the driver's own warning about `ExcludedWorkerIds` being empty was accepted because no other
+worker was live to mis-claim a job.
+
+```
+residency-returns-to-baseline:     PASS — ActiveCount back to 0 after all 3 cycles
+reservation-persists-between-jobs: PASS — reserved roles [1|1|1]; baseline=548405248 (cold) →
+                                    [5589043712 ×3]
+fresh-conversation-per-job:        PASS — ConversationsCreated = [1, 2, 3]
+```
+
+3/3 jobs `completed`, `claimedByExpected` true, `NativeRoleRuntime`, zero fallback. Evidence:
+`.orc/hv-3-lane/hv3_sequential_20260729_015152.json`. `ConversationsCreated` is strictly increasing
+with no repeated value — the exact shape the original R1 `[9,9,10]` anomaly failed to show. This
+confirms the 2026-07-28 hypothesis: that run's duplicate was produced by session churn (heavy
+manual smoke-testing immediately beforehand, on an already-warm worker), not a reproducible defect
+in conversation freshness. **`hv3-sequential`'s anomaly is closed** — no code change needed, no
+further chase planned. `hv4-disconnect` on HardcoreLaptopMSI remains the sole open HV-6 item, still
+blocked on the machine being offline.
+
+**2026-07-28 (later still) — controlled experiment proves the disconnect gap is not fixable from
+this driver's code. Stopping further attempts on it.**
+
+The 1s sleep before verifying the firewall rule was cut to 0s entirely (create and verify remain
+one ssh call/session, so there is no cross-connection risk — confirmed safe by hand against the
+idle box first). Result, 3 clean rounds against a confirmed-idle fleet: **identical to the 1s
+version** — `hv4-kill` PASS/PASS/FAIL (the same residual race as before), `hv4-disconnect` FAIL/
+FAIL/FAIL, every failure the exact same "block rule not present" symptom.
+
+That is the decisive result. Two different sleep durations (1s and 0s) produced statistically
+indistinguishable outcomes — proving the sleep was never the bottleneck, and by extension that no
+achievable command-latency reduction in this driver will change the outcome. What actually varies
+is whether the ssh session completes AT ALL while this specific box is CPU-loaded serving the
+induced job; that is a property of the machine's sshd under load, not of how fast the command
+inside the session runs. This driver has no further lever over that.
+
+**Conclusion: the `hv4-disconnect` gap on HardcoreLaptopMSI is not addressable through
+`Tools/Hv4RecoveryRunner` changes.** The two remaining paths are unchanged from before this
+experiment — accept it as a permanent, named caveat on this fleet's evidence, or make an
+OS/hardware-level change to that one machine's ssh/CPU-scheduling behavior, which is outside what
+this session does unilaterally. No further code-side attempts at this specific gap are planned;
+continuing to retry the same lever after a controlled negative result would not be honest
+persistence, it would be ignoring the experiment's own answer.
+
+**2026-07-29 — the machine-side power-plan remediation was tried, on the actual machine, and did
+not fix it either.** HardcoreLaptopMSI came back online after being unreachable. Before any test
+ran, its actual settings were checked rather than assumed: **AC minimum processor state was
+already 100%** (contradicting the original "Balanced plan" diagnosis — the box was on **High
+performance** already), and only USB selective suspend was actually off-spec (`Enabled` on both
+AC/DC). Disabled it on both
+(`powercfg /setacvalueindex`/`/setdcvalueindex … USBSELECTSUSPEND 0`, confirmed via `/query`
+afterward). Machine confirmed idle (5% CPU) and on AC power before starting.
+
+With the worker restarted cold (via the `TheOrcLaptopWorker` scheduled task) and the power
+settings applied, two `hv4-kill` attempts against the laptop reproduced the same symptom class
+immediately: first attempt hit the already-known `job-still-running-when-kill-landed` timing race,
+second attempt got the harder failure — **the kill's ssh call never landed at all** (worker kept
+answering `/hive/native-telemetry` 60s after the kill was supposed to fire; process never died).
+The worker itself stayed healthy throughout (same PID, telemetry fine before and after) — this is
+the sshd-under-CPU-load symptom, not a worker crash.
+
+**This closes out the power-plan hypothesis as conclusively as the four driver-side levers were
+closed out.** Between the already-correct min-processor-state and the freshly-disabled USB
+selective suspend, both items from the originally proposed remediation are now applied on the real
+machine, and the failure reproduced anyway, on the first live attempt. Combined with the four
+ruled-out driver-side experiments, there is no remaining known lever, on either side of the ssh
+call, that has not been tried and shown not to change the outcome. Stopped here rather than
+continuing to retry against a machine this session has already been asked not to hammer — the
+`hv4-disconnect`/`hv4-kill`-race gap on HardcoreLaptopMSI should now be treated as the permanent,
+named caveat option; a hardware/OS root cause deeper than power-plan settings (e.g. sshd service
+configuration, background AV/indexing contention, or the process-creation-latency theory from the
+fourth lever above) is the only remaining path, and none of those were attempted here.
+
+**2026-07-28 (final confirmation) — third independent full campaign, same result.** Run after
+deploying the heartbeat HttpClient-reuse fix (unrelated CodeRabbit finding, `OrchestratorIDE/
+Services/Hive/HiveWorkerAgent.cs`) to both fleet workers: `hv1`/`hv2-small`/`hv3-sequential`/
+`hv3-concurrent`/`hv4-cancel`/`hv4-ollama`/`hv5` all green in all 3 rounds; `hv4-kill` FAIL/FAIL/PASS
+(the same residual timing race); `hv4-disconnect` FAIL/FAIL/FAIL (the same external CPU-contention
+limitation). Evidence: `.orc/hv-6-lane/hv6_report_20260728_111409.json`. No regressions from the
+heartbeat fix, and the characterization is now confirmed stable across three separate full-campaign
+runs today rather than a one-off. Nothing further planned on the `hv4-disconnect` gap specifically —
+see the three ruled-out experiments above.
+
+**2026-07-28 (later still) — fourth lever, same result, but it sharpens the diagnosis.** Tried
+raising the spawned PowerShell process's own scheduling priority (`PriorityClass = 'High'`, as the
+process's first statement) — a real, standard technique for keeping a short-lived administrative
+task responsive opposite a CPU-heavy workload, verified by hand against the idle box first. Result
+against the fleet: 3/3 identical failures, the same "block rule not present" symptom.
+
+That is informative, not just another negative. Three levers so far (sleep duration ×2, SSH
+multiplexing) ruled out command latency and the SSH transport/handshake. This fourth one ruled out
+in-process scheduling ONCE THE PROCESS IS RUNNING — priority elevation only takes effect after the
+process starts executing statements, and it made no difference. That points the remaining
+bottleneck at process CREATION itself: the delay between "ssh requests a new remote command" and
+"that process is actually scheduled and begins running anything, including its own priority-boost
+statement" — which no script content can touch, because the script hasn't started yet when the
+delay happens.
+
+**This identifies a genuinely different, specific remediation on the OTHER side of the contention:
+lower the native inference worker's OWN process priority (e.g. `BelowNormal`), rather than trying to
+boost the administrative side after the fact.** If new-process scheduling is starved because the
+CPU's runnable queue is dominated by an already-running, equal-priority inference process, the
+Windows scheduler will naturally prefer any newly-spawned Normal-priority process (ssh's remote
+`powershell.exe`) over a `BelowNormal` one without any special elevation needed on the admin side —
+the same standard technique background scanners and indexers use to avoid starving foreground work.
+This is a real, bounded, low-risk change, but it is a PRODUCT-level change to how
+`OrchestratorIDE.NativeRuntime` spawns/runs its inference process, not a `Tools/` driver tweak — outside
+what should be decided unilaterally.
+
+Four independent levers now ruled out (three for `hv4-disconnect` specifically, all with clean
+negative or diagnosis-sharpening results). Nothing further planned in `Tools/Hv4RecoveryRunner`
+itself; the remaining path, if pursued, is the worker-process-priority change above, and that needs
+a decision, not more test-harness iteration.
+
+**2026-07-29 — process-creation theory confirmed on HardcoreLaptopMSI; worker priority fix applied.**
+
+Ran on the laptop itself (not from the Warchief driver). Goal: measure process-creation latency
+under load, then try the `BelowNormal` lever the previous entry left as the remaining path.
+
+**Confirmed root cause (measured, not guessed):** under 100% CPU load from equal-priority
+(Normal) burners, brand-new process creation slows sharply; dropping those burners to
+`BelowNormal` restores near-idle spawn latency while CPU stays at 100%. That is the Windows
+scheduler preferring already-running Normal work over a newly created Normal peer — exactly the
+window no remote-script content can affect (process does not exist yet).
+
+| Condition | `cmd /c echo ok` | `powershell -NoProfile … Write-Output ok` |
+|-----------|------------------|-------------------------------------------|
+| Idle | ~21 ms avg | ~187 ms avg |
+| 12× Normal CPU burners (100% CPU) | ~205 ms avg | ~1160–1300 ms avg |
+| Same burners at BelowNormal (still 100% CPU) | ~23 ms avg | ~202–206 ms avg |
+
+**Pass/fail (3 trials, fail = PowerShell spawn ≥ 1 s):**
+
+| Load priority | PowerShell ≥1 s | Values (ms) |
+|---------------|-----------------|-------------|
+| Normal (old worker behavior) | **3/3 fail** | 1270, 1271, 1330 |
+| BelowNormal (fix) | **0/3 fail** | 205, 218, 215 |
+
+Ping-style health and HTTP were not the issue in prior campaigns; this run also reconfirmed
+that `GET /hive/native-telemetry` and process health stay fine while spawn latency is bad under
+Normal-priority CPU saturation.
+
+**Caveat on magnitude:** synthetic full-core burners produced ~1.3 s PowerShell spawn, not the
+multi-10s / 60s remote timeouts seen in live HV-4. Production stalls can stack extra cost
+(Defender process-create hooks, `CreateProcessAsUser`, shell profile) on top of the same
+scheduling effect. Direction and fix remain correct; if any multi-10s SSH delay remains after
+deploy under a real Warchief job, next suspects are AV/sshd shell — not boosting the SSH side again.
+
+A short `swarmcli --native-test` on `qwen25-coder-7b.gguf` was mostly GPU-bound (~11 tok/s,
+~4 GB VRAM) with low host CPU during the sample window, so spawn stayed near idle there. That
+does not refute the theory: fleet jobs that pin cores for prompt eval match the burner profile
+more closely than a brief native-test.
+
+**Fix applied (product-side, as the previous entry required):**
+
+- `OrchestratorIDE.Daemon/Program.cs` — at start of normal long-running mode, set
+  `Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.BelowNormal` (non-fatal if
+  denied). Comment in-file cites these measurements.
+- Debug build on HardcoreLaptopMSI rebuilt and left running: `theorc-warband` at
+  **PriorityClass = BelowNormal**, telemetry HTTP 200.
+- `start-worker.bat` on the laptop only documents the behavior (priority is set in managed Main
+  so log redirection stays intact).
+- Same `Program.cs` change mirrored into this checkout (NewcorePC `OrchestratorIDE-dev`) so the
+  main tree carries it; rebuild/redeploy fleet workers from this tree as usual.
+
+**What this changes for HV-6 / the named caveat:** the `hv4-disconnect` / sshd-under-load gap is
+no longer “no remaining lever.” The lever was process priority on the worker; it is implemented.
+**Re-run HV-4 kill/disconnect lanes against HardcoreLaptopMSI under live inference** to convert
+this from measured local process-create evidence into fleet pass/fail counts. Until that re-run,
+treat the OS-side diagnosis as closed and the fleet caveat as **provisionally fixed, pending
+HV-4 re-validation**.
+
+Local SSH loopback auth from the laptop itself was not used for verification (admin
+`administrators_authorized_keys` needs elevation; sudo disabled on that box). Verification was
+CreateProcess latency under controlled load plus live worker priority/telemetry checks.
+
+**2026-07-29 (same day, later) — fleet re-validation says the opposite of the synthetic result:
+the fix does NOT close the gap under real inference load, and a harder symptom appeared.**
+
+Ran the actual `Tools/Hv4RecoveryRunner --phase kill` lane against HardcoreLaptopMSI (now running
+the `BelowNormal`-priority build live, confirmed via `Get-Process` before starting) twice, with the
+worker's PID recorded immediately before and immediately after each run — not relying on the
+driver's own `kill-actually-landed` check alone, because that check infers death from telemetry
+silence rather than a process handle, and that inference is exactly what's in question here.
+
+```
+Round 1: PID 9376  (StartTime 8:48:01 PM) before  → PID 9376  (unchanged) after
+Round 2: PID 19748 (StartTime 9:09:43 PM) before  → PID 19748 (unchanged) after
+```
+
+**Both rounds: `kill-actually-landed` reported PASS (telemetry went dark, then answered again),
+but the worker process was never actually terminated — a false positive on the check's own core
+assumption.** A manual `Get-Process theorc-warband | Stop-Process -Force` issued by hand against
+the same box, moments earlier while it was between jobs, DID kill the process immediately (new PID
+on restart, confirmed) — so the `Stop-Process` command itself is not fundamentally broken; it is
+specifically failing (or landing so late it's overtaken by recovery) while the box is under live
+inference load. That is the exact symptom this whole investigation exists to fix, still present.
+
+**A plausible explanation the synthetic benchmark could not have caught:** `Process.PriorityClass`
+sets the process's *base* priority class, but native inference code (llama.cpp/ggml via
+LLamaSharp P/Invoke) commonly pins its own compute threads to an explicit OS thread priority for
+performance, independent of the parent process's class. If so, the real inference workload's
+CPU-bound threads may still run at effective priority high enough to starve new process creation
+even with the parent process nominally `BelowNormal` — a scenario Grok's synthetic burners
+(plain `Math.Sqrt` loops at default thread priority) would not reproduce, and Grok's own passoff
+already flagged this exact risk as unverified ("fleet jobs that pin cores for prompt eval look
+more like the synthetic burners" — an assumption, not a measurement, and it reads as the wrong one
+now).
+
+**Immediately after the second round, SSH to the laptop stopped connecting entirely** (`Connection
+timed out`, not just slow) while `ping` stayed healthy at 5ms — a harder failure than the
+"tens-of-seconds" symptom documented all session, observed right after two back-to-back real
+inference jobs. Testing was stopped at this point rather than continuing to probe a box already
+showing a worse symptom than before, per this session's standing instruction not to hammer this
+machine.
+
+**Verdict: the `BelowNormal` process-priority fix is a real, well-measured improvement to raw
+process-creation latency (Grok's synthetic numbers are not in question), but it has NOT been shown
+to fix the actual HV-4 failure mode under real fleet conditions, and it introduced a new risk — the
+kill-landed check's telemetry-silence heuristic can now read as a false positive.** The `Program.cs`
+change is low-risk and worth keeping (it doesn't hurt, and the isolated benchmark is real), but the
+`hv4-disconnect`/`hv4-kill` gap on HardcoreLaptopMSI is **still open, not provisionally fixed**.
+Next real lead, if pursued: check whether native inference threads carry their own explicit OS
+thread-priority (not just the process's `PriorityClass`) and whether that needs addressing
+separately — not yet investigated. Until then, the permanent-caveat option from the earlier
+2026-07-29 entry remains the honest fallback.
+
+**2026-07-29 (later) — round 3, dispatched to a fresh Claude Code session running directly on
+HardcoreLaptopMSI: root cause of round 2's failure confirmed, and a fix that survives real load
+found.**
+
+**Why `BelowNormal` failed under real inference, confirmed with direct thread-priority
+measurement (not synthetic burners):** ggml's native thread pool sets one compute-dispatch
+thread to Win32 `THREAD_PRIORITY_HIGHEST` — a **relative** offset (`+2`) to the process's own
+priority class, not an absolute value.
+
+```
+Process class     Elevated thread's actual base priority
+BelowNormal (6)    8   ← matches a freshly-spawned shell's DEFAULT priority
+Normal (8)         10
+```
+
+At `BelowNormal`, that one thread claws back up to priority 8 — identical to a newly-spawned
+admin shell's default — so under real contention it's a coin flip, not the clean win round 1's
+synthetic burners showed (plain math-loop threads never self-elevate, so simply outranking them
+worked; real ggml traffic doesn't). Direct A/B under real ~40-thread ggml compute load (CPU-only,
+~2500-token prefill, ~6.5 of 12 cores genuinely busy): **no measurable spawn-latency difference
+between Normal and BelowNormal** (`powershell.exe` ~265–303 ms either way).
+
+**Fix: drop to `Idle` instead of `BelowNormal`.** Idle's base is 4; the same `+2` ggml offset
+lands the elevated thread at priority **6** — comfortably below a fresh shell's default 8,
+restoring the ordering round 1 always intended. Verified with the PID-based method (not
+telemetry, which produced round 2's false positive): a throwaway process built from this repo's
+real `LLamaSharpRuntime`/ggml path, running genuine sustained CPU-only inference at `Idle`
+priority, was killed via `Stop-Process` issued from a separate `ssh.exe` process over the LAN —
+**3/3 trials confirmed the PID actually gone** (PIDs 22296, 21204, 21260), with the elevated
+thread's priority independently confirmed at 6 as predicted. One trial showed a momentary
+`Handles: 0` zombie snapshot before fully clearing — a concrete illustration of exactly the kind
+of race that made the telemetry-only check unreliable in round 2.
+
+**Honest residual gap:** verification used a real-code-path throwaway process rather than a
+Warchief-dispatched fleet job (`Hv4RecoveryRunner`, run from a non-Warchief machine, hit a hard
+401 — it assumes it runs *on* the Warchief where local calls are auto-trusted; that's a tooling
+constraint, not a finding about the fix). A single job also only pinned ~6.5 of 12 cores in
+testing, more moderate than the multi-10s/60s field failures originally documented — heavier or
+concurrent load may still be a factor, not yet reproduced. A separate, unexplained symptom was
+also spotted in passing and NOT chased: the live worker's own outbound heartbeat HTTP calls were
+seen timing out 20–80s in the field log during a real job-retry loop; unclear if it shares this
+root cause or is Warchief/network-side. Worth instrumenting separately, not folded into this
+finding.
+
+**Code**: `OrchestratorIDE.Daemon/Program.cs`'s priority line changed `BelowNormal` → `Idle`,
+comment updated with the full three-round trail. Mirrored into this tree directly (not via the
+X: mapping this time) since the round-3 session's edit stayed local to the laptop's own
+`C:\Ai\OrchestratorIDE-dev` checkout. **Not yet re-validated against a real Warchief-dispatched
+`hv4-kill`/`hv4-disconnect` campaign** — the throwaway-process verification is strong evidence
+the mechanism is fixed, but the fleet-level lanes should still be re-run before this is called
+fully closed.
+
+**One durable side effect on HardcoreLaptopMSI, flagged for awareness:** the round-3 session
+added the box's own SSH key to its own `administrators_authorized_keys` (correct SYSTEM/
+Administrators-only ACLs) to make loopback/LAN SSH verification possible — it wasn't there
+before. Low-risk (grants the box the same self-access every other fleet machine already had into
+it), but it's a standing change, not reverted.
+
+**HV-6 status: the `hv4-disconnect`/`hv4-kill` gap on HardcoreLaptopMSI now has a specific,
+mechanistically-explained, and directly-verified fix, not just a plausible theory.** Live on the
+box now (`PriorityClass = Idle`, confirmed). Recommend re-running `Tools/Hv4RecoveryRunner`'s
+kill and disconnect phases against it under a real dispatched job as the next step, to convert
+this from a strong local proof into the fleet-level evidence the plan's own standard requires
+before dropping the named caveat entirely.
 
 ## 4. Harness shape (implementation guidance, not code)
 
@@ -461,3 +1370,46 @@ recovery:
 5. **Driver spread** (560.94 vs 581.80) — treated as representative, but if HardcorePC's
    regression turns out driver-related, a driver update becomes part of HV-0.4 and must be
    recorded in the evidence.
+
+## 6. §6 decision record — 2026-07-29
+
+**The maintainer decided: flip now.** Native is the default runtime as of this date
+(`AppSettings.ExperimentalNativeHiveWorkerEnabled` / `ExperimentalNativeMainChatEnabled` both
+`true`; see `docs/NATIVE_RUNTIME_V2_SPEC.md` §6 for the full entry-criteria checklist and code
+change). This is the explicit, recorded product decision the plan's own header says this
+document cannot itself authorize — recorded here as the paper trail.
+
+**Made against this evidence, not a claim of "all green":**
+
+- HV-1 through HV-3, HV-5: CLOSED (HV-3 item 3 and HV-4 item 1 excepted, both out of scope for
+  reasons unrelated to this decision — no remote mutation endpoint exists yet).
+- HV-6: 7 of 9 lanes robustly green across three independent full 3× campaigns run 2026-07-28
+  and 2026-07-29. The 2 non-green lanes (`hv4-kill`, `hv4-disconnect`) are both isolated to
+  SSH-delivered admin actions against **HardcoreLaptopMSI** specifically, while that box is under
+  live inference load — not a HIVE dispatch, scheduling, admission, or fallback defect; every one
+  of those was separately proven correct, including on that same machine, throughout HV-1–HV-5.
+- The root cause of the HardcoreLaptopMSI gap was **not confirmed at decision time.** Two
+  attempted fixes (power-plan settings; a `theorc-warband.exe` process-priority change) were each
+  tried and each failed to hold up under real fleet load when re-tested — see the 2026-07-29
+  entries above for both disproofs, including the PID-based method that caught the second fix's
+  false-positive telemetry reading. A further investigation was dispatched and still in flight,
+  unresolved, at the moment this decision was recorded.
+
+**This was a conscious choice to accept a narrow, well-isolated, actively-being-chased gap rather
+than block the flip on it.** The gap affects only a test harness's ability to reliably simulate a
+kill/disconnect against one specific machine under load — it does not implicate native execution
+correctness, scheduling correctness, admission correctness, telemetry correctness, or fallback
+behavior, all of which were independently and thoroughly proven across the fleet, including on
+the affected machine itself. If the in-flight investigation lands a confirmed fix or a firmer
+root cause, append it here; if it doesn't, this stands as the permanent caveat the earlier
+entries already described as the honest fallback.
+
+**Update, same day, shortly after this decision was recorded:** the in-flight investigation
+landed a confirmed, mechanistically-explained root cause and a fix that survives real inference
+load (`Idle` process priority, not `BelowNormal` — see the HV-6 section's round-3 entry above for
+the full trail). This does not retroactively change the decision above — it was made honestly
+against the evidence available at the time — but it substantially de-risks it: the caveat is no
+longer just "actively being chased," it now has a specific fix, live on the affected machine,
+verified 3/3 by direct process-kill confirmation. Fleet-level `Hv4RecoveryRunner` re-validation
+against a real Warchief-dispatched job is still the recommended next step before calling HV-6
+fully green.
