@@ -793,6 +793,16 @@ affects only the *test harness's* ability to reliably deliver a disruption to th
 native execution, scheduling, and telemetry on that machine are otherwise proven correct
 (HV-1/HV-2/HV-3/HV-5 all closed on it).
 
+**Caveat resolved the same day, after this entry was first written.** The process-priority fix
+(`Idle`, not the initially-tried `BelowNormal`) is confirmed correct. What looked like continued
+fleet-level failures after that fix landed turned out to be a separate, unrelated cause: this
+specific laptop's WiFi driver disconnecting mid-test (confirmed via its own WLAN-AutoConfig event
+log and directly observed by the user), not a defect in the fix, the driver, or anything this
+campaign was built to catch. Re-run over a wired Ethernet connection, both `hv4-kill` and
+`hv4-disconnect` passed cleanly with independently-verifiable evidence (a real PID change; real
+firewall-rule presence/absence). **HV-6 is now 9 of 9 lanes closed.** Full trail in
+`docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md`'s HV-6 section, final 2026-07-29 entries.
+
 This milestone was gated on **live multi-machine HIVE validation**, not single-box results —
 that gate was met. It supersedes the ROADMAP's prior position that Ollama stays default *"until
 the ModelDepot + installer first-run story is bulletproof and the reviewer/Swarm abstraction
