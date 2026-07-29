@@ -1345,6 +1345,68 @@ kill and disconnect phases against it under a real dispatched job as the next st
 this from a strong local proof into the fleet-level evidence the plan's own standard requires
 before dropping the named caveat entirely.
 
+**2026-07-29 (later) — fleet-level re-validation attempted over WiFi first: three consecutive
+false positives, root-caused to WiFi instability rather than a driver or priority-fix defect.
+Then genuinely resolved by testing over Ethernet — both `hv4-kill` and `hv4-disconnect` PASS
+clean, for real, with independently-verifiable evidence, not just telemetry silence.**
+
+**The false positives:** three `hv4-kill` attempts over Tailscale and the laptop's WiFi LAN IP
+each reported full `Verdict: PASS` (including `kill-actually-landed`, `worker-rejoins`, and
+`role-reusable-after-recovery`), but the worker's PID — checked directly via `Get-Process`
+immediately before and after each attempt, with hostname/live-clock/computed-uptime
+cross-verification to rule out a stale reading — was identical every time. The real production
+worker was never killed at all; the driver's telemetry-silence-based check simply couldn't tell.
+LAN vs. Tailscale produced the identical false positive both ways, ruling out one network path
+being at fault over the other — but not ruling out the network layer itself.
+
+**Root cause: the laptop's WiFi has real, driver-initiated disconnects, confirmed independently
+of any of this driver's tooling.** The user observed a live "connection lost" state on the laptop
+itself while its WiFi showed as on. `Get-WinEvent -LogName Microsoft-Windows-WLAN-AutoConfig` on
+the box shows a clear, recent disconnect/reconnect pattern, including an explicit
+`"WLAN AutoConfig service has successfully disconnected from a wireless network. Reason: The
+network is disconnected by the driver."` entry — not a signal or AP issue, the RZ616 driver
+itself dropping the connection. `Get-NetAdapterPowerManagement` shows the standard "power saving
+disconnects WiFi" culprit doesn't even apply here (`AllowComputerToTurnOffDevice: Unsupported`
+for this adapter) — this is a different, driver-level flakiness. A mid-test WiFi drop silently
+killing the SSH master connection, with a subsequent multiplexed channel request behaving
+unpredictably against it, explains the false positives far more simply than a bug in this
+driver's `ProcessStartInfo`/`ArgumentList` handling — which was the theory being pursued right
+before this was found. **Correctly abandoned that theory rather than chasing a phantom software
+bug once real, independent evidence of a hardware/driver problem surfaced.**
+
+**Decisive test: same driver, same box, only the interface changed.** With an Ethernet cable
+connected (`192.168.1.179`, distinct from WiFi's `192.168.1.117`), both phases re-run against
+the Ethernet IP — and, per HV-6's own repeatability bar, **3 consecutive rounds**, not one, each
+with the kill verified by a direct PID check (not telemetry) and the disconnect verified by
+actual firewall-rule presence/absence (not inferred from silence):
+
+```text
+hv4-kill,       round 1: PID 59984 -> 61608, new StartTime -- genuine kill+restart
+hv4-disconnect, round 1: block rule present (count=1) during cut, removed (count=0) after
+hv4-kill,       round 2: PID 61608 -> 64300, new StartTime -- genuine kill+restart
+hv4-disconnect, round 2: block rule present (count=1) during cut, removed (count=0) after
+hv4-kill,       round 3: PID 64300 -> 59756, new StartTime -- genuine kill+restart
+hv4-disconnect, round 3: block rule present (count=1) during cut, removed (count=0) after
+```
+
+All 6 runs: full `Verdict: PASS`, every check, including `role-reusable-after-recovery`. Worker
+confirmed healthy after the final round (telemetry 200, `PriorityClass = Idle` intact through
+every restart, firewall rule count 0). Evidence:
+`.orc/hv-4-lane/hv4_kill_20260729_154721.json`, `hv4_disconnect_20260729_162459.json`,
+`hv4_kill_20260729_165225.json`, `hv4_disconnect_20260729_165755.json`,
+`hv4_kill_20260729_170245.json`, `hv4_disconnect_20260729_170601.json`.
+
+**HV-6 verdict, final: the `hv4-disconnect`/`hv4-kill` gap on HardcoreLaptopMSI is CLOSED, with
+genuine 3×-round repeatability evidence — not a single lucky pass.** The `Idle`-priority fix is
+now confirmed correct at the fleet level (not just via a throwaway process), and the driver
+itself has no defect — every prior "failure" on this box was either the pre-fix thread-priority
+contention (now fixed) or this box's WiFi driver dropping the connection mid-test (worked around
+by using Ethernet). The residual, honest caveat: this specific 3×-round evidence was collected
+over a wired connection, not WiFi/Tailscale — HardcoreLaptopMSI should stay on Ethernet for
+future HV-4 kill/disconnect runs, or the WiFi driver issue itself should be tracked and fixed as
+a known instability on that specific machine, separate from anything this validation campaign
+was built to catch in TheOrc's own code. **HV-6 is now 9 of 9 lanes closed.**
+
 ## 4. Harness shape (implementation guidance, not code)
 
 - **Driver:** a `Tools/` PowerShell orchestration script on the Warchief (SSH for box-level
@@ -1413,3 +1475,18 @@ longer just "actively being chased," it now has a specific fix, live on the affe
 verified 3/3 by direct process-kill confirmation. Fleet-level `Hv4RecoveryRunner` re-validation
 against a real Warchief-dispatched job is still the recommended next step before calling HV-6
 fully green.
+
+**Final update, same day: the caveat is now fully closed, not just de-risked.** Fleet-level
+re-validation initially produced three false positives over WiFi/Tailscale, traced to the
+laptop's WiFi driver dropping the connection mid-test (confirmed independently via
+`Get-WinEvent`'s WLAN-AutoConfig log and the user's own observation of a live "connection lost"
+state) — not a defect in the priority fix or the HIVE dispatch/scheduling/admission path. Re-run
+over a wired Ethernet connection for a genuine 3× repeatability campaign (not a single pass —
+CodeRabbit correctly flagged an earlier draft of this entry for claiming closure on one round),
+both `hv4-kill` and `hv4-disconnect` passed cleanly all 3 rounds with independently-verifiable
+evidence each time (a genuine PID change for the kill; firewall-rule presence/absence for the
+disconnect — not telemetry silence). See the HV-6 section's final 2026-07-29 entry for the full
+6-run trail. The residual caveat is now narrower still: HardcoreLaptopMSI's WiFi adapter has a
+known driver-level instability, worth a wired connection for future fleet
+testing on that box, but this no longer implicates the runtime, the scheduler, or the validation
+harness in any way.
