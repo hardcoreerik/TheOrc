@@ -30,6 +30,12 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 {
     private static readonly TimeSpan DefaultDisposeWaitTimeout = TimeSpan.FromSeconds(5);
     private CancellationTokenSource? _cts;
+    // Per-task cancellation, separate from _cts (the worker's whole-process lifetime token).
+    // Registered in ClaimAndExecuteAsync while a task is in flight, removed in its `finally` —
+    // lets a remote /hive/tasks/cancel request (see HiveNodeServer.CancelTaskHandler) interrupt
+    // ONE task's generation without stopping the worker or any other concurrently-running task.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource>
+        _activeTaskCancellations = new();
     private Task? _runLoopTask;
     private Task? _shutdownTask;
     private int _disposeState;
@@ -125,6 +131,21 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
     {
         try { _cts?.Cancel(); } catch { /* best-effort shutdown */ }
         _cts = null;
+    }
+
+    /// <summary>
+    /// Cancels ONE in-flight task by id, surfacing as <see cref="OperationCanceledException"/>
+    /// inside that task's generation loop (via the per-task token created in
+    /// <see cref="ClaimAndExecuteAsync"/>) without affecting the worker's poll loop or any other
+    /// concurrently-running task. Returns false if no task with this id is currently tracked
+    /// (already finished, never claimed by this worker, or a stale/unknown id) — the caller
+    /// (<see cref="HiveNodeServer"/>'s cancel endpoint) reports that as "not found", not an error.
+    /// </summary>
+    public bool TryCancelTask(string taskId)
+    {
+        if (!_activeTaskCancellations.TryGetValue(taskId, out var cts)) return false;
+        try { cts.Cancel(); } catch (ObjectDisposedException) { return false; }
+        return true;
     }
 
     // ── Main polling loop ─────────────────────────────────────────────────────
@@ -429,13 +450,24 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var heartbeatTask      = HeartbeatLoopAsync(bundle, claimToken ?? "", heartbeatCts.Token);
 
+        // Separate linked token for the task ITSELF, distinct from heartbeatCts above (that one
+        // stops HEARTBEATING once execution ends; this one, cancelled independently by
+        // TryCancelTask via a remote /hive/tasks/cancel request, interrupts the GENERATION).
+        // Registered here rather than earlier because a task without a claim token was never
+        // really "this worker's" to cancel.
+        using var taskCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        _activeTaskCancellations[bundle.TaskId] = taskCts;
+
         try
         {
-            result = await ExecuteTaskAsync(bundle, ct).ConfigureAwait(false);
+            result = await ExecuteTaskAsync(bundle, taskCts.Token).ConfigureAwait(false);
         }
         // Same distinction as RunLoopAsync: an HTTP-timeout TaskCanceledException is a task
         // failure to report back to the Warchief, not a worker shutdown — rethrowing it would
-        // orphan the lease with no fail result posted.
+        // orphan the lease with no fail result posted. A remote per-task cancel (taskCts tripped,
+        // ct itself still live) falls through to the generic handler below instead, exactly like
+        // any other execution failure — the plan's own "cancellation surfaces mid-generation as
+        // an OperationCanceledException, task fails visibly" requirement, not a worker shutdown.
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
@@ -457,6 +489,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         {
             heartbeatCts.Cancel();
             try { await heartbeatTask.ConfigureAwait(false); } catch { }
+            _activeTaskCancellations.TryRemove(bundle.TaskId, out _);
         }
 
         var taskResult = new HiveTaskResult

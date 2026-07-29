@@ -77,4 +77,20 @@ public sealed class HiveWorkerAgentTests
             foreach (var client in stalled) client.Dispose();
         }
     }
+
+    /// <summary>
+    /// HV-4 item 1's remote cancel endpoint (HiveNodeServer.CancelTaskHandler) reports "not
+    /// found" (404) rather than an error for a taskId this worker isn't currently tracking —
+    /// covers the empty-registry case (never claimed anything) and an id that simply doesn't
+    /// match. The "found and actually cancels" path needs a real claimed task in flight
+    /// (a heavier integration scenario); this locks down the safe, cheap half: an unknown id
+    /// never throws and never reports a false positive.
+    /// </summary>
+    [TestCase("")]
+    [TestCase("never-claimed-task-id")]
+    public void TryCancelTask_ReturnsFalse_ForUnknownTaskId(string taskId)
+    {
+        var agent = new HiveWorkerAgent();
+        Assert.That(agent.TryCancelTask(taskId), Is.False);
+    }
 }

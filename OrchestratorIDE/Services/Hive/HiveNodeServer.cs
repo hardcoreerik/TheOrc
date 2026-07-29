@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using OrchestratorIDE.Core.Runtime;
 
 namespace OrchestratorIDE.Services.Hive;
 
@@ -23,6 +24,8 @@ namespace OrchestratorIDE.Services.Hive;
 ///   POST /hive/mesh/election/stepdown     — authenticated election: temp Warchief stepping down
 ///   GET  /hive/update/version             — this node's installed version (unauthenticated)
 ///   POST /hive/update/deploy              — Warchief-authenticated remote update trigger
+///   POST /hive/roles/degrade              — Warchief-authenticated forced role recycle
+///   POST /hive/tasks/cancel               — Warchief-authenticated single in-flight task cancel
 ///
 /// Auth: all /hive/mesh/* endpoints validate HMAC headers via HiveAuthMiddleware.
 /// /hive/tasks/* endpoints (port 7079, HiveTaskQueue) are wired separately and
@@ -79,6 +82,26 @@ public sealed class HiveNodeServer : IDisposable
     /// repeatability requirement re-runs that driver unattended).
     /// </summary>
     public Func<object?>? NativeTelemetryProvider { get; set; }
+
+    /// <summary>
+    /// Injected by the app (Daemon: HiveService, alongside NativeTelemetryProvider) so
+    /// POST /hive/roles/degrade can force a role's native executor to recycle on its next mint
+    /// (<see cref="OrchestratorIDE.Core.Runtime.RuntimeOrchestrator.MarkRoleDegraded"/> via
+    /// <c>NativeRoleRuntime</c>'s public forwarder). Previously reachable ONLY from the runtime's
+    /// own NoKvSlot/generation-failure handling (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md,
+    /// HV-3 item 3 / HV-4 item 1) — this is that long-deferred remote trigger. Null when native
+    /// execution isn't configured on this node, same convention as NativeTelemetryProvider.
+    /// </summary>
+    public Func<RuntimeRole, Task>? MarkRoleDegradedHandler { get; set; }
+
+    /// <summary>
+    /// Injected by the app (Daemon: HiveService, after constructing HiveWorkerAgent) so
+    /// POST /hive/tasks/cancel can interrupt ONE in-flight task
+    /// (<see cref="HiveWorkerAgent.TryCancelTask"/>) without stopping the worker or any other
+    /// concurrently-running task. Returns false (surfaced as 404) for an id this worker isn't
+    /// currently tracking. Null on a node with no worker agent (e.g. Warchief-only).
+    /// </summary>
+    public Func<string, bool>? CancelTaskHandler { get; set; }
 
     // Pending pairing sessions: sessionId → (request, expiry, initiator-remote-ip)
     private readonly Dictionary<string, (HivePairingRequest Req, DateTime Expiry, string RemoteIp)> _pendingPairings = [];
@@ -549,6 +572,35 @@ public sealed class HiveNodeServer : IDisposable
                 return;
             }
 
+            // Forced role recycle — Warchief-only, same authority tier as remote deploy: this is
+            // a fleet-operator diagnostic action (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md
+            // HV-3 item 3), not something any authenticated-but-unprivileged peer should trigger.
+            if (method == "POST" && path == "/hive/roles/degrade")
+            {
+                if (!IsWarchief(authResult.NodeId))
+                {
+                    resp.StatusCode = 403;
+                    Error(resp, "only the Warchief may force a role recycle");
+                    return;
+                }
+                HandleMarkRoleDegraded(body, resp);
+                return;
+            }
+
+            // Single in-flight task cancel — Warchief-only, same reasoning as above: this
+            // interrupts a real running generation on the worker (HV-4 item 1), not a read.
+            if (method == "POST" && path == "/hive/tasks/cancel")
+            {
+                if (!IsWarchief(authResult.NodeId))
+                {
+                    resp.StatusCode = 403;
+                    Error(resp, "only the Warchief may cancel a task");
+                    return;
+                }
+                HandleCancelTask(body, resp);
+                return;
+            }
+
             resp.StatusCode = 404;
             Error(resp, "not found");
         }
@@ -932,6 +984,87 @@ public sealed class HiveNodeServer : IDisposable
             Ok(resp, Json(new { status = "ok" }));
         }
         catch { resp.StatusCode = 400; Error(resp, "bad request"); }
+    }
+
+    /// <summary>
+    /// Shared authority check for the Warchief-only mutation endpoints (remote deploy, forced
+    /// role recycle, task cancel). Mirrors the inline check already used by
+    /// /hive/update/deploy — factored out here rather than duplicated a third time. Peer-local
+    /// and non-transitive: being a Founder elsewhere does not make a node the Warchief FROM this
+    /// node's own perspective (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md:90-99), so this checks
+    /// ElectionService's own live view, the same source /hive/update/deploy already trusts.
+    /// </summary>
+    internal bool IsWarchief(string nodeId)
+    {
+        var wc = ElectionService?.WarchiefNodeId;
+        return !string.IsNullOrEmpty(wc) && wc == nodeId;
+    }
+
+    // ── /hive/roles/degrade ───────────────────────────────────────────────────
+
+    private sealed record MarkRoleDegradedRequest(string Role);
+
+    private void HandleMarkRoleDegraded(byte[] body, HttpListenerResponse resp)
+    {
+        if (MarkRoleDegradedHandler is null)
+        {
+            resp.StatusCode = 503;
+            Error(resp, "native execution is not configured on this node");
+            return;
+        }
+        MarkRoleDegradedRequest? payload;
+        try { payload = JsonSerializer.Deserialize<MarkRoleDegradedRequest>(body, _jsonIn); }
+        catch { resp.StatusCode = 400; Error(resp, "bad request"); return; }
+
+        if (payload is null || !Enum.TryParse<RuntimeRole>(payload.Role, ignoreCase: true, out var role))
+        {
+            resp.StatusCode = 400;
+            Error(resp, $"invalid or missing role (expected one of: {string.Join(", ", Enum.GetNames<RuntimeRole>())})");
+            return;
+        }
+
+        // Fire the recycle, respond immediately — MarkRoleDegraded itself is a fast, in-memory
+        // flag set (AdapterManager.cs:317-334), but the actual recycle only happens lazily on the
+        // role's next mint, so there's nothing further to await before answering the caller.
+        Ok(resp, Json(new { status = "ok", role = role.ToString() }));
+        var handler = MarkRoleDegradedHandler;
+        _ = Task.Run(async () =>
+        {
+            try { await handler(role).ConfigureAwait(false); }
+            catch (Exception ex) { /* best-effort: the next mint will still recycle on its own detection paths */ Console.Error.WriteLine($"[HiveNodeServer] MarkRoleDegraded({role}) failed: {ex.Message}"); }
+        });
+    }
+
+    // ── /hive/tasks/cancel ────────────────────────────────────────────────────
+
+    private sealed record CancelTaskRequest(string TaskId);
+
+    private void HandleCancelTask(byte[] body, HttpListenerResponse resp)
+    {
+        if (CancelTaskHandler is null)
+        {
+            resp.StatusCode = 503;
+            Error(resp, "no worker agent is running on this node");
+            return;
+        }
+        CancelTaskRequest? payload;
+        try { payload = JsonSerializer.Deserialize<CancelTaskRequest>(body, _jsonIn); }
+        catch { resp.StatusCode = 400; Error(resp, "bad request"); return; }
+
+        if (payload is null || string.IsNullOrWhiteSpace(payload.TaskId))
+        {
+            resp.StatusCode = 400;
+            Error(resp, "missing taskId");
+            return;
+        }
+
+        if (!CancelTaskHandler(payload.TaskId))
+        {
+            resp.StatusCode = 404;
+            Error(resp, "no in-flight task with this id on this worker");
+            return;
+        }
+        Ok(resp, Json(new { status = "ok", taskId = payload.TaskId }));
     }
 
     // ── /hive/mesh/election/* ─────────────────────────────────────────────────
