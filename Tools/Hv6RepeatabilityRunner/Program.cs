@@ -72,24 +72,28 @@ internal static class Program
         // these are two invocations rather than one that switches mid-run.
         var largeOnly = Array.IndexOf(args, "--large-only") >= 0;
 
+        // No hostname, Tailscale IP or checkout path defaults to one developer's environment here:
+        // a missing flag must fail loudly rather than silently target someone else's machines
+        // (CodeRabbit review of this PR). Every one of these is RequireArg except the low-VRAM
+        // worker id, which is a genuinely safe derivation once worker-a is already known.
         var fleet = new Fleet
         {
-            WorkerAId   = GetArg(args, "--worker-a") ?? "HardcorePC",
-            WorkerANode = GetArg(args, "--worker-a-node") ?? "http://100.102.190.112:7078",
-            WorkerASsh  = GetArg(args, "--worker-a-ssh") ?? "100.102.190.112",
-            WorkerATask = GetArg(args, "--worker-a-task") ?? "TheOrcWorker",
-            WorkerALog  = GetArg(args, "--worker-a-log") ?? @"F:\Ai\OrchestratorIDE-dev\worker_hpc.log",
-            WorkerBId   = GetArg(args, "--worker-b") ?? "HardcoreLaptopMSI",
-            WorkerBNode = GetArg(args, "--worker-b-node") ?? "http://100.114.151.4:7078",
-            WorkerBSsh  = GetArg(args, "--worker-b-ssh") ?? "100.114.151.4",
-            WorkerBTask = GetArg(args, "--worker-b-task") ?? "TheOrcLaptopWorker",
-            WorkerBLog  = GetArg(args, "--worker-b-log") ?? @"C:\Ai\OrchestratorIDE-dev\worker_laptop.log",
+            WorkerAId   = RequireArg(args, "--worker-a"),
+            WorkerANode = RequireArg(args, "--worker-a-node"),
+            WorkerASsh  = RequireArg(args, "--worker-a-ssh"),
+            WorkerATask = RequireArg(args, "--worker-a-task"),
+            WorkerALog  = RequireArg(args, "--worker-a-log"),
+            WorkerBId   = RequireArg(args, "--worker-b"),
+            WorkerBNode = RequireArg(args, "--worker-b-node"),
+            WorkerBSsh  = RequireArg(args, "--worker-b-ssh"),
+            WorkerBTask = RequireArg(args, "--worker-b-task"),
+            WorkerBLog  = RequireArg(args, "--worker-b-log"),
+            WorkerADir  = RequireArg(args, "--worker-a-dir"),
+            WorkerBDir  = RequireArg(args, "--worker-b-dir"),
             // Defaults to worker A because that is HardcorePC's 6 GB card against the laptop's 8 GB.
             // Override when the fleet shape changes; HV-2's `large` phase is meaningless if this
             // names the box with headroom.
-            WorkerADir  = GetArg(args, "--worker-a-dir") ?? @"F:\Ai\OrchestratorIDE-dev",
-            WorkerBDir  = GetArg(args, "--worker-b-dir") ?? @"C:\Ai\OrchestratorIDE-dev",
-            LowVramWorkerId = GetArg(args, "--low-vram-worker") ?? GetArg(args, "--worker-a") ?? "HardcorePC",
+            LowVramWorkerId = GetArg(args, "--low-vram-worker") ?? RequireArg(args, "--worker-a"),
         };
 
         // Opt-out for lanes a given environment cannot currently drive. Named rather than silently
@@ -642,6 +646,11 @@ internal static class Program
         var idx = Array.IndexOf(args, name);
         return idx >= 0 && idx + 1 < args.Length ? args[idx + 1] : null;
     }
+
+    private static string RequireArg(string[] args, string name) =>
+        GetArg(args, name) ?? throw new InvalidOperationException(
+            $"{name} is required — this driver targets a real fleet and must not fall back to " +
+            "one developer's machines when a flag is missing.");
 }
 
 // ── DTOs ───────────────────────────────────────────────────────────────────────
