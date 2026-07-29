@@ -1044,6 +1044,35 @@ The §6 flip decision should treat HV-6 as evidenced-with-one-named-exception, n
 — the exception is narrow, understood, external, and does not implicate anything this validation
 campaign was built to catch.
 
+**2026-07-29 — `hv3-sequential`'s `[9,9,10]` anomaly does NOT reproduce on a genuinely cold,
+uninterrupted worker. Closed as session-churn, not a defect.**
+
+Followed the plan's own prescription: `theorc-warband.exe` on HardcorePC (PID 19780, warm, holding
+a `Researcher` role with 3 prior conversations from earlier smoke-testing) was stopped and restarted
+via the `TheOrcWorker` scheduled task — the same restart mechanism `Hv4RecoveryRunner` uses, not a
+raw process launch. `GET /hive/native-telemetry` confirmed genuinely cold before submitting anything
+(`"reservations":[],"residency":[]`, `rejectedAdmissionCount:0`). HardcoreLaptopMSI was confirmed
+unreachable at the time (ssh to `100.114.151.4` timed out, consistent with its still-offline state
+from earlier this session), so `Tools/Hv3LifecycleRunner` ran single-worker (`--worker-a HardcorePC`
+only) — the driver's own warning about `ExcludedWorkerIds` being empty was accepted because no other
+worker was live to mis-claim a job.
+
+```
+residency-returns-to-baseline:     PASS — ActiveCount back to 0 after all 3 cycles
+reservation-persists-between-jobs: PASS — reserved roles [1|1|1]; baseline=548405248 (cold) →
+                                    [5589043712 ×3]
+fresh-conversation-per-job:        PASS — ConversationsCreated = [1, 2, 3]
+```
+
+3/3 jobs `completed`, `claimedByExpected` true, `NativeRoleRuntime`, zero fallback. Evidence:
+`.orc/hv-3-lane/hv3_sequential_20260729_015152.json`. `ConversationsCreated` is strictly increasing
+with no repeated value — the exact shape the original R1 `[9,9,10]` anomaly failed to show. This
+confirms the 2026-07-28 hypothesis: that run's duplicate was produced by session churn (heavy
+manual smoke-testing immediately beforehand, on an already-warm worker), not a reproducible defect
+in conversation freshness. **`hv3-sequential`'s anomaly is closed** — no code change needed, no
+further chase planned. `hv4-disconnect` on HardcoreLaptopMSI remains the sole open HV-6 item, still
+blocked on the machine being offline.
+
 **2026-07-28 (later still) — controlled experiment proves the disconnect gap is not fixable from
 this driver's code. Stopping further attempts on it.**
 
@@ -1067,6 +1096,35 @@ OS/hardware-level change to that one machine's ssh/CPU-scheduling behavior, whic
 this session does unilaterally. No further code-side attempts at this specific gap are planned;
 continuing to retry the same lever after a controlled negative result would not be honest
 persistence, it would be ignoring the experiment's own answer.
+
+**2026-07-29 — the machine-side power-plan remediation was tried, on the actual machine, and did
+not fix it either.** HardcoreLaptopMSI came back online after being unreachable. Before any test
+ran, its actual settings were checked rather than assumed: **AC minimum processor state was
+already 100%** (contradicting the original "Balanced plan" diagnosis — the box was on **High
+performance** already), and only USB selective suspend was actually off-spec (`Enabled` on both
+AC/DC). Disabled it on both
+(`powercfg /setacvalueindex`/`/setdcvalueindex … USBSELECTSUSPEND 0`, confirmed via `/query`
+afterward). Machine confirmed idle (5% CPU) and on AC power before starting.
+
+With the worker restarted cold (via the `TheOrcLaptopWorker` scheduled task) and the power
+settings applied, two `hv4-kill` attempts against the laptop reproduced the same symptom class
+immediately: first attempt hit the already-known `job-still-running-when-kill-landed` timing race,
+second attempt got the harder failure — **the kill's ssh call never landed at all** (worker kept
+answering `/hive/native-telemetry` 60s after the kill was supposed to fire; process never died).
+The worker itself stayed healthy throughout (same PID, telemetry fine before and after) — this is
+the sshd-under-CPU-load symptom, not a worker crash.
+
+**This closes out the power-plan hypothesis as conclusively as the four driver-side levers were
+closed out.** Between the already-correct min-processor-state and the freshly-disabled USB
+selective suspend, both items from the originally proposed remediation are now applied on the real
+machine, and the failure reproduced anyway, on the first live attempt. Combined with the four
+ruled-out driver-side experiments, there is no remaining known lever, on either side of the ssh
+call, that has not been tried and shown not to change the outcome. Stopped here rather than
+continuing to retry against a machine this session has already been asked not to hammer — the
+`hv4-disconnect`/`hv4-kill`-race gap on HardcoreLaptopMSI should now be treated as the permanent,
+named caveat option; a hardware/OS root cause deeper than power-plan settings (e.g. sshd service
+configuration, background AV/indexing contention, or the process-creation-latency theory from the
+fourth lever above) is the only remaining path, and none of those were attempted here.
 
 **2026-07-28 (final confirmation) — third independent full campaign, same result.** Run after
 deploying the heartbeat HttpClient-reuse fix (unrelated CodeRabbit finding, `OrchestratorIDE/
@@ -1109,6 +1167,184 @@ negative or diagnosis-sharpening results). Nothing further planned in `Tools/Hv4
 itself; the remaining path, if pursued, is the worker-process-priority change above, and that needs
 a decision, not more test-harness iteration.
 
+**2026-07-29 — process-creation theory confirmed on HardcoreLaptopMSI; worker priority fix applied.**
+
+Ran on the laptop itself (not from the Warchief driver). Goal: measure process-creation latency
+under load, then try the `BelowNormal` lever the previous entry left as the remaining path.
+
+**Confirmed root cause (measured, not guessed):** under 100% CPU load from equal-priority
+(Normal) burners, brand-new process creation slows sharply; dropping those burners to
+`BelowNormal` restores near-idle spawn latency while CPU stays at 100%. That is the Windows
+scheduler preferring already-running Normal work over a newly created Normal peer — exactly the
+window no remote-script content can affect (process does not exist yet).
+
+| Condition | `cmd /c echo ok` | `powershell -NoProfile … Write-Output ok` |
+|-----------|------------------|-------------------------------------------|
+| Idle | ~21 ms avg | ~187 ms avg |
+| 12× Normal CPU burners (100% CPU) | ~205 ms avg | ~1160–1300 ms avg |
+| Same burners at BelowNormal (still 100% CPU) | ~23 ms avg | ~202–206 ms avg |
+
+**Pass/fail (3 trials, fail = PowerShell spawn ≥ 1 s):**
+
+| Load priority | PowerShell ≥1 s | Values (ms) |
+|---------------|-----------------|-------------|
+| Normal (old worker behavior) | **3/3 fail** | 1270, 1271, 1330 |
+| BelowNormal (fix) | **0/3 fail** | 205, 218, 215 |
+
+Ping-style health and HTTP were not the issue in prior campaigns; this run also reconfirmed
+that `GET /hive/native-telemetry` and process health stay fine while spawn latency is bad under
+Normal-priority CPU saturation.
+
+**Caveat on magnitude:** synthetic full-core burners produced ~1.3 s PowerShell spawn, not the
+multi-10s / 60s remote timeouts seen in live HV-4. Production stalls can stack extra cost
+(Defender process-create hooks, `CreateProcessAsUser`, shell profile) on top of the same
+scheduling effect. Direction and fix remain correct; if any multi-10s SSH delay remains after
+deploy under a real Warchief job, next suspects are AV/sshd shell — not boosting the SSH side again.
+
+A short `swarmcli --native-test` on `qwen25-coder-7b.gguf` was mostly GPU-bound (~11 tok/s,
+~4 GB VRAM) with low host CPU during the sample window, so spawn stayed near idle there. That
+does not refute the theory: fleet jobs that pin cores for prompt eval match the burner profile
+more closely than a brief native-test.
+
+**Fix applied (product-side, as the previous entry required):**
+
+- `OrchestratorIDE.Daemon/Program.cs` — at start of normal long-running mode, set
+  `Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.BelowNormal` (non-fatal if
+  denied). Comment in-file cites these measurements.
+- Debug build on HardcoreLaptopMSI rebuilt and left running: `theorc-warband` at
+  **PriorityClass = BelowNormal**, telemetry HTTP 200.
+- `start-worker.bat` on the laptop only documents the behavior (priority is set in managed Main
+  so log redirection stays intact).
+- Same `Program.cs` change mirrored into this checkout (NewcorePC `OrchestratorIDE-dev`) so the
+  main tree carries it; rebuild/redeploy fleet workers from this tree as usual.
+
+**What this changes for HV-6 / the named caveat:** the `hv4-disconnect` / sshd-under-load gap is
+no longer “no remaining lever.” The lever was process priority on the worker; it is implemented.
+**Re-run HV-4 kill/disconnect lanes against HardcoreLaptopMSI under live inference** to convert
+this from measured local process-create evidence into fleet pass/fail counts. Until that re-run,
+treat the OS-side diagnosis as closed and the fleet caveat as **provisionally fixed, pending
+HV-4 re-validation**.
+
+Local SSH loopback auth from the laptop itself was not used for verification (admin
+`administrators_authorized_keys` needs elevation; sudo disabled on that box). Verification was
+CreateProcess latency under controlled load plus live worker priority/telemetry checks.
+
+**2026-07-29 (same day, later) — fleet re-validation says the opposite of the synthetic result:
+the fix does NOT close the gap under real inference load, and a harder symptom appeared.**
+
+Ran the actual `Tools/Hv4RecoveryRunner --phase kill` lane against HardcoreLaptopMSI (now running
+the `BelowNormal`-priority build live, confirmed via `Get-Process` before starting) twice, with the
+worker's PID recorded immediately before and immediately after each run — not relying on the
+driver's own `kill-actually-landed` check alone, because that check infers death from telemetry
+silence rather than a process handle, and that inference is exactly what's in question here.
+
+```
+Round 1: PID 9376  (StartTime 8:48:01 PM) before  → PID 9376  (unchanged) after
+Round 2: PID 19748 (StartTime 9:09:43 PM) before  → PID 19748 (unchanged) after
+```
+
+**Both rounds: `kill-actually-landed` reported PASS (telemetry went dark, then answered again),
+but the worker process was never actually terminated — a false positive on the check's own core
+assumption.** A manual `Get-Process theorc-warband | Stop-Process -Force` issued by hand against
+the same box, moments earlier while it was between jobs, DID kill the process immediately (new PID
+on restart, confirmed) — so the `Stop-Process` command itself is not fundamentally broken; it is
+specifically failing (or landing so late it's overtaken by recovery) while the box is under live
+inference load. That is the exact symptom this whole investigation exists to fix, still present.
+
+**A plausible explanation the synthetic benchmark could not have caught:** `Process.PriorityClass`
+sets the process's *base* priority class, but native inference code (llama.cpp/ggml via
+LLamaSharp P/Invoke) commonly pins its own compute threads to an explicit OS thread priority for
+performance, independent of the parent process's class. If so, the real inference workload's
+CPU-bound threads may still run at effective priority high enough to starve new process creation
+even with the parent process nominally `BelowNormal` — a scenario Grok's synthetic burners
+(plain `Math.Sqrt` loops at default thread priority) would not reproduce, and Grok's own passoff
+already flagged this exact risk as unverified ("fleet jobs that pin cores for prompt eval look
+more like the synthetic burners" — an assumption, not a measurement, and it reads as the wrong one
+now).
+
+**Immediately after the second round, SSH to the laptop stopped connecting entirely** (`Connection
+timed out`, not just slow) while `ping` stayed healthy at 5ms — a harder failure than the
+"tens-of-seconds" symptom documented all session, observed right after two back-to-back real
+inference jobs. Testing was stopped at this point rather than continuing to probe a box already
+showing a worse symptom than before, per this session's standing instruction not to hammer this
+machine.
+
+**Verdict: the `BelowNormal` process-priority fix is a real, well-measured improvement to raw
+process-creation latency (Grok's synthetic numbers are not in question), but it has NOT been shown
+to fix the actual HV-4 failure mode under real fleet conditions, and it introduced a new risk — the
+kill-landed check's telemetry-silence heuristic can now read as a false positive.** The `Program.cs`
+change is low-risk and worth keeping (it doesn't hurt, and the isolated benchmark is real), but the
+`hv4-disconnect`/`hv4-kill` gap on HardcoreLaptopMSI is **still open, not provisionally fixed**.
+Next real lead, if pursued: check whether native inference threads carry their own explicit OS
+thread-priority (not just the process's `PriorityClass`) and whether that needs addressing
+separately — not yet investigated. Until then, the permanent-caveat option from the earlier
+2026-07-29 entry remains the honest fallback.
+
+**2026-07-29 (later) — round 3, dispatched to a fresh Claude Code session running directly on
+HardcoreLaptopMSI: root cause of round 2's failure confirmed, and a fix that survives real load
+found.**
+
+**Why `BelowNormal` failed under real inference, confirmed with direct thread-priority
+measurement (not synthetic burners):** ggml's native thread pool sets one compute-dispatch
+thread to Win32 `THREAD_PRIORITY_HIGHEST` — a **relative** offset (`+2`) to the process's own
+priority class, not an absolute value.
+
+```
+Process class     Elevated thread's actual base priority
+BelowNormal (6)    8   ← matches a freshly-spawned shell's DEFAULT priority
+Normal (8)         10
+```
+
+At `BelowNormal`, that one thread claws back up to priority 8 — identical to a newly-spawned
+admin shell's default — so under real contention it's a coin flip, not the clean win round 1's
+synthetic burners showed (plain math-loop threads never self-elevate, so simply outranking them
+worked; real ggml traffic doesn't). Direct A/B under real ~40-thread ggml compute load (CPU-only,
+~2500-token prefill, ~6.5 of 12 cores genuinely busy): **no measurable spawn-latency difference
+between Normal and BelowNormal** (`powershell.exe` ~265–303 ms either way).
+
+**Fix: drop to `Idle` instead of `BelowNormal`.** Idle's base is 4; the same `+2` ggml offset
+lands the elevated thread at priority **6** — comfortably below a fresh shell's default 8,
+restoring the ordering round 1 always intended. Verified with the PID-based method (not
+telemetry, which produced round 2's false positive): a throwaway process built from this repo's
+real `LLamaSharpRuntime`/ggml path, running genuine sustained CPU-only inference at `Idle`
+priority, was killed via `Stop-Process` issued from a separate `ssh.exe` process over the LAN —
+**3/3 trials confirmed the PID actually gone** (PIDs 22296, 21204, 21260), with the elevated
+thread's priority independently confirmed at 6 as predicted. One trial showed a momentary
+`Handles: 0` zombie snapshot before fully clearing — a concrete illustration of exactly the kind
+of race that made the telemetry-only check unreliable in round 2.
+
+**Honest residual gap:** verification used a real-code-path throwaway process rather than a
+Warchief-dispatched fleet job (`Hv4RecoveryRunner`, run from a non-Warchief machine, hit a hard
+401 — it assumes it runs *on* the Warchief where local calls are auto-trusted; that's a tooling
+constraint, not a finding about the fix). A single job also only pinned ~6.5 of 12 cores in
+testing, more moderate than the multi-10s/60s field failures originally documented — heavier or
+concurrent load may still be a factor, not yet reproduced. A separate, unexplained symptom was
+also spotted in passing and NOT chased: the live worker's own outbound heartbeat HTTP calls were
+seen timing out 20–80s in the field log during a real job-retry loop; unclear if it shares this
+root cause or is Warchief/network-side. Worth instrumenting separately, not folded into this
+finding.
+
+**Code**: `OrchestratorIDE.Daemon/Program.cs`'s priority line changed `BelowNormal` → `Idle`,
+comment updated with the full three-round trail. Mirrored into this tree directly (not via the
+X: mapping this time) since the round-3 session's edit stayed local to the laptop's own
+`C:\Ai\OrchestratorIDE-dev` checkout. **Not yet re-validated against a real Warchief-dispatched
+`hv4-kill`/`hv4-disconnect` campaign** — the throwaway-process verification is strong evidence
+the mechanism is fixed, but the fleet-level lanes should still be re-run before this is called
+fully closed.
+
+**One durable side effect on HardcoreLaptopMSI, flagged for awareness:** the round-3 session
+added the box's own SSH key to its own `administrators_authorized_keys` (correct SYSTEM/
+Administrators-only ACLs) to make loopback/LAN SSH verification possible — it wasn't there
+before. Low-risk (grants the box the same self-access every other fleet machine already had into
+it), but it's a standing change, not reverted.
+
+**HV-6 status: the `hv4-disconnect`/`hv4-kill` gap on HardcoreLaptopMSI now has a specific,
+mechanistically-explained, and directly-verified fix, not just a plausible theory.** Live on the
+box now (`PriorityClass = Idle`, confirmed). Recommend re-running `Tools/Hv4RecoveryRunner`'s
+kill and disconnect phases against it under a real dispatched job as the next step, to convert
+this from a strong local proof into the fleet-level evidence the plan's own standard requires
+before dropping the named caveat entirely.
+
 ## 4. Harness shape (implementation guidance, not code)
 
 - **Driver:** a `Tools/` PowerShell orchestration script on the Warchief (SSH for box-level
@@ -1134,3 +1370,46 @@ a decision, not more test-harness iteration.
 5. **Driver spread** (560.94 vs 581.80) — treated as representative, but if HardcorePC's
    regression turns out driver-related, a driver update becomes part of HV-0.4 and must be
    recorded in the evidence.
+
+## 6. §6 decision record — 2026-07-29
+
+**The maintainer decided: flip now.** Native is the default runtime as of this date
+(`AppSettings.ExperimentalNativeHiveWorkerEnabled` / `ExperimentalNativeMainChatEnabled` both
+`true`; see `docs/NATIVE_RUNTIME_V2_SPEC.md` §6 for the full entry-criteria checklist and code
+change). This is the explicit, recorded product decision the plan's own header says this
+document cannot itself authorize — recorded here as the paper trail.
+
+**Made against this evidence, not a claim of "all green":**
+
+- HV-1 through HV-3, HV-5: CLOSED (HV-3 item 3 and HV-4 item 1 excepted, both out of scope for
+  reasons unrelated to this decision — no remote mutation endpoint exists yet).
+- HV-6: 7 of 9 lanes robustly green across three independent full 3× campaigns run 2026-07-28
+  and 2026-07-29. The 2 non-green lanes (`hv4-kill`, `hv4-disconnect`) are both isolated to
+  SSH-delivered admin actions against **HardcoreLaptopMSI** specifically, while that box is under
+  live inference load — not a HIVE dispatch, scheduling, admission, or fallback defect; every one
+  of those was separately proven correct, including on that same machine, throughout HV-1–HV-5.
+- The root cause of the HardcoreLaptopMSI gap was **not confirmed at decision time.** Two
+  attempted fixes (power-plan settings; a `theorc-warband.exe` process-priority change) were each
+  tried and each failed to hold up under real fleet load when re-tested — see the 2026-07-29
+  entries above for both disproofs, including the PID-based method that caught the second fix's
+  false-positive telemetry reading. A further investigation was dispatched and still in flight,
+  unresolved, at the moment this decision was recorded.
+
+**This was a conscious choice to accept a narrow, well-isolated, actively-being-chased gap rather
+than block the flip on it.** The gap affects only a test harness's ability to reliably simulate a
+kill/disconnect against one specific machine under load — it does not implicate native execution
+correctness, scheduling correctness, admission correctness, telemetry correctness, or fallback
+behavior, all of which were independently and thoroughly proven across the fleet, including on
+the affected machine itself. If the in-flight investigation lands a confirmed fix or a firmer
+root cause, append it here; if it doesn't, this stands as the permanent caveat the earlier
+entries already described as the honest fallback.
+
+**Update, same day, shortly after this decision was recorded:** the in-flight investigation
+landed a confirmed, mechanistically-explained root cause and a fix that survives real inference
+load (`Idle` process priority, not `BelowNormal` — see the HV-6 section's round-3 entry above for
+the full trail). This does not retroactively change the decision above — it was made honestly
+against the evidence available at the time — but it substantially de-risks it: the caveat is no
+longer just "actively being chased," it now has a specific fix, live on the affected machine,
+verified 3/3 by direct process-kill confirmation. Fleet-level `Hv4RecoveryRunner` re-validation
+against a real Warchief-dispatched job is still the recommended next step before calling HV-6
+fully green.

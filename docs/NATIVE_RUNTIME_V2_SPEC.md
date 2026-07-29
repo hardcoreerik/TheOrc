@@ -22,8 +22,12 @@
 > below is design intent for later PRs, per each phase's own `[Verified]`/`[Proposed]` markers
 > at time of writing.
 >
-> **Scope discipline:** this spec does **not** change the product's default runtime.
-> Ollama remains the default and the fallback target. See [§0.3 Explicitly out of scope](#03-explicitly-out-of-scope).
+> **Scope discipline:** this spec did **not itself** change the product's default runtime — see
+> [§0.3 Explicitly out of scope](#03-explicitly-out-of-scope) for what it covers. **The
+> separately-gated §6 milestone has since been decided: 2026-07-29, native is now the default**
+> (`AppSettings.ExperimentalNativeHiveWorkerEnabled` / `ExperimentalNativeMainChatEnabled` both
+> flipped to `true`). See [§6](#6-later-milestone-default-runtime-flip-hive-gated) for the
+> decision record, evidence basis, and the one named open caveat accepted at flip time.
 >
 > **Author basis:** written against the actual code under `OrchestratorIDE/Core/Runtime/`
 > (verified, cited by `file:line`), plus the four authoritative documents linked in §0.2.
@@ -751,26 +755,55 @@ Native contexts/sessions/models/adapters have explicit ownership and determinist
 
 ## 6. Later milestone: default-runtime flip (HIVE-gated)
 
-The transition making native the default runtime is a **separate, later milestone**. It is
-**not** authorized by completing Phases A–D. Ollama stays the default and the fallback until
-this milestone's criteria are met and an explicit product decision is recorded.
+The transition making native the default runtime was a **separate, later milestone**, not
+authorized by completing Phases A–D alone. **Decided 2026-07-29 — native is now the default.**
 
-**Measurable entry criteria (all required, with live evidence):**
+**Entry criteria status at decision time**, against the campaign in
+`docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md` (HV-1 through HV-6):
 
-- Successful native workloads across the intended machine roles.
-- Correct capability- and resource-aware scheduling across machines.
-- Verified model and adapter lifecycle behavior across machines.
-- Failure, cancellation, disconnect, and recovery exercises across machines.
-- Consistent telemetry and diagnosability across machines.
-- No silent fallback across runtime boundaries.
-- Repeatable end-to-end evidence on representative hardware.
-- An explicit product decision approving the default-runtime change.
+- Successful native workloads across the intended machine roles — ✅ HV-1 CLOSED.
+- Correct capability- and resource-aware scheduling across machines — ✅ HV-2 CLOSED (6/8 GB
+  spread; 16 GB leg separately blocked on an unrelated Daemon pairing-approval gap, not a
+  scheduling defect).
+- Verified model and adapter lifecycle behavior across machines — ✅ HV-3 items 1–2 CLOSED;
+  item 3 (forced role recycle) explicitly out of scope, needs its own security-reviewed
+  control endpoint.
+- Failure, cancellation, disconnect, and recovery exercises across machines — ⚠ HV-4 items 2–4
+  evidenced; item 1 (worker-side mid-generation cancel) half-covered pending an endpoint that
+  doesn't exist yet. **Kill/disconnect specifically against HardcoreLaptopMSI under live
+  inference load is unreliable** — see the named caveat below.
+- Consistent telemetry and diagnosability across machines — ✅ HV-5 CLOSED.
+- No silent fallback across runtime boundaries — ✅ asserted and observed in every phase above;
+  execution kinds used throughout are structurally fail-closed.
+- Repeatable end-to-end evidence on representative hardware — ⚠ HV-6: 7 of 9 lanes robustly
+  green across multiple independent full 3× campaigns on 2026-07-28/29. The 2 non-green lanes
+  are both `hv4-kill`/`hv4-disconnect` against HardcoreLaptopMSI specifically — see caveat.
+- An explicit product decision approving the default-runtime change — ✅ this entry.
 
-This milestone is gated on **live multi-machine HIVE validation** — it may not be claimed
-from single-box results, and completing the foundation phases does not imply it. It aligns
-with the ROADMAP's existing position that Ollama stays default *"until the ModelDepot +
-installer first-run story is bulletproof and the reviewer/Swarm abstraction leaks are
-closed."*
+**Named open caveat, accepted rather than blocking the decision:** SSH-issued admin actions
+(process kill, network disconnect) against **HardcoreLaptopMSI** are unreliable while that box
+is under live native-inference CPU load — reproduced repeatedly, isolated to that one machine,
+and NOT a defect in HIVE dispatch, scheduling, admission, or fallback behavior (every one of
+those was separately and thoroughly proven correct across the rest of the campaign). Root cause
+was chased through several rounds (power-plan settings, then a process-priority fix) without
+a confirmed fix as of the decision date — see
+`docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md`'s HV-6 section, 2026-07-28/29 entries, for the
+full investigation trail; a further investigation was in flight, unresolved, at flip time. This
+affects only the *test harness's* ability to reliably deliver a disruption to that one box —
+native execution, scheduling, and telemetry on that machine are otherwise proven correct
+(HV-1/HV-2/HV-3/HV-5 all closed on it).
+
+This milestone was gated on **live multi-machine HIVE validation**, not single-box results —
+that gate was met. It supersedes the ROADMAP's prior position that Ollama stays default *"until
+the ModelDepot + installer first-run story is bulletproof and the reviewer/Swarm abstraction
+leaks are closed"* — the maintainer's decision was made against the HV-6 evidence above rather
+than that older criterion, which the ROADMAP should be updated to reflect.
+
+**What changed in code:** `AppSettings.ExperimentalNativeHiveWorkerEnabled` and
+`ExperimentalNativeMainChatEnabled` both default to `true` as of this decision (previously
+`false`). Both remain real settings, not hardcoded — an install can still opt back out. Ollama
+remains implemented and available as `IModelRuntime`'s other backend; it is no longer the
+default construction path in `MainWindow`'s HIVE-worker and main-chat runtime builders.
 
 ---
 
