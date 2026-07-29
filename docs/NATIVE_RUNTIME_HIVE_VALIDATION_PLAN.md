@@ -934,7 +934,7 @@ introducing it, by actually running the campaign rather than reasoning about the
 **With both fixed, the main campaign (3×, `hv2-large` excluded) ran clean apart from the box's own
 known ssh/timing limits:**
 
-```
+```text
 | Lane             | R1   | R2   | R3   |
 | hv1              | PASS | PASS | PASS |
 | hv2-small        | PASS | PASS | PASS |
@@ -965,12 +965,18 @@ catch. Not chased further on a single occurrence; worth a second look if HV-6 re
 cold, uninterrupted fleet.
 
 **HV-6 verdict: the harness and the fixes it drove are solid; "all green" is not yet met, and the
-gap is a single, understood, external limit.** Every remaining failure across both post-split runs
-is HardcoreLaptopMSI's ssh/scheduling behavior under load, previously diagnosed (Balanced power
-plan) — not the runtime, not the queue, not a silent fallback, and (after the two fixes above) not
-this driver leaving a worker dead. Closing HV-6 fully means either accepting that limit as a
-recorded, permanent caveat on this fleet's evidence, or changing the laptop's power plan (a machine
-setting, not code — not done without confirming first) and re-running.
+main gap is a single, understood, external limit — with one unresolved internal anomaly kept
+explicitly open, not folded into that same explanation.** Every `hv4-kill`/`hv4-disconnect` failure
+across both post-split runs is HardcoreLaptopMSI's ssh/scheduling behavior under load, previously
+diagnosed (Balanced power plan) — not the runtime, not the queue, not a silent fallback, and (after
+the two fixes above) not this driver leaving a worker dead. Separately, R1's `hv3-sequential` FAIL
+on HardcorePC (the `[9, 9, 10]` conversation-count anomaly recorded above) is NOT a HardcoreLaptopMSI
+ssh issue and NOT yet resolved — it is a one-off, more-likely-explained-by-session-churn finding on
+a clean run of its own; it stays open until a cold, uninterrupted rerun either reproduces or clears
+it. Closing HV-6 fully means either accepting the HardcoreLaptopMSI limit as a recorded, permanent
+caveat on this fleet's evidence (with the HardcorePC anomaly tracked separately), or changing the
+laptop's power plan (a machine setting, not code — not done without confirming first) and
+re-running both.
 
 **2026-07-28 (later still) — the induced-job design was the real remaining bug; fixed. The
 remaining failures are conclusively isolated to one already-diagnosed hardware limitation, not a
