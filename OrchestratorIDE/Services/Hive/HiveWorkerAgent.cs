@@ -496,8 +496,20 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
-                status   = "failed";
-                errorMsg = $"Output artifact upload failed: {ex.Message}";
+                // CodeRabbit finding: this used to overwrite errorMsg unconditionally, which loses
+                // the ORIGINAL cause whenever the agent execution itself already failed and the
+                // upload attempt then fails too (a plausible secondary failure -- if the worker or
+                // network is degraded enough to fail the upload, it may well have been what caused
+                // the execution to fail in the first place). That is the same class of bug the
+                // error-chain-preservation fix elsewhere in this file exists to prevent: losing the
+                // real cause behind a wrapper message. Append rather than replace when a real
+                // execution failure is already recorded; only become the SOLE error when the
+                // execution otherwise succeeded and the upload is the entire story.
+                var uploadError = $"Output artifact upload failed: {ex.Message}";
+                errorMsg = status == "failed" && !string.IsNullOrEmpty(errorMsg)
+                    ? $"{errorMsg} (additionally, {uploadError})"
+                    : uploadError;
+                status = "failed";
                 taskResult.Status   = status;
                 taskResult.ErrorMsg = errorMsg;
                 Log($"⚠ [{bundle.Role}] '{bundle.Title}' — {errorMsg}");
