@@ -118,7 +118,23 @@ public sealed class HiveService : BackgroundService
 
         // Wire election/heartbeat logs after Start (services auto-created inside Start).
         if (_nodeServer.ElectionService is { } election)
+        {
             election.OnLog += msg => _log.LogInformation("[Election] {Msg}", msg);
+
+            // Discovered live (2026-07-29) verifying the new /hive/roles/degrade and
+            // /hive/tasks/cancel endpoints: HiveElectionService.WarchiefNodeId is ONLY ever set
+            // via live election-protocol messages (SetWarchief's own doc comment: "Must be
+            // called by the app when a HIVE session starts... we've received a session context
+            // identifying who is"). Nothing here ever called it for a statically-configured
+            // worker, even though _cfg.WarchiefNodeId is already known from config -- so every
+            // Warchief-only mutation gate (this one, /hive/roles/degrade, /hive/tasks/cancel, and
+            // the PRE-EXISTING /hive/update/deploy) rejected the fleet's real, correctly-signed
+            // Warchief with a 403 on every one of them, on every worker in this deployment shape.
+            // A worker that already knows its Warchief via config doesn't need to wait for
+            // election traffic to learn what it was already told.
+            if (!string.IsNullOrWhiteSpace(_cfg.WarchiefNodeId))
+                election.SetWarchief(_cfg.WarchiefNodeId);
+        }
         if (_nodeServer.MeshHeartbeat is { } hb)
             hb.OnLog += msg => _log.LogInformation("[Heartbeat] {Msg}", msg);
 
@@ -257,6 +273,13 @@ public sealed class HiveService : BackgroundService
                         }).ToList(),
                     };
                 };
+
+                // HV-3 item 3 (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md): MarkRoleDegraded was
+                // previously reachable only from the runtime's own internal NoKvSlot handling —
+                // this wires the long-deferred remote trigger (POST /hive/roles/degrade) to the
+                // same NativeRoleRuntime instance NativeTelemetryProvider above already closes
+                // over.
+                _nodeServer.MarkRoleDegradedHandler = role => nativeRuntime.MarkRoleDegraded(role);
             }
 
             _worker = new HiveWorkerAgent
@@ -270,6 +293,11 @@ public sealed class HiveService : BackgroundService
                 WarchiefNodeId  = _cfg.WarchiefNodeId,
                 ModelStore      = _taskQueue.ModelStore,
             };
+            // HV-4 item 1: a campaign cancel previously only marked the task cancelled on the
+            // Warchief while the worker kept generating to completion — no remote trigger existed
+            // to actually interrupt it. POST /hive/tasks/cancel now reaches this worker's
+            // per-task cancellation registry directly.
+            _nodeServer.CancelTaskHandler = taskId => _worker.TryCancelTask(taskId);
             _worker.OnLog += msg => _log.LogInformation("[Worker] {Msg}", msg);
             var installedPacks = CampaignPackCatalog.ResolveInstalled(_cfg.AlienSearchImage);
             _worker.Capabilities = await WorkerCapabilityDetector.DetectAsync(

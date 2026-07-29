@@ -748,6 +748,43 @@ review — recorded in every evidence file's `uncoveredItems`. HV-3 must therefo
 fully closed; §6's "verified model and adapter lifecycle behavior across machines" is now
 substantially, but not completely, evidenced.
 
+**2026-07-29 — item 3 CLOSED. Built the authenticated control endpoint this item was waiting on,
+plus a genuine pre-existing auth bug found and fixed along the way.**
+
+`POST /hive/roles/degrade` on `HiveNodeServer` (Warchief-only, same authority tier as the
+existing `/hive/update/deploy`) forwards to a new public `NativeRoleRuntime.MarkRoleDegraded`
+passthrough (mirroring the existing `GetReservationSnapshot`/`GetResidencySnapshot` forwarders),
+which calls the same `RuntimeOrchestrator.MarkRoleDegraded` the runtime's own internal NoKvSlot
+handling already used — no new recycle mechanism, just a remote door onto the existing one.
+`HiveService.cs` wires the handler alongside `NativeTelemetryProvider`.
+
+**Live-verified against a real deployed daemon (HardcorePC), not just unit-tested.** A throwaway
+signed-request harness (deleted after use, matching this session's earlier spike/probe
+convention) hit the real endpoint over the network with a genuine HMAC-signed, Warchief-identity
+request:
+```text
+POST /hive/roles/degrade {role: Worker}   -> 200 {"status":"ok","role":"Worker"}
+POST /hive/roles/degrade {role: bogus}    -> 400 (lists valid roles)
+```
+Worker log confirmed the fire-and-forget recycle call completed with no error.
+
+**Real pre-existing bug found and fixed by this live test, not by inspection.** The first live
+attempt got 403 "only the Warchief may force a role recycle" — against a request signed with
+exactly the node id the worker's own `start-worker.bat` configures as its Warchief.
+`HiveElectionService.WarchiefNodeId` turned out to be populated ONLY by live election-protocol
+messages; nothing in `HiveService.cs` ever called `SetWarchief` from `_cfg.WarchiefNodeId`, even
+though that value is already known from static config. **This meant `/hive/update/deploy` — the
+existing, previously-shipped endpoint this new one's authorization pattern was modeled on — was
+silently unusable in this exact deployment shape the whole time**, not just the new endpoint.
+Fixed in `HiveService.cs`: call `election.SetWarchief(_cfg.WarchiefNodeId)` once at startup when
+configured. Re-verified live after the fix — 200 on the happy path, confirmed via the worker's own
+log line `[Election] ⚙ Warchief set to <nodeId>`.
+
+**HV-3 verdict, final: items 1, 2, and 3 all CLOSED.** Item 3's remote trigger exists, is
+authenticated and authorized the same way the codebase's one existing mutation endpoint is, and
+is proven working end-to-end on a real fleet machine — plus it fixed a real, previously-unnoticed
+bug in that existing endpoint along the way.
+
 ### HV-4 — Failure, cancellation, disconnect, recovery
 
 All on real jobs mid-flight, all asserting fail-closed (no Ollama substitution) and clean
@@ -831,6 +868,86 @@ worker-side cancel endpoint.** Also folded in here, from the HV-3 investigation:
 being declared dead (root-caused to the missing artifact store, fixed in `0e9db763`) and the
 fail-closed no-fallback behaviour observed throughout — every completing job in every phase above
 carries `Attestation.RuntimeName == "NativeRoleRuntime"`.
+
+**2026-07-29 — item 1's missing endpoint now exists: `POST /hive/tasks/cancel`, built alongside
+HV-3 item 3's role-degrade endpoint (same session, same authorization pattern, same live
+verification approach — full detail there).** `HiveWorkerAgent` gained a per-task
+`CancellationTokenSource` registry, separate from the worker's own whole-process lifetime token:
+each claimed task gets a linked token registered in `ClaimAndExecuteAsync` and removed in its
+`finally`, so a remote cancel interrupts exactly one task's generation
+(`OperationCanceledException` inside the loop, task reported `failed` to the Warchief) without
+touching the poll loop or any other concurrently-running task. `HiveNodeServer`'s new endpoint
+(Warchief-only, mirroring `/hive/update/deploy` and the new role-degrade endpoint) forwards to
+`HiveWorkerAgent.TryCancelTask(taskId)`.
+
+**Live-verified against the real deployed daemon on HardcorePC:**
+```text
+POST /hive/tasks/cancel {taskId: <unknown>}  -> 404 "no in-flight task with this id on this worker"
+POST /hive/tasks/cancel {}                   -> 400 "missing taskId"
+```
+No task happened to be in flight on HardcorePC at verification time, so the "found and actually
+cancels" path rests on code review + the linked-token mechanism (a well-established .NET pattern,
+same technique already used for this method's own heartbeat-loop cancellation immediately above
+it in the same file) rather than a live mid-generation interruption — the 404/400 paths prove the
+routing, auth, and registry-miss handling all work correctly end-to-end on a real box, which is
+the harder part to get wrong.
+
+**Item 1: the trigger now exists, but per CodeRabbit's correct catch on this same PR (#94), this
+is still partial coverage, not "fully covered."** The plan's original ask — cancellation
+surfacing mid-generation as an `OperationCanceledException` on the worker via a real remote
+trigger — has that trigger built, authenticated, and live-verified for its routing/auth/
+validation paths (404/400 above). What has NOT been exercised live is the actual "found and
+cancels a real in-flight generation" path — no task happened to be in flight on HardcorePC at
+verification time, so that half rests on code review of the linked-token mechanism, not
+observation. `Tools/Hv4RecoveryRunner`'s `cancel` phase still exercises only the Warchief-side
+campaign-cancel path (a different, already-covered mechanism). Closing item 1 for real needs
+either a live mid-generation cancel run or the harness wired to exercise this new endpoint
+directly — neither done yet.
+
+**2026-07-29 (same day, before merge) — a Grok second-opinion review (PR #94,
+`grok-review -Mode full`) caught a real BLOCKER in the first version of this endpoint, fixed
+before merge: a remote cancel would have been silently retried, not stopped.**
+
+The first cut's `ClaimAndExecuteAsync` let a remote cancel's `OperationCanceledException` (from
+`taskCts`, distinct from the worker's own whole-process `ct`) fall through to the generic
+failure handler, posting `status: "failed"` back to the Warchief. `HiveTaskQueue.HandleFailAsync`
+requeues campaign work whenever `Attempt < MaxAttempts` (default budget allows retries) — so an
+operator hitting `/hive/tasks/cancel` would have gotten a `200 OK`, and the Warchief would have
+quietly re-dispatched the exact same work to another attempt. The opposite of what cancel means,
+and worse than not having the endpoint at all: a caller would reasonably believe the work stopped.
+
+**Fixed by giving remote cancellation its own terminal status instead of reusing "failed".**
+`ClaimAndExecuteAsync` now catches `OperationCanceledException` specifically `when
+(taskCts.IsCancellationRequested)` (checked before the generic handler) and reports
+`status: "cancelled"` — posted through the same wire action/endpoint as a genuine failure
+(`HiveWorkerAgent.cs`'s `action` decision doesn't need a new route), but `HiveTaskQueue.
+HandleFailAsync` now reads that field first and skips its own requeue branch entirely when set,
+setting the task's terminal status to `"cancelled"` — already a first-class status elsewhere in
+the same class (the pre-existing Warchief-initiated campaign-cancel path), reused rather than
+inventing a second vocabulary. Verified: full 687-test suite still green, HardcorePC redeployed
+and re-verified healthy after the fix.
+
+**Also fixed from the same review pass, both real correctness/honesty issues, not just style:**
+- `HandleMarkRoleDegraded` originally responded `200 OK` BEFORE its fire-and-forget call to the
+  handler ran, and swallowed any failure to a console line only — meaning the exact
+  `MissingMethodException` hit live during this endpoint's own deployment verification (wrong
+  assembly copied to HardcorePC, see HV-3 item 3's entry above) would have reported success on
+  the wire while doing nothing. Changed to `await` the handler and return `500` with the real
+  error on failure — a slightly slower response for an honest one.
+- `/hive/update/deploy` still used its own inline Warchief check instead of the shared
+  `IsWarchief` helper the two new endpoints introduced; unified for one authorization code path
+  instead of two copies that could silently drift.
+
+**Two MINOR findings acknowledged, not fixed in this pass:** the Avalonia GUI's own
+`HiveNodeServer`/`HiveWorkerAgent` construction (`MainWindow.axaml.cs`) never wires
+`MarkRoleDegradedHandler`/`CancelTaskHandler`/`SetWarchief`, so a GUI-hosted worker would 503/403
+on these same endpoints — deferred because the GUI path has local observability a headless fleet
+worker doesn't, and touching `MainWindow.axaml.cs`'s much larger runtime-construction code
+carries more risk than this pass's scope justified; and test coverage for `IsWarchief`'s positive
+match and `TryCancelTask`'s actual-cancellation path is still missing, blocked on the same
+heavy-dependency-construction problem documented in `HiveNodeServerAuthorizationTests.cs`'s own
+class doc comment (`HiveIdentity`'s constructor is private, only reachable via disk-touching
+static factories).
 
 ### HV-5 — Telemetry consistency + no-silent-fallback sweep
 

@@ -240,6 +240,20 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
         return _orchestrator.GetResidencySnapshot();
     }
 
+    /// <summary>
+    /// Forwards to <see cref="_orchestrator"/>. Public entry point for
+    /// <see cref="OrchestratorIDE.Services.Hive.HiveNodeServer"/>'s remote
+    /// <c>POST /hive/roles/degrade</c> endpoint (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md
+    /// HV-3 item 3) — previously this method was reachable only from the internal NoKvSlot/
+    /// generation-failure paths inside this same class (<see cref="StreamRoleCompletionCoreAsync"/>,
+    /// <see cref="InferUntilReadyAsync"/>).
+    /// </summary>
+    public Task MarkRoleDegraded(RuntimeRole role)
+    {
+        ThrowIfDisposed();
+        return _orchestrator.MarkRoleDegraded(role);
+    }
+
     public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) =>
         Task.FromResult<int?>(_options.ContextLength);
 
