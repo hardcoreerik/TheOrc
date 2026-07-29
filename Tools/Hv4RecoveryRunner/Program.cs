@@ -46,11 +46,14 @@ internal static class Program
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
     };
 
+    // Stale as of the workercancel phase (grok-review, PR #95): the worker DOES now expose a
+    // task-cancel endpoint and item 1 IS exercised when that phase runs. Kept, but only stamped
+    // onto reports for phases that genuinely don't exercise it -- see its one call site.
     private const string RemoteCancelGap =
         "Item 1 (cancellation surfacing mid-generation as OperationCanceledException on the worker) " +
-        "is NOT exercised: the worker exposes no task-cancel endpoint, so a campaign cancel is " +
-        "visible only on the Warchief while the worker generates to completion. Adding one is a " +
-        "mutation needing an authenticated control endpoint plus its own security review.";
+        "is not exercised by this phase: only --phase workercancel (or all) drives the real " +
+        "/hive/tasks/cancel endpoint against an in-flight generation; this phase's own cancel " +
+        "check (if any) covers only the Warchief-side campaign-cancel path.";
 
     public static async Task<int> Main(string[] args)
     {
@@ -58,9 +61,14 @@ internal static class Program
         var outDir = GetArg(args, "--out")
                      ?? Path.Combine(Environment.CurrentDirectory, ".orc", "hv-4-lane");
         var phase = GetArg(args, "--phase") ?? "all";
-        if (phase is not ("kill" or "disconnect" or "ollama" or "cancel" or "all"))
+        if (phase is not ("kill" or "disconnect" or "ollama" or "cancel" or "workercancel" or "all"))
             throw new InvalidOperationException(
-                "--phase must be one of: kill, disconnect, ollama, cancel, all.");
+                "--phase must be one of: kill, disconnect, ollama, cancel, workercancel, all.");
+
+        // Only workercancel needs to sign a request AS the Warchief directly to a worker (every
+        // other phase only talks to the Warchief's own task queue, which needs no signing).
+        // Idempotent, so unconditional init here costs nothing for phases that never use it.
+        SecretProtection.Initialize(new DpapiSecretProtector());
         var timeoutMs = int.TryParse(GetArg(args, "--timeout-ms"), out var t) ? t : 300_000;
         var role = GetArg(args, "--role") ?? "Researcher";
         var warchiefPort = int.TryParse(GetArg(args, "--warchief-port"), out var wp) ? wp : 7079;
@@ -102,7 +110,9 @@ internal static class Program
             Warchief = warchief,
             Phase = phase,
             StartedAt = DateTimeOffset.UtcNow,
-            UncoveredItems = [RemoteCancelGap],
+            // "all" and "workercancel" both genuinely drive the real cancel endpoint against an
+            // in-flight generation (RunWorkerCancelAsync); every other phase selection does not.
+            UncoveredItems = phase is "workercancel" or "all" ? [] : [RemoteCancelGap],
         };
 
         using var http = new HttpClient
@@ -136,6 +146,8 @@ internal static class Program
                     await RunDisconnectAsync(http, workers, w, report, role, timeoutMs, warchiefPort);
                 if (phase is "ollama" or "all") await RunOllamaAbsentAsync(http, workers, w, report, role, timeoutMs);
                 if (phase is "cancel" or "all") await RunCancelAsync(http, workers, w, report, role, timeoutMs);
+                if (phase is "workercancel" or "all")
+                    await RunWorkerCancelAsync(http, workers, w, report, role, timeoutMs);
             }
 
             report.FinishedAt = DateTimeOffset.UtcNow;
@@ -642,6 +654,160 @@ internal static class Program
         report.Jobs.Add(BuildJobEvidence(taskId, w.Id, role, "cancel", last));
 
         await ProveServesANewJobAsync(http, all, w, report, role, "cancel", timeoutMs);
+    }
+
+    // ── Phase: single in-flight task cancelled via the direct worker-side endpoint ─────────────
+    //
+    // Closes the gap RunCancelAsync's own check names ("Warchief-side only") and RemoteCancelGap
+    // both flagged: that phase never actually reached the worker, so it proved the queue stopped
+    // waiting, not that generation was interrupted. HiveNodeServer now has a real
+    // POST /hive/tasks/cancel (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-4 item 1), and this
+    // phase is what closes it for real: submit a long job, wait for claim, sign and POST directly
+    // to the worker's own HiveNodeServer (not the Warchief's task queue), then confirm the task's
+    // terminal status is "cancelled" -- never "failed" (which would mean HiveTaskQueue's
+    // requeue-on-fail logic silently resurrected the same work, the exact BLOCKER a grok-review
+    // pass caught and fixed on PR #94 before this ever shipped) and never "completed" (which would
+    // mean the cancel raced a job that finished on its own, proving nothing about interruption).
+    private static async Task RunWorkerCancelAsync(
+        HttpClient http, List<WorkerTarget> all, WorkerTarget w, Hv4Report report,
+        string role, int timeoutMs)
+    {
+        Console.WriteLine($"[workercancel] {w.Id}: submitting a long job, then cancelling it via the direct worker endpoint...");
+
+        // regenerateOnCorruption: false -- this tool only ever needs to sign as the Warchief
+        // identity that already exists on this machine; Load()'s default (true) would silently
+        // mint and persist a BRAND NEW identity over the real one on any decrypt/deserialize
+        // failure, the exact footgun Program.cs's own --leave-hive handling was hardened against
+        // (grok-review, PR #95). A transient/corrupt read here should fail loudly, not overwrite
+        // the fleet's real Warchief keys.
+        HiveIdentity identity;
+        try { identity = HiveIdentity.Load(regenerateOnCorruption: false); }
+        catch (Exception ex)
+        {
+            report.Checks.Add(new Hv4Check
+            {
+                WorkerId = w.Id,
+                Name = "workercancel/identity-loaded",
+                Passed = false,
+                Detail = $"could not load this machine's existing HIVE identity: {ex.Message} — " +
+                    "refusing to regenerate one, since that would overwrite the real Warchief keys",
+            });
+            return;
+        }
+        // Matches on HivePeer.Name against the --worker-a-style id (e.g. "HardcorePC") -- this
+        // fleet's actual pairing sets Name to the machine's display name, matching the same id
+        // used throughout this driver and --worker-a/-b/-c, verified working live repeatedly.
+        // CodeRabbit correctly flagged this as fragile in general (Name's source varies:
+        // WarchiefName, WarchiefNodeId, or a membership cert's subject name depending on the
+        // pairing path taken) -- not hardened further here since no more canonical
+        // human-readable identifier exists on HivePeer to match against, and a mismatch already
+        // fails safely below (a clear "no peer named X found" check, not a wrong action).
+        var peer = HivePeerStore.Default.All()
+            .FirstOrDefault(p => string.Equals(p.Name, w.Id, StringComparison.OrdinalIgnoreCase));
+        var secret = peer is null ? null : HivePeerStore.Default.GetSharedSecret(peer.NodeId);
+        if (peer is null || secret is null)
+        {
+            report.Checks.Add(new Hv4Check
+            {
+                WorkerId = w.Id,
+                Name = "workercancel/peer-resolved",
+                Passed = false,
+                Detail = peer is null
+                    ? $"no peer named '{w.Id}' found in this Warchief's own peer store — cannot sign a request to it"
+                    : $"no shared secret on file for peer '{w.Id}' ({peer.NodeId})",
+            });
+            return;
+        }
+
+        var (campaignId, taskId) = await SubmitAsync(http, all, w, role, "workercancel", LongSpec, timeoutMs);
+
+        // Tighter poll than the shared WaitForClaimAsync (1.5s): this phase's disruption is a
+        // single direct HTTP call, fast enough that a fast box can finish a 20-step job within
+        // the shared helper's own detection latency -- confirmed live against HardcorePC, which
+        // raced and completed twice in a row at the 1.5s poll interval. kill/disconnect don't
+        // need this because their SSH-based disruption has its own latency floor regardless of
+        // how fast detection is; this one genuinely benefits from reacting sooner.
+        var claimed = await WaitForClaimFastAsync(http, taskId, w.Id, TimeSpan.FromMinutes(3));
+        report.Checks.Add(new Hv4Check
+        {
+            WorkerId = w.Id,
+            Name = "workercancel/job-was-in-flight-before-cancel",
+            Passed = claimed,
+            Detail = claimed
+                ? $"task {taskId} observed claimed by {w.Id} before the cancel"
+                : "task never reached claimed on the target worker — the cancel would prove nothing",
+        });
+        if (!claimed) return;
+
+        var cancelBody = JsonSerializer.Serialize(new { taskId }, JsonOptions);
+        var (status, respBody) = await PostSignedAsync(w.NodeUrl, "/hive/tasks/cancel", cancelBody, identity, secret);
+        Console.WriteLine($"[workercancel] {w.Id}: direct cancel call returned HTTP {status}: {respBody}");
+        report.Checks.Add(new Hv4Check
+        {
+            WorkerId = w.Id,
+            Name = "workercancel/cancel-request-accepted",
+            Passed = status == 200,
+            Detail = $"HTTP {status}: {respBody}",
+        });
+        if (status != 200) return;
+
+        var last = await PollToTerminalAsync(http, taskId, timeoutMs);
+        var genuinelyCancelled = last?.Status == "cancelled";
+        report.Checks.Add(new Hv4Check
+        {
+            WorkerId = w.Id,
+            Name = "workercancel/task-reports-cancelled-not-requeued",
+            Passed = genuinelyCancelled,
+            Detail = last?.Status switch
+            {
+                "cancelled" => "terminal status=cancelled — genuine remote cancellation, not a requeue",
+                "completed" => "terminal status=completed — the job finished before the cancel landed, " +
+                               "raced, proves nothing about interruption",
+                _ => $"terminal status={last?.Status ?? "none"} — if this is anything other than " +
+                     "cancelled/completed, the cancel likely fell through to the requeue path " +
+                     "(the exact bug a grok-review pass caught and fixed on PR #94)",
+            },
+        });
+        report.Jobs.Add(BuildJobEvidence(taskId, w.Id, role, "workercancel", last));
+
+        await ProveServesANewJobAsync(http, all, w, report, role, "workercancel", timeoutMs);
+    }
+
+    private static async Task<(int Status, string Body)> PostSignedAsync(
+        string nodeUrl, string path, string jsonBody, HiveIdentity identity, byte[] secret)
+    {
+        using var signHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        var bodyBytes = System.Text.Encoding.UTF8.GetBytes(jsonBody);
+        using var req = new HttpRequestMessage(HttpMethod.Post, nodeUrl.TrimEnd('/') + path)
+            { Content = new ByteArrayContent(bodyBytes) };
+        req.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+        HiveAuthMiddleware.SignRequest(req, bodyBytes, identity.NodeId, secret);
+        using var resp = await signHttp.SendAsync(req).ConfigureAwait(false);
+        var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+        return ((int)resp.StatusCode, body);
+    }
+
+    /// <summary>250ms-poll variant of <see cref="WaitForClaimAsync"/> for workercancel only —
+    /// see the comment at its call site for why this phase specifically needs tighter detection
+    /// latency than the shared 1.5s helper.</summary>
+    private static async Task<bool> WaitForClaimFastAsync(
+        HttpClient http, string taskId, string workerId, TimeSpan within)
+    {
+        var deadline = DateTime.UtcNow + within;
+        while (DateTime.UtcNow < deadline)
+        {
+            using var resp = await http.GetAsync($"/hive/tasks/{taskId}");
+            if (resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadFromJsonAsync<HiveTaskStatusResponse>(JsonOptions);
+                if (body?.Status is "claimed" or "running"
+                    && string.Equals(body.ClaimedBy, workerId, StringComparison.OrdinalIgnoreCase))
+                    return true;
+                if (body?.Status is "completed" or "failed" or "timeout" or "cancelled") return false;
+            }
+            await Task.Delay(250);
+        }
+        return false;
     }
 
     // ── Shared: recovery proof ─────────────────────────────────────────────────

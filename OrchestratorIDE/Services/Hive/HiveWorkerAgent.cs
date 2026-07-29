@@ -143,9 +143,29 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
     /// </summary>
     public bool TryCancelTask(string taskId)
     {
-        if (!_activeTaskCancellations.TryGetValue(taskId, out var cts)) return false;
-        try { cts.Cancel(); } catch (ObjectDisposedException) { return false; }
+        if (!_activeTaskCancellations.TryGetValue(taskId, out var cts))
+        {
+            TaskDiag($"TryCancelTask taskId={taskId} NOT FOUND in registry");
+            return false;
+        }
+        TaskDiag($"TryCancelTask taskId={taskId} FOUND, alreadyCancelled={cts.IsCancellationRequested} -> calling Cancel()");
+        try { cts.Cancel(); } catch (ObjectDisposedException) { TaskDiag($"TryCancelTask taskId={taskId} CTS already disposed"); return false; }
         return true;
+    }
+
+    // Mirrors HiveTaskQueue.TaskDiag on the worker side -- see that one's doc comment for why
+    // this is file-based rather than Log(...)/Console (buffering).
+    private static readonly bool _taskDiag =
+        Environment.GetEnvironmentVariable("THEORC_HIVE_TASK_DIAGNOSTICS") == "1";
+    private static void TaskDiag(string msg)
+    {
+        if (!_taskDiag) return;
+        try
+        {
+            File.AppendAllText("hive-task-diag-worker.log",
+                $"{DateTime.UtcNow:O} {msg}{Environment.NewLine}");
+        }
+        catch { /* best-effort */ }
     }
 
     // ── Main polling loop ─────────────────────────────────────────────────────
@@ -457,10 +477,13 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         // really "this worker's" to cancel.
         using var taskCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         _activeTaskCancellations[bundle.TaskId] = taskCts;
+        TaskDiag($"ClaimAndExecuteAsync taskId={bundle.TaskId} registered taskCts, starting ExecuteTaskAsync");
 
         try
         {
             result = await ExecuteTaskAsync(bundle, taskCts.Token).ConfigureAwait(false);
+            TaskDiag($"ClaimAndExecuteAsync taskId={bundle.TaskId} ExecuteTaskAsync RETURNED NORMALLY " +
+                $"(no exception), taskCts.IsCancellationRequested={taskCts.IsCancellationRequested}, resultLen={result?.Length ?? -1}");
         }
         // Same distinction as RunLoopAsync: an HTTP-timeout TaskCanceledException is a task
         // failure to report back to the Warchief, not a worker shutdown — rethrowing it would
@@ -479,6 +502,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         {
             status   = "cancelled";
             errorMsg = "Cancelled via remote /hive/tasks/cancel request.";
+            TaskDiag($"ClaimAndExecuteAsync taskId={bundle.TaskId} CAUGHT OperationCanceledException, status set to cancelled");
             Log($"🛑 [{bundle.Role}] '{bundle.Title}' — cancelled remotely");
         }
         catch (Exception ex)
@@ -597,12 +621,14 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         // HandleFailAsync distinguishes them by reading taskResult.Status, not by a different
         // action/route.
         var action = status == "completed" ? "complete" : "fail";
-        await PostResultAsync(bundle.TaskId, action, taskResult, ct).ConfigureAwait(false);
-        TaskActivity(bundle.TaskId, status switch
+        TaskDiag($"ClaimAndExecuteAsync taskId={bundle.TaskId} POSTING action={action} finalStatus={status} claimToken={taskResult.ClaimToken}");
+        var accepted = await PostResultAsync(bundle.TaskId, action, taskResult, ct).ConfigureAwait(false);
+        TaskActivity(bundle.TaskId, (accepted, status) switch
         {
-            "completed" => $"✅ Sent to Warchief ({taskResult.DurationMs / 1000.0:F1}s, {result?.Length ?? 0} chars)",
-            "cancelled" => "🛑 Cancellation reported to Warchief",
-            _           => $"⚠ Failure reported to Warchief: {errorMsg}",
+            (false, _)          => "⚠ Result REJECTED by Warchief (see log) — this worker's outcome was not recorded",
+            (true, "completed") => $"✅ Sent to Warchief ({taskResult.DurationMs / 1000.0:F1}s, {result?.Length ?? 0} chars)",
+            (true, "cancelled") => "🛑 Cancellation reported to Warchief",
+            (true, _)           => $"⚠ Failure reported to Warchief: {errorMsg}",
         });
     }
 
@@ -818,7 +844,13 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         }
     }
 
-    private async Task PostResultAsync(string taskId, string action, HiveTaskResult result, CancellationToken ct)
+    /// <returns>
+    /// True if the Warchief accepted the result. False on any non-success HTTP status — the
+    /// caller must reflect this in whatever it tells the operator (grok-review, PR #95's follow-
+    /// up: this method used to log a rejection but the caller still unconditionally reported
+    /// "Sent/reported to Warchief" regardless, so the visibility fix was only half-applied).
+    /// </returns>
+    private async Task<bool> PostResultAsync(string taskId, string action, HiveTaskResult result, CancellationToken ct)
     {
         var url   = $"{WarchiefUrl.TrimEnd('/')}/hive/tasks/{taskId}/{action}";
         var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(result, _json));
@@ -830,7 +862,24 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
         SignIfPaired(req, bytes);
 
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        await http.SendAsync(req, ct).ConfigureAwait(false);
+        using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+        // The response was previously discarded entirely (grok-review, PR investigating HV-4
+        // item 1's own live verification): a rejected post -- e.g. the Warchief's heartbeat
+        // watchdog already re-queued this task before this POST landed, so the "is this entry
+        // still claimed by me" guard on the receiving end returns 409 -- was silently treated as
+        // success. The worker then logged "reported to Warchief" and moved on to poll for new
+        // work while the ALREADY-REQUEUED task sat there to be claimed and executed again by
+        // someone (possibly this same worker), producing a confusing final record. Now visible.
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            Log($"⚠ POST {action} for task {taskId} was REJECTED by the Warchief: " +
+                $"HTTP {(int)resp.StatusCode} {body} — this worker's result was NOT recorded " +
+                "as it reported; the task's actual fate is whatever the Warchief's queue " +
+                "already decided independently (e.g. a heartbeat-timeout requeue).");
+            return false;
+        }
+        return true;
     }
 
     private async Task<IReadOnlyList<ArtifactRef>> UploadOutputArtifactsAsync(

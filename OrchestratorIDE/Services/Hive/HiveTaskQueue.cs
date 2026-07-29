@@ -545,11 +545,14 @@ public sealed class HiveTaskQueue : IDisposable
             if (!_tasks.TryGetValue(taskId, out var entry) || entry.Status != "pending" ||
                 !AreDependenciesSatisfied(entry))
             {
+                TaskDiag($"HandleClaimAsync REJECT 409 taskId={taskId} " +
+                    $"entryStatus={(_tasks.TryGetValue(taskId, out var e2) ? e2.Status : "(missing)")}");
                 ctx.Response.StatusCode = 409;
                 return;
             }
 
             var req = ReadJson<HiveClaimRequest>(body);
+            TaskDiag($"HandleClaimAsync ACCEPT taskId={taskId} by={req?.WorkerId ?? "unknown"}");
 
             // Rotate claim token on every (re-)claim so stale /complete calls can be rejected
             entry.ClaimToken    = Guid.NewGuid().ToString("N")[..12];
@@ -681,6 +684,8 @@ public sealed class HiveTaskQueue : IDisposable
             }
 
             var entry = selected.Value;
+            TaskDiag($"HandleLeaseAsync SELECT taskId={selected.Key} title='{entry.Bundle.Title}' " +
+                $"priorStatus={entry.Status} priorClaimToken={entry.ClaimToken} by={request.WorkerId}");
             // A unit that just got claimed is by definition satisfiable; drop any rejections it
             // accumulated while it waited so the diagnostic never reads as stale.
             entry.IneligibleFor.Clear();
@@ -1148,22 +1153,24 @@ public sealed class HiveTaskQueue : IDisposable
         var result = ReadJson<HiveTaskResult>(body);
 
         QueuedTask? entry = null;
+        TaskDiag($"HandleCompleteAsync ENTER taskId={taskId} postedToken={result?.ClaimToken ?? "(none)"}");
         await _claimLock.WaitAsync();
         try
         {
             if (!_tasks.TryGetValue(taskId, out entry))
-            { ctx.Response.StatusCode = 404; return; }
+            { TaskDiag($"HandleCompleteAsync REJECT 404 taskId={taskId} not found"); ctx.Response.StatusCode = 404; return; }
 
             if (entry.Status is not "claimed")
-            { ctx.Response.StatusCode = 409; return; }
+            { TaskDiag($"HandleCompleteAsync REJECT 409 taskId={taskId} entry.Status={entry.Status} (not claimed)"); ctx.Response.StatusCode = 409; return; }
 
             if (result is null)
-            { ctx.Response.StatusCode = 400; return; }
+            { TaskDiag($"HandleCompleteAsync REJECT 400 taskId={taskId} null result"); ctx.Response.StatusCode = 400; return; }
 
             if (result.OutputArtifacts.Count > 0 && (ArtifactStore is null ||
                 result.OutputArtifacts.Any(a => !ArtifactStore.Has(a.DigestSha256) ||
                     new FileInfo(ArtifactStore.GetPath(a.DigestSha256)).Length != a.SizeBytes)))
             {
+                TaskDiag($"HandleCompleteAsync REJECT 409 taskId={taskId} unverified artifacts");
                 ctx.Response.StatusCode = 409;
                 WriteJson(ctx, new { error = "one or more output artifacts are missing or unverified" });
                 return;
@@ -1171,16 +1178,24 @@ public sealed class HiveTaskQueue : IDisposable
 
             if (!string.IsNullOrEmpty(entry.ClaimToken) && result.ClaimToken != entry.ClaimToken)
             {
+                TaskDiag($"HandleCompleteAsync REJECT 409 taskId={taskId} tokenMismatch entryToken={entry.ClaimToken} postedToken={result.ClaimToken}");
                 Log($"⚠ Stale /complete for '{entry.Bundle.Title}' from {result.WorkerId} " +
                     $"(token mismatch — re-queued task already claimed by {entry.ClaimedBy})");
                 ctx.Response.StatusCode = 409;
                 return;
             }
 
+            TaskDiag($"HandleCompleteAsync ACCEPT taskId={taskId} entry.Status={entry.Status} priorErrorMsg={entry.ErrorMsg ?? "(null)"} -> completed");
             // Mark completed under lock so CheckTimeouts cannot re-queue concurrently.
             entry.Status           = "completed";
             entry.ResultText       = result.Result;
             entry.StructuredResult = result;
+            // A genuine success must clear any error a PRIOR attempt on this same entry left
+            // behind (a heartbeat-timeout requeue, or the new cancelled-task result path) --
+            // without this, a task that failed once and succeeded on retry (or was cancelled
+            // then somehow re-executed) reports "completed" with a stale, contradictory
+            // ErrorMsg forever (grok-review finding, HV-4 item 1's own live verification).
+            entry.ErrorMsg         = null;
         }
         finally { _claimLock.Release(); }
 
@@ -1230,19 +1245,21 @@ public sealed class HiveTaskQueue : IDisposable
         HiveTaskResult? failResult = null;
         var requeued = false;
         var wasCancelled = false;
+        TaskDiag($"HandleFailAsync ENTER taskId={taskId} postedStatus={result?.Status ?? "(null result)"} postedToken={result?.ClaimToken ?? "(none)"}");
         await _claimLock.WaitAsync();
         try
         {
             if (!_tasks.TryGetValue(taskId, out entry))
-            { ctx.Response.StatusCode = 404; return; }
+            { TaskDiag($"HandleFailAsync REJECT 404 taskId={taskId} not found"); ctx.Response.StatusCode = 404; return; }
 
             if (entry.Status is not "claimed")
-            { ctx.Response.StatusCode = 409; return; }
+            { TaskDiag($"HandleFailAsync REJECT 409 taskId={taskId} entry.Status={entry.Status} (not claimed)"); ctx.Response.StatusCode = 409; return; }
 
             if (result is not null && !string.IsNullOrEmpty(entry.ClaimToken)
                 && result.ClaimToken != entry.ClaimToken)
-            { ctx.Response.StatusCode = 409; return; }
+            { TaskDiag($"HandleFailAsync REJECT 409 taskId={taskId} tokenMismatch entryToken={entry.ClaimToken} postedToken={result.ClaimToken}"); ctx.Response.StatusCode = 409; return; }
 
+            TaskDiag($"HandleFailAsync ACCEPT taskId={taskId} entry.Status={entry.Status} -> will write");
             failResult   = result ?? new HiveTaskResult
             {
                 TaskId   = taskId,
@@ -1748,6 +1765,25 @@ public sealed class HiveTaskQueue : IDisposable
     }
 
     private void Log(string msg) => OnLog?.Invoke(msg);
+
+    // Same convention as THEORC_KVCACHE_DIAGNOSTICS / THEORC_HIVE_HEARTBEAT_DIAGNOSTICS: an
+    // opt-in, zero-cost-when-off diagnostic for the claim/lease/fail/complete lifecycle. File-
+    // based rather than Log(...)/Console, which are known to be fully buffered and not visible
+    // until process exit (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md) -- exactly the visibility
+    // gap that made HV-4 item 1's cancelled-task-reports-completed anomaly hard to pin down live
+    // until this was added. Kept as a standing tool for this same class of race, not removed.
+    private static readonly bool _taskDiag =
+        Environment.GetEnvironmentVariable("THEORC_HIVE_TASK_DIAGNOSTICS") == "1";
+    private static void TaskDiag(string msg)
+    {
+        if (!_taskDiag) return;
+        try
+        {
+            File.AppendAllText("hive-task-diag.log",
+                $"{DateTime.UtcNow:O} {msg}{Environment.NewLine}");
+        }
+        catch { /* best-effort */ }
+    }
 
     // ── IDisposable ───────────────────────────────────────────────────────────
 
