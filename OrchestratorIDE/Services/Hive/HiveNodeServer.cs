@@ -1015,7 +1015,11 @@ public sealed class HiveNodeServer : IDisposable
         try { payload = JsonSerializer.Deserialize<MarkRoleDegradedRequest>(body, _jsonIn); }
         catch { resp.StatusCode = 400; Error(resp, "bad request"); return; }
 
-        if (payload is null || !Enum.TryParse<RuntimeRole>(payload.Role, ignoreCase: true, out var role))
+        // Enum.TryParse alone accepts any integer string ("999") as a "successfully parsed"
+        // undefined value — Enum.IsDefined is required to actually reject it (CodeRabbit, PR #94).
+        if (payload is null
+            || !Enum.TryParse<RuntimeRole>(payload.Role, ignoreCase: true, out var role)
+            || !Enum.IsDefined(role))
         {
             resp.StatusCode = 400;
             Error(resp, $"invalid or missing role (expected one of: {string.Join(", ", Enum.GetNames<RuntimeRole>())})");

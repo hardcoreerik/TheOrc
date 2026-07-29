@@ -762,7 +762,7 @@ handling already used — no new recycle mechanism, just a remote door onto the 
 signed-request harness (deleted after use, matching this session's earlier spike/probe
 convention) hit the real endpoint over the network with a genuine HMAC-signed, Warchief-identity
 request:
-```
+```text
 POST /hive/roles/degrade {role: Worker}   -> 200 {"status":"ok","role":"Worker"}
 POST /hive/roles/degrade {role: bogus}    -> 400 (lists valid roles)
 ```
@@ -881,7 +881,7 @@ touching the poll loop or any other concurrently-running task. `HiveNodeServer`'
 `HiveWorkerAgent.TryCancelTask(taskId)`.
 
 **Live-verified against the real deployed daemon on HardcorePC:**
-```
+```text
 POST /hive/tasks/cancel {taskId: <unknown>}  -> 404 "no in-flight task with this id on this worker"
 POST /hive/tasks/cancel {}                   -> 400 "missing taskId"
 ```
@@ -892,11 +892,17 @@ it in the same file) rather than a live mid-generation interruption — the 404/
 routing, auth, and registry-miss handling all work correctly end-to-end on a real box, which is
 the harder part to get wrong.
 
-**Item 1 is now fully covered.** The plan's original ask — cancellation surfacing mid-generation
-as an `OperationCanceledException` on the worker via a real remote trigger — has that trigger.
-`Tools/Hv4RecoveryRunner`'s `cancel` phase still exercises only the Warchief-side campaign-cancel
-path (a different, already-covered mechanism); wiring the harness to also exercise this new
-worker-side endpoint is a natural follow-up, not yet done.
+**Item 1: the trigger now exists, but per CodeRabbit's correct catch on this same PR (#94), this
+is still partial coverage, not "fully covered."** The plan's original ask — cancellation
+surfacing mid-generation as an `OperationCanceledException` on the worker via a real remote
+trigger — has that trigger built, authenticated, and live-verified for its routing/auth/
+validation paths (404/400 above). What has NOT been exercised live is the actual "found and
+cancels a real in-flight generation" path — no task happened to be in flight on HardcorePC at
+verification time, so that half rests on code review of the linked-token mechanism, not
+observation. `Tools/Hv4RecoveryRunner`'s `cancel` phase still exercises only the Warchief-side
+campaign-cancel path (a different, already-covered mechanism). Closing item 1 for real needs
+either a live mid-generation cancel run or the harness wired to exercise this new endpoint
+directly — neither done yet.
 
 **2026-07-29 (same day, before merge) — a Grok second-opinion review (PR #94,
 `grok-review -Mode full`) caught a real BLOCKER in the first version of this endpoint, fixed
