@@ -235,10 +235,16 @@ public sealed class HiveService : BackgroundService
                     return new
                     {
                         reservation?.Reservations,
-                        TotalBytes             = reservation?.TotalBytes,
-                        ReservedBytes          = reservation?.ReservedBytes,
-                        AvailableBytes         = reservation?.AvailableBytes,
-                        RejectedAdmissionCount = reservation?.RejectedAdmissionCount,
+                        // Defaulted to 0 rather than left null: Tools/Hv3LifecycleRunner's
+                        // NativeTelemetry DTO declares these as non-nullable long, so a JSON null
+                        // here (whenever there's no scheduler/budget provider, e.g. before the
+                        // native runtime finishes initializing) fails deserialization and the
+                        // driver reports the whole worker unreachable rather than "not yet
+                        // admitting" — a false negative on exactly the signal HV-3/HV-5 sweep for.
+                        TotalBytes             = reservation?.TotalBytes ?? 0,
+                        ReservedBytes          = reservation?.ReservedBytes ?? 0,
+                        AvailableBytes         = reservation?.AvailableBytes ?? 0,
+                        RejectedAdmissionCount = reservation?.RejectedAdmissionCount ?? 0,
                         LastRejectionReason    = reservation?.LastRejectionReason,
                         Residency = nativeRuntime.GetResidencySnapshot().Select(r => new
                         {

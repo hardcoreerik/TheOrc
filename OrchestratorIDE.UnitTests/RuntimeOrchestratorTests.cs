@@ -218,7 +218,8 @@ public sealed class RuntimeOrchestratorTests
         }
         var afterFirstLoad = orchestrator.GetReservationSnapshot()!.Reservations
             .Single(r => r.Role == RuntimeRole.Worker).Bytes;
-        Assert.That(afterFirstLoad, Is.GreaterThan(0), "first (fresh) load must reserve something");
+        Assert.That(afterFirstLoad, Is.GreaterThan(sizeBytes),
+            "the fresh context-aware admission must include non-model allocation costs");
 
         // Same role, same binding, base weights now resident from the call above -- this is the
         // reuse admission whose returned requiredBytes is smaller than the first call's.
