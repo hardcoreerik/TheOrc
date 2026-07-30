@@ -891,11 +891,23 @@ public partial class MainWindow : Window
             ModelStore = _hiveTaskQueue?.ModelStore ?? new ContentAddressedStore(
                 _settings.ResolvedNativeRuntimeModelRoot, fileExtension: ".gguf"),
         };
+        // NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-1's evidence-quality gap, fixed on the
+        // Daemon side (HiveService.cs) but noted as open here too: DetectAsync's
+        // verifiedNativeBackend parameter defaults to "cpu", silently zeroing
+        // WorkerCapabilities.FreeVramMb and mislabeling Attestation.Backend even on a confirmed
+        // CUDA box. EnsureConfigured() caches after its first call (see its own doc comment), so
+        // calling it again here — only once nativeHiveRuntime succeeded, meaning backend
+        // selection already ran as part of that success path — is free: it returns the same
+        // cached report, never re-triggers real GPU detection.
+        var verifiedNativeBackend = nativeHiveRuntime is not null
+            && NativeBackendBootstrap.EnsureConfigured().SelectedCuda
+                ? "cuda12" : "cpu";
         _hiveWorkerAgent.Capabilities = await WorkerCapabilityDetector.DetectAsync(
             name,
             ModelDepot.Scan(_settings.ResolvedNativeRuntimeModelRoot),
             (long)Math.Max(0, _settings.DetectedVramGb * 1024),
-            _hiveTaskQueue?.ArtifactStore);
+            _hiveTaskQueue?.ArtifactStore,
+            verifiedNativeBackend: verifiedNativeBackend);
         _hiveWorkerAgent.AutoResyncEnabled = _settings.HiveDevAutoResyncEnabled;
         _hiveWorkerAgent.OnLog += msg =>
             AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE Worker", msg, DateTime.Now));

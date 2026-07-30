@@ -197,11 +197,19 @@ since that field is gated by the same parameter. Fixed by declaring `verifiedNat
 outside the native-configured branch (defaulting to `"cpu"`, correct when native isn't
 configured at all) and setting it to `backend.SelectedCuda ? "cuda12" : "cpu"` right where
 `backend` is computed, then threading it into the `DetectAsync` call. `WorkerCapabilityDetectorTests.cs`
-(new) locks down `DetectAsync`'s own contract for this parameter. The Avalonia GUI's separate
-`BuildRequiredNativeHiveWorkerRuntime` path computes an equivalent backend verdict but never
-returns it to its own `DetectAsync` call site either — a structurally different, bigger fix (the
-verdict is local to a different method with no return path today), left open rather than folded
-into this pass.
+(new) locks down `DetectAsync`'s own contract for this parameter.
+
+**The GUI half, also closed 2026-07-30.** `MainWindow.axaml.cs`'s `StartHiveWorkerAsync` has the
+identical gap — its own `DetectAsync` call never passed `verifiedNativeBackend` either. Initially
+assessed as "structurally different, bigger fix" since the backend verdict is computed inside a
+different method (`BuildExperimentalNativeRoleRuntime`, three levels of caller indirection away)
+with no return path back out. Checked more carefully rather than accepting that first read:
+`NativeBackendBootstrap.EnsureConfigured()`'s own doc comment says it configures **once** and
+returns a **cached** report on every subsequent call. So calling it again at the
+`StartHiveWorkerAsync` call site — guarded on `nativeHiveRuntime is not null` (meaning backend
+selection already ran once, successfully, as part of building that runtime) — costs nothing: it
+returns the identical cached verdict, never re-triggers real GPU detection. No signature changes,
+no new return paths, three lines.
 
 **2026-07-21 (later same session) — root cause found and fixed; HV-1 CLOSED for real, both
 boxes, at the original full context (8192).** The "reservation never releases" framing above was
