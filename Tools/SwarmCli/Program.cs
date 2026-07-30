@@ -277,7 +277,20 @@ if (nativeDownloadQuery is not null)
 
 if (showIdentity)
 {
-    var id = HiveIdentity.Load();
+    HiveIdentity id;
+    try
+    {
+        id = HiveIdentity.Load(regenerateOnCorruption: false);
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine(
+            $"Could not load the existing identity at '{HiveIdentity.IdentityPath}': {ex.Message}");
+        Console.Error.WriteLine(
+            "Refusing to generate a replacement just to answer --show-identity. If this file is " +
+            "genuinely unrecoverable, delete it manually and re-pair from scratch instead.");
+        return 1;
+    }
     Console.WriteLine($"NodeId:      {id.NodeId}");
     Console.WriteLine($"Fingerprint: {id.Fingerprint}");
     Console.WriteLine($"Machine:     {Environment.MachineName}");

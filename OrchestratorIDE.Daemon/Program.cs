@@ -42,7 +42,20 @@ if (args.Contains("--show-identity") || args.Contains("--pair") || args.Contains
 
 if (args.Contains("--show-identity"))
 {
-    var identity = HiveIdentity.Load();
+    HiveIdentity identity;
+    try
+    {
+        identity = HiveIdentity.Load(regenerateOnCorruption: false);
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine(
+            $"Could not load the existing identity at '{HiveIdentity.IdentityPath}': {ex.Message}");
+        Console.Error.WriteLine(
+            "Refusing to generate a replacement just to answer --show-identity. If this file is " +
+            "genuinely unrecoverable, delete it manually and re-pair from scratch instead.");
+        return 1;
+    }
     Console.WriteLine($"NodeId: {identity.NodeId}");
     Console.WriteLine($"Fingerprint: {identity.Fingerprint}");
     return 0;

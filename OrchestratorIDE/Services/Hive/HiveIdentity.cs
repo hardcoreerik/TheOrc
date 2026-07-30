@@ -239,24 +239,25 @@ public sealed class HiveIdentity : IDisposable
     /// Thread-safe.
     /// </summary>
     /// <param name="regenerateOnCorruption">
-    /// When true (the default, and every caller's behavior before this parameter existed): a
-    /// stored identity file that exists but fails to decrypt or parse is treated as corrupt or
-    /// belonging to a different secret protector, and this silently generates and persists a
-    /// brand-new identity in its place — NodeId, signing key, and exchange key all change.
+    /// When false (the default since the 2026-07-29 NewcorePC Warchief-identity incident): a
+    /// stored identity file that exists but fails to decrypt or parse THROWS instead of being
+    /// silently replaced. This used to default to true everywhere — a live Warchief's identity
+    /// was destroyed mid-session by a one-shot `--show-identity` CLI call that hit the two-
+    /// AppData-views decrypt-protector mismatch (this file's HiveNodeServer comments document
+    /// it) and silently regenerated in place, orphaning every paired worker's shared secret
+    /// with zero indication anything had happened. `--leave-hive` was the first caller to need
+    /// strict behavior (see the CodeRabbit history below); the incident showed every OTHER
+    /// caller needed it too — regenerating a live identity out from under an established hive
+    /// is never a safe default, only ever an explicit, deliberate operator choice.
     ///
-    /// When false: the same failure THROWS instead of regenerating. Callers for whom silently
-    /// operating on a different identity than the one on disk would be actively dangerous must
-    /// opt into this — CodeRabbit found the concrete case: <c>--leave-hive</c>'s entire contract
-    /// is "clear hive membership, keep NodeId/keys/peer-secrets unchanged," and a transient decrypt
-    /// failure (the two-AppData-views collision this file's HiveNodeServer comments already
-    /// document is a real, observed cause) would otherwise make it silently leave a hive using a
-    /// FRESH identity that was never actually a member of it — no error, no indication anything
-    /// unusual happened, and the real identity's membership simply abandoned.
+    /// When true: the old silent-regenerate-on-corruption behavior. Opt in only for a caller
+    /// that has already decided, with the operator's knowledge, that a fresh identity is an
+    /// acceptable outcome of this call.
     ///
     /// Does NOT apply to first-run: a file that does not exist at all is a genuinely new node, not
     /// corruption, and is created regardless of this parameter.
     /// </param>
-    public static HiveIdentity Load(bool regenerateOnCorruption = true)
+    public static HiveIdentity Load(bool regenerateOnCorruption = false)
     {
         lock (_lock)
         {
