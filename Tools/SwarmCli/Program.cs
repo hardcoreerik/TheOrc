@@ -336,7 +336,22 @@ if (declareWarchief)
     }
 
     Console.WriteLine($"swarmcli --declare-warchief — broadcasting role-assign (Worker) to {peers.Count} peer(s)…");
-    var identity = HiveIdentity.Load();
+    HiveIdentity identity;
+    try
+    {
+        identity = HiveIdentity.Load();
+    }
+    catch (Exception ex)
+    {
+        // grok-review MINOR, round 11: this call was left uncaught after the regenerateOnCorruption
+        // default flip -- same hardening --show-identity already got, applied here too.
+        Console.Error.WriteLine(
+            $"Could not load the existing identity at '{HiveIdentity.IdentityPath}': {ex.Message}");
+        Console.Error.WriteLine(
+            "Refusing to generate a replacement just to declare a Warchief. If this file is " +
+            "genuinely unrecoverable, delete it manually and re-pair from scratch instead.");
+        return 1;
+    }
     var anyFailed = false;
     foreach (var peer in peers)
     {

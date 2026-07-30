@@ -1203,19 +1203,85 @@ recorded below rather than silently dropped.**
    non-persistent" -- `RUNTIME_SUPPORT_MATRIX.md`'s fallback table already says the count is "only
    visible in the moment the line appears, not a persistent indicator." Nothing to fix; the
    documentation was already accurate about this exact gap before the finding was raised.
-6. **MINOR, checked, structurally hard to close without a larger refactor -- documented as a known
-   gap, not implemented.** `HiveIdentity.Load()`'s `regenerateOnCorruption` throw-vs-regenerate
-   branch has no direct unit test; the behavioral claim is only exercised indirectly via the
-   Daemon/`SwarmCli` `--show-identity` try/catch wiring. `Load()` is a process-wide static singleton
-   (`_instance` cached for the process lifetime, `IdentityPath` a `static readonly` pointing at the
-   real `%AppData%` location) with no reset hook and no injectable path -- a unit test would need
-   either reflection-based mutation of process-wide static state (risking cross-test contamination
-   in a shared test process) or a real refactor to make the path/instance injectable. Neither is a
-   narrow fix; left for a future round that's willing to take on that refactor deliberately.
+6. **MINOR, closed same day after all.** `HiveIdentity.Load()`'s `regenerateOnCorruption`
+   throw-vs-regenerate branch had no direct unit test -- initially assessed as needing a bigger
+   refactor to close (the process-wide `_instance` singleton and hardcoded `IdentityPath` gave no
+   reset hook or injectable path). Closed instead by factoring the decrypt/parse/throw-or-regenerate
+   decision itself out of `Load()` into `LoadOrCreateFromPath(path, regenerateOnCorruption)`, a
+   private helper with no singleton or disk-write side effects, exposed via a test-only
+   `LoadFromPathForTest` (mirrors `CreateEphemeral()`'s "no disk" convention). `Load()` itself is
+   now just: check the singleton cache, delegate to the helper against the real `IdentityPath`,
+   persist if genuinely new. Four new tests in `HiveIdentityTests.cs` cover missing-file,
+   corrupt-file-throws (`regenerateOnCorruption: false`), corrupt-file-regenerates
+   (`regenerateOnCorruption: true`), and the literal-`"null"`-content branch's specific
+   `InvalidOperationException`.
 
 Build clean, full 703/716-green suite unchanged, re-verified via `grok-review -Mode diff` before
 landing (that pass's only findings were reminders about unrelated untracked files already correctly
 excluded from staging: `training_pit/datasets/toolcaller/` and `docs/OrcEngine/`).
+
+**Round 11 (`grok-review -Mode adversary`, same day, re-run immediately after round 10 landed) --
+2 BLOCKER, 3 MINOR reported; all closed same day.** This round is the clearest evidence yet that
+`HiveIdentity.Load()`'s uncaught-call-site problem was never really "N separate bugs" -- it's one
+bug class (the same call, scattered across a dozen files, each site independently uncaught) that
+whack-a-mole fixing keeps re-surfacing one call site at a time. Documented candidly rather than
+declared closed prematurely a third time.
+
+1. **BLOCKER, fixed -- two MORE uncaught `HiveIdentity.Load()` call sites on the exact same startup
+   path.** `RestoreLastMode()` (called from `OnLoadedAsync`, same as round 10's fix) can reach
+   `SetMode("update")`, which calls `HiveIdentity.Load()` directly with no try/catch, or
+   `SetMode("hive")`, which calls `_hivePanel.Refresh()` -> `DrawConstellation()` --
+   `HivePanel.axaml.cs` has its own separate, uncaught `HiveIdentity.Load()` call. Either one, with
+   `_settings.LastMode` set to `"update"` or `"hive"` from a prior session, would crash GUI startup
+   on a corrupt identity file exactly like round 10's wizard-trigger bug, despite that fix already
+   having landed. Fixed at both points: `SetMode("update")`'s block now catches and falls back to
+   an empty `LocalNodeId`/`IsWarchief=false` for just that panel; the `RestoreLastMode()` call site
+   itself also got wrapped (catching the `SetMode("hive")` path and any other mode-restore failure
+   generically) so `ApplyTrustLevel` right after it still runs regardless of which mode failed to
+   restore.
+   **Left open, deliberately, rather than whack-a-moled a fourth time:** `HivePanel.axaml.cs` alone
+   has upwards of ten more `HiveIdentity.Load()` call sites used throughout normal HIVE panel
+   operation (pairing, role changes, fingerprint display). Patching each individually is the same
+   losing pattern that took three rounds to even notice has a pattern. The durable fix is
+   architectural -- e.g. making a failed `Load()` cache its own failure and return a degraded
+   ephemeral identity on retry instead of re-throwing every single call until the file is fixed, or
+   one process-wide preflight gate that disables all HIVE UI for the session on first failure --
+   and deserves its own deliberate round, not a same-session patch under continued iteration.
+2. **BLOCKER, fixed -- the stale-Warchief-authority gap round 10 "closed" was only half-closed.**
+   Round 10's `ClearWarchief()` fix only fires from the seed block deep inside a Start that reaches
+   it (after `WorkerCapabilityDetector.DetectAsync` and native runtime construction) -- but
+   `OnWarchiefTargetSelected`'s `StopHiveWorkerAsync()` call, which runs FIRST as part of every
+   retarget, never touches `ElectionService.WarchiefNodeId` at all. So the OLD Warchief kept
+   `/hive/roles/degrade`, `/hive/tasks/cancel`, AND (missed in round 10's scope) `/hive/update/deploy`
+   authority for the entire Stop-to-Start window, and *permanently* if the subsequent Start ever
+   threw before reaching its own seed block. Fixed by calling `_hiveNodeServer?.ElectionService?
+   .ClearWarchief()` directly inside `OnWarchiefTargetSelected`, synchronously, in the same action
+   that clears `_settings.HiveWarchiefNodeId` -- not gated behind `safeToReseed` here, since an
+   explicit operator retarget winning immediately over whatever election currently holds is exactly
+   the doctrine this file's own seed-block comments already state, just now applied at the moment
+   of the actual operator action instead of waiting for a future Start to eventually get there.
+3. **MINOR, checked, no code change.** `HiveWorkerAgent.FallbackCount`/`LastFallbackReason` reading
+   as permanently 0 in native telemetry is the SAME already-documented dead-code gap from round 9's
+   own doc entry (`Runtime` is hardcoded `null` at both GUI and Daemon construction sites) -- not a
+   new finding, already accurately caveated in `RUNTIME_SUPPORT_MATRIX.md` and `CURRENT_STATE.yaml`.
+4. **MINOR, fixed.** `Tools/SwarmCli/Program.cs`'s `--declare-warchief` also called
+   `HiveIdentity.Load()` uncaught -- the same regression class as `MainWindow.axaml.cs`'s startup
+   paths, just in a CLI tool instead of the GUI. Wrapped with the same try/catch shape
+   `--show-identity` already uses (refuse to silently regenerate, print a clear error, exit 1).
+5. **MINOR, fixed.** `MainWindow_Closing` had no guard against being invoked twice before
+   `_closingAfterHiveWorkerShutdown` gets set (only set deep inside the async teardown) -- a
+   double-click on the close button, or Alt+F4 while a first close was still in flight, spawned a
+   SECOND `ShutdownHiveWorkerAndCloseAsync` contending for the same gate. Not a correctness bug
+   (`SemaphoreSlim(1,1)` serializes them correctly either way) but genuinely wasted, redundant work.
+   Fixed with a new `_hiveWorkerShutdownInFlight` flag, set synchronously the instant the first
+   teardown starts and checked (but not gating `e.Cancel`) on every subsequent Closing event. A
+   follow-up `grok-review -Mode diff` pass caught that this flag, once set, was never reset if the
+   teardown task somehow faulted before reaching its own `finally` -- added a `ContinueWith`
+   (`OnlyOnFaulted`-equivalent check) that resets it in that case, so a truly exceptional failure
+   can't permanently block every future close attempt.
+
+Build clean, full 708/721-green suite unchanged (4 new `HiveIdentityTests` from item 6 above
+included), re-verified via `grok-review -Mode diff` after each fix before landing.
 
 **2026-07-29 (later same day) — item 1 fully closed for real, but only after live testing
 surfaced a second, deeper bug the grok BLOCKER fix alone didn't cover.** Built

@@ -105,6 +105,12 @@ public partial class MainWindow : Window
     private readonly Services.CodeGraph.CodeGraphService _codeGraph = new();
     private bool _windowClosed;
     private bool _closingAfterHiveWorkerShutdown;
+    // Distinct from _closingAfterHiveWorkerShutdown (only set once the gated teardown has
+    // actually run): set synchronously the instant the FIRST Closing event starts the teardown,
+    // so a second Closing event (double-click on the close button, Alt+F4 during the first
+    // teardown, etc.) before that flag is set doesn't spawn a SECOND ShutdownHiveWorkerAndCloseAsync
+    // contending for the same gate (grok-review MINOR, round 11).
+    private bool _hiveWorkerShutdownInFlight;
 
     // ── State ─────────────────────────────────────────────────────────────
     private ProjectSession           _session;
@@ -454,7 +460,23 @@ public partial class MainWindow : Window
             {
                 _chatPanel.SetModels(_installedModels, best);
                 UpdateStatusBar();
-                RestoreLastMode();
+                try
+                {
+                    RestoreLastMode();
+                }
+                catch (Exception ex)
+                {
+                    // grok-review BLOCKER, round 11: RestoreLastMode's SetMode("hive") branch
+                    // calls _hivePanel.Refresh() -> DrawConstellation(), which also has its own
+                    // uncaught HiveIdentity.Load() -- a third crash surface on this same startup
+                    // path (after the discovery-wizard call round 10 fixed and SetMode("update")'s
+                    // own direct call, fixed above), reachable whenever _settings.LastMode was
+                    // "hive" or "update" at last exit. Whichever mode failed to restore, ApplyTrust
+                    // Level below still needs to run -- it's an independent startup step, not part
+                    // of the mode restore.
+                    AddActivity(new ActivityEvent(ActivityKind.Error, "Startup",
+                        $"Failed to restore last mode ({_settings.LastMode}): {ex.Message}", DateTime.Now));
+                }
                 ApplyTrustLevel(_settings.TrustLevel);
             });
         }
@@ -1501,13 +1523,32 @@ public partial class MainWindow : Window
         // there's anything to actually shut down -- correct (if a released one-line ping) even
         // when HIVE MIND was never enabled at all.
         e.Cancel = true;
+
+        // A second Closing event (double-click, Alt+F4 while the first teardown is still
+        // in flight) must still cancel this close -- the window isn't ready yet -- but must NOT
+        // spawn another ShutdownHiveWorkerAndCloseAsync to contend for the same gate alongside
+        // the first one (grok-review MINOR, round 11).
+        if (_hiveWorkerShutdownInFlight) return;
+        _hiveWorkerShutdownInFlight = true;
+
         // Not cleared/nulled here (this is a synchronous event handler -- it can't await the
         // lifecycle gate): moved into ShutdownHiveWorkerAndCloseAsync itself, right after it
         // acquires _hiveWorkerLifecycleGate, so this whole teardown serializes against a
         // still-in-flight start the same way StopHiveWorkerAsync now does (grok-review BLOCKER,
         // round 5 -- doing the clear/null here, synchronously, before the gate was ever involved,
         // reopened exactly the race the gate exists to close).
-        _ = ShutdownHiveWorkerAndCloseAsync();
+        //
+        // Reset _hiveWorkerShutdownInFlight if this task ever faults (grok-review follow-up,
+        // round 11): the method's own try/finally means _closingAfterHiveWorkerShutdown normally
+        // gets set unconditionally, which already gates re-entry ahead of this flag -- but nothing
+        // guarantees the task can never fault before reaching that finally (e.g. the fire-and-
+        // forget dispatch itself failing to schedule), and a stuck true would cancel every future
+        // Closing event forever with no way to retry.
+        var shutdownTask = ShutdownHiveWorkerAndCloseAsync();
+        _ = shutdownTask.ContinueWith(t =>
+        {
+            if (t.IsFaulted) _hiveWorkerShutdownInFlight = false;
+        }, TaskScheduler.Default);
     }
 
     private async Task ShutdownHiveWorkerAndCloseAsync()
@@ -2307,11 +2348,28 @@ public partial class MainWindow : Window
         }
         else if (mode == "update")
         {
-            var identity  = Services.Hive.HiveIdentity.Load();
-            var election  = _hiveNodeServer?.ElectionService;
+            // grok-review BLOCKER, round 11: this direct HiveIdentity.Load() call is a second,
+            // previously-missed crash surface on the exact same startup path round 10 hardened
+            // (RestoreLastMode -- called from OnLoadedAsync -- reaches SetMode("update") whenever
+            // _settings.LastMode was "update" at last exit). A corrupt identity file throws here
+            // too, uncaught, same as the discovery-wizard call round 10 fixed.
+            var election = _hiveNodeServer?.ElectionService;
+            string  localNodeId = "";
+            bool    isWarchief  = false;
+            try
+            {
+                var identity = Services.Hive.HiveIdentity.Load();
+                localNodeId = identity.NodeId;
+                isWarchief  = election?.WarchiefNodeId == identity.NodeId;
+            }
+            catch (Exception ex)
+            {
+                AddActivity(new ActivityEvent(ActivityKind.Error, "Update",
+                    $"Identity load failed, Update panel will show no local node id: {ex.Message}", DateTime.Now));
+            }
             _updatePanel.Settings    = _settings;
-            _updatePanel.LocalNodeId = identity.NodeId;
-            _updatePanel.IsWarchief  = election?.WarchiefNodeId == identity.NodeId;
+            _updatePanel.LocalNodeId = localNodeId;
+            _updatePanel.IsWarchief  = isWarchief;
             _updatePanel.Refresh();
             MainContent.Content    = _updatePanel;
             SidebarContent.Content = _explorerPanel;
@@ -2972,6 +3030,17 @@ public partial class MainWindow : Window
         _settings.HiveWarchiefNodeId = "";
         _settings.HiveWorkerMode  = true;
         _settings.Save();
+        // grok-review BLOCKER, round 11: clearing HiveWarchiefNodeId above only affects the NEXT
+        // Start's own resolution -- ElectionService.WarchiefNodeId itself stays pinned to the OLD
+        // Warchief for the ENTIRE Stop-to-Start window below (StopHiveWorkerCoreAsync never
+        // touches it), and permanently if the subsequent Start throws before ever reaching its own
+        // seed block (e.g. during capability detection or native runtime construction).
+        // HiveNodeServer.IsWarchief reads ElectionService.WarchiefNodeId directly, so without this
+        // the stale target kept /hive/roles/degrade, /hive/tasks/cancel, and /hive/update/deploy
+        // authorized for the OLD Warchief the whole time. An explicit operator retarget must win
+        // immediately, not eventually -- same doctrine the seed block below already documents --
+        // so clear it here, synchronously, as part of the very action that clears the setting.
+        _hiveNodeServer?.ElectionService?.ClearWarchief();
         AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE MIND",
             $"🎯 Warchief target set to {url}. Starting worker…", DateTime.Now));
         // StartHiveWorkerAsync's first line is an early-return when a worker is already running,
