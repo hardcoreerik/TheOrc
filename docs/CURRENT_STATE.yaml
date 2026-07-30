@@ -76,40 +76,42 @@ subsystems:
     note: "Configuration surface remains incomplete."
 
   native_runtime:
-    status: opt-in
+    status: production
     note: >
-      In-process native inference (LLamaSharp-backed) is a real, working
-      alternate lane to Ollama, but Ollama remains the default/primary path for
-      most workflows today. See docs/RUNTIME_SUPPORT_MATRIX.md for the full
-      current/default/fallback picture per workload, including the real
-      NativeWithFallbackRuntime mechanics and the one open gap it documents
-      (benchmark reports record RuntimeName as a static label, not per-call
-      fallback counts). As of 2026-07-20, docs/NATIVE_RUNTIME_V2_SPEC.md's
-      foundation-hardening Phases A-C are landed: VRAM admission is a single
-      authoritative, fail-closed boundary (AdapterManager's conversation-
-      minting is internal, reachable only through RuntimeOrchestrator's gate;
-      a missing budget now denies rather than silently loading unadmitted);
-      the admission budget's TOTAL/USED read is live via nvidia-smi; the
-      per-role VRAM cost ESTIMATE (OrcScheduler.EstimateRequiredBytes) is now
-      KV/rs-cache-aware (a byte-exact GGUF-header formula, arch-gated for
-      recurrent architectures) rather than file-size-only -- the deferred half
-      of Phase B landed too (PR #76), plus a real load-time VRAM MEASUREMENT
-      parsed from llama.cpp's own log lines (PR #77), replacing the WDDM-dead
-      nvidia-smi per-process read Phase C originally shipped. RuntimeOrchestrator/
-      AdapterManager telemetry (reservation state, adapter residency,
-      rejected-admission counts, measured VRAM) is real and partially surfaced
-      in the Activity Log. Phase D (real-model native-path proof lane) is
-      essentially complete: a negative fail-closed test (no silent Ollama
-      substitution on admission denial, PR #78), a cancellation-corruption bug
-      found and fixed (cancelling mid-generation could permanently break a
-      role's executor; fixed by extending the existing MarkForRecycle
-      mitigation to any failed generation, not just NoKvSlot, PR #79), and a
-      real-model E2E lane with a retained JSON evidence artifact (discovery
-      through real admission through inference through telemetry;
-      25.7 tok/s, 284ms TTFT, 2.5GB measured VRAM on the reference box, PR
-      #81) has landed too, verified on real hardware. This is foundation hardening, not
-      a default-runtime change -- the default-runtime flip remains a
-      separately gated future milestone per that spec's Section 6.
+      As of 2026-07-29, native main chat and native HIVE workers are the
+      DEFAULT (docs/NATIVE_RUNTIME_V2_SPEC.md Section 6 flip, decided against
+      the HIVE validation campaign's evidence in
+      docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md). Ollama remains available
+      and configurable as a fallback backend; native campaign/CF jobs fail
+      closed and do not silently fall back. See docs/RUNTIME_SUPPORT_MATRIX.md
+      for the full current/default/fallback picture per workload -- that
+      document's own "Default?" column is now stale pending its own update to
+      match this flip. The spec's four foundation-hardening workstreams
+      (Sections 1-4, Phases A-D) are all landed and verified: VRAM admission
+      is a single authoritative, fail-closed boundary (AdapterManager's
+      conversation-minting is internal, reachable only through
+      RuntimeOrchestrator's gate; a missing budget denies rather than
+      silently loading unadmitted); the admission budget's TOTAL/USED read is
+      live via nvidia-smi; the per-role VRAM cost estimate is KV/rs-cache-aware
+      (a byte-exact GGUF-header formula, arch-gated for recurrent
+      architectures) plus a real load-time VRAM measurement parsed from
+      llama.cpp's own log lines, replacing the WDDM-dead nvidia-smi
+      per-process read; RuntimeOrchestrator/AdapterManager telemetry
+      (reservation state, adapter residency, rejected-admission counts,
+      measured VRAM) is real and surfaced both in the Activity Log and over
+      GET /hive/native-telemetry; Phase D's real-model native-path proof
+      (negative fail-closed test, a cancellation-corruption fix, and a
+      real-model E2E lane with retained evidence: 25.7 tok/s, 284ms TTFT,
+      2.5GB measured VRAM on the reference box) is built and verified.
+      Section 5.4's fallback-telemetry gap (benchmark reports recorded
+      RuntimeName as a static label, with no persistent fallback-count
+      signal) is half-closed as of 2026-07-30: NativeWithFallbackRuntime and
+      HiveWorkerAgent both now expose lifetime FallbackCount/
+      LastFallbackReason counters. The remaining half -- threading that
+      counter into the four Context Fabric report record types
+      (FabricBaselineSystemReport, FabricFeasibilityReport,
+      FabricCorpusReadReport, FabricBoundaryStitchReport) and their writers --
+      is tracked as open follow-up work, not yet done.
 
   llamacpp_server:
     status: opt-in
