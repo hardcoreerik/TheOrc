@@ -871,14 +871,15 @@ public partial class MainWindow : Window
 
         var name = Environment.MachineName;
         var nativeHiveRuntime = BuildRequiredNativeHiveWorkerRuntime();
+        var warchiefNodeId = string.IsNullOrWhiteSpace(_settings.HiveWarchiefNodeId)
+            ? ResolveWarchiefNodeId(_settings.HiveWarchiefUrl)
+            : _settings.HiveWarchiefNodeId;
         _hiveWorkerAgent = new Services.Hive.HiveWorkerAgent
         {
             WorkerId        = name,
             WorkerUrl       = $"native://{name}",
             WarchiefUrl     = _settings.HiveWarchiefUrl,
-            WarchiefNodeId  = string.IsNullOrWhiteSpace(_settings.HiveWarchiefNodeId)
-                ? ResolveWarchiefNodeId(_settings.HiveWarchiefUrl)
-                : _settings.HiveWarchiefNodeId,
+            WarchiefNodeId  = warchiefNodeId,
             Lanes           = string.IsNullOrWhiteSpace(_settings.HiveWorkerLanes)
                                 ? []
                                 : _settings.HiveWorkerLanes
@@ -904,6 +905,64 @@ public partial class MainWindow : Window
         if (nativeHiveRuntime is null)
             AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
                 "No native model is admitted yet. Approved model sync is active; native-agent leases remain ineligible.", DateTime.Now));
+
+        // Native Runtime v2.0 (docs/NATIVE_RUNTIME_V2_SPEC.md): HiveService.cs (the headless
+        // Daemon) has wired these since HV-2/HV-3, but this GUI path never did -- a GUI-hosted
+        // native HIVE worker's remote role-degrade/task-cancel/telemetry endpoints all silently
+        // failed (503 "not configured" / {} empty telemetry) even when everything else about the
+        // worker was running correctly.
+        if (_hiveNodeServer is { } nodeServer)
+        {
+            // Prerequisite, not cosmetic: HandleMarkRoleDegradedAsync/HandleCancelTask both gate
+            // on IsWarchief(authResult.NodeId), which reads ElectionService.WarchiefNodeId --
+            // without seeding it here, a legitimate request from the real Warchief 403s even once
+            // the handlers below are wired. HiveElectionService.SetWarchief's own doc comment:
+            // "Must be called by the app when a HIVE session starts ... Without this, suspect
+            // detection cannot fire" -- the live election protocol (OnStateChanged, wired in
+            // StartHiveAsync) updates this over time, but the initial known-Warchief state still
+            // needs seeding from what this worker was just configured to talk to.
+            if (!string.IsNullOrWhiteSpace(warchiefNodeId))
+                nodeServer.ElectionService?.SetWarchief(warchiefNodeId);
+
+            // Always wired regardless of native runtime — an Ollama-only worker can still have an
+            // in-flight task cancelled. Reads the _hiveWorkerAgent FIELD, not this method's local,
+            // so a later stop/restart cycle is reflected automatically instead of pinning this
+            // closure to one worker instance.
+            nodeServer.CancelTaskHandler = taskId => _hiveWorkerAgent?.TryCancelTask(taskId) ?? false;
+
+            if (nativeHiveRuntime is NativeRoleRuntime nrr)
+            {
+                // Mirrors HiveService.cs's NativeTelemetryProvider shape exactly, including the
+                // FallbackCount/LastFallbackReason fields Native Runtime v2.0 §5.4 added — same
+                // fleet-wide GET /hive/native-telemetry surface, now available from a GUI-hosted
+                // worker too.
+                nodeServer.NativeTelemetryProvider = () =>
+                {
+                    var reservation = nrr.GetReservationSnapshot();
+                    return new
+                    {
+                        reservation?.Reservations,
+                        TotalBytes             = reservation?.TotalBytes ?? 0,
+                        ReservedBytes          = reservation?.ReservedBytes ?? 0,
+                        AvailableBytes         = reservation?.AvailableBytes ?? 0,
+                        RejectedAdmissionCount = reservation?.RejectedAdmissionCount ?? 0,
+                        LastRejectionReason    = reservation?.LastRejectionReason,
+                        FallbackCount          = _hiveWorkerAgent?.FallbackCount ?? 0,
+                        LastFallbackReason     = _hiveWorkerAgent?.LastFallbackReason,
+                        Residency = nrr.GetResidencySnapshot().Select(r => new
+                        {
+                            Role      = r.Role.ToString(),
+                            BaseModel = r.Binding.BaseModel.DisplayName,
+                            Adapter   = r.Binding.Adapter?.DisplayName,
+                            r.ActiveCount,
+                            r.ConversationsCreated,
+                            Status    = r.Status.ToString(),
+                        }).ToList(),
+                    };
+                };
+                nodeServer.MarkRoleDegradedHandler = role => nrr.MarkRoleDegraded(role);
+            }
+        }
 
         _settings.HiveWorkerMode = true;
         _settings.Save();

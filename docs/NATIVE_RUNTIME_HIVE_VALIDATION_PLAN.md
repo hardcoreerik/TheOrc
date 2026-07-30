@@ -938,13 +938,24 @@ and re-verified healthy after the fix.
   `IsWarchief` helper the two new endpoints introduced; unified for one authorization code path
   instead of two copies that could silently drift.
 
-**Two MINOR findings acknowledged, not fixed in this pass:** the Avalonia GUI's own
-`HiveNodeServer`/`HiveWorkerAgent` construction (`MainWindow.axaml.cs`) never wires
-`MarkRoleDegradedHandler`/`CancelTaskHandler`/`SetWarchief`, so a GUI-hosted worker would 503/403
-on these same endpoints — deferred because the GUI path has local observability a headless fleet
-worker doesn't, and touching `MainWindow.axaml.cs`'s much larger runtime-construction code
-carries more risk than this pass's scope justified; and test coverage for `IsWarchief`'s positive
-match and `TryCancelTask`'s actual-cancellation path is still missing, blocked on the same
+**First of two MINOR findings closed 2026-07-30:** the Avalonia GUI's own `HiveNodeServer`/
+`HiveWorkerAgent` construction (`MainWindow.axaml.cs`'s `StartHiveWorkerAsync`) now wires all
+three. `ElectionService?.SetWarchief(warchiefNodeId)` is seeded first — a real prerequisite, not
+cosmetic, since `IsWarchief` (gating the other two) reads `ElectionService.WarchiefNodeId`, and
+without seeding it a legitimate request from the real Warchief would still 403 even with the
+handlers wired. `CancelTaskHandler` is wired unconditionally (an Ollama-only worker can still have
+an in-flight task cancelled) via `_hiveWorkerAgent?.TryCancelTask` (the field, not a captured
+local, so a later stop/restart cycle stays correct). `NativeTelemetryProvider`/
+`MarkRoleDegradedHandler` are wired only when the worker resolved a real `NativeRoleRuntime`,
+mirroring `HiveService.cs`'s exact telemetry shape — including the `FallbackCount`/
+`LastFallbackReason` fields Native Runtime v2.0 §5.4 added since this finding was first recorded.
+Verified: build clean, full 690-test suite green (this exact code path has no automated coverage
+before or after — same "no mockable seam for MainWindow's runtime construction" precedent
+`RuntimeOrchestrator.cs`'s own class doc documents — so this is build + careful code review
+against the working Daemon reference, not an end-to-end GUI test run).
+
+**Second MINOR finding still open:** test coverage for `IsWarchief`'s positive match and
+`TryCancelTask`'s actual-cancellation path is still missing, blocked on the same
 heavy-dependency-construction problem documented in `HiveNodeServerAuthorizationTests.cs`'s own
 class doc comment (`HiveIdentity`'s constructor is private, only reachable via disk-touching
 static factories).
