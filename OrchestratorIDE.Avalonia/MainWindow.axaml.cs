@@ -29,6 +29,12 @@ namespace OrchestratorIDE;
 public partial class MainWindow : Window
 {
     private static readonly TimeSpan HiveWorkerShutdownTimeout = TimeSpan.FromSeconds(5);
+    // How long StartHiveWorkerCoreAsync waits for _hiveNodeServer to exist before giving up and
+    // starting half-configured anyway (grok-review BLOCKER, round 5). StartHiveAsync's own
+    // HiveNodeServer.Start does real (if fast) work -- binding a listener, self-registration,
+    // InferWarchiefFromPeerStore -- so a few seconds' grace covers a genuine startup race without
+    // stalling an operator's deliberate Start click indefinitely if HIVE MIND is simply disabled.
+    private static readonly TimeSpan HiveNodeServerReadyTimeout = TimeSpan.FromSeconds(5);
     // ── Services ──────────────────────────────────────────────────────────
     private readonly OllamaClient       _ollama;
     private readonly ApprovalQueue      _approvals;
@@ -70,15 +76,15 @@ public partial class MainWindow : Window
     // new instance, were both wrongly treated as "a live election already updated this, don't
     // touch it").
     private          Services.Hive.HiveElectionService? _lastSeededElectionServiceInstance;
-    // Serializes StartHiveWorkerAsync (grok-review BLOCKER, 2026-07-30): the IsRunning guard at
-    // the top is only checked synchronously at entry, so concurrent callers -- the Task.Run
-    // auto-start at app launch, a Settings panel Start click, a Warchief retarget -- can each pass
-    // it before the first one's async work (BuildRequiredNativeHiveWorkerRuntime, a full
-    // NativeRoleRuntime construction with a real VRAM-consuming model load) completes. Only one
-    // constructed runtime ends up assigned to _hiveWorkerAgent; every other one is orphaned,
-    // never disposed, and its VRAM never released. A gate around the whole method means a second
-    // caller waits for the first to finish, then re-checks IsRunning and correctly no-ops.
-    private readonly SemaphoreSlim _hiveWorkerStartGate = new(1, 1);
+    // Serializes StartHiveWorkerAsync AGAINST StopHiveWorkerAsync/ShutdownHiveWorkerAndCloseAsync,
+    // not just against itself (grok-review, 2026-07-30, round 5 -- round 4's fix only guarded
+    // concurrent starts against each other, missing that a stop could interleave with a still-
+    // in-flight start too). Without this, a stop arriving while a start is mid-DetectAsync could
+    // null _hiveWorkerAgent and dispose the native executor while the start path is still past
+    // that assignment, so it later reinstalls handlers on an already-disposed runtime. A single
+    // gate around all three lifecycle methods means whichever arrives first runs to completion
+    // before the other begins, so start/stop can never interleave, only ever queue.
+    private readonly SemaphoreSlim _hiveWorkerLifecycleGate = new(1, 1);
     // Single retained countdown timer for the "Accept re-sync" window — replaced (stopped
     // first) on each click so repeated clicks can't leave overlapping timers racing the label.
     private          DispatcherTimer?               _hiveResyncCountdownTimer;
@@ -892,23 +898,28 @@ public partial class MainWindow : Window
     /// HiveWorkerMode is already enabled) and the Settings panel's Start button (so toggling
     /// worker mode no longer requires restarting the app). Thin wrapper around
     /// <see cref="StartHiveWorkerCoreAsync"/> that serializes calls through
-    /// <see cref="_hiveWorkerStartGate"/> -- see that field's doc comment for why.
+    /// <see cref="_hiveWorkerLifecycleGate"/> -- see that field's doc comment for why.
     /// </summary>
     private async Task StartHiveWorkerAsync()
     {
-        await _hiveWorkerStartGate.WaitAsync();
+        await _hiveWorkerLifecycleGate.WaitAsync();
         try
         {
             await StartHiveWorkerCoreAsync();
         }
         finally
         {
-            _hiveWorkerStartGate.Release();
+            _hiveWorkerLifecycleGate.Release();
         }
     }
 
     private async Task StartHiveWorkerCoreAsync()
     {
+        // A start already waiting on _hiveWorkerLifecycleGate when ShutdownHiveWorkerAndCloseAsync
+        // runs (finds nothing to stop, releases the gate, closes the window) would otherwise
+        // still acquire it next and proceed to build a full native runtime / touch Activity Log
+        // on a dying or already-closed window (grok-review BLOCKER, round 6). Bail out first.
+        if (_closingAfterHiveWorkerShutdown) return;
         if (_hiveWorkerAgent is { IsRunning: true }) return;
 
         if (string.IsNullOrEmpty(_settings.HiveWarchiefUrl))
@@ -918,11 +929,33 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Wait briefly for _hiveNodeServer rather than proceeding half-configured (grok-review
+        // BLOCKER, round 5): _hiveNodeServer is built by StartHiveAsync, fired via Task.Run at app
+        // launch. Without this, a Start racing ahead of that would run with no node server at all
+        // -- and once IsRunning becomes true, EVERY later call to this method early-returns at the
+        // top before ever reaching the handler-wiring block, so cancel/degrade/telemetry would
+        // stay unconfigured for the rest of the session even after the node server became ready.
+        if (_hiveNodeServer is null)
+        {
+            var deadline = DateTime.UtcNow + HiveNodeServerReadyTimeout;
+            while (_hiveNodeServer is null && DateTime.UtcNow < deadline)
+                await Task.Delay(200);
+        }
+
         var name = Environment.MachineName;
-        var nativeHiveRuntime = BuildRequiredNativeHiveWorkerRuntime();
         var warchiefNodeId = string.IsNullOrWhiteSpace(_settings.HiveWarchiefNodeId)
             ? ResolveWarchiefNodeId(_settings.HiveWarchiefUrl)
             : _settings.HiveWarchiefNodeId;
+
+        // Tracks the constructed native runtime through this method so a failure anywhere between
+        // construction and Start() disposes it instead of orphaning a real VRAM-holding
+        // NativeRoleRuntime (grok-review BLOCKER, round 5). Set to null once ownership genuinely
+        // transfers to _hiveWorkerAgent (i.e. once this method reaches its end without throwing).
+        IRoleRuntime? nativeHiveRuntimeForCleanup = null;
+        try
+        {
+        var nativeHiveRuntime = BuildRequiredNativeHiveWorkerRuntime();
+        nativeHiveRuntimeForCleanup = nativeHiveRuntime;
         _hiveWorkerAgent = new Services.Hive.HiveWorkerAgent
         {
             WorkerId        = name,
@@ -1137,21 +1170,86 @@ public partial class MainWindow : Window
         }
         else
         {
-            // _hiveNodeServer is constructed by StartHiveAsync, fired via Task.Run at app
-            // startup -- if this method races ahead of that (e.g. the operator clicks Start
-            // immediately), the node server won't exist yet and this whole wiring block is
-            // skipped with no signal at all otherwise (grok-review MINOR, 2026-07-30). The
-            // worker still starts and still runs; it just won't accept remote cancel/degrade
-            // or serve telemetry until an explicit stop -> start once the node server exists.
+            // Only reached if the wait loop above genuinely timed out -- _hiveNodeServer never
+            // became ready. The worker still starts and runs; it just won't accept remote
+            // cancel/degrade or serve telemetry until an explicit stop -> start once the node
+            // server exists (grok-review MINOR round 4 / BLOCKER round 5: the wait above is what
+            // makes a later stop -> start actually recover, instead of the early IsRunning return
+            // permanently skipping this block for the rest of the session).
             AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
-                "HIVE node server isn't ready yet -- this worker is starting without remote " +
-                "cancel/degrade or telemetry wiring. Stop and start it again once HIVE MIND has " +
-                "finished initializing.", DateTime.Now));
+                $"HIVE node server did not become ready within {HiveNodeServerReadyTimeout.TotalSeconds:F0}s -- " +
+                "this worker is starting without remote cancel/degrade or telemetry wiring. Stop " +
+                "and start it again once HIVE MIND has finished initializing.", DateTime.Now));
         }
 
         _hiveWorkerAgent.Start();
-        _settings.HiveWorkerMode = true;
-        _settings.Save();
+        // Marked BEFORE the settings persistence below, not after (grok-review follow-up, round
+        // 5): Start() succeeding is the actual point where the native runtime becomes owned and
+        // actively in use by a running worker. Everything from here on is a separate concern.
+        nativeHiveRuntimeForCleanup = null;
+        }
+        catch
+        {
+            // Dispose whatever was actually constructed before rethrowing/logging, rather than
+            // orphaning a real VRAM-holding NativeRoleRuntime (grok-review BLOCKER, round 5): a
+            // failure anywhere between construction and Start() used to leave the runtime
+            // referenced by nothing, never disposed, and the NEXT Start would build a completely
+            // new one on top of it since IsRunning was never true for the failed attempt.
+            //
+            // Only reached when nativeHiveRuntimeForCleanup is still non-null, i.e. Start() has
+            // NOT yet succeeded (round 8's own settings try/catch below keeps a post-Start Save()
+            // failure from ever reaching here) -- so clearing handlers and disposing is always
+            // correct for whatever DID run this far, never for a worker that's already live.
+            //
+            // Handlers cleared here too (grok-review follow-up, round 6): handler wiring now
+            // happens BEFORE Start() in this method, so a Start() failure leaves NativeTelemetryProvider/
+            // MarkRoleDegradedHandler/CancelTaskHandler still installed and pointing at the
+            // about-to-be-disposed agent/runtime below -- the exact ObjectDisposedException class
+            // of bug earlier rounds fixed for the stop/close paths, reachable here via a path
+            // those rounds didn't consider.
+            ClearHiveNodeServerHandlersForWorkerTeardown();
+            if (_hiveWorkerAgent is { IsRunning: false } orphan)
+            {
+                // Disposing the agent is preferred when it exists: HiveWorkerAgent's own shutdown
+                // cascades to dispose its NativeRoleExecutor, which wraps nativeHiveRuntimeForCleanup
+                // -- disposing THAT separately as well (as an earlier version of this catch did
+                // unconditionally) would double-dispose the same underlying runtime. Only fall
+                // back to disposing it directly when the agent was never even constructed, so
+                // there is nothing else that will ever dispose it.
+                _hiveWorkerAgent = null;
+                await orphan.DisposeAsync();
+            }
+            else if (nativeHiveRuntimeForCleanup is IAsyncDisposable disposableNative)
+            {
+                await disposableNative.DisposeAsync();
+            }
+            else if (nativeHiveRuntimeForCleanup is IDisposable disposableNativeSync)
+            {
+                // Defensive: BuildRequiredNativeHiveWorkerRuntime's return type is the IRoleRuntime
+                // interface, not the concrete NativeRoleRuntime -- IAsyncDisposable is what today's
+                // only real implementation uses, but a plain-IDisposable implementation would
+                // otherwise silently skip disposal here and orphan VRAM the same way (grok-review
+                // MINOR, round 8).
+                disposableNativeSync.Dispose();
+            }
+            throw;
+        }
+
+        // Settings persistence in its OWN try/catch, entirely separate from the one above (grok-
+        // review BLOCKER, round 8): Start() has already succeeded by the time this runs, so a
+        // Save() failure here is an unrelated, narrow disk/permissions problem -- it must not be
+        // treated as "the start failed" (which would strip a legitimately-running worker's
+        // cancel/degrade/telemetry wiring and rethrow past the caller as if nothing were running).
+        try
+        {
+            _settings.HiveWorkerMode = true;
+            _settings.Save();
+        }
+        catch (Exception ex)
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
+                $"Worker started, but saving HiveWorkerMode failed: {ex.Message}", DateTime.Now));
+        }
     }
 
     /// <summary>
@@ -1185,9 +1283,25 @@ public partial class MainWindow : Window
     /// <summary>
     /// Stops the HIVE worker agent on demand (Settings panel's Stop button) without closing
     /// the window — distinct from <see cref="ShutdownHiveWorkerAndCloseAsync"/>, which only
-    /// runs as part of window teardown.
+    /// runs as part of window teardown. Thin wrapper serializing through
+    /// <see cref="_hiveWorkerLifecycleGate"/> against <see cref="StartHiveWorkerAsync"/> --
+    /// without this, a stop could interleave with a still-in-flight start and dispose the native
+    /// executor out from under it (grok-review BLOCKER, round 5).
     /// </summary>
     private async Task StopHiveWorkerAsync()
+    {
+        await _hiveWorkerLifecycleGate.WaitAsync();
+        try
+        {
+            await StopHiveWorkerCoreAsync();
+        }
+        finally
+        {
+            _hiveWorkerLifecycleGate.Release();
+        }
+    }
+
+    private async Task StopHiveWorkerCoreAsync()
     {
         var worker = _hiveWorkerAgent;
         if (worker is null) return;
@@ -1292,47 +1406,66 @@ public partial class MainWindow : Window
             return;
 
         e.Cancel = true;
-
-        var worker = _hiveWorkerAgent;
-        // Same ordering fix as StopHiveWorkerAsync, for the same reason (grok-review follow-up,
-        // 2026-07-30): this must run before _hiveWorkerAgent goes null, not as the first line of
-        // the fire-and-forget ShutdownHiveWorkerAndCloseAsync below -- there's a real gap between
-        // this synchronous method nulling the field and that async method's body actually starting
-        // to run, during which CancelTaskHandler would see a null agent and return 404 instead of
-        // the intended 503.
-        ClearHiveNodeServerHandlersForWorkerTeardown();
-        _hiveWorkerAgent = null;
-        _ = ShutdownHiveWorkerAndCloseAsync(worker);
+        // Not cleared/nulled here (this is a synchronous event handler -- it can't await the
+        // lifecycle gate): moved into ShutdownHiveWorkerAndCloseAsync itself, right after it
+        // acquires _hiveWorkerLifecycleGate, so this whole teardown serializes against a
+        // still-in-flight start the same way StopHiveWorkerAsync now does (grok-review BLOCKER,
+        // round 5 -- doing the clear/null here, synchronously, before the gate was ever involved,
+        // reopened exactly the race the gate exists to close).
+        _ = ShutdownHiveWorkerAndCloseAsync();
     }
 
-    private async Task ShutdownHiveWorkerAndCloseAsync(Services.Hive.HiveWorkerAgent worker)
+    private async Task ShutdownHiveWorkerAndCloseAsync()
     {
+        // Whole body in one try/finally around the gate itself (grok-review follow-up, round 5):
+        // an earlier version only wrapped the shutdown-await part, so an exception from
+        // ClearHiveNodeServerHandlersForWorkerTeardown (called after acquiring the gate, before
+        // that inner try) would have left _hiveWorkerLifecycleGate permanently held -- deadlocking
+        // every future Start/Stop for the rest of the app session. No captured "worker at close
+        // time" parameter either (another bug the same review found): _hiveWorkerAgent is read
+        // FRESH after acquiring the gate, not falling back to a value captured before waiting --
+        // if StopHiveWorkerCoreAsync got the gate first and already nulled the field, that worker
+        // is already shut down, and using a stale captured reference would shut it down again.
+        await _hiveWorkerLifecycleGate.WaitAsync();
         try
         {
-            using var cts = new CancellationTokenSource(HiveWorkerShutdownTimeout);
-            await worker.ShutdownAsync(cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            worker.Stop();
-            await Dispatcher.UIThread.InvokeAsync(() => AddActivity(new ActivityEvent(
-                ActivityKind.Warning,
-                "Hive",
-                $"Worker shutdown exceeded {HiveWorkerShutdownTimeout.TotalSeconds:F0}s; forcing window close.",
-                DateTime.Now)));
-        }
-        catch (Exception ex)
-        {
-            await Dispatcher.UIThread.InvokeAsync(() => AddActivity(new ActivityEvent(ActivityKind.Warning, "Hive",
-                $"Worker shutdown failed during close: {ex.Message}", DateTime.Now)));
+            var worker = _hiveWorkerAgent;
+            if (worker is not null)
+            {
+                ClearHiveNodeServerHandlersForWorkerTeardown();
+                _hiveWorkerAgent = null;
+                try
+                {
+                    using var cts = new CancellationTokenSource(HiveWorkerShutdownTimeout);
+                    await worker.ShutdownAsync(cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    worker.Stop();
+                    await Dispatcher.UIThread.InvokeAsync(() => AddActivity(new ActivityEvent(
+                        ActivityKind.Warning,
+                        "Hive",
+                        $"Worker shutdown exceeded {HiveWorkerShutdownTimeout.TotalSeconds:F0}s; forcing window close.",
+                        DateTime.Now)));
+                }
+                catch (Exception ex)
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() => AddActivity(new ActivityEvent(ActivityKind.Warning, "Hive",
+                        $"Worker shutdown failed during close: {ex.Message}", DateTime.Now)));
+                }
+            }
         }
         finally
         {
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                _closingAfterHiveWorkerShutdown = true;
-                Close();
-            });
+            // Flag set BEFORE releasing the gate, not inside the UI-thread dispatch after release
+            // (grok-review BLOCKER, round 7): releasing first left a real window where a Start
+            // already waiting on the gate could acquire it and pass StartHiveWorkerCoreAsync's
+            // _closingAfterHiveWorkerShutdown check before this dispatch actually ran and set it.
+            // The flag itself is a plain bool safely set from any thread; only the Close() call
+            // below needs the UI thread.
+            _closingAfterHiveWorkerShutdown = true;
+            _hiveWorkerLifecycleGate.Release();
+            await Dispatcher.UIThread.InvokeAsync(Close);
         }
     }
 
@@ -2734,8 +2867,22 @@ public partial class MainWindow : Window
         // WarchiefUrl/WarchiefNodeId while this message claims the new target took effect
         // (grok-review, 2026-07-30). Stop first -- a safe no-op if nothing is running -- so a
         // retarget always rebuilds against the newly selected URL.
-        await StopHiveWorkerAsync();
-        await StartHiveWorkerAsync();
+        //
+        // async void with a try/catch (grok-review MINOR, round 5): this is a UI event handler,
+        // so it can't be async Task -- but that means an unhandled exception here is an unobserved
+        // fault on the UI thread's SynchronizationContext instead of an awaitable failure the
+        // caller could react to, unlike every other lifecycle path in this class. Caught and
+        // logged instead.
+        try
+        {
+            await StopHiveWorkerAsync();
+            await StartHiveWorkerAsync();
+        }
+        catch (Exception ex)
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE MIND",
+                $"Retarget to {url} failed: {ex.Message}", DateTime.Now));
+        }
     }
 
     private static string ResolveWarchiefNodeId(string warchiefUrl) =>

@@ -1023,6 +1023,54 @@ issues in the stop and window-close teardown paths, mirroring the first round's 
 re-verified via `grok-review -Mode diff` before moving to the next; full 703-test suite green
 throughout all of it.
 
+**Four more adversarial rounds (5 through 8), same day, same GUI wiring.** By this point the
+pattern itself was the finding: adversarial review kept surfacing real, distinct bugs in code
+that had simply never been exercised before this session, each fix's own blast radius revealing
+the next gap. Recorded plainly rather than folded silently into the fix list above, because the
+right lesson is "this class of code needs adversarial review before it's trusted," not "these
+specific bugs were unusual."
+
+Round 5 found the Warchief-seeding warning was STILL dead in the common case (config empty,
+`InferWarchiefFromPeerStore` had already filled something else in) and a separate, more serious
+BLOCKER: `StartHiveWorkerCoreAsync` was never serialized against itself, so concurrent callers
+(app-launch auto-start, a Settings Start click, a retarget) could each construct a full VRAM-
+loaded `NativeRoleRuntime` before the first one finished, orphaning every runtime but the winner.
+Fixed with a `SemaphoreSlim` gate around the whole method, the seed-warning restructured to check
+the actually-configured target first regardless of what election already held, and a stale
+`HiveWarchiefNodeId` pin cleared on explicit retarget.
+
+Round 6 found the gate only guarded Start against itself, not against Stop/window-close --
+a stop arriving mid-start could dispose the native executor out from under a start still in
+flight. Also: Settings-Start racing ahead of node-server construction left a worker permanently
+missing its handlers for the rest of the session (the `IsRunning` early-return meant a LATER
+retry never re-checked), and a construction failure between building the native runtime and
+`Start()` orphaned it with no cleanup at all. Fixed: one shared lifecycle gate around Start,
+Stop, and window-close; a bounded wait for the node server before proceeding; and a try/catch
+disposing whatever was actually constructed on failure.
+
+Round 7 found the round-6 fixes each had their own edge case: the window-close path's stale-
+worker-reference fallback could double-dispose an already-stopped worker; the failure-cleanup
+catch cleared handlers even when `Start()` had already succeeded and only a later step failed
+(stripping a live worker's wiring); and the gate could be released before the "we're closing"
+flag was actually set, letting a queued Start slip through anyway.
+
+Round 8 found the fix for THAT still had the flag set inside an async UI-thread dispatch AFTER
+releasing the gate (moved earlier, now synchronous and before release); the failure-cleanup
+catch unconditionally stripped handlers even for a Save()-only failure after a successful Start
+(split settings persistence into its own separate try/catch that never reaches the construction-
+failure cleanup path); and a defensive gap where a plain-`IDisposable` (not `IAsyncDisposable`)
+native runtime implementation would silently skip disposal.
+
+**Stopped here, deliberately, not by running out of findings.** Round 8's remaining two MINORs
+were checked rather than chased: one (the lifecycle gate held for the duration of a node-server
+poll and model load, so Stop/Close can queue behind an in-flight Start) is a real UX
+responsiveness tradeoff, not a correctness bug -- accepted, not fixed, given eight rounds already
+spent on genuine correctness issues in this one area. The other (`Start()` setting IsRunning then
+throwing) was checked against `HiveWorkerAgent.Start()`'s actual implementation and found
+unreachable: the method's only possible exception (`ObjectDisposedException`) throws strictly
+before `_cts` is ever assigned, so `IsRunning` cannot be true when it fails. Every round
+re-verified via `grok-review -Mode diff`; full 703-test suite green throughout.
+
 **Second MINOR finding, both halves closed 2026-07-30.** `IsWarchief`'s positive match closed
 first (see above: the "blocked on `HiveIdentity`'s private constructor" claim was stale --
 `CreateEphemeral()`/`CreateForTest()` already existed). `TryCancelTask`'s actual-cancellation
