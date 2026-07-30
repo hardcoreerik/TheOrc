@@ -1157,19 +1157,24 @@ recorded below rather than silently dropped.**
    session's `regenerateOnCorruption` default flip than anything round 9 addressed. Fixed the same
    way: wrapped in try/catch, skip the wizard trigger and log `ActivityKind.Error` on failure
    instead of propagating.
-2. **BLOCKER, assessed as the same tradeoff round 8 already accepted, intensified rather than
-   new.** The lifecycle gate is held across `WorkerCapabilityDetector.DetectAsync` (SHA-256 hashing
-   every on-disk GGUF), native runtime construction, and the up-to-5s `ElectionService` wait; round
-   9's own BLOCKER 2 fix means `MainWindow_Closing` now unconditionally routes every close through
-   that same gate with no cancellation token, where round 8's now-fixed bug used to provide an
-   (unsafe) early exit. Round 8's doc entry already named exactly this shape ("Stop/Close can queue
-   behind an in-flight Start... a real UX responsiveness tradeoff, not a correctness bug -- accepted,
-   not fixed") -- what changed is that round 9's correctness fix makes the wait unconditional instead
-   of racily skippable, so a close during a slow multi-GB hash pass now visibly (if silently, with no
-   progress indicator) blocks for the full duration instead of sometimes escaping through the bug.
-   Not fixed here: plumbing a `CancellationToken` through the capability-detection/model-load chain
-   to make an in-flight Start abortable is a real feature, not a narrow fix, and out of scope for
-   this round's budget.
+2. **BLOCKER, closed with a bounded wait rather than the full cancellation-token feature.** The
+   lifecycle gate is held across `WorkerCapabilityDetector.DetectAsync` (SHA-256 hashing every
+   on-disk GGUF), native runtime construction, and the up-to-5s `ElectionService` wait; round 9's
+   own BLOCKER 2 fix meant `MainWindow_Closing` now unconditionally routes every close through that
+   same gate with no cancellation token, where round 8's now-fixed bug used to provide an (unsafe)
+   early exit. Round 8's doc entry already named this exact shape ("Stop/Close can queue behind an
+   in-flight Start... accepted, not fixed") but round 9's own correctness fix made the wait
+   unconditional instead of racily skippable, so this needed re-examining rather than re-accepting
+   as-is. Plumbing a real `CancellationToken` through the whole capability-detection/model-load
+   chain remains out of scope (a feature, not a fix) -- instead, `ShutdownHiveWorkerAndCloseAsync`
+   now bounds its own gate acquisition to `HiveWorkerLifecycleGateCloseTimeout` (30s): past that, it
+   logs a warning and closes anyway without a clean worker shutdown, rather than blocking the whole
+   window indefinitely on one slow Start. A follow-up `grok-review -Mode diff` pass confirmed the
+   one resulting tradeoff -- a Start that later finishes past the timeout still touches its own
+   fields/native runtime after the window is gone -- as understood and intentional, not a new bug:
+   that Start already passed its own `_closingAfterHiveWorkerShutdown` entry check long before the
+   timeout fired, so there was never a way to retroactively stop it without the cancellation-token
+   feature this round deliberately didn't take on.
 3. **BLOCKER, closed same day.** When a worker restart's `warchiefNodeId` resolves empty (e.g.
    immediately after `OnWarchiefTargetSelected` clears `HiveWarchiefNodeId` and retargets to a URL
    that hasn't paired yet), the seeding logic used to only log a warning -- it never cleared

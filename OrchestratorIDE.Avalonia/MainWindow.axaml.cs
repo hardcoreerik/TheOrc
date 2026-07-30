@@ -35,6 +35,16 @@ public partial class MainWindow : Window
     // InferWarchiefFromPeerStore -- so a few seconds' grace covers a genuine startup race without
     // stalling an operator's deliberate Start click indefinitely if HIVE MIND is simply disabled.
     private static readonly TimeSpan HiveNodeServerReadyTimeout = TimeSpan.FromSeconds(5);
+    // Bounds how long ShutdownHiveWorkerAndCloseAsync will wait to acquire
+    // _hiveWorkerLifecycleGate before giving up and closing anyway (grok-review BLOCKER, round
+    // 10). The gate can be held for the full duration of a slow in-flight Start --
+    // WorkerCapabilityDetector.DetectAsync SHA-256-hashes every on-disk GGUF, plus native runtime
+    // construction, plus up to HiveNodeServerReadyTimeout's own wait -- and none of that chain has
+    // a cancellation token to interrupt it. Waiting unconditionally (as this used to) meant a
+    // close during a large model directory's capability scan could make the whole window appear
+    // hung with no feedback and no way out. 30s is generous enough not to preempt an ordinary
+    // Start, bounded enough that closing the app is never held hostage by one.
+    private static readonly TimeSpan HiveWorkerLifecycleGateCloseTimeout = TimeSpan.FromSeconds(30);
     // ── Services ──────────────────────────────────────────────────────────
     private readonly OllamaClient       _ollama;
     private readonly ApprovalQueue      _approvals;
@@ -1511,7 +1521,24 @@ public partial class MainWindow : Window
         // FRESH after acquiring the gate, not falling back to a value captured before waiting --
         // if StopHiveWorkerCoreAsync got the gate first and already nulled the field, that worker
         // is already shut down, and using a stale captured reference would shut it down again.
-        await _hiveWorkerLifecycleGate.WaitAsync();
+        // Bounded (grok-review BLOCKER, round 10): see HiveWorkerLifecycleGateCloseTimeout's own
+        // doc comment for why this can no longer wait forever. A timed-out acquisition means some
+        // Start is still deep inside capability detection / native construction with no way to
+        // interrupt it -- close proceeds without a clean worker shutdown rather than hanging the
+        // whole window on it; the in-flight Start (already past its own _closingAfterHiveWorker-
+        // Shutdown entry check) will simply finish or fail on its own after the window is gone.
+        var gateAcquired = await _hiveWorkerLifecycleGate.WaitAsync(HiveWorkerLifecycleGateCloseTimeout);
+        if (!gateAcquired)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => AddActivity(new ActivityEvent(
+                ActivityKind.Warning, "Hive",
+                $"Could not acquire the HIVE worker lifecycle gate within " +
+                $"{HiveWorkerLifecycleGateCloseTimeout.TotalSeconds:F0}s (a Start is likely still " +
+                "in progress); closing without a clean worker shutdown.", DateTime.Now)));
+            _closingAfterHiveWorkerShutdown = true;
+            await Dispatcher.UIThread.InvokeAsync(Close);
+            return;
+        }
         try
         {
             var worker = _hiveWorkerAgent;
