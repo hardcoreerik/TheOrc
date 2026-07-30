@@ -1018,6 +1018,34 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Must run BEFORE any path that calls <c>worker.ShutdownAsync</c>, which disposes the
+    /// native role executor (and the <see cref="NativeRoleRuntime"/> it wraps) -- shared by
+    /// <see cref="StopHiveWorkerAsync"/> and <see cref="ShutdownHiveWorkerAndCloseAsync"/> so
+    /// both teardown paths get the same fix rather than one drifting from the other (grok-review,
+    /// 2026-07-30: the window-close path was found still missing this after the Settings-panel
+    /// stop path was fixed).
+    ///
+    /// All three handlers are nulled, not just left with a now-null backing field: HiveNodeServer's
+    /// null-handler check is what gives the honest {} / 503 "not configured" response for
+    /// NativeTelemetryProvider/MarkRoleDegradedHandler, and 503 "no worker agent is running" for
+    /// CancelTaskHandler (versus a non-null handler reading a nulled field and returning 404 "no
+    /// in-flight task" -- true, but the less accurate of the two honest answers here). Order
+    /// matters: handlers nulled BEFORE _currentNativeHiveRuntime, so a request racing this
+    /// teardown on the HTTP listener's own thread sees the null-handler path win rather than
+    /// briefly observing a still-non-null handler whose target has already gone null.
+    /// </summary>
+    private void ClearHiveNodeServerHandlersForWorkerTeardown()
+    {
+        if (_hiveNodeServer is { } nodeServer)
+        {
+            nodeServer.NativeTelemetryProvider = null;
+            nodeServer.MarkRoleDegradedHandler = null;
+            nodeServer.CancelTaskHandler = null;
+        }
+        _currentNativeHiveRuntime = null;
+    }
+
+    /// <summary>
     /// Stops the HIVE worker agent on demand (Settings panel's Stop button) without closing
     /// the window — distinct from <see cref="ShutdownHiveWorkerAndCloseAsync"/>, which only
     /// runs as part of window teardown.
@@ -1028,22 +1056,7 @@ public partial class MainWindow : Window
         if (worker is null) return;
         _hiveWorkerAgent = null;
 
-        // Must happen before ShutdownAsync disposes the native role executor below, and the
-        // node-server handlers must be NULLED (not left pointing at a now-stale fallback), not
-        // just have their target go null -- HiveNodeServer's null-handler check is what gives the
-        // honest {} / 503 "not configured" response; a non-null MarkRoleDegradedHandler that
-        // silently no-ops would report a fake 200 "ok" for a call that did nothing, which is
-        // worse than the ObjectDisposedException this replaces (grok-review, 2026-07-30).
-        // Handlers nulled BEFORE _currentNativeHiveRuntime (not after): an inbound request racing
-        // this teardown on the HTTP listener's own thread must see the null-handler 503 path win,
-        // not briefly observe a still-non-null handler whose target has already gone null and
-        // fall into the fake-200 case this fix exists to remove (grok-review follow-up).
-        if (_hiveNodeServer is { } nodeServer)
-        {
-            nodeServer.NativeTelemetryProvider = null;
-            nodeServer.MarkRoleDegradedHandler = null;
-        }
-        _currentNativeHiveRuntime = null;
+        ClearHiveNodeServerHandlersForWorkerTeardown();
 
         try
         {
@@ -1145,6 +1158,8 @@ public partial class MainWindow : Window
 
     private async Task ShutdownHiveWorkerAndCloseAsync(Services.Hive.HiveWorkerAgent worker)
     {
+        ClearHiveNodeServerHandlersForWorkerTeardown();
+
         try
         {
             using var cts = new CancellationTokenSource(HiveWorkerShutdownTimeout);

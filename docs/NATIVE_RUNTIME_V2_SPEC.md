@@ -753,19 +753,31 @@ Native contexts/sessions/models/adapters have explicit ownership and determinist
   output (`NativeWithFallbackRuntime.cs:178-192`). This is the correct direction and must be
   preserved.
 - **[Verified, closed 2026-07-30]:** fallback is now visible to persistent telemetry, not just
-  a transient Activity Log Warning, on both fallback surfaces:
-  - `NativeWithFallbackRuntime` (main chat) exposes `FallbackCount`/`LastFallbackReason` —
-    lifetime counters incremented alongside the existing `_onFallback` Activity Log callback,
-    not a replacement for it (`NativeWithFallbackRuntime.cs`).
-  - `HiveWorkerAgent` (legacy-agent tasks via `HiveWorkerAgent.ExecuteTaskAsync`) exposes the
-    same shape, surfaced over `GET /hive/native-telemetry` alongside `RejectedAdmissionCount`/
-    `LastRejectionReason` (`HiveService.cs`'s `NativeTelemetryProvider`) — the same fleet-wide
-    observability surface HV-2/HV-3 already established for admission denials.
-  - Both mirror `RuntimeOrchestrator`'s existing counter pattern rather than inventing a new
-    one. Neither changes *when* a fallback is permitted — Phase A's fail-closed admission and
-    Phase D's negative test still enforce that a native-routed campaign/CF task never silently
-    becomes an Ollama job; this only makes an already-permitted legacy-agent fallback visible
-    after the fact.
+  a transient Activity Log Warning, on `NativeWithFallbackRuntime` (main chat) — the counter
+  exposes `FallbackCount`/`LastFallbackReason`, lifetime counters incremented alongside the
+  existing `_onFallback` Activity Log callback, not a replacement for it
+  (`NativeWithFallbackRuntime.cs`). This is the only place a native-to-Ollama fallback can
+  currently happen in production.
+- **[Verified, correction 2026-07-30 — adversarial grok-review pass, this claim was wrong when
+  first written]:** `HiveWorkerAgent` was also given the same `FallbackCount`/`LastFallbackReason`
+  shape, described at the time as covering "legacy-agent HIVE tasks" as the second place a
+  fallback can happen. That's false for the current codebase: `HiveWorkerAgent.ExecuteTaskAsync`'s
+  `failClosed` computation is `bundle.ExecutionKind != LegacyAgent || Runtime is null`, and
+  **every current construction path sets `Runtime = null`** — both `HiveService.cs` (the headless
+  Daemon) and `MainWindow.axaml.cs` (the GUI) always pass `Runtime = null` to `HiveWorkerAgent`,
+  with no code anywhere in the repo assigning a real fallback target afterward. `failClosed` is
+  therefore unconditionally `true` for every HIVE task in every shipped configuration, and the
+  fall-through branch where `RecordFallback` is called (`HiveWorkerAgent.cs`'s `ExecuteTaskAsync`)
+  is dead code today — reachable only by a test that constructs `HiveWorkerAgent` with `Runtime`
+  set directly, which is exactly what `HiveWorkerAgentTests.RecordFallback_...` does, and exactly
+  why that test alone doesn't prove the counter is reachable through the real code path. The
+  counter's own logic is correct and will activate the moment a HIVE worker construction path
+  ever wires a real `Runtime` fallback target — no code change needed there — but until that
+  happens, treat `HiveWorkerAgent.FallbackCount` as tested-but-currently-unreachable, not as a
+  second active fallback surface. Both mirror `RuntimeOrchestrator`'s existing counter pattern.
+  Neither changes *when* a fallback is permitted — Phase A's fail-closed admission and Phase D's
+  negative test still enforce that a native-routed campaign/CF task never silently becomes an
+  Ollama job.
   - Verified: `NativeWithFallbackRuntimeTests` (3 new/extended cases) and
     `HiveWorkerAgentTests.RecordFallback_IncrementsCountAndTracksMostRecentReason`.
 

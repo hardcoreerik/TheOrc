@@ -102,11 +102,18 @@ subsystems:
       (negative fail-closed test, a cancellation-corruption fix, and a
       real-model E2E lane with retained evidence: 25.7 tok/s, 284ms TTFT,
       2.5GB measured VRAM on the reference box) is built and verified.
-      Section 5.4's fallback-telemetry gap is closed as of 2026-07-30:
-      NativeWithFallbackRuntime and HiveWorkerAgent both now expose lifetime
-      FallbackCount/LastFallbackReason counters, covering the two places a
-      native-to-Ollama fallback can actually happen (main chat, legacy-agent
-      HIVE tasks). Threading a fallback counter into the four Context Fabric
+      Section 5.4's fallback-telemetry gap is closed as of 2026-07-30 for the
+      one place a native-to-Ollama fallback can actually happen today:
+      NativeWithFallbackRuntime (main chat) exposes lifetime FallbackCount/
+      LastFallbackReason. HiveWorkerAgent was given the same shape but a
+      2026-07-30 adversarial review found the original claim that it covered
+      "legacy-agent HIVE tasks" as a second live surface was wrong -- every
+      current HiveWorkerAgent construction path (HiveService.cs, MainWindow.
+      axaml.cs) passes Runtime = null, so ExecuteTaskAsync's fail-closed
+      check is unconditionally true and the fallback branch never runs in
+      production; the counter is correct and tested but currently
+      unreachable outside a test that sets Runtime directly. Threading a
+      fallback counter into the four Context Fabric
       report record types was considered and rejected, not deferred: all
       four CF report-producing runners hold IRoleRuntime directly, never
       IModelRuntime/NativeWithFallbackRuntime, so CF/native_agent execution
