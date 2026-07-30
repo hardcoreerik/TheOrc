@@ -84,9 +84,8 @@ subsystems:
       docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md). Ollama remains available
       and configurable as a fallback backend; native campaign/CF jobs fail
       closed and do not silently fall back. See docs/RUNTIME_SUPPORT_MATRIX.md
-      for the full current/default/fallback picture per workload -- that
-      document's own "Default?" column is now stale pending its own update to
-      match this flip. The spec's four foundation-hardening workstreams
+      for the full current/default/fallback picture per workload. The spec's
+      four foundation-hardening workstreams
       (Sections 1-4, Phases A-D) are all landed and verified: VRAM admission
       is a single authoritative, fail-closed boundary (AdapterManager's
       conversation-minting is internal, reachable only through
@@ -103,15 +102,17 @@ subsystems:
       (negative fail-closed test, a cancellation-corruption fix, and a
       real-model E2E lane with retained evidence: 25.7 tok/s, 284ms TTFT,
       2.5GB measured VRAM on the reference box) is built and verified.
-      Section 5.4's fallback-telemetry gap (benchmark reports recorded
-      RuntimeName as a static label, with no persistent fallback-count
-      signal) is half-closed as of 2026-07-30: NativeWithFallbackRuntime and
-      HiveWorkerAgent both now expose lifetime FallbackCount/
-      LastFallbackReason counters. The remaining half -- threading that
-      counter into the four Context Fabric report record types
-      (FabricBaselineSystemReport, FabricFeasibilityReport,
-      FabricCorpusReadReport, FabricBoundaryStitchReport) and their writers --
-      is tracked as open follow-up work, not yet done.
+      Section 5.4's fallback-telemetry gap is closed as of 2026-07-30:
+      NativeWithFallbackRuntime and HiveWorkerAgent both now expose lifetime
+      FallbackCount/LastFallbackReason counters, covering the two places a
+      native-to-Ollama fallback can actually happen (main chat, legacy-agent
+      HIVE tasks). Threading a fallback counter into the four Context Fabric
+      report record types was considered and rejected, not deferred: all
+      four CF report-producing runners hold IRoleRuntime directly, never
+      IModelRuntime/NativeWithFallbackRuntime, so CF/native_agent execution
+      is structurally fail-closed with no fallback path to count in the
+      first place (see docs/RUNTIME_SUPPORT_MATRIX.md's corrected fallback
+      section for the verification).
 
   llamacpp_server:
     status: opt-in
