@@ -52,6 +52,19 @@ public class OllamaClient
         _http    = new HttpClient { Timeout = TimeSpan.FromSeconds(300) };
     }
 
+    /// <summary>
+    /// Test-only seam: lets unit tests substitute a fake <see cref="HttpMessageHandler"/> instead
+    /// of hitting a real Ollama server, e.g. to simulate the "model does not support tools" 400
+    /// retry path in <see cref="StreamCompletionAsync"/>.
+    /// </summary>
+    internal OllamaClient(HttpMessageHandler handler, string host = "http://localhost:11434",
+                          InferenceBackend backend = InferenceBackend.Ollama)
+    {
+        _baseUrl = host.TrimEnd('/');
+        Backend  = backend;
+        _http    = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(300) };
+    }
+
     // ── Model discovery ──────────────────────────────────────────────────────
 
     /// <summary>
@@ -252,30 +265,74 @@ public class OllamaClient
 
         // tools items are already Ollama-schema objects (built by AgentLoop via
         // ToolDefinition.ToOllamaSchema(), then optionally simplified by SchemaSimplifier)
-        if (tools?.Count > 0)
+        var requestedTools = tools?.Count > 0;
+        if (requestedTools)
             payload["tools"] = tools;
 
-        var body = new StringContent(
-            JsonSerializer.Serialize(payload, _json),
-            Encoding.UTF8, "application/json");
-
-        var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/chat/completions")
+        // On failure the response body is fully read and the HttpResponseMessage is disposed
+        // immediately (grok-review MINOR: the pre-fix version leaked the first attempt's
+        // HttpResponseMessage -- and its underlying connection -- on every retry) -- only a
+        // successful response is handed back alive, since that's the only case the caller reads
+        // its content stream.
+        async Task<(HttpResponseMessage? resp, string? sendError, string? errBody, int statusCode)> SendAsync(bool includeTools)
         {
-            Content = body
-        };
+            var wirePayload = includeTools
+                ? payload
+                : payload.Where(kv => kv.Key != "tools").ToDictionary(kv => kv.Key, kv => kv.Value);
+            var body = new StringContent(JsonSerializer.Serialize(wirePayload, _json), Encoding.UTF8, "application/json");
+            var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/chat/completions") { Content = body };
+            HttpResponseMessage? r = null;
+            try
+            {
+                r = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+                if (!r.IsSuccessStatusCode)
+                {
+                    var errBody = await r.Content.ReadAsStringAsync(ct);
+                    return (null, null, errBody, (int)r.StatusCode);
+                }
+                var success = r;
+                r = null;   // ownership transferred to the caller -- `finally` below must not dispose it
+                return (success, null, null, (int)success.StatusCode);
+            }
+            catch (Exception ex) { return (null, ex.Message, null, 0); }
+            // Covers every path that returns without handing `r` back alive: the non-success
+            // branch above, and anything throwing between SendAsync and the success return
+            // (e.g. ReadAsStringAsync itself) -- grok-review correctly flagged that a bare
+            // try/catch left `r` referenced only by a try-scoped local in that second case,
+            // never disposed.
+            finally { r?.Dispose(); }
+        }
 
-        HttpResponseMessage resp;
-        string? sendError = null;
-        try { resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct); }
-        catch (Exception ex) { sendError = ex.Message; resp = null!; }
-        if (sendError != null) { yield return $"[ERROR] {sendError}"; yield break; }
+        var attempt = await SendAsync(includeTools: requestedTools);
+        if (attempt.sendError != null) { yield return $"[ERROR] {attempt.sendError}"; yield break; }
 
-        if (!resp.IsSuccessStatusCode)
+        // Some models have no tool-calling chat template at all (not fine-tuned/templated for
+        // it) -- Ollama rejects the whole request with a 400 before generation even starts,
+        // rather than just ignoring the unusable `tools` field. Retrying once without `tools`
+        // lets the turn proceed normally: ChatEngine's ReactInstructions are already baked into
+        // the system prompt independent of the native tools param (see ChatEngine.ResolveSystemPrompt),
+        // so the model can still attempt tool calls via the prompted ReAct-XML/JSON-brace
+        // convention (Paths 2/3) -- this only disables Path 1 (native function calling) for a
+        // model that was never going to support it anyway. Matches the whole Orcish Tongue
+        // premise: a model without native tool support degrades to text-convention tool calls
+        // instead of failing outright.
+        if (attempt.resp is null
+            && requestedTools
+            && attempt.statusCode == 400
+            && (attempt.errBody ?? "").Contains("does not support tools", StringComparison.OrdinalIgnoreCase))
         {
-            var err = await resp.Content.ReadAsStringAsync(ct);
-            yield return $"[ERROR {(int)resp.StatusCode}] {err}";
+            yield return $"[Note: '{model}' has no native tool-calling support -- retrying with prompt-based tools only.]\n";
+            attempt = await SendAsync(includeTools: false);
+            if (attempt.sendError != null) { yield return $"[ERROR] {attempt.sendError}"; yield break; }
+        }
+
+        if (attempt.resp is null)
+        {
+            yield return $"[ERROR {attempt.statusCode}] {attempt.errBody}";
             yield break;
         }
+
+        var resp = attempt.resp;
 
         using var stream = await resp.Content.ReadAsStreamAsync(ct);
         using var reader = new StreamReader(stream);
