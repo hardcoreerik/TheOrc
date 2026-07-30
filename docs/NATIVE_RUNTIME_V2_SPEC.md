@@ -236,7 +236,7 @@ Option A decision), no stateful ledger inside the scheduler.
 | Reserve | Admission decision taken under `_admissionGate`; **no** ledger write yet (check is pure). | **[Verified]** `RuntimeOrchestrator.cs:195-228` |
 | Commit | Ledger entry written **only after** load + conversation build both succeed, tagged with post-load `WeightsGeneration`. | **[Verified]** `RuntimeOrchestrator.cs:166-176` |
 | Rollback | Nothing to roll back on failure — no entry is written until success (`RuntimeOrchestrator.cs:79-82`). A failed admission costs nothing. | **[Verified]** |
-| Release | On role rebind/reload/dispose, stale entries are excluded by the generation filter and cleared on `DisposeAsync` (`RuntimeOrchestrator.cs:258-259`). **[Proposed]** add an explicit per-role release on `TrackedConversation` teardown so the ledger reflects idle roles, not just generation churn. | **[Verified]** partial / **[Proposed]** completion |
+| Release | On role rebind/reload/dispose, stale entries are excluded by the generation filter and cleared on `DisposeAsync` (`RuntimeOrchestrator.cs:258-259`). ~~**[Proposed]** add an explicit per-role release on `TrackedConversation` teardown so the ledger reflects idle roles, not just generation churn.~~ **Rejected, not just deferred** — Phase D's real-model E2E lane (§3.4 below) found this would be wrong: a real run showed residency (`ActiveCount`) drops to 0 on conversation disposal while the reservation deliberately stays live with the loaded model, and confirmed that decoupling as intentional, not a leak — an idle role's model is still physically resident in VRAM, so releasing its reservation would let the scheduler over-admit against memory that isn't actually free. This row's original "[Proposed] completion" predates that finding and is superseded by it. | **[Verified]**, no further change needed |
 | Cancellation | `ct` observed on the gate wait and re-checked post-wait (`RuntimeOrchestrator.cs:145`, `:153`); a cancelled admission writes no entry. | **[Verified]** |
 | Exception | Load/build failure throws before commit; `RuntimeAdmissionDeniedException` on denial. | **[Verified]** |
 
@@ -357,7 +357,7 @@ to Ollama.
 | **Unit / component** | Yes | No | Pure logic with a mockable seam — `OrcScheduler.TryAdmit`, `ModelDepot` resolution, `AdapterManager.BindingMatches`, budget math. **[Verified]** these exist: `OrcSchedulerTests`, `ModelDepotTests`, `AdapterManagerTests`, `SessionManagerTests`, `RuntimeOrchestratorTests`, `NativeWithFallbackRuntimeTests`, `NativeRuntimeTestSupportTests` in `OrchestratorIDE.UnitTests/`. |
 | **Deterministic integration** | Yes | No (scripted runtime) | Wire multiple components with a scripted/fake runtime (e.g. `ContextFabricScriptedRuntime`) to prove control flow without native objects. |
 | **Opt-in hardware-dependent** | No (opt-in flag) | Yes | Real GGUF load + generation on a machine with a GPU. **[Verified]** the real load+adapter+generation success path is **not** automated — "no mockable seam for the native LLamaSharp objects" (`RuntimeOrchestrator.cs:39-42`). Today proven only via the §7 spike harness + manual Settings smoke. |
-| **Real-model E2E native-runtime lane** | No (opt-in, hardware-gated) | Yes | **[Proposed]** the new standardized lane this section defines — exercises the whole runtime lifecycle, retains evidence. |
+| **Real-model E2E native-runtime lane** | No (opt-in, hardware-gated) | Yes | **[Verified]** `NativeRuntimeE2ELaneTests.FullLifecycle_DiscoveryThroughTelemetry_Succeeds_WithRetainedEvidence` — the standardized lane this section defines: `THEORC_TEST_GGUF`-gated, real scheduler + live nvidia-smi VRAM budget (not the `allowUnbudgetedExecution` opt-out other gated lanes use), discovery through admission through adapter lifecycle through inference through telemetry (before/mid-flight/after), with a retained JSON evidence artifact. |
 | **Manual / machine-specific** | No | Yes | Evidence that cannot safely run in ordinary CI (specific VRAM sizes, multi-GPU). Recorded, not automated. |
 
 ### 3.2 What the real-model E2E lane must exercise
@@ -667,10 +667,15 @@ VRAM *reservation* deliberately stays live with the loaded model rather than rel
 confirming those two lifecycles are intentionally decoupled, not a leak. 25.7 tok/s, 284 ms TTFT,
 2.5 GB measured VRAM on the reference box; verified passing across 3 repeated runs.
 
-**Still open for the full Phase D lane:** the standardized lane currently exercises one role
-(Worker); extending it to a second concurrent role (proving cross-role admission accounting
-end-to-end in the same evidence-bearing run, not just in isolated unit tests) is a natural next
-increment but not yet built.
+**Closed, not still open** — this row previously said the second-concurrent-role increment was
+"not yet built." It was, just via a different evidence-bearing run than the standardized E2E lane
+above: `NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md`'s HV-3 concurrent-role phase proved cross-role
+admission accounting end-to-end on real hardware, on both fleet machines — `two-roles-hold-
+reservations-concurrently: PASS`, `cross-role-accounting-stays-physical: PASS`
+(`.orc/hv-3-lane/hv3_concurrent_20260727_165522.json`), with a paired negative-control run
+(`hv3_concurrent_20260727_165114.json`, same build minus the cross-role admission fix, both
+Researcher jobs failed) proving the check actually discriminates. HV-3 items 1 and 2 are recorded
+CLOSED there.
 
 ---
 
