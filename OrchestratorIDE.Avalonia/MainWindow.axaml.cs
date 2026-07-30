@@ -70,6 +70,15 @@ public partial class MainWindow : Window
     // new instance, were both wrongly treated as "a live election already updated this, don't
     // touch it").
     private          Services.Hive.HiveElectionService? _lastSeededElectionServiceInstance;
+    // Serializes StartHiveWorkerAsync (grok-review BLOCKER, 2026-07-30): the IsRunning guard at
+    // the top is only checked synchronously at entry, so concurrent callers -- the Task.Run
+    // auto-start at app launch, a Settings panel Start click, a Warchief retarget -- can each pass
+    // it before the first one's async work (BuildRequiredNativeHiveWorkerRuntime, a full
+    // NativeRoleRuntime construction with a real VRAM-consuming model load) completes. Only one
+    // constructed runtime ends up assigned to _hiveWorkerAgent; every other one is orphaned,
+    // never disposed, and its VRAM never released. A gate around the whole method means a second
+    // caller waits for the first to finish, then re-checks IsRunning and correctly no-ops.
+    private readonly SemaphoreSlim _hiveWorkerStartGate = new(1, 1);
     // Single retained countdown timer for the "Accept re-sync" window — replaced (stopped
     // first) on each click so repeated clicks can't leave overlapping timers racing the label.
     private          DispatcherTimer?               _hiveResyncCountdownTimer;
@@ -881,9 +890,24 @@ public partial class MainWindow : Window
     /// <summary>
     /// Builds and starts the HIVE worker agent on demand — shared by startup (when
     /// HiveWorkerMode is already enabled) and the Settings panel's Start button (so toggling
-    /// worker mode no longer requires restarting the app).
+    /// worker mode no longer requires restarting the app). Thin wrapper around
+    /// <see cref="StartHiveWorkerCoreAsync"/> that serializes calls through
+    /// <see cref="_hiveWorkerStartGate"/> -- see that field's doc comment for why.
     /// </summary>
     private async Task StartHiveWorkerAsync()
+    {
+        await _hiveWorkerStartGate.WaitAsync();
+        try
+        {
+            await StartHiveWorkerCoreAsync();
+        }
+        finally
+        {
+            _hiveWorkerStartGate.Release();
+        }
+    }
+
+    private async Task StartHiveWorkerCoreAsync()
     {
         if (_hiveWorkerAgent is { IsRunning: true }) return;
 
@@ -988,9 +1012,25 @@ public partial class MainWindow : Window
                 || configChanged
                 || string.IsNullOrWhiteSpace(currentElectionWarchief)
                 || currentElectionWarchief == _lastSeededWarchiefNodeId;
-            if (safeToReseed)
+            // BLOCKER, round 4: the warning below used to live inside an `else if
+            // (IsNullOrWhiteSpace(currentElectionWarchief))` branch -- dead whenever
+            // InferWarchiefFromPeerStore had already filled currentElectionWarchief with SOME
+            // value (often this node's own id), even though warchiefNodeId itself was empty. An
+            // empty warchiefNodeId means we have no way to know the ACTUAL configured Warchief --
+            // a self-inference is not a substitute for that -- so this must be checked first and
+            // unconditionally, not nested under a check of what election happens to already hold.
+            if (string.IsNullOrWhiteSpace(warchiefNodeId))
             {
-                if (!string.IsNullOrWhiteSpace(warchiefNodeId) && currentElection is not null)
+                AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
+                    "Could not resolve this worker's configured Warchief to a NodeId -- POST " +
+                    "/hive/tasks/cancel and /hive/roles/degrade will 403 from that Warchief until " +
+                    "it's known. This resolves once this node has paired with the Warchief (its " +
+                    "peer entry then carries the address ResolveWarchiefNodeId matches against), " +
+                    "or once the live election protocol establishes one on its own.", DateTime.Now));
+            }
+            else if (safeToReseed)
+            {
+                if (currentElection is not null)
                 {
                     // Only actually call SetWarchief when the value is truly changing (grok-review
                     // follow-up, 2026-07-30): it unconditionally forces State=Normal and clears
@@ -1003,21 +1043,28 @@ public partial class MainWindow : Window
                     _lastSeededWarchiefNodeId = warchiefNodeId;
                     _lastSeededElectionServiceInstance = currentElection;
                 }
-                else if (string.IsNullOrWhiteSpace(currentElectionWarchief))
-                {
-                    // Two distinct causes, two accurate messages (grok-review follow-up,
-                    // 2026-07-30): the prior single message said "could not resolve a NodeId"
-                    // even when the NodeId resolved fine and ElectionService was simply null --
-                    // conflating "nothing to seed with" and "nowhere to seed it into."
-                    var reason = currentElection is null
-                        ? "the HIVE node server's election service isn't available yet"
-                        : "a Warchief NodeId could not be resolved";
+                else
                     AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
-                        $"Could not seed election state ({reason}) -- POST /hive/tasks/cancel and " +
-                        "/hive/roles/degrade will 403 from this Warchief until it's known (set " +
-                        "Warchief NodeId in Settings, or wait for the live election protocol to " +
-                        "establish one).", DateTime.Now));
-                }
+                        "The HIVE node server's election service isn't available yet -- this " +
+                        "worker's configured Warchief NodeId could not be seeded. POST " +
+                        "/hive/tasks/cancel and /hive/roles/degrade will 403 until a stop/start " +
+                        "once the node server has finished initializing.", DateTime.Now));
+            }
+            else
+            {
+                // safeToReseed is false: a live election has genuinely diverged from what this
+                // method last seeded on the SAME instance, and that more current knowledge is
+                // deliberately being protected from being clobbered (this is the fix working as
+                // intended, not a failure) -- but it does mean remote cancel/degrade FROM THE
+                // CONFIGURED Warchief will keep 403ing for the rest of this session, since
+                // IsWarchief now authorizes the elected id instead. Worth a log line, not a
+                // warning: the operator has no other way to learn this happened (grok-review
+                // follow-up, 2026-07-30).
+                AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE Worker",
+                    $"Kept this node's live-elected Warchief ({currentElectionWarchief}) instead " +
+                    $"of re-seeding the configured one ({warchiefNodeId}) -- a live election " +
+                    "already updated it since this worker last started. Remote cancel/degrade " +
+                    "from the configured Warchief will 403 until the next genuine retarget.", DateTime.Now));
             }
 
             // Always wired regardless of native runtime — an Ollama-only worker can still have an
@@ -2671,6 +2718,13 @@ public partial class MainWindow : Window
     private async void OnWarchiefTargetSelected(string url)
     {
         _settings.HiveWarchiefUrl = url;
+        // Cleared, not just left alone (grok-review, 2026-07-30): StartHiveWorkerCoreAsync
+        // resolves warchiefNodeId as HiveWarchiefNodeId if non-empty, else ResolveWarchiefNodeId
+        // (a fresh peer-store lookup against the URL). A stale HiveWarchiefNodeId pinned from an
+        // earlier target (there's no Settings UI to set this directly, but it can end up non-
+        // empty from an older code path or manual config edit) would otherwise keep resolving to
+        // the OLD Warchief's NodeId even after this explicit retarget to a new URL.
+        _settings.HiveWarchiefNodeId = "";
         _settings.HiveWorkerMode  = true;
         _settings.Save();
         AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE MIND",
