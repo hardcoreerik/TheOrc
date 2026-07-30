@@ -53,6 +53,23 @@ public partial class MainWindow : Window
     // after a stop/restart, instead of the honest {} / 503 "not configured" those endpoints are
     // supposed to give (grok-review, full-session pass, 2026-07-30). Nulled in StopHiveWorkerAsync.
     private          NativeRoleRuntime? _currentNativeHiveRuntime;
+    // Tracks what StartHiveWorkerAsync last explicitly seeded into ElectionService.WarchiefNodeId
+    // (see that method's own comment on why a naive "seed only if currently empty" check is dead
+    // code -- HiveNodeServer.Start's own InferWarchiefFromPeerStore call already populates it,
+    // often with this same node's own id, before the worker ever starts). Comparing against this
+    // instead of "is it empty" distinguishes "nothing has changed since I last seeded, safe to
+    // re-seed with the explicit config" from "a live election has updated it since, don't clobber
+    // that more current knowledge" (grok-review, 2026-07-30).
+    private          string?            _lastSeededWarchiefNodeId;
+    // Paired with _lastSeededWarchiefNodeId: if _hiveNodeServer/ElectionService is ever recreated
+    // (e.g. HIVE MIND restarted), _lastSeededWarchiefNodeId's value is meaningless for a instance
+    // that has never seen it -- comparing by instance reference, not just by value, is what makes
+    // a brand-new ElectionService always eligible for a fresh seed regardless of what it happens
+    // to already hold (grok-review, 2026-07-30 -- found after two rounds of value-only tracking
+    // still had edge cases: an empty reset state, and a freshly-inferred-but-different value on a
+    // new instance, were both wrongly treated as "a live election already updated this, don't
+    // touch it").
+    private          Services.Hive.HiveElectionService? _lastSeededElectionServiceInstance;
     // Single retained countdown timer for the "Accept re-sync" window — replaced (stopped
     // first) on each click so repeated clicks can't leave overlapping timers racing the label.
     private          DispatcherTimer?               _hiveResyncCountdownTimer;
@@ -947,24 +964,60 @@ public partial class MainWindow : Window
             // StartHiveAsync) updates this over time, but the initial known-Warchief state still
             // needs seeding from what this worker was just configured to talk to.
             //
-            // Seed ONLY when nothing is currently known (grok-review BLOCKER, 2026-07-30): this
-            // method re-runs on every worker start/restart (Settings Start button, stop-then-
-            // start), and SetWarchief unconditionally forces State=Normal, clears suspect votes,
-            // and overwrites WarchiefNodeId. Calling it every time would clobber a live-elected
-            // Warchief (a real failover the live election protocol already tracked correctly)
-            // back to stale static config on the next restart -- reopening the exact 403s this
-            // seeding exists to prevent, for the ACTUAL current Warchief. The election protocol's
-            // own knowledge, once it has any, is strictly more current than static settings.
-            if (string.IsNullOrWhiteSpace(nodeServer.ElectionService?.WarchiefNodeId))
+            // This went through three rounds against adversarial grok-review before landing --
+            // see git history for the two earlier, each-wrong-in-a-different-way attempts. The
+            // final design: safe to (re-)seed when ANY of --
+            //   - this ElectionService INSTANCE has never been seeded (new/recreated, e.g. HIVE
+            //     MIND restarted -- whatever it currently holds, even a fresh non-empty inference
+            //     from InferWarchiefFromPeerStore, was never compared against MY seed, so there is
+            //     nothing of mine to clobber);
+            //   - the configured target itself changed since the last seed (an explicit operator
+            //     retarget via OnWarchiefTargetSelected must always win over whatever election
+            //     currently thinks);
+            //   - the current value is empty (nothing live to preserve, always safe to seed); or
+            //   - the current value still matches what was seeded last time (nothing has changed
+            //     via live election since).
+            // Refuse ONLY when: same instance, config unchanged, AND the live value has diverged
+            // from what was seeded -- a real election event updated it independently, and that
+            // more current knowledge must not be clobbered by re-applying stale static config.
+            var currentElection = nodeServer.ElectionService;
+            var isNewElectionInstance = !ReferenceEquals(currentElection, _lastSeededElectionServiceInstance);
+            var currentElectionWarchief = currentElection?.WarchiefNodeId;
+            var configChanged = !string.Equals(warchiefNodeId, _lastSeededWarchiefNodeId, StringComparison.Ordinal);
+            var safeToReseed = isNewElectionInstance
+                || configChanged
+                || string.IsNullOrWhiteSpace(currentElectionWarchief)
+                || currentElectionWarchief == _lastSeededWarchiefNodeId;
+            if (safeToReseed)
             {
-                if (!string.IsNullOrWhiteSpace(warchiefNodeId))
-                    nodeServer.ElectionService?.SetWarchief(warchiefNodeId);
-                else
+                if (!string.IsNullOrWhiteSpace(warchiefNodeId) && currentElection is not null)
+                {
+                    // Only actually call SetWarchief when the value is truly changing (grok-review
+                    // follow-up, 2026-07-30): it unconditionally forces State=Normal and clears
+                    // suspect votes, which would otherwise interrupt a legitimate in-progress
+                    // suspect-detection cycle for zero benefit on a no-op restart with an
+                    // already-correct, unchanged target. Bookkeeping still updates either way, so
+                    // future calls correctly recognize this instance+value as already seeded.
+                    if (currentElectionWarchief != warchiefNodeId)
+                        currentElection.SetWarchief(warchiefNodeId);
+                    _lastSeededWarchiefNodeId = warchiefNodeId;
+                    _lastSeededElectionServiceInstance = currentElection;
+                }
+                else if (string.IsNullOrWhiteSpace(currentElectionWarchief))
+                {
+                    // Two distinct causes, two accurate messages (grok-review follow-up,
+                    // 2026-07-30): the prior single message said "could not resolve a NodeId"
+                    // even when the NodeId resolved fine and ElectionService was simply null --
+                    // conflating "nothing to seed with" and "nowhere to seed it into."
+                    var reason = currentElection is null
+                        ? "the HIVE node server's election service isn't available yet"
+                        : "a Warchief NodeId could not be resolved";
                     AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
-                        "Could not resolve a Warchief NodeId to seed election state -- " +
-                        "POST /hive/tasks/cancel and /hive/roles/degrade will 403 from this " +
-                        "Warchief until it's known (set Warchief NodeId in Settings, or wait " +
-                        "for the live election protocol to establish one).", DateTime.Now));
+                        $"Could not seed election state ({reason}) -- POST /hive/tasks/cancel and " +
+                        "/hive/roles/degrade will 403 from this Warchief until it's known (set " +
+                        "Warchief NodeId in Settings, or wait for the live election protocol to " +
+                        "establish one).", DateTime.Now));
+                }
             }
 
             // Always wired regardless of native runtime — an Ollama-only worker can still have an
@@ -1035,6 +1088,19 @@ public partial class MainWindow : Window
                 nodeServer.MarkRoleDegradedHandler = null;
             }
         }
+        else
+        {
+            // _hiveNodeServer is constructed by StartHiveAsync, fired via Task.Run at app
+            // startup -- if this method races ahead of that (e.g. the operator clicks Start
+            // immediately), the node server won't exist yet and this whole wiring block is
+            // skipped with no signal at all otherwise (grok-review MINOR, 2026-07-30). The
+            // worker still starts and still runs; it just won't accept remote cancel/degrade
+            // or serve telemetry until an explicit stop -> start once the node server exists.
+            AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
+                "HIVE node server isn't ready yet -- this worker is starting without remote " +
+                "cancel/degrade or telemetry wiring. Stop and start it again once HIVE MIND has " +
+                "finished initializing.", DateTime.Now));
+        }
 
         _hiveWorkerAgent.Start();
         _settings.HiveWorkerMode = true;
@@ -1078,9 +1144,14 @@ public partial class MainWindow : Window
     {
         var worker = _hiveWorkerAgent;
         if (worker is null) return;
-        _hiveWorkerAgent = null;
 
+        // Handlers cleared BEFORE _hiveWorkerAgent goes null (grok-review follow-up, 2026-07-30):
+        // CancelTaskHandler reads the _hiveWorkerAgent field, so nulling that field first leaves a
+        // window where the still-installed handler sees a null agent and returns false -> 404 "no
+        // in-flight task", instead of the more accurate 503 "no worker agent is running" once the
+        // handler itself is also nulled a moment later.
         ClearHiveNodeServerHandlersForWorkerTeardown();
+        _hiveWorkerAgent = null;
 
         try
         {
@@ -1176,14 +1247,19 @@ public partial class MainWindow : Window
         e.Cancel = true;
 
         var worker = _hiveWorkerAgent;
+        // Same ordering fix as StopHiveWorkerAsync, for the same reason (grok-review follow-up,
+        // 2026-07-30): this must run before _hiveWorkerAgent goes null, not as the first line of
+        // the fire-and-forget ShutdownHiveWorkerAndCloseAsync below -- there's a real gap between
+        // this synchronous method nulling the field and that async method's body actually starting
+        // to run, during which CancelTaskHandler would see a null agent and return 404 instead of
+        // the intended 503.
+        ClearHiveNodeServerHandlersForWorkerTeardown();
         _hiveWorkerAgent = null;
         _ = ShutdownHiveWorkerAndCloseAsync(worker);
     }
 
     private async Task ShutdownHiveWorkerAndCloseAsync(Services.Hive.HiveWorkerAgent worker)
     {
-        ClearHiveNodeServerHandlersForWorkerTeardown();
-
         try
         {
             using var cts = new CancellationTokenSource(HiveWorkerShutdownTimeout);
@@ -2599,6 +2675,12 @@ public partial class MainWindow : Window
         _settings.Save();
         AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE MIND",
             $"🎯 Warchief target set to {url}. Starting worker…", DateTime.Now));
+        // StartHiveWorkerAsync's first line is an early-return when a worker is already running,
+        // so a retarget while live would otherwise leave the running worker on its OLD
+        // WarchiefUrl/WarchiefNodeId while this message claims the new target took effect
+        // (grok-review, 2026-07-30). Stop first -- a safe no-op if nothing is running -- so a
+        // retarget always rebuilds against the newly selected URL.
+        await StopHiveWorkerAsync();
         await StartHiveWorkerAsync();
     }
 

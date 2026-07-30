@@ -991,6 +991,38 @@ throws instead, matching this session's own "loud failure over silent success" p
 everywhere else. Re-verified clean via `grok-review -Mode diff` after each fix; full 703-test
 suite green throughout.
 
+**Two more adversarial rounds against the same GUI wiring, same day.** Worth recording plainly:
+repeated adversarial review against previously-"clean" work kept finding real bugs, round after
+round, in code that had never been exercised in anger (this GUI HIVE-worker path's own original
+gap, per the finding above, was that nobody had wired it at all). Round 2 found two more
+BLOCKERs: (1) `NativeWithFallbackRuntime.FallbackCount` (landed as "closing §5.4") had zero
+production readers anywhere -- not `GetHealth`/`GetStats`, no Settings probe, not even the
+existing Activity Log fallback message -- so the counter existed but the operator-visible signal
+was unchanged; fixed by folding the cumulative count into that same Activity Log message. (2)
+`_hiveWorkerAgent.Start()` ran before the node-server handlers were wired (unlike
+`HiveService.cs`'s wire-then-start order) -- reordered.
+
+Round 3 found a THIRD real bug, this time in round 2's own "don't clobber a live-elected
+Warchief" fix: seed-only-when-`WarchiefNodeId`-is-empty turned out to be dead code, because
+`HiveNodeServer.Start` already calls `InferWarchiefFromPeerStore`, which sets a non-empty
+`WarchiefNodeId` (often this node's own id) before the worker ever starts -- the empty-check
+never fired. Fixed by tracking what was last explicitly seeded (`_lastSeededWarchiefNodeId`)
+instead of checking emptiness, plus three more findings surfaced fixing THAT: an explicit operator
+retarget must always win regardless of election state; the tracked value must only be recorded
+when `SetWarchief` actually ran, not on a null-`ElectionService` no-op; and -- the one that took a
+fourth round to get right -- value-only tracking couldn't tell "this `ElectionService` instance
+has never seen my seed" (a recreated instance, e.g. HIVE MIND restarted) from "a live election
+diverged from my seed on the SAME instance," wrongly refusing to seed a fresh/reset instance.
+Final design compares by instance reference, not just by value: a new/never-seeded instance is
+always eligible, an explicit config change always wins, an empty current value is always safe to
+fill, and only a same-instance, same-config, genuinely-diverged value is protected from
+clobbering. Also fixed in these rounds: `OnWarchiefTargetSelected` (an explicit Settings retarget)
+skipped rebuilding an already-running worker entirely, so a live worker silently kept talking to
+its old target while the UI claimed the retarget succeeded; and two more handler-nulling ordering
+issues in the stop and window-close teardown paths, mirroring the first round's fix. Every round
+re-verified via `grok-review -Mode diff` before moving to the next; full 703-test suite green
+throughout all of it.
+
 **Second MINOR finding, both halves closed 2026-07-30.** `IsWarchief`'s positive match closed
 first (see above: the "blocked on `HiveIdentity`'s private constructor" claim was stale --
 `CreateEphemeral()`/`CreateForTest()` already existed). `TryCancelTask`'s actual-cancellation
