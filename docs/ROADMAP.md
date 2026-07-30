@@ -722,6 +722,17 @@ Why this order: it closes the biggest OrcChat parity gaps first, reuses the same
 headless execution loop needed by Phase 3B campaign work, and keeps the focus on
 functions that are hard to replace with a single SSH command.
 
+**Full phased detail**: [`docs/NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md`](NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md)
+(this ranked table's source, with exit criteria per phase) and
+[`docs/NATIVE_BROWSER_AUTOMATION_SPEC.md`](NATIVE_BROWSER_AUTOMATION_SPEC.md) (Rank 1, made
+concrete against the current tool-calling architecture — design only, not yet built). Ranks 1-7
+above have research-directions extensions (Ranks 8-14: MCP-native tooling, constrained decoding,
+temporal knowledge-graph memory, formal verification, OS-level GUI automation, reflexion loops,
+edge↔cloud routing) in
+[`docs/NATIVE_RUNTIME_FUNCTION_PACK_ADDENDUM.md`](NATIVE_RUNTIME_FUNCTION_PACK_ADDENDUM.md) —
+a different confidence tier than 1-7 (external 2026 research, some citation-quality issues; see
+that file's own header and the Function Pack Plan's note above its priority table).
+
 Reference points: [Playwright docs](https://playwright.dev/docs/intro),
 [Playwright screenshots](https://playwright.dev/docs/screenshots),
 [Tesseract user manual](https://tesseract-ocr.github.io/tessdoc/),

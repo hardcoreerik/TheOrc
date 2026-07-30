@@ -387,6 +387,25 @@ These are genuine forks, not things this spec can responsibly pick unilaterally:
    on the interactive desktop it's a real UX/security surface (a visible window the model controls,
    with a live approval queue, could be confusing about who's "driving"). Recommend: headless-only
    for Phase 1, revisit non-headless as an explicit local-dev-only toggle later if requested.
+5. **Direct `ToolDefinition` registration vs. MCP-server exposure** (added 2026-07-30, per
+   [`docs/NATIVE_RUNTIME_FUNCTION_PACK_ADDENDUM.md`](NATIVE_RUNTIME_FUNCTION_PACK_ADDENDUM.md)'s
+   proposed Phase 1.5, "MCP-native tool layer"). §2.3/2.4 above design `BrowserTools` as direct
+   `ToolDefinition`/`HeadlessTool` registrations, matching every existing tool family
+   (`FileTools`, `ShellTools`, etc.) — the path of least resistance and the only one with a working
+   precedent in this codebase today. The addendum proposes exposing tools through an MCP host
+   instead, so the runtime can discover/compose third-party MCP servers generically rather than
+   requiring bespoke `Register()` code per tool family. These are not mutually exclusive (an MCP
+   host could wrap the same `BrowserSession` this spec defines), but building BOTH is real added
+   scope, and building MCP-first would be a bigger, riskier first step than this spec's plan since
+   there is zero existing MCP-host precedent anywhere in this codebase to build on (unlike
+   `ToolDefinition`/`ApprovalQueue`, which are proven, working, and already handle approval/
+   sandboxing for five other tool families). **Recommendation, not a decision this spec makes
+   unilaterally**: ship Phase 1 as designed (direct `ToolDefinition`/`HeadlessTool`) first, since it
+   reuses proven infrastructure and unblocks real browser automation sooner; treat MCP-native
+   exposure as a genuinely separate, later architectural investment (Phase 1.5) evaluated once
+   there's a concrete second or third external tool source that would actually benefit from
+   MCP-style discovery, not before. This trades "protocol-generality now" for "working sooner" —
+   flagging explicitly rather than picking silently, since it's a real product-direction call.
 
 ---
 
@@ -401,3 +420,4 @@ These are genuine forks, not things this spec can responsibly pick unilaterally:
 | Phase 4 — Bounded shell/build/test | Out of scope here (§0.3) | Not started |
 | Phase 5 — Artifact export | Out of scope here (§0.3) | Not started |
 | Phase 6 — Typed results polish | Partially pulled forward into this spec's Phase 0 (§2.1), rest out of scope | Not started |
+| Phase 1.5 — MCP-native tool layer (addendum, research-directions tier) | §4 open question 5 — recommendation, not commitment | Not started |

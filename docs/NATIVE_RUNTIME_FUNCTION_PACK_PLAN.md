@@ -36,6 +36,22 @@ These are the capabilities that turn "a local model host" into "a local operator
 | **6** | Typed result channels | Makes tools composable, auditable, and easier to verify than prose-only replies | Internal runtime requirement |
 | **7** | Capability-aware routing | Avoids silent fallback and lets the runtime choose the right local model/tool/node | Internal runtime requirement |
 
+**Ranks 8-14 — research-directions extension, added 2026-07-30:** see
+[`docs/NATIVE_RUNTIME_FUNCTION_PACK_ADDENDUM.md`](NATIVE_RUNTIME_FUNCTION_PACK_ADDENDUM.md) for the
+full writeup (MCP-native tool layer, constrained/grammar decoding, temporal knowledge-graph memory,
+formal verification bridge, OS-level GUI automation, reflexion loops, adaptive edge↔cloud routing).
+**Explicitly a different confidence tier than ranks 1-7 above** — sourced from external 2026
+research with some citation-quality issues (one malformed arXiv ID, several stats traced to
+content-marketing blogs rather than primary sources, some referenced papers dated after this
+project's knowledge cutoff and unverifiable from here). The underlying technologies (MCP, XGrammar-
+style constrained decoding, Graphiti-style temporal graphs, Rocq/Lean, UFO²/OSWorld-style GUI
+agents, Reflexion/Self-Refine, edge-model routing) are real and worth planning around; the specific
+numbers attached to them should be re-verified against primary sources before being used to justify
+a scoping or resourcing decision. Interleaved into the phase plan below as `Phase N.5` entries,
+matching the addendum's own numbering — none of them have a concrete, code-grounded implementation
+spec yet (the kind [`NATIVE_BROWSER_AUTOMATION_SPEC.md`](NATIVE_BROWSER_AUTOMATION_SPEC.md) is for
+Phase 0/1), so none are ready to start.
+
 ---
 
 ## Product goals
@@ -135,6 +151,18 @@ use web-based AI tools in practice.
 
 ---
 
+### Phase 1.5 — MCP-native tool layer *(research-directions tier, see addendum)*
+
+Expose browser/workspace/shell/image tools as MCP servers instead of (or alongside) hardcoded
+`ToolDefinition`/`HeadlessTool` entries, so the runtime can discover and compose third-party MCP
+tools without per-tool custom code. **Directly interacts with Phase 1's design**: if this direction
+is pursued, `NATIVE_BROWSER_AUTOMATION_SPEC.md`'s `BrowserTools.cs` approach (direct
+`ToolDefinition` registration) would need to be revisited as an MCP-server wrapper instead, or in
+addition — flagged as open question 5 in that spec. Full scope/exit-criteria in the addendum.
+Not started; sequencing relative to Phase 1 itself is an open decision, not assumed to precede it.
+
+---
+
 ### Phase 2 — Image attachment, OCR, and multimodal pack
 
 ### Scope
@@ -157,6 +185,15 @@ use web-based AI tools in practice.
   - multimodal-native reasoning, or
   - OCR-backed reasoning with a disclosed fallback path
 - Output can embed image previews and extracted text snippets
+
+---
+
+### Phase 2.5 — Structured generation core *(research-directions tier, see addendum)*
+
+Grammar-constrained decoding (XGrammar or llama.cpp grammar mode) so every tool contract emits
+guaranteed-schema output instead of probabilistic "JSON mode." Independent of the image/OCR pack
+it's numbered alongside — could land any time after Phase 0's typed-result contracts exist to
+constrain against. Full scope/exit-criteria in the addendum. Not started.
 
 ---
 
@@ -184,6 +221,16 @@ productive for real local development work.
 - OrcChat and AgentLoop use the same workspace tool contracts
 - Search/read/outline behavior is consistent across runtimes
 - Large file handling and path safety are covered by tests
+
+---
+
+### Phase 3.5 — Temporal knowledge-graph memory *(research-directions tier, see addendum)*
+
+Replace/augment vector-only RAG with a local temporal knowledge graph (entities, relationships,
+timestamps extracted from chat, workspace files, browser sessions) for cross-session continuity and
+provenance-tracked recall. The addendum's own exit criteria require a human-review gate before the
+graph is updated — a real design constraint, not a detail to skip. Full scope in the addendum.
+Not started; would be a substantial new subsystem, not a small tool addition.
 
 ---
 
@@ -217,6 +264,16 @@ denials for destructive or high-risk operations.
 
 ---
 
+### Phase 4.5 — Formal verification bridge *(research-directions tier, see addendum)*
+
+A Rocq/Lean proof-assistant server as an MCP tool (depends on Phase 1.5 existing first, or its own
+non-MCP integration) so sensitive code (crypto, concurrency, protocol parsers) can ship with a
+machine-checked correctness proof alongside the generated code. Full scope/exit-criteria in the
+addendum. Not started; genuinely narrow-audience (safety/security-critical code paths only), worth
+weighing against broader-value phases before scheduling.
+
+---
+
 ### Phase 5 — Artifact generation and export pack
 
 ### Scope
@@ -242,6 +299,19 @@ The runtime should produce those directly.
 
 ---
 
+### Phase 5.5 — Native OS GUI automation *(research-directions tier, see addendum)*
+
+Beyond Playwright: sandboxed OS-level GUI control for cross-application workflows (desktop apps,
+not just browser tabs). The addendum's own comparison (~70% web-agent success vs. ~20% desktop-agent
+SOTA) is itself the kind of stat flagged above as worth re-verifying against the primary OSWorld
+benchmark rather than the secondary blog cited — but the *direction* (a sandboxed VM, human approval
+gate for anything outside it) is a sound starting constraint regardless of the exact number. Full
+scope in the addendum. Not started; meaningfully higher-risk than the browser pack (arbitrary
+desktop-app surface vs. a single sandboxed browser process) and should not be scheduled ahead of
+Phase 1 actually shipping and being trusted in production.
+
+---
+
 ### Phase 6 — Typed results, verification, and polish
 
 ### Scope
@@ -259,6 +329,25 @@ The runtime should produce those directly.
 - Tool outputs render consistently in OrcChat
 - Native runtime traces are compact but replayable
 - Operators can tell what happened without opening logs for every action
+
+---
+
+### Phase 6.5 — Reflexion loop runtime *(research-directions tier, see addendum)*
+
+After any tool execution, a bounded critique loop (hard-capped iterations) comparing output against
+a rubric/test result/schema before requesting a revision — extends this phase's typed-result work
+rather than standing alone. Full scope/exit-criteria in the addendum. Not started.
+
+---
+
+### Phase 7 — Adaptive model routing (edge↔cloud) *(research-directions tier, see addendum;
+evolves this plan's original Phase 7 "capability-aware routing" rank)*
+
+A capability registry of local SLMs + cloud endpoints, routing structured tool-use/summarization
+locally and open-ended reasoning to cloud. Note the tension with this whole plan's own "local-first"
+framing and non-goals (§ above) — a cloud-routing feature needs an explicit decision on when/whether
+TheOrc calls out to a cloud endpoint at all, not just a technical design. Full scope in the addendum.
+Not started.
 
 ---
 
@@ -292,3 +381,9 @@ The runtime should produce those directly.
 
 This order favors visible operator value first, while also building the shared
 contracts that Phase 3B campaign execution can reuse.
+
+**The `N.5`/research-directions phases (1.5, 2.5, 3.5, 4.5, 5.5, 6.5, evolved-7) are deliberately
+NOT inserted into this delivery order.** They're a different confidence tier (see the ranks 8-14
+note above the priority table) and none has a code-grounded implementation spec yet. Sequencing
+them is a decision for whoever picks each one up, informed by how Phase 0/1 actually land — not
+pre-committed here.
