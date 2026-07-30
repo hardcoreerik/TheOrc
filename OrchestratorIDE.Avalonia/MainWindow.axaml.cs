@@ -45,6 +45,14 @@ public partial class MainWindow : Window
     private          Services.Hive.HiveRpcWorker?   _hiveRpcWorker;
     private          Services.Hive.HiveTaskQueue?   _hiveTaskQueue;
     private          Services.Hive.HiveWorkerAgent? _hiveWorkerAgent;
+    // Backs _hiveNodeServer's NativeTelemetryProvider/MarkRoleDegradedHandler closures below --
+    // a FIELD, not a StartHiveWorkerAsync-local, for the same reason CancelTaskHandler already
+    // reads _hiveWorkerAgent as a field there: ShutdownCoreAsync disposes the native role
+    // executor (and the NativeRoleRuntime it wraps) on stop, so a closure pinned to that specific
+    // instance would throw ObjectDisposedException on the next telemetry poll or degrade request
+    // after a stop/restart, instead of the honest {} / 503 "not configured" those endpoints are
+    // supposed to give (grok-review, full-session pass, 2026-07-30). Nulled in StopHiveWorkerAsync.
+    private          NativeRoleRuntime? _currentNativeHiveRuntime;
     // Single retained countdown timer for the "Accept re-sync" window — replaced (stopped
     // first) on each click so repeated clicks can't leave overlapping timers racing the label.
     private          DispatcherTimer?               _hiveResyncCountdownTimer;
@@ -942,14 +950,19 @@ public partial class MainWindow : Window
             // closure to one worker instance.
             nodeServer.CancelTaskHandler = taskId => _hiveWorkerAgent?.TryCancelTask(taskId) ?? false;
 
-            if (nativeHiveRuntime is NativeRoleRuntime nrr)
+            _currentNativeHiveRuntime = nativeHiveRuntime as NativeRoleRuntime;
+            if (_currentNativeHiveRuntime is not null)
             {
                 // Mirrors HiveService.cs's NativeTelemetryProvider shape exactly, including the
                 // FallbackCount/LastFallbackReason fields Native Runtime v2.0 §5.4 added — same
                 // fleet-wide GET /hive/native-telemetry surface, now available from a GUI-hosted
-                // worker too.
+                // worker too. Reads _currentNativeHiveRuntime (the field) on every invocation,
+                // never a captured local -- see that field's own doc comment for why a stale
+                // capture throws ObjectDisposedException after a stop/restart cycle.
                 nodeServer.NativeTelemetryProvider = () =>
                 {
+                    var nrr = _currentNativeHiveRuntime;
+                    if (nrr is null) return new { };
                     var reservation = nrr.GetReservationSnapshot();
                     return new
                     {
@@ -972,7 +985,31 @@ public partial class MainWindow : Window
                         }).ToList(),
                     };
                 };
-                nodeServer.MarkRoleDegradedHandler = role => nrr.MarkRoleDegraded(role);
+                // Same field-read-at-invocation reasoning as NativeTelemetryProvider above --
+                // this must not close over the local nrr from the if-check. Throws rather than
+                // no-op-succeeding if _currentNativeHiveRuntime is ever null here despite the
+                // handler being installed: HiveNodeServer awaits this and reports 500 with the
+                // real message on a throw, versus a silent fake 200 "ok" for a degrade that never
+                // happened -- loud failure over silent success, defense-in-depth against any
+                // future call site that gets the field/handler pairing wrong, not just the two
+                // paths (stop, re-entrant start-without-native) this session's grok-review pass
+                // already found and fixed directly.
+                nodeServer.MarkRoleDegradedHandler = role =>
+                    _currentNativeHiveRuntime?.MarkRoleDegraded(role)
+                    ?? throw new InvalidOperationException(
+                        "MarkRoleDegradedHandler invoked with no active native runtime -- " +
+                        "handler/field pairing bug, not a legitimate 'not configured' state.");
+            }
+            else
+            {
+                // Re-entry safety (grok-review follow-up, 2026-07-30): if this method previously
+                // ran with native configured (handlers installed) and now runs again with native
+                // resolving to null -- no StopHiveWorkerAsync in between required -- the OLD
+                // handlers would otherwise stay installed pointing at a now-null field, and
+                // MarkRoleDegradedHandler's fallback would report a fake 200 "ok" for a call that
+                // did nothing, instead of the honest 503 "not configured" a null handler gives.
+                nodeServer.NativeTelemetryProvider = null;
+                nodeServer.MarkRoleDegradedHandler = null;
             }
         }
 
@@ -990,6 +1027,23 @@ public partial class MainWindow : Window
         var worker = _hiveWorkerAgent;
         if (worker is null) return;
         _hiveWorkerAgent = null;
+
+        // Must happen before ShutdownAsync disposes the native role executor below, and the
+        // node-server handlers must be NULLED (not left pointing at a now-stale fallback), not
+        // just have their target go null -- HiveNodeServer's null-handler check is what gives the
+        // honest {} / 503 "not configured" response; a non-null MarkRoleDegradedHandler that
+        // silently no-ops would report a fake 200 "ok" for a call that did nothing, which is
+        // worse than the ObjectDisposedException this replaces (grok-review, 2026-07-30).
+        // Handlers nulled BEFORE _currentNativeHiveRuntime (not after): an inbound request racing
+        // this teardown on the HTTP listener's own thread must see the null-handler 503 path win,
+        // not briefly observe a still-non-null handler whose target has already gone null and
+        // fall into the fake-200 case this fix exists to remove (grok-review follow-up).
+        if (_hiveNodeServer is { } nodeServer)
+        {
+            nodeServer.NativeTelemetryProvider = null;
+            nodeServer.MarkRoleDegradedHandler = null;
+        }
+        _currentNativeHiveRuntime = null;
 
         try
         {

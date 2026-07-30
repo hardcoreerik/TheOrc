@@ -972,6 +972,25 @@ before or after — same "no mockable seam for MainWindow's runtime construction
 `RuntimeOrchestrator.cs`'s own class doc documents — so this is build + careful code review
 against the working Daemon reference, not an end-to-end GUI test run).
 
+**That caveat mattered: a full-session grok-review pass (2026-07-30, run against all ten commits
+accumulated since this closure, not just the one that introduced the gap) found three real bugs
+manual review missed.** `nrr` was captured as a `StartHiveWorkerAsync`-local in both closures,
+but `StopHiveWorkerAsync` disposes the native role executor (and the `NativeRoleRuntime` it
+wraps) — so any telemetry poll or degrade request arriving after a stop would throw
+`ObjectDisposedException` (500) instead of the honest `{}` / 503 "not configured" those endpoints
+are supposed to give once the worker isn't running. Fixed by moving the runtime reference into a
+field (`_currentNativeHiveRuntime`) read at invocation time, matching the pattern
+`CancelTaskHandler` already used correctly. Two more real issues surfaced fixing that one: (1) a
+re-entrant `StartHiveWorkerAsync` call that resolves native as null a second time left the PRIOR
+run's handlers installed, so `MarkRoleDegradedHandler`'s null-field fallback silently reported
+success for a degrade that never happened -- fixed with an explicit `else` clearing both handlers
+when native isn't configured this time; (2) the fallback itself was a `?? Task.CompletedTask`
+silent-success trap for any *future* call site that gets the field/handler pairing wrong -- grok
+flagged this as a standing risk even after both concrete paths were closed, so the fallback now
+throws instead, matching this session's own "loud failure over silent success" principle applied
+everywhere else. Re-verified clean via `grok-review -Mode diff` after each fix; full 703-test
+suite green throughout.
+
 **Second MINOR finding, both halves closed 2026-07-30.** `IsWarchief`'s positive match closed
 first (see above: the "blocked on `HiveIdentity`'s private constructor" claim was stale --
 `CreateEphemeral()`/`CreateForTest()` already existed). `TryCancelTask`'s actual-cancellation
