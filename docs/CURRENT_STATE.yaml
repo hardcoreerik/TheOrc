@@ -179,8 +179,20 @@ subsystems:
       review, swarm planning specialists) remain strategy-only.
 
   orcish_tongue:
-    status: planned
-    note: "Universal tool-call adaptation rename/runtime direction. Not started."
+    status: experimental
+    note: >
+      v1 landed 2026-07-30 (docs/ORCISH_TONGUE_SPEC.md, commits 8d2d7a40/0945e2cc/fdcd2a09),
+      scoped narrowly to OrcChat/ChatEngine, not the "universal" cross-surface vision this
+      entry originally named. ChatEngine now recognizes tool calls via 4 paths (native
+      tool_calls, ReAct-XML, reused ToolCallTextParser JSON-brace parsing, and a
+      theorc-toolcaller repair-lane last resort, default OFF via
+      ToolcallerService.IsEnabled). Also closed a real, pre-existing approval-bypass gap
+      found while implementing this: ChatEngine.ExecuteTool previously ran every tool
+      handler directly, never through ToolRegistry's RequiresApproval/ApprovalQueue gate —
+      OrcChat's write_file/run_shell/browser_navigate calls executed with zero human
+      approval. Now gated via ChatEngine.OnApprovalRequired, wired to a real Avalonia
+      Yes/No dialog. theorc-toolcaller retraining for a genuinely universal vocabulary is
+      explicitly deferred, not part of v1.
 
   capture_provenance_enforcement:
     status: experimental
