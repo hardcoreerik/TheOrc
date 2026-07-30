@@ -438,6 +438,14 @@ public class ToolDefinition
     public Dictionary<string, ToolParameter> Parameters { get; set; } = [];
     public string[] Required { get; set; } = [];
     public bool RequiresApproval { get; set; } = false;
+    /// <summary>When set, <see cref="ToolRegistry"/> excludes this tool from
+    /// <see cref="ToolRegistry.GetForProfile"/>'s advertised list and refuses to execute it via
+    /// <see cref="ToolRegistry.ExecuteAsync"/> unless <see cref="NativeToolCapabilities.Has"/>
+    /// reports it available — with the recorded reason surfaced back to the model/caller
+    /// (docs/NATIVE_BROWSER_AUTOMATION_SPEC.md §2.1 Phase 0 exit criterion: never a silent
+    /// omission). Null (the default) means the tool has no capability dependency and is always
+    /// eligible, matching every tool family that existed before this field was added.</summary>
+    public NativeToolCapability? RequiredCapability { get; set; }
     /// <summary>Runtime callback — excluded from JSON serialization (Func delegates cannot be serialized).</summary>
     [JsonIgnore]
     public Func<Dictionary<string, object?>, CancellationToken, Task<string>>? Handler { get; set; }

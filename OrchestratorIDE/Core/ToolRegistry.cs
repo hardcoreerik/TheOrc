@@ -49,7 +49,15 @@ public class ToolRegistry
             ToolSet.Full    => _tools.Keys.ToArray(),
             _ => []
         };
-        return _tools.Values.Where(t => allowed.Contains(t.Name)).ToList();
+        // Capability-gated tools (docs/NATIVE_BROWSER_AUTOMATION_SPEC.md §2.1 Phase 0) are
+        // excluded from the advertised list entirely when their capability isn't currently
+        // available -- e.g. a browser tool before Playwright browsers are installed. This is the
+        // "don't offer what can't actually run" half of the exit criterion; ExecuteAsync below is
+        // the "and refuse loudly, not silently, if called anyway" half.
+        return _tools.Values
+            .Where(t => allowed.Contains(t.Name))
+            .Where(t => t.RequiredCapability is not { } cap || NativeToolCapabilities.Has(cap))
+            .ToList();
     }
 
     public bool TryGet(string name, out ToolDefinition? tool) => _tools.TryGetValue(name, out tool);
@@ -78,6 +86,21 @@ public class ToolRegistry
 
             // Layer 1: rich self-correction message (fallback / autotest)
             return BuildRichNotFoundMessage(call, [.. _tools.Keys]);
+        }
+
+        // ── Capability gate ─────────────────────────────────────────────────
+        // Defense in depth alongside GetForProfile's advertised-list filtering above: a model can
+        // still emit a call for a tool it was never told about (hallucination, or a stale prompt
+        // built before a capability went away mid-session). Refuse explicitly with the recorded
+        // reason rather than either running it anyway or falling through to the generic
+        // "not registered" message, which would be misleading -- the tool IS registered, it's
+        // just not currently usable.
+        if (def.RequiredCapability is { } requiredCapability && !NativeToolCapabilities.Has(requiredCapability))
+        {
+            call.Status = ToolCallStatus.Failed;
+            var reason = NativeToolCapabilities.Reason(requiredCapability) ?? "not currently available";
+            call.Result = $"[UNAVAILABLE] '{call.Name}' requires {requiredCapability}, which is {reason}";
+            return call.Result;
         }
 
         // ── Normal execution ──────────────────────────────────────────────

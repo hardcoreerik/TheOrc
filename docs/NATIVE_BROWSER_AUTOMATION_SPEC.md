@@ -295,19 +295,42 @@ own model-depot download flow works) — this parallel is exactly why §0.2 cite
 
 ## 3. Phased implementation roadmap
 
-### Phase 0 — Contracts and capability model
+### Phase 0 — Contracts and capability model — **LANDED 2026-07-30**
 
-**Scope:** `NativeToolCapability` flags enum, `ToolResult` hierarchy (additive, non-breaking),
-capability-snapshot query point consulted by both `ToolRegistry` and whatever constructs a
-`NativeWorkerToolProfile`'s tool list.
+**Scope, as actually built:** `NativeToolCapability` flags enum + `NativeToolCapabilities`
+(`OrchestratorIDE/Core/NativeToolCapability.cs`) — a process-wide, thread-safe `MarkAvailable`/
+`MarkUnavailable(reason)`/`Has`/`Reason` snapshot, deliberately not a settings-only toggle (a
+capability being configured-on and a capability being genuinely usable, e.g. Playwright browsers
+actually installed, are different questions). `ToolResult` hierarchy
+(`OrchestratorIDE/Core/ToolResult.cs`) — `TextToolResult`/`ArtifactToolResult`/
+`ScreenshotToolResult`, additive; every existing `Handler`/`HeadlessTool.ExecuteAsync` signature is
+unchanged (`Task<string>`). `ToolDefinition` gained a nullable `RequiredCapability` property
+(`OllamaClient.cs`); `ToolRegistry` consults it in both `GetForProfile` (advertised-list filtering)
+and `ExecuteAsync` (defense-in-depth refusal for a call to a registered-but-unavailable tool, with
+the recorded reason in an `[UNAVAILABLE]`-prefixed result string).
 
-**Verify:**
-- Unit test: a capability-gated tool family absent from `NativeToolCapability.Current` is excluded
-  from both `ToolRegistry`'s registered set AND the headless tool list, with a matching
-  human-readable "why" surfaced (not silent omission).
-- Unit test: `ToolResult` subtypes round-trip through whatever serialization the tool-trace/replay
-  surface uses today (grep for existing `ToolCall` persistence to confirm the shape fits without a
-  migration).
+**Verified, honestly against what actually landed, not the original wording:**
+- `NativeToolCapabilityTests.cs` (9 tests, `OrchestratorIDE.UnitTests`): a synthetic
+  capability-gated tool (no real capability-gated tool exists yet -- Phase 1 adds the first one) is
+  excluded from `GetForProfile`'s advertised list when unavailable, included when available;
+  `ExecuteAsync` refuses with the recorded reason when called anyway (the defense-in-depth case) and
+  runs normally when available; `ToolResult` subtypes carry `Summary` correctly through the base
+  type.
+- **Correction to this section's original wording**: "excluded from both `ToolRegistry`'s set AND
+  the headless tool list" overclaimed what Phase 0 alone delivers -- only `ToolRegistry` (the
+  interactive surface) is wired as of this landing; `NativeWorkerToolProfile`'s headless
+  construction has no capability-gated tool to gate yet and isn't touched until Phase 1b. Caught by
+  `grok-review -Mode diff` before landing; `NativeToolCapability.cs`'s own doc comment now states
+  this accurately instead of claiming both surfaces already consult it.
+- **The serialization round-trip verify bullet did not apply as originally written** -- grepped for
+  existing `ToolCall`/tool-result JSON persistence and found none (no serialize-for-replay surface
+  exists today for tool results to round-trip through). Verified `ToolResult` subtype property
+  access directly instead; the serialization question is deferred to whichever later phase actually
+  adds a trace/replay persistence surface, not fabricated here to satisfy the original wording.
+
+Build clean, full 717/730-green suite (9 new, 0 regressed), `grok-review -Mode diff` clean before
+landing (one follow-up round: the stale doc-comment claim above, plus a test-isolation fix adding
+a `[SetUp]` reset alongside the original `[TearDown]`-only one).
 
 ### Phase 1a — Browser automation, interactive surface (OrcChat/Chat/Swarm)
 
@@ -413,7 +436,7 @@ These are genuine forks, not things this spec can responsibly pick unilaterally:
 
 | Function Pack Plan phase | This spec's phase | Status |
 |---|---|---|
-| Phase 0 — Contracts and capability model | §3 Phase 0 | Not started |
+| Phase 0 — Contracts and capability model | §3 Phase 0 | **Landed 2026-07-30** (interactive surface only — see §3 Phase 0's own correction) |
 | Phase 1 — Browser automation pack | §3 Phase 1a (interactive) + 1b (headless) | Not started |
 | Phase 2 — Image/OCR/multimodal | Out of scope here (§0.3) | Not started |
 | Phase 3 — Workspace intelligence | Out of scope here (§0.3) | Not started |

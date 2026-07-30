@@ -145,6 +145,7 @@
     <Compile Include="..\OrchestratorIDE\Core\ICustomTool.cs" />
     <Compile Include="..\OrchestratorIDE\Core\LlamaServerManager.cs" />
     <Compile Include="..\OrchestratorIDE\Core\ModelProfiles.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\NativeToolCapability.cs" />
     <Compile Include="..\OrchestratorIDE\Core\OllamaClient.cs" />
     <Compile Include="..\OrchestratorIDE\Core\OllamaParallelHelper.cs" />
     <Compile Include="..\OrchestratorIDE\Core\PentestRules.cs" />
@@ -152,6 +153,7 @@
     <Compile Include="..\OrchestratorIDE\Core\TokenCostEstimator.cs" />
     <Compile Include="..\OrchestratorIDE\Core\ToolCompiler.cs" />
     <Compile Include="..\OrchestratorIDE\Core\ToolRegistry.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\ToolResult.cs" />
     <Compile Include="..\OrchestratorIDE\Core\UpdateChecker.cs" />
 
     <!-- Models -->
