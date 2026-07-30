@@ -752,12 +752,16 @@ Native contexts/sessions/models/adapters have explicit ownership and determinist
   `RuntimeAdmissionDeniedException` from fallback and only falls back before first observable
   output (`NativeWithFallbackRuntime.cs:178-192`). This is the correct direction and must be
   preserved.
-- **[Verified, closed 2026-07-30]:** fallback is now visible to persistent telemetry, not just
-  a transient Activity Log Warning, on `NativeWithFallbackRuntime` (main chat) — the counter
-  exposes `FallbackCount`/`LastFallbackReason`, lifetime counters incremented alongside the
-  existing `_onFallback` Activity Log callback, not a replacement for it
-  (`NativeWithFallbackRuntime.cs`). This is the only place a native-to-Ollama fallback can
-  currently happen in production.
+- **[Verified, closed 2026-07-30 — corrected same day]:** `NativeWithFallbackRuntime` (main chat,
+  the only place a native-to-Ollama fallback can currently happen in production) exposes
+  `FallbackCount`/`LastFallbackReason`, lifetime counters incremented alongside the existing
+  `_onFallback` Activity Log callback. First landed with zero production readers — the counters
+  existed but nothing displayed them, so the operator-visible signal was still just the one-off
+  Activity Log line, same as before this work (an adversarial grok-review pass caught this: "the
+  original gap is not actually closed"). Fixed by folding the cumulative count into that same
+  Activity Log message itself (`BuildAgentLoopRuntime` in `MainWindow.axaml.cs`, e.g. "fallback #3
+  this session") rather than building a new UI surface for a single running total — the counter is
+  now genuinely observable, not just present on the object.
 - **[Verified, correction 2026-07-30 — adversarial grok-review pass, this claim was wrong when
   first written]:** `HiveWorkerAgent` was also given the same `FallbackCount`/`LastFallbackReason`
   shape, described at the time as covering "legacy-agent HIVE tasks" as the second place a

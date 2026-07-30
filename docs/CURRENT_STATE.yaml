@@ -105,7 +105,11 @@ subsystems:
       Section 5.4's fallback-telemetry gap is closed as of 2026-07-30 for the
       one place a native-to-Ollama fallback can actually happen today:
       NativeWithFallbackRuntime (main chat) exposes lifetime FallbackCount/
-      LastFallbackReason. HiveWorkerAgent was given the same shape but a
+      LastFallbackReason, and (after an adversarial review found the counters
+      initially had zero production readers) the cumulative count is now
+      folded into the existing Activity Log fallback message itself, so it's
+      genuinely observable, not just present on the object. HiveWorkerAgent
+      was given the same shape but a
       2026-07-30 adversarial review found the original claim that it covered
       "legacy-agent HIVE tasks" as a second live surface was wrong -- every
       current HiveWorkerAgent construction path (HiveService.cs, MainWindow.

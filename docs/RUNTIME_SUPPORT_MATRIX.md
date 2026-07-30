@@ -45,7 +45,7 @@ The review's ask: the UI should always show requested runtime, actual runtime, m
 | Requested runtime | Yes | `AppSettings.Backend` / the experimental-toggle state in Settings |
 | Actual runtime (per call) | Partially | Activity Log warning fires *only when a fallback happens* — the steady-state "still on native" case has no persistent indicator |
 | Model + quantization | Yes, for Ollama/depot models | Models panel, Model Benchmark window |
-| Whether fallback occurred | Yes, transiently | Activity Log (this session) |
+| Whether fallback occurred | Yes, transiently, now with a running count | Activity Log message includes `NativeWithFallbackRuntime.FallbackCount` ("fallback #N this session"), added 2026-07-30 -- still only visible in the moment the line appears, not a persistent indicator |
 | Why fallback occurred | Yes | The exception message is passed into the Activity Log warning |
 | Whether the workload permits fallback | Implicit only | `RuntimeAdmissionDeniedException` exclusion means capacity-denial never silently falls back, but this isn't surfaced as a distinct "this workload requires native, no fallback" indicator anywhere in the UI |
 

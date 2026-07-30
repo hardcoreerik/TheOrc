@@ -921,7 +921,6 @@ public partial class MainWindow : Window
             AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE Worker", msg, DateTime.Now));
         _hiveWorkerAgent.OnStatusChanged += running =>
             Dispatcher.UIThread.InvokeAsync(() => _settingsPanel.SetHiveWorkerRunning(running));
-        _hiveWorkerAgent.Start();
         if (nativeHiveRuntime is null)
             AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
                 "No native model is admitted yet. Approved model sync is active; native-agent leases remain ineligible.", DateTime.Now));
@@ -931,6 +930,12 @@ public partial class MainWindow : Window
         // native HIVE worker's remote role-degrade/task-cancel/telemetry endpoints all silently
         // failed (503 "not configured" / {} empty telemetry) even when everything else about the
         // worker was running correctly.
+        //
+        // Wired BEFORE _hiveWorkerAgent.Start() below (grok-review MINOR, 2026-07-30):
+        // HiveService.cs wires its equivalent handlers then starts the worker, in that order.
+        // This method previously started the worker first, leaving a real window where a lease
+        // could land and a remote cancel/degrade request could arrive while the handlers were
+        // still 503/"not configured" even though the worker was already polling and running.
         if (_hiveNodeServer is { } nodeServer)
         {
             // Prerequisite, not cosmetic: HandleMarkRoleDegradedAsync/HandleCancelTask both gate
@@ -941,8 +946,26 @@ public partial class MainWindow : Window
             // detection cannot fire" -- the live election protocol (OnStateChanged, wired in
             // StartHiveAsync) updates this over time, but the initial known-Warchief state still
             // needs seeding from what this worker was just configured to talk to.
-            if (!string.IsNullOrWhiteSpace(warchiefNodeId))
-                nodeServer.ElectionService?.SetWarchief(warchiefNodeId);
+            //
+            // Seed ONLY when nothing is currently known (grok-review BLOCKER, 2026-07-30): this
+            // method re-runs on every worker start/restart (Settings Start button, stop-then-
+            // start), and SetWarchief unconditionally forces State=Normal, clears suspect votes,
+            // and overwrites WarchiefNodeId. Calling it every time would clobber a live-elected
+            // Warchief (a real failover the live election protocol already tracked correctly)
+            // back to stale static config on the next restart -- reopening the exact 403s this
+            // seeding exists to prevent, for the ACTUAL current Warchief. The election protocol's
+            // own knowledge, once it has any, is strictly more current than static settings.
+            if (string.IsNullOrWhiteSpace(nodeServer.ElectionService?.WarchiefNodeId))
+            {
+                if (!string.IsNullOrWhiteSpace(warchiefNodeId))
+                    nodeServer.ElectionService?.SetWarchief(warchiefNodeId);
+                else
+                    AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
+                        "Could not resolve a Warchief NodeId to seed election state -- " +
+                        "POST /hive/tasks/cancel and /hive/roles/degrade will 403 from this " +
+                        "Warchief until it's known (set Warchief NodeId in Settings, or wait " +
+                        "for the live election protocol to establish one).", DateTime.Now));
+            }
 
             // Always wired regardless of native runtime — an Ollama-only worker can still have an
             // in-flight task cancelled. Reads the _hiveWorkerAgent FIELD, not this method's local,
@@ -1013,6 +1036,7 @@ public partial class MainWindow : Window
             }
         }
 
+        _hiveWorkerAgent.Start();
         _settings.HiveWorkerMode = true;
         _settings.Save();
     }
@@ -2506,12 +2530,21 @@ public partial class MainWindow : Window
                 DateTime.Now));
         }
 
-        return new NativeWithFallbackRuntime(
+        // Declared before construction, not returned directly, so onFallback's closure can
+        // reference the instance's own FallbackCount (grok-review BLOCKER, 2026-07-30):
+        // NativeWithFallbackRuntime.FallbackCount/LastFallbackReason existed with zero production
+        // readers -- not in GetHealth/GetStats, no Settings probe, not part of this Activity Log
+        // message. Folding the cumulative count into the one operator-visible signal this event
+        // already has, rather than building a new UI surface for a single running total.
+        NativeWithFallbackRuntime runtime = null!;
+        runtime = new NativeWithFallbackRuntime(
             native,
             RuntimeRole.Boss,
             fallback,
             onFallback: reason => AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
-                $"Main chat native generation failed, fell back to Ollama: {reason}", DateTime.Now)));
+                $"Main chat native generation failed, fell back to Ollama " +
+                $"(fallback #{runtime.FallbackCount} this session): {reason}", DateTime.Now)));
+        return runtime;
     }
 
     private IModelRuntime ResolveChatRuntime(HiveHost? target)
