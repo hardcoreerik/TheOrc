@@ -1613,6 +1613,10 @@ Output ONLY the JSON object. No explanation, no apology, no markdown fences.
         GraphTools.Register(reg, rootDir, graphDbRoot: _workspaceRoot);
         WebTools.Register(reg);
         ShellTools.Register(reg, rootDir, onSandboxBypass: bypass);
+        // AutoApprove = true above means the default requireApprovalForNavigateAndDownload
+        // (true) is safe here -- it just auto-resolves instantly like every other RequiresApproval
+        // tool in this registry, same as ShellTools' own unmodified call just above.
+        BrowserTools.Register(reg, rootDir, onSandboxBypass: bypass);
 
         return reg;
     }

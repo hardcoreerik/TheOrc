@@ -166,6 +166,19 @@ public partial class MainWindow : Window
             _hiveRpcWorker?.Dispose();
             _hiveTaskQueue?.Dispose();
             _flaUIWatcher?.Dispose();
+            // grok-review MINOR: without this, the final _browserToolsHandle (if a browser tool
+            // was ever used this session) was disposed only on the NEXT workspace re-register --
+            // never on window close, leaking the last live Chromium process past app exit.
+            // Fire-and-forget since this handler can't be async; best-effort, matching every
+            // other background-dispose path in this file.
+            if (_browserToolsHandle is { } finalHandle)
+            {
+                _browserToolsHandle = null;
+                // No AddActivity on failure here (unlike RegisterAllTools' own version of this
+                // pattern) -- the UI is already tearing down at this point, so just swallow rather
+                // than risk an unobserved-task-exception warning on the way out.
+                _ = Task.Run(async () => { try { await finalHandle.DisposeAsync(); } catch { } });
+            }
         };
 
         // Recorder events → status bar (stubs fire nothing on non-WPF)
@@ -1653,9 +1666,32 @@ public partial class MainWindow : Window
 
     // ── Tool registration ─────────────────────────────────────────────────
 
+    // grok-review MINOR: RegisterAllTools() runs on every workspace confirm/switch, not just once
+    // at startup -- discarding BrowserTools.Register's returned IAsyncDisposable orphaned the
+    // PRIOR call's lazily-launched browser session (if one existed) and its SemaphoreSlim every
+    // single time, not just at app shutdown. Tracked here and disposed before each re-registration.
+    private IAsyncDisposable? _browserToolsHandle;
+
     private void RegisterAllTools()
     {
         var ws = _session.WorkspaceRoot;
+
+        if (_browserToolsHandle is { } staleHandle)
+        {
+            _browserToolsHandle = null;
+            _ = Task.Run(async () =>
+            {
+                try { await staleHandle.DisposeAsync(); }
+                catch (Exception ex)
+                {
+                    // AddActivity is safe to call from a background thread -- it already
+                    // dispatches to the UI thread internally (see its own definition below),
+                    // same pattern every other background Task.Run in this file relies on.
+                    AddActivity(new ActivityEvent(ActivityKind.Warning, "Browser Tools",
+                        $"Failed to dispose the previous browser session: {ex.Message}", DateTime.Now));
+                }
+            });
+        }
 
         Func<string, string, string, CancellationToken, Task<bool>> sandboxBypass =
             async (toolName, escapedPath, sandboxRoot, ct) =>
@@ -1726,6 +1762,7 @@ public partial class MainWindow : Window
             onSandboxBypass: sandboxBypass);
 
         ShellTools.Register(_registry, ws, onSandboxBypass: sandboxBypass);
+        _browserToolsHandle = BrowserTools.Register(_registry, ws, onSandboxBypass: sandboxBypass);
         SearchTools.Register(_registry, ws);
         FabricTools.Register(_registry, ws);
         GraphTools.Register(_registry, ws);

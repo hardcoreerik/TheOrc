@@ -33,6 +33,13 @@ public static class OrcChatToolCatalog
         "library_graph",
         "run_tests",
         "save_markdown_document",
+        "browser_navigate",
+        "browser_click",
+        "browser_type",
+        "browser_wait",
+        "browser_extract",
+        "browser_screenshot",
+        "browser_download",
     ];
 
     public static List<ToolDefinition> CreateWorkspaceTools(string workspaceRoot)
@@ -45,6 +52,13 @@ public static class OrcChatToolCatalog
         FabricTools.Register(registry, workspaceRoot);
         TestTools.Register(registry, workspaceRoot);
         WebTools.Register(registry);
+        // requireApprovalForNavigateAndDownload: false -- this registry+queue pair is throwaway
+        // (constructed fresh above, no UI ever subscribes to ApprovalQueue.ApprovalRequested), so
+        // leaving the default true would hang RequestApprovalAsync forever under this queue's
+        // default Guarded trust level. Same "no UI here, proceed without gating" precedent
+        // FileTools.Register's own onDiffPreview=null (the default, unset above) already
+        // establishes for this exact call site.
+        BrowserTools.Register(registry, workspaceRoot, requireApprovalForNavigateAndDownload: false);
 
         var tools = new List<ToolDefinition>();
         foreach (var name in TopToolNames.Where(n => n != "web_search" && n != "fetch_page"))

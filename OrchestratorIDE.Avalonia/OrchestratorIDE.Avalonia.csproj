@@ -298,6 +298,7 @@
     <Compile Include="..\OrchestratorIDE\Tests\FakeOllamaClient.cs" />
 
     <!-- Tools -->
+    <Compile Include="..\OrchestratorIDE\Tools\BrowserTools.cs" />
     <Compile Include="..\OrchestratorIDE\Tools\FileTools.cs" />
     <Compile Include="..\OrchestratorIDE\Tools\FabricTools.cs" />
     <Compile Include="..\OrchestratorIDE\Tools\SearchTools.cs" />
