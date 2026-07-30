@@ -97,9 +97,38 @@ public partial class HivePanel : UserControl
         IcEventLog.ItemsSource = _events;
         CampaignTemplate.ItemsSource = new[] { "Native AI Eval Factory", "Alien Signal Search" };
 
-        _poll.Tick      += async (_, _) => await ProbeAndDrawAsync();
-        _eventPoll.Tick += (_, _) => PollEvents();
-        _campaignPoll.Tick += (_, _) => RefreshCampaigns();
+        // grok-review BLOCKER, round 11 (see NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md's round-11
+        // entry): DrawConstellation/Refresh call HiveIdentity.Load() uncaught, and this panel's
+        // own Loaded handler plus this 8s poll tick both reach it -- a persistently corrupt
+        // identity file (the new, strict default post regenerateOnCorruption flip) would crash
+        // the whole app not once at startup but every 8 seconds forever once this panel is shown,
+        // since HiveIdentity.Load()'s failure means _instance never gets cached and every
+        // subsequent call re-attempts and re-throws. Patching HiveIdentity.Load() itself (a
+        // degraded/cached-failure fallback) is a deeper, security-adjacent design change this
+        // round deliberately doesn't take on -- see that entry's own "left open" reasoning.
+        // Wrapping this recurring async-void entry point is the narrow, safe mitigation available
+        // without touching that: no logging sink exists on this panel for it (unlike MainWindow's
+        // AddActivity), so this only stops the crash -- Debug.WriteLine is the best available
+        // signal, same tier as HiveIdentity.Load()'s own "silent by design" catch elsewhere.
+        _poll.Tick      += async (_, _) =>
+        {
+            try { await ProbeAndDrawAsync(); }
+            catch (Exception ex) { Debug.WriteLine($"HivePanel poll tick failed: {ex}"); }
+        };
+        // Same defensive shape as _poll.Tick above (grok-review follow-up, round 11): any
+        // uncaught exception from a DispatcherTimer.Tick handler crashes the whole app, not just
+        // this panel, regardless of what specifically throws -- these two are no more exempt from
+        // that than the poll tick already fixed.
+        _eventPoll.Tick += (_, _) =>
+        {
+            try { PollEvents(); }
+            catch (Exception ex) { Debug.WriteLine($"HivePanel event poll tick failed: {ex}"); }
+        };
+        _campaignPoll.Tick += (_, _) =>
+        {
+            try { RefreshCampaigns(); }
+            catch (Exception ex) { Debug.WriteLine($"HivePanel campaign poll tick failed: {ex}"); }
+        };
 
         HiveView.NodeClicked      += (_, e) => ShowNodeDetail(e.Node);
         HiveView.NodeRightClicked += (_, e) => ShowNodeMenu(e.Node);
@@ -109,7 +138,15 @@ public partial class HivePanel : UserControl
         var layout = OrchestratorIDE.Core.AppSettings.Load();
         ApplyRailLayout(layout.HiveRailOnLeft, layout.HiveRailWidth);
 
-        Loaded   += async (_, _) => { Refresh(); RefreshCampaigns(); await ProbeAndDrawAsync(); _poll.Start(); _campaignPoll.Start(); };
+        Loaded   += async (_, _) =>
+        {
+            try
+            {
+                Refresh(); RefreshCampaigns(); await ProbeAndDrawAsync();
+            }
+            catch (Exception ex) { Debug.WriteLine($"HivePanel Loaded handler failed: {ex}"); }
+            _poll.Start(); _campaignPoll.Start();
+        };
         Unloaded += (_, _) => { _poll.Stop(); _eventPoll.Stop(); _campaignPoll.Stop(); SaveRailLayout(); };
     }
 

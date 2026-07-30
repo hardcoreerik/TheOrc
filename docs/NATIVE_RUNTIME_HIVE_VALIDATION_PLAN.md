@@ -1239,14 +1239,28 @@ declared closed prematurely a third time.
    itself also got wrapped (catching the `SetMode("hive")` path and any other mode-restore failure
    generically) so `ApplyTrustLevel` right after it still runs regardless of which mode failed to
    restore.
-   **Left open, deliberately, rather than whack-a-moled a fourth time:** `HivePanel.axaml.cs` alone
-   has upwards of ten more `HiveIdentity.Load()` call sites used throughout normal HIVE panel
-   operation (pairing, role changes, fingerprint display). Patching each individually is the same
-   losing pattern that took three rounds to even notice has a pattern. The durable fix is
-   architectural -- e.g. making a failed `Load()` cache its own failure and return a degraded
-   ephemeral identity on retry instead of re-throwing every single call until the file is fixed, or
-   one process-wide preflight gate that disables all HIVE UI for the session on first failure --
-   and deserves its own deliberate round, not a same-session patch under continued iteration.
+   **`HivePanel.axaml.cs` alone has upwards of ten more `HiveIdentity.Load()` call sites** used
+   throughout normal HIVE panel operation (pairing, role changes, fingerprint display) --
+   confirmed, critically, NOT a one-time startup risk: the panel's own `Loaded` handler AND its
+   `_poll` `DispatcherTimer` (8s interval) both reach `DrawConstellation()`'s uncaught call, and
+   since a failed `Load()` never populates the singleton `_instance`, EVERY subsequent attempt
+   re-throws identically -- meaning a persistently corrupt identity file would crash the app not
+   once at startup but every 8 seconds, forever, once this panel is shown. Patching each of the
+   ten-plus call sites individually is the same losing whack-a-mole pattern that took three rounds
+   to even notice has a pattern -- NOT done. Instead, wrapped the three periodic
+   `DispatcherTimer.Tick` handlers (`_poll`, `_eventPoll`, `_campaignPoll`) and the panel's own
+   `Loaded` handler in try/catch (`Debug.WriteLine` only -- this panel has no `AddActivity`-
+   equivalent sink to log into, unlike `MainWindow`). This is a general "an uncaught exception
+   from a periodic timer tick must never crash the whole app" hardening, not an
+   identity-specific fix -- it stops the recurring CRASH regardless of which of the ten-plus call
+   sites (or any other cause) throws, at the cost of leaving the panel silently stuck un-refreshed
+   rather than genuinely fixing identity loading. The durable fix is still architectural -- e.g.
+   making a failed `Load()` cache its own failure and return a degraded, clearly-marked ephemeral
+   identity on retry instead of re-throwing every call until the file is fixed, or one process-wide
+   preflight gate that disables all HIVE UI for the session on first failure -- and deserves its
+   own deliberate round with explicit design input, not a same-session patch under continued
+   autonomous iteration, since it touches the exact singleton/regeneration behavior this session's
+   headline identity-corruption fix was about.
 2. **BLOCKER, fixed -- the stale-Warchief-authority gap round 10 "closed" was only half-closed.**
    Round 10's `ClearWarchief()` fix only fires from the seed block deep inside a Start that reaches
    it (after `WorkerCapabilityDetector.DetectAsync` and native runtime construction) -- but
