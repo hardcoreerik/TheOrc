@@ -499,7 +499,25 @@ public partial class MainWindow : Window
 
         // HIVE MIND
         if (_settings.HiveMindEnabled)
-            _ = Task.Run(async () => await StartHiveAsync());
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await StartHiveAsync();
+                }
+                catch (Exception ex)
+                {
+                    // grok-review MINOR, round 9: this was a bare fire-and-forget Task.Run with no
+                    // handler -- an exception here (e.g. HiveIdentity.Load() throwing on a corrupt
+                    // identity file now that regenerateOnCorruption defaults to false) was silently
+                    // swallowed by the task scheduler. Whatever StartHiveAsync had already
+                    // constructed (_hiveNodeServer, _hiveBeacon, etc., depending how far it got)
+                    // is left as a partial, non-functional zombie with zero Activity Log signal
+                    // that HIVE MIND failed to come up at all.
+                    AddActivity(new ActivityEvent(ActivityKind.Error, "HIVE MIND",
+                        $"Failed to start: {ex.Message}", DateTime.Now));
+                }
+            });
 
         // CLI overrides (--workspace, --autoapprove)
         var cliArgs  = Environment.GetCommandLineArgs();
@@ -929,16 +947,18 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Wait briefly for _hiveNodeServer rather than proceeding half-configured (grok-review
-        // BLOCKER, round 5): _hiveNodeServer is built by StartHiveAsync, fired via Task.Run at app
-        // launch. Without this, a Start racing ahead of that would run with no node server at all
-        // -- and once IsRunning becomes true, EVERY later call to this method early-returns at the
-        // top before ever reaching the handler-wiring block, so cancel/degrade/telemetry would
-        // stay unconfigured for the rest of the session even after the node server became ready.
-        if (_hiveNodeServer is null)
+        // Wait for _hiveNodeServer.ElectionService, not just _hiveNodeServer itself (grok-review
+        // BLOCKER, round 9): StartHiveAsync assigns _hiveNodeServer (line 616) well before calling
+        // .Start() (line 640), which is what actually creates ElectionService and binds the
+        // listener. Waiting on the field alone let a Start exit this loop immediately, take the
+        // "ElectionService isn't available" branch further down, wire handlers, and Start() the
+        // worker -- after which IsRunning permanently blocks any later retry from ever re-seeding,
+        // the same "no auto-repair once running" failure mode round 5's fix was meant to close,
+        // just via a weaker readiness check.
+        if (_hiveNodeServer?.ElectionService is null)
         {
             var deadline = DateTime.UtcNow + HiveNodeServerReadyTimeout;
-            while (_hiveNodeServer is null && DateTime.UtcNow < deadline)
+            while (_hiveNodeServer?.ElectionService is null && DateTime.UtcNow < deadline)
                 await Task.Delay(200);
         }
 
@@ -1402,9 +1422,18 @@ public partial class MainWindow : Window
 
     private void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
     {
-        if (_closingAfterHiveWorkerShutdown || _hiveWorkerAgent is null)
+        if (_closingAfterHiveWorkerShutdown)
             return;
 
+        // No longer also checking `_hiveWorkerAgent is null` here (grok-review BLOCKER, round 9):
+        // a Start still inside the node-server wait or BuildRequiredNativeHiveWorkerRuntime hasn't
+        // assigned _hiveWorkerAgent yet, but IS holding _hiveWorkerLifecycleGate -- the old check
+        // treated that as "nothing running, safe to close," let the window close immediately with
+        // no cancel path, and let the in-flight start keep building/starting a native worker
+        // against an already-closing UI. Every close attempt now routes through the gated
+        // ShutdownHiveWorkerAndCloseAsync, which waits for the gate and only THEN decides whether
+        // there's anything to actually shut down -- correct (if a released one-line ping) even
+        // when HIVE MIND was never enabled at all.
         e.Cancel = true;
         // Not cleared/nulled here (this is a synchronous event handler -- it can't await the
         // lifecycle gate): moved into ShutdownHiveWorkerAndCloseAsync itself, right after it

@@ -1085,6 +1085,61 @@ reported to Warchief," never "Failure reported" -- the exact distinction PR #94'
 fix (above) exists to preserve, now covered end-to-end rather than only unit-tested in
 isolation. Verified stable across 5 repeated runs (~585ms each, no flakiness) before landing.
 
+**Round 9 (`grok-review -Mode adversary`, 2026-07-30, saved at
+`.orc/reviews/grok_adversary_20260730_071515.md`) — 2 BLOCKER, 2 MINOR, all four resolved.**
+Same pattern as rounds 1-8: re-running `adversary` mode against the accumulated session diff after
+round 8 looked clean kept surfacing new, narrower edge cases in `MainWindow.axaml.cs`'s HIVE-worker
+lifecycle code, none of which manual review or a plain `diff`-mode pass had caught.
+
+1. **BLOCKER — node-server readiness wait checked the wrong field.** `StartHiveWorkerCoreAsync`'s
+   wait loop checked `_hiveNodeServer is null`, but `_hiveNodeServer` is assigned at
+   `StartHiveAsync`'s line 616, well before `.Start()` (line 640) actually creates
+   `ElectionService` and binds the listener. A `StartHiveWorkerAsync` call landing in that window
+   saw a non-null field, exited the wait immediately, took the "`ElectionService` isn't available"
+   branch further down, wired handlers, and called `Start()` on the worker anyway -- after which
+   `IsRunning` permanently blocks any later retry from ever re-seeding the Warchief, the exact
+   "no auto-repair once running" failure mode round 5's fix was meant to close, reopened here via
+   a weaker readiness check. Fixed: the wait now checks `_hiveNodeServer?.ElectionService is null`.
+2. **BLOCKER — `MainWindow_Closing`'s guard treated an in-flight Start as "nothing to close."**
+   The guard was `if (_closingAfterHiveWorkerShutdown || _hiveWorkerAgent is null) return;` --
+   `_hiveWorkerAgent` reads null for the entire window a Start spends in the node-server wait loop
+   or inside `BuildRequiredNativeHiveWorkerRuntime()`, before it's ever assigned. A close request
+   landing in that window skipped the whole gated `ShutdownHiveWorkerAndCloseAsync()` path
+   entirely and let the window close immediately, with the in-flight Start left free to keep
+   constructing and starting a native worker against an already-closing UI. Fixed by dropping the
+   `_hiveWorkerAgent is null` half of the guard -- every close attempt (until
+   `_closingAfterHiveWorkerShutdown` is set) now routes through the gated teardown, which acquires
+   `_hiveWorkerLifecycleGate` and only then decides whether there's anything to actually shut
+   down. The extra async hop when HIVE MIND was never enabled at all (both fields permanently
+   null) is a negligible, uncontended gate acquisition, not a regression.
+3. **MINOR — `StartHiveAsync`'s background `Task.Run` had no exception handler.** The
+   fire-and-forget `_ = Task.Run(async () => await StartHiveAsync());` call site let any exception
+   inside `StartHiveAsync` vanish silently -- notably `HiveIdentity.Load()` throwing on a corrupt
+   identity file, which is now the *default* behavior after this session's earlier
+   `regenerateOnCorruption` flip. Whatever partial state `StartHiveAsync` had already constructed
+   before the throw was left as a non-functional zombie with no Activity Log signal that HIVE MIND
+   failed to start at all. Fixed: wrapped in try/catch, logging `ActivityKind.Error` with the
+   exception message.
+4. **MINOR — checked, not a bug.** The seeding logic's `isNewElectionInstance` always letting the
+   *first* seed on a fresh `ElectionService` instance override `InferWarchiefFromPeerStore`'s
+   bootstrap guess was flagged as a possible live-election-clobbering risk. Re-reading the seeding
+   guard against its own commit history confirmed this is intentional and correct: the "protect a
+   live-elected divergence" branch only applies once a value has already been seeded by *this*
+   instance and later changed out from under it (a real election result arriving), which by
+   definition cannot have happened yet on an instance's very first seed. No code change.
+
+Build clean, full 703/716-green suite unchanged, re-verified via `grok-review -Mode diff` before
+landing. That `diff` pass raised one further point, checked and accepted rather than fixed: the new
+catch logs the failure but does not unwind whatever `StartHiveAsync` had already constructed before
+throwing (`_hiveRpcWorker`, `_hiveNodeServer`, `_hiveBeacon`, `_hiveTaskQueue`, depending how far it
+got) — the exception now surfaces loudly instead of silently, which was MINOR 3's actual gap, but a
+full rollback-on-partial-failure path is a materially bigger feature than this round's fix and the
+triggering case (a corrupt identity file, now the rare path after this session's
+`regenerateOnCorruption` flip) is narrow. Left as a known follow-up, not implemented here. (The
+`diff` pass's other flag, that `AddActivity` runs from a background `Task.Run`, is a false
+positive: `AddActivity` already marshals to the UI thread internally via `Dispatcher.UIThread.
+InvokeAsync` — same pattern the pre-existing `UpdateChecker` background task already relies on.)
+
 **2026-07-29 (later same day) — item 1 fully closed for real, but only after live testing
 surfaced a second, deeper bug the grok BLOCKER fix alone didn't cover.** Built
 `Tools/Hv4RecoveryRunner --phase workercancel`: submits a real long-running job pinned to a
