@@ -954,11 +954,19 @@ before or after — same "no mockable seam for MainWindow's runtime construction
 `RuntimeOrchestrator.cs`'s own class doc documents — so this is build + careful code review
 against the working Daemon reference, not an end-to-end GUI test run).
 
-**Second MINOR finding still open:** test coverage for `IsWarchief`'s positive match and
-`TryCancelTask`'s actual-cancellation path is still missing, blocked on the same
-heavy-dependency-construction problem documented in `HiveNodeServerAuthorizationTests.cs`'s own
-class doc comment (`HiveIdentity`'s constructor is private, only reachable via disk-touching
-static factories).
+**Second MINOR finding, `IsWarchief` half closed 2026-07-30, `TryCancelTask` half still open.**
+The "blocked on `HiveIdentity`'s private constructor, only reachable via disk-touching static
+factories" claim was checked for staleness rather than trusted, and turned out to be stale:
+`HiveIdentity.CreateEphemeral()` and `HivePeerStore.CreateForTest()` (both `internal`, both
+already used elsewhere for exactly this purpose, both zero disk I/O) construct a real
+`HiveElectionService` safely. `HiveNodeServerAuthorizationTests.cs` now covers `IsWarchief`'s
+positive match (`nodeId` equals `ElectionService.WarchiefNodeId` → true) and the adjacent
+negative case a live `ElectionService` alone must not satisfy (a *different* `nodeId` → still
+false — peer-local and non-transitive, not "any caller with a configured election passes").
+`TryCancelTask`'s actual-cancellation path remains genuinely open — a different, real blocker:
+it needs a task actually claimed in flight via `ClaimAndExecuteAsync`'s full HTTP claim/lease
+round-trip, closer in shape to `RunLoop_Survives_A_Timed_Out_Lease_Poll`'s `TcpListener`-backed
+fake Warchief than to an identity-construction problem.
 
 **2026-07-29 (later same day) — item 1 fully closed for real, but only after live testing
 surfaced a second, deeper bug the grok BLOCKER fix alone didn't cover.** Built
