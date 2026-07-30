@@ -265,47 +265,77 @@ public sealed class HiveIdentity : IDisposable
 
             Directory.CreateDirectory(Path.GetDirectoryName(IdentityPath)!);
 
-            if (File.Exists(IdentityPath))
-            {
-                try
-                {
-                    var json   = DpapiLoad(IdentityPath);
-                    var stored = JsonSerializer.Deserialize<StoredIdentity>(json);
-                    if (stored is not null)
-                    {
-                        var signing  = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-                        signing.ImportPkcs8PrivateKey(Convert.FromBase64String(stored.SigningPriv), out _);
-                        var exchange = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
-                        exchange.ImportPkcs8PrivateKey(Convert.FromBase64String(stored.ExchangePriv), out _);
-                        _instance = new HiveIdentity(signing, exchange, stored.HiveId, stored.HiveRole,
-                            selfRole: stored.SelfRole, ownCertJson: stored.OwnMembershipCertJson);
-                        return _instance;
-                    }
-                    // Deserialized to null without throwing (e.g. the file held literal "null") —
-                    // same "existing file, unusable content" case as the catch below.
-                    if (!regenerateOnCorruption)
-                        throw new InvalidOperationException(
-                            $"Identity file at '{IdentityPath}' exists but deserialized to nothing. " +
-                            "Refusing to silently generate a replacement identity.");
-                }
-                catch (Exception ex) when (regenerateOnCorruption)
-                {
-                    // Silent by design for every caller except the strict path: this branch is
-                    // reached routinely by legitimate first-time DPAPI/AES-GCM protector mismatches
-                    // (see this file's own two-AppData-views history), and logging here would fire
-                    // on ordinary operation for most callers, not just genuine corruption.
-                    _ = ex;
-                }
-            }
-
-            var newSign = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-            var newExch = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
-            _instance   = new HiveIdentity(newSign, newExch);
-            _instance.Persist(hiveId: "", hiveRole: HiveRole.Unset);
+            _instance = LoadOrCreateFromPath(IdentityPath, regenerateOnCorruption);
+            if (!_instance.IsPersisted)
+                _instance.Persist(hiveId: "", hiveRole: HiveRole.Unset);
 
             return _instance;
         }
     }
+
+    /// <summary>True once this instance was loaded from (or has been persisted to) disk — false
+    /// only for the brand-new-identity return of <see cref="LoadOrCreateFromPath"/> before
+    /// <see cref="Load"/> calls <see cref="Persist"/> on it, and for <see cref="CreateEphemeral"/>.
+    /// Not persisted itself; purely an in-memory bookkeeping flag for that one call site.</summary>
+    private bool IsPersisted { get; set; }
+
+    /// <summary>
+    /// The decrypt/parse/throw-or-regenerate decision at the heart of <see cref="Load"/>, factored
+    /// out against an arbitrary path with no static-singleton or disk-write side effects, so
+    /// <c>regenerateOnCorruption</c>'s throw-vs-regenerate behavior can be exercised directly by a
+    /// unit test (see <c>HiveIdentityTests</c>) without touching the real %AppData% identity file
+    /// or the process-wide <see cref="_instance"/> cache other tests in the same process may rely
+    /// on. <see cref="Load"/> is the only other caller and remains responsible for the singleton
+    /// cache and for persisting a freshly-generated identity.
+    /// </summary>
+    private static HiveIdentity LoadOrCreateFromPath(string path, bool regenerateOnCorruption)
+    {
+        if (File.Exists(path))
+        {
+            try
+            {
+                var json   = DpapiLoad(path);
+                var stored = JsonSerializer.Deserialize<StoredIdentity>(json);
+                if (stored is not null)
+                {
+                    var signing  = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+                    signing.ImportPkcs8PrivateKey(Convert.FromBase64String(stored.SigningPriv), out _);
+                    var exchange = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+                    exchange.ImportPkcs8PrivateKey(Convert.FromBase64String(stored.ExchangePriv), out _);
+                    return new HiveIdentity(signing, exchange, stored.HiveId, stored.HiveRole,
+                        selfRole: stored.SelfRole, ownCertJson: stored.OwnMembershipCertJson)
+                    { IsPersisted = true };
+                }
+                // Deserialized to null without throwing (e.g. the file held literal "null") —
+                // same "existing file, unusable content" case as the catch below.
+                if (!regenerateOnCorruption)
+                    throw new InvalidOperationException(
+                        $"Identity file at '{path}' exists but deserialized to nothing. " +
+                        "Refusing to silently generate a replacement identity.");
+            }
+            catch (Exception ex) when (regenerateOnCorruption)
+            {
+                // Silent by design for every caller except the strict path: this branch is
+                // reached routinely by legitimate first-time DPAPI/AES-GCM protector mismatches
+                // (see this file's own two-AppData-views history), and logging here would fire
+                // on ordinary operation for most callers, not just genuine corruption.
+                _ = ex;
+            }
+        }
+
+        var newSign = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var newExch = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        return new HiveIdentity(newSign, newExch);
+    }
+
+    /// <summary>
+    /// Test-only seam for <see cref="LoadOrCreateFromPath"/>: exercises the exact
+    /// throw-vs-regenerate decision <see cref="Load"/> makes, against a caller-supplied path,
+    /// with no static-singleton or disk-write side effects (mirrors <see cref="CreateEphemeral"/>'s
+    /// "no disk" convention for the regenerate-success case).
+    /// </summary>
+    internal static HiveIdentity LoadFromPathForTest(string path, bool regenerateOnCorruption)
+        => LoadOrCreateFromPath(path, regenerateOnCorruption);
 
     // ── Signing ───────────────────────────────────────────────────────────────
 
