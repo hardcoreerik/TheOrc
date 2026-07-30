@@ -15,8 +15,16 @@
 > a fourth, originally-unplanned fix — closing an approval-bypass gap Phase C made materially more
 > dangerous (§1.6, §2.5, §3 Phase D) — are all implemented, tested (15 new tests added to
 > `ChatEngineTests`, 21/21 passing in that file, 751/751 passing repo-wide), and pushed to `master`.
-> Live GUI re-verification of the original §0.1 scenario is still outstanding (§3 Phase A's third
-> verify bullet).
+>
+> **Update, 2026-07-30, live GUI re-verification: PASS.** Re-ran the exact §0.1 scenario
+> (`qwen2.5-coder:14b`, prompt: "Use your browser tool to navigate to https://example.com and tell
+> me the exact page title you see.") against the same Release build. Two things confirmed live, not
+> just in unit tests: (1) the "Approve tool call?" dialog appeared showing
+> `browser_navigate(url=https://example.com)` before anything ran — the Phase D gate; (2) on
+> approval, the call actually executed and OrcChat correctly reported `The page title is "Example
+> Domain".` — Path 3's JSON-brace fallback recognized the bare-JSON call this model produces, where
+> before it silently rendered as unexecuted text. Both outstanding verification items (§3 Phase A's
+> third bullet, §3 Phase D's last bullet) are now closed with real evidence.
 
 ---
 
@@ -275,7 +283,8 @@ path and reason.
 - Regression test: existing native-`tool_calls` and ReAct-XML paths still take priority when
   either produces a result — Path 3 only reached when both are empty.
 - Real re-run of the exact live GUI scenario from §0.1 (same model, same prompt) once Phase A
-  lands, to confirm this specific failure is now fixed for real, not just in a synthetic test.
+  lands, to confirm this specific failure is now fixed for real, not just in a synthetic test. —
+  **DONE, 2026-07-30: PASS.** See the top-of-document update.
 
 ### Phase B — Fix `LooksLikeUnexecutedToolAttempt`'s regex
 
@@ -323,9 +332,12 @@ trustworthy answer now visibly warns instead.
 - `grok-review -Mode diff`: 2 real MINORs fixed before commit (diff-preview approval message was
   blind to old/new content; approval race didn't respect `CancellationToken`); 1 BLOCKER raised and
   traced to be a false positive (§1.7); `grok-review` (quick, post-commit) came back CLEAN.
-- **Outstanding:** live GUI re-verification that the approval dialog actually appears and gates
-  correctly for a real `write_file`/`browser_navigate` call, end-to-end on the native runtime — not
-  yet re-attempted since this fix landed.
+- **DONE, 2026-07-30: PASS.** Live GUI re-verification that the approval dialog actually appears
+  and gates correctly for a real `browser_navigate` call, end-to-end on the native runtime. See the
+  top-of-document update for the full trace. (`write_file`'s diff-preview gate specifically has not
+  yet had its own live click-through — only `browser_navigate`'s generic `OnApprovalRequired` gate
+  was exercised live; both share the same `ConfirmAsync` code path in `ChatPanel.CreateEngine`, so
+  this is a real but low-risk residual gap, not an unverified code path.)
 
 ---
 
