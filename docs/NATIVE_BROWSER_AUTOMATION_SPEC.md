@@ -1,0 +1,403 @@
+# TheOrc Native Browser Automation — Implementation Spec
+
+> **Relationship to existing docs:** [`docs/NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md`](NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md)
+> already names Browser Automation as Rank 1 and sketches its Phase 0 (contracts/capability
+> model) and Phase 1 (browser automation pack) at product-strategy level. This document does for
+> those two phases what [`docs/NATIVE_RUNTIME_V2_SPEC.md`](NATIVE_RUNTIME_V2_SPEC.md) did for
+> `RUNTIME_PHASE0_SPEC.md`: makes them concrete against the actual current code, with real file
+> paths, real contracts, and a phase plan with verification tied to real test names. It does not
+> replace the Function Pack Plan's Phases 2-6 — those still apply as written and are out of scope
+> here.
+>
+> **Status: design only, zero code written.** Written in response to an explicit request (2026-07-30)
+> to produce a scoped spec before starting a multi-day build, matching this repo's established
+> "design doc → phased implementation → verification" pattern rather than jumping straight to code.
+
+---
+
+## 0. Purpose, scope, non-goals
+
+### 0.1 Purpose
+
+Give TheOrc's native runtime a first-class, cross-surface (OrcChat, headless AgentLoop, HIVE
+native-agent workers) way to control a real browser: navigate, click, type, wait, extract text/DOM,
+screenshot, and download — the single largest gap between "a local model host" and "a local
+operator" per the Function Pack Plan's own framing.
+
+### 0.2 Sources
+
+- [`docs/NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md`](NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md) — the
+  product-level phase plan this spec makes concrete (Phases 0 and 1 only).
+- [`docs/NATIVE_RUNTIME_V2_SPEC.md`](NATIVE_RUNTIME_V2_SPEC.md) — the style/rigor template, and the
+  runtime this tool surface must plug into (`IModelRuntime`/`IRoleRuntime`, `NativeRoleRuntime`,
+  `HeadlessAgentLoop`).
+- Current tool-calling architecture, researched directly against the code on 2026-07-30 (file paths
+  throughout §1 below).
+
+### 0.3 Explicitly out of scope for this document
+
+- Writing any code. This is a design doc.
+- Phases 2-6 of the Function Pack Plan (image/OCR, workspace intelligence, bounded shell, artifact
+  export, typed-result polish) — each deserves its own pass through this same current-code gap
+  analysis when its turn comes; guessing their contracts now would just be more stale design debt.
+- A generic plugin/extension marketplace for third-party tools.
+- Arbitrary JavaScript evaluation in the automated page as a first-class tool primitive (see §4,
+  open question 3).
+- Multi-tab / multi-context browser session pooling — single browser, single page per task/turn is
+  the initial target; pooling is a real future optimization, not a v1 requirement.
+
+---
+
+## 1. Current state — tool-calling architecture gap analysis
+
+This is not greenfield in the way "no Playwright reference in the codebase" might suggest — there
+is a real, working tool-calling architecture already. The gap is that it has **two parallel
+surfaces with different contracts**, and neither has a typed result shape yet. Both need to accept
+browser automation without inventing a third convention.
+
+### 1.1 Interactive surface (OrcChat / Chat / Swarm, via `ToolRegistry`)
+
+- `ToolDefinition` (`OrchestratorIDE/Core/OllamaClient.cs:434-464`) is the unit of registration:
+  `Name`, `Description`, `Parameters` (`Dictionary<string, ToolParameter>`), `Required`,
+  `RequiresApproval`, and a closure-based `Handler: Func<Dictionary<string, object?>,
+  CancellationToken, Task<string>>`. Result is always a plain string, conventionally prefixed
+  `[OK]`/`[ERROR]`/`[POLICY BLOCKED]`/`[SANDBOX BLOCKED]`/`[REJECTED]`.
+- Tools are grouped into static `Register(ToolRegistry, workspaceRoot, ...)` methods per family
+  (`OrchestratorIDE/Tools/{FileTools,ShellTools,SearchTools,TestTools,WebTools,GraphTools,
+  FabricTools}.cs`) — a `BrowserTools.cs` in the same family is the natural home for the
+  interactive-surface tools.
+- `ToolRegistry` (`OrchestratorIDE/Core/ToolRegistry.cs`) filters by `ModelProfile.ToolSet`
+  (`Minimal`/`Coding`/`Full`, an allow-list by name) and is the sole `ExecuteAsync` entry point.
+- **Approval is two coexisting mechanisms, not one**: (a) `ToolDefinition.RequiresApproval` +
+  `Trust/ApprovalQueue.cs`'s `RequestApprovalAsync` (queues a `PendingApproval` with a
+  `TaskCompletionSource<bool>`, resolved by trust level or a UI callback) — this is what
+  `ShellTools.Register` uses (`RequiresApproval = true` unconditionally); (b) a per-tool
+  `onDiffPreview` callback that `FileTools.Register`'s `write_file` uses directly, bypassing the
+  queue's `RequiresApproval` flag entirely. A new tool family should pick ONE of these, not invent
+  a third — see §2.3 for which.
+- Independent of both: `Trust/PathSandbox.IsInsideSandbox` (workspace confinement, with an
+  `onSandboxBypass` escape-hatch callback) and `Trust/ToolPolicyEngine.Evaluate` (command-string
+  policy blocking, currently wired into `ShellTools`).
+- No rich per-call context object — handlers close over `workspaceRoot` and any callbacks at
+  `Register()` time; the only per-call object is `ToolCall` (`OrchestratorIDE/Models/ToolCall.cs`),
+  which carries `Id`/`Name`/`Arguments`/`Result`/`Status`/`DiffPreview`/`ExplainWhy`, not a live
+  resource handle. A browser session (a live page/context) has no existing place to live across
+  calls within one turn — see §2.2.
+
+### 1.2 Headless surface (HIVE native-agent workers, campaign execution)
+
+- Does **not** share `ToolRegistry`/`ApprovalQueue` at all — deliberately separate and more
+  restricted. `HiveWorkerAgent.ExecuteTaskAsync` → `HiveNativeRoleExecutorAdapter.ExecuteAgentAsync`
+  (`Services/Hive/HiveNativeRoleExecutorAdapter.cs:86-107`) builds a `HeadlessAgentLoop`
+  (`OrchestratorIDE/Core/Runtime/HeadlessAgentLoop.cs`) with tools from
+  `NativeWorkerToolProfile.Create(outputDirectory)` (`Services/Hive/NativeWorkerToolProfile.cs`).
+- `HeadlessTool` (`Core/Runtime/HeadlessAgentLoop.cs:18-21`) is the contract:
+  `record HeadlessTool(string Name, object Schema, Func<IReadOnlyDictionary<string, object?>,
+  CancellationToken, Task<string>> ExecuteAsync)` — same args/ct/string shape as the interactive
+  side's `Handler`, just no `RequiresApproval` field at all.
+- `HeadlessAgentLoop`'s own doc comment: *"the loop never prompts, auto-approves, or invents shell
+  access"* — there is categorically no operator present to click Approve on a Warband. Today's five
+  tools (`read_file`, `list_files`, `grep_code`, `write_file`, `run_tests`) are each independently
+  sandboxed to an isolated per-task work directory via `Resolve()` (throws `UnauthorizedAccessException`
+  on any path escape, `NativeWorkerToolProfile.cs:87-96`) with a 1 MB text-file cap. An unknown tool
+  name returns `"[POLICY BLOCKED] Tool '...' is not available on this Warband."`, not an error.
+- **Consequence for browser automation**: a headless browser tool set needs its own policy-only
+  gating (deny-by-default navigation targets, confined download directory, no arbitrary JS eval,
+  bounded step/time budgets) baked into the tool implementation itself — there is no UI round-trip
+  to fall back on. This is a real, first-class design constraint, not an afterthought.
+
+### 1.3 Text-based tool-call parsing — TWO conventions, not one
+
+- **JSON-brace convention** (`OrchestratorIDE/Core/ToolCallTextParser.cs`): its own doc comment
+  calls it the single source of truth shared by `AgentLoop` and `LLamaSharpRuntime`. Lenient
+  balanced-brace scanner over raw model text, string/escape-aware, accepts `name`/`tool`/`function`
+  and `arguments`/`args`/`parameters`/`inputs` key aliases, silently skips malformed spans and keeps
+  scanning (multiple tool calls per turn). Consumed by `NativeRoleRuntime.StreamRoleCompletionCoreAsync`
+  and `HeadlessAgentLoop.ExecuteAsync` directly, and via `AgentLoop.TryParseTextToolCalls`.
+- **ReAct XML convention** (`OrchestratorIDE/Research/ChatEngine.cs`, used by OrcChat/"research
+  chat"): `<tool_call><name>X</name><args>{...}</args></tool_call>`, taught to the model via
+  `OrcChatToolCatalog.BuildReactInstructions`, results re-injected as
+  `<tool_result name="...">...</tool_result>`. `ChatEngine` tries native `tool_calls` first, then
+  this XML parse, only when `tools.Count > 0`.
+- **Consequence**: a browser tool exposed through OrcChat must work with the ReAct XML convention;
+  the same tool exposed through the native runtime/headless loop goes through the JSON-brace
+  parser. Since both ultimately call the same `Func<args, ct, Task<string>>`-shaped handler, this is
+  a non-issue for the tool implementation itself — it only matters for whichever prompt-instruction
+  text teaches each surface's model how to call `browser_navigate` et al. Do not build a third
+  parsing convention; reuse whichever of the two a given call site already has wired.
+
+### 1.4 No typed result contract exists yet
+
+Every tool today returns a plain string. The Function Pack Plan's own Phase 0 already proposes
+adding typed results (text summary / structured rows / artifact refs / screenshot refs /
+telemetry) — browser automation is a strong first candidate to actually need this (a screenshot is
+not text), so Phase 0 below is written to unblock Phase 1, not deferred as separate unrelated work.
+
+### 1.5 Process-lifecycle precedent
+
+`OrchestratorIDE/Core/LlamaServerManager.cs` is the closest existing template for "wrap an
+external process/SDK with real lifecycle management":
+
+- `StartAsync()`: OS-branched binary name (`OperatingSystem.IsWindows() ? "llama-server.exe" :
+  "llama-server"`, not `#if WINDOWS`), `ProcessStartInfo` with redirected stdout/stderr → an `OnLog`
+  event, poll `/health` every 1.5s until ready or timeout (returns `false`, does not throw).
+- `Stop()`: `_process.Kill(entireProcessTree: true)` + bounded `WaitForExit`, always in
+  `try/finally`, disposes the handle, fires `OnStatusChanged(false)`.
+- `IDisposable` wrapping (`Dispose() => Stop()`), wrapped again by `LlamaCppServerRuntime :
+  IModelRuntime, IDisposable`.
+
+Playwright for .NET is a managed SDK, not a bare subprocess TheOrc has to drive with
+`ProcessStartInfo` directly — but it still launches and owns real browser processes underneath, and
+that ownership needs the same discipline: bounded startup, health/ready signal, guaranteed
+cleanup on cancellation/dispose, and OS-appropriate binary resolution (Playwright's own
+`playwright install` downloads per-OS browser binaries, analogous to how `LlamaServerManager`
+resolves a per-OS server binary today — see §2.4).
+
+### 1.6 Cross-platform status
+
+`docs/INSTALLER_REVAMP_SPEC.md` confirms Windows and macOS platform-installer layers are shipped;
+Linux ships Warband (headless daemon) artifacts but not yet a full desktop build. Playwright for
+.NET itself supports Windows/Linux/macOS uniformly and runs headless by default — a Warband/daemon
+box with no display is not a blocker (headless Chromium/Firefox/WebKit do not need one). The one
+existing anti-pattern to explicitly NOT inherit: `ShellTools.cs:95` hardcodes `FileName =
+"powershell"` — a Windows-only assumption. Browser automation must be OS-branched from the start,
+matching `LlamaServerManager`/`ZipExtractService`'s existing convention, not `ShellTools`'s.
+
+---
+
+## 2. Target design
+
+### 2.1 Phase 0 contracts (shared, both surfaces)
+
+```csharp
+// OrchestratorIDE/Core/NativeToolCapability.cs (new)
+[Flags]
+public enum NativeToolCapability
+{
+    None               = 0,
+    BrowserAutomation  = 1 << 0,
+    ImageInput         = 1 << 1,
+    Ocr                = 1 << 2,
+    ShellExecution     = 1 << 3,
+    ArtifactExport     = 1 << 4,
+}
+```
+
+A capability snapshot is queried the same way by OrcChat and headless loops (Function Pack Plan's
+own exit criterion for Phase 0) — a single static/injectable `NativeToolCapabilities.Current` (or
+threaded through wherever `ModelProfile`/`RuntimeRole` already flows) that both `ToolRegistry`
+filtering and `NativeWorkerToolProfile.Create` consult before including browser tools at all. An
+unsupported request (e.g. Playwright browsers never installed) must fail with an explicit,
+user-readable reason — never silent omission from the tool list with no explanation.
+
+```csharp
+// OrchestratorIDE/Core/ToolResult.cs (new) — additive, does not replace the string convention
+public abstract record ToolResult(string Summary);
+public sealed record TextToolResult(string Summary) : ToolResult(Summary);
+public sealed record ArtifactToolResult(string Summary, string ArtifactPath, string MimeType) : ToolResult(Summary);
+public sealed record ScreenshotToolResult(string Summary, string ImagePath, int Width, int Height) : ToolResult(Summary);
+```
+
+Existing `Handler`/`HeadlessTool.ExecuteAsync` signatures stay `Task<string>` — nothing about the
+existing five HIVE tools or the interactive `FileTools`/`ShellTools` family needs to change. A new
+`ToolResult`-returning path is additive: browser tools that need to return a screenshot render
+their `Summary` as today's string (backward compatible with both text parsers) while separately
+attaching the artifact/screenshot ref through whatever channel §2.1's Phase 0 exit criterion
+requires ("tool traces include capability snapshot + runtime backend identity") — the exact
+plumbing (a side-channel on `ToolCall`, or a wrapper record) is an implementation decision for
+Phase 0's own PR, not fixed here.
+
+### 2.2 Browser session lifecycle
+
+```csharp
+// OrchestratorIDE/Core/Browser/BrowserSession.cs (new)
+public sealed class BrowserSession : IAsyncDisposable
+{
+    // Owns one Playwright IBrowser + IBrowserContext + current IPage.
+    // Headless by default (required for Warband/daemon boxes with no display);
+    // an interactive, non-headless mode is an explicit opt-in setting for local debugging only.
+    public static async Task<BrowserSession> LaunchAsync(BrowserSessionOptions options, CancellationToken ct);
+    public Task<string> NavigateAsync(string url, CancellationToken ct);
+    public Task ClickAsync(string selector, CancellationToken ct);
+    public Task TypeAsync(string selector, string text, CancellationToken ct);
+    public Task<bool> WaitForAsync(string selectorOrText, TimeSpan timeout, CancellationToken ct);
+    public Task<string> ExtractTextAsync(string? selector, CancellationToken ct);
+    public Task<string> ScreenshotAsync(string outputPath, CancellationToken ct);
+    public Task<string> DownloadAsync(string triggerSelector, string outputDirectory, CancellationToken ct);
+    public ValueTask DisposeAsync(); // guaranteed browser process teardown, same discipline as LlamaServerManager.Stop()
+}
+```
+
+One `BrowserSession` per task/turn (§0.3 — no pooling in v1). Lifetime is owned by whichever caller
+creates it: for the interactive surface, captured in the `BrowserTools.Register` closure scoped to
+one conversation/session (mirroring how `workspaceRoot` is captured today); for the headless
+surface, created and disposed within one `NativeWorkerToolProfile`-equivalent factory call, scoped
+to the one task's `outputDirectory`.
+
+### 2.3 Interactive surface: `BrowserTools.cs`
+
+New file, same shape as `FileTools`/`ShellTools`: `Register(ToolRegistry registry, string
+workspaceRoot, Func<string, string, string, Task<bool>>? onNavigationApproval)` producing
+`ToolDefinition`s for `browser_navigate`, `browser_click`, `browser_type`, `browser_wait`,
+`browser_extract`, `browser_screenshot`, `browser_download`.
+
+**Approval mechanism decision: use `ApprovalQueue`, not a diff-preview callback.** Rationale:
+`write_file`'s diff-preview callback exists because a diff is the natural approval artifact for a
+file change; there is no equivalent single-shot preview for "about to navigate to a URL" or "about
+to download a file" — the existing `RequiresApproval` + `ApprovalQueue` path (already what
+`ShellTools` uses for exactly this "no natural diff, just a yes/no gate" shape) is the right fit.
+Concretely: `browser_navigate` sets `RequiresApproval = true` only when the target URL's origin is
+not already one this conversation has approved this session (first navigation to a new origin
+prompts; subsequent same-origin clicks/extracts do not re-prompt) — matching how an operator
+actually thinks about "am I about to leave a page I already saw." `browser_download` always
+requires approval (matches `write_file`'s general caution around writing to disk, though via the
+queue rather than a diff). `browser_click`/`browser_type`/`browser_extract`/`browser_screenshot`
+on an already-approved page do not re-prompt per call — that would make the tool unusable.
+
+Downloads go through `Trust/PathSandbox.IsInsideSandbox` against the workspace root, same as
+`FileTools`; a download destination outside the workspace uses the same `onSandboxBypass` escape
+hatch already wired for file tools, not a new mechanism.
+
+### 2.4 Headless surface: browser tools for `NativeWorkerToolProfile`
+
+A parallel `NativeWorkerToolProfile`-style factory (either a new static method on that same class,
+or a sibling `NativeWorkerBrowserToolProfile.Create(outputDirectory, policy)`), producing
+`HeadlessTool`s with the exact same five-tool sandboxing discipline already established:
+
+- No approval queue at all (matches `HeadlessAgentLoop`'s stated design) — policy is baked in, not
+  requested live.
+- **Deny-by-default navigation policy**: an allow-list or explicit per-task URL/origin grant passed
+  in by whatever constructs the task (the Warchief/campaign definition), not an open "navigate
+  anywhere" default. A `HeadlessBrowserPolicy` record (allow-listed origins, max navigations per
+  task, download-allowed bool) is a reasonable first cut — exact shape is a Phase 1b implementation
+  decision, not fixed here.
+- Downloads confined to the same per-task `outputDirectory` `NativeWorkerToolProfile.Resolve()`
+  already enforces — reuse that helper, don't reimplement path confinement a second time.
+- No arbitrary JS eval tool (§4, open question 3) — the tool set is deliberately the same
+  enumerated action list as the interactive surface (navigate/click/type/wait/extract/screenshot/
+  download), not an escape hatch to run arbitrary page-context script.
+- Bounded step/time budget via the same `HeadlessAgentLimits` (`MaxSteps`, `Timeout`) already
+  threaded through `HeadlessAgentLoop.ExecuteAsync` — no new budget mechanism needed.
+
+### 2.5 Cross-platform binary resolution
+
+Playwright for .NET's own `Microsoft.Playwright.Program.Main(["install"])` (or the `playwright.ps1`/
+`playwright.sh` driver script it generates) downloads per-OS browser binaries into a
+Playwright-managed cache directory — this replaces the "resolve a per-OS executable path" step
+`LlamaServerManager.LocateServerExe()`/`ZipExtractService.FindServerExe` handle for `llama-server`,
+but the *shape* of the decision is the same: check whether the runtime dependency is already
+present, and if not, either fail with a clear "run `playwright install`" message (first cut) or
+trigger an installer-driven first-run download (later, matching how the Native Runtime v2.0 spec's
+own model-depot download flow works) — this parallel is exactly why §0.2 cites
+`NATIVE_RUNTIME_V2_SPEC.md` as a structural template, not just a style one.
+
+---
+
+## 3. Phased implementation roadmap
+
+### Phase 0 — Contracts and capability model
+
+**Scope:** `NativeToolCapability` flags enum, `ToolResult` hierarchy (additive, non-breaking),
+capability-snapshot query point consulted by both `ToolRegistry` and whatever constructs a
+`NativeWorkerToolProfile`'s tool list.
+
+**Verify:**
+- Unit test: a capability-gated tool family absent from `NativeToolCapability.Current` is excluded
+  from both `ToolRegistry`'s registered set AND the headless tool list, with a matching
+  human-readable "why" surfaced (not silent omission).
+- Unit test: `ToolResult` subtypes round-trip through whatever serialization the tool-trace/replay
+  surface uses today (grep for existing `ToolCall` persistence to confirm the shape fits without a
+  migration).
+
+### Phase 1a — Browser automation, interactive surface (OrcChat/Chat/Swarm)
+
+**Scope:** `BrowserSession` (§2.2), `BrowserTools.cs` (§2.3), `ApprovalQueue` wiring for
+navigate/download, `PathSandbox` wiring for download destinations, ReAct XML prompt instructions
+(`OrcChatToolCatalog`-equivalent) for OrcChat, JSON-brace-compatible schema for the native
+runtime/`AgentLoop` path.
+
+**Verify:**
+- A real (non-mocked) end-to-end test: launch a headless `BrowserSession`, navigate to a
+  deterministic local fixture page (a static HTML file served from a test-local `HttpListener`,
+  same pattern `HiveWorkerAgentTests` already uses for a fake Warchief — no external network
+  dependency), click/type/extract, capture a screenshot, assert the extracted text and that the
+  screenshot file exists and is non-trivial in size.
+- Cancellation test: a `BrowserSession` operation given an already-cancelled token returns/throws
+  promptly and the underlying browser process is confirmed gone afterward (matches this session's
+  own established convention — see `HiveWorkerAgentTests.TryCancelTask_OnATaskActuallyInFlight_
+  ReportsCancelledNotFailed` for the "wait for the operation to actually start, then cancel,
+  then assert the real terminal state" pattern rather than a fixed-sleep guess).
+- Approval test: `browser_navigate` to a fresh origin sets `RequiresApproval`; a second navigate
+  within the same approved origin does not re-prompt; `browser_download` always prompts regardless
+  of origin.
+- Timeout test: `WaitForAsync` on a selector that never appears returns `false` within its own
+  bounded timeout, does not hang the whole tool call indefinitely.
+
+### Phase 1b — Browser automation, headless/HIVE surface
+
+**Scope:** `HeadlessBrowserPolicy` (§2.4), the headless tool factory, wiring into
+`HiveNativeRoleExecutorAdapter`'s tool-list construction alongside the existing five
+`NativeWorkerToolProfile` tools.
+
+**Verify:**
+- Policy test: a navigate call to an origin NOT in the task's allow-list is denied with a policy
+  message (not silently ignored, not a crash), mirroring `NativeWorkerToolProfile.Resolve()`'s own
+  `UnauthorizedAccessException`-on-path-escape precedent.
+- Confinement test: a download attempt writes only inside the task's `outputDirectory`, same
+  assertion shape as `NativeWorkerToolProfile`'s existing file-tool sandboxing tests.
+- Integration test: a `HeadlessAgentLoop.ExecuteAsync` run against a real (test-fixture) page,
+  through the full loop (not just the tool function in isolation), asserting the loop's own
+  `HeadlessAgentResult`/`HeadlessAgentEvent` trace records the browser actions taken.
+
+### Cross-cutting exit criteria (Function Pack Plan's own Phase 1 bar, restated concretely)
+
+- OrcChat can perform a multi-step browse/extract/screenshot loop end-to-end on the native runtime
+  — demonstrated by the Phase 1a end-to-end test above, run through the actual OrcChat/ChatEngine
+  path, not just `BrowserTools` in isolation.
+- Headless tests cover at least one deterministic site flow — Phase 1b's integration test.
+- Cancellation and timeout behavior are enforced — Phase 1a's cancellation/timeout tests, on both
+  surfaces.
+
+---
+
+## 4. Open questions requiring an explicit decision before Phase 1 starts
+
+These are genuine forks, not things this spec can responsibly pick unilaterally:
+
+1. **Playwright dependency delivery.** Ship `Microsoft.Playwright` as a hard `PackageReference` in
+   `OrchestratorIDE.csproj` (adds real install size to every build/release, mirrors how
+   `LLamaSharp` is already a hard dependency) vs. an optional/lazy-loaded package gated behind the
+   `BrowserAutomation` capability flag being enabled at all (keeps the default install lean, adds
+   real complexity to the capability-gating logic in §2.1). Recommend the hard-dependency path for
+   Phase 0/1a (matches the existing `LLamaSharp` precedent, simplest to get right first), revisit
+   lazy-loading only if release size becomes a measured problem.
+2. **First-run browser binary provisioning.** Fail loudly with a "run `playwright install`"
+   message and a Settings-panel button that shells out to do it (simplest, matches today's
+   "opt-in smoke test, manual setup" pattern for native GGUF testing) vs. a fully automatic
+   first-run download wired into the existing installer flow (bigger scope, more consistent with
+   where the Native Runtime v2.0 model-depot flow already is). Recommend starting with the manual
+   button — automate later once the manual flow has real usage data on how often it's actually hit.
+3. **Arbitrary JS evaluation as a tool primitive.** Not including it in v1 (§0.3) is a deliberate
+   security posture — an `eval_js` tool would let a model-directed action run arbitrary script in
+   the automated page's context, which is a materially larger trust surface than a fixed action
+   enum, especially on the headless/no-approval HIVE path. This needs an explicit yes/no from
+   whoever owns TheOrc's threat model, not an implementation-time judgment call.
+4. **Non-headless (visible window) mode.** Useful for local debugging ("show me what the browser
+   is doing"), but a visible browser window on a Warband/daemon box makes no sense (no display) and
+   on the interactive desktop it's a real UX/security surface (a visible window the model controls,
+   with a live approval queue, could be confusing about who's "driving"). Recommend: headless-only
+   for Phase 1, revisit non-headless as an explicit local-dev-only toggle later if requested.
+
+---
+
+## 5. Traceability
+
+| Function Pack Plan phase | This spec's phase | Status |
+|---|---|---|
+| Phase 0 — Contracts and capability model | §3 Phase 0 | Not started |
+| Phase 1 — Browser automation pack | §3 Phase 1a (interactive) + 1b (headless) | Not started |
+| Phase 2 — Image/OCR/multimodal | Out of scope here (§0.3) | Not started |
+| Phase 3 — Workspace intelligence | Out of scope here (§0.3) | Not started |
+| Phase 4 — Bounded shell/build/test | Out of scope here (§0.3) | Not started |
+| Phase 5 — Artifact export | Out of scope here (§0.3) | Not started |
+| Phase 6 — Typed results polish | Partially pulled forward into this spec's Phase 0 (§2.1), rest out of scope | Not started |
