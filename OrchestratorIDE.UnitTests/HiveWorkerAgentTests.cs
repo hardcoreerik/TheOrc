@@ -93,4 +93,42 @@ public sealed class HiveWorkerAgentTests
         var agent = new HiveWorkerAgent();
         Assert.That(agent.TryCancelTask(taskId), Is.False);
     }
+
+    /// <summary>
+    /// Native Runtime v2.0 (docs/NATIVE_RUNTIME_V2_SPEC.md §5.4): before this counter, a
+    /// legacy-agent native-to-Ollama fallback was visible only as a transient Log()/
+    /// TaskActivity()/task_warning line inside ExecuteTaskAsync — nothing persisted for
+    /// /hive/native-telemetry to report later. RecordFallback is the exact call ExecuteTaskAsync
+    /// makes on its actual fall-through path (failClosed == false); this exercises it directly
+    /// rather than through that private method's full control flow, matching how
+    /// DescribeExceptionChain (HiveWorkerErrorChainTests) is tested as an extracted unit.
+    /// </summary>
+    [Test]
+    public void RecordFallback_IncrementsCountAndTracksMostRecentReason()
+    {
+        var agent = new HiveWorkerAgent();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(agent.FallbackCount, Is.EqualTo(0), "no fallback has happened yet");
+            Assert.That(agent.LastFallbackReason, Is.Null);
+        });
+
+        agent.RecordFallback("admission denied: no room");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(agent.FallbackCount, Is.EqualTo(1));
+            Assert.That(agent.LastFallbackReason, Is.EqualTo("admission denied: no room"));
+        });
+
+        agent.RecordFallback("native runtime failed: connection dropped");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(agent.FallbackCount, Is.EqualTo(2), "a lifetime counter, not a latch");
+            Assert.That(agent.LastFallbackReason, Is.EqualTo("native runtime failed: connection dropped"),
+                "must reflect the most recent fallback, not the first");
+        });
+    }
 }

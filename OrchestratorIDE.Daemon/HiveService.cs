@@ -262,6 +262,14 @@ public sealed class HiveService : BackgroundService
                         AvailableBytes         = reservation?.AvailableBytes ?? 0,
                         RejectedAdmissionCount = reservation?.RejectedAdmissionCount ?? 0,
                         LastRejectionReason    = reservation?.LastRejectionReason,
+                        // Native Runtime v2.0 (docs/NATIVE_RUNTIME_V2_SPEC.md §5.4): the
+                        // "[Proposed]" fix for the gap that section documents -- a legacy-agent
+                        // fallback to the configured (Ollama) runtime used to be visible only as
+                        // a transient Log()/TaskActivity()/task_warning line, nothing persisted.
+                        // _worker is a field assigned below; safe to close over here because this
+                        // provider only runs lazily on an incoming GET, well after construction.
+                        FallbackCount       = _worker?.FallbackCount ?? 0,
+                        LastFallbackReason  = _worker?.LastFallbackReason,
                         Residency = nativeRuntime.GetResidencySnapshot().Select(r => new
                         {
                             Role      = r.Role.ToString(),

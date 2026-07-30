@@ -42,6 +42,18 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
     private HiveNativeAgentExecution? _lastAgentExecution;
     private ContainerPackExecution? _lastContainerExecution;
     private int _readerEvidenceCount;
+    // Native Runtime v2.0 (docs/NATIVE_RUNTIME_V2_SPEC.md §5.4): a lifetime counter of every
+    // legacy-agent task that fell through from a native-role failure to the configured
+    // (Ollama) runtime -- mirrors RuntimeOrchestrator's RejectedAdmissionCount/
+    // LastRejectionReason pattern. Before this, a fallback was visible only as a transient
+    // Log()/TaskActivity()/task_warning line -- nothing persisted past that one task, so an
+    // operator checking in later had no way to tell "never happened" from "happened and
+    // scrolled off." Only incremented on the actual fall-through path (failClosed == false);
+    // native_agent/CF tasks that fail closed do not fall back and must not count here.
+    private int _fallbackCount;
+    private string? _lastFallbackReason;
+    public int FallbackCount => _fallbackCount;
+    public string? LastFallbackReason => _lastFallbackReason;
     private static readonly JsonSerializerOptions _json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -1183,6 +1195,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                     throw new InvalidOperationException(
                         "Worker: native role runtime admission was denied. Phase 3B does not fall back.",
                         ex);
+                RecordFallback($"admission denied: {ex.Message}");
             }
             catch (Exception ex)
             {
@@ -1199,6 +1212,7 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
                     throw new InvalidOperationException(
                         "Worker: native role runtime failed. Phase 3B does not fall back.",
                         ex);
+                RecordFallback(ex.Message);
             }
         }
 
@@ -1461,6 +1475,17 @@ public sealed class HiveWorkerAgent : IDisposable, IAsyncDisposable
 
     private void Log(string msg)          => OnLog?.Invoke(msg);
     private void TaskActivity(string id, string msg) => OnTaskActivity?.Invoke(id, msg);
+
+    /// <summary>Records a legacy-agent native-to-Ollama fallback for /hive/native-telemetry.
+    /// Called only on the actual fall-through path (failClosed == false) -- see
+    /// <see cref="FallbackCount"/>. Internal rather than private so
+    /// HiveWorkerAgentTests (same-assembly via InternalsVisibleTo) can verify the counter
+    /// directly without reaching through ExecuteTaskAsync's private control flow.</summary>
+    internal void RecordFallback(string reason)
+    {
+        Interlocked.Increment(ref _fallbackCount);
+        _lastFallbackReason = reason;
+    }
 
     private string DescribeNativeRuntimeTelemetry(string hiveRole)
     {

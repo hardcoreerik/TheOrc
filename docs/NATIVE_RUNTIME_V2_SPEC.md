@@ -88,14 +88,16 @@ the foundation phases below does **not** authorize that flip.
 These were found during research and are surfaced rather than silently resolved. Where
 sources disagree, this spec adopts the **more conservative** framing.
 
-1. **Phase 4 "wired in" overstatement.** [`docs/RUNTIME_PHASE0_SPEC.md`](RUNTIME_PHASE0_SPEC.md)
-   §0 and §6 describe `OrcScheduler` (Phase 4) as "IMPLEMENTED" and "real and wired in."
-   The [ROADMAP](ROADMAP.md) Phase 4 row is more accurate: *"🔶 Started … Still not wired
-   into AdapterManager beyond `RuntimeOrchestrator`'s own gate."* **This spec adopts the
-   ROADMAP framing.** The scheduler decision function exists and is wired into
-   `RuntimeOrchestrator.EnsureAdmitted`, but it is not the sole authoritative boundary —
-   see [§1.2](#12-the-gaps). Anyone reading the Phase 0 spec's completeness claims
-   should treat them as optimistic relative to the gaps documented here.
+1. **Phase 4 "wired in" overstatement — [Verified, closed by Phase A].**
+   [`docs/RUNTIME_PHASE0_SPEC.md`](RUNTIME_PHASE0_SPEC.md) §0 and §6 described `OrcScheduler`
+   (Phase 4) as "IMPLEMENTED" and "real and wired in," while the [ROADMAP](ROADMAP.md) Phase 4
+   row originally called this optimistic: *"Still not wired into AdapterManager beyond
+   `RuntimeOrchestrator`'s own gate."* Phase A closed exactly that gap — `AdapterManager`'s
+   conversation-minting methods are `internal` (option 1a in [§1.3](#13-target-design)), so
+   `RuntimeOrchestrator.EnsureAdmitted` is now the sole authoritative boundary in code, not
+   just in this spec's design intent. [§1.2](#12-the-gaps) below is kept in its original,
+   pre-Phase-A wording deliberately, as the gap analysis that motivated the fix — see its own
+   note for the current (fixed) state.
 2. **Correction (this spec's own earlier claim was wrong):** an initial draft of this document
    claimed the `THEORC_TEST_GGUF` opt-in role-runtime smoke lane the [ROADMAP](ROADMAP.md) Phase 3
    row references was "not present in the current source tree." That was a search error, found
@@ -148,8 +150,11 @@ is the only caller of `AdapterManager.CreateConversationAsync`).
 
 ### 1.2 The gaps
 
-**Gap 1 — the admission boundary is bypassable by construction.** `AdapterManager` is a
-`public` class with a `public` constructor (`AdapterManager.cs:109`) and `public`
+**Gap 1 — the admission boundary is bypassable by construction — [Verified, closed by
+Phase A, see §0.4 item 1].** Kept below in its original pre-fix wording as the analysis that
+motivated the fix; `CreateConversationAsync`/`RebindRoleAsync` are `internal` today, not
+`public` as described here. `AdapterManager` is a `public` class with a `public` constructor
+(`AdapterManager.cs:109`) and `public`
 conversation-minting methods `CreateConversationAsync`/`RebindRoleAsync`
 (`AdapterManager.cs:117`, `:127`). These have **no VRAM or scheduler awareness at all** —
 `OrcScheduler`'s own class doc states it plainly (`OrcScheduler.cs:11-13`): AdapterManager
@@ -742,14 +747,22 @@ Native contexts/sessions/models/adapters have explicit ownership and determinist
   `RuntimeAdmissionDeniedException` from fallback and only falls back before first observable
   output (`NativeWithFallbackRuntime.cs:178-192`). This is the correct direction and must be
   preserved.
-- **[Verified] gap:** fallback (where permitted) is surfaced only as a transient Activity Log
-  Warning, not persistent telemetry (per [RUNTIME_SUPPORT_MATRIX](RUNTIME_SUPPORT_MATRIX.md)).
-  There are two fallback surfaces — `NativeWithFallbackRuntime` (main chat) and
-  `NativeRoleRuntime` via `HiveWorkerAgent` ("logged fallback to configured model runtime").
-- **[Proposed]:** any future fallback policy is a **separate, explicit** design decision,
-  visible to the user **and** to telemetry (not just a log line). Phase A's fail-closed
-  admission and Phase D's negative test enforce that a *native-routed* job does not silently
-  become an Ollama job.
+- **[Verified, closed 2026-07-30]:** fallback is now visible to persistent telemetry, not just
+  a transient Activity Log Warning, on both fallback surfaces:
+  - `NativeWithFallbackRuntime` (main chat) exposes `FallbackCount`/`LastFallbackReason` —
+    lifetime counters incremented alongside the existing `_onFallback` Activity Log callback,
+    not a replacement for it (`NativeWithFallbackRuntime.cs`).
+  - `HiveWorkerAgent` (legacy-agent tasks via `HiveWorkerAgent.ExecuteTaskAsync`) exposes the
+    same shape, surfaced over `GET /hive/native-telemetry` alongside `RejectedAdmissionCount`/
+    `LastRejectionReason` (`HiveService.cs`'s `NativeTelemetryProvider`) — the same fleet-wide
+    observability surface HV-2/HV-3 already established for admission denials.
+  - Both mirror `RuntimeOrchestrator`'s existing counter pattern rather than inventing a new
+    one. Neither changes *when* a fallback is permitted — Phase A's fail-closed admission and
+    Phase D's negative test still enforce that a native-routed campaign/CF task never silently
+    becomes an Ollama job; this only makes an already-permitted legacy-agent fallback visible
+    after the fact.
+  - Verified: `NativeWithFallbackRuntimeTests` (3 new/extended cases) and
+    `HiveWorkerAgentTests.RecordFallback_IncrementsCountAndTracksMostRecentReason`.
 
 ---
 

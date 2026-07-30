@@ -33,6 +33,17 @@ public sealed class NativeWithFallbackRuntime : IModelRuntime, IAsyncDisposable
     // the first call ever runs gets the native-role health snapshot rather than the fallback's.
     private volatile bool _lastCallUsedNative = true;
 
+    // Native Runtime v2.0 (docs/NATIVE_RUNTIME_V2_SPEC.md §5.4): a lifetime counter of every
+    // fallback this instance has taken, mirroring RuntimeOrchestrator's RejectedAdmissionCount/
+    // LastRejectionReason pattern. Before this, _onFallback firing was the ONLY signal -- a
+    // transient Activity Log line with nothing persisted for a caller to poll later.
+    // Interlocked/volatile for the same reason as _lastCallUsedNative above: nothing in this
+    // class's contract rules out two concurrent StreamCompletionAsync calls sharing one instance.
+    private int _fallbackCount;
+    private volatile string? _lastFallbackReason;
+    public int FallbackCount => _fallbackCount;
+    public string? LastFallbackReason => _lastFallbackReason;
+
     /// <param name="native">
     /// Depends on the interface, not the concrete <see cref="NativeRoleRuntime"/>, so this class
     /// is testable with a fake and so disposal (below) degrades gracefully for any future
@@ -159,6 +170,8 @@ public sealed class NativeWithFallbackRuntime : IModelRuntime, IAsyncDisposable
         }
 
         _lastCallUsedNative = false;
+        Interlocked.Increment(ref _fallbackCount);
+        _lastFallbackReason = nativeFailure!.Message;
         _onFallback?.Invoke(nativeFailure!.Message);
 
         await foreach (var token in _fallback

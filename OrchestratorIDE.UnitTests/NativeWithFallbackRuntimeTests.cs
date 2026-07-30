@@ -48,6 +48,53 @@ public sealed class NativeWithFallbackRuntimeTests
             Assert.That(fallback.CallCount, Is.EqualTo(1));
             Assert.That(fallbackReasons, Is.EqualTo(new[] { "no model loaded" }));
             Assert.That(runtime.GetHealth().RuntimeName, Is.EqualTo("FakeModelRuntime"));
+            // Native Runtime v2.0 §5.4: fallback must be visible to telemetry, not just the
+            // _onFallback Activity Log callback above.
+            Assert.That(runtime.FallbackCount, Is.EqualTo(1));
+            Assert.That(runtime.LastFallbackReason, Is.EqualTo("no model loaded"));
+        });
+    }
+
+    [Test]
+    public async Task FallbackCount_Accumulates_And_LastFallbackReason_Reflects_The_Most_Recent_Call()
+    {
+        var fallback = new FakeModelRuntime("fallback-a");
+        var runtime = new NativeWithFallbackRuntime(
+            FakeRoleRuntime.ThrowingBeforeFirstToken(new InvalidOperationException("first failure")),
+            RuntimeRole.Worker,
+            fallback);
+
+        await CollectAsync(runtime.StreamCompletionAsync("ignored-model", _history));
+
+        // Swap in a runtime that fails for a different reason to prove LastFallbackReason
+        // tracks the most recent call, not the first.
+        var runtime2 = new NativeWithFallbackRuntime(
+            FakeRoleRuntime.ThrowingBeforeFirstToken(new TimeoutException("second failure")),
+            RuntimeRole.Worker,
+            fallback);
+        await CollectAsync(runtime2.StreamCompletionAsync("ignored-model", _history));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(runtime.FallbackCount, Is.EqualTo(1));
+            Assert.That(runtime.LastFallbackReason, Is.EqualTo("first failure"));
+            Assert.That(runtime2.FallbackCount, Is.EqualTo(1));
+            Assert.That(runtime2.LastFallbackReason, Is.EqualTo("second failure"));
+        });
+    }
+
+    [Test]
+    public async Task FallbackCount_Stays_Zero_When_Native_Succeeds()
+    {
+        var native = new FakeRoleRuntime("native-a");
+        var runtime = new NativeWithFallbackRuntime(native, RuntimeRole.Boss, new FakeModelRuntime());
+
+        await CollectAsync(runtime.StreamCompletionAsync("ignored-model", _history));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(runtime.FallbackCount, Is.EqualTo(0));
+            Assert.That(runtime.LastFallbackReason, Is.Null);
         });
     }
 
