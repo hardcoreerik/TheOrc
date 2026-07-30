@@ -10,6 +10,13 @@
 > explicit request for a spec before implementation, matching this repo's established pattern
 > (`NATIVE_BROWSER_AUTOMATION_SPEC.md`). Scope was set via three explicit decisions from the
 > requester (recorded in §0.1) rather than assumed.
+>
+> **Update, commit `0945e2cc`: Phases A-D landed.** Paths 3 and 4 (§2.1), the regex fix (§2.2), and
+> a fourth, originally-unplanned fix — closing an approval-bypass gap Phase C made materially more
+> dangerous (§1.6, §2.5, §3 Phase D) — are all implemented, tested (15 new tests added to
+> `ChatEngineTests`, 21/21 passing in that file, 751/751 passing repo-wide), and pushed to `master`.
+> Live GUI re-verification of the original §0.1 scenario is still outstanding (§3 Phase A's third
+> verify bullet).
 
 ---
 
@@ -130,6 +137,54 @@ returning `null` for any other reason (model absent, timeout, malformed JSON). T
 already built to be best-effort and never make things worse than the no-repair baseline; an
 imperfect role token doesn't change that guarantee, it just likely lowers the proposal's hit rate.
 
+### 1.6 A second, independent gap — found via external review, not this spec's original scope
+
+While implementing Phase C, a second opinion (relayed by the requester) correctly challenged an
+overclaim: "a bad repair-lane guess degrades to no repair happened, never something worse" is only
+true for syntactically-invalid or unknown-tool proposals (§1.5's argument). It is **not** true for a
+proposal that is schema-valid but semantically wrong — e.g. `write_file` with the wrong path, or
+`run_shell` with a plausible-looking but destructive command. Verifying that claim by reading
+`ChatEngine.ExecuteTool` surfaced a real, pre-existing bug, not introduced by this spec but made
+materially more dangerous by it:
+
+```csharp
+// before the fix — OrchestratorIDE/Research/ChatEngine.cs
+private static async Task<string> ExecuteTool(ToolCall tc, List<ToolDefinition> tools, CancellationToken ct)
+{
+    var def = tools.FirstOrDefault(t => t.Name.Equals(tc.Name, StringComparison.OrdinalIgnoreCase));
+    if (def?.Handler is null) return $"Unknown tool: {tc.Name}";
+    try { return await def.Handler(tc.Arguments, ct); }   // <- runs unconditionally
+    catch (Exception ex) { return $"Tool error ({tc.Name}): {ex.Message}"; }
+}
+```
+
+`OrcChatToolCatalog.CreateWorkspaceTools` builds a real `ToolRegistry`+`ApprovalQueue` pair, but only
+to *extract* `ToolDefinition`s from it (`registry.TryGet` in a loop) — the registry itself is
+discarded immediately after. `ChatEngine.ExecuteTool` never calls `ToolRegistry.ExecuteAsync` (the
+**only** place that reads `ToolDefinition.RequiresApproval` and consults the queue — confirmed by
+reading `ToolRegistry.cs:73-110`). It calls `def.Handler` directly. Every `RequiresApproval = true`
+tool in OrcChat's catalog (`write_file`, `run_shell`, `browser_navigate`/`browser_download`) had been
+running with **zero** human approval since OrcChat existed — Phase C raised the practical risk of
+this by adding a path that could *originate* a `write_file`/`run_shell` call from a garbled response,
+where before, only the model's own well-formed tool_calls/ReAct output could reach `ExecuteTool` at
+all.
+
+### 1.7 A false-positive from the external reviewer, worth recording
+
+Reviewing the fix for §1.6/§2.5, `grok-review -Mode diff` raised a BLOCKER against flipping
+`BrowserTools.Register`'s `requireApprovalForNavigateAndDownload` back to its default `true`,
+reasoning from the *old* doc comment ("a throwaway `ApprovalQueue` with no subscriber hangs
+`RequestApprovalAsync` forever") without accounting for the fix that comment predates. Traced
+concretely: (1) `RequiresApproval` is inert metadata on a `ToolDefinition` — nothing reads it except
+`ToolRegistry.ExecuteAsync`; (2) `BrowserTools`' handlers never touch `ApprovalQueue` themselves
+(confirmed by reading the handler bodies); (3) `OrcChatToolCatalog.CreateWorkspaceTools`'s registry
+is provably unreachable from production code (grepped every call site — only `ChatPanel.axaml.cs`
+and a test that inspects the returned list, never `.ExecuteAsync`). The old hang concern was real
+*before* §1.6/§2.5's fix existed, but no longer applies — `ChatEngine.ExecuteTool`'s new gate
+short-circuits to a rejection when `OnApprovalRequired` is null/denies, it never awaits the discarded
+queue. Kept `true`; recorded here per this repo's "grok occasionally hallucinates, verify the
+specific claim before accepting or reverting" discipline.
+
 ---
 
 ## 2. Target design
@@ -141,7 +196,7 @@ stream from model, collect native tool_calls
 ├─ Path 1: toolCallsNative.Count > 0                    → RunNativeToolLoop(...)          [unchanged]
 ├─ Path 2: ResearchToolset.ParseReActCalls               → RunReActLoop(...)               [unchanged]
 ├─ Path 3 (NEW): ToolCallTextParser.Parse(fullText)       → RunNativeToolLoop(...)          [reused, §1.3]
-├─ Path 4 (NEW): ToolcallerService.ProposeAsync(...)      → RunNativeToolLoop(...) if "call" [§2.4]
+├─ Path 4 (NEW): ToolcallerService.ProposeAsync(...)      → RunNativeToolLoop(...) if "call" [§2.6]
 └─ else: SanitizeFinalText(fullText, tools)              → plain response                  [fixed, §2.2]
 ```
 
@@ -179,7 +234,24 @@ Pass `SwarmWorkerRole.Researcher` — the closest existing token to OrcChat's ac
 verification-focused like `Tester`). Documented at the call site as an explicit approximation, not
 a validated behavior, per §1.4/§1.5's reasoning.
 
-### 2.4 What does NOT get fixed by this spec (named, not silently dropped)
+### 2.5 `ChatEngine.OnApprovalRequired` — the approval gate (§1.6)
+
+```csharp
+public Func<ToolCall, CancellationToken, Task<bool>>? OnApprovalRequired { get; set; }
+```
+
+`ExecuteTool` becomes an instance method (was `static`) and, when `def.RequiresApproval`, awaits this
+callback before invoking the handler; a null callback or a `false` result rejects the call (fed back
+into conversation history as `"[REJECTED] User denied this action."`, mirroring
+`ToolRegistry.ExecuteAsync`'s own convention) rather than either running it or hanging. **Fail-closed
+by construction**: an unwired caller gets zero tool execution for approval-gated tools, never silent
+execution. `ChatPanel.CreateEngine` wires this to a real `DialogHelper.ShowYesNoAsync` confirmation
+(via `MainWindow.ConfirmToolApprovalAsync`), and separately threads a real `onDiffPreview` callback
+into `OrcChatToolCatalog.CreateWorkspaceTools` so `write_file`'s own diff-preview gate — previously
+always `null`, i.e. always silently approved — shows the actual before/after content, not just the
+path and reason.
+
+### 2.6 What does NOT get fixed by this spec (named, not silently dropped)
 
 - `browser_navigate` and the other six browser tools remain unreachable by the repair lane until a
   retraining round covers them (§0.2 item 2, deliberately deferred).
@@ -228,6 +300,32 @@ trustworthy answer now visibly warns instead.
   aren't helped, not silently claiming otherwise.
 - Confirm `ToolcallerRepairEnabled = false` (the existing default) leaves `ChatEngine`'s behavior
   from Phases A/B completely unchanged — Path 4 must be a true no-op when the setting is off.
+
+### Phase D — Approval gate (§1.6, §2.5) — added mid-implementation, not in the original 3-phase plan
+
+**Scope:** `ChatEngine.OnApprovalRequired` + `ExecuteTool`'s gate; `OrcChatToolCatalog`'s real
+`onDiffPreview` threading; `ChatPanel.ConfirmToolApprovalAsync` → `MainWindow` →
+`DialogHelper.ShowYesNoAsync` wiring; `BrowserTools.Register`'s approval default reverted to `true`.
+
+**Verify:**
+- Unit test: `OnApprovalRequired` unset (default/unwired) → an approval-required tool call is
+  rejected, never executed — the fail-closed default.
+- Unit test: callback approves → executes; callback denies → rejected, not executed, and the
+  rejection message lands in `engine.History` (fed back to the model, matching
+  `ToolRegistry.ExecuteAsync`'s convention — asserting against `finalText` here is wrong, since the
+  loop asks the model for a follow-up after a rejection and `finalText` becomes that follow-up, not
+  the rejection string itself).
+- Unit test: a tool with `RequiresApproval = false` never consults the callback at all.
+- Unit test: the gate applies to a Path 4 (repair-lane) proposal too, not just Paths 1-3 — the
+  original motivating concern from §1.6.
+- Full unit suite green (751/751 passing, 13 skipped [real-model integration tests, unrelated]), no
+  regressions.
+- `grok-review -Mode diff`: 2 real MINORs fixed before commit (diff-preview approval message was
+  blind to old/new content; approval race didn't respect `CancellationToken`); 1 BLOCKER raised and
+  traced to be a false positive (§1.7); `grok-review` (quick, post-commit) came back CLEAN.
+- **Outstanding:** live GUI re-verification that the approval dialog actually appears and gates
+  correctly for a real `write_file`/`browser_navigate` call, end-to-end on the native runtime — not
+  yet re-attempted since this fix landed.
 
 ---
 
