@@ -1101,6 +1101,27 @@ public partial class MainWindow : Window
                     "it's known. This resolves once this node has paired with the Warchief (its " +
                     "peer entry then carries the address ResolveWarchiefNodeId matches against), " +
                     "or once the live election protocol establishes one on its own.", DateTime.Now));
+
+                // grok-review BLOCKER, round 10: an unresolved retarget must not leave the PRIOR
+                // seeded Warchief still authorized for /hive/tasks/cancel and /hive/roles/degrade
+                // -- IsWarchief reads ElectionService.WarchiefNodeId, and SetWarchief has no way
+                // to clear it, only set it to a concrete value. Same safeToReseed gate as the
+                // branch below protects a live-elected divergence from being clobbered: only
+                // clear when it's safe to touch at all, and only when there's actually a stale
+                // value of ours to clear (an empty currentElectionWarchief means either nothing
+                // was ever seeded, or InferWarchiefFromPeerStore came up empty too -- nothing to
+                // do either way).
+                if (currentElection is not null && safeToReseed
+                    && !string.IsNullOrWhiteSpace(currentElectionWarchief))
+                {
+                    currentElection.ClearWarchief();
+                    _lastSeededWarchiefNodeId = null;
+                    _lastSeededElectionServiceInstance = currentElection;
+                    AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE Worker",
+                        $"Cleared stale Warchief authorization ({currentElectionWarchief}) after " +
+                        "an unresolved retarget -- no Warchief is authorized for cancel/degrade " +
+                        "until the new target resolves.", DateTime.Now));
+                }
             }
             else if (safeToReseed)
             {

@@ -62,4 +62,28 @@ public sealed class HiveNodeServerAuthorizationTests
 
         Assert.That(server.IsWarchief("some-other-node"), Is.False);
     }
+
+    [Test]
+    public void IsWarchief_ReturnsFalse_AfterClearWarchief_ForThePreviouslySeededNodeId()
+    {
+        // grok-review BLOCKER, round 10: SetWarchief has no way to clear WarchiefNodeId back to
+        // null, only set it to a concrete value -- so an operator retarget to a new, not-yet-
+        // resolved Warchief had no way to revoke the PRIOR Warchief's cancel/degrade authority.
+        // ClearWarchief closes that: after it runs, the old nodeId must lose authorization.
+        using var identity = HiveIdentity.CreateEphemeral();
+        var peers = HivePeerStore.CreateForTest();
+        using var server = new HiveNodeServer
+        {
+            ElectionService = new HiveElectionService(identity, peers),
+        };
+
+        server.ElectionService.SetWarchief("the-old-warchief");
+        Assert.That(server.IsWarchief("the-old-warchief"), Is.True, "sanity check before clearing");
+
+        server.ElectionService.ClearWarchief();
+
+        Assert.That(server.IsWarchief("the-old-warchief"), Is.False);
+        Assert.That(server.ElectionService.WarchiefNodeId, Is.Null);
+        Assert.That(server.ElectionService.State, Is.EqualTo(ElectionState.Normal));
+    }
 }

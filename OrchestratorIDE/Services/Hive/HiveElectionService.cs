@@ -81,6 +81,29 @@ public sealed class HiveElectionService
     }
 
     /// <summary>
+    /// Explicitly clears the known Warchief -- distinct from <see cref="SetWarchief"/>, which
+    /// requires a concrete non-null value. Needed when this node's configured Warchief has
+    /// become unresolved (e.g. an operator retarget to a new URL that hasn't paired/resolved to
+    /// a NodeId yet): without an explicit way to clear <see cref="WarchiefNodeId"/>, the PRIOR
+    /// value keeps granting Warchief-only authority (<c>/hive/roles/degrade</c>,
+    /// <c>/hive/tasks/cancel</c> via <c>HiveNodeServer.IsWarchief</c>) even after the operator has
+    /// explicitly moved away from it (grok-review BLOCKER, round 10). Same reset shape as
+    /// <see cref="SetWarchief"/> otherwise: clears any in-flight election bookkeeping so a stale
+    /// suspect vote or pre-failover id from before the clear can't leak into whatever comes next.
+    /// </summary>
+    public void ClearWarchief()
+    {
+        lock (_stateLock)
+        {
+            WarchiefNodeId         = null;
+            _preFailoverWarchiefId = null;
+            _suspectVotes.Clear();
+            State = ElectionState.Normal;
+        }
+        Log("⚙ Warchief cleared (no configured target resolved)");
+    }
+
+    /// <summary>
     /// Infers the initial Warchief from the peer store: the enrolled peer with the
     /// lowest EnrollmentSeq that has Controller MaxRole. Call after enrollment completes
     /// if the app doesn't have an explicit Warchief assignment.

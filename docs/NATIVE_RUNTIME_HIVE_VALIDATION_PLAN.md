@@ -1170,19 +1170,21 @@ recorded below rather than silently dropped.**
    Not fixed here: plumbing a `CancellationToken` through the capability-detection/model-load chain
    to make an in-flight Start abortable is a real feature, not a narrow fix, and out of scope for
    this round's budget.
-3. **BLOCKER, assessed as a real but narrow gap, deliberately left for a follow-up design decision
-   rather than patched reactively.** When a worker restart's `warchiefNodeId` resolves empty (e.g.
+3. **BLOCKER, closed same day.** When a worker restart's `warchiefNodeId` resolves empty (e.g.
    immediately after `OnWarchiefTargetSelected` clears `HiveWarchiefNodeId` and retargets to a URL
-   that hasn't paired yet), the seeding logic only logs a warning -- it never clears
-   `ElectionService.WarchiefNodeId`, which `HiveElectionService.SetWarchief(string nodeId)` has no
-   API to do (non-nullable parameter, private setter). The prior, still-seeded Warchief keeps
+   that hasn't paired yet), the seeding logic used to only log a warning -- it never cleared
+   `ElectionService.WarchiefNodeId`, which `HiveElectionService.SetWarchief(string nodeId)` had no
+   API to do (non-nullable parameter, private setter). The prior, still-seeded Warchief kept
    `/hive/tasks/cancel`/`/hive/roles/degrade` authority for the rest of that worker's run even
-   though the operator explicitly retargeted away from it, until a further stop/start or a genuine
-   election event overwrites it. Real, but requires either a new `ElectionService.ClearWarchief()`
-   (touching a live-election-protocol area that already took three adversarial rounds to get right
-   per this file's own history) or accepting fail-open-to-stale as intentional -- a design call, not
-   a same-round patch, especially mid-autonomous-iteration. Left open, documented here rather than
-   silently dropped.
+   though the operator had explicitly retargeted away from it. Closed by adding
+   `HiveElectionService.ClearWarchief()` -- same reset shape as `SetWarchief` (clears
+   `_preFailoverWarchiefId`/suspect votes, resets `State` to `Normal`) but sets `WarchiefNodeId`
+   back to null instead of requiring a concrete value. The empty-`warchiefNodeId` branch in
+   `MainWindow.axaml.cs` now calls it, gated behind the SAME `safeToReseed` check the seed branch
+   below already uses (so a live-elected divergence still can't be clobbered) and only when there's
+   an actual stale value to clear. Covered by
+   `HiveNodeServerAuthorizationTests.IsWarchief_ReturnsFalse_AfterClearWarchief_
+   ForThePreviouslySeededNodeId`.
 4. **MINOR, fixed — `StopHiveWorkerCoreAsync`'s settings `Save()` could desync the UI permanently.**
    `_settings.HiveWorkerMode = false; _settings.Save();` ran unguarded before
    `_settingsPanel.SetHiveWorkerRunning(false)` -- a `Save()` throw (disk full, permissions) would
