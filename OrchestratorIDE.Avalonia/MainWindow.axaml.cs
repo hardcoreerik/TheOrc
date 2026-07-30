@@ -565,9 +565,30 @@ public partial class MainWindow : Window
         // --autoapprove (headless) runs, same as first-run. Founding is purely local and
         // joining is a client-initiated pairing, so neither depends on this node's own beacon/
         // node-server (started concurrently by StartHiveAsync) being up yet.
-        if (_settings.HiveMindEnabled && !cliArgs.Contains("--autoapprove")
-            && Services.Hive.HiveIdentity.Load().HiveRole == Services.Hive.HiveRole.Unset)
-            await Dispatcher.UIThread.InvokeAsync(() => ShowHiveDiscoveryWizardAsync());
+        if (_settings.HiveMindEnabled && !cliArgs.Contains("--autoapprove"))
+        {
+            bool needsDiscoveryWizard;
+            try
+            {
+                needsDiscoveryWizard =
+                    Services.Hive.HiveIdentity.Load().HiveRole == Services.Hive.HiveRole.Unset;
+            }
+            catch (Exception ex)
+            {
+                // grok-review BLOCKER, round 10: this call sits directly on OnLoadedAsync's
+                // synchronous path (Loaded += async (_, _) => await OnLoadedAsync();), with no
+                // enclosing try/catch and no global unhandled-exception handler registered anywhere
+                // in the app. A corrupt/decrypt-mismatch identity file now throws by default (this
+                // session's regenerateOnCorruption flip) -- uncaught here, it would crash the whole
+                // GUI on startup, not just skip HIVE MIND, which is the only failure mode round 9's
+                // MINOR 1 fix (StartHiveAsync's own Task.Run catch) actually covered.
+                needsDiscoveryWizard = false;
+                AddActivity(new ActivityEvent(ActivityKind.Error, "HIVE MIND",
+                    $"Identity load failed, skipping discovery wizard: {ex.Message}", DateTime.Now));
+            }
+            if (needsDiscoveryWizard)
+                await Dispatcher.UIThread.InvokeAsync(() => ShowHiveDiscoveryWizardAsync());
+        }
 
         InitDataLayer(_session.WorkspaceRoot);
     }
@@ -1351,8 +1372,22 @@ public partial class MainWindow : Window
                 $"Stop failed: {ex.Message}", DateTime.Now));
         }
 
-        _settings.HiveWorkerMode = false;
-        _settings.Save();
+        // Settings persistence split into its own try/catch, same shape as the Start-side fix
+        // (grok-review MINOR, round 10): the worker above is already genuinely stopped and
+        // _hiveWorkerAgent already null at this point, so a Save() throw (disk full, permissions)
+        // must not also skip SetHiveWorkerRunning(false) -- that would leave the UI stuck showing
+        // "Running" with nothing actually running, and a later Stop attempt would just early-return
+        // at this method's top (worker is null), requiring an app restart to desync-fix the label.
+        try
+        {
+            _settings.HiveWorkerMode = false;
+            _settings.Save();
+        }
+        catch (Exception ex)
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Warning, "HIVE Worker",
+                $"Failed to persist worker-mode setting: {ex.Message}", DateTime.Now));
+        }
         _settingsPanel.SetHiveWorkerRunning(false);
     }
 

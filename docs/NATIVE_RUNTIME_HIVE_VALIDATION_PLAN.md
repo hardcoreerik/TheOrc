@@ -1140,6 +1140,76 @@ triggering case (a corrupt identity file, now the rare path after this session's
 positive: `AddActivity` already marshals to the UI thread internally via `Dispatcher.UIThread.
 InvokeAsync` — same pattern the pre-existing `UpdateChecker` background task already relies on.)
 
+**Round 10 (`grok-review -Mode adversary`, same day, re-run against the full accumulated diff
+immediately after round 9 landed) — 4 BLOCKER, 3 MINOR reported; 1 BLOCKER fixed, 2 MINOR
+fixed/checked, the remaining 3 findings assessed and deliberately not touched, with reasoning
+recorded below rather than silently dropped.**
+
+1. **BLOCKER, fixed — `HiveIdentity.Load()` was ALSO called, uncaught, on the main UI startup
+   path.** `OnLoadedAsync`'s HIVE-membership first-run-wizard trigger called
+   `Services.Hive.HiveIdentity.Load().HiveRole` directly, with no try/catch anywhere between it and
+   the `Loaded += async (_, _) => await OnLoadedAsync();` event wiring, and this app registers no
+   global unhandled-exception handler at all (confirmed by grep). Round 9's MINOR 1 fix only
+   covered the call *inside* `StartHiveAsync`'s own `Task.Run` -- this second, earlier call site on
+   the synchronous startup path was a real gap in that fix's coverage: a corrupt/decrypt-mismatch
+   identity file would have thrown straight through app startup and very likely crashed the whole
+   GUI, not just failed to start HIVE MIND, which is a materially worse regression from this
+   session's `regenerateOnCorruption` default flip than anything round 9 addressed. Fixed the same
+   way: wrapped in try/catch, skip the wizard trigger and log `ActivityKind.Error` on failure
+   instead of propagating.
+2. **BLOCKER, assessed as the same tradeoff round 8 already accepted, intensified rather than
+   new.** The lifecycle gate is held across `WorkerCapabilityDetector.DetectAsync` (SHA-256 hashing
+   every on-disk GGUF), native runtime construction, and the up-to-5s `ElectionService` wait; round
+   9's own BLOCKER 2 fix means `MainWindow_Closing` now unconditionally routes every close through
+   that same gate with no cancellation token, where round 8's now-fixed bug used to provide an
+   (unsafe) early exit. Round 8's doc entry already named exactly this shape ("Stop/Close can queue
+   behind an in-flight Start... a real UX responsiveness tradeoff, not a correctness bug -- accepted,
+   not fixed") -- what changed is that round 9's correctness fix makes the wait unconditional instead
+   of racily skippable, so a close during a slow multi-GB hash pass now visibly (if silently, with no
+   progress indicator) blocks for the full duration instead of sometimes escaping through the bug.
+   Not fixed here: plumbing a `CancellationToken` through the capability-detection/model-load chain
+   to make an in-flight Start abortable is a real feature, not a narrow fix, and out of scope for
+   this round's budget.
+3. **BLOCKER, assessed as a real but narrow gap, deliberately left for a follow-up design decision
+   rather than patched reactively.** When a worker restart's `warchiefNodeId` resolves empty (e.g.
+   immediately after `OnWarchiefTargetSelected` clears `HiveWarchiefNodeId` and retargets to a URL
+   that hasn't paired yet), the seeding logic only logs a warning -- it never clears
+   `ElectionService.WarchiefNodeId`, which `HiveElectionService.SetWarchief(string nodeId)` has no
+   API to do (non-nullable parameter, private setter). The prior, still-seeded Warchief keeps
+   `/hive/tasks/cancel`/`/hive/roles/degrade` authority for the rest of that worker's run even
+   though the operator explicitly retargeted away from it, until a further stop/start or a genuine
+   election event overwrites it. Real, but requires either a new `ElectionService.ClearWarchief()`
+   (touching a live-election-protocol area that already took three adversarial rounds to get right
+   per this file's own history) or accepting fail-open-to-stale as intentional -- a design call, not
+   a same-round patch, especially mid-autonomous-iteration. Left open, documented here rather than
+   silently dropped.
+4. **MINOR, fixed — `StopHiveWorkerCoreAsync`'s settings `Save()` could desync the UI permanently.**
+   `_settings.HiveWorkerMode = false; _settings.Save();` ran unguarded before
+   `_settingsPanel.SetHiveWorkerRunning(false)` -- a `Save()` throw (disk full, permissions) would
+   skip the UI update entirely, and since `_hiveWorkerAgent` is already null by that point (worker
+   genuinely stopped a few lines earlier), a subsequent Stop attempt would just early-return at this
+   method's own top guard, leaving the "Running" label stuck until an app restart. Fixed: settings
+   persistence wrapped in its own try/catch (same shape as the Start-side split from round 8),
+   `SetHiveWorkerRunning(false)` now runs unconditionally afterward.
+5. **MINOR, checked, no code change — `NativeWithFallbackRuntime.GetHealth`/`GetStats` omit
+   `FallbackCount`/`LastFallbackReason`.** Grok's own finding text already notes "docs already admit
+   non-persistent" -- `RUNTIME_SUPPORT_MATRIX.md`'s fallback table already says the count is "only
+   visible in the moment the line appears, not a persistent indicator." Nothing to fix; the
+   documentation was already accurate about this exact gap before the finding was raised.
+6. **MINOR, checked, structurally hard to close without a larger refactor -- documented as a known
+   gap, not implemented.** `HiveIdentity.Load()`'s `regenerateOnCorruption` throw-vs-regenerate
+   branch has no direct unit test; the behavioral claim is only exercised indirectly via the
+   Daemon/`SwarmCli` `--show-identity` try/catch wiring. `Load()` is a process-wide static singleton
+   (`_instance` cached for the process lifetime, `IdentityPath` a `static readonly` pointing at the
+   real `%AppData%` location) with no reset hook and no injectable path -- a unit test would need
+   either reflection-based mutation of process-wide static state (risking cross-test contamination
+   in a shared test process) or a real refactor to make the path/instance injectable. Neither is a
+   narrow fix; left for a future round that's willing to take on that refactor deliberately.
+
+Build clean, full 703/716-green suite unchanged, re-verified via `grok-review -Mode diff` before
+landing (that pass's only findings were reminders about unrelated untracked files already correctly
+excluded from staging: `training_pit/datasets/toolcaller/` and `docs/OrcEngine/`).
+
 **2026-07-29 (later same day) — item 1 fully closed for real, but only after live testing
 surfaced a second, deeper bug the grok BLOCKER fix alone didn't cover.** Built
 `Tools/Hv4RecoveryRunner --phase workercancel`: submits a real long-running job pinned to a
