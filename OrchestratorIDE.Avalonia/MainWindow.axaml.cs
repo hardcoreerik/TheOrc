@@ -2363,6 +2363,11 @@ public partial class MainWindow : Window
 
             _chatPanel.RuntimeResolver = ResolveChatRuntime;
             _chatPanel.LocalUrl        = _settings.OllamaHost;
+            // Orcish Tongue v1 correctness fix (docs/ORCISH_TONGUE_SPEC.md): OrcChat previously
+            // had no approval gate at all for any tool call (write_file's diff preview and every
+            // RequiresApproval tool alike) -- see ChatEngine.OnApprovalRequired's own doc comment.
+            // Same DialogHelper.ShowYesNoAsync pattern HivePanel.ConfirmAsync already uses.
+            _chatPanel.ConfirmToolApprovalAsync = (msg, title) => DialogHelper.ShowYesNoAsync(this, title, msg);
             _chatPanel.SetModels(_installedModels, _session.ActiveModel);
             _chatPanel.RefreshHiveHosts();
             _chatPanel.LoadPersistedMemory();

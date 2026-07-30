@@ -42,23 +42,36 @@ public static class OrcChatToolCatalog
         "browser_download",
     ];
 
-    public static List<ToolDefinition> CreateWorkspaceTools(string workspaceRoot)
+    /// <param name="onDiffPreview">
+    ///   Forwarded to <see cref="FileTools.Register"/> for <c>write_file</c>'s own diff-preview
+    ///   gate. Previously always null here, which meant OrcChat writes proceeded with NO
+    ///   confirmation at all (docs/ORCISH_TONGUE_SPEC.md's correctness-fix follow-up, found
+    ///   2026-07-30: this whole registry+queue pair is discarded right after construction --
+    ///   <c>ChatEngine</c> never executes through it, so the queue itself was never the reason
+    ///   writes were ungated. The real fix is threading a REAL callback in from the caller, which
+    ///   this parameter now allows).
+    /// </param>
+    public static List<ToolDefinition> CreateWorkspaceTools(string workspaceRoot,
+        Func<string, string, string, string, CancellationToken, Task<bool>>? onDiffPreview = null)
     {
         var approvals = new Trust.ApprovalQueue();
         var registry = new ToolRegistry(approvals);
 
-        FileTools.Register(registry, workspaceRoot);
+        FileTools.Register(registry, workspaceRoot, onDiffPreview: onDiffPreview);
         SearchTools.Register(registry, workspaceRoot);
         FabricTools.Register(registry, workspaceRoot);
         TestTools.Register(registry, workspaceRoot);
         WebTools.Register(registry);
-        // requireApprovalForNavigateAndDownload: false -- this registry+queue pair is throwaway
-        // (constructed fresh above, no UI ever subscribes to ApprovalQueue.ApprovalRequested), so
-        // leaving the default true would hang RequestApprovalAsync forever under this queue's
-        // default Guarded trust level. Same "no UI here, proceed without gating" precedent
-        // FileTools.Register's own onDiffPreview=null (the default, unset above) already
-        // establishes for this exact call site.
-        BrowserTools.Register(registry, workspaceRoot, requireApprovalForNavigateAndDownload: false);
+        // requireApprovalForNavigateAndDownload now defaults to true (Orcish Tongue v1
+        // correctness fix): the original "false" here was because THIS throwaway registry+queue
+        // pair has no ApprovalRequested subscriber, which would have hung RequestApprovalAsync
+        // forever under Guarded trust -- but ChatEngine never actually executes tools through
+        // this ToolRegistry/ApprovalQueue at all (see ChatEngine.OnApprovalRequired's own doc
+        // comment), so that concern never applied to the real execution path in the first place.
+        // ChatEngine.ExecuteTool now checks ToolDefinition.RequiresApproval directly and gates
+        // through its own OnApprovalRequired callback -- a real approval mechanism now exists,
+        // so there's no more reason to leave this false.
+        BrowserTools.Register(registry, workspaceRoot);
 
         var tools = new List<ToolDefinition>();
         foreach (var name in TopToolNames.Where(n => n != "web_search" && n != "fetch_page"))

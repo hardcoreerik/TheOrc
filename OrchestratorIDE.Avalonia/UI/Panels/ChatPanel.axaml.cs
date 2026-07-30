@@ -57,6 +57,17 @@ public partial class ChatPanel : UserControl
     public string LocalUrl { get; set; } = "http://localhost:11434";
     public string WorkspaceRoot { get; set; } = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
+    /// <summary>
+    /// Approval prompt for OrcChat's tool calls (write_file's diff-preview gate AND every
+    /// RequiresApproval=true tool via ChatEngine.OnApprovalRequired) -- (message, title) → bool.
+    /// Wired by MainWindow to a real dialog (DialogHelper.ShowYesNoAsync), same pattern as
+    /// HivePanel.ConfirmAsync. Null (unset, e.g. in tests) means every gated tool call is
+    /// refused -- fail-closed, not silently executed (see ChatEngine.OnApprovalRequired's own
+    /// doc comment for why this replaced the previous "no approval gate exists in OrcChat at
+    /// all" behavior, docs/ORCISH_TONGUE_SPEC.md).
+    /// </summary>
+    public Func<string, string, Task<bool>>? ConfirmToolApprovalAsync { get; set; }
+
     private const string LocalNodeName = "Local";
 
     // ── State ─────────────────────────────────────────────────────────────────
@@ -248,12 +259,61 @@ public partial class ChatPanel : UserControl
         _lastEngineNodeTarget = CbNode.SelectedItem as string ?? LocalNodeName;
         var runtime = ResolveRuntime();
         _engineRuntime = runtime;
-        var tools = OrcChatToolCatalog.CreateWorkspaceTools(WorkspaceRoot);
+        // Orcish Tongue v1 correctness fix (docs/ORCISH_TONGUE_SPEC.md): both write_file's own
+        // diff-preview gate and every other RequiresApproval tool now route through the SAME
+        // ConfirmToolApprovalAsync prompt, wired by MainWindow to a real dialog. Previously
+        // neither was gated at all in OrcChat -- see ChatEngine.OnApprovalRequired's own doc
+        // comment for the full history.
+        Task<bool> ConfirmDiffAsync(string path, string oldContent, string newContent, string reason, CancellationToken ct) =>
+            ConfirmAsync(BuildDiffApprovalMessage(path, oldContent, newContent, reason), "Approve file write?", ct);
+
+        Task<bool> ConfirmToolCallAsync(ToolCall tc, CancellationToken ct) =>
+            ConfirmAsync($"{tc.Name}({FormatArgsForApproval(tc.Arguments)})", "Approve tool call?", ct);
+
+        async Task<bool> ConfirmAsync(string message, string title, CancellationToken ct)
+        {
+            if (ConfirmToolApprovalAsync is null) return false;
+            var dialogTask = ConfirmToolApprovalAsync(message, title);
+            if (!ct.CanBeCanceled) return await dialogTask;
+
+            // DialogHelper.ShowYesNoAsync has no cancellation hook of its own (it awaits a
+            // modal Window.ShowDialog), so a mid-turn cancel can't dismiss the open dialog --
+            // but it can at least stop BLOCKING the caller on it. Racing against `ct` lets
+            // ExecuteTool's cancellation propagate immediately as a deny instead of hanging
+            // until someone manually clicks Yes/No on a dialog for a turn that's already gone.
+            var cancelTask = Task.Delay(Timeout.Infinite, ct);
+            var completed = await Task.WhenAny(dialogTask, cancelTask);
+            return completed == dialogTask && await dialogTask;
+        }
+
+        var tools = OrcChatToolCatalog.CreateWorkspaceTools(WorkspaceRoot, onDiffPreview: ConfirmDiffAsync);
         return new ChatEngine(runtime, model, systemPrompt: "", tools: tools)
         {
             IncludeDateTimeContext = true,
             ReactInstructions = OrcChatToolCatalog.BuildReactInstructions(tools),
+            OnApprovalRequired = ConfirmToolCallAsync,
         };
+    }
+
+    private static string BuildDiffApprovalMessage(string path, string oldContent, string newContent, string reason)
+    {
+        const int maxPreview = 800;
+        static string Preview(string s) =>
+            s.Length > maxPreview ? s[..maxPreview] + $"\n… ({s.Length - maxPreview} more chars)" : s;
+
+        var oldPreview = string.IsNullOrEmpty(oldContent) ? "(new file)" : Preview(oldContent);
+        var newPreview = Preview(newContent);
+        return $"Write to '{path}'?\n\nReason: {reason}\n\n--- Before ---\n{oldPreview}\n\n--- After ---\n{newPreview}";
+    }
+
+    private static string FormatArgsForApproval(Dictionary<string, object?> args)
+    {
+        var parts = args.Take(4).Select(kv =>
+        {
+            var v = kv.Value?.ToString() ?? "";
+            return $"{kv.Key}={(v.Length > 60 ? v[..60] + "…" : v)}";
+        });
+        return string.Join(", ", parts);
     }
 
     // ── HIVE node routing (Phase B3) ─────────────────────────────────────────────

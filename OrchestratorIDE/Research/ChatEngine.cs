@@ -1,8 +1,10 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
+using OrchestratorIDE.Agents;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Models;
+using OrchestratorIDE.Services.Swarm;
 
 namespace OrchestratorIDE.Research;
 
@@ -72,6 +74,28 @@ public class ChatEngine
     /// products give a model for free.
     /// </summary>
     public bool IncludeDateTimeContext { get; set; }
+
+    /// <summary>
+    /// Gate for any <see cref="ToolDefinition"/> with <c>RequiresApproval = true</c>
+    /// (Orcish Tongue v1 correctness fix, docs/ORCISH_TONGUE_SPEC.md): <see cref="ExecuteTool"/>
+    /// previously called <c>def.Handler</c> directly for every tool-call path (native, ReAct,
+    /// JSON-brace, repair lane) with NO approval gating at all -- <see cref="ToolRegistry"/>'s
+    /// own <c>RequiresApproval</c>/<c>ApprovalQueue</c> check lives one layer up and this engine
+    /// never went through it; the temporary <c>ToolRegistry</c>
+    /// <c>OrcChatToolCatalog.CreateWorkspaceTools</c> builds is discarded immediately after
+    /// extracting the raw <c>ToolDefinition</c> list. Found live, 2026-07-30, while reasoning
+    /// through why a schema-valid-but-wrong repair-lane proposal (e.g. a wrong path/command for
+    /// <c>write_file</c>/<c>run_shell</c>, both in the repair lane's trained vocabulary) wasn't
+    /// actually safe just because it passed validation -- it would have executed immediately,
+    /// unconditionally, in a surface that had never had human-approval gating at all.
+    ///
+    /// A <c>null</c> callback (the default) means every <c>RequiresApproval</c> tool call is
+    /// REFUSED, not silently executed -- fail-closed, matching this session's own established
+    /// "no UI here, don't create a path that can silently do something dangerous" convention
+    /// (e.g. <c>OrchestratorIDE.Tools.BrowserTools</c>'s <c>requireApprovalForNavigateAndDownload</c>).
+    /// Signature: (the pending call, cancellation token) → true to proceed, false to refuse.
+    /// </summary>
+    public Func<ToolCall, CancellationToken, Task<bool>>? OnApprovalRequired { get; set; }
 
     // ── Events for UI ─────────────────────────────────────────────────────────
 
@@ -224,6 +248,47 @@ public class ChatEngine
             return;
         }
 
+        // ── Path 3: JSON-brace fallback (Orcish Tongue v1 Phase A) ──────────
+        // Reuses ToolCallTextParser -- the same lenient, string/escape-aware balanced-brace
+        // parser the native runtime/AgentLoop already use and trust -- rather than inventing a
+        // third format ChatEngine has to maintain. Some models default to bare
+        // {"name": ..., "arguments": {...}} JSON regardless of the ReAct-XML instructions
+        // taught in the system prompt (observed live, 2026-07-30, docs/ORCISH_TONGUE_SPEC.md
+        // §0.1) -- that shape is already valid input to this parser, unmodified. Only attempted
+        // when tools exist, same reasoning as Path 2 above.
+        var jsonBraceCalls = tools.Count > 0 ? ToolCallTextParser.Parse(fullText) : [];
+        if (jsonBraceCalls.Count > 0)
+        {
+            FireToolcallerDecision(tools, jsonBraceCalls);
+            await RunNativeToolLoop(fullText, jsonBraceCalls, tools, systemMsg, ct);
+            return;
+        }
+
+        // ── Path 4: theorc-toolcaller repair lane (Orcish Tongue v1 Phase C) ─
+        // Only reachable when Paths 1-3 ALL found nothing -- same "last resort before giving
+        // up" position ToolcallerService.ProposeAsync's own SwarmSession call site uses. Off by
+        // default (ToolcallerService.IsEnabled mirrors AppSettings.ToolcallerRepairEnabled) and a
+        // true no-op when disabled -- ProposeAsync's own first check. SwarmWorkerRole.Researcher
+        // is an explicit, disclosed approximation (docs/ORCISH_TONGUE_SPEC.md §2.3/§4 open
+        // question 1): OrcChat has no native Swarm-role concept, and the deployed specialist has
+        // never actually trained on a role-less prompt shape. Safe regardless -- ToToolCall
+        // independently re-validates any proposal (decision kind, tool in the frozen trained
+        // vocabulary, tool actually live) before it's ever treated as runnable, so a
+        // poorly-calibrated response from this approximation just degrades to "no repair," the
+        // same outcome as the model being absent or the specialist proposing nothing usable.
+        if (tools.Count > 0)
+        {
+            var repairDecision = await ToolcallerService.ProposeAsync(
+                _runtime, nodeClient: null, SwarmWorkerRole.Researcher, tools, fullText, ct);
+            var repairCall = repairDecision is null ? null : ToolcallerService.ToToolCall(repairDecision, tools);
+            if (repairCall is not null)
+            {
+                FireToolcallerDecision(tools, [repairCall]);
+                await RunNativeToolLoop(fullText, [repairCall], tools, systemMsg, ct);
+                return;
+            }
+        }
+
         // ── No tool calls — plain response ──────────────────────────────────
         FireToolcallerDecision(tools, []);
         fullText = SanitizeFinalText(fullText, tools);
@@ -261,10 +326,24 @@ public class ChatEngine
         return text;
     }
 
+    /// <summary>
+    /// Two independent shapes (Orcish Tongue v1 Phase B, docs/ORCISH_TONGUE_SPEC.md §2.2): the
+    /// original function-call pseudocode pattern this was built for (`browser_navigate(...)`,
+    /// the AMD-stock-price incident), plus a JSON-object tool-name pattern
+    /// (`"name": "browser_navigate"`) that Path 3 above (§0.1) doesn't already catch -- e.g. a
+    /// JSON blob malformed enough that ToolCallTextParser can't extract it, or the repair lane
+    /// disabled/exhausted. Deliberately a loose substring match, not a strict JSON parse: this is
+    /// a warning heuristic feeding a caution banner, not an execution path, so a false positive
+    /// costs an unnecessary caution on ordinary text, not a wrong action taken.
+    /// </summary>
     private static bool LooksLikeUnexecutedToolAttempt(string text, List<ToolDefinition> tools) =>
-        tools.Any(t => System.Text.RegularExpressions.Regex.IsMatch(
-            text, $@"\b{System.Text.RegularExpressions.Regex.Escape(t.Name)}\s*\(",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+        tools.Any(t =>
+            System.Text.RegularExpressions.Regex.IsMatch(
+                text, $@"\b{System.Text.RegularExpressions.Regex.Escape(t.Name)}\s*\(",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase) ||
+            System.Text.RegularExpressions.Regex.IsMatch(
+                text, $@"[""']name[""']\s*:\s*[""']{System.Text.RegularExpressions.Regex.Escape(t.Name)}[""']",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase));
 
     /// <summary>Only fires when tools were actually offered -- with zero tools available
     /// there was nothing to decide against, so a "no_tool" capture would be meaningless.</summary>
@@ -446,7 +525,7 @@ public class ChatEngine
 
     // ── Tool execution ────────────────────────────────────────────────────────
 
-    private static async Task<string> ExecuteTool(
+    private async Task<string> ExecuteTool(
         ToolCall             tc,
         List<ToolDefinition> tools,
         CancellationToken    ct)
@@ -456,6 +535,21 @@ public class ChatEngine
 
         if (def?.Handler is null)
             return $"Unknown tool: {tc.Name}";
+
+        // Approval gate (Orcish Tongue v1 correctness fix -- see OnApprovalRequired's own doc
+        // comment for the full "this used to bypass approval entirely" history). Checked BEFORE
+        // the handler runs, for every path that reaches ExecuteTool (native, ReAct, JSON-brace,
+        // repair lane) -- none of them are exempt.
+        if (def.RequiresApproval)
+        {
+            tc.RequiresApproval = true;
+            var approved = OnApprovalRequired is not null && await OnApprovalRequired(tc, ct);
+            if (!approved)
+            {
+                tc.Status = ToolCallStatus.Rejected;
+                return "[REJECTED] User denied this action.";
+            }
+        }
 
         try
         {
