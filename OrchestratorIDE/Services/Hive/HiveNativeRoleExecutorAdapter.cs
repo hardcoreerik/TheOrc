@@ -93,17 +93,39 @@ public sealed class HiveNativeRoleExecutorAdapter(IRoleRuntime inner, string wor
         var outputDirectory = Path.Combine(workspaceRoot, ".orc", "remote-work", safeCampaign, safeUnit);
         Directory.CreateDirectory(outputDirectory);
         var loop = new HeadlessAgentLoop(inner);
-        var result = await loop.ExecuteAsync(
-            MapHiveRoleToRuntimeRole(bundle.NativeRole.Length > 0 ? bundle.NativeRole : bundle.Role),
-            messages,
-            NativeWorkerToolProfile.Create(outputDirectory),
-            new HeadlessAgentLimits(
-                MaxSteps: 12,
-                MaxTokensPerStep: 4096,
-                Timeout: TimeSpan.FromMilliseconds(Math.Max(1_000, bundle.TimeoutMs))),
-            ct: ct).ConfigureAwait(false);
-        return new HiveNativeAgentExecution(result.Output, outputDirectory, result.Steps,
-            result.PromptTokens, result.CompletionTokens, result.TraceDigest);
+        // NativeWorkerBrowserToolProfile.Create returns an empty list when BrowserAutomation
+        // isn't currently available. When it IS available, this call site uses the default
+        // HeadlessBrowserPolicy.DenyAll (no argument passed) -- the browser_* tools are advertised
+        // and reachable, but browser_navigate policy-blocks every origin until a real per-task
+        // origin grant exists to plumb through. HiveTaskBundle has no field for that yet; adding
+        // one (and threading it from wherever campaigns/tasks are actually defined) is real
+        // follow-up work, not solved here -- deny-by-default in the meantime is the explicitly
+        // required safe posture (docs/NATIVE_BROWSER_AUTOMATION_SPEC.md §2.4), not an oversight.
+        var (browserTools, browserCleanup) = NativeWorkerBrowserToolProfile.Create(outputDirectory);
+        var tools = NativeWorkerToolProfile.Create(outputDirectory)
+            .Concat(browserTools)
+            .ToList();
+        try
+        {
+            var result = await loop.ExecuteAsync(
+                MapHiveRoleToRuntimeRole(bundle.NativeRole.Length > 0 ? bundle.NativeRole : bundle.Role),
+                messages,
+                tools,
+                new HeadlessAgentLimits(
+                    MaxSteps: 12,
+                    MaxTokensPerStep: 4096,
+                    Timeout: TimeSpan.FromMilliseconds(Math.Max(1_000, bundle.TimeoutMs))),
+                ct: ct).ConfigureAwait(false);
+            return new HiveNativeAgentExecution(result.Output, outputDirectory, result.Steps,
+                result.PromptTokens, result.CompletionTokens, result.TraceDigest);
+        }
+        finally
+        {
+            // The loop above has fully returned (or thrown) by this point -- no tool call from
+            // it can still be in flight, which is exactly the precondition
+            // NativeWorkerBrowserToolProfile.SessionCleanup's own doc comment requires.
+            await browserCleanup.DisposeAsync().ConfigureAwait(false);
+        }
     }
 
     public async Task<HiveNativeAgentExecution> ExecuteContextFabricReaderAsync(

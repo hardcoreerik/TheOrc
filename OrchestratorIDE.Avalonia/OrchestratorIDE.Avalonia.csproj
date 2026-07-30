@@ -228,6 +228,7 @@
     <Compile Include="..\OrchestratorIDE\Services\Hive\WorkerCapabilityDetector.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\CampaignPackCatalog.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\NativeWorkerToolProfile.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Hive\NativeWorkerBrowserToolProfile.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\ContainerPackRunner.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\CampaignTemplates.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveEventBus.cs" />
