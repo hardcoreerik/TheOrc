@@ -332,54 +332,109 @@ Build clean, full 717/730-green suite (9 new, 0 regressed), `grok-review -Mode d
 landing (one follow-up round: the stale doc-comment claim above, plus a test-isolation fix adding
 a `[SetUp]` reset alongside the original `[TearDown]`-only one).
 
-### Phase 1a — Browser automation, interactive surface (OrcChat/Chat/Swarm)
+### Phase 1a — Browser automation, interactive surface (OrcChat/Chat/Swarm) — **LANDED 2026-07-30**
 
-**Scope:** `BrowserSession` (§2.2), `BrowserTools.cs` (§2.3), `ApprovalQueue` wiring for
-navigate/download, `PathSandbox` wiring for download destinations, ReAct XML prompt instructions
-(`OrcChatToolCatalog`-equivalent) for OrcChat, JSON-brace-compatible schema for the native
-runtime/`AgentLoop` path.
+**Scope, as actually built:** `BrowserSession` (`OrchestratorIDE/Core/Browser/BrowserSession.cs`) --
+headless Chromium, navigate/click/type/waitFor/extractText/screenshot/download, lifecycle
+discipline mirroring `LlamaServerManager`, a `_faulted` guard that refuses further use after a
+cancelled operation rather than risking silent corruption (found necessary while testing --
+`Task.WaitAsync(ct)` stops awaiting but doesn't abort the real in-flight Playwright call).
+`BrowserTools.cs` (`OrchestratorIDE/Tools/BrowserTools.cs`) -- the seven `ToolDefinition`s, wired
+into all three interactive registration call sites (`MainWindow.RegisterAllTools`,
+`OrcChatToolCatalog.CreateWorkspaceTools`, `SwarmSession.BuildWorkerToolRegistry`), each with the
+approval posture its own approval-queue wiring actually supports (`requireApprovalForNavigateAndDownload`
+parameter -- true where a real UI is wired, false where the registry+queue pair has no
+`ApprovalRequested` subscriber and would otherwise hang forever under `Guarded` trust).
 
-**Verify:**
-- A real (non-mocked) end-to-end test: launch a headless `BrowserSession`, navigate to a
-  deterministic local fixture page (a static HTML file served from a test-local `HttpListener`,
-  same pattern `HiveWorkerAgentTests` already uses for a fake Warchief — no external network
-  dependency), click/type/extract, capture a screenshot, assert the extracted text and that the
-  screenshot file exists and is non-trivial in size.
-- Cancellation test: a `BrowserSession` operation given an already-cancelled token returns/throws
-  promptly and the underlying browser process is confirmed gone afterward (matches this session's
-  own established convention — see `HiveWorkerAgentTests.TryCancelTask_OnATaskActuallyInFlight_
-  ReportsCancelledNotFailed` for the "wait for the operation to actually start, then cancel,
-  then assert the real terminal state" pattern rather than a fixed-sleep guess).
-- Approval test: `browser_navigate` to a fresh origin sets `RequiresApproval`; a second navigate
-  within the same approved origin does not re-prompt; `browser_download` always prompts regardless
-  of origin.
-- Timeout test: `WaitForAsync` on a selector that never appears returns `false` within its own
-  bounded timeout, does not hang the whole tool call indefinitely.
+**Deviations from this section's original plan, and why:**
+- **No `RequiresApproval` per-origin smart-gating.** The original design ("only prompt for the
+  first navigation to a new origin") needs dynamic, argument-dependent approval decisions
+  `ToolRegistry.ExecuteAsync`'s fixed pre-handler `RequiresApproval` check can't express without
+  new plumbing. Simplified to "every navigate/download call prompts" (matches `ShellTools`' own
+  unconditional-approval precedent) -- conservative and safe by construction, over-prompting
+  rather than under-prompting.
+- **No bespoke ReAct XML prompt instructions were written.** `OrcChatToolCatalog.BuildReactInstructions`
+  already generates its teaching text generically from whatever tools are registered -- adding
+  `browser_*` to `TopToolNames` was sufficient, no new prompt-authoring needed.
 
-### Phase 1b — Browser automation, headless/HIVE surface
+**Verified, real evidence (not aspirational):**
+- `BrowserSessionTests.cs` (11 tests): a real headless Chromium instance driven against a local
+  `HttpListener` fixture page -- navigate/click/type/wait/extract/screenshot all exercised for
+  real, plus a real path-traversal attempt against `DownloadAsync` (confirmed confined regardless
+  of what a malicious Content-Disposition filename claims) and the poisoned-session-refuses-reuse
+  behavior after a genuine cancellation.
+- `BrowserToolsTests.cs` (4 tests): the FULL tool-call path through `ToolRegistry.ExecuteAsync`
+  (not `BrowserSession` directly) -- a real navigate->extract->screenshot loop, sandbox blocking
+  for an out-of-workspace screenshot path, and `Guarded` trust level's `ApprovalRequested` genuinely
+  firing and gating execution (not just `AutoApprove`-bypassed like the other tests).
+- Six grok-review rounds against the real implementation found and fixed real bugs before landing
+  (see the git history for `feat: Phase 1a of Browser Automation spec` and its companion commit for
+  `BrowserSession` -- capability-detection flapping, a `Directory.CreateDirectory("")` crash on a
+  bare screenshot filename, a download path-traversal gap, a `SessionDisposable` gate-disposal race
+  that could orphan a real Chromium process, and a per-workspace-switch session leak in
+  `MainWindow.RegisterAllTools`).
+- Full suite 732/745 green at Phase 1a's own landing point; zero orphaned Chromium processes
+  confirmed via `Get-Process` after repeated test runs.
 
-**Scope:** `HeadlessBrowserPolicy` (§2.4), the headless tool factory, wiring into
-`HiveNativeRoleExecutorAdapter`'s tool-list construction alongside the existing five
-`NativeWorkerToolProfile` tools.
+**Explicitly NOT done (documented, not silently skipped):** cancellation only stops *awaiting* the
+underlying Playwright call, not the call itself (Playwright's C# API has no cancellation-token
+support natively) -- bounded, documented on `BrowserSession`'s own class comment. A narrow,
+low-probability race remains where an in-flight call can hit a disposed session mid-workspace-switch,
+surfacing as a clean `[ERROR]` result rather than corruption -- accepted, documented on
+`MainWindow.axaml.cs`'s own disposal call site.
 
-**Verify:**
-- Policy test: a navigate call to an origin NOT in the task's allow-list is denied with a policy
-  message (not silently ignored, not a crash), mirroring `NativeWorkerToolProfile.Resolve()`'s own
-  `UnauthorizedAccessException`-on-path-escape precedent.
-- Confinement test: a download attempt writes only inside the task's `outputDirectory`, same
-  assertion shape as `NativeWorkerToolProfile`'s existing file-tool sandboxing tests.
-- Integration test: a `HeadlessAgentLoop.ExecuteAsync` run against a real (test-fixture) page,
-  through the full loop (not just the tool function in isolation), asserting the loop's own
-  `HeadlessAgentResult`/`HeadlessAgentEvent` trace records the browser actions taken.
+### Phase 1b — Browser automation, headless/HIVE surface — **LANDED 2026-07-30**
 
-### Cross-cutting exit criteria (Function Pack Plan's own Phase 1 bar, restated concretely)
+**Scope, as actually built:** `HeadlessBrowserPolicy` and `NativeWorkerBrowserToolProfile.Create`
+(`OrchestratorIDE/Services/Hive/NativeWorkerBrowserToolProfile.cs`) -- deny-by-default (empty
+allowed-origins list, downloads disabled), matching `NativeWorkerToolProfile`'s own "no run_shell,
+no fetch_url" precedent of simply omitting capabilities a task wasn't scoped for. `Create` returns
+`([], NoopDisposable)` entirely -- not tools that fail at call time -- when `BrowserAutomation`
+isn't currently available, mirroring the interactive surface's own `GetForProfile` filtering.
+Wired into `HiveNativeRoleExecutorAdapter.ExecuteAgentAsync`, disposed in a `finally` right after
+the loop fully returns (a headless task has a natural, well-defined lifetime the interactive
+surface's cross-conversation registry doesn't).
+
+**Deviation from this section's original plan:** every policy violation returns a STRING result
+(`[POLICY BLOCKED] ...`) rather than throwing, unlike `NativeWorkerToolProfile.Resolve()`'s own
+`UnauthorizedAccessException`-on-escape convention this section originally said to mirror.
+Confirmed while implementing that neither `HeadlessAgentLoop.ExecuteAsync` nor
+`HiveNativeRoleExecutorAdapter.ExecuteAgentAsync` wrap an individual tool call in a try/catch -- an
+uncaught exception would abort the whole multi-step task rather than let the model see a policy
+message and try something else. Pre-existing risk in `NativeWorkerToolProfile` too, not introduced
+here, but deliberately not extended into this new code.
+
+**Also not yet wired (documented, real follow-up):** `HiveNativeRoleExecutorAdapter` constructs
+`NativeWorkerBrowserToolProfile.Create` with the DEFAULT policy (deny-all) -- `HiveTaskBundle` has
+no field yet for a campaign/task to grant specific origins, so every deployed HIVE task's
+`browser_navigate` is currently policy-blocked for every URL in production, even though the full
+mechanism is built, wired, and tested. Threading real per-task origin grants through
+`HiveTaskBundle` and wherever campaigns are actually defined is real follow-up work.
+
+**Verified, real evidence:** `NativeWorkerBrowserToolProfileTests.cs` (8 tests) -- capability-gated
+empty-list behavior, deny-by-default policy blocking, an explicit origin grant actually working,
+the navigation cap, download policy blocking, sandbox-escape blocking for screenshot paths, and
+(the actual Phase 1b exit criterion) one test running the full `HeadlessAgentLoop.ExecuteAsync`
+loop against a scripted fake `IRoleRuntime` (matching `CampaignEngineTests`' own established
+pattern) that navigates then extracts real page text and asserts the loop correctly fed each real
+tool result back into conversation history. Full suite 740/753 green; zero orphaned Chromium
+processes confirmed after the run.
+
+### Cross-cutting exit criteria (Function Pack Plan's own Phase 1 bar, restated concretely) — **MET at the registration/tool-execution layer, not full manual UI verification**
+
+(grok-review caught the original "MET" heading overclaiming relative to this section's own body
+text below, which already lists what wasn't done -- corrected rather than left inconsistent.)
 
 - OrcChat can perform a multi-step browse/extract/screenshot loop end-to-end on the native runtime
-  — demonstrated by the Phase 1a end-to-end test above, run through the actual OrcChat/ChatEngine
-  path, not just `BrowserTools` in isolation.
-- Headless tests cover at least one deterministic site flow — Phase 1b's integration test.
-- Cancellation and timeout behavior are enforced — Phase 1a's cancellation/timeout tests, on both
-  surfaces.
+  — `BrowserToolsTests.FullBrowseExtractScreenshotLoop_RunsEndToEnd_ThroughToolRegistry`, run
+  through the actual `ToolRegistry`/`OrcChatToolCatalog` wiring OrcChat uses, not `BrowserSession`
+  in isolation. (Full OrcChat UI click-through was not separately performed this round -- the
+  registration and tool-execution path OrcChat actually calls is what's verified.)
+- Headless tests cover at least one deterministic site flow —
+  `NativeWorkerBrowserToolProfileTests.HeadlessLoop_NavigatesAndExtracts_ThroughTheRealAgentLoop`.
+- Cancellation and timeout behavior are enforced — `BrowserSessionTests`' cancellation/timeout
+  tests (interactive surface; the headless surface reuses the same `BrowserSession` underneath, so
+  the same behavior applies, not separately re-tested).
 
 ---
 
@@ -437,7 +492,7 @@ These are genuine forks, not things this spec can responsibly pick unilaterally:
 | Function Pack Plan phase | This spec's phase | Status |
 |---|---|---|
 | Phase 0 — Contracts and capability model | §3 Phase 0 | **Landed 2026-07-30** (interactive surface only — see §3 Phase 0's own correction) |
-| Phase 1 — Browser automation pack | §3 Phase 1a (interactive) + 1b (headless) | Not started |
+| Phase 1 — Browser automation pack | §3 Phase 1a (interactive) + 1b (headless) | **Landed 2026-07-30 at the mechanism/registration/tool-execution layer** — both surfaces built, wired into production call sites, and tested end-to-end through `ToolRegistry`/`HeadlessAgentLoop` (see §3's own "Verified, real evidence" for each). NOT done: manual click-through of the actual OrcChat UI, and HIVE production tasks get a deny-all policy until `HiveTaskBundle` gains real per-task origin-grant plumbing (§3 Phase 1b's own "Also not yet wired" note) — the underlying tool is fully built and tested, but effectively inert in production until that follow-up lands. |
 | Phase 2 — Image/OCR/multimodal | Out of scope here (§0.3) | Not started |
 | Phase 3 — Workspace intelligence | Out of scope here (§0.3) | Not started |
 | Phase 4 — Bounded shell/build/test | Out of scope here (§0.3) | Not started |
