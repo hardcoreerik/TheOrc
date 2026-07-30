@@ -954,19 +954,19 @@ before or after — same "no mockable seam for MainWindow's runtime construction
 `RuntimeOrchestrator.cs`'s own class doc documents — so this is build + careful code review
 against the working Daemon reference, not an end-to-end GUI test run).
 
-**Second MINOR finding, `IsWarchief` half closed 2026-07-30, `TryCancelTask` half still open.**
-The "blocked on `HiveIdentity`'s private constructor, only reachable via disk-touching static
-factories" claim was checked for staleness rather than trusted, and turned out to be stale:
-`HiveIdentity.CreateEphemeral()` and `HivePeerStore.CreateForTest()` (both `internal`, both
-already used elsewhere for exactly this purpose, both zero disk I/O) construct a real
-`HiveElectionService` safely. `HiveNodeServerAuthorizationTests.cs` now covers `IsWarchief`'s
-positive match (`nodeId` equals `ElectionService.WarchiefNodeId` → true) and the adjacent
-negative case a live `ElectionService` alone must not satisfy (a *different* `nodeId` → still
-false — peer-local and non-transitive, not "any caller with a configured election passes").
-`TryCancelTask`'s actual-cancellation path remains genuinely open — a different, real blocker:
-it needs a task actually claimed in flight via `ClaimAndExecuteAsync`'s full HTTP claim/lease
-round-trip, closer in shape to `RunLoop_Survives_A_Timed_Out_Lease_Poll`'s `TcpListener`-backed
-fake Warchief than to an identity-construction problem.
+**Second MINOR finding, both halves closed 2026-07-30.** `IsWarchief`'s positive match closed
+first (see above: the "blocked on `HiveIdentity`'s private constructor" claim was stale --
+`CreateEphemeral()`/`CreateForTest()` already existed). `TryCancelTask`'s actual-cancellation
+path closed the same day: `HiveWorkerAgentTests.TryCancelTask_OnATaskActuallyInFlight_
+ReportsCancelledNotFailed` runs a real `HttpWorkerAgent.Start()` against a fake Warchief (bare
+`HttpListener`, not the real `HiveNodeServer` -- this only needs to hand out one lease and
+accept one fail-POST, not validate HMAC auth) that leases a task backed by a `Runtime` whose
+`StreamCompletionAsync` blocks on the cancellation token indefinitely via
+`TaskCompletionSource`-signalled synchronization (waits for generation to *actually* start
+before cancelling, not a fixed sleep guess). Asserts the terminal report is "Cancellation
+reported to Warchief," never "Failure reported" -- the exact distinction PR #94's grok-review
+fix (above) exists to preserve, now covered end-to-end rather than only unit-tested in
+isolation. Verified stable across 5 repeated runs (~585ms each, no flakiness) before landing.
 
 **2026-07-29 (later same day) — item 1 fully closed for real, but only after live testing
 surfaced a second, deeper bug the grok BLOCKER fix alone didn't cover.** Built
