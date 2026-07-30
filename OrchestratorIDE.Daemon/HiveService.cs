@@ -166,6 +166,15 @@ public sealed class HiveService : BackgroundService
                 : $"http://127.0.0.1:{_cfg.TaskQueuePort}";
 
             IHiveNativeRoleExecutor? nativeExecutor = null;
+            // Native Runtime v2.0 (docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-1, "minor
+            // evidence-quality gap noted, not fixed"): NativeBackendBootstrap.EnsureConfigured's
+            // verdict below was logged but never threaded into WorkerCapabilityDetector.DetectAsync,
+            // whose verifiedNativeBackend parameter defaults to "cpu" -- so every job's
+            // Attestation.Backend/WorkerCapabilities.NativeBackend read "cpu" even on a confirmed
+            // CUDA box, and FreeVramMb (same parameter gates it) silently read 0. Declared here,
+            // outside the branch below, so it stays "cpu" (correct) when native isn't configured
+            // at all, and gets the real verdict only when backend selection actually ran.
+            var verifiedNativeBackend = "cpu";
             if (nativeReady && _cfg.NativeVramMb <= 0)
             {
                 // Native Runtime v2.0 Phase A (docs/NATIVE_RUNTIME_V2_SPEC.md §1.2 Gap 2):
@@ -199,6 +208,7 @@ public sealed class HiveService : BackgroundService
                 // CPU backend is a Warning with the full selection log — never silent.
                 var backend = NativeBackendBootstrap.EnsureConfigured(
                     line => _log.LogDebug("[llama-native] {Line}", line));
+                verifiedNativeBackend = backend.SelectedCuda ? "cuda12" : "cpu";
                 if (backend.CudaCapableGpu && !backend.SelectedCuda)
                 {
                     _log.LogWarning("Native backend: {Verdict}", backend.Verdict);
@@ -310,7 +320,7 @@ public sealed class HiveService : BackgroundService
             var installedPacks = CampaignPackCatalog.ResolveInstalled(_cfg.AlienSearchImage);
             _worker.Capabilities = await WorkerCapabilityDetector.DetectAsync(
                 _cfg.NodeName, depot, _cfg.NativeVramMb, _taskQueue.ArtifactStore,
-                installedPacks, stoppingToken);
+                installedPacks, stoppingToken, verifiedNativeBackend);
             if (_worker.Capabilities.ContainerEngine.Length > 0 &&
                 installedPacks.Any(p => p.ExecutionKind == HiveExecutionKinds.ContainerPack))
             {

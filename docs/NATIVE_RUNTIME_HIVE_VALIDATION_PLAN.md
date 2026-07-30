@@ -186,12 +186,22 @@ ExecuteAgentAsync` never sees or disposes a conversation handle — that lifecyc
 internal), not in the HIVE dispatch layer this campaign has been testing — genuinely out of
 scope to root-cause further inside this campaign. **Filed as an open follow-up, not fixed here.**
 
-**Minor evidence-quality gap noted, not fixed**: every job's `Attestation.Backend` reports `"cpu"`
-even though the Daemon's own startup log confirms `"CUDA backend selected (cuda12...)"` on both
-boxes — `HiveService.cs` calls `NativeBackendBootstrap.EnsureConfigured` for logging only and
-never passes its verdict into `WorkerCapabilityDetector.DetectAsync`'s `verifiedNativeBackend`
-parameter (which defaults to `"cpu"`). Doesn't affect whether native execution happened
-(`RuntimeName` already proves that), just makes the `Backend` field in evidence read wrong.
+**Minor evidence-quality gap, closed 2026-07-30**: every job's `Attestation.Backend` reported
+`"cpu"` even though the Daemon's own startup log confirms `"CUDA backend selected (cuda12...)"`
+on both boxes — `HiveService.cs` called `NativeBackendBootstrap.EnsureConfigured` for logging
+only and never passed its verdict into `WorkerCapabilityDetector.DetectAsync`'s
+`verifiedNativeBackend` parameter (which defaults to `"cpu"`). Didn't affect whether native
+execution happened (`RuntimeName` already proves that), but did make the `Backend` field in
+evidence read wrong -- and, less obviously, silently zeroed `WorkerCapabilities.FreeVramMb` too,
+since that field is gated by the same parameter. Fixed by declaring `verifiedNativeBackend`
+outside the native-configured branch (defaulting to `"cpu"`, correct when native isn't
+configured at all) and setting it to `backend.SelectedCuda ? "cuda12" : "cpu"` right where
+`backend` is computed, then threading it into the `DetectAsync` call. `WorkerCapabilityDetectorTests.cs`
+(new) locks down `DetectAsync`'s own contract for this parameter. The Avalonia GUI's separate
+`BuildRequiredNativeHiveWorkerRuntime` path computes an equivalent backend verdict but never
+returns it to its own `DetectAsync` call site either — a structurally different, bigger fix (the
+verdict is local to a different method with no return path today), left open rather than folded
+into this pass.
 
 **2026-07-21 (later same session) — root cause found and fixed; HV-1 CLOSED for real, both
 boxes, at the original full context (8192).** The "reservation never releases" framing above was
