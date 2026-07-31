@@ -40,6 +40,10 @@ public static class OrcChatToolCatalog
         "browser_extract",
         "browser_screenshot",
         "browser_download",
+        "model3d_create",
+        "model3d_status",
+        "model3d_cancel",
+        "model3d_open",
     ];
 
     /// <param name="onDiffPreview">
@@ -72,6 +76,14 @@ public static class OrcChatToolCatalog
         // through its own OnApprovalRequired callback -- a real approval mechanism now exists,
         // so there's no more reason to leave this false.
         BrowserTools.Register(registry, workspaceRoot);
+        var caseForgeUrl = Environment.GetEnvironmentVariable("THEORC_CASEFORGE_URL");
+        if (Uri.TryCreate(caseForgeUrl, UriKind.Absolute, out var caseForgeUri))
+        {
+            Uri.TryCreate(Environment.GetEnvironmentVariable("THEORC_CASEFORGE_WORKSPACE_URL"),
+                UriKind.Absolute, out var workspaceUri);
+            CaseForgeTools.Register(registry, caseForgeUri,
+                Environment.GetEnvironmentVariable("THEORC_CASEFORGE_TOKEN"), workspaceUri);
+        }
 
         var tools = new List<ToolDefinition>();
         foreach (var name in TopToolNames.Where(n => n != "web_search" && n != "fetch_page"))
