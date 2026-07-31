@@ -268,6 +268,8 @@ public partial class AgentPanel : UserControl
             OnStatusChanged?.Invoke("Ready");
             ScrollToBottom();
             ConversationChanged?.Invoke();
+            _cts.Dispose();
+            _cts = null;
         }
     }
 

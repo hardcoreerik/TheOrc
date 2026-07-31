@@ -13,20 +13,23 @@
 
 | Runtime | Current status | Default? | How you switch to it | Fallback behavior | Recommended use |
 |---|---|---|---|---|---|
-| **Ollama** | `production` (fallback path) | No, as of 2026-07-29 | `AppSettings.Backend = Ollama`, or automatic on native fallback | — it *is* the fallback target for the other lanes | Onboarding, model management, current specialist deployment (`theorc-toolcaller`) |
-| **Native in-process** | `production` | **Yes**, as of 2026-07-29 (`NATIVE_RUNTIME_V2_SPEC.md` §6 flip) | On by default; Settings → `ExperimentalNativeMainChatEnabled` / `ExperimentalNativeHiveWorkerEnabled` remain as the opt-OUT toggles | Falls back to Ollama automatically on load/infra failure — see [Fallback mechanics](#fallback-mechanics) below | General chat/swarm/HIVE use, Context Fabric, future Foundry specialists |
+| **Ollama** | `production` (explicit legacy lane) | No, as of 2026-07-29 | Disable native main chat, then select `AppSettings.Backend = Ollama` | No automatic cross-runtime fallback | Onboarding, model management, current specialist deployment (`theorc-toolcaller`) |
+| **Native in-process** | `production` | **Yes**, as of 2026-07-29 (`NATIVE_RUNTIME_V2_SPEC.md` §6 flip) | On by default; Settings → `ExperimentalNativeMainChatEnabled` / `ExperimentalNativeHiveWorkerEnabled` remain as the opt-OUT toggles | Fails closed on prerequisite, admission, load, or execution failure | General chat/swarm/HIVE use, Context Fabric, future Foundry specialists |
 | **llama.cpp server** | `opt-in` | No | Settings → `AppSettings.Backend = LlamaCpp` (`InferenceBackend` enum) | Configurable; not wrapped by `NativeWithFallbackRuntime` today | General local inference without any Ollama dependency |
 | **Remote HIVE runtime** | `opt-in`, per-workload | No | HIVE node targeting in Chat/Swarm; campaign dispatch | Depends entirely on the workload's own retry/requeue policy | Multi-node execution, distributed campaigns |
 
 None of these is inherently "more local" than another — all four run on infrastructure you control. The distinction is architectural (in-process vs. subprocess vs. daemon vs. remote node), not a privacy one.
 
-## Fallback mechanics (what actually happens today)
+## Runtime boundary behavior (what actually happens today)
 
-`OrchestratorIDE/Core/Runtime/NativeWithFallbackRuntime.cs` is the real mechanism behind "native, falling back to Ollama":
+Native main chat is fail-closed. `MainWindow.axaml.cs` still uses
+`NativeWithFallbackRuntime` as the sequencing wrapper, but supplies
+`NoFallbackRuntime` as its secondary runtime. That preserves the wrapper's safeguards against
+mixing output from two runtimes while ensuring native initialization, admission, model-load,
+and execution failures surface as explicit errors instead of becoming Ollama output.
 
-- **Fallback is fail-closed, not fail-open.** Only a narrow, explicit exception allowlist (`InvalidOperationException`, `ObjectDisposedException`, `TimeoutException`) triggers fallback. `RuntimeAdmissionDeniedException` — the scheduler deliberately saying "no VRAM room for this role right now" — is explicitly excluded, so a capacity problem surfaces as a real error instead of being silently papered over by rerouting to Ollama.
-- **Fallback only happens before the first observable output.** Once a text token, a tool call, or a usage callback has reached the caller, a later native failure propagates as an error instead of splicing the fallback backend's output onto a partially-generated turn.
-- **When it does happen, it's logged as a visible warning** — `MainWindow.axaml.cs` wires `onFallback` to `AddActivity(ActivityKind.Warning, "Native Runtime", ...)`, so a fallback is not silent. It IS transient (an Activity Log line, not a persistent status indicator) — see the open gap below.
+Ollama remains a supported runtime, but only through an explicit opt-out from native main chat.
+There is no automatic native-to-Ollama transition in the production main-chat construction path.
 
 ## What "for benchmarks, never silently substitute" actually looks like today
 
@@ -34,7 +37,7 @@ Context Fabric's benchmark/report contracts (`ContextFabricContracts.cs`, `Conte
 
 **Corrected 2026-07-30 — this section previously overstated the gap.** All four CF report-producing runners (`ContextFabricBaselineRunner`, `ContextFabricFeasibilityRunner`, `ContextFabricBenchmarkExpansionRunner`; `ContextFabricReportWriter.cs` renders the same shape) hold `IRoleRuntime`, never `IModelRuntime`/`NativeWithFallbackRuntime` — verified by reading each `_runtime` field's declared type. `NativeWithFallbackRuntime` implements `IModelRuntime`; it wraps an `IRoleRuntime` as a dependency, it does not implement that interface itself. So a CF report's `RuntimeName` can only ever be the concrete `IRoleRuntime`'s own name (e.g. `"NativeRoleRuntime"`) — it is **structurally impossible** for a CF report to say `"NativeWithFallback"`, because none of these runners ever hold one. This is independently confirmed by `HiveWorkerAgent`'s own comment on the HIVE dispatch side: *"CF reader pack requires the native role executor — it has no generic-LLM fallback path"* — CF/`native_agent` execution is fail-closed by design, with no Ollama fallback reachable in this call path at all, whether run through the GUI or over HIVE.
 
-**Consequence**: "aggregate per-call fallback counts into CF report output" is not an open implementation gap — there is no fallback happening in this path for a counter to report. Adding a `FallbackCalls` field to the four CF report record types would always read 0, which is worse than no field at all: it implies a check ran and found nothing, when the real answer is that the check does not apply here. `NativeWithFallbackRuntime.FallbackCount` (Native Runtime v2.0 §5.4, landed 2026-07-30) covers main chat, the one place a native→Ollama fallback *can* actually happen in production today. `HiveWorkerAgent.FallbackCount` was also added with the same shape but — per a 2026-07-30 adversarial review — is currently unreachable dead code: every construction path (`HiveService.cs`, `MainWindow.axaml.cs`) passes `Runtime = null`, so `ExecuteTaskAsync`'s fail-closed check is always true and the fallback branch never runs. It'll activate the moment some future HIVE worker path wires a real fallback `Runtime`, with no code change needed there, but don't count it as a second live surface today.
+**Consequence**: "aggregate per-call fallback counts into CF report output" is not an open implementation gap — there is no fallback happening in this path for a counter to report. Adding a `FallbackCalls` field to the four CF report record types would always read 0, which is worse than no field at all: it implies a check ran and found nothing, when the real answer is that the check does not apply here. `NativeWithFallbackRuntime.FallbackCount` remains available for an explicitly configured compatibility wrapper, but production native main chat supplies `NoFallbackRuntime`, so it cannot become Ollama output. `HiveWorkerAgent.FallbackCount` was also added with the same shape but — per a 2026-07-30 adversarial review — is currently unreachable dead code: every construction path (`HiveService.cs`, `MainWindow.axaml.cs`) passes `Runtime = null`, so `ExecuteTaskAsync`'s fail-closed check is always true and the fallback branch never runs. It'll activate the moment some future HIVE worker path wires a real fallback `Runtime`, with no code change needed there, but don't count it as an active surface today.
 
 ## What the UI shows today vs. what the review asked for
 
@@ -43,14 +46,14 @@ The review's ask: the UI should always show requested runtime, actual runtime, m
 | Signal | Shown today? | Where |
 |---|---|---|
 | Requested runtime | Yes | `AppSettings.Backend` / the experimental-toggle state in Settings |
-| Actual runtime (per call) | Partially | Activity Log warning fires *only when a fallback happens* — the steady-state "still on native" case has no persistent indicator |
+| Actual runtime (per call) | Partially | Settings reports native depot/budget readiness or probes the explicitly selected legacy runtime; the steady-state runtime has no persistent per-call indicator |
 | Model + quantization | Yes, for Ollama/depot models | Models panel, Model Benchmark window |
-| Whether fallback occurred | Yes, transiently, now with a running count | Activity Log message includes `NativeWithFallbackRuntime.FallbackCount` ("fallback #N this session"), added 2026-07-30 -- still only visible in the moment the line appears, not a persistent indicator |
-| Why fallback occurred | Yes | The exception message is passed into the Activity Log warning |
-| Whether the workload permits fallback | Implicit only | `RuntimeAdmissionDeniedException` exclusion means capacity-denial never silently falls back, but this isn't surfaced as a distinct "this workload requires native, no fallback" indicator anywhere in the UI |
+| Whether fallback occurred | Not applicable to native main chat | Automatic cross-runtime fallback is prohibited in the production construction path |
+| Why native failed | Yes | The native error is returned explicitly and the initialization path records an Activity Log warning |
+| Whether the workload permits fallback | Partially | Native main chat and native HIVE execution are fail-closed; the Settings copy describes the native no-fallback boundary |
 
-A persistent runtime-status indicator (not just a scrollable log line) and workload-level fallback-permission surfacing remain open UI work.
+A persistent per-call runtime-status indicator remains open UI work.
 
 ## Onboarding language
 
-Quick Start and the installation guide default to Ollama because it is genuinely the easiest path today (`production` status per `CURRENT_STATE.yaml`) — that default is not being changed by this document. What changes: both docs now link here so a reader learns native/llama.cpp are real, supported first-class lanes rather than discovering `InferenceBackend.LlamaCpp` by reading source code.
+Quick Start and the installation guide may still use Ollama as the easiest legacy setup (`production` status per `CURRENT_STATE.yaml`), but application runtime selection now defaults to native. Both docs should link here so a reader understands that native, Ollama, llama.cpp server, and remote HIVE are distinct, explicitly selected lanes.

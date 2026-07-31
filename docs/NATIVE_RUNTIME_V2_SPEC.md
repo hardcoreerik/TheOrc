@@ -63,7 +63,7 @@ must diverge, it says so explicitly (see [§0.4](#04-known-contradictions--stale
 | Source | What it owns |
 |---|---|
 | [`docs/RUNTIME_PHASE0_SPEC.md`](RUNTIME_PHASE0_SPEC.md) | The runtime contracts (`IModelRuntime`/`ILocalModelRuntime`), the DI decision (§4), the LoRA hot-swap spike verdict (§7), and the `AdapterManager` per-role-context design (§7a). **This spec builds on it; it does not re-decide those.** |
-| [`docs/RUNTIME_SUPPORT_MATRIX.md`](RUNTIME_SUPPORT_MATRIX.md) | The four runtime lanes, which is default/opt-in/fallback, and the real `NativeWithFallbackRuntime` fallback mechanics. |
+| [`docs/RUNTIME_SUPPORT_MATRIX.md`](RUNTIME_SUPPORT_MATRIX.md) | The four runtime lanes, which is default/opt-in, and the fail-closed boundary between native and explicit legacy runtimes. |
 | [`docs/CURRENT_STATE.yaml`](CURRENT_STATE.yaml) | The machine-readable "is X actually shipped?" status vocabulary. `native_runtime: opt-in`. |
 | [`docs/ROADMAP.md`](ROADMAP.md) | The v2.0 phase table (Phases 0–5) and ranked function priorities. |
 | [`docs/NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md`](NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md) | The adjacent, **separate** track: browser/OCR/workspace/shell/artifact function packs. Related but out of scope here — this spec hardens the runtime *foundation*, not the tool surface on top of it. |
@@ -748,20 +748,14 @@ Native contexts/sessions/models/adapters have explicit ownership and determinist
 - If native prerequisites, admission, model load, adapter load, or execution fail, the system
   returns an **explicit native-runtime failure** with enough diagnostic context to
   investigate (binding, budget, decision, KV diagnostics, last prompt path).
-- **[Verified] existing behavior:** `NativeWithFallbackRuntime.ShouldFallback` excludes
-  `RuntimeAdmissionDeniedException` from fallback and only falls back before first observable
-  output (`NativeWithFallbackRuntime.cs:178-192`). This is the correct direction and must be
-  preserved.
-- **[Verified, closed 2026-07-30 — corrected same day]:** `NativeWithFallbackRuntime` (main chat,
-  the only place a native-to-Ollama fallback can currently happen in production) exposes
-  `FallbackCount`/`LastFallbackReason`, lifetime counters incremented alongside the existing
-  `_onFallback` Activity Log callback. First landed with zero production readers — the counters
-  existed but nothing displayed them, so the operator-visible signal was still just the one-off
-  Activity Log line, same as before this work (an adversarial grok-review pass caught this: "the
-  original gap is not actually closed"). Fixed by folding the cumulative count into that same
-  Activity Log message itself (`BuildAgentLoopRuntime` in `MainWindow.axaml.cs`, e.g. "fallback #3
-  this session") rather than building a new UI surface for a single running total — the counter is
-  now genuinely observable, not just present on the object.
+- **[Verified, updated 2026-07-31]:** production native main chat uses
+  `NativeWithFallbackRuntime` with `NoFallbackRuntime` as its secondary runtime. The wrapper still
+  prevents mixed output after the first observable token/tool/usage event, but native
+  initialization, admission, model-load, adapter-load, and execution failures now surface as
+  explicit errors; none can produce Ollama output.
+- `NativeWithFallbackRuntime.FallbackCount`/`LastFallbackReason` remain useful for an explicitly
+  configured compatibility wrapper and its tests. They are not evidence that production main
+  chat permits native-to-Ollama fallback.
 - **[Verified, correction 2026-07-30 — adversarial grok-review pass, this claim was wrong when
   first written]:** `HiveWorkerAgent` was also given the same `FallbackCount`/`LastFallbackReason`
   shape, described at the time as covering "legacy-agent HIVE tasks" as the second place a
@@ -779,10 +773,10 @@ Native contexts/sessions/models/adapters have explicit ownership and determinist
   ever wires a real `Runtime` fallback target — no code change needed there — but until that
   happens, treat `HiveWorkerAgent.FallbackCount` as tested-but-currently-unreachable, not as a
   second active fallback surface. Both mirror `RuntimeOrchestrator`'s existing counter pattern.
-  Neither changes *when* a fallback is permitted — Phase A's fail-closed admission and Phase D's
-  negative test still enforce that a native-routed campaign/CF task never silently becomes an
-  Ollama job.
-  - Verified: `NativeWithFallbackRuntimeTests` (3 new/extended cases) and
+  Neither changes the production boundary — Phase A's fail-closed admission and Phase D's
+  negative test still enforce that a native-routed chat/campaign/CF task never silently becomes
+  an Ollama job.
+  - Verified: `NativeWithFallbackRuntimeTests` (including the disabled-fallback regression) and
     `HiveWorkerAgentTests.RecordFallback_IncrementsCountAndTracksMostRecentReason`.
 
 ---

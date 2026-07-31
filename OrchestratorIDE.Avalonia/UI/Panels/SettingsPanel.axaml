@@ -112,19 +112,8 @@
                       HorizontalScrollBarVisibility="Disabled">
             <StackPanel Margin="0,4,0,16">
 
-                <!-- ── OLLAMA ──────────────────────────────────────────── -->
-                <TextBlock Text="OLLAMA" Classes="SectionHeader"/>
-
-                <StackPanel Classes="SettingRow">
-                    <TextBlock Text="Host URL" Classes="SettingLabel"/>
-                    <TextBlock Text="Where your Ollama instance is running" Classes="SettingHint"/>
-                    <TextBox x:Name="TbOllamaHost"
-                             Classes="SettingInput"
-                             Text="http://localhost:11434"/>
-                </StackPanel>
-
                 <!-- ── STORAGE ─────────────────────────────────────────── -->
-                <TextBlock Text="STORAGE" Classes="SectionHeader" Margin="0,12,0,0"/>
+                <TextBlock Text="STORAGE" Classes="SectionHeader"/>
 
                 <controls:StoragePathRow x:Name="RowModelStorage"
                     Label="Model storage"
@@ -136,13 +125,271 @@
                     Hint="Used instead of the system temp folder when no workspace is open, and for transient files (self-update staging, Ollama model staging)."
                     BrowseTitle="Choose temp/scratch fallback folder"/>
 
-                <!-- ── INFERENCE BACKEND ──────────────────────────────── -->
-                <TextBlock Text="INFERENCE BACKEND" Classes="SectionHeader" Margin="0,12,0,0"/>
+                <!-- ── NATIVE RUNTIME ──────────────────────────────────── -->
+                <TextBlock Text="NATIVE RUNTIME — PRIMARY" Classes="SectionHeader" Margin="0,12,0,0"/>
+                <TextBlock Text="The in-process GGUF runtime OrcChat, the Agent panel, and HIVE actually run on. This is the default path, not a fallback -- when the toggles below are on, it loads models directly with no Ollama or llama-server.exe process involved, and the chat model dropdown is populated from what it finds here. If native generation fails, that surfaces as a visible error instead of silently completing on Ollama: a native failure is a gap to fix, not something to paper over. The LEGACY BACKEND section further down is only consulted when both toggles below are off."
+                           Classes="SettingHint" TextWrapping="Wrap" Margin="0,2,0,4"/>
+
+                <Border x:Name="BdrRuntimeStatus"
+                        Background="#141814" CornerRadius="4"
+                        BorderBrush="#2E3A2E" BorderThickness="1"
+                        Padding="12,10" Margin="8,4,8,4">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <TextBlock Text="⬡" Foreground="#76B900" FontSize="10"
+                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock x:Name="TbRuntimeStatus"
+                                       Text="Checking…"
+                                       Foreground="#CCA700" FontSize="11" FontWeight="Bold"/>
+                        </StackPanel>
+                        <TextBlock x:Name="TbRuntimeExplain"
+                                   Foreground="#5A6A4A" FontSize="10"
+                                   TextWrapping="Wrap" LineHeight="16"
+                                   Text="Loading…"/>
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Classes="SettingRow" Orientation="Horizontal">
+                    <Button x:Name="BtnRefreshRuntimeStatus"
+                            Content="↻  Refresh"
+                            Click="BtnRefreshRuntimeStatus_Click"
+                            Background="{StaticResource Br.Bg.Input}"
+                            Foreground="{StaticResource Br.Text.Primary}"
+                            FontSize="11" Padding="8,6"
+                            ToolTip.Tip="Re-check the configured native model depot and VRAM budget, or probe the legacy backend when native chat is disabled"/>
+                </StackPanel>
+
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <ToggleButton x:Name="TglNativeHiveWorker"
+                                      DockPanel.Dock="Right"
+                                      Theme="{StaticResource ToggleStyle}"
+                                      IsChecked="True"/>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Native HIVE worker" Classes="SettingLabel"/>
+                            <TextBlock Text="On by default. The HIVE worker runs entirely on the local ModelDepot/LLamaSharp role runtime -- there is no Ollama fallback wired in for this role; a load failure surfaces as a worker error, not a silent switch to a different backend."
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
+                            <Button x:Name="BtnStartHiveWorker"
+                                    Content="▶ Start"
+                                    Click="BtnStartHiveWorker_Click"
+                                    Background="{StaticResource Br.Bg.Input}"
+                                    Foreground="{StaticResource Br.Text.Primary}"
+                                    FontSize="11" Padding="8,6"
+                                    ToolTip.Tip="Start the HIVE worker now, without restarting the app"/>
+                            <Button x:Name="BtnStopHiveWorker"
+                                    Content="■ Stop"
+                                    Click="BtnStopHiveWorker_Click"
+                                    IsEnabled="False"
+                                    Background="{StaticResource Br.Bg.Input}"
+                                    Foreground="{StaticResource Br.Text.Primary}"
+                                    FontSize="11" Padding="8,6"
+                                    ToolTip.Tip="Stop the HIVE worker (finishes any in-flight task first)"/>
+                        </StackPanel>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="HIVE worker status" Classes="SettingLabel"/>
+                            <TextBlock x:Name="TbHiveWorkerStatus" Text="Stopped"
+                                       Foreground="#5A6A4A" FontSize="10"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <!-- Fleet re-sync (dev): recover from stale HIVE trust / HTTP 401 without
+                     hand-editing peer files or restarting apps. -->
+                <Border Classes="SettingRowBorder">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="HIVE fleet re-sync (dev)" Classes="SettingLabel"/>
+                        <TextBlock Text="Recovers a worker whose Warchief trust went stale (repeated HTTP 401). On the WARCHIEF, click &quot;Accept re-sync&quot; to open a 10-minute window; on each WORKER, click &quot;Re-sync now&quot; (or enable auto-resync). No file edits or restarts."
+                                   Classes="SettingHint" TextWrapping="Wrap"/>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button x:Name="BtnAcceptHiveResync"
+                                    Content="🛡 Accept re-sync (10 min)"
+                                    Click="BtnAcceptHiveResync_Click"
+                                    Background="{StaticResource Br.Bg.Input}"
+                                    Foreground="{StaticResource Br.Text.Primary}"
+                                    FontSize="11" Padding="8,6"
+                                    ToolTip.Tip="WARCHIEF side: auto-approve incoming re-pair requests as Worker for 10 minutes, then close automatically"/>
+                            <Button x:Name="BtnResyncWorkerNow"
+                                    Content="🔄 Re-sync now"
+                                    Click="BtnResyncWorkerNow_Click"
+                                    Background="{StaticResource Br.Bg.Input}"
+                                    Foreground="{StaticResource Br.Text.Primary}"
+                                    FontSize="11" Padding="8,6"
+                                    ToolTip.Tip="WORKER side: rediscover the Warchief's current identity and re-pair now"/>
+                        </StackPanel>
+                        <TextBlock x:Name="TbHiveResyncStatus" Text=""
+                                   Foreground="#5A6A4A" FontSize="10" TextWrapping="Wrap"/>
+                        <DockPanel LastChildFill="True">
+                            <ToggleButton x:Name="TglAutoResync"
+                                          DockPanel.Dock="Right"
+                                          Theme="{StaticResource ToggleStyle}"
+                                          IsChecked="False"/>
+                            <StackPanel Margin="0,0,8,0">
+                                <TextBlock Text="Auto re-sync worker on auth failure" Classes="SettingLabel"/>
+                                <TextBlock Text="When a Warchief 401 persists, re-sync automatically (completes headlessly only while the Warchief's accept window is open)."
+                                           Classes="SettingHint" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <ToggleButton x:Name="TglNativeMainChat"
+                                      DockPanel.Dock="Right"
+                                      Theme="{StaticResource ToggleStyle}"
+                                      IsChecked="True"/>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Native main chat (OrcChat + Agent panel)" Classes="SettingLabel"/>
+                            <TextBlock Text="On by default. OrcChat and the Agent panel's chat loop run on the local ModelDepot/LLamaSharp role runtime, in-process -- no Ollama or llama-server.exe needed. A native failure surfaces as a visible chat error instead of silently completing on Ollama (Ollama fallback is disabled by policy for this path). Separate from the HIVE worker toggle above -- enabling both loads two independent copies of the base model into VRAM. Runtime and model-source changes are saved immediately and apply together after restarting TheOrc."
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <ToggleButton x:Name="TglToolcallerDatasetCapture"
+                                      DockPanel.Dock="Right"
+                                      Theme="{StaticResource ToggleStyle}"
+                                      IsChecked="False"/>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Foundry F-1 dataset capture" Classes="SettingLabel"/>
+                            <TextBlock Text="Opt-in, off by default. When on, stages real swarm tool-call decisions (tool name, arguments, policy outcome) as theorc-toolcaller-v0 training examples in .orc/swarm/dataset-staging/toolcaller/. This is local-only and gitignored, but captures are NOT sanitized -- they can contain real file paths, shell commands, and file contents. Never share raw captures; review before using them to train anything. Shown as &quot;Dataset Gathering Active&quot; in the status bar while on."
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <ToggleButton x:Name="TglToolcallerRepair"
+                                      DockPanel.Dock="Right"
+                                      Theme="{StaticResource ToggleStyle}"
+                                      IsChecked="False"/>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Toolcaller specialist repair lane (Foundry v0 trial)" Classes="SettingLabel"/>
+                            <TextBlock Text="Opt-in, off by default. When a swarm worker states intent but emits no parseable tool call, the trained theorc-toolcaller:qwen25-1.5b specialist gets one shot at converting that intent into a proper proposal (current promoted round and its gate scores: docs/TOOLCALLER_REFUSAL_GAUNTLET.md). Proposed calls still pass through the deterministic tool policy and approval flow -- the specialist proposes, it never executes. Requires the theorc-toolcaller model in Ollama (or on the HIVE node running the worker); if missing, behavior silently falls back to today's."
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <StackPanel Classes="SettingRow">
+                    <TextBlock Text="Native Model Root(s)" Classes="SettingLabel"/>
+                    <TextBlock Text="Folders scanned for GGUF/LoRA role bindings, one per line. Empty uses the normal model storage folder. The browse button appends a folder rather than replacing what's here."
+                               Classes="SettingHint" TextWrapping="Wrap"/>
+                    <Grid ColumnDefinitions="*,32">
+                        <TextBox x:Name="TbNativeRuntimeModelRoot"
+                                 Grid.Column="0" Classes="SettingInput"
+                                 AcceptsReturn="True" TextWrapping="NoWrap"
+                                 Height="60" VerticalContentAlignment="Top"/>
+                        <Button Grid.Column="1" Content="…" Margin="4,0,0,0" VerticalAlignment="Top"
+                                Background="{StaticResource Br.Bg.Input}"
+                                Foreground="{StaticResource Br.Text.Primary}"
+                                FontSize="12" Click="BtnBrowseNativeRuntimeModelRoot_Click"/>
+                    </Grid>
+                </StackPanel>
+
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <ToggleButton x:Name="TglNativeIncludeOllamaModels"
+                                      DockPanel.Dock="Right"
+                                      Theme="{StaticResource ToggleStyle}"
+                                      IsChecked="True"/>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Include Ollama's own models" Classes="SettingLabel"/>
+                            <TextBlock Text="Also resolves every model Ollama has already pulled, straight from its own manifest/blob store (OLLAMA_MODELS env var, or %USERPROFILE%\.ollama\models). No download, no conversion -- Ollama's blobs are already plain GGUF files. This is loading Ollama's downloaded weights directly as GGUF, not talking to the Ollama server -- it's the one place Ollama's presence is still useful even though the server itself is banned from the chat path."
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <Grid Classes="SettingRow" ColumnDefinitions="*,8,*">
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Native Context" Classes="SettingLabel"/>
+                        <TextBlock Text="Tokens" Classes="SettingHint"/>
+                        <TextBox x:Name="TbNativeRuntimeContextSize"
+                                 Classes="SettingInput"
+                                 Text="8192"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Native GPU Layers" Classes="SettingLabel"/>
+                        <TextBlock Text="-1 = all" Classes="SettingHint"/>
+                        <TextBox x:Name="TbNativeRuntimeGpuLayers"
+                                 Classes="SettingInput"
+                                 Text="-1"/>
+                    </StackPanel>
+                </Grid>
+
+                <StackPanel Classes="SettingRow">
+                    <TextBlock Text="Manual Native Test" Classes="SettingLabel"/>
+                    <TextBlock Text="Isolated diagnostic tool, not part of the production chat path above. Runs a fixed prompt against one resolved ModelDepot binding, then ASKS before offering an explicit, user-confirmed Ollama comparison run if native fails -- unlike the chat path, which never falls back automatically."
+                               Classes="SettingHint"/>
+                    <ComboBox x:Name="CbNativeBinding"
+                              Background="{StaticResource Br.Bg.Input}"
+                              Foreground="{StaticResource Br.Text.Primary}"
+                              BorderBrush="{StaticResource Br.Border}"
+                              FontSize="11"
+                              PlaceholderText="Scan Model Depot to populate bindings"/>
+                </StackPanel>
+
+                <StackPanel Classes="SettingRow" Orientation="Horizontal">
+                    <Button x:Name="BtnRunNativeRuntimeTest"
+                            Content="▶  Run Native Test"
+                            Click="BtnRunNativeRuntimeTest_Click"
+                            IsEnabled="False"
+                            Background="#1A2A0A"
+                            Foreground="#76B900"
+                            BorderBrush="#2A4A0A"
+                            FontSize="11" Padding="8,6"
+                            ToolTip.Tip="Attempts the fixed prompt with LLamaSharpRuntime first, then asks before retrying the same test through Ollama."/>
+                </StackPanel>
+
+                <Border x:Name="BdrNativeRuntimeTestResult"
+                        Background="#141814" CornerRadius="4"
+                        BorderBrush="#2E3A2E" BorderThickness="1"
+                        Padding="12,10" Margin="8,4,8,4">
+                    <StackPanel>
+                        <TextBlock x:Name="TbNativeRuntimeTestResult"
+                                   Text="Not run yet."
+                                   Foreground="#5A6A4A" FontSize="10"
+                                   TextWrapping="Wrap" LineHeight="16"
+                                   FontFamily="Consolas, 'Cascadia Code', monospace"/>
+                        <TextBlock Text="Live output"
+                                   Margin="0,10,0,4"
+                                   Foreground="{StaticResource Br.Text.Muted}"
+                                   FontSize="10"
+                                   FontWeight="Bold"/>
+                        <TextBlock x:Name="TbNativeRuntimeLiveOutput"
+                                   Text="(none)"
+                                   Foreground="#5A6A4A" FontSize="10"
+                                   TextWrapping="Wrap" LineHeight="16"
+                                   FontFamily="Consolas, 'Cascadia Code', monospace"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- ── LEGACY BACKEND ──────────────────────────────────── -->
+                <TextBlock Text="LEGACY BACKEND (off-path when Native Runtime is on)" Classes="SectionHeader" Margin="0,12,0,0"/>
+
+                <StackPanel Classes="SettingRow">
+                    <TextBlock Text="Ollama host URL" Classes="SettingLabel"/>
+                    <TextBlock Text="Only consulted when BOTH Native Runtime toggles below are off. Not a fallback -- see the NATIVE RUNTIME section above." Classes="SettingHint" TextWrapping="Wrap"/>
+                    <TextBox x:Name="TbOllamaHost"
+                             Classes="SettingInput"
+                             Text="http://localhost:11434"/>
+                </StackPanel>
 
                 <StackPanel Classes="SettingRow">
                     <TextBlock Text="Chat backend (external server, not Native Runtime)" Classes="SettingLabel" TextWrapping="Wrap"/>
                     <TextBlock Classes="SettingHint" TextWrapping="Wrap"
-                               Text="Only used when the Native Runtime section below is off, or as its fallback. Whether OrcChat/the main agent talk over HTTP to Ollama's server, or a separately-installed llama-server.exe you point at below -- neither is the in-process Native Runtime. Leave this on Ollama unless you specifically want the external llama-server path; it does not need to change to use Native Runtime."/>
+                               Text="Only consulted when Native Runtime (above) is turned off. It is NOT a fallback for a native failure -- when Native Runtime is on, a failure surfaces as a chat error instead of silently completing here. Whether OrcChat/the main agent talk over HTTP to Ollama's server, or a separately-installed llama-server.exe you point at below -- neither is the in-process Native Runtime. Backend changes apply after restarting TheOrc."/>
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                         <RadioButton x:Name="RbBackendOllama" Content="Ollama" GroupName="InferenceBackend"
                                      Foreground="{StaticResource Br.Text.Primary}" Margin="0,0,16,0"
@@ -328,8 +575,8 @@
                             HorizontalAlignment="Left"/>
                 </StackPanel>
 
-                <!-- ── MULTI-AGENT / PARALLEL INFERENCE ───────────────── -->
-                <TextBlock Text="MULTI-AGENT" Classes="SectionHeader" Margin="0,12,0,0"/>
+                <!-- ── MULTI-AGENT / PARALLEL INFERENCE (Ollama-specific) ─ -->
+                <TextBlock Text="MULTI-AGENT (Ollama parallelism — legacy backend only)" Classes="SectionHeader" Margin="0,12,0,0"/>
 
                 <Border x:Name="BdrParallelStatus"
                         Background="#141814" CornerRadius="4"
@@ -436,266 +683,17 @@
                     </DockPanel>
                 </Border>
 
-                <!-- ── NATIVE RUNTIME (Phase 3 telemetry) ──────────────── -->
-                <TextBlock Text="NATIVE RUNTIME" Classes="SectionHeader" Margin="0,12,0,0"/>
-                <TextBlock Text="This is the real in-process runtime OrcChat/HIVE actually use -- separate from, and unaffected by, the Chat backend radio above. Toggle 'Experimental Native main chat' / 'HIVE worker' below; the Chat backend radio can stay on Ollama."
-                           Classes="SettingHint" TextWrapping="Wrap" Margin="0,2,0,4"/>
-
-                <Border x:Name="BdrRuntimeStatus"
-                        Background="#141814" CornerRadius="4"
-                        BorderBrush="#2E3A2E" BorderThickness="1"
-                        Padding="12,10" Margin="8,4,8,4">
-                    <StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                            <TextBlock Text="⬡" Foreground="#76B900" FontSize="10"
-                                       VerticalAlignment="Center" Margin="0,0,6,0"/>
-                            <TextBlock x:Name="TbRuntimeStatus"
-                                       Text="Checking…"
-                                       Foreground="#CCA700" FontSize="11" FontWeight="Bold"/>
-                        </StackPanel>
-                        <TextBlock x:Name="TbRuntimeExplain"
-                                   Foreground="#5A6A4A" FontSize="10"
-                                   TextWrapping="Wrap" LineHeight="16"
-                                   Text="Loading…"/>
-                    </StackPanel>
-                </Border>
-
-                <StackPanel Classes="SettingRow" Orientation="Horizontal">
-                    <Button x:Name="BtnRefreshRuntimeStatus"
-                            Content="↻  Refresh"
-                            Click="BtnRefreshRuntimeStatus_Click"
-                            Background="{StaticResource Br.Bg.Input}"
-                            Foreground="{StaticResource Br.Text.Primary}"
-                            FontSize="11" Padding="8,6"
-                            ToolTip.Tip="Re-probes the active IModelRuntime (OllamaRuntime) via GetHealth()/GetStats()"/>
-                </StackPanel>
-
-                <Border Classes="SettingRowBorder">
-                    <DockPanel LastChildFill="True">
-                        <ToggleButton x:Name="TglNativeHiveWorker"
-                                      DockPanel.Dock="Right"
-                                      Theme="{StaticResource ToggleStyle}"
-                                      IsChecked="False"/>
-                        <StackPanel Margin="0,0,8,0">
-                            <TextBlock Text="Experimental Native HIVE worker" Classes="SettingLabel"/>
-                            <TextBlock Text="Opt-in only. HIVE worker tries local ModelDepot/LLamaSharp role runtime first, then falls back to the configured model runtime on failure."
-                                       Classes="SettingHint" TextWrapping="Wrap"/>
-                        </StackPanel>
-                    </DockPanel>
-                </Border>
-
-                <Border Classes="SettingRowBorder">
-                    <DockPanel LastChildFill="True">
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
-                            <Button x:Name="BtnStartHiveWorker"
-                                    Content="▶ Start"
-                                    Click="BtnStartHiveWorker_Click"
-                                    Background="{StaticResource Br.Bg.Input}"
-                                    Foreground="{StaticResource Br.Text.Primary}"
-                                    FontSize="11" Padding="8,6"
-                                    ToolTip.Tip="Start the HIVE worker now, without restarting the app"/>
-                            <Button x:Name="BtnStopHiveWorker"
-                                    Content="■ Stop"
-                                    Click="BtnStopHiveWorker_Click"
-                                    IsEnabled="False"
-                                    Background="{StaticResource Br.Bg.Input}"
-                                    Foreground="{StaticResource Br.Text.Primary}"
-                                    FontSize="11" Padding="8,6"
-                                    ToolTip.Tip="Stop the HIVE worker (finishes any in-flight task first)"/>
-                        </StackPanel>
-                        <StackPanel Margin="0,0,8,0">
-                            <TextBlock Text="HIVE worker status" Classes="SettingLabel"/>
-                            <TextBlock x:Name="TbHiveWorkerStatus" Text="Stopped"
-                                       Foreground="#5A6A4A" FontSize="10"/>
-                        </StackPanel>
-                    </DockPanel>
-                </Border>
-
-                <!-- Fleet re-sync (dev): recover from stale HIVE trust / HTTP 401 without
-                     hand-editing peer files or restarting apps. -->
-                <Border Classes="SettingRowBorder">
-                    <StackPanel Spacing="6">
-                        <TextBlock Text="HIVE fleet re-sync (dev)" Classes="SettingLabel"/>
-                        <TextBlock Text="Recovers a worker whose Warchief trust went stale (repeated HTTP 401). On the WARCHIEF, click &quot;Accept re-sync&quot; to open a 10-minute window; on each WORKER, click &quot;Re-sync now&quot; (or enable auto-resync). No file edits or restarts."
-                                   Classes="SettingHint" TextWrapping="Wrap"/>
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <Button x:Name="BtnAcceptHiveResync"
-                                    Content="🛡 Accept re-sync (10 min)"
-                                    Click="BtnAcceptHiveResync_Click"
-                                    Background="{StaticResource Br.Bg.Input}"
-                                    Foreground="{StaticResource Br.Text.Primary}"
-                                    FontSize="11" Padding="8,6"
-                                    ToolTip.Tip="WARCHIEF side: auto-approve incoming re-pair requests as Worker for 10 minutes, then close automatically"/>
-                            <Button x:Name="BtnResyncWorkerNow"
-                                    Content="🔄 Re-sync now"
-                                    Click="BtnResyncWorkerNow_Click"
-                                    Background="{StaticResource Br.Bg.Input}"
-                                    Foreground="{StaticResource Br.Text.Primary}"
-                                    FontSize="11" Padding="8,6"
-                                    ToolTip.Tip="WORKER side: rediscover the Warchief's current identity and re-pair now"/>
-                        </StackPanel>
-                        <TextBlock x:Name="TbHiveResyncStatus" Text=""
-                                   Foreground="#5A6A4A" FontSize="10" TextWrapping="Wrap"/>
-                        <DockPanel LastChildFill="True">
-                            <ToggleButton x:Name="TglAutoResync"
-                                          DockPanel.Dock="Right"
-                                          Theme="{StaticResource ToggleStyle}"
-                                          IsChecked="False"/>
-                            <StackPanel Margin="0,0,8,0">
-                                <TextBlock Text="Auto re-sync worker on auth failure" Classes="SettingLabel"/>
-                                <TextBlock Text="When a Warchief 401 persists, re-sync automatically (completes headlessly only while the Warchief's accept window is open)."
-                                           Classes="SettingHint" TextWrapping="Wrap"/>
-                            </StackPanel>
-                        </DockPanel>
-                    </StackPanel>
-                </Border>
-
-                <Border Classes="SettingRowBorder">
-                    <DockPanel LastChildFill="True">
-                        <ToggleButton x:Name="TglNativeMainChat"
-                                      DockPanel.Dock="Right"
-                                      Theme="{StaticResource ToggleStyle}"
-                                      IsChecked="False"/>
-                        <StackPanel Margin="0,0,8,0">
-                            <TextBlock Text="Experimental Native main chat (Agent panel)" Classes="SettingLabel"/>
-                            <TextBlock Text="Opt-in only. The Agent panel's chat loop tries local ModelDepot/LLamaSharp role runtime first (in-process, no Ollama/llama-server needed), then falls back to the configured model runtime on failure. Separate from the HIVE worker toggle above -- enabling both loads two independent copies of the base model into VRAM. Restart the app for this to take effect (the Agent loop's runtime is built once at startup)."
-                                       Classes="SettingHint" TextWrapping="Wrap"/>
-                        </StackPanel>
-                    </DockPanel>
-                </Border>
-
-                <Border Classes="SettingRowBorder">
-                    <DockPanel LastChildFill="True">
-                        <ToggleButton x:Name="TglToolcallerDatasetCapture"
-                                      DockPanel.Dock="Right"
-                                      Theme="{StaticResource ToggleStyle}"
-                                      IsChecked="False"/>
-                        <StackPanel Margin="0,0,8,0">
-                            <TextBlock Text="Foundry F-1 dataset capture" Classes="SettingLabel"/>
-                            <TextBlock Text="Opt-in, off by default. When on, stages real swarm tool-call decisions (tool name, arguments, policy outcome) as theorc-toolcaller-v0 training examples in .orc/swarm/dataset-staging/toolcaller/. This is local-only and gitignored, but captures are NOT sanitized -- they can contain real file paths, shell commands, and file contents. Never share raw captures; review before using them to train anything. Shown as &quot;Dataset Gathering Active&quot; in the status bar while on."
-                                       Classes="SettingHint" TextWrapping="Wrap"/>
-                        </StackPanel>
-                    </DockPanel>
-                </Border>
-
-                <Border Classes="SettingRowBorder">
-                    <DockPanel LastChildFill="True">
-                        <ToggleButton x:Name="TglToolcallerRepair"
-                                      DockPanel.Dock="Right"
-                                      Theme="{StaticResource ToggleStyle}"
-                                      IsChecked="False"/>
-                        <StackPanel Margin="0,0,8,0">
-                            <TextBlock Text="Toolcaller specialist repair lane (Foundry v0 trial)" Classes="SettingLabel"/>
-                            <TextBlock Text="Opt-in, off by default. When a swarm worker states intent but emits no parseable tool call, the trained theorc-toolcaller:qwen25-1.5b specialist gets one shot at converting that intent into a proper proposal (current promoted round and its gate scores: docs/TOOLCALLER_REFUSAL_GAUNTLET.md). Proposed calls still pass through the deterministic tool policy and approval flow -- the specialist proposes, it never executes. Requires the theorc-toolcaller model in Ollama (or on the HIVE node running the worker); if missing, behavior silently falls back to today's."
-                                       Classes="SettingHint" TextWrapping="Wrap"/>
-                        </StackPanel>
-                    </DockPanel>
-                </Border>
-
-                <StackPanel Classes="SettingRow">
-                    <TextBlock Text="Native Model Root(s)" Classes="SettingLabel"/>
-                    <TextBlock Text="Folders scanned for GGUF/LoRA role bindings, one per line. Empty uses the normal model storage folder. The browse button appends a folder rather than replacing what's here."
-                               Classes="SettingHint" TextWrapping="Wrap"/>
-                    <Grid ColumnDefinitions="*,32">
-                        <TextBox x:Name="TbNativeRuntimeModelRoot"
-                                 Grid.Column="0" Classes="SettingInput"
-                                 AcceptsReturn="True" TextWrapping="NoWrap"
-                                 Height="60" VerticalContentAlignment="Top"/>
-                        <Button Grid.Column="1" Content="…" Margin="4,0,0,0" VerticalAlignment="Top"
-                                Background="{StaticResource Br.Bg.Input}"
-                                Foreground="{StaticResource Br.Text.Primary}"
-                                FontSize="12" Click="BtnBrowseNativeRuntimeModelRoot_Click"/>
-                    </Grid>
-                </StackPanel>
-
-                <Border Classes="SettingRowBorder">
-                    <DockPanel LastChildFill="True">
-                        <ToggleButton x:Name="TglNativeIncludeOllamaModels"
-                                      DockPanel.Dock="Right"
-                                      Theme="{StaticResource ToggleStyle}"
-                                      IsChecked="True"/>
-                        <StackPanel Margin="0,0,8,0">
-                            <TextBlock Text="Include Ollama's own models" Classes="SettingLabel"/>
-                            <TextBlock Text="Also resolves every model Ollama has already pulled, straight from its own manifest/blob store (OLLAMA_MODELS env var, or %USERPROFILE%\.ollama\models). No download, no conversion -- Ollama's blobs are already plain GGUF files."
-                                       Classes="SettingHint" TextWrapping="Wrap"/>
-                        </StackPanel>
-                    </DockPanel>
-                </Border>
-
-                <Grid Classes="SettingRow" ColumnDefinitions="*,8,*">
-                    <StackPanel Grid.Column="0">
-                        <TextBlock Text="Native Context" Classes="SettingLabel"/>
-                        <TextBlock Text="Tokens" Classes="SettingHint"/>
-                        <TextBox x:Name="TbNativeRuntimeContextSize"
-                                 Classes="SettingInput"
-                                 Text="8192"/>
-                    </StackPanel>
-                    <StackPanel Grid.Column="2">
-                        <TextBlock Text="Native GPU Layers" Classes="SettingLabel"/>
-                        <TextBlock Text="-1 = all" Classes="SettingHint"/>
-                        <TextBox x:Name="TbNativeRuntimeGpuLayers"
-                                 Classes="SettingInput"
-                                 Text="-1"/>
-                    </StackPanel>
-                </Grid>
-
-                <StackPanel Classes="SettingRow">
-                    <TextBlock Text="Manual Native Test" Classes="SettingLabel"/>
-                    <TextBlock Text="Isolated opt-in smoke tool. Runs a fixed prompt against one resolved ModelDepot binding, then offers explicit Ollama fallback if native fails."
-                               Classes="SettingHint"/>
-                    <ComboBox x:Name="CbNativeBinding"
-                              Background="{StaticResource Br.Bg.Input}"
-                              Foreground="{StaticResource Br.Text.Primary}"
-                              BorderBrush="{StaticResource Br.Border}"
-                              FontSize="11"
-                              PlaceholderText="Scan Model Depot to populate bindings"/>
-                </StackPanel>
-
-                <StackPanel Classes="SettingRow" Orientation="Horizontal">
-                    <Button x:Name="BtnRunNativeRuntimeTest"
-                            Content="▶  Run Native Test"
-                            Click="BtnRunNativeRuntimeTest_Click"
-                            IsEnabled="False"
-                            Background="#1A2A0A"
-                            Foreground="#76B900"
-                            BorderBrush="#2A4A0A"
-                            FontSize="11" Padding="8,6"
-                            ToolTip.Tip="Attempts the fixed prompt with LLamaSharpRuntime first, then asks before retrying the same test through Ollama."/>
-                </StackPanel>
-
-                <Border x:Name="BdrNativeRuntimeTestResult"
-                        Background="#141814" CornerRadius="4"
-                        BorderBrush="#2E3A2E" BorderThickness="1"
-                        Padding="12,10" Margin="8,4,8,4">
-                    <StackPanel>
-                        <TextBlock x:Name="TbNativeRuntimeTestResult"
-                                   Text="Not run yet."
-                                   Foreground="#5A6A4A" FontSize="10"
-                                   TextWrapping="Wrap" LineHeight="16"
-                                   FontFamily="Consolas, 'Cascadia Code', monospace"/>
-                        <TextBlock Text="Live output"
-                                   Margin="0,10,0,4"
-                                   Foreground="{StaticResource Br.Text.Muted}"
-                                   FontSize="10"
-                                   FontWeight="Bold"/>
-                        <TextBlock x:Name="TbNativeRuntimeLiveOutput"
-                                   Text="(none)"
-                                   Foreground="#5A6A4A" FontSize="10"
-                                   TextWrapping="Wrap" LineHeight="16"
-                                   FontFamily="Consolas, 'Cascadia Code', monospace"/>
-                    </StackPanel>
-                </Border>
-
                 <!-- ── MODEL DEPOT (Phase 3 — local GGUF/LoRA discovery, no model loading) ── -->
                 <TextBlock Text="MODEL DEPOT" Classes="SectionHeader" Margin="0,12,0,0"/>
 
                 <StackPanel Classes="SettingRow">
-                    <TextBlock Text="Scan Folder" Classes="SettingLabel"/>
-                    <TextBlock Text="Local-only — ModelDepot.Scan() finds GGUF/LoRA files, never downloads or loads any model"
+                    <TextBlock Text="Scan Roots" Classes="SettingLabel"/>
+                    <TextBlock Text="One root per line — local-only discovery never downloads or loads a model"
                                Classes="SettingHint"/>
                     <Grid ColumnDefinitions="*,32">
                         <TextBox x:Name="TbDepotScanFolder"
-                                 Grid.Column="0" Classes="SettingInput"/>
+                                 Grid.Column="0" Classes="SettingInput"
+                                 AcceptsReturn="True" TextWrapping="Wrap" MinHeight="34"/>
                         <Button Grid.Column="1" Content="…" Margin="4,0,0,0"
                                 Background="{StaticResource Br.Bg.Input}"
                                 Foreground="{StaticResource Br.Text.Primary}"
