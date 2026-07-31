@@ -287,7 +287,6 @@
                          FontFamily="Consolas"
                          FontSize="12"
                          PlaceholderText="Ask the agent anything… (Enter to send, Shift+Enter for newline)"
-                         KeyDown="TbInput_KeyDown"
                          TextChanged="TbInput_TextChanged"/>
             </DockPanel>
         </Border>

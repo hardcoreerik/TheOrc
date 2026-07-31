@@ -53,6 +53,11 @@ public partial class AgentPanel : UserControl
                     + "Tip: Start with Plan mode. Ctrl+K opens the command palette.",
             Status  = MessageStatus.Complete,
         });
+
+        // See ChatPanel's constructor for why this must be Tunnel, not XAML's Bubble-phase
+        // KeyDown="..." wiring: TextBox's own AcceptsReturn="True" class handler for inserting
+        // newlines also runs at Bubble on this element, and runs before instance handlers.
+        TbInput.AddHandler(KeyDownEvent, TbInput_KeyDown, RoutingStrategies.Tunnel);
     }
 
     // ── Public API ────────────────────────────────────────────────────────────

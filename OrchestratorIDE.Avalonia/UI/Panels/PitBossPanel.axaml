@@ -141,7 +141,6 @@
                                  BorderThickness="1" Padding="10,7"
                                  FontSize="12"
                                  PlaceholderText="Describe your training goal…"
-                                 KeyDown="TbInput_KeyDown"
                                  TextChanged="TbInput_TextChanged"/>
                     </DockPanel>
                 </Grid>

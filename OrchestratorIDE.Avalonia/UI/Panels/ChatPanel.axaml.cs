@@ -127,6 +127,17 @@ public partial class ChatPanel : UserControl
         // mode deliberately has none).
         TbOpenSystemPrompt.TextChanged += (_, _) =>
             OpenChatMemory.SaveSystemPrompt(TbOpenSystemPrompt.Text ?? "", MemoryStorePathOverride);
+
+        // Found live 2026-07-30: plain Enter was inserting a newline instead of sending, same
+        // as Shift+Enter. Root cause: TbInput_KeyDown was wired via XAML's KeyDown="..." attribute,
+        // which subscribes at the Bubble routing strategy -- but TextBox's OWN class handler for
+        // AcceptsReturn="True" (which inserts the newline) also runs during the Bubble phase at
+        // this same element, and Avalonia invokes class handlers before instance handlers within
+        // the same phase, so the newline was always inserted (and the event marked Handled)
+        // before this handler ever ran. Subscribing at the Tunnel strategy instead means this
+        // handler sees the key first, on the way DOWN to the target, before TextBox's own bubble-
+        // phase handling ever starts -- so e.Handled = true here genuinely prevents the newline.
+        TbInput.AddHandler(KeyDownEvent, TbInput_KeyDown, RoutingStrategies.Tunnel);
     }
 
     // ── Public API ────────────────────────────────────────────────────────────

@@ -282,7 +282,6 @@
                              AcceptsReturn="True"
                              ScrollViewer.VerticalScrollBarVisibility="Auto"
                              PlaceholderText="Ask me anything… (Enter to send, Shift+Enter for new line)"
-                             KeyDown="TbInput_KeyDown"
                              AutomationProperties.AutomationId="OrcChat.Input"/>
                 </Border>
                 </DockPanel>

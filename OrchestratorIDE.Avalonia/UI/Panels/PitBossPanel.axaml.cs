@@ -61,6 +61,11 @@ public partial class PitBossPanel : UserControl
     {
         InitializeComponent();
         Loaded += OnLoaded;
+
+        // See ChatPanel's constructor for why this must be Tunnel, not XAML's Bubble-phase
+        // KeyDown="..." wiring: TextBox's own AcceptsReturn="True" class handler for inserting
+        // newlines also runs at Bubble on this element, and runs before instance handlers.
+        TbInput.AddHandler(KeyDownEvent, TbInput_KeyDown, RoutingStrategies.Tunnel);
     }
 
     private void OnLoaded(object? sender, RoutedEventArgs e)
