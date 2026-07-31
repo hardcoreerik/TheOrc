@@ -367,19 +367,40 @@ public partial class SettingsPanel : UserControl
             SetStatus("✗  Ollama host cannot be empty", "#F44747");
             return;
         }
+
+        // An incomplete llama.cpp config used to abort BtnSave_Click entirely -- silently
+        // discarding every OTHER change on the page (found live 2026-07-30: a user's Native
+        // Runtime toggle flips never persisted because an unrelated, half-filled llama.cpp
+        // section blocked the whole Save). Auto-correct back to Ollama instead of failing
+        // closed on the whole form -- Ollama is always a safe fallback backend, so the rest of
+        // the page's changes should never be held hostage by one incomplete section.
+        var revertedLlamaCpp = false;
         if (settings.Backend == InferenceBackend.LlamaCpp &&
             (string.IsNullOrWhiteSpace(settings.LlamaCppRuntimePath) ||
              string.IsNullOrWhiteSpace(settings.LlamaCppModelPath)))
         {
-            SetStatus("✗  llama.cpp backend needs both a runtime folder and a model file", "#F44747");
-            return;
+            settings.Backend = InferenceBackend.Ollama;
+            revertedLlamaCpp = true;
         }
+
         if (!settings.Save(out var saveError))
         {
+            // grok-review MINOR: don't touch the UI until Save actually succeeds -- flipping
+            // RbBackendOllama/PnlLlamaCppSettings here (as an earlier version of this fix did)
+            // would show "Ollama selected" on screen while the on-disk file still has whatever
+            // backend was last successfully saved, a real UI/disk desync on save failure.
             SetStatus($"✗  Save failed: {saveError?.Message}", "#F44747");
             return;
         }
-        SetStatus("✓  Saved", "#76B900");
+
+        if (revertedLlamaCpp)
+        {
+            RbBackendOllama.IsChecked     = true;
+            PnlLlamaCppSettings.IsVisible = false;
+        }
+        SetStatus(revertedLlamaCpp
+            ? "✓  Saved (llama.cpp backend needs a runtime folder and model file -- reverted to Ollama for now)"
+            : "✓  Saved", revertedLlamaCpp ? "#CCA700" : "#76B900");
         SettingsSaved?.Invoke(settings);
     }
 
