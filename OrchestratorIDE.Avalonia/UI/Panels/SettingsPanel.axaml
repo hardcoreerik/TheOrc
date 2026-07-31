@@ -140,9 +140,9 @@
                 <TextBlock Text="INFERENCE BACKEND" Classes="SectionHeader" Margin="0,12,0,0"/>
 
                 <StackPanel Classes="SettingRow">
-                    <TextBlock Text="Chat backend" Classes="SettingLabel"/>
+                    <TextBlock Text="Chat backend (external server, not Native Runtime)" Classes="SettingLabel" TextWrapping="Wrap"/>
                     <TextBlock Classes="SettingHint" TextWrapping="Wrap"
-                               Text="Which server OrcChat and the main agent talk to. llama.cpp runs a local llama-server process -- no Ollama dependency at all."/>
+                               Text="Only used when the Native Runtime section below is off, or as its fallback. Whether OrcChat/the main agent talk over HTTP to Ollama's server, or a separately-installed llama-server.exe you point at below -- neither is the in-process Native Runtime. Leave this on Ollama unless you specifically want the external llama-server path; it does not need to change to use Native Runtime."/>
                     <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                         <RadioButton x:Name="RbBackendOllama" Content="Ollama" GroupName="InferenceBackend"
                                      Foreground="{StaticResource Br.Text.Primary}" Margin="0,0,16,0"
@@ -438,6 +438,8 @@
 
                 <!-- ── NATIVE RUNTIME (Phase 3 telemetry) ──────────────── -->
                 <TextBlock Text="NATIVE RUNTIME" Classes="SectionHeader" Margin="0,12,0,0"/>
+                <TextBlock Text="This is the real in-process runtime OrcChat/HIVE actually use -- separate from, and unaffected by, the Chat backend radio above. Toggle 'Experimental Native main chat' / 'HIVE worker' below; the Chat backend radio can stay on Ollama."
+                           Classes="SettingHint" TextWrapping="Wrap" Margin="0,2,0,4"/>
 
                 <Border x:Name="BdrRuntimeStatus"
                         Background="#141814" CornerRadius="4"
