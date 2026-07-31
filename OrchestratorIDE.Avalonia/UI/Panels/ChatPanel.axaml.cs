@@ -19,6 +19,7 @@ using OrchestratorIDE.Research;
 using OrchestratorIDE.Services;
 using OrchestratorIDE.Services.ContextFabric;
 using OrchestratorIDE.Services.Hive;
+using OrchestratorIDE.UI;
 using OrchestratorIDE.UI.Controls;
 using OrchestratorIDE.UI.ViewModels;
 using OrchestratorIDE.UI.Windows;
@@ -59,14 +60,23 @@ public partial class ChatPanel : UserControl
 
     /// <summary>
     /// Approval prompt for OrcChat's tool calls (write_file's diff-preview gate AND every
-    /// RequiresApproval=true tool via ChatEngine.OnApprovalRequired) -- (message, title) → bool.
-    /// Wired by MainWindow to a real dialog (DialogHelper.ShowYesNoAsync), same pattern as
-    /// HivePanel.ConfirmAsync. Null (unset, e.g. in tests) means every gated tool call is
-    /// refused -- fail-closed, not silently executed (see ChatEngine.OnApprovalRequired's own
-    /// doc comment for why this replaced the previous "no approval gate exists in OrcChat at
-    /// all" behavior, docs/ORCISH_TONGUE_SPEC.md).
+    /// RequiresApproval=true tool via ChatEngine.OnApprovalRequired) -- (message, title) →
+    /// (approved, alwaysApprove). Wired by MainWindow to a real dialog
+    /// (DialogHelper.ShowToolApprovalAsync), same pattern as HivePanel.ConfirmAsync. Null
+    /// (unset, e.g. in tests) means every gated tool call is refused -- fail-closed, not
+    /// silently executed (see ChatEngine.OnApprovalRequired's own doc comment for why this
+    /// replaced the previous "no approval gate exists in OrcChat at all" behavior,
+    /// docs/ORCISH_TONGUE_SPEC.md). The alwaysApprove half feeds _autoApproveToolCalls below.
     /// </summary>
-    public Func<string, string, Task<bool>>? ConfirmToolApprovalAsync { get; set; }
+    public Func<string, string, Task<ToolApprovalResult>>? ConfirmToolApprovalAsync { get; set; }
+
+    /// <summary>
+    /// Set once a user checks "Auto Approve Tool" on a ToolApprovalResult -- every subsequent
+    /// gated tool call this conversation skips the dialog entirely. Reset in ResetConversationUi
+    /// so a fresh conversation (Clear, workspace switch, model/node switch) always starts back
+    /// at asking -- this is a per-conversation convenience, not a standing trust decision.
+    /// </summary>
+    private bool _autoApproveToolCalls;
 
     private const string LocalNodeName = "Local";
 
@@ -243,6 +253,7 @@ public partial class ChatPanel : UserControl
         ChatStack.Children.Clear();
         BdrWelcome.IsVisible = true;
         ChatStack.Children.Add(BdrWelcome);
+        _autoApproveToolCalls = false;
     }
 
     /// <summary>
@@ -272,18 +283,34 @@ public partial class ChatPanel : UserControl
 
         async Task<bool> ConfirmAsync(string message, string title, CancellationToken ct)
         {
+            // grok-review BLOCKER: the pre-auto-approve dialog path always raced against `ct`
+            // and denied on cancel -- this fast path must preserve that, or a cancelled turn
+            // whose tool call happens to land after auto-approve latches would still execute.
+            if (_autoApproveToolCalls) return !ct.IsCancellationRequested;
             if (ConfirmToolApprovalAsync is null) return false;
             var dialogTask = ConfirmToolApprovalAsync(message, title);
-            if (!ct.CanBeCanceled) return await dialogTask;
 
-            // DialogHelper.ShowYesNoAsync has no cancellation hook of its own (it awaits a
-            // modal Window.ShowDialog), so a mid-turn cancel can't dismiss the open dialog --
-            // but it can at least stop BLOCKING the caller on it. Racing against `ct` lets
-            // ExecuteTool's cancellation propagate immediately as a deny instead of hanging
-            // until someone manually clicks Yes/No on a dialog for a turn that's already gone.
-            var cancelTask = Task.Delay(Timeout.Infinite, ct);
-            var completed = await Task.WhenAny(dialogTask, cancelTask);
-            return completed == dialogTask && await dialogTask;
+            ToolApprovalResult result;
+            if (!ct.CanBeCanceled)
+            {
+                result = await dialogTask;
+            }
+            else
+            {
+                // DialogHelper.ShowToolApprovalAsync has no cancellation hook of its own (it
+                // awaits a modal Window.ShowDialog), so a mid-turn cancel can't dismiss the open
+                // dialog -- but it can at least stop BLOCKING the caller on it. Racing against
+                // `ct` lets ExecuteTool's cancellation propagate immediately as a deny instead of
+                // hanging until someone manually clicks Yes/No on a dialog for a turn that's
+                // already gone.
+                var cancelTask = Task.Delay(Timeout.Infinite, ct);
+                var completed = await Task.WhenAny(dialogTask, cancelTask);
+                if (completed != dialogTask) return false;
+                result = await dialogTask;
+            }
+
+            if (result.AlwaysApprove) _autoApproveToolCalls = true;
+            return result.Approved;
         }
 
         var tools = OrcChatToolCatalog.CreateWorkspaceTools(WorkspaceRoot, onDiffPreview: ConfirmDiffAsync);

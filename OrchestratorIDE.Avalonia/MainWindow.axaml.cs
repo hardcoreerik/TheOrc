@@ -2366,8 +2366,11 @@ public partial class MainWindow : Window
             // Orcish Tongue v1 correctness fix (docs/ORCISH_TONGUE_SPEC.md): OrcChat previously
             // had no approval gate at all for any tool call (write_file's diff preview and every
             // RequiresApproval tool alike) -- see ChatEngine.OnApprovalRequired's own doc comment.
-            // Same DialogHelper.ShowYesNoAsync pattern HivePanel.ConfirmAsync already uses.
-            _chatPanel.ConfirmToolApprovalAsync = (msg, title) => DialogHelper.ShowYesNoAsync(this, title, msg);
+            // ShowToolApprovalAsync (not the plain ShowYesNoAsync HivePanel.ConfirmAsync uses)
+            // adds the "Auto Approve Tool" checkbox -- found live 2026-07-30, clicking Yes on
+            // the same tool-call shape dozens of times during a GUI model-sweep was pure
+            // friction. ChatPanel._autoApproveToolCalls owns the actual scope decision.
+            _chatPanel.ConfirmToolApprovalAsync = (msg, title) => DialogHelper.ShowToolApprovalAsync(this, title, msg);
             _chatPanel.SetModels(_installedModels, _session.ActiveModel);
             _chatPanel.RefreshHiveHosts();
             _chatPanel.LoadPersistedMemory();
