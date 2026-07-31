@@ -193,6 +193,114 @@ public sealed class NativeWithFallbackRuntimeTests
         Assert.Throws<ArgumentNullException>(
             () => new NativeWithFallbackRuntime(new FakeRoleRuntime(), RuntimeRole.Boss, null!));
 
+    // ── modelNameFilter threading (docs/NATIVE_RUNTIME_V2_SPEC.md follow-up, found live
+    // 2026-07-30): NativeWithFallbackRuntime previously ignored `model` entirely for the native
+    // path -- switching models in a caller's UI had no effect on which native GGUF actually ran.
+    // These use a REAL NativeRoleRuntime (not a fake) specifically to exercise the type-check in
+    // NativeWithFallbackRuntime.StreamCompletionAsync that only fires for the concrete class.
+
+    [Test]
+    public async Task StreamCompletionAsync_FallsBack_WhenSelectedModelMatchesNoLocalAsset()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("orctest_depot_");
+        try
+        {
+            File.WriteAllBytes(Path.Combine(tempDir.FullName, "totally-unrelated-model.gguf"), []);
+            var depot = ModelDepot.Scan(tempDir.FullName);
+            await using var native = new NativeRoleRuntime(depot);
+            var fallback = new FakeModelRuntime("fallback-a");
+            var fallbackReasons = new List<string>();
+            await using var runtime = new NativeWithFallbackRuntime(
+                native, RuntimeRole.Boss, fallback, onFallback: fallbackReasons.Add);
+
+            var tokens = await CollectAsync(runtime.StreamCompletionAsync("qwen2.5-coder:14b", _history));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(tokens, Is.EqualTo(new[] { "fallback-a" }));
+                Assert.That(fallback.CallCount, Is.EqualTo(1));
+                Assert.That(fallbackReasons, Has.Count.EqualTo(1));
+                Assert.That(fallbackReasons[0], Does.Contain("No local GGUF matches requested model 'qwen2.5-coder:14b'"));
+            });
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir.FullName, recursive: true); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    [Test]
+    public async Task StreamCompletionAsync_DoesNotRejectOnFilter_WhenSelectedModelMatchesALocalAsset()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("orctest_depot_");
+        try
+        {
+            File.WriteAllBytes(Path.Combine(tempDir.FullName, "quirky-test-model.gguf"), []);
+            var depot = ModelDepot.Scan(tempDir.FullName);
+            // allowUnbudgetedExecution: this test only cares about resolution (did the filter
+            // let binding succeed), not admission -- without a scheduler/budget, admission would
+            // fail closed with RuntimeAdmissionDeniedException, which is deliberately NOT
+            // fallback-eligible (IsFallbackEligible) and would propagate instead of falling back.
+            await using var native = new NativeRoleRuntime(depot, allowUnbudgetedExecution: true);
+            var fallback = new FakeModelRuntime("fallback-a");
+            var fallbackReasons = new List<string>();
+            await using var runtime = new NativeWithFallbackRuntime(
+                native, RuntimeRole.Boss, fallback, onFallback: fallbackReasons.Add);
+
+            // The filter matches, so binding resolution succeeds -- it still falls back (a
+            // zero-byte file is not a real GGUF LlamaSharp can load), but for a DIFFERENT reason
+            // than "no local GGUF matches," proving the filter itself let this one through.
+            await CollectAsync(runtime.StreamCompletionAsync("quirky-test-model", _history));
+
+            Assert.That(fallbackReasons, Has.Count.EqualTo(1));
+            Assert.That(fallbackReasons[0], Does.Not.Contain("No local GGUF matches requested model"));
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir.FullName, recursive: true); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    [Test]
+    public async Task OnNativeModelChanged_FiresOnResolution_OnceUntilTheResolvedModelActuallyChanges()
+    {
+        // Real NativeRoleRuntime, not a fake -- onModelResolved is only wired through the
+        // concrete-type branch (see NativeWithFallbackRuntime.StreamCompletionAsync), and fires
+        // right after binding resolution succeeds, before generation is even attempted. So it's
+        // fine that these zero-byte "GGUFs" can never actually load -- whatever fails afterward
+        // (admission, load) is irrelevant to this test and simply discarded.
+        var tempDir = Directory.CreateTempSubdirectory("orctest_depot_");
+        try
+        {
+            File.WriteAllBytes(Path.Combine(tempDir.FullName, "model-a.gguf"), []);
+            File.WriteAllBytes(Path.Combine(tempDir.FullName, "model-b.gguf"), []);
+            var depot = ModelDepot.Scan(tempDir.FullName);
+            await using var native = new NativeRoleRuntime(depot, allowUnbudgetedExecution: true);
+            var fallback = new FakeModelRuntime();
+            var changes = new List<string>();
+            await using var runtime = new NativeWithFallbackRuntime(
+                native, RuntimeRole.Boss, fallback, onNativeModelChanged: changes.Add);
+
+            async Task Attempt(string modelFilter)
+            {
+                try { await CollectAsync(runtime.StreamCompletionAsync(modelFilter, _history)); }
+                catch { /* only onModelResolved's side effect matters to this test */ }
+            }
+
+            await Attempt("model-a");
+            await Attempt("model-a");
+            Assert.That(changes, Is.EqualTo(new[] { "model-a.gguf" }), "repeat calls resolving the same model must not re-log");
+
+            await Attempt("model-b");
+            await Attempt("model-b");
+            Assert.That(changes, Is.EqualTo(new[] { "model-a.gguf", "model-b.gguf" }), "a real change logs once, then stays quiet again");
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir.FullName, recursive: true); } catch { /* best-effort cleanup */ }
+        }
+    }
+
     [Test]
     public async Task GetContextLengthAsync_Falls_Back_When_Native_Returns_Null()
     {

@@ -132,7 +132,7 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
 
     public string RuntimeName => "NativeRoleRuntime";
 
-    public async IAsyncEnumerable<string> StreamRoleCompletionAsync(
+    public IAsyncEnumerable<string> StreamRoleCompletionAsync(
         RuntimeRole role,
         IEnumerable<AgentMessage> history,
         IReadOnlyList<object>? tools = null,
@@ -140,13 +140,88 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
         int maxTokens = 4096,
         Action<ToolCall>? onToolCall = null,
         Action<int, int>? onUsage = null,
+        CancellationToken ct = default)
+        => StreamRoleCompletionAsync(role, history, tools, temperature, maxTokens, onToolCall, onUsage, modelNameFilter: null, onModelResolved: null, ct);
+
+    /// <summary>
+    /// Overload, not an extra parameter on the interface-implementing method above -- C# implicit
+    /// interface implementation requires an exact parameter-list match, so <see cref="IRoleRuntime"/>
+    /// callers (and every fake implementing it) are unaffected; only <see cref="NativeWithFallbackRuntime"/>,
+    /// which knows it's holding a concrete <see cref="NativeRoleRuntime"/>, calls this one.
+    /// </summary>
+    /// <param name="modelNameFilter">
+    /// When set, restricts role resolution to base GGUFs whose
+    /// <see cref="RuntimeModelAsset.DisplayName"/> contains this string (via
+    /// <see cref="ModelDepot.WithBaseModelFilter"/>) -- e.g. OrcChat's selected model name.
+    ///
+    /// Found live 2026-07-30: <see cref="NativeWithFallbackRuntime.StreamCompletionAsync"/>
+    /// previously ignored the caller's `model` argument entirely for the native path, always
+    /// resolving whatever <see cref="ModelDepot.ResolveRole"/> picked for the role -- meaning
+    /// switching models in OrcChat's dropdown had NO effect on which native GGUF actually ran.
+    /// Filtering by the caller's requested model, and throwing (→ fallback to Ollama, which DOES
+    /// respect `model`) when nothing local matches, means native either runs the model the user
+    /// actually asked for or steps aside -- rather than silently substituting a different one
+    /// picked purely by role. Scope limit: this only applies to the depot-resolution fallback,
+    /// not a pre-configured roleBindings entry -- see the body's own comment on that boundary.
+    /// </param>
+    /// <param name="onModelResolved">
+    /// Fires once, synchronously, with the resolved binding's <see cref="RuntimeModelAsset.DisplayName"/>
+    /// as soon as it's known -- before generation starts, not after the stream ends. Deliberately
+    /// NOT sourced from <see cref="GetHealth"/>/<see cref="GetStats"/> afterward (grok-review
+    /// MINOR, 2026-07-30): those read shared per-role state (<c>_lastHealthByRole</c>) that a
+    /// concurrent call on the same role can overwrite before this call's own stream finishes,
+    /// which would misattribute or silently drop the "model changed" signal.
+    /// </param>
+    public async IAsyncEnumerable<string> StreamRoleCompletionAsync(
+        RuntimeRole role,
+        IEnumerable<AgentMessage> history,
+        IReadOnlyList<object>? tools,
+        double temperature,
+        int maxTokens,
+        Action<ToolCall>? onToolCall,
+        Action<int, int>? onUsage,
+        string? modelNameFilter,
+        Action<string>? onModelResolved,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         ThrowIfDisposed();
         ArgumentNullException.ThrowIfNull(history);
 
-        var binding = (_roleBindings.TryGetValue(role, out var configured) ? configured : _depot.ResolveRole(role))
-            ?? throw new InvalidOperationException($"No base GGUF resolved for runtime role {role}.");
+        // grok-review MINOR, 2026-07-30: this must match the filter check below exactly --
+        // IsNullOrWhiteSpace treats "" as "no filter," so the error message branch needs the
+        // same test, not the narrower `is null`, or an empty-but-non-null filter would produce
+        // a "no GGUF matches ''" message for a request that never actually filtered anything.
+        var hasFilter = !string.IsNullOrWhiteSpace(modelNameFilter);
+
+        // Known, documented scope limit (grok-review MINOR, 2026-07-30): modelNameFilter only
+        // narrows the DEPOT fallback below -- a pre-configured _roleBindings entry still wins
+        // regardless of the filter. Tried making the filter override roleBindings too and it
+        // broke NativeRuntimePhaseDTests's real-admission-denial coverage, which depends on
+        // roleBindings taking precedence unconditionally (see that test's own comment). Not a
+        // live bug today: nothing constructs NativeWithFallbackRuntime (the only caller that
+        // ever supplies a non-null modelNameFilter) for a role that also has a roleBindings
+        // entry -- OrcChat's Boss role never has one; Researcher/Reviewer's Context-Fabric
+        // bindings are consumed through NativeRoleRuntime directly, never through the wrapper.
+        // Revisit if a future caller needs both a pre-bound role AND per-request model pinning
+        // at once.
+        var depot = hasFilter ? _depot.WithBaseModelFilter(modelNameFilter!) : _depot;
+        RuntimeRoleBinding? binding = _roleBindings.TryGetValue(role, out var configured)
+            ? configured
+            : depot.ResolveRole(role);
+        if (binding is null)
+        {
+            throw new InvalidOperationException(hasFilter
+                ? $"No local GGUF matches requested model '{modelNameFilter}' for runtime role {role}."
+                : $"No base GGUF resolved for runtime role {role}.");
+        }
+
+        // grok-review MINOR, 2026-07-30: fired HERE, from the binding this specific call just
+        // resolved, not polled from GetHealth(role) after the stream finishes -- GetHealth reads
+        // shared _lastHealthByRole[role] state that a DIFFERENT concurrent call on the same role
+        // can overwrite in between, which would misattribute or drop the model-changed signal.
+        // Swallowed deliberately: a caller's logging callback throwing must not turn an
+        // otherwise-successful generation into a failure.
+        try { onModelResolved?.Invoke(binding.BaseModel.DisplayName); } catch { /* observability only */ }
 
         await using var enumerator = StreamRoleCompletionCoreAsync(
                 role,

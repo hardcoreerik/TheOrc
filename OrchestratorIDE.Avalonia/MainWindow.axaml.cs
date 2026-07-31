@@ -3011,7 +3011,15 @@ public partial class MainWindow : Window
             fallback,
             onFallback: reason => AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
                 $"Main chat native generation failed, fell back to Ollama " +
-                $"(fallback #{runtime.FallbackCount} this session): {reason}", DateTime.Now)));
+                $"(fallback #{runtime.FallbackCount} this session): {reason}", DateTime.Now)),
+            // The other half of "the log should clearly state when a new model is loaded or
+            // unloaded" (found live 2026-07-30 alongside the modelNameFilter fix): this fires
+            // once when native first resolves a model, and again only when the resolved model
+            // actually changes -- not on every chat turn. "Resolved," not "loaded"/"resident":
+            // it fires at role-resolution time, before generation runs, so a load failure right
+            // after this line (surfaced separately via onFallback above) is possible and expected.
+            onNativeModelChanged: activeModel => AddActivity(new ActivityEvent(ActivityKind.Info, "Native Runtime",
+                $"Native model resolved: {activeModel}", DateTime.Now)));
         return runtime;
     }
 

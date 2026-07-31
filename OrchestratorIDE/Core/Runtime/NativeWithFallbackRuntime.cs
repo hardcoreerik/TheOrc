@@ -44,21 +44,39 @@ public sealed class NativeWithFallbackRuntime : IModelRuntime, IAsyncDisposable
     public int FallbackCount => _fallbackCount;
     public string? LastFallbackReason => _lastFallbackReason;
 
+    private readonly Action<string>? _onNativeModelChanged;
+
+    // Not volatile -- Interlocked.Exchange below already provides the necessary memory-ordering
+    // guarantee, and combining the two triggers CS0420 for no benefit.
+    private string? _lastLoggedActiveModel;
+
     /// <param name="native">
     /// Depends on the interface, not the concrete <see cref="NativeRoleRuntime"/>, so this class
     /// is testable with a fake and so disposal (below) degrades gracefully for any future
     /// IRoleRuntime implementation that isn't itself disposable.
     /// </param>
+    /// <param name="onNativeModelChanged">
+    /// Fires with a description of the resident native model (<see cref="RuntimeHealth.ActiveModel"/>)
+    /// the first time a call succeeds, and again whenever it changes across calls (e.g. a
+    /// modelNameFilter-driven re-resolution to a different base GGUF) -- NOT on every call, to
+    /// avoid one Activity Log line per chat message. Complements <paramref name="onFallback"/>:
+    /// together they cover both halves of "the log should clearly state when a new model is
+    /// loaded or unloaded" (a real gap found live 2026-07-30 -- there was previously no signal
+    /// for which specific model actually served a request, only the one-time "N GGUFs found"
+    /// line logged at construction).
+    /// </param>
     public NativeWithFallbackRuntime(
         IRoleRuntime native,
         RuntimeRole role,
         IModelRuntime fallback,
-        Action<string>? onFallback = null)
+        Action<string>? onFallback = null,
+        Action<string>? onNativeModelChanged = null)
     {
         _native = native ?? throw new ArgumentNullException(nameof(native));
         _role = role;
         _fallback = fallback ?? throw new ArgumentNullException(nameof(fallback));
         _onFallback = onFallback;
+        _onNativeModelChanged = onNativeModelChanged;
     }
 
     public string RuntimeName => "NativeWithFallback";
@@ -127,9 +145,39 @@ public sealed class NativeWithFallbackRuntime : IModelRuntime, IAsyncDisposable
         // caller of this class passes a non-default topP, so extending IRoleRuntime too is
         // left for whenever that's actually needed rather than threading a parameter no path
         // exercises yet.
-        await using (var enumerator = _native
-            .StreamRoleCompletionAsync(_role, historyList, tools, temperature, maxTokens, guardedOnToolCall, guardedOnUsage, ct)
-            .GetAsyncEnumerator(ct))
+        //
+        // `model` IS threaded into the native path now (grok-review/live-testing finding,
+        // 2026-07-30): a type-check against the concrete NativeRoleRuntime lets it pass
+        // modelNameFilter without widening the IRoleRuntime interface (and every fake
+        // implementing it) for a capability only the real runtime supports -- a caller holding
+        // some other IRoleRuntime (tests, future implementations) gets the prior role-only
+        // behavior unchanged. See NativeRoleRuntime.StreamRoleCompletionAsync's own doc comment
+        // on modelNameFilter for what this fixes: previously `model` was accepted by this
+        // method's signature but never actually consulted for native generation, so switching
+        // models in a caller's UI (OrcChat) had no effect on which native GGUF ran.
+        // grok-review MINOR, 2026-07-30: fires from the binding THIS call resolved (passed
+        // straight through from NativeRoleRuntime at resolution time, before generation starts)
+        // rather than polling GetHealth(_role) after the stream ends -- GetHealth reads shared
+        // per-role state a concurrent call on the same role can overwrite in between, which would
+        // misattribute or drop the "model changed" signal for a call that never actually observed
+        // that model. Interlocked.Exchange makes the read-old/write-new pair atomic; whichever
+        // concurrent call's Exchange lands second sees the FIRST call's already-written value as
+        // "previous," so only a genuine transition fires, never a same-model double-fire.
+        void OnModelResolved(string activeModel)
+        {
+            var previous = Interlocked.Exchange(ref _lastLoggedActiveModel, activeModel);
+            if (_onNativeModelChanged is not null && activeModel != previous)
+                _onNativeModelChanged(activeModel);
+        }
+
+        var nativeStream = _native is NativeRoleRuntime concreteNative
+            ? concreteNative.StreamRoleCompletionAsync(
+                _role, historyList, tools, temperature, maxTokens, guardedOnToolCall, guardedOnUsage,
+                modelNameFilter: model, onModelResolved: OnModelResolved, ct: ct)
+            : _native.StreamRoleCompletionAsync(
+                _role, historyList, tools, temperature, maxTokens, guardedOnToolCall, guardedOnUsage, ct);
+
+        await using (var enumerator = nativeStream.GetAsyncEnumerator(ct))
         {
             while (true)
             {
