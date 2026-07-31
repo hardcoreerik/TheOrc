@@ -15,7 +15,7 @@ public sealed class CaseForgeToolsTests
     public void RegistersBoundedLocalToolsAndPack()
     {
         var registry = new ToolRegistry(new ApprovalQueue { AutoApprove = true });
-        CaseForgeTools.Register(registry, new Uri("http://NEWCOREPC:8788"));
+        CaseForgeTools.Register(registry, new Uri("http://NEWCOREPC:8788"), "test-token-012345");
 
         Assert.That(registry.GetRegisteredNames(), Is.EquivalentTo(new[]
         {
@@ -36,6 +36,30 @@ public sealed class CaseForgeToolsTests
     {
         var registry = new ToolRegistry(new ApprovalQueue());
         Assert.Throws<ArgumentException>(() =>
-            CaseForgeTools.Register(registry, new Uri("https://example.com")));
+            CaseForgeTools.Register(registry, new Uri("https://example.com"), "test-token-012345"));
+    }
+
+    [Test]
+    public void RejectsMissingTokenAndPublicWorkspace()
+    {
+        var registry = new ToolRegistry(new ApprovalQueue());
+        Assert.Multiple(() =>
+        {
+            Assert.Throws<ArgumentException>(() =>
+                CaseForgeTools.Register(registry, new Uri("http://localhost:8788")));
+            Assert.Throws<ArgumentException>(() =>
+                CaseForgeTools.Register(registry, new Uri("http://localhost:8788"), "test-token-012345",
+                    new Uri("https://example.com")));
+        });
+    }
+
+    [Test]
+    public void RejectsMalformedJobIdBeforeSending()
+    {
+        var registry = new ToolRegistry(new ApprovalQueue());
+        CaseForgeTools.Register(registry, new Uri("http://localhost:8788"), "test-token-012345");
+        Assert.That(registry.TryGet("model3d_status", out var status), Is.True);
+        Assert.ThrowsAsync<ArgumentException>(async () =>
+            await status!.Handler!(new() { ["job_id"] = "../not-a-job" }, CancellationToken.None));
     }
 }

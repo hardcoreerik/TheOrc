@@ -44,6 +44,7 @@ using OrchestratorIDE.Agents;
 using OrchestratorIDE.Core;
 using OrchestratorIDE.Core.Runtime;
 using OrchestratorIDE.Models;
+using OrchestratorIDE.Research;
 using OrchestratorIDE.Services.Hive;
 using OrchestratorIDE.Services.Models;
 
@@ -70,6 +71,7 @@ bool    showIdentity = false;
 bool    pairMode     = false;
 bool    noRun        = false;
 string? nativeTestGgufPath = null;
+string? nativeIntegrationProbeGgufPath = null;
 string? nativeCompareGgufPath = null;
 string? nativeCompareOllamaModel = null;
 string? nativeGgufPath     = null;
@@ -116,6 +118,7 @@ for (int i = 0; i < args.Length; i++)
         case "--pair":          pairMode     = true;            break;
         case "--no-run":        noRun        = true;            break;
         case "--native-test":   nativeTestGgufPath = Next();    break;
+        case "--native-integration-probe": nativeIntegrationProbeGgufPath = Next(); break;
         case "--native-compare": nativeCompareGgufPath = Next(); break;
         case "--ollama-model":  nativeCompareOllamaModel = Next(); break;
         case "--native":        nativeGgufPath     = Next();    break;
@@ -157,6 +160,11 @@ for (int i = 0; i < args.Length; i++)
                 Headless native-runtime smoke test (same prompt/checks as the GUI Settings
                 "Run Native Test" button, no Ollama fallback -- just the native attempt):
                   swarmcli --native-test <path-to-gguf-or-ollama-blob>
+
+                Probe Orcish Tongue with the CaseForge, Art Forge, and KeyHound read-tool
+                vocabularies. Handlers are safe local stubs: this tests native model selection,
+                parsing, argument transfer, and the tool-result round trip without starting jobs:
+                  swarmcli --native-integration-probe <path-to-gguf-or-ollama-blob>
 
                 Download a native GGUF into TheOrc's model folder using the same HuggingFace
                 search/download stack as the GUI model downloader. QUERY may be either an exact
@@ -424,6 +432,77 @@ if (nativeTestGgufPath is not null)
         $"vram~{(attempt.Stats.EstimatedVramBytes is { } vramBytes ? $"{vramBytes / 1024 / 1024}MB" : "n/a")}");
 
     return attempt.Success ? 0 : 1;
+}
+
+// ── --native-integration-probe — real native-model Orcish Tongue smoke ─────
+
+if (nativeIntegrationProbeGgufPath is not null)
+{
+    if (!File.Exists(nativeIntegrationProbeGgufPath))
+    {
+        Console.Error.WriteLine($"--native-integration-probe: file not found: {nativeIntegrationProbeGgufPath}");
+        return 1;
+    }
+
+    await using var runtime = new LLamaSharpRuntime();
+    var load = await runtime.LoadModelAsync(nativeIntegrationProbeGgufPath);
+    if (!load.Success)
+    {
+        Console.Error.WriteLine($"--native-integration-probe: failed to load native model: {load.Message}");
+        return 1;
+    }
+
+    var probes = new[]
+    {
+        (Name: "model3d_status", Argument: "job_id", Value: "0123456789abcdef0123456789abcdef",
+            Prompt: "Use model3d_status to check job 0123456789abcdef0123456789abcdef."),
+        (Name: "image_gallery", Argument: "limit", Value: "3",
+            Prompt: "Use image_gallery to list the 3 most recent images."),
+        (Name: "atlas_graph", Argument: "run_id", Value: "run_0123456789ab",
+            Prompt: "Use atlas_graph to inspect run run_0123456789ab."),
+    };
+    var passed = 0;
+    Console.WriteLine($"swarmcli --native-integration-probe — model: {nativeIntegrationProbeGgufPath}");
+
+    foreach (var probe in probes)
+    {
+        var executed = false;
+        var tool = new ToolDefinition
+        {
+            Name = probe.Name,
+            Description = "Read local integration state.",
+            Parameters = new() { [probe.Argument] = new("string", "Required identifier or limit") },
+            Required = [probe.Argument],
+            Handler = (args, _) =>
+            {
+                executed = args.TryGetValue(probe.Argument, out var value)
+                           && value?.ToString() == probe.Value;
+                return Task.FromResult("{\"ok\":true,\"probe\":true}");
+            },
+        };
+        var engine = new ChatEngine(runtime, load.ModelRef, systemPrompt: "", tools: [tool])
+        {
+            ReactInstructions = OrcChatToolCatalog.BuildReactInstructions([tool]),
+        };
+        ToolCall? call = null;
+        string? finalText = null;
+        engine.OnToolcallerDecision += decision => call = decision.Calls.FirstOrDefault();
+        engine.OnTurnComplete += text => finalText = text;
+        await engine.SendAsync(probe.Prompt);
+
+        var ok = executed && call?.Name == probe.Name;
+        Console.WriteLine($"[{(ok ? "PASS" : "FAIL")}] {probe.Name} " +
+                          $"call={call?.Name ?? "none"} args={call?.Arguments.Count ?? 0}");
+        if (!ok && !string.IsNullOrWhiteSpace(finalText))
+        {
+            var normalized = finalText.ReplaceLineEndings(" ");
+            Console.WriteLine($"  output: {normalized[..Math.Min(240, normalized.Length)]}");
+        }
+        if (ok) passed++;
+    }
+
+    Console.WriteLine($"Summary: {passed}/{probes.Length} native integration tool calls passed.");
+    return passed == probes.Length ? 0 : 1;
 }
 
 // ── --native-compare — deterministic native-vs-Ollama parity corpus ─────────

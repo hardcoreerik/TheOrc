@@ -5,22 +5,31 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using OrchestratorIDE.Core;
 
 namespace OrchestratorIDE.Tools;
 
 public static class CaseForgeTools
 {
+    private const int MaxJsonBytes = 1_000_000;
+    private static readonly Regex JobIdPattern = new("^[0-9a-f]{32}$", RegexOptions.CultureInvariant);
+
     public static void Register(ToolRegistry registry, Uri workerUrl, string? bearerToken = null,
-        Uri? workspaceUrl = null, HttpClient? httpClient = null)
+        Uri? workspaceUrl = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
         if (!IsLocal(workerUrl))
             throw new ArgumentException("CaseForge must use a loopback, private IP, or single-label LAN host.", nameof(workerUrl));
+        if (workspaceUrl is not null && !IsLocal(workspaceUrl))
+            throw new ArgumentException("The CaseForge workspace must be local.", nameof(workspaceUrl));
+        if (string.IsNullOrWhiteSpace(bearerToken) || bearerToken.Length < 16)
+            throw new ArgumentException("A CaseForge worker token of at least 16 characters is required.", nameof(bearerToken));
 
-        var http = httpClient ?? new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
-        if (!string.IsNullOrWhiteSpace(bearerToken))
-            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+        var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
+            { Timeout = TimeSpan.FromMinutes(2) };
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
         var api = workerUrl.ToString().TrimEnd('/');
         var editor = (workspaceUrl ?? workerUrl).ToString().TrimEnd('/');
 
@@ -66,7 +75,7 @@ public static class CaseForgeTools
             RequiresApproval = true,
             Handler = (args, _) =>
             {
-                var id = RequiredString(args, "job_id");
+                var id = JobId(args);
                 var url = $"{editor}/?job={Uri.EscapeDataString(id)}";
                 Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
                 return Task.FromResult($"Opened CaseForge job {id}: {url}");
@@ -84,24 +93,34 @@ public static class CaseForgeTools
         Required = ["job_id"],
         RequiresApproval = approval,
         Handler = async (args, ct) =>
-            await SendAsync(http, request(RequiredString(args, "job_id"), args), ct),
+            await SendAsync(http, request(JobId(args), args), ct),
     };
 
     private static Dictionary<string, object?> BuildCreateBody(Dictionary<string, object?> args)
     {
         var mode = RequiredString(args, "mode");
+        RequireOneOf(mode, "mode", "enclosure", "object", "portrait");
+        var quality = RequiredString(args, "quality");
+        RequireOneOf(quality, "quality", "draft", "final");
+        var prompt = RequiredString(args, "prompt");
+        if (prompt.Length is < 3 or > 2_000)
+            throw new ArgumentException("prompt must contain 3 to 2,000 characters.");
+        var style = String(args, "style", "faithful");
+        RequireOneOf(style, "style", "faithful", "softened", "cartoon", "relief");
         var body = new Dictionary<string, object?>
         {
             ["mode"] = mode,
-            ["quality"] = RequiredString(args, "quality"),
-            ["prompt"] = RequiredString(args, "prompt"),
-            ["style"] = String(args, "style", "faithful"),
-            ["seed"] = Number(args, "seed", 0),
+            ["quality"] = quality,
+            ["prompt"] = prompt,
+            ["style"] = style,
+            ["seed"] = Seed(args),
             ["outputs"] = new[] { "stl", "caseforge_project" },
             ["retain_inputs"] = Boolean(args, "retain_inputs"),
         };
 
         var inputs = String(args, "inputs_json", "[]");
+        if (Encoding.UTF8.GetByteCount(inputs) > MaxJsonBytes)
+            throw new ArgumentException("inputs_json exceeds 1 MB.");
         using (var parsed = JsonDocument.Parse(inputs))
         {
             if (parsed.RootElement.ValueKind != JsonValueKind.Array)
@@ -109,6 +128,8 @@ public static class CaseForgeTools
             body["inputs"] = parsed.RootElement.Clone();
         }
         var parameters = String(args, "parameters_json", "{}");
+        if (Encoding.UTF8.GetByteCount(parameters) > MaxJsonBytes)
+            throw new ArgumentException("parameters_json exceeds 1 MB.");
         using (var parsed = JsonDocument.Parse(parameters))
         {
             if (parsed.RootElement.ValueKind != JsonValueKind.Object)
@@ -139,8 +160,20 @@ public static class CaseForgeTools
         using (request)
         using (var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct))
         {
-            var text = await response.Content.ReadAsStringAsync(ct);
-            if (text.Length > 1_000_000) return "[ERROR] CaseForge response exceeded 1 MB.";
+            if (response.Content.Headers.ContentLength > MaxJsonBytes)
+                return "[ERROR] CaseForge response exceeded 1 MB.";
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            using var buffer = new MemoryStream();
+            var chunk = new byte[16_384];
+            while (buffer.Length <= MaxJsonBytes)
+            {
+                var read = await stream.ReadAsync(chunk, ct);
+                if (read == 0) break;
+                buffer.Write(chunk, 0, read);
+            }
+            if (buffer.Length > MaxJsonBytes)
+                return "[ERROR] CaseForge response exceeded 1 MB.";
+            var text = Encoding.UTF8.GetString(buffer.GetBuffer(), 0, checked((int)buffer.Length));
             return response.IsSuccessStatusCode
                 ? text
                 : $"[ERROR] CaseForge returned HTTP {(int)response.StatusCode}: {text}";
@@ -173,13 +206,34 @@ public static class CaseForgeTools
     private static bool Boolean(Dictionary<string, object?> args, string key) =>
         bool.TryParse(String(args, key), out var value) && value;
 
-    private static long Number(Dictionary<string, object?> args, string key, long fallback) =>
-        long.TryParse(String(args, key), out var value) ? value : fallback;
+    private static long Seed(Dictionary<string, object?> args)
+    {
+        var text = String(args, "seed", "0");
+        return long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var value)
+            && value is >= 0 and <= uint.MaxValue
+                ? value
+                : throw new ArgumentException("seed must be an integer from 0 through 4294967295.");
+    }
 
     private static void AddDimension(Dictionary<string, double> dimensions, string outputKey,
         Dictionary<string, object?> args, string inputKey)
     {
-        if (double.TryParse(String(args, inputKey), out var value) && value > 0)
-            dimensions[outputKey] = value;
+        if (!args.ContainsKey(inputKey)) return;
+        if (!double.TryParse(String(args, inputKey), NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+            || !double.IsFinite(value) || value is <= 0 or > 2_000)
+            throw new ArgumentException($"{inputKey} must be greater than 0 and no more than 2,000 mm.");
+        dimensions[outputKey] = value;
+    }
+
+    private static void RequireOneOf(string value, string name, params string[] allowed)
+    {
+        if (!allowed.Contains(value, StringComparer.OrdinalIgnoreCase))
+            throw new ArgumentException($"{name} must be one of: {string.Join(", ", allowed)}.");
+    }
+
+    private static string JobId(Dictionary<string, object?> args)
+    {
+        var id = RequiredString(args, "job_id");
+        return JobIdPattern.IsMatch(id) ? id : throw new ArgumentException("job_id must be a 32-character lowercase hex identifier.");
     }
 }

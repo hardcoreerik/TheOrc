@@ -40,10 +40,6 @@ public static class OrcChatToolCatalog
         "browser_extract",
         "browser_screenshot",
         "browser_download",
-        "model3d_create",
-        "model3d_status",
-        "model3d_cancel",
-        "model3d_open",
     ];
 
     /// <param name="onDiffPreview">
@@ -77,16 +73,35 @@ public static class OrcChatToolCatalog
         // so there's no more reason to leave this false.
         BrowserTools.Register(registry, workspaceRoot);
         var caseForgeUrl = Environment.GetEnvironmentVariable("THEORC_CASEFORGE_URL");
-        if (Uri.TryCreate(caseForgeUrl, UriKind.Absolute, out var caseForgeUri))
+        var caseForgeToken = Environment.GetEnvironmentVariable("THEORC_CASEFORGE_TOKEN");
+        if (Uri.TryCreate(caseForgeUrl, UriKind.Absolute, out var caseForgeUri)
+            && caseForgeToken?.Length >= 16)
         {
-            Uri.TryCreate(Environment.GetEnvironmentVariable("THEORC_CASEFORGE_WORKSPACE_URL"),
-                UriKind.Absolute, out var workspaceUri);
-            CaseForgeTools.Register(registry, caseForgeUri,
-                Environment.GetEnvironmentVariable("THEORC_CASEFORGE_TOKEN"), workspaceUri);
+            var workspaceSetting = Environment.GetEnvironmentVariable("THEORC_CASEFORGE_WORKSPACE_URL");
+            try
+            {
+                Uri? workspaceUri = null;
+                if (!string.IsNullOrWhiteSpace(workspaceSetting)
+                    && !Uri.TryCreate(workspaceSetting, UriKind.Absolute, out workspaceUri))
+                    throw new ArgumentException("THEORC_CASEFORGE_WORKSPACE_URL must be an absolute URL.");
+                CaseForgeTools.Register(registry, caseForgeUri, caseForgeToken, workspaceUri);
+            }
+            catch (ArgumentException)
+            {
+                // Invalid optional integration settings must not prevent TheOrc from starting.
+            }
         }
 
+        RegisterArtForge(registry);
+        RegisterKeyHound(registry);
+
         var tools = new List<ToolDefinition>();
-        foreach (var name in TopToolNames.Where(n => n != "web_search" && n != "fetch_page"))
+        foreach (var name in TopToolNames.Concat(new[]
+                 {
+                     "model3d_create", "model3d_status", "model3d_cancel", "model3d_open",
+                     "image_create", "image_status", "image_gallery", "image_open",
+                     "atlas_start", "atlas_graph", "atlas_expand", "atlas_evidence", "atlas_open",
+                 }).Where(n => n != "web_search" && n != "fetch_page"))
         {
             if (registry.TryGet(name, out var def) && def is not null)
                 tools.Add(def);
@@ -98,6 +113,48 @@ public static class OrcChatToolCatalog
         tools.Add(BuildSaveMarkdownTool(workspaceRoot));
 
         return tools;
+    }
+
+    private static void RegisterArtForge(ToolRegistry registry)
+    {
+        var url = Environment.GetEnvironmentVariable("THEORC_ARTFORGE_URL");
+        var token = Environment.GetEnvironmentVariable("THEORC_ARTFORGE_TOKEN");
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var serviceUri) || token?.Length < 16) return;
+
+        var workspaceSetting = Environment.GetEnvironmentVariable("THEORC_ARTFORGE_WORKSPACE_URL");
+        try
+        {
+            Uri? workspaceUri = null;
+            if (!string.IsNullOrWhiteSpace(workspaceSetting)
+                && !Uri.TryCreate(workspaceSetting, UriKind.Absolute, out workspaceUri))
+                throw new ArgumentException("THEORC_ARTFORGE_WORKSPACE_URL must be an absolute URL.");
+            ArtForgeTools.Register(registry, serviceUri, token!, workspaceUri);
+        }
+        catch (ArgumentException)
+        {
+            // Invalid optional integration settings must not prevent TheOrc from starting.
+        }
+    }
+
+    private static void RegisterKeyHound(ToolRegistry registry)
+    {
+        var url = Environment.GetEnvironmentVariable("THEORC_KEYHOUND_URL");
+        var token = Environment.GetEnvironmentVariable("THEORC_KEYHOUND_TOKEN");
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var serviceUri) || token?.Length < 32) return;
+
+        var workspaceSetting = Environment.GetEnvironmentVariable("THEORC_KEYHOUND_WORKSPACE_URL");
+        try
+        {
+            Uri? workspaceUri = null;
+            if (!string.IsNullOrWhiteSpace(workspaceSetting)
+                && !Uri.TryCreate(workspaceSetting, UriKind.Absolute, out workspaceUri))
+                throw new ArgumentException("THEORC_KEYHOUND_WORKSPACE_URL must be an absolute URL.");
+            KeyHoundAtlasTools.Register(registry, serviceUri, token!, workspaceUri);
+        }
+        catch (ArgumentException)
+        {
+            // Invalid optional integration settings must not prevent TheOrc from starting.
+        }
     }
 
     public static string BuildReactInstructions(IReadOnlyList<ToolDefinition> tools)
@@ -114,6 +171,13 @@ public static class OrcChatToolCatalog
         sb.AppendLine("Available tools:");
         foreach (var tool in tools)
             sb.AppendLine($"- {tool.Name} — {tool.Description}");
+        var names = tools.Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
+        if (names.Contains("model3d_create"))
+            sb.AppendLine("- 3D workflow: call model3d_create, then poll model3d_status; open the workspace only when the user asks.");
+        if (names.Contains("image_create"))
+            sb.AppendLine("- Image workflow: call image_create, then poll image_status; use image_gallery to find recent outputs.");
+        if (names.Contains("atlas_start"))
+            sb.AppendLine("- Atlas workflow: call atlas_start, inspect atlas_graph, and use atlas_evidence before presenting a claim as supported.");
         sb.AppendLine();
         sb.AppendLine("Rules:");
         sb.AppendLine("- Use web_search or fetch_page for current information.");

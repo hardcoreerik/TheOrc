@@ -357,6 +357,69 @@ public class ChatEngineTests
         });
     }
 
+    private sealed class IntegrationToolCallRuntime(string firstOutput) : IModelRuntime
+    {
+        private int _calls;
+        public string RuntimeName => "IntegrationToolCall";
+        public Task<bool> IsReachableAsync(CancellationToken ct = default) => Task.FromResult(true);
+        public Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default) => Task.FromResult(new List<string>());
+        public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) => Task.FromResult<int?>(null);
+
+        public async IAsyncEnumerable<string> StreamCompletionAsync(
+            string model, IEnumerable<AgentMessage> history, IReadOnlyList<object>? tools = null,
+            double temperature = 0.1, double? topP = null, int maxTokens = 4096,
+            Action<ToolCall>? onToolCall = null, Action<int, int>? onUsage = null,
+            [EnumeratorCancellation] CancellationToken ct = default)
+        {
+            await Task.Yield();
+            yield return _calls++ == 0 ? firstOutput : "done";
+        }
+
+        public RuntimeHealth GetHealth() => new(true, RuntimeName);
+        public RuntimeStats GetStats() => new(RuntimeName);
+    }
+
+    [TestCase("model3d_status", "job_id", "0123456789abcdef0123456789abcdef", false)]
+    [TestCase("image_create", "prompt", "a copper dragon emblem", true)]
+    [TestCase("atlas_start", "target", "example.com", true)]
+    public async Task Path3_IntegrationToolVocabulary_ExecutesThroughApprovalGate(
+        string toolName, string argumentName, string argumentValue, bool requiresApproval)
+    {
+        var output = $"{{\"name\":\"{toolName}\",\"arguments\":{{\"{argumentName}\":\"{argumentValue}\"}}}}";
+        var runtime = new IntegrationToolCallRuntime(output);
+        var executed = false;
+        var approvalAsked = false;
+        var engine = new ChatEngine(runtime, "native-test-model", systemPrompt: "", tools:
+        [
+            new ToolDefinition
+            {
+                Name = toolName,
+                Description = "Integration test tool.",
+                Parameters = new() { [argumentName] = new("string", "test argument") },
+                Required = [argumentName],
+                RequiresApproval = requiresApproval,
+                Handler = (args, _) =>
+                {
+                    executed = args.TryGetValue(argumentName, out var value) && value?.ToString() == argumentValue;
+                    return Task.FromResult("[OK]");
+                },
+            },
+        ]);
+        engine.OnApprovalRequired = (_, _) =>
+        {
+            approvalAsked = true;
+            return Task.FromResult(true);
+        };
+
+        await engine.SendAsync("Use the configured studio tool.");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(executed, Is.True);
+            Assert.That(approvalAsked, Is.EqualTo(requiresApproval));
+        });
+    }
+
     [Test]
     public async Task Path3_DoesNotFire_WhenNoToolsOffered()
     {
