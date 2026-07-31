@@ -72,6 +72,16 @@ public partial class SettingsPanel : UserControl
     private ModelDepot? _scannedDepot;
     private readonly List<NativeBindingOption> _nativeBindingOptions = [];
 
+    // Set while LoadSettings is assigning fields from a just-loaded AppSettings, so the
+    // RbBackendLlamaCpp.IsChecked assignment it does (which fires RbBackend_Checked) doesn't
+    // race the llama.cpp auto-fill against the persisted values LoadSettings is about to write
+    // into the same text boxes a couple of lines later.
+    private bool _suppressBackendAutoFill;
+
+    // Incremented at the start of every AutoFillLlamaCppModelPathAsync call; see that method's
+    // own doc comment for why (rapid backend toggles can overlap concurrent scans).
+    private int _llamaCppModelScanGeneration;
+
     // Native Runtime telemetry — wraps the existing OllamaClient in the IModelRuntime
     // abstraction (Phase 0) so this surface costs nothing new: no model-folder config,
     // no adapter hot-swap, no SessionManager (that's scoped to ILocalModelRuntime /
@@ -104,8 +114,16 @@ public partial class SettingsPanel : UserControl
         _current = s;
 
         TbOllamaHost.Text             = s.OllamaHost;
-        RbBackendOllama.IsChecked     = s.Backend == InferenceBackend.Ollama;
-        RbBackendLlamaCpp.IsChecked   = s.Backend == InferenceBackend.LlamaCpp;
+        // grok-review MINOR: try/finally, not a bare set-true/set-false pair -- an unguarded
+        // throw between the two IsChecked assignments (e.g. a future validator on the setter)
+        // would leave auto-fill permanently suppressed for the rest of this panel's lifetime.
+        _suppressBackendAutoFill = true;
+        try
+        {
+            RbBackendOllama.IsChecked   = s.Backend == InferenceBackend.Ollama;
+            RbBackendLlamaCpp.IsChecked = s.Backend == InferenceBackend.LlamaCpp;
+        }
+        finally { _suppressBackendAutoFill = false; }
         PnlLlamaCppSettings.IsVisible = s.Backend == InferenceBackend.LlamaCpp;
         TbLlamaCppRuntimePath.Text    = s.LlamaCppRuntimePath;
         TbLlamaCppModelPath.Text      = s.LlamaCppModelPath;
@@ -113,6 +131,12 @@ public partial class SettingsPanel : UserControl
         TbLlamaCppContextSize.Text    = s.LlamaCppContextSize.ToString();
         TbLlamaCppGpuLayers.Text      = s.LlamaCppGpuLayers.ToString();
         TbLlamaCppTestResult.Text     = "";
+        // Covers a persisted settings.json that already has Backend == LlamaCpp but empty
+        // runtime/model paths (e.g. hand-edited, or saved before BtnSave_Click's revert-to-
+        // Ollama guard existed). Runs after the Text assignments above, not via the
+        // IsChecked-triggered event, so it only fills in what's genuinely still empty.
+        if (s.Backend == InferenceBackend.LlamaCpp)
+            AutoFillLlamaCppDefaults();
         TbDefaultModel.Text           = s.DefaultModel;
         TbMaxSteps.Text               = s.MaxStepsOverride.ToString();
         TglAutoVerify.IsChecked       = s.AutoVerify;
@@ -139,7 +163,16 @@ public partial class SettingsPanel : UserControl
         RowModelStorage.DefaultDisplay = s.ResolvedModelStoragePath;
         RowTempFallback.PathText  = s.TempFallbackPath;
         RowTempFallback.DefaultDisplay = s.ResolvedTempFallbackPath;
-        TbNativeRuntimeModelRoot.Text = s.NativeRuntimeModelRoot;
+        // grok-review MINOR: de-duped, case-insensitively -- a hand-edited settings.json (or any
+        // future path that stops guaranteeing NativeRuntimeModelRoot never repeats inside
+        // NativeRuntimeModelRoots) could otherwise show the same folder twice, and re-saving
+        // would bake that duplicate line into the persisted list.
+        TbNativeRuntimeModelRoot.Text = string.Join(
+            Environment.NewLine,
+            new[] { s.NativeRuntimeModelRoot }.Concat(s.NativeRuntimeModelRoots ?? [])
+                .Where(r => !string.IsNullOrWhiteSpace(r))
+                .Distinct(StringComparer.OrdinalIgnoreCase));
+        TglNativeIncludeOllamaModels.IsChecked = s.NativeRuntimeIncludeOllamaModels;
         TbNativeRuntimeContextSize.Text = s.NativeRuntimeContextSize.ToString();
         TbNativeRuntimeGpuLayers.Text = s.NativeRuntimeGpuLayers.ToString();
         TbDepotScanFolder.Text        = s.ResolvedNativeRuntimeModelRoot;
@@ -320,7 +353,21 @@ public partial class SettingsPanel : UserControl
         s.ToolcallerRepairEnabled             = TglToolcallerRepair.IsChecked == true;
         s.ModelStoragePath  = RowModelStorage.PathText.Trim();
         s.TempFallbackPath  = RowTempFallback.PathText.Trim();
-        s.NativeRuntimeModelRoot = TbNativeRuntimeModelRoot.Text?.Trim() ?? "";
+        // Multi-line textbox: one folder per line. First non-empty line keeps going into the
+        // legacy single NativeRuntimeModelRoot (other consumers -- Daemon, SwarmCli,
+        // ContextFabricBench -- still read only that one field), the rest into
+        // NativeRuntimeModelRoots. Splitting/rejoining here rather than changing those other
+        // tools keeps this a UI-and-main-app-only change.
+        // grok-review MINOR: Distinct here too, not just on the load side -- otherwise a
+        // duplicate line that slipped into the textbox (typed by hand, or from a settings.json
+        // that already had one) gets faithfully re-persisted instead of cleaned up on save.
+        var configuredRoots = (TbNativeRuntimeModelRoot.Text ?? "")
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        s.NativeRuntimeModelRoot = configuredRoots.Count > 0 ? configuredRoots[0] : "";
+        s.NativeRuntimeModelRoots = configuredRoots.Count > 1 ? configuredRoots[1..] : [];
+        s.NativeRuntimeIncludeOllamaModels = TglNativeIncludeOllamaModels.IsChecked == true;
         s.NativeRuntimeContextSize = int.TryParse(TbNativeRuntimeContextSize.Text, out var nativeCtx)
             ? Math.Max(512, nativeCtx)
             : 8192;
@@ -476,14 +523,156 @@ public partial class SettingsPanel : UserControl
     {
         if (PnlLlamaCppSettings is null) return; // fires during InitializeComponent, before the field is set
         PnlLlamaCppSettings.IsVisible = RbBackendLlamaCpp.IsChecked == true;
+
+        if (!_suppressBackendAutoFill && RbBackendLlamaCpp.IsChecked == true)
+            AutoFillLlamaCppDefaults();
+    }
+
+    /// <summary>
+    /// Found live 2026-07-30: a user switched the chat backend to llama.cpp (native) and both
+    /// the runtime-folder and model-file fields were empty with no auto-detection, even though
+    /// TheOrc already knows a model storage folder and typically already has GGUF files in it
+    /// from prior Ollama/ModelDepot use. Only fills fields that are still empty -- never
+    /// overwrites a path the user (or a loaded settings.json) already provided.
+    ///
+    /// Known, accepted residual gap (grok-review MINOR, 2026-07-30): the model-path half runs
+    /// as a fire-and-forget background scan (AutoFillLlamaCppModelPathAsync). If the user hits
+    /// Save while that scan is still in flight, ReadSettings reads whatever TbLlamaCppModelPath
+    /// shows at that instant (still empty) and persists it before the scan's result lands in the
+    /// textbox -- a real but narrow race (the scan is typically sub-second), not fixed here
+    /// because closing it properly means either blocking Save during an in-flight scan or
+    /// awaiting the scan synchronously, both bigger changes than this auto-fill convenience
+    /// warrants on its own.
+    /// </summary>
+    private void AutoFillLlamaCppDefaults()
+    {
+        if (string.IsNullOrWhiteSpace(TbLlamaCppRuntimePath.Text))
+        {
+            var folder = TryFindBundledLlamaServerFolder();
+            if (folder is not null)
+                TbLlamaCppRuntimePath.Text = folder;
+        }
+
+        if (string.IsNullOrWhiteSpace(TbLlamaCppModelPath.Text))
+            _ = AutoFillLlamaCppModelPathAsync();
+    }
+
+    /// <summary>
+    /// Looks for llama-server next to the running app at the exact folder the OrchestratorSetup
+    /// installer extracts it to (InstallerState.LlamaRuntimeExtractPath = "&lt;install
+    /// dir&gt;/Runtime/llama") when a user picks the llama.cpp backend during setup. A dev build
+    /// or an Ollama-path install won't have this folder -- callers treat a null return as "ask
+    /// the user to browse."
+    /// </summary>
+    private static string? TryFindBundledLlamaServerFolder()
+    {
+        // grok-review MINOR: Assembly.GetExecutingAssembly().Location is empty for single-file
+        // publish, which is how TheOrc actually ships (see Tools/sync-theorc-fleet) -- this
+        // auto-detect would silently never fire in production. AppContext.BaseDirectory is
+        // correct for both single-file and normal builds.
+        var installDir = AppContext.BaseDirectory;
+        if (string.IsNullOrEmpty(installDir))
+            return null;
+
+        var candidate = Path.Combine(installDir, "Runtime", "llama");
+        if (!Directory.Exists(candidate))
+            return null;
+
+        var names = OperatingSystem.IsWindows()
+            ? new[] { "llama-server.exe", "server.exe" }
+            : new[] { "llama-server", "server" };
+
+        if (names.Any(n => File.Exists(Path.Combine(candidate, n))))
+            return candidate;
+
+        // Some archives nest the binary one level deeper (a version folder) --
+        // matches ZipExtractService.FindServerExe's own fallback search.
+        // grok-review MINOR: GetFiles can throw (UnauthorizedAccessException/IOException) on a
+        // permissions-locked or mid-write subfolder -- this runs on backend-radio selection, a
+        // UI thread event handler, so an uncaught throw here would crash the panel rather than
+        // just falling through to "ask the user to browse," which is this method's whole point.
+        try
+        {
+            foreach (var name in names)
+            {
+                var nested = Directory.GetFiles(candidate, name, SearchOption.AllDirectories).FirstOrDefault();
+                if (nested is not null)
+                    return Path.GetDirectoryName(nested);
+            }
+        }
+        catch { /* fall through to "ask the user to browse" */ }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Scans the resolved model storage folder for GGUF base models and defaults the field to
+    /// the most recently modified one. Runs off the UI thread -- ModelDepot.Scan walks the
+    /// directory tree recursively and can be slow on a large folder (same reasoning as
+    /// BtnScanDepot_Click). Re-checks emptiness before writing so it never clobbers a value the
+    /// user typed, or LoadSettings assigned, while the scan was in flight.
+    /// </summary>
+    private async Task AutoFillLlamaCppModelPathAsync()
+    {
+        // grok-review MINOR: this is fire-and-forget (called via `_ = ...`), so nothing ever
+        // observes this Task's exception -- the whole body is wrapped in try/catch so it truly
+        // never faults, not just the one already-risky scan call in the middle of it.
+        try
+        {
+            // A generation token means only the LATEST call's result (or "not found" message)
+            // ever reaches the UI -- rapid backend toggles can start several overlapping scans,
+            // and an older, slower one finishing after a newer one no-ops instead of clobbering
+            // fresher state (or leaving a stale "Looking for…" message visible after the newer
+            // scan already resolved).
+            var generation = ++_llamaCppModelScanGeneration;
+
+            var root = _current.ResolvedModelStoragePath;
+            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+                return;
+
+            TbLlamaCppTestResult.Text = "Looking for a GGUF model in your model folder…";
+
+            RuntimeModelAsset? found;
+            try
+            {
+                found = await Task.Run(() => ModelDepot.Scan(root).Assets
+                    .Where(a => a.Kind == RuntimeAssetKind.BaseModelGguf)
+                    .OrderByDescending(a => a.LastModifiedUtc)
+                    .FirstOrDefault());
+            }
+            catch
+            {
+                found = null;
+            }
+
+            if (generation != _llamaCppModelScanGeneration)
+                return; // superseded by a newer call while this scan was in flight
+
+            if (!string.IsNullOrWhiteSpace(TbLlamaCppModelPath.Text))
+                return;
+
+            if (found is not null)
+            {
+                TbLlamaCppModelPath.Text = found.Path;
+                TbLlamaCppTestResult.Text = $"✓  Auto-selected {found.DisplayName} — change it below if you meant a different model";
+            }
+            else
+            {
+                TbLlamaCppTestResult.Text = $"No GGUF files found under {root} — browse to your model folder";
+            }
+        }
+        catch { /* best-effort UI convenience; never let a fire-and-forget call fault unobserved */ }
     }
 
     private async void BtnBrowseLlamaCppRuntimePath_Click(object? sender, RoutedEventArgs e)
     {
         var topLevel = TopLevel.GetTopLevel(this);
         if (topLevel == null) return;
+        var startLocation = string.IsNullOrWhiteSpace(TbLlamaCppRuntimePath.Text)
+            ? await SuggestedStartFolderAsync(topLevel, AppContext.BaseDirectory) // same single-file-publish fix as TryFindBundledLlamaServerFolder
+            : null;
         var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(
-            new FolderPickerOpenOptions { Title = "Choose folder containing llama-server.exe", AllowMultiple = false });
+            new FolderPickerOpenOptions { Title = "Choose folder containing llama-server.exe", AllowMultiple = false, SuggestedStartLocation = startLocation });
         if (folders.Count > 0)
             TbLlamaCppRuntimePath.Text = folders[0].Path.LocalPath;
     }
@@ -492,14 +681,27 @@ public partial class SettingsPanel : UserControl
     {
         var topLevel = TopLevel.GetTopLevel(this);
         if (topLevel == null) return;
+        var startLocation = string.IsNullOrWhiteSpace(TbLlamaCppModelPath.Text)
+            ? await SuggestedStartFolderAsync(topLevel, _current.ResolvedModelStoragePath)
+            : null;
         var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Choose a GGUF model file",
             AllowMultiple = false,
+            SuggestedStartLocation = startLocation,
             FileTypeFilter = new[] { new FilePickerFileType("GGUF model") { Patterns = new[] { "*.gguf" } } },
         });
         if (files.Count > 0)
             TbLlamaCppModelPath.Text = files[0].Path.LocalPath;
+    }
+
+    /// <summary>Best-effort folder to open a picker at; null falls back to the OS default.</summary>
+    private static async Task<IStorageFolder?> SuggestedStartFolderAsync(TopLevel topLevel, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+            return null;
+        try { return await topLevel.StorageProvider.TryGetFolderFromPathAsync(path); }
+        catch { return null; }
     }
 
     private async void BtnTestLlamaCppConn_Click(object? sender, RoutedEventArgs e)
@@ -548,12 +750,24 @@ public partial class SettingsPanel : UserControl
         var topLevel = TopLevel.GetTopLevel(this);
         if (topLevel == null) return;
         var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(
-            new FolderPickerOpenOptions { Title = "Choose native runtime model root", AllowMultiple = false });
-        if (folders.Count > 0)
+            new FolderPickerOpenOptions { Title = "Add a native runtime model root", AllowMultiple = true });
+        if (folders.Count == 0)
+            return;
+
+        // Appends, per the field's own hint text -- this box now holds one folder per line, not
+        // a single path, so replacing it on every browse would silently drop everything already
+        // configured.
+        var existing = (TbNativeRuntimeModelRoot.Text ?? "")
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+        foreach (var folder in folders)
         {
-            TbNativeRuntimeModelRoot.Text = folders[0].Path.LocalPath;
-            TbDepotScanFolder.Text = folders[0].Path.LocalPath;
+            var path = folder.Path.LocalPath;
+            if (!existing.Contains(path, StringComparer.OrdinalIgnoreCase))
+                existing.Add(path);
         }
+        TbNativeRuntimeModelRoot.Text = string.Join(Environment.NewLine, existing);
+        TbDepotScanFolder.Text = folders[^1].Path.LocalPath;
     }
 
     private async void BtnBrowseDepotScanFolder_Click(object? sender, RoutedEventArgs e)
@@ -582,7 +796,15 @@ public partial class SettingsPanel : UserControl
             // ModelDepot.Scan recursively walks the directory tree and hashes every path found —
             // can be slow on large folders. Off the UI thread, matching the async pattern every
             // other long-running action in this panel already uses (BtnTestConn, BtnGrabSource, etc).
-            _scannedDepot = await Task.Run(() => ModelDepot.Scan(folder));
+            //
+            // grok-review MINOR: this diagnostic previously only ever scanned the single typed
+            // folder, silently ignoring the "Include Ollama's own models" toggle just above it in
+            // the same section -- a user testing whether their Ollama models are actually
+            // resolvable had no way to verify that here. Respecting the toggle keeps this an
+            // "isolated single folder" test (per its own hint text) while still reflecting
+            // whether Ollama inclusion is on, matching what production actually does.
+            var includeOllama = TglNativeIncludeOllamaModels.IsChecked == true;
+            _scannedDepot = await Task.Run(() => ModelDepot.ScanSources([folder], includeOllamaModels: includeOllama));
             PopulateNativeBindingOptions(_scannedDepot);
             TbDepotResults.Text = FormatDepotResults(_scannedDepot);
         }

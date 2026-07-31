@@ -591,18 +591,34 @@
                 </Border>
 
                 <StackPanel Classes="SettingRow">
-                    <TextBlock Text="Native Model Root" Classes="SettingLabel"/>
-                    <TextBlock Text="Folder scanned for GGUF/LoRA role bindings. Empty uses the normal model storage folder."
-                               Classes="SettingHint"/>
+                    <TextBlock Text="Native Model Root(s)" Classes="SettingLabel"/>
+                    <TextBlock Text="Folders scanned for GGUF/LoRA role bindings, one per line. Empty uses the normal model storage folder. The browse button appends a folder rather than replacing what's here."
+                               Classes="SettingHint" TextWrapping="Wrap"/>
                     <Grid ColumnDefinitions="*,32">
                         <TextBox x:Name="TbNativeRuntimeModelRoot"
-                                 Grid.Column="0" Classes="SettingInput"/>
-                        <Button Grid.Column="1" Content="…" Margin="4,0,0,0"
+                                 Grid.Column="0" Classes="SettingInput"
+                                 AcceptsReturn="True" TextWrapping="NoWrap"
+                                 Height="60" VerticalContentAlignment="Top"/>
+                        <Button Grid.Column="1" Content="…" Margin="4,0,0,0" VerticalAlignment="Top"
                                 Background="{StaticResource Br.Bg.Input}"
                                 Foreground="{StaticResource Br.Text.Primary}"
                                 FontSize="12" Click="BtnBrowseNativeRuntimeModelRoot_Click"/>
                     </Grid>
                 </StackPanel>
+
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
+                        <ToggleButton x:Name="TglNativeIncludeOllamaModels"
+                                      DockPanel.Dock="Right"
+                                      Theme="{StaticResource ToggleStyle}"
+                                      IsChecked="True"/>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Include Ollama's own models" Classes="SettingLabel"/>
+                            <TextBlock Text="Also resolves every model Ollama has already pulled, straight from its own manifest/blob store (OLLAMA_MODELS env var, or %USERPROFILE%\.ollama\models). No download, no conversion -- Ollama's blobs are already plain GGUF files."
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
 
                 <Grid Classes="SettingRow" ColumnDefinitions="*,8,*">
                     <StackPanel Grid.Column="0">

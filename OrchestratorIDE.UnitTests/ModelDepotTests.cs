@@ -186,6 +186,147 @@ public sealed class ModelDepotTests
         Assert.That(decision.Verdict, Is.EqualTo(ModelAdmissionVerdict.Rejected));
     }
 
+    // ── ScanOllamaModels / ScanSources (docs/... found live 2026-07-30) ────────────────────
+    // Ollama's own storage, verified by hand against a real install: manifests/<host>/<ns>/
+    // <name>/<tag> is an OCI-style JSON manifest; blobs/sha256-<hex> are the actual layer
+    // files, and the layer with mediaType "application/vnd.ollama.image.model" IS a real GGUF
+    // (magic bytes "GGUF") -- just content-hashed with no extension. These tests build that
+    // exact structure by hand rather than trusting a real Ollama install to be present in CI.
+
+    [Test]
+    public void ScanOllamaModels_ResolvesDefaultLibraryTag_ShorteningRegistryAndNamespace()
+    {
+        var ollamaRoot = NewTempRoot();
+        var modelPath = WriteOllamaManifest(
+            ollamaRoot, "registry.ollama.ai/library/qwen2.5-coder/14b", "aa11", modelLayerSize: 42);
+
+        var assets = ModelDepot.ScanOllamaModels(ollamaRoot).ToList();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(assets, Has.Count.EqualTo(1));
+            Assert.That(assets[0].DisplayName, Is.EqualTo("qwen2.5-coder:14b"));
+            Assert.That(assets[0].Path, Is.EqualTo(Path.GetFullPath(modelPath)));
+            Assert.That(assets[0].Kind, Is.EqualTo(RuntimeAssetKind.BaseModelGguf));
+            Assert.That(assets[0].SizeBytes, Is.EqualTo(42));
+        });
+    }
+
+    [Test]
+    public void ScanOllamaModels_ResolvesHfCoTag_KeepingFullHostAndNamespace()
+    {
+        var ollamaRoot = NewTempRoot();
+        WriteOllamaManifest(
+            ollamaRoot, "hf.co/NousResearch/Hermes-3-Llama-3.2-3B-GGUF/Q4_K_M", "bb22", modelLayerSize: 7);
+
+        var assets = ModelDepot.ScanOllamaModels(ollamaRoot).ToList();
+
+        Assert.That(assets, Has.Count.EqualTo(1));
+        Assert.That(assets[0].DisplayName, Is.EqualTo("hf.co/NousResearch/Hermes-3-Llama-3.2-3B-GGUF:Q4_K_M"));
+    }
+
+    [Test]
+    public void ScanOllamaModels_ResolvesDefaultRegistryNonLibraryNamespace_StrippingOnlyTheHost()
+    {
+        // grok-review MINOR: the default registry host and the "library" namespace strip
+        // independently -- a user's own pushed model under the default registry but a
+        // non-"library" namespace (e.g. their own Ollama account) keeps its namespace segment,
+        // matching Ollama's own short-name convention ("someuser/mymodel:tag", not the full
+        // "registry.ollama.ai/someuser/mymodel:tag").
+        var ollamaRoot = NewTempRoot();
+        WriteOllamaManifest(
+            ollamaRoot, "registry.ollama.ai/someuser/mymodel/latest", "ee55", modelLayerSize: 9);
+
+        var assets = ModelDepot.ScanOllamaModels(ollamaRoot).ToList();
+
+        Assert.That(assets, Has.Count.EqualTo(1));
+        Assert.That(assets[0].DisplayName, Is.EqualTo("someuser/mymodel:latest"));
+    }
+
+    [Test]
+    public void ScanOllamaModels_SkipsManifestsWithNoModelLayer()
+    {
+        var ollamaRoot = NewTempRoot();
+        var manifestPath = Path.Combine(ollamaRoot, "manifests", "registry.ollama.ai", "library", "no-model-layer", "latest");
+        Directory.CreateDirectory(Path.GetDirectoryName(manifestPath)!);
+        File.WriteAllText(manifestPath, """{"schemaVersion":2,"layers":[{"mediaType":"application/vnd.ollama.image.template","digest":"sha256:cc33","size":5}]}""");
+        Directory.CreateDirectory(Path.Combine(ollamaRoot, "blobs"));
+
+        Assert.That(ModelDepot.ScanOllamaModels(ollamaRoot), Is.Empty);
+    }
+
+    [Test]
+    public void ScanOllamaModels_ReturnsEmpty_WhenManifestsOrBlobsFolderIsMissing()
+    {
+        var missingRoot = Path.Combine(Path.GetTempPath(), "orc-no-ollama-" + Guid.NewGuid().ToString("N"));
+
+        Assert.That(ModelDepot.ScanOllamaModels(missingRoot), Is.Empty);
+    }
+
+    [Test]
+    public void ScanSources_MergesMultipleFolders_DedupingByResolvedPath()
+    {
+        var rootA = NewTempRoot();
+        var rootB = NewTempRoot();
+        var pathA = WriteFile(rootA, "boss-a.gguf");
+        var pathB = WriteFile(rootB, "boss-b.gguf");
+
+        var depot = ModelDepot.ScanSources([rootA, rootB, rootA]); // rootA repeated on purpose
+
+        Assert.That(depot.Assets.Select(a => a.Path), Is.EquivalentTo(new[]
+        {
+            Path.GetFullPath(pathA), Path.GetFullPath(pathB),
+        }));
+    }
+
+    [Test]
+    public void ScanSources_IncludesOllamaModels_OnlyWhenRequested()
+    {
+        var folderRoot = NewTempRoot();
+        WriteFile(folderRoot, "plain-model.gguf");
+        var ollamaRoot = NewTempRoot();
+        WriteOllamaManifest(ollamaRoot, "registry.ollama.ai/library/mistral-small/latest", "dd44", modelLayerSize: 3);
+        // A definitely-nonexistent path, not "" -- "" falls through ResolveOllamaModelsRoot to
+        // the REAL OLLAMA_MODELS env var (or the real ~/.ollama/models default), which on any
+        // dev machine with Ollama actually installed picks up real models and makes this
+        // assertion machine-dependent instead of isolated.
+        var nonexistentOllamaRoot = Path.Combine(Path.GetTempPath(), "orc-no-such-ollama-" + Guid.NewGuid().ToString("N"));
+
+        var withoutOllama = ModelDepot.ScanSources([folderRoot], includeOllamaModels: true, ollamaModelsRootOverride: nonexistentOllamaRoot);
+        var withOllama = ModelDepot.ScanSources([folderRoot], includeOllamaModels: true, ollamaModelsRootOverride: ollamaRoot);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(withoutOllama.Assets, Has.Count.EqualTo(1), "no Ollama root resolved -> just the folder's own model");
+            Assert.That(withOllama.Assets.Select(a => a.DisplayName),
+                Is.EquivalentTo(new[] { "plain-model.gguf", "mistral-small:latest" }));
+        });
+    }
+
+    /// <summary>
+    /// Writes a synthetic Ollama manifest + its model-layer blob, matching the real structure
+    /// (a JSON manifest under manifests/&lt;relativeTagPath&gt;, referencing a layer whose
+    /// content lives at blobs/sha256-&lt;hex&gt;) without needing gigabytes of real weights --
+    /// asset LISTING never inspects blob content, only its existence and length.
+    /// </summary>
+    private static string WriteOllamaManifest(string ollamaRoot, string relativeTagPath, string digestHex, int modelLayerSize)
+    {
+        var blobPath = Path.Combine(ollamaRoot, "blobs", $"sha256-{digestHex}");
+        Directory.CreateDirectory(Path.GetDirectoryName(blobPath)!);
+        File.WriteAllBytes(blobPath, new byte[modelLayerSize]);
+
+        var manifestPath = Path.Combine(ollamaRoot, "manifests", relativeTagPath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(manifestPath)!);
+        File.WriteAllText(manifestPath,
+            $$"""
+            {"schemaVersion":2,"layers":[
+              {"mediaType":"application/vnd.ollama.image.template","digest":"sha256:unused","size":1},
+              {"mediaType":"application/vnd.ollama.image.model","digest":"sha256:{{digestHex}}","size":{{modelLayerSize}}}
+            ]}
+            """);
+        return blobPath;
+    }
+
     private string NewTempRoot()
     {
         var root = Path.Combine(Path.GetTempPath(), "orc-model-depot-" + Guid.NewGuid().ToString("N"));

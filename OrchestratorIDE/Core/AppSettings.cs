@@ -349,9 +349,30 @@ public class AppSettings
 
     /// <summary>
     /// Root folder scanned by ModelDepot for native HIVE worker models/adapters.
-    /// Empty = use ResolvedModelStoragePath.
+    /// Empty = use ResolvedModelStoragePath. Superseded by NativeRuntimeModelRoots for the main
+    /// app's own native runtime (see that property) but left as-is for other single-root
+    /// consumers (Daemon, SwarmCli, ContextFabricBench) not touched by this multi-source change.
     /// </summary>
     public string NativeRuntimeModelRoot { get; set; } = "";
+
+    /// <summary>
+    /// Any number of additional folders ModelDepot.ScanSources scans alongside (not instead of)
+    /// NativeRuntimeModelRoot/ResolvedModelStoragePath -- e.g. a second drive with more GGUFs.
+    /// Empty (the default) means "just the one resolved root," matching pre-existing behavior
+    /// exactly. See ResolvedNativeRuntimeModelRoots for how these combine.
+    /// </summary>
+    public List<string> NativeRuntimeModelRoots { get; set; } = [];
+
+    /// <summary>
+    /// When true, ModelDepot.ScanSources also resolves every model Ollama has already pulled,
+    /// straight from Ollama's own manifest/blob store (no download, no format conversion --
+    /// confirmed live 2026-07-30 that Ollama's blobs are byte-for-byte standard GGUF files).
+    /// Default true: on an existing install, this is almost always a strict improvement (native
+    /// can now actually serve models the user already has instead of silently falling back to
+    /// Ollama for every one of them) and costs nothing when Ollama isn't installed (ScanOllamaModels
+    /// just finds no manifests folder and returns empty).
+    /// </summary>
+    public bool NativeRuntimeIncludeOllamaModels { get; set; } = true;
 
     /// <summary>Native HIVE worker context window size. Default: 8192 tokens.</summary>
     public int NativeRuntimeContextSize { get; set; } = 8192;
@@ -364,6 +385,24 @@ public class AppSettings
         !string.IsNullOrWhiteSpace(NativeRuntimeModelRoot)
             ? NativeRuntimeModelRoot
             : ResolvedModelStoragePath;
+
+    /// <summary>
+    /// Every folder ModelDepot.ScanSources should scan for the main app's own native runtime
+    /// (OrcChat main chat + native HIVE worker) -- ResolvedNativeRuntimeModelRoot (the single
+    /// legacy root, itself defaulting to ResolvedModelStoragePath) plus any extras from
+    /// NativeRuntimeModelRoots, de-duplicated. Combine with NativeRuntimeIncludeOllamaModels for
+    /// the full source list ScanSources expects.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<string> ResolvedNativeRuntimeModelRoots =>
+        new[] { ResolvedNativeRuntimeModelRoot }
+            // grok-review BLOCKER: NativeRuntimeModelRoots could deserialize as null (a
+            // hand-edited settings.json with an explicit "nativeRuntimeModelRoots": null, or any
+            // future deserializer that doesn't run property initializers first) -- the ?? []
+            // guard costs nothing and removes the whole class of NRE risk here.
+            .Concat((NativeRuntimeModelRoots ?? []).Where(r => !string.IsNullOrWhiteSpace(r)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
     /// <summary>Port for the Warchief's HiveTaskQueue service. Default: 7079.</summary>
     public int HiveTaskQueuePort { get; set; } = 7079;

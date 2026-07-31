@@ -2858,21 +2858,34 @@ public partial class MainWindow : Window
         if (!enabled)
             return null;
 
-        var root = _settings.ResolvedNativeRuntimeModelRoot;
         try
         {
-            var depot = ModelDepot.Scan(root);
+            // grok-review MINOR: computed inside the try, not before it -- ResolvedNativeRuntimeModelRoots
+            // can't actually return null today (its own getter already guards NativeRuntimeModelRoots
+            // being null), but there's no reason to leave a settings-access path unprotected by
+            // this method's own catch-and-fall-back-to-Ollama contract for a decision this cheap.
+            var roots = _settings.ResolvedNativeRuntimeModelRoots;
+            var rootsDescription = string.Join("', '", roots);
+
+            // Multi-source scan (docs/... found live 2026-07-30): folders configured in
+            // NativeRuntimeModelRoots, plus -- when NativeRuntimeIncludeOllamaModels is on --
+            // every model Ollama has already pulled, resolved straight from Ollama's own
+            // manifest/blob store. No download, no conversion; see ModelDepot.ScanOllamaModels.
+            var depot = ModelDepot.ScanSources(roots, includeOllamaModels: _settings.NativeRuntimeIncludeOllamaModels);
             var baseCount = depot.Assets.Count(a => a.Kind == RuntimeAssetKind.BaseModelGguf);
             if (baseCount == 0)
             {
                 AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
-                    $"Experimental {featureLabel} is enabled, but no base GGUF was found under '{root}'. Will use configured model runtime.",
+                    $"Experimental {featureLabel} is enabled, but no base GGUF was found under '{rootsDescription}'" +
+                    (_settings.NativeRuntimeIncludeOllamaModels ? " or in Ollama's model store" : "") +
+                    ". Will use configured model runtime.",
                     DateTime.Now));
                 return null;
             }
 
             AddActivity(new ActivityEvent(ActivityKind.Info, "Native Runtime",
-                $"Experimental {featureLabel} enabled: {baseCount} base GGUF(s) found under '{root}'.",
+                $"Experimental {featureLabel} enabled: {baseCount} base GGUF(s) found under '{rootsDescription}'" +
+                (_settings.NativeRuntimeIncludeOllamaModels ? " (including Ollama's own model store)" : "") + ".",
                 DateTime.Now));
 
             // Pin CUDA-preferring backend selection BEFORE any native load and make the outcome
