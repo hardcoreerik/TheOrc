@@ -2700,6 +2700,7 @@ public partial class MainWindow : Window
         loop.Activity += ev => Dispatcher.UIThread.InvokeAsync(() =>
         {
             _allActivityItems.Add(ev);
+            if (_allActivityItems.Count > 10000) _allActivityItems.RemoveAt(0);
             if (ev.Verbosity > _settings.ActivityVerbosity) return;
             _activityItems.Add(ev);
             if (_activityItems.Count > 2000) _activityItems.RemoveAt(0);
