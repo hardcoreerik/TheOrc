@@ -9,6 +9,26 @@ namespace OrchestratorIDE.UnitTests;
 public sealed class AppSettingsTests
 {
     [Test]
+    public void CreateSnapshot_IsIndependentFromLaterMutation()
+    {
+        var settings = new AppSettings
+        {
+            OllamaHost = "http://before",
+            NativeRuntimeModelRoots = ["C:\\models-a"],
+        };
+
+        var snapshot = settings.CreateSnapshot();
+        settings.OllamaHost = "http://after";
+        settings.NativeRuntimeModelRoots[0] = "C:\\models-b";
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(snapshot.OllamaHost, Is.EqualTo("http://before"));
+            Assert.That(snapshot.NativeRuntimeModelRoots, Is.EqualTo(new[] { "C:\\models-a" }));
+        });
+    }
+
+    [Test]
     public void NativeRuntimeHiveWorker_Settings_Default_To_Enabled_And_ModelStorageRoot()
     {
         var settings = new AppSettings();

@@ -317,7 +317,7 @@ public sealed class HiveService : BackgroundService
             // per-task cancellation registry directly.
             _nodeServer.CancelTaskHandler = taskId => _worker.TryCancelTask(taskId);
             _worker.OnLog += msg => _log.LogInformation("[Worker] {Msg}", msg);
-            var installedPacks = CampaignPackCatalog.ResolveInstalled(_cfg.AlienSearchImage);
+            var installedPacks = CampaignPackCatalog.ResolveInstalled(_cfg.AlienSearchImage, _cfg.CaseForgeImage);
             _worker.Capabilities = await WorkerCapabilityDetector.DetectAsync(
                 _cfg.NodeName, depot, _cfg.NativeVramMb, _taskQueue.ArtifactStore,
                 installedPacks, stoppingToken, verifiedNativeBackend);

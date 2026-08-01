@@ -95,6 +95,7 @@ public partial class MainWindow : Window
     // gate around all three lifecycle methods means whichever arrives first runs to completion
     // before the other begins, so start/stop can never interleave, only ever queue.
     private readonly SemaphoreSlim _hiveWorkerLifecycleGate = new(1, 1);
+    private readonly SemaphoreSlim _settingsSaveGate = new(1, 1);
     // Single retained countdown timer for the "Accept re-sync" window — replaced (stopped
     // first) on each click so repeated clicks can't leave overlapping timers racing the label.
     private          DispatcherTimer?               _hiveResyncCountdownTimer;
@@ -115,6 +116,7 @@ public partial class MainWindow : Window
     // ── State ─────────────────────────────────────────────────────────────
     private ProjectSession           _session;
     private AppSettings              _settings = AppSettings.Load();
+    private AppSettings              _activeRuntimeSettings = null!;
     private string                   _pendingReleaseUrl = "";
     private List<string>             _installedModels = [];
     private readonly ObservableCollection<ActivityEvent> _activityItems = [];
@@ -142,13 +144,14 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        _activeRuntimeSettings = _settings.CreateSnapshot();
         InitializeComponent();
 
         // Keyboard shortcuts — attached before panels are constructed
         AddHandler(KeyDownEvent, Window_KeyDown, RoutingStrategies.Tunnel);
 
-        _ollama      = new OllamaClient(_settings.InferenceBaseUrl, _settings.Backend);
-        _llamaServer = BuildServerManager(_settings);
+        _ollama      = new OllamaClient(_activeRuntimeSettings.InferenceBaseUrl, _activeRuntimeSettings.Backend);
+        _llamaServer = BuildServerManager(_activeRuntimeSettings);
 
         Closing += MainWindow_Closing;
 
@@ -236,8 +239,7 @@ public partial class MainWindow : Window
             OnStatusChanged = msg => Dispatcher.UIThread.InvokeAsync(() => SetStatus(msg)),
         };
 
-        _loop.OnToken += token => _agentPanel.AppendStreamingToken(token);
-        _loop.OnUsage += (p, c) => _agentPanel.OnTokensUsed(p, c);
+        WireAgentLoop(_loop);
 
         _agentPanel.WorkspaceChangeRequested += () => _explorerPanel.PromptOpenFolder();
         _agentPanel.ConversationChanged      += async () =>
@@ -249,13 +251,6 @@ public partial class MainWindow : Window
         // Activity log
         ActivityLog.ItemsSource = _activityItems;
         UpdateVerbosityButtons(_settings.ActivityVerbosity);
-        _loop.Activity += ev => Dispatcher.UIThread.InvokeAsync(() =>
-        {
-            if (ev.Verbosity > _settings.ActivityVerbosity) { _allActivityItems.Add(ev); return; }
-            _activityItems.Add(ev);
-            if (_activityItems.Count > 2000) _activityItems.RemoveAt(0);
-            ScrollActivityToEnd();
-        });
 
         // Context meter
         _context.UsageChanged       += () => Dispatcher.UIThread.InvokeAsync(UpdateContextDisplay);
@@ -272,25 +267,6 @@ public partial class MainWindow : Window
         {
             var names = _registry.GetRegisteredNames();
             return await _agentPanel.ShowUnknownToolCard(call, names);
-        };
-
-        // Rules badge + pentest auto-switch
-        _loop.OnRulesLoaded += filePath =>
-        {
-            _agentPanel.SetRulesStatus(filePath);
-            var isPentest = filePath != null && PentestRules.IsPentestTemplate(filePath);
-            _agentPanel.SetPentestActive(isPentest);
-            if (isPentest && _settings.AutoModelSwitch)
-            {
-                var secModel = GetBestSecurityModel();
-                if (secModel != null && !secModel.Equals(_session.ActiveModel, StringComparison.OrdinalIgnoreCase))
-                {
-                    OnModelSelected(secModel);
-                    AddActivity(new ActivityEvent(ActivityKind.Info, "Pentest Mode",
-                        $"Auto-switched to {ModelProfiles.Get(secModel).Name} for security research",
-                        DateTime.Now));
-                }
-            }
         };
 
         _agentPanel.RulesEditRequested       += OpenRulesFile;
@@ -350,7 +326,7 @@ public partial class MainWindow : Window
         {
             RuntimeResolver = ResolveChatRuntime,
             OllamaClient = _ollama,
-            LocalUrl = _settings.OllamaHost,
+            LocalUrl = _activeRuntimeSettings.OllamaHost,
             WorkspaceRoot = _session.WorkspaceRoot,
         };
 
@@ -388,7 +364,7 @@ public partial class MainWindow : Window
     private async Task OnLoadedAsync()
     {
         // ── llama.cpp server ─────────────────────────────────────────────
-        if (_settings.Backend == InferenceBackend.LlamaCpp && _llamaServer != null)
+        if (_activeRuntimeSettings.Backend == InferenceBackend.LlamaCpp && _llamaServer != null)
         {
             AddActivity(new ActivityEvent(ActivityKind.Info, "llama.cpp",
                 "Starting local inference server…", DateTime.Now));
@@ -398,11 +374,15 @@ public partial class MainWindow : Window
                     "Server failed to start — check RuntimePath and ModelPath in Settings.", DateTime.Now));
         }
 
-        var backendLabel = _settings.Backend == InferenceBackend.LlamaCpp ? "llama.cpp" : "Ollama";
+        var backendLabel = _activeRuntimeSettings.ExperimentalNativeMainChatEnabled
+            ? "Native Runtime"
+            : _activeRuntimeSettings.Backend == InferenceBackend.LlamaCpp ? "llama.cpp" : "Ollama";
         AddActivity(new ActivityEvent(ActivityKind.Info, "Startup",
-            $"Checking {backendLabel} connection…", DateTime.Now));
+            _activeRuntimeSettings.ExperimentalNativeMainChatEnabled
+                ? "Scanning Native Runtime model depot…"
+                : $"Checking {backendLabel} connection…", DateTime.Now));
 
-        var models = await _ollama.GetInstalledModelsAsync();
+        var models = await GetChatModelNamesAsync();
 
         if (models.Count > 0)
         {
@@ -495,9 +475,11 @@ public partial class MainWindow : Window
         }
         else
         {
-            var hint = _settings.Backend == InferenceBackend.LlamaCpp
-                ? "No models found — check LlamaCppRuntimePath and LlamaCppModelPath in Settings."
-                : "No models found — check Ollama host connection in Settings.";
+            var hint = _activeRuntimeSettings.ExperimentalNativeMainChatEnabled
+                ? "No native models found — check the configured Native Runtime model roots and Ollama-model inclusion in Settings."
+                : _activeRuntimeSettings.Backend == InferenceBackend.LlamaCpp
+                    ? "No models found — check LlamaCppRuntimePath and LlamaCppModelPath in Settings."
+                    : "No models found — check Ollama host connection in Settings.";
             AddActivity(new ActivityEvent(ActivityKind.Warning, backendLabel, hint, DateTime.Now));
             await TryLaunchBundledSetupAsync();
         }
@@ -662,15 +644,15 @@ public partial class MainWindow : Window
     private async Task StartHiveAsync()
     {
         var models  = _installedModels.Count > 0 ? _installedModels : [];
-        var vramMb  = (int)(_settings.DetectedVramGb * 1024);
+        var vramMb  = (int)(_activeRuntimeSettings.DetectedVramGb * 1024);
         var name    = Environment.MachineName;
 
         int rpcPort = 0;
-        if (!string.IsNullOrEmpty(_settings.LlamaCppRuntimePath))
+        if (!string.IsNullOrEmpty(_activeRuntimeSettings.LlamaCppRuntimePath))
         {
             _hiveRpcWorker = new Services.Hive.HiveRpcWorker
             {
-                RuntimePath = _settings.LlamaCppRuntimePath,
+                RuntimePath = _activeRuntimeSettings.LlamaCppRuntimePath,
                 Port        = Services.Hive.HiveRpcWorker.DefaultPort,
             };
             _hiveRpcWorker.OnLog += msg =>
@@ -683,7 +665,7 @@ public partial class MainWindow : Window
             ? new[] { "inference", "coder", "researcher", "rpc_worker" }
             : new[] { "inference", "coder", "researcher" };
 
-        var ollamaUrlForPeers = _settings.OllamaHost;
+        var ollamaUrlForPeers = _activeRuntimeSettings.OllamaHost;
         if (ollamaUrlForPeers.Contains("localhost") || ollamaUrlForPeers.Contains("127.0.0.1"))
         {
             var lanIp = Services.Hive.HiveRpcWorker.LocalAddresses().FirstOrDefault();
@@ -751,7 +733,7 @@ public partial class MainWindow : Window
             _hiveTaskQueue.ArtifactStore = new ContentAddressedStore(
                 Path.Combine(_session.WorkspaceRoot, ".orc", "campaign-artifacts"));
             _hiveTaskQueue.ModelStore = new ContentAddressedStore(
-                _settings.ResolvedNativeRuntimeModelRoot, fileExtension: ".gguf");
+                _activeRuntimeSettings.ResolvedNativeRuntimeModelRoot, fileExtension: ".gguf");
             _hiveTaskQueue.OnLog += msg =>
                 AddActivity(new ActivityEvent(ActivityKind.Info, "HIVE Queue", msg, DateTime.Now));
             _hiveTaskQueue.Start(new Services.Hive.HiveSessionContext
@@ -1057,7 +1039,7 @@ public partial class MainWindow : Window
             NativeRoleExecutor = nativeHiveRuntime is null ? null
                 : new HiveNativeRoleExecutorAdapter(nativeHiveRuntime, _session.WorkspaceRoot),
             ModelStore = _hiveTaskQueue?.ModelStore ?? new ContentAddressedStore(
-                _settings.ResolvedNativeRuntimeModelRoot, fileExtension: ".gguf"),
+                _activeRuntimeSettings.ResolvedNativeRuntimeModelRoot, fileExtension: ".gguf"),
         };
         // NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md HV-1's evidence-quality gap, fixed on the
         // Daemon side (HiveService.cs) but noted as open here too: DetectAsync's
@@ -1072,8 +1054,8 @@ public partial class MainWindow : Window
                 ? "cuda12" : "cpu";
         _hiveWorkerAgent.Capabilities = await WorkerCapabilityDetector.DetectAsync(
             name,
-            ModelDepot.Scan(_settings.ResolvedNativeRuntimeModelRoot),
-            (long)Math.Max(0, _settings.DetectedVramGb * 1024),
+            ModelDepot.Scan(_activeRuntimeSettings.ResolvedNativeRuntimeModelRoot),
+            (long)Math.Max(0, _activeRuntimeSettings.DetectedVramGb * 1024),
             _hiveTaskQueue?.ArtifactStore,
             verifiedNativeBackend: verifiedNativeBackend);
         _hiveWorkerAgent.AutoResyncEnabled = _settings.HiveDevAutoResyncEnabled;
@@ -2349,7 +2331,7 @@ public partial class MainWindow : Window
 
             _swarmPanel.ActiveModel   = _session.ActiveModel;
             _swarmPanel.WorkspaceRoot = _session.WorkspaceRoot;
-            _swarmPanel.LocalUrl      = _settings.OllamaHost;
+            _swarmPanel.LocalUrl      = _activeRuntimeSettings.OllamaHost;
             _swarmPanel.PopulateModelPickers(_installedModels);
             _swarmPanel.RefreshGate();
             MainContent.Content    = _swarmPanel;
@@ -2362,7 +2344,7 @@ public partial class MainWindow : Window
                 ApplyModelSwitch(chatModel, saveToSingleSlot: true);
 
             _chatPanel.RuntimeResolver = ResolveChatRuntime;
-            _chatPanel.LocalUrl        = _settings.OllamaHost;
+            _chatPanel.LocalUrl        = _activeRuntimeSettings.OllamaHost;
             // Orcish Tongue v1 correctness fix (docs/ORCISH_TONGUE_SPEC.md): OrcChat previously
             // had no approval gate at all for any tool call (write_file's diff preview and every
             // RequiresApproval tool alike) -- see ChatEngine.OnApprovalRequired's own doc comment.
@@ -2379,7 +2361,7 @@ public partial class MainWindow : Window
         }
         else if (mode == "hive")
         {
-            _hivePanel.LocalUrl = _settings.OllamaHost;
+            _hivePanel.LocalUrl = _activeRuntimeSettings.OllamaHost;
             _hivePanel.LiteMode = _settings.HiveLiteMode;
             _hivePanel.Refresh();
             _hivePanel.OnApplyRpcWorkers        -= OnApplyRpcWorkers;
@@ -2422,7 +2404,7 @@ public partial class MainWindow : Window
         else if (mode == "pit")
         {
             _pitPanel.WorkspaceRoot = _session.WorkspaceRoot;
-            _pitPanel.OllamaHost    = _settings.OllamaHost;
+            _pitPanel.OllamaHost    = _activeRuntimeSettings.OllamaHost;
             _pitPanel.Refresh();
             MainContent.Content    = _pitPanel;
             SidebarContent.Content = _explorerPanel;
@@ -2451,7 +2433,7 @@ public partial class MainWindow : Window
         _pitBossPanel = new PitBossPanel
         {
             WorkspaceRoot = _session.WorkspaceRoot,
-            OllamaHost    = _settings.OllamaHost,
+            OllamaHost    = _activeRuntimeSettings.OllamaHost,
             OllamaModel   = _settings.PitBossModel,
             RunRepo       = _runRepo,
             PlanRepo      = _planRepo,
@@ -2711,18 +2693,104 @@ public partial class MainWindow : Window
                 _toolEditorPanel.RefreshLoadedBadge(_toolCompiler.LoadedToolNames));
     }
 
-    private void OnSettingsSaved(AppSettings newSettings)
+    private void WireAgentLoop(AgentLoop loop)
+    {
+        loop.OnToken += token => _agentPanel.AppendStreamingToken(token);
+        loop.OnUsage += (p, c) => _agentPanel.OnTokensUsed(p, c);
+        loop.Activity += ev => Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            _allActivityItems.Add(ev);
+            if (_allActivityItems.Count > 10000) _allActivityItems.RemoveAt(0);
+            if (ev.Verbosity > _settings.ActivityVerbosity) return;
+            _activityItems.Add(ev);
+            if (_activityItems.Count > 2000) _activityItems.RemoveAt(0);
+            ScrollActivityToEnd();
+        });
+        loop.OnRulesLoaded += filePath =>
+        {
+            _agentPanel.SetRulesStatus(filePath);
+            var isPentest = filePath != null && PentestRules.IsPentestTemplate(filePath);
+            _agentPanel.SetPentestActive(isPentest);
+            if (isPentest && _settings.AutoModelSwitch)
+            {
+                var secModel = GetBestSecurityModel();
+                if (secModel != null && !secModel.Equals(_session.ActiveModel, StringComparison.OrdinalIgnoreCase))
+                {
+                    OnModelSelected(secModel);
+                    AddActivity(new ActivityEvent(ActivityKind.Info, "Pentest Mode",
+                        $"Auto-switched to {ModelProfiles.Get(secModel).Name} for security research",
+                        DateTime.Now));
+                }
+            }
+        };
+    }
+
+    private async Task OnSettingsSaved(AppSettings newSettings)
+    {
+        await _settingsSaveGate.WaitAsync();
+        try
+        {
+            await ApplySettingsSavedAsync(newSettings);
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                AddActivity(new ActivityEvent(ActivityKind.Error, "Settings",
+                    $"Live apply failed: {ex.Message}", DateTime.Now));
+            }
+            catch { /* preserve the original apply failure */ }
+            if (ReferenceEquals(_settings, newSettings))
+                return;
+            throw;
+        }
+        finally
+        {
+            _settingsSaveGate.Release();
+        }
+    }
+
+    private Task ApplySettingsSavedAsync(AppSettings newSettings)
     {
         var oldBackend = _settings.Backend;
-        _settings = newSettings;
+        var oldNativeMainChatEnabled = _settings.ExperimentalNativeMainChatEnabled;
+        var oldNativeRoots = _settings.ResolvedNativeRuntimeModelRoots;
+        var oldNativeIncludeOllama = _settings.NativeRuntimeIncludeOllamaModels;
+        var runtimeConfigurationChanged =
+            newSettings.Backend != oldBackend ||
+            newSettings.OllamaHost != _settings.OllamaHost ||
+            newSettings.LlamaCppRuntimePath != _settings.LlamaCppRuntimePath ||
+            newSettings.LlamaCppModelPath != _settings.LlamaCppModelPath ||
+            newSettings.LlamaCppPort != _settings.LlamaCppPort ||
+            newSettings.LlamaCppGpuLayers != _settings.LlamaCppGpuLayers ||
+            newSettings.LlamaCppContextSize != _settings.LlamaCppContextSize ||
+            newSettings.LlamaCppThreads != _settings.LlamaCppThreads ||
+            newSettings.LlamaCppLoraPath != _settings.LlamaCppLoraPath ||
+            newSettings.ExperimentalNativeHiveWorkerEnabled != _settings.ExperimentalNativeHiveWorkerEnabled ||
+            newSettings.ExperimentalNativeMainChatEnabled != oldNativeMainChatEnabled ||
+            newSettings.NativeRuntimeIncludeOllamaModels != oldNativeIncludeOllama ||
+            newSettings.NativeRuntimeContextSize != _settings.NativeRuntimeContextSize ||
+            newSettings.NativeRuntimeGpuLayers != _settings.NativeRuntimeGpuLayers ||
+            !newSettings.ResolvedNativeRuntimeModelRoots.SequenceEqual(oldNativeRoots, StringComparer.OrdinalIgnoreCase);
 
+        // Runtime construction owns native sessions, GPU reservations, chat engines, and HIVE
+        // workers. Applying only part of that graph live leaves mixed old/new state when any
+        // later step fails. Persist the new configuration, keep this process unchanged, and let
+        // the normal startup path build it atomically on restart.
+        if (runtimeConfigurationChanged)
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Warning, "Settings",
+                "Runtime settings saved. Restart TheOrc to apply backend, model, or native-runtime changes; the current session is unchanged.",
+                DateTime.Now));
+        }
+        _settings = newSettings;
         // Push HiveLiteMode and apply it immediately if the user is sitting on the Hive
         // tab right now -- otherwise the toggle change waits until they navigate away and
         // back (SetMode("hive") is the only other place that currently pushes this value),
         // which is a confusing place for it to silently not take effect (Grok CLI MINOR,
         // 2026-06-21).
         _hivePanel.LiteMode = newSettings.HiveLiteMode;
-        if (_settings.LastMode == "hive")
+        if (newSettings.LastMode == "hive")
             _hivePanel.Refresh();
 
         if (_hiveNodeServer is not null && Enum.TryParse<Services.Hive.HiveAcceptControlPolicy>(
@@ -2742,12 +2810,12 @@ public partial class MainWindow : Window
         Services.Swarm.ToolcallerService.IsEnabled = newSettings.ToolcallerRepairEnabled;
         Services.Swarm.ToolcallerService.Model     = newSettings.ToolcallerRepairModel;
 
-        if (newSettings.Backend != oldBackend ||
+        if (!runtimeConfigurationChanged && (newSettings.Backend != oldBackend ||
             (newSettings.Backend == InferenceBackend.LlamaCpp &&
              _llamaServer != null &&
              (_llamaServer.ModelPath   != newSettings.LlamaCppModelPath ||
               _llamaServer.RuntimePath != newSettings.LlamaCppRuntimePath ||
-              _llamaServer.Port        != newSettings.LlamaCppPort)))
+              _llamaServer.Port        != newSettings.LlamaCppPort))))
         {
             _llamaServer?.Stop();
             _llamaServer = BuildServerManager(newSettings);
@@ -2761,7 +2829,7 @@ public partial class MainWindow : Window
                 _ = _llamaServer.StartAsync();
             }
         }
-        else
+        else if (!runtimeConfigurationChanged)
         {
             _ollama.Host = newSettings.InferenceBaseUrl;
         }
@@ -2773,12 +2841,18 @@ public partial class MainWindow : Window
             ConfirmWorkspace(newSettings.DefaultWorkspace);
         }
 
-        UpdateStatusBar();
+        try { UpdateStatusBar(); }
+        catch { /* settings and live runtime are already committed; status refresh is non-fatal */ }
         var backendTag = newSettings.Backend == InferenceBackend.LlamaCpp
             ? $"llama.cpp → port {newSettings.LlamaCppPort}"
             : $"Ollama → {newSettings.OllamaHost}";
-        AddActivity(new ActivityEvent(ActivityKind.Info, "Settings",
-            $"Saved — {backendTag}", DateTime.Now));
+        try
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Info, "Settings",
+                $"Saved — {backendTag}", DateTime.Now));
+        }
+        catch { /* settings are already committed */ }
+        return Task.CompletedTask;
     }
 
     // ── Backend helpers ───────────────────────────────────────────────────
@@ -2805,7 +2879,7 @@ public partial class MainWindow : Window
     }
 
     private IModelRuntime BuildModelRuntime() =>
-        _settings.Backend == InferenceBackend.LlamaCpp && _llamaServer is not null
+        _activeRuntimeSettings.Backend == InferenceBackend.LlamaCpp && _llamaServer is not null
             ? new LlamaCppServerRuntime(_llamaServer)
             : new OllamaRuntime(_ollama);
 
@@ -2817,23 +2891,25 @@ public partial class MainWindow : Window
     {
         _settings.LlamaCppModelPath = baseGguf;
         _settings.LlamaCppLoraPath  = loraGguf;
+        _activeRuntimeSettings.LlamaCppModelPath = baseGguf;
+        _activeRuntimeSettings.LlamaCppLoraPath  = loraGguf;
         _settings.Save();
 
         AddActivity(new ActivityEvent(ActivityKind.Info, "Foundry",
             $"Native runtime → {Path.GetFileName(baseGguf)} + {Path.GetFileName(loraGguf)}", DateTime.Now));
 
         // Restart llama.cpp server if it's the active backend and currently running.
-        if (_settings.Backend == InferenceBackend.LlamaCpp && _llamaServer?.IsRunning == true)
+        if (_activeRuntimeSettings.Backend == InferenceBackend.LlamaCpp && _llamaServer?.IsRunning == true)
         {
             _llamaServer.Stop();
-            _llamaServer = BuildServerManager(_settings);
+            _llamaServer = BuildServerManager(_activeRuntimeSettings);
             if (_llamaServer is not null)
                 _ = _llamaServer.StartAsync();
         }
     }
 
     private IRoleRuntime? BuildExperimentalNativeHiveWorkerRuntime() =>
-        BuildExperimentalNativeRoleRuntime("native HIVE worker", _settings.ExperimentalNativeHiveWorkerEnabled);
+        BuildExperimentalNativeRoleRuntime("native HIVE worker", _activeRuntimeSettings.ExperimentalNativeHiveWorkerEnabled);
 
     private IRoleRuntime? BuildRequiredNativeHiveWorkerRuntime() =>
         BuildExperimentalNativeRoleRuntime("native HIVE worker", enabled: true);
@@ -2845,7 +2921,7 @@ public partial class MainWindow : Window
     /// instance — see that setting's doc for the VRAM double-booking caveat if both are enabled.
     /// </summary>
     private IRoleRuntime? BuildExperimentalNativeMainChatRuntime() =>
-        BuildExperimentalNativeRoleRuntime("native main chat", _settings.ExperimentalNativeMainChatEnabled);
+        BuildExperimentalNativeRoleRuntime("native main chat", _activeRuntimeSettings.ExperimentalNativeMainChatEnabled);
 
     /// <summary>
     /// Shared scan/budget/construction logic extracted from the original HIVE-worker-only
@@ -2863,29 +2939,29 @@ public partial class MainWindow : Window
             // grok-review MINOR: computed inside the try, not before it -- ResolvedNativeRuntimeModelRoots
             // can't actually return null today (its own getter already guards NativeRuntimeModelRoots
             // being null), but there's no reason to leave a settings-access path unprotected by
-            // this method's own catch-and-fall-back-to-Ollama contract for a decision this cheap.
-            var roots = _settings.ResolvedNativeRuntimeModelRoots;
+            // this method's own failure-reporting contract for a decision this cheap.
+            var roots = _activeRuntimeSettings.ResolvedNativeRuntimeModelRoots;
             var rootsDescription = string.Join("', '", roots);
 
             // Multi-source scan (docs/... found live 2026-07-30): folders configured in
             // NativeRuntimeModelRoots, plus -- when NativeRuntimeIncludeOllamaModels is on --
             // every model Ollama has already pulled, resolved straight from Ollama's own
             // manifest/blob store. No download, no conversion; see ModelDepot.ScanOllamaModels.
-            var depot = ModelDepot.ScanSources(roots, includeOllamaModels: _settings.NativeRuntimeIncludeOllamaModels);
+            var depot = ModelDepot.ScanSources(roots, includeOllamaModels: _activeRuntimeSettings.NativeRuntimeIncludeOllamaModels);
             var baseCount = depot.Assets.Count(a => a.Kind == RuntimeAssetKind.BaseModelGguf);
             if (baseCount == 0)
             {
                 AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
                     $"Experimental {featureLabel} is enabled, but no base GGUF was found under '{rootsDescription}'" +
-                    (_settings.NativeRuntimeIncludeOllamaModels ? " or in Ollama's model store" : "") +
-                    ". Will use configured model runtime.",
+                    (_activeRuntimeSettings.NativeRuntimeIncludeOllamaModels ? " or in Ollama's model store" : "") +
+                    ". Native requests will fail until a compatible local model is available.",
                     DateTime.Now));
                 return null;
             }
 
             AddActivity(new ActivityEvent(ActivityKind.Info, "Native Runtime",
                 $"Experimental {featureLabel} enabled: {baseCount} base GGUF(s) found under '{rootsDescription}'" +
-                (_settings.NativeRuntimeIncludeOllamaModels ? " (including Ollama's own model store)" : "") + ".",
+                (_activeRuntimeSettings.NativeRuntimeIncludeOllamaModels ? " (including Ollama's own model store)" : "") + ".",
                 DateTime.Now));
 
             // Pin CUDA-preferring backend selection BEFORE any native load and make the outcome
@@ -2910,11 +2986,11 @@ public partial class MainWindow : Window
                 // RuntimeOrchestrator now fails CLOSED when no scheduler/budget is configured,
                 // rather than silently loading unadmitted. Constructing the runtime anyway would
                 // just make every subsequent conversation throw RuntimeAdmissionDeniedException,
-                // so don't build it at all -- same "can't satisfy this precondition, fall back to
-                // the configured model runtime" pattern already used above for baseCount == 0.
+                // so don't build it at all. The caller decides whether this feature is optional
+                // or fail-closed; native main chat is fail-closed when its toggle is enabled.
                 AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
                     $"Experimental {featureLabel} could not derive a local VRAM budget, so native admission " +
-                    "cannot be evaluated. Will use configured model runtime instead of loading native unadmitted.",
+                    "cannot be evaluated. Native requests will fail instead of loading unadmitted.",
                     DateTime.Now));
                 return null;
             }
@@ -2939,9 +3015,9 @@ public partial class MainWindow : Window
             var nativeRuntime = new NativeRoleRuntime(
                 depot,
                 new RuntimeOptions(
-                    ContextLength: Math.Max(512, _settings.NativeRuntimeContextSize),
-                    GpuLayers: _settings.NativeRuntimeGpuLayers,
-                    PreferGpu: _settings.NativeRuntimeGpuLayers != 0),
+                    ContextLength: Math.Max(512, _activeRuntimeSettings.NativeRuntimeContextSize),
+                    GpuLayers: _activeRuntimeSettings.NativeRuntimeGpuLayers,
+                    PreferGpu: _activeRuntimeSettings.NativeRuntimeGpuLayers != 0),
                 scheduler: new OrcScheduler(),
                 // Native Runtime v2.0 Phase B (docs/NATIVE_RUNTIME_V2_SPEC.md Phase B): pass the
                 // method itself, not a closed-over snapshot -- RuntimeOrchestrator.EnsureAdmitted
@@ -2970,7 +3046,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
-                $"Experimental {featureLabel} could not initialize: {ex.Message}. Will use configured model runtime.",
+                $"Experimental {featureLabel} could not initialize: {ex.Message}.",
                 DateTime.Now));
             return null;
         }
@@ -2984,7 +3060,7 @@ public partial class MainWindow : Window
         if (NativeVramProbe.TryQueryLiveNvidiaBudget() is { } liveBudget)
             return liveBudget;
 
-        var detectedVramGb = _settings.DetectedVramGb;
+        var detectedVramGb = _activeRuntimeSettings.DetectedVramGb;
         if (detectedVramGb <= 0)
             return null;
 
@@ -2995,19 +3071,67 @@ public partial class MainWindow : Window
     private static string FormatGb(long bytes) => $"{bytes / (1024.0 * 1024 * 1024):F1} GB";
 
     /// <summary>
-    /// Runtime for the single-agent chat loop (<c>_loop</c>). Native opt-in is OFF by default —
-    /// <see cref="AppSettings.ExperimentalNativeMainChatEnabled"/> gates it, and any native
-    /// failure before the first observable output falls back to the same Ollama runtime this
-    /// method returns unconditionally when the toggle is off, matching today's behavior exactly.
+    /// Chat model names for OrcChat's dropdown and the Agent panel's model picker. When Native
+    /// Runtime is enabled (the default), this reflects ModelDepot's own discovered base GGUFs —
+    /// NOT Ollama's installed-tags list — so the dropdown always matches what
+    /// <see cref="BuildAgentLoopRuntime"/> can actually load, with zero dependency on Ollama
+    /// being installed or reachable. Found live 2026-07-30: the dropdown previously always came
+    /// from <c>_ollama.GetInstalledModelsAsync()</c> regardless of the Native Runtime toggle, so
+    /// an Ollama-less or Ollama-unreachable machine showed an empty dropdown even when Native
+    /// Runtime had already discovered dozens of usable GGUFs.
+    ///
+    /// Deliberately does NOT fall back to Ollama's list when the native scan finds zero models —
+    /// per the "Ollama is banned" policy (see <see cref="NoFallbackRuntime"/>), a model that can't
+    /// actually be loaded natively must not appear selectable; that would just defer the same
+    /// failure to generation time. An empty result plus the Activity Log warning already logged by
+    /// <see cref="BuildExperimentalNativeRoleRuntime"/> is the honest signal here.
+    /// </summary>
+    private async Task<List<string>> GetChatModelNamesAsync()
+    {
+        if (!_activeRuntimeSettings.ExperimentalNativeMainChatEnabled)
+            return await _ollama.GetInstalledModelsAsync();
+
+        try
+        {
+            var roots = _activeRuntimeSettings.ResolvedNativeRuntimeModelRoots.ToArray();
+            var includeOllamaModels = _activeRuntimeSettings.NativeRuntimeIncludeOllamaModels;
+            var depot = await Task.Run(() =>
+                ModelDepot.ScanSources(roots, includeOllamaModels: includeOllamaModels));
+            return depot.Assets
+                .Where(a => a.Kind == RuntimeAssetKind.BaseModelGguf)
+                .Select(a => a.DisplayName)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
+                $"Could not scan for native chat models: {ex.Message}", DateTime.Now));
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Runtime for the single-agent chat loop (<c>_loop</c>) and OrcChat's Local node. Native
+    /// opt-in is ON by default — <see cref="AppSettings.ExperimentalNativeMainChatEnabled"/>
+    /// gates it. When native is enabled, Ollama is NOT wired in as a silent fallback: a native
+    /// failure surfaces as a visible chat error via <see cref="NoFallbackRuntime"/> instead of
+    /// quietly completing the turn on a backend the user has opted out of (Ollama is banned from
+    /// this path per the Native Runtime v2.0 testing policy — a native failure is a gap to fix,
+    /// not something to paper over). Only when the toggle itself is off does this method return
+    /// the plain Ollama runtime, as the sole configured backend rather than as a fallback.
     /// </summary>
     private IModelRuntime BuildAgentLoopRuntime()
     {
-        var fallback = new OllamaRuntime(_ollama);
+        if (!_activeRuntimeSettings.ExperimentalNativeMainChatEnabled)
+            return new OllamaRuntime(_ollama);
+
         var native = BuildExperimentalNativeMainChatRuntime();
         if (native is null)
-            return fallback;
+            return new NoFallbackRuntime();
 
-        if (_settings.ExperimentalNativeHiveWorkerEnabled)
+        if (_activeRuntimeSettings.ExperimentalNativeHiveWorkerEnabled)
         {
             AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
                 "Both experimental native main chat and native HIVE worker are enabled. Each builds its own NativeRoleRuntime and loads its own copy of the base model into VRAM independently — there is no shared session between them yet. Consider enabling only one at a time on memory-constrained hardware.",
@@ -3024,10 +3148,10 @@ public partial class MainWindow : Window
         runtime = new NativeWithFallbackRuntime(
             native,
             RuntimeRole.Boss,
-            fallback,
+            new NoFallbackRuntime(),
             onFallback: reason => AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
-                $"Main chat native generation failed, fell back to Ollama " +
-                $"(fallback #{runtime.FallbackCount} this session): {reason}", DateTime.Now)),
+                $"Main chat native generation failed (failure #{runtime.FallbackCount} this session) — " +
+                $"Ollama fallback is disabled by policy, surfacing as an error instead: {reason}", DateTime.Now)),
             // The other half of "the log should clearly state when a new model is loaded or
             // unloaded" (found live 2026-07-30 alongside the modelNameFilter fix): this fires
             // once when native first resolves a model, and again only when the resolved model
@@ -3051,7 +3175,7 @@ public partial class MainWindow : Window
 
     private async void OnApplyRpcWorkers(IReadOnlyList<string> endpoints)
     {
-        if (_settings.Backend != InferenceBackend.LlamaCpp || _llamaServer is null)
+        if (_activeRuntimeSettings.Backend != InferenceBackend.LlamaCpp || _llamaServer is null)
         {
             await DialogHelper.ShowInfoAsync(this, "HIVE MIND — RPC",
                 "RPC VRAM chaining requires the llama.cpp backend.\n\n" +

@@ -161,6 +161,25 @@ public sealed class NativeRuntimeTestSupportTests
     }
 
     [Test]
+    public async Task EvidenceStore_Writes_NativeFailure_Without_Fallback()
+    {
+        var root = NewTempRoot();
+        var path = await NativeRuntimeFallbackEvidenceStore.WriteAsync(
+            new NativeRuntimeTestOutcome(
+                NativeRuntimeTestOutcomeKind.NativeFailed,
+                Attempt("LLamaSharp", "boss.gguf", success: false, errorType: "LoadFailed")),
+            root);
+
+        Assert.That(path, Is.Not.Null);
+        using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        Assert.Multiple(() =>
+        {
+            Assert.That(doc.RootElement.GetProperty("outcome").GetString(), Is.EqualTo("NativeFailed"));
+            Assert.That(doc.RootElement.GetProperty("fallback").ValueKind, Is.EqualTo(JsonValueKind.Null));
+        });
+    }
+
+    [Test]
     public void ComparisonRunner_Evaluate_ExactText_Normalizes_Whitespace()
     {
         var testCase = new NativeRuntimeComparisonCase(

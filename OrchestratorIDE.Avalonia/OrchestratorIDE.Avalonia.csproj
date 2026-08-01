@@ -139,6 +139,7 @@
     <Compile Include="..\OrchestratorIDE\Core\Runtime\OllamaRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\LlamaCppServerRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\NativeWithFallbackRuntime.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\NoFallbackRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentFileGenerator.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentLoop.cs" />
     <Compile Include="..\OrchestratorIDE\Core\AgentPresets.cs" />

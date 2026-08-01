@@ -474,6 +474,10 @@ public class AppSettings
         return new AppSettings();
     }
 
+    public AppSettings CreateSnapshot() =>
+        JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(this, _json), _json)
+        ?? throw new InvalidOperationException("Could not snapshot application settings.");
+
     /// <summary>
     /// Persists settings to disk. Returns true on success; false (with <paramref name="error"/> set)
     /// if the write failed, so callers can surface the failure instead of assuming success.

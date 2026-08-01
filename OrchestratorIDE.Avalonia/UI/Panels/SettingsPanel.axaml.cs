@@ -35,7 +35,7 @@ public partial class SettingsPanel : UserControl
 
     // ── Events ────────────────────────────────────────────────────────────────
 
-    public event Action<AppSettings>? SettingsSaved;
+    public event Func<AppSettings, Task>? SettingsSaved;
     public event Func<Task>?          CheckUpdatesRequested;
     public event Func<Task>?          RegenerateAgentFileRequested;
     public event Action<string>?      OpenFolderAsWorkspaceRequested;
@@ -81,6 +81,7 @@ public partial class SettingsPanel : UserControl
     // Incremented at the start of every AutoFillLlamaCppModelPathAsync call; see that method's
     // own doc comment for why (rapid backend toggles can overlap concurrent scans).
     private int _llamaCppModelScanGeneration;
+    private Task? _llamaCppModelScanTask;
 
     // Native Runtime telemetry — wraps the existing OllamaClient in the IModelRuntime
     // abstraction (Phase 0) so this surface costs nothing new: no model-folder config,
@@ -103,8 +104,7 @@ public partial class SettingsPanel : UserControl
     {
         InitializeComponent();
         _ollama = ollama;
-        TbInstallPath.Text = Path.GetDirectoryName(
-            Assembly.GetExecutingAssembly().Location) ?? "(unknown)";
+        TbInstallPath.Text = AppContext.BaseDirectory;
     }
 
     // ── Load / Read ───────────────────────────────────────────────────────────
@@ -175,7 +175,9 @@ public partial class SettingsPanel : UserControl
         TglNativeIncludeOllamaModels.IsChecked = s.NativeRuntimeIncludeOllamaModels;
         TbNativeRuntimeContextSize.Text = s.NativeRuntimeContextSize.ToString();
         TbNativeRuntimeGpuLayers.Text = s.NativeRuntimeGpuLayers.ToString();
-        TbDepotScanFolder.Text        = s.ResolvedNativeRuntimeModelRoot;
+        TbDepotScanFolder.Text = string.Join(
+            Environment.NewLine,
+            s.ResolvedNativeRuntimeModelRoots);
         TbStatus.Text                 = "";
 
         TbSourceFolder.Text = string.IsNullOrEmpty(s.SourceFolderPath)
@@ -219,16 +221,38 @@ public partial class SettingsPanel : UserControl
     }
 
     /// <summary>
-    /// Native Runtime telemetry surface. Wraps the existing OllamaClient in OllamaRuntime
-    /// and reads IModelRuntime.GetHealth()/GetStats() directly — no model loading, no
-    /// adapter hot-swap, no new config. Read-only proof-of-life for the IModelRuntime
-    /// abstraction landed in Phase 0; will generalize automatically once the active
-    /// backend can be swapped to LlamaCppServerRuntime/LLamaSharpRuntime.
+    /// Read-only status for the configured main-chat runtime. Native mode verifies that its
+    /// model depot and admission budget exist without loading a model; legacy mode probes the
+    /// configured Ollama-compatible HTTP backend.
     /// </summary>
     private async Task RefreshRuntimeStatusAsync()
     {
         try
         {
+            if (_current.ExperimentalNativeMainChatEnabled)
+            {
+                // ScanSources walks every model root recursively and the VRAM probe shells out to
+                // nvidia-smi; both would freeze the panel if they ran on the UI thread.
+                var roots = _current.ResolvedNativeRuntimeModelRoots;
+                var includeOllama = _current.NativeRuntimeIncludeOllamaModels;
+                var (baseCount, liveBudget) = await Task.Run(() =>
+                {
+                    var depot = ModelDepot.ScanSources(roots, includeOllamaModels: includeOllama);
+                    return (depot.Assets.Count(a => a.Kind == RuntimeAssetKind.BaseModelGguf),
+                        NativeVramProbe.TryQueryLiveNvidiaBudget());
+                }).ConfigureAwait(true);
+                var hasBudget = liveBudget is not null || _current.DetectedVramGb > 0;
+                var ready = baseCount > 0 && hasBudget;
+                TbRuntimeStatus.Text = ready ? "Native runtime ready" : "Native runtime unavailable";
+                TbRuntimeStatus.Foreground = new SolidColorBrush(Color.Parse(ready ? "#76B900" : "#CC4444"));
+                TbRuntimeExplain.Text = baseCount == 0
+                    ? "No base GGUF was found in the configured native model sources."
+                    : hasBudget
+                        ? $"{baseCount} base GGUF model(s) found; admission budget available."
+                        : $"{baseCount} base GGUF model(s) found, but no VRAM budget is configured.";
+                return;
+            }
+
             _runtimeProbe ??= new OllamaRuntime(_ollama);
 
             // Must call the runtime wrapper's IsReachableAsync, not the raw client's —
@@ -406,28 +430,21 @@ public partial class SettingsPanel : UserControl
 
     // ── Save ──────────────────────────────────────────────────────────────────
 
-    private void BtnSave_Click(object? sender, RoutedEventArgs e)
+    private async void BtnSave_Click(object? sender, RoutedEventArgs e)
     {
+        while (_llamaCppModelScanTask is { IsCompleted: false } scanTask)
+        {
+            SetStatus("Waiting for the llama.cpp model scan…", "#CCA700");
+            await scanTask;
+        }
+
         var settings = ReadSettings();
-        if (string.IsNullOrWhiteSpace(settings.OllamaHost))
+        if (!settings.ExperimentalNativeMainChatEnabled
+            && settings.Backend == InferenceBackend.Ollama
+            && string.IsNullOrWhiteSpace(settings.OllamaHost))
         {
             SetStatus("✗  Ollama host cannot be empty", "#F44747");
             return;
-        }
-
-        // An incomplete llama.cpp config used to abort BtnSave_Click entirely -- silently
-        // discarding every OTHER change on the page (found live 2026-07-30: a user's Native
-        // Runtime toggle flips never persisted because an unrelated, half-filled llama.cpp
-        // section blocked the whole Save). Auto-correct back to Ollama instead of failing
-        // closed on the whole form -- Ollama is always a safe fallback backend, so the rest of
-        // the page's changes should never be held hostage by one incomplete section.
-        var revertedLlamaCpp = false;
-        if (settings.Backend == InferenceBackend.LlamaCpp &&
-            (string.IsNullOrWhiteSpace(settings.LlamaCppRuntimePath) ||
-             string.IsNullOrWhiteSpace(settings.LlamaCppModelPath)))
-        {
-            settings.Backend = InferenceBackend.Ollama;
-            revertedLlamaCpp = true;
         }
 
         if (!settings.Save(out var saveError))
@@ -440,15 +457,19 @@ public partial class SettingsPanel : UserControl
             return;
         }
 
-        if (revertedLlamaCpp)
+        _current = settings;
+        SetStatus("✓  Saved", "#76B900");
+        if (SettingsSaved is not null)
         {
-            RbBackendOllama.IsChecked     = true;
-            PnlLlamaCppSettings.IsVisible = false;
+            try
+            {
+                await SettingsSaved.Invoke(settings);
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"⚠  Saved, but live apply failed: {ex.Message}", "#CCA700");
+            }
         }
-        SetStatus(revertedLlamaCpp
-            ? "✓  Saved (llama.cpp backend needs a runtime folder and model file -- reverted to Ollama for now)"
-            : "✓  Saved", revertedLlamaCpp ? "#CCA700" : "#76B900");
-        SettingsSaved?.Invoke(settings);
     }
 
     // ── Check for updates ─────────────────────────────────────────────────────
@@ -535,14 +556,8 @@ public partial class SettingsPanel : UserControl
     /// from prior Ollama/ModelDepot use. Only fills fields that are still empty -- never
     /// overwrites a path the user (or a loaded settings.json) already provided.
     ///
-    /// Known, accepted residual gap (grok-review MINOR, 2026-07-30): the model-path half runs
-    /// as a fire-and-forget background scan (AutoFillLlamaCppModelPathAsync). If the user hits
-    /// Save while that scan is still in flight, ReadSettings reads whatever TbLlamaCppModelPath
-    /// shows at that instant (still empty) and persists it before the scan's result lands in the
-    /// textbox -- a real but narrow race (the scan is typically sub-second), not fixed here
-    /// because closing it properly means either blocking Save during an in-flight scan or
-    /// awaiting the scan synchronously, both bigger changes than this auto-fill convenience
-    /// warrants on its own.
+    /// Save awaits the retained scan task before reading the form, so a quick Save cannot persist
+    /// an empty model path just before auto-detection fills it.
     /// </summary>
     private void AutoFillLlamaCppDefaults()
     {
@@ -554,7 +569,7 @@ public partial class SettingsPanel : UserControl
         }
 
         if (string.IsNullOrWhiteSpace(TbLlamaCppModelPath.Text))
-            _ = AutoFillLlamaCppModelPathAsync();
+            _llamaCppModelScanTask = AutoFillLlamaCppModelPathAsync();
     }
 
     /// <summary>
@@ -614,9 +629,8 @@ public partial class SettingsPanel : UserControl
     /// </summary>
     private async Task AutoFillLlamaCppModelPathAsync()
     {
-        // grok-review MINOR: this is fire-and-forget (called via `_ = ...`), so nothing ever
-        // observes this Task's exception -- the whole body is wrapped in try/catch so it truly
-        // never faults, not just the one already-risky scan call in the middle of it.
+        // The task is retained so Save can await it. Keep the whole body best-effort because
+        // backend toggles also start it without blocking the UI.
         try
         {
             // A generation token means only the LATEST call's result (or "not found" message)
@@ -661,7 +675,7 @@ public partial class SettingsPanel : UserControl
                 TbLlamaCppTestResult.Text = $"No GGUF files found under {root} — browse to your model folder";
             }
         }
-        catch { /* best-effort UI convenience; never let a fire-and-forget call fault unobserved */ }
+        catch { /* best-effort UI convenience */ }
     }
 
     private async void BtnBrowseLlamaCppRuntimePath_Click(object? sender, RoutedEventArgs e)
@@ -782,10 +796,13 @@ public partial class SettingsPanel : UserControl
 
     private async void BtnScanDepot_Click(object? sender, RoutedEventArgs e)
     {
-        var folder = TbDepotScanFolder.Text?.Trim() ?? "";
-        if (string.IsNullOrEmpty(folder))
+        var roots = (TbDepotScanFolder.Text ?? "")
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (roots.Length == 0)
         {
-            TbDepotResults.Text = "Enter or browse to a folder first.";
+            TbDepotResults.Text = "Enter or browse to at least one model root first.";
             return;
         }
 
@@ -797,14 +814,9 @@ public partial class SettingsPanel : UserControl
             // can be slow on large folders. Off the UI thread, matching the async pattern every
             // other long-running action in this panel already uses (BtnTestConn, BtnGrabSource, etc).
             //
-            // grok-review MINOR: this diagnostic previously only ever scanned the single typed
-            // folder, silently ignoring the "Include Ollama's own models" toggle just above it in
-            // the same section -- a user testing whether their Ollama models are actually
-            // resolvable had no way to verify that here. Respecting the toggle keeps this an
-            // "isolated single folder" test (per its own hint text) while still reflecting
-            // whether Ollama inclusion is on, matching what production actually does.
+            // Match production discovery: scan every configured root plus Ollama when enabled.
             var includeOllama = TglNativeIncludeOllamaModels.IsChecked == true;
-            _scannedDepot = await Task.Run(() => ModelDepot.ScanSources([folder], includeOllamaModels: includeOllama));
+            _scannedDepot = await Task.Run(() => ModelDepot.ScanSources(roots, includeOllamaModels: includeOllama));
             PopulateNativeBindingOptions(_scannedDepot);
             TbDepotResults.Text = FormatDepotResults(_scannedDepot);
         }
@@ -886,13 +898,6 @@ public partial class SettingsPanel : UserControl
             return;
         }
 
-        var fallbackModel = TbDefaultModel.Text?.Trim() ?? "";
-        if (string.IsNullOrWhiteSpace(fallbackModel))
-        {
-            TbNativeRuntimeTestResult.Text = "Default Model is empty, so there is no Ollama fallback target.";
-            return;
-        }
-
         BtnRunNativeRuntimeTest.IsEnabled = false;
         TbNativeRuntimeTestResult.Text = $"Running native test for {option.Binding.Role}...";
         TbNativeRuntimeLiveOutput.Text = "(starting)";
@@ -901,55 +906,25 @@ public partial class SettingsPanel : UserControl
         {
             var binding = option.Binding;
             var promptText = NativeRuntimeTestPrompt.PromptText;
-            var outcome = await NativeRuntimeFallbackCoordinator.ExecuteAsync(
-                async ct =>
-                {
-                    TbNativeRuntimeTestResult.Text =
-                        $"Native runtime test\nBinding: {option}\nBackend: LLamaSharpRuntime";
-                    TbNativeRuntimeLiveOutput.Text = string.Empty;
+            TbNativeRuntimeTestResult.Text =
+                $"Native runtime test\nBinding: {option}\nBackend: LLamaSharpRuntime";
+            TbNativeRuntimeLiveOutput.Text = string.Empty;
 
-                    return await NativeRuntimeTestRunner.RunLocalAsync(
-                        binding.BaseModel.Path,
-                        promptText: promptText,
-                        onToken: AppendNativeRuntimeLiveOutput,
-                        ct: ct);
-                },
-                async (nativeAttempt, ct) =>
-                {
-                    var topLevel = TopLevel.GetTopLevel(this) as Window;
-                    if (topLevel is null)
-                        return false;
-
-                    TbNativeRuntimeTestResult.Text =
-                        $"Native runtime failed: {nativeAttempt.ErrorType ?? "UnknownError"} - {nativeAttempt.ErrorMessage ?? "no detail"}";
-
-                    return await DialogHelper.ShowYesNoAsync(
-                        topLevel,
-                        "Native Runtime Failed",
-                        $"Native runtime failed for {binding.BaseModel.DisplayName}.\n\n" +
-                        $"{nativeAttempt.ErrorType ?? "Error"}: {nativeAttempt.ErrorMessage ?? "No detail"}\n\n" +
-                        $"Retry the same Settings test with Ollama model '{fallbackModel}'?");
-                },
-                async ct =>
-                {
-                    TbNativeRuntimeTestResult.Text =
-                        $"Retrying with Ollama fallback ({fallbackModel})...";
-                    TbNativeRuntimeLiveOutput.Text +=
-                        $"{Environment.NewLine}{Environment.NewLine}--- Ollama fallback ---{Environment.NewLine}";
-
-                    return await NativeRuntimeTestRunner.RunRuntimeAsync(
-                        new OllamaRuntime(_ollama),
-                        fallbackModel,
-                        promptText: promptText,
-                        onToken: AppendNativeRuntimeLiveOutput,
-                        ct: ct);
-                });
+            var nativeAttempt = await NativeRuntimeTestRunner.RunLocalAsync(
+                binding.BaseModel.Path,
+                promptText: promptText,
+                onToken: AppendNativeRuntimeLiveOutput);
+            var outcome = new NativeRuntimeTestOutcome(
+                nativeAttempt.Success
+                    ? NativeRuntimeTestOutcomeKind.NativeSuccess
+                    : NativeRuntimeTestOutcomeKind.NativeFailed,
+                nativeAttempt);
 
             var evidencePath = await NativeRuntimeFallbackEvidenceStore.WriteAsync(
                 outcome,
                 workspaceRoot: !string.IsNullOrWhiteSpace(_current.DefaultWorkspace) ? _current.DefaultWorkspace : null);
 
-            TbNativeRuntimeTestResult.Text = FormatNativeRuntimeOutcome(option.Binding, fallbackModel, outcome, evidencePath);
+            TbNativeRuntimeTestResult.Text = FormatNativeRuntimeOutcome(option.Binding, outcome, evidencePath);
             RaiseActivity(outcome);
         }
         catch (OperationCanceledException)
@@ -968,7 +943,6 @@ public partial class SettingsPanel : UserControl
 
     private static string FormatNativeRuntimeOutcome(
         RuntimeRoleBinding binding,
-        string fallbackModel,
         NativeRuntimeTestOutcome outcome,
         string? evidencePath)
     {
@@ -977,15 +951,8 @@ public partial class SettingsPanel : UserControl
         sb.AppendLine($"State: {outcome.Kind}");
         sb.AppendLine($"Binding: {binding.Role} -> {binding.BaseModel.DisplayName}");
         sb.AppendLine($"Adapter: {(binding.Adapter?.DisplayName ?? "(none in this slice)")}");
-        sb.AppendLine($"Fallback model: {fallbackModel}");
         sb.AppendLine();
         AppendAttempt(sb, "Native", outcome.NativeAttempt);
-
-        if (outcome.FallbackAttempt is not null)
-        {
-            sb.AppendLine();
-            AppendAttempt(sb, "Fallback", outcome.FallbackAttempt);
-        }
 
         if (!string.IsNullOrWhiteSpace(evidencePath))
         {
@@ -1017,17 +984,9 @@ public partial class SettingsPanel : UserControl
 
     private void RaiseActivity(NativeRuntimeTestOutcome outcome)
     {
-        var summary = outcome.Kind switch
-        {
-            NativeRuntimeTestOutcomeKind.NativeSuccess =>
-                $"Native Settings test passed ({outcome.NativeAttempt.ModelRef})",
-            NativeRuntimeTestOutcomeKind.NativeFailedFallbackAcceptedOllamaSuccess =>
-                $"Native Settings test failed; Ollama fallback passed ({outcome.FallbackAttempt?.ModelRef})",
-            NativeRuntimeTestOutcomeKind.NativeFailedFallbackAcceptedOllamaFailed =>
-                $"Native Settings test failed; Ollama fallback also failed ({outcome.FallbackAttempt?.ModelRef})",
-            _ =>
-                $"Native Settings test failed and fallback was declined ({outcome.NativeAttempt.ModelRef})",
-        };
+        var summary = outcome.Kind is NativeRuntimeTestOutcomeKind.NativeSuccess
+            ? $"Native Settings test passed ({outcome.NativeAttempt.ModelRef})"
+            : $"Native Settings test failed; fix the native failure before continuing ({outcome.NativeAttempt.ModelRef})";
 
         var kind = outcome.Kind is NativeRuntimeTestOutcomeKind.NativeSuccess
             ? CoreActivityKind.Info
@@ -1049,7 +1008,7 @@ public partial class SettingsPanel : UserControl
 
     private void BtnOpenInstallFolder_Click(object? sender, RoutedEventArgs e)
     {
-        var path = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        var path = AppContext.BaseDirectory;
         if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
             OpenInExplorer(path);
         else

@@ -4,6 +4,14 @@ namespace OrchestratorIDE.Services.Hive;
 
 public static class CampaignPackCatalog
 {
+    public const string CaseForgePackId = "theorc.caseforge";
+    public const string CaseForgePackVersion = "1.0.0";
+    public const string CaseForgeCadRole = "cad-generate";
+    public const string CaseForgeMeshRole = "mesh-generate";
+    public const string CaseForgePortraitRole = "portrait-generate";
+    public const string CaseForgeRepairRole = "mesh-repair";
+    public const string CaseForgeVerifyRole = "mesh-verify";
+
     /// <summary>CF-6: distributed Context Fabric readers. ExecutionKind is NativeAgent for
     /// capability-matching purposes (needs a native model, no container), but dispatch bypasses
     /// the generic agent/tool-call loop entirely -- see HiveWorkerAgent.ExecuteTaskAsync's
@@ -43,6 +51,20 @@ public static class CampaignPackCatalog
         },
         new()
         {
+            PackId = CaseForgePackId,
+            Version = CaseForgePackVersion,
+            DisplayName = "CaseForge Local 3D Studio",
+            ExecutionKind = HiveExecutionKinds.ContainerPack,
+            // A worker advertises this pack only after its pinned local image/model runtime is installed.
+            ImageDigest = "",
+            AllowedArguments = ["--role", "--job"],
+            MaxRuntimeSeconds = 7200,
+            MaxOutputBytes = 2L * 1024 * 1024 * 1024,
+            NetworkDuringExecution = false,
+            BuiltIn = false,
+        },
+        new()
+        {
             PackId = "theorc.alien-signal-search",
             Version = "1.0.0",
             DisplayName = "Alien Signal Search",
@@ -59,10 +81,21 @@ public static class CampaignPackCatalog
     public static PackManifest? Find(string packId, string version) => All.FirstOrDefault(p =>
         p.PackId.Equals(packId, StringComparison.OrdinalIgnoreCase) && p.Version == version);
 
-    public static IReadOnlyList<PackManifest> ResolveInstalled(string? alienImageDigest) => All
-        .Select(p => p.PackId == "theorc.alien-signal-search" && !string.IsNullOrWhiteSpace(alienImageDigest)
-            ? p with { ImageDigest = alienImageDigest }
-            : p)
-        .Where(p => p.ExecutionKind != HiveExecutionKinds.ContainerPack || p.ImageDigest.Length > 0)
-        .ToArray();
+    public static IReadOnlyList<PackManifest> ResolveInstalled(
+        string? alienImageDigest, string? caseForgeImageDigest = null)
+    {
+        return All
+            .Select(p => Digest(p.PackId) is { } digest && !string.IsNullOrWhiteSpace(digest)
+                ? p with { ImageDigest = digest }
+                : p)
+            .Where(p => p.ExecutionKind != HiveExecutionKinds.ContainerPack || p.ImageDigest.Length > 0)
+            .ToArray();
+
+        string? Digest(string packId) => packId switch
+        {
+            "theorc.alien-signal-search" => alienImageDigest,
+            CaseForgePackId => caseForgeImageDigest,
+            _ => null,
+        };
+    }
 }

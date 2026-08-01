@@ -56,6 +56,26 @@ public sealed class NativeWithFallbackRuntimeTests
     }
 
     [Test]
+    public void StreamCompletionAsync_FailsClosed_When_FallbackIsDisabled()
+    {
+        var native = FakeRoleRuntime.ThrowingBeforeFirstToken(new InvalidOperationException("native load failed"));
+        var reasons = new List<string>();
+        var runtime = new NativeWithFallbackRuntime(
+            native, RuntimeRole.Boss, new NoFallbackRuntime(), onFallback: reasons.Add);
+
+        var error = Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await CollectAsync(runtime.StreamCompletionAsync("local-model", _history)));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(error!.Message, Does.Contain("Ollama fallback is disabled"));
+            Assert.That(reasons, Is.EqualTo(new[] { "native load failed" }));
+            Assert.That(runtime.FallbackCount, Is.EqualTo(1));
+            Assert.That(runtime.LastFallbackReason, Is.EqualTo("native load failed"));
+        });
+    }
+
+    [Test]
     public async Task FallbackCount_Accumulates_And_LastFallbackReason_Reflects_The_Most_Recent_Call()
     {
         var fallback = new FakeModelRuntime("fallback-a");

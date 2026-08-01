@@ -166,6 +166,7 @@ public partial class ChatPanel : UserControl
         var idx = Enumerable.Range(0, models.Count)
                             .FirstOrDefault(i => models[i] == activeModel, -1);
         CbModel.SelectedIndex = idx >= 0 ? idx : (models.Count > 0 ? 0 : -1);
+        BtnSend.IsEnabled = models.Count > 0 && !_isSending;
     }
 
     public void SetActiveModel(string model)
@@ -422,8 +423,7 @@ public partial class ChatPanel : UserControl
     {
         var model = CbModel.SelectedItem as string;
         if (string.IsNullOrEmpty(model)) return;
-        if (_engine is null) _engine = CreateEngine(model);
-        else                  _engine.Model = model;
+        if (_engine is not null) _engine.Model = model;
         _ = RefreshContextLimitAsync();
     }
 

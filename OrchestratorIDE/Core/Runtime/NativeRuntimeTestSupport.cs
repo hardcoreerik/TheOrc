@@ -37,6 +37,7 @@ public static class NativeRuntimeTestPrompt
 public enum NativeRuntimeTestOutcomeKind
 {
     NativeSuccess,
+    NativeFailed,
     NativeFailedFallbackAcceptedOllamaSuccess,
     NativeFailedFallbackAcceptedOllamaFailed,
     NativeFailedFallbackDeclined,

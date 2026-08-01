@@ -168,6 +168,40 @@ public static class ResearchToolset
                 FullMatch = m.Value,
             });
         }
+
+        // Some native chat templates preserve the inner ReAct tags but drop only the outer
+        // wrapper. Recover that unambiguous shape, but only when no complete block was found and
+        // the args are a valid JSON object; tool validation and approval still apply afterward.
+        if (calls.Count == 0)
+        {
+            var innerPattern = new System.Text.RegularExpressions.Regex(
+                @"<name>(.*?)</name>\s*<args>(.*?)</args>",
+                System.Text.RegularExpressions.RegexOptions.Singleline);
+            foreach (System.Text.RegularExpressions.Match m in innerPattern.Matches(text))
+            {
+                try
+                {
+                    var rawArgs = m.Groups[2].Value.Trim();
+                    Dictionary<string, object?> args = [];
+                    if (rawArgs.Length > 0)
+                    {
+                        using var json = JsonDocument.Parse(rawArgs);
+                        if (json.RootElement.ValueKind != JsonValueKind.Object) continue;
+                        args = JsonSerializer.Deserialize<Dictionary<string, object?>>(rawArgs) ?? [];
+                    }
+                    calls.Add(new ToolCallRequest
+                    {
+                        Name = m.Groups[1].Value.Trim(),
+                        Args = args,
+                        FullMatch = m.Value,
+                    });
+                }
+                catch (JsonException)
+                {
+                    // Not executable tool syntax.
+                }
+            }
+        }
         return calls;
     }
 
