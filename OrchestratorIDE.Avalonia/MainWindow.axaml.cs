@@ -2699,7 +2699,8 @@ public partial class MainWindow : Window
         loop.OnUsage += (p, c) => _agentPanel.OnTokensUsed(p, c);
         loop.Activity += ev => Dispatcher.UIThread.InvokeAsync(() =>
         {
-            if (ev.Verbosity > _settings.ActivityVerbosity) { _allActivityItems.Add(ev); return; }
+            _allActivityItems.Add(ev);
+            if (ev.Verbosity > _settings.ActivityVerbosity) return;
             _activityItems.Add(ev);
             if (_activityItems.Count > 2000) _activityItems.RemoveAt(0);
             ScrollActivityToEnd();

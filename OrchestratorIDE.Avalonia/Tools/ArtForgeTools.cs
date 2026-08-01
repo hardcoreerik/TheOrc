@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Diagnostics;
 using System.Globalization;
-using System.Net;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -28,9 +26,7 @@ public static class ArtForgeTools
         if (string.IsNullOrWhiteSpace(bearerToken) || bearerToken.Length < 16)
             throw new ArgumentException("An Art Forge Studio device token of at least 16 characters is required.", nameof(bearerToken));
 
-        var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
-            { Timeout = TimeSpan.FromMinutes(2) };
-        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+        var http = LocalIntegrationHost.CreateClient(bearerToken);
         var api = serviceUrl.ToString().TrimEnd('/');
         var editor = (workspaceUrl ?? serviceUrl).ToString().TrimEnd('/');
 
@@ -146,15 +142,7 @@ public static class ArtForgeTools
         }
     }
 
-    private static bool IsLocal(Uri uri)
-    {
-        if (uri.Scheme is not ("http" or "https") || string.IsNullOrWhiteSpace(uri.Host)) return false;
-        if (uri.IsLoopback || !uri.Host.Contains('.')) return true;
-        if (!IPAddress.TryParse(uri.Host, out var ip)) return false;
-        if (IPAddress.IsLoopback(ip) || ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal) return true;
-        var b = ip.GetAddressBytes();
-        return b.Length == 4 && (b[0] == 10 || b[0] == 192 && b[1] == 168 || b[0] == 172 && b[1] is >= 16 and <= 31);
-    }
+    private static bool IsLocal(Uri uri) => LocalIntegrationHost.IsLocal(uri);
 
     private static string JobId(Dictionary<string, object?> args)
     {
@@ -193,9 +181,5 @@ public static class ArtForgeTools
     }
 
     private static string String(Dictionary<string, object?> args, string key, string fallback = "") =>
-        args.TryGetValue(key, out var value) ? value switch
-        {
-            JsonElement json when json.ValueKind == JsonValueKind.String => json.GetString() ?? fallback,
-            _ => value?.ToString() ?? fallback,
-        } : fallback;
+        LocalIntegrationHost.String(args, key, fallback);
 }

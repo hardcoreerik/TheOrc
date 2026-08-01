@@ -119,7 +119,7 @@ public static class OrcChatToolCatalog
     {
         var url = Environment.GetEnvironmentVariable("THEORC_ARTFORGE_URL");
         var token = Environment.GetEnvironmentVariable("THEORC_ARTFORGE_TOKEN");
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var serviceUri) || token?.Length < 16) return;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var serviceUri) || token?.Length is not >= 16) return;
 
         var workspaceSetting = Environment.GetEnvironmentVariable("THEORC_ARTFORGE_WORKSPACE_URL");
         try
@@ -140,7 +140,7 @@ public static class OrcChatToolCatalog
     {
         var url = Environment.GetEnvironmentVariable("THEORC_KEYHOUND_URL");
         var token = Environment.GetEnvironmentVariable("THEORC_KEYHOUND_TOKEN");
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var serviceUri) || token?.Length < 32) return;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var serviceUri) || token?.Length is not >= 32) return;
 
         var workspaceSetting = Environment.GetEnvironmentVariable("THEORC_KEYHOUND_WORKSPACE_URL");
         try

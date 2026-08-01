@@ -182,12 +182,17 @@ public static class ResearchToolset
                 try
                 {
                     var rawArgs = m.Groups[2].Value.Trim();
-                    using var json = JsonDocument.Parse(rawArgs);
-                    if (json.RootElement.ValueKind != JsonValueKind.Object) continue;
+                    Dictionary<string, object?> args = [];
+                    if (rawArgs.Length > 0)
+                    {
+                        using var json = JsonDocument.Parse(rawArgs);
+                        if (json.RootElement.ValueKind != JsonValueKind.Object) continue;
+                        args = JsonSerializer.Deserialize<Dictionary<string, object?>>(rawArgs) ?? [];
+                    }
                     calls.Add(new ToolCallRequest
                     {
                         Name = m.Groups[1].Value.Trim(),
-                        Args = JsonSerializer.Deserialize<Dictionary<string, object?>>(rawArgs) ?? [],
+                        Args = args,
                         FullMatch = m.Value,
                     });
                 }

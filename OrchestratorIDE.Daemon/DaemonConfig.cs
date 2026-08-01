@@ -26,6 +26,8 @@ public sealed class DaemonConfig
     public long NativeVramMb     { get; set; }
     /// <summary>Digest-pinned Alien Search image. Empty keeps the pack unavailable.</summary>
     public string AlienSearchImage { get; set; } = "";
+    /// <summary>Digest-pinned CaseForge image. Empty keeps the pack unavailable.</summary>
+    public string CaseForgeImage { get; set; } = "";
 
     // ── Workspace ────────────────────────────────────────────────────────────
     /// <summary>Path to the workspace root that contains .orc/theorc.db.

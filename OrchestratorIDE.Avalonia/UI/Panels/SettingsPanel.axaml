@@ -380,7 +380,7 @@
 
                 <StackPanel Classes="SettingRow">
                     <TextBlock Text="Ollama host URL" Classes="SettingLabel"/>
-                    <TextBlock Text="Only consulted when BOTH Native Runtime toggles below are off. Not a fallback -- see the NATIVE RUNTIME section above." Classes="SettingHint" TextWrapping="Wrap"/>
+                    <TextBlock Text="Only consulted when BOTH Native Runtime toggles above are off. Not a fallback -- see the NATIVE RUNTIME section above." Classes="SettingHint" TextWrapping="Wrap"/>
                     <TextBox x:Name="TbOllamaHost"
                              Classes="SettingInput"
                              Text="http://localhost:11434"/>

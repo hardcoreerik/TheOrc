@@ -170,7 +170,8 @@ public sealed class NativeRuntimeTestSupportTests
                 Attempt("LLamaSharp", "boss.gguf", success: false, errorType: "LoadFailed")),
             root);
 
-        using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(path!));
+        Assert.That(path, Is.Not.Null);
+        using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(path));
         Assert.Multiple(() =>
         {
             Assert.That(doc.RootElement.GetProperty("outcome").GetString(), Is.EqualTo("NativeFailed"));

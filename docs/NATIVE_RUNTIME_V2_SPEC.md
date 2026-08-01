@@ -64,7 +64,7 @@ must diverge, it says so explicitly (see [§0.4](#04-known-contradictions--stale
 |---|---|
 | [`docs/RUNTIME_PHASE0_SPEC.md`](RUNTIME_PHASE0_SPEC.md) | The runtime contracts (`IModelRuntime`/`ILocalModelRuntime`), the DI decision (§4), the LoRA hot-swap spike verdict (§7), and the `AdapterManager` per-role-context design (§7a). **This spec builds on it; it does not re-decide those.** |
 | [`docs/RUNTIME_SUPPORT_MATRIX.md`](RUNTIME_SUPPORT_MATRIX.md) | The four runtime lanes, which is default/opt-in, and the fail-closed boundary between native and explicit legacy runtimes. |
-| [`docs/CURRENT_STATE.yaml`](CURRENT_STATE.yaml) | The machine-readable "is X actually shipped?" status vocabulary. `native_runtime: opt-in`. |
+| [`docs/CURRENT_STATE.yaml`](CURRENT_STATE.yaml) | The machine-readable "is X actually shipped?" status vocabulary. `native_runtime: production` (default since 2026-07-29). |
 | [`docs/ROADMAP.md`](ROADMAP.md) | The v2.0 phase table (Phases 0–5) and ranked function priorities. |
 | [`docs/NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md`](NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md) | The adjacent, **separate** track: browser/OCR/workspace/shell/artifact function packs. Related but out of scope here — this spec hardens the runtime *foundation*, not the tool surface on top of it. |
 

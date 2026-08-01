@@ -1,8 +1,6 @@
 // Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 using System.Diagnostics;
-using System.Net;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Globalization;
@@ -27,9 +25,7 @@ public static class CaseForgeTools
         if (string.IsNullOrWhiteSpace(bearerToken) || bearerToken.Length < 16)
             throw new ArgumentException("A CaseForge worker token of at least 16 characters is required.", nameof(bearerToken));
 
-        var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
-            { Timeout = TimeSpan.FromMinutes(2) };
-        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+        var http = LocalIntegrationHost.CreateClient(bearerToken);
         var api = workerUrl.ToString().TrimEnd('/');
         var editor = (workspaceUrl ?? workerUrl).ToString().TrimEnd('/');
 
@@ -145,11 +141,13 @@ public static class CaseForgeTools
 
         if (mode.Equals("portrait", StringComparison.OrdinalIgnoreCase))
         {
+            if (!Boolean(args, "rights_acknowledged"))
+                throw new ArgumentException("portrait mode requires rights_acknowledged to be true.");
             body["rights_attestation"] = new
             {
                 version = "caseforge-rights-v1",
                 accepted_at = DateTimeOffset.UtcNow,
-                acknowledgement = Boolean(args, "rights_acknowledged"),
+                acknowledgement = true,
             };
         }
         return body;
@@ -180,15 +178,7 @@ public static class CaseForgeTools
         }
     }
 
-    private static bool IsLocal(Uri uri)
-    {
-        if (uri.Scheme is not ("http" or "https") || string.IsNullOrWhiteSpace(uri.Host)) return false;
-        if (uri.IsLoopback || !uri.Host.Contains('.')) return true;
-        if (!IPAddress.TryParse(uri.Host, out var ip)) return false;
-        if (IPAddress.IsLoopback(ip) || ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal) return true;
-        var b = ip.GetAddressBytes();
-        return b.Length == 4 && (b[0] == 10 || b[0] == 192 && b[1] == 168 || b[0] == 172 && b[1] is >= 16 and <= 31);
-    }
+    private static bool IsLocal(Uri uri) => LocalIntegrationHost.IsLocal(uri);
 
     private static string RequiredString(Dictionary<string, object?> args, string key)
     {
@@ -197,11 +187,7 @@ public static class CaseForgeTools
     }
 
     private static string String(Dictionary<string, object?> args, string key, string fallback = "") =>
-        args.TryGetValue(key, out var value) ? value switch
-        {
-            JsonElement json when json.ValueKind == JsonValueKind.String => json.GetString() ?? fallback,
-            _ => value?.ToString() ?? fallback,
-        } : fallback;
+        LocalIntegrationHost.String(args, key, fallback);
 
     private static bool Boolean(Dictionary<string, object?> args, string key) =>
         bool.TryParse(String(args, key), out var value) && value;

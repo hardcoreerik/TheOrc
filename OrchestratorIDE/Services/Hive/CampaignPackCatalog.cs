@@ -81,10 +81,21 @@ public static class CampaignPackCatalog
     public static PackManifest? Find(string packId, string version) => All.FirstOrDefault(p =>
         p.PackId.Equals(packId, StringComparison.OrdinalIgnoreCase) && p.Version == version);
 
-    public static IReadOnlyList<PackManifest> ResolveInstalled(string? alienImageDigest) => All
-        .Select(p => p.PackId == "theorc.alien-signal-search" && !string.IsNullOrWhiteSpace(alienImageDigest)
-            ? p with { ImageDigest = alienImageDigest }
-            : p)
-        .Where(p => p.ExecutionKind != HiveExecutionKinds.ContainerPack || p.ImageDigest.Length > 0)
-        .ToArray();
+    public static IReadOnlyList<PackManifest> ResolveInstalled(
+        string? alienImageDigest, string? caseForgeImageDigest = null)
+    {
+        return All
+            .Select(p => Digest(p.PackId) is { } digest && !string.IsNullOrWhiteSpace(digest)
+                ? p with { ImageDigest = digest }
+                : p)
+            .Where(p => p.ExecutionKind != HiveExecutionKinds.ContainerPack || p.ImageDigest.Length > 0)
+            .ToArray();
+
+        string? Digest(string packId) => packId switch
+        {
+            "theorc.alien-signal-search" => alienImageDigest,
+            CaseForgePackId => caseForgeImageDigest,
+            _ => null,
+        };
+    }
 }

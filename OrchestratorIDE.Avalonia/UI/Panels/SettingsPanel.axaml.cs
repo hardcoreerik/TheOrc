@@ -231,11 +231,16 @@ public partial class SettingsPanel : UserControl
         {
             if (_current.ExperimentalNativeMainChatEnabled)
             {
-                var depot = ModelDepot.ScanSources(
-                    _current.ResolvedNativeRuntimeModelRoots,
-                    includeOllamaModels: _current.NativeRuntimeIncludeOllamaModels);
-                var baseCount = depot.Assets.Count(a => a.Kind == RuntimeAssetKind.BaseModelGguf);
-                var liveBudget = NativeVramProbe.TryQueryLiveNvidiaBudget();
+                // ScanSources walks every model root recursively and the VRAM probe shells out to
+                // nvidia-smi; both would freeze the panel if they ran on the UI thread.
+                var roots = _current.ResolvedNativeRuntimeModelRoots;
+                var includeOllama = _current.NativeRuntimeIncludeOllamaModels;
+                var (baseCount, liveBudget) = await Task.Run(() =>
+                {
+                    var depot = ModelDepot.ScanSources(roots, includeOllamaModels: includeOllama);
+                    return (depot.Assets.Count(a => a.Kind == RuntimeAssetKind.BaseModelGguf),
+                        NativeVramProbe.TryQueryLiveNvidiaBudget());
+                }).ConfigureAwait(true);
                 var hasBudget = liveBudget is not null || _current.DetectedVramGb > 0;
                 var ready = baseCount > 0 && hasBudget;
                 TbRuntimeStatus.Text = ready ? "Native runtime ready" : "Native runtime unavailable";
