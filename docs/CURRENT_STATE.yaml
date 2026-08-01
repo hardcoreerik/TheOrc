@@ -22,8 +22,9 @@
 # thing a human checks before writing "planned" or "shipped" in prose. Update this
 # file in the SAME commit/PR that changes a subsystem's status.
 #
-# last_reviewed: 2026-07-19
-# reviewed_against_release: v1.13.0
+# last_reviewed: 2026-07-31
+# reviewed_against_origin_master: 6ecdd66e5b6bd83de2c5aee2f6c7ed86568d40b7
+# reviewed_against_pending_integration: PR #96 at 16501dae4568391e8891dc091f8869d43ca6b7b9
 
 subsystems:
   swarm_orchestration:
@@ -127,7 +128,7 @@ subsystems:
 
   llamacpp_server:
     status: opt-in
-    note: "Supported backend; not the default onboarding path (Quick Start still starts from Ollama)."
+    note: "Supported explicit backend; the installer and Quick Start now lead with the native-first local setup."
 
   foundry_toolcaller:
     status: promoted
@@ -141,6 +142,18 @@ subsystems:
       Organic training-data capture live from Swarm (v0 schema, 6 tools) and
       OrcChat (v1 schema, 16 tools), both gated by one settings toggle, off by
       default.
+    native_deployment_gap: >
+      The promoted r3 artifact is a Qwen2.5-1.5B base plus a separate GGUF LoRA
+      adapter. ToolcallerService can name the Ollama tag, but LLamaSharpRuntime
+      ignores the model string and serves whichever GGUF is already loaded.
+      A dedicated admission-controlled native specialist session that loads and
+      verifies both base and adapter does not exist yet. Loading only the base
+      blob is not a valid evaluation of the promoted specialist.
+    product_posture: >
+      Treat r3 as a successful proof of concept, not a dependable universal
+      tool router. CaseForge, Art Forge, KeyHound Atlas, browser, and future
+      Function Pack vocabulary are deferred to theorc-toolcaller-v2 planning;
+      do not mutate the frozen v0/v1 inventories to simulate support.
     known_regression: >
       Ordinary (non-tool) conversation strict accuracy dropped to 89.3% in r3;
       all remaining fabrications are over-eager tool calls on benign chat, not
@@ -193,6 +206,30 @@ subsystems:
       approval. Now gated via ChatEngine.OnApprovalRequired, wired to a real Avalonia
       Yes/No dialog. theorc-toolcaller retraining for a genuinely universal vocabulary is
       explicitly deferred, not part of v1.
+    pending_pr_96: >
+      PR #96 adds CaseForge, Art Forge, and KeyHound Atlas tools to OrcChat and
+      fixes mixed-format continuation calls. These tools are not landed on
+      origin/master at this snapshot and are not yet exposed through the shared
+      headless/HIVE tool profile, so they do not satisfy the Function Pack's
+      cross-surface completion rule yet.
+
+  ollama_migration:
+    status: planned
+    note: >
+      Product direction is native-only. Ollama remains present in current code
+      as an explicitly selected legacy backend and as the current host for the
+      r3 proof-of-concept toolcaller manifest; it is not an acceptable automatic
+      production fallback. When a native path fails, pause that workload, fix
+      the native capability, verify it, and remove the corresponding Ollama
+      dependency instead of masking the failure.
+
+  orcengine:
+    status: planned
+    note: >
+      Separately authorized research track. Its documentation foundation is
+      present on the pending docs truth-sync branch, but no OrcEngine source
+      project, runnable engine, supported model, benchmark, or TheOrc integration
+      exists. Phase 0 remains an active contract with no passing result bundle.
 
   capture_provenance_enforcement:
     status: experimental

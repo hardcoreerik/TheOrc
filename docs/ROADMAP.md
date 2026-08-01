@@ -1,6 +1,6 @@
 # TheOrc — Roadmap
 
-> Last updated: 2026-07-20 (v1.13.0 — Context Fabric complete; since then, Native Runtime v2.0
+> Last updated: 2026-07-31 (v1.13.0 — Context Fabric complete; since then, Native Runtime v2.0
 > foundation-hardening Phases A-C (admission boundary, live VRAM budget, real telemetry) plus
 > the Phase B addendum (KV/rs-cache-aware cost estimate + real load-time measurement) and most
 > of Phase D (real-model proof: fail-closed negative test, a cancellation-corruption bug found
@@ -30,11 +30,18 @@ r4 round closes that gap. The promotion margin that will judge r4+ is frozen in
 `training_pit/foundry/configs/toolcaller_v0_r3.json`; r3 itself was promoted before
 that margin existed and is not retroactively judged by it.
 
+**Runtime direction (decided 2026-07-31):** native-only is the target. Remaining
+Ollama use is migration debt, including the r3 proof-of-concept specialist
+manifest. Native failure pauses the affected workload for repair and
+verification; it is not a reason to add or preserve automatic Ollama fallback.
+Studio integrations are system-wide Function Packs. Their model vocabulary waits
+for `theorc-toolcaller-v2`; it does not block shared tool plumbing now.
+
 v1.8.0 ships the Avalonia MarkdownView (Phase 6), the full FlaUI + Avalonia test suite (Phase 7, 23 tests), and the Grok toolchain integration. CodeGraph v1 — a Roslyn + SQLite code knowledge graph that lets the agent query graph structure instead of grepping files — is fully implemented and committed, targeting v1.9.
 
 **HIVE MIND node startup was broken on every normal-user install until 2026-06-20** — `HiveNodeServer.Start()` silently aborted (no error, no log line, nothing listening) on any non-elevated machine, because a failed wildcard `HttpListener` bind left the listener disposed internally and the fallback cleanup code's own property access threw a second, masking exception inside an unobserved `Task.Run`. Found via a pre-release smoke test specifically because nothing in automated test coverage exercises real socket binding. Fixed — verified `localhost:7078/hive/info` returns 200 and UDP 7077 beacon listens. This was a hard release blocker for any LAN/Tailscale HIVE MIND testing; not caught by `dotnet test` since the unit/headless suites mock or don't reach real listener startup.
 
-The honest gaps: the Reviewer Quality Gate is advisory-only (can always be overridden), the Tool Editor hot-reload is a stub, and Phase 3B is implementation groundwork rather than a completed distributed-computing release. Native campaign contracts, capability-aware atomic leasing, persistence, content-addressed transfer, independent verification, the shared headless loop, fail-closed native-agent execution, staged campaign dependencies, native input-artifact materialization, and CF-6 distributed HIVE Context Fabric execution now exist in code. **WPF is deleted (2026-06-20)** — `OrchestratorIDE/OrchestratorIDE.csproj` and every WPF-only file are gone from the repo; Avalonia is the only desktop shell. `ask_user`, `ModelCapabilityTestDialog`, and `ToolCallTestWindow` all have real Avalonia resolutions (the latter two retired as diagnostics, not ported); `ModelWikiWindow`/`ModelCompareWindow` were retired rather than ported (data layer kept, window itself dropped — a future from-scratch Avalonia rebuild is a real feature request, not a blocker). The UIA automation lane already targeted Avalonia exclusively. Native Runtime groundwork is now real in code (IModelRuntime, Ollama wrapper, llama.cpp server wrapper, LLamaSharp runtime, shared text tool-call parser, Chat/Swarm/HIVE worker/reviewer migration, ModelDepot, SessionManager, AdapterManager with per-role persistent LoRA contexts, RuntimeOrchestrator wiring all three together, `IRoleRuntime`/`NativeRoleRuntime`, Settings-panel telemetry/smoke surfaces with explicit Ollama fallback and evidence capture, OrcScheduler VRAM-budget admission checks, workload-aware native model-admission, and CUDA backend-selection diagnostics for driver-only GPU nodes). **As of 2026-07-29, native main chat and native HIVE workers are the default** (`NATIVE_RUNTIME_V2_SPEC.md` §6, recorded against `NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md`'s HV-6 fleet evidence); Ollama remains available and configurable as a fallback backend, while native campaign jobs fail closed and do not fall back to Ollama. Context Fabric CF-0 through CF-8 have landed their focused framework/distribution/benchmark/hard-ingestion gates, and **the CF-7 benchmark gate closed GO on the honest, un-marked corpus (2026-07-17, v1.13.0)** — `cf-expanded-book-v1`, 128 segments, 120 real held-out questions, Qwen3.5-9B at 104/120 questions, 97.1% citation precision, 128/128 segments read, best competing baseline 52/120. This GO replaces (does not merely re-confirm) the retracted 2026-07-03 GO, which was found to have scored against a corpus containing marked/leaked evidence lines. Unattended million-token/LongBench runs and full multimodal page understanding remain future benchmark/product work.
+The honest gaps: the Reviewer Quality Gate is advisory-only (can always be overridden), the Tool Editor hot-reload is a stub, and Phase 3B is implementation groundwork rather than a completed distributed-computing release. Native campaign contracts, capability-aware atomic leasing, persistence, content-addressed transfer, independent verification, the shared headless loop, fail-closed native-agent execution, staged campaign dependencies, native input-artifact materialization, and CF-6 distributed HIVE Context Fabric execution now exist in code. **WPF is deleted (2026-06-20)** — `OrchestratorIDE/OrchestratorIDE.csproj` and every WPF-only file are gone from the repo; Avalonia is the only desktop shell. `ask_user`, `ModelCapabilityTestDialog`, and `ToolCallTestWindow` all have real Avalonia resolutions (the latter two retired as diagnostics, not ported); `ModelWikiWindow`/`ModelCompareWindow` were retired rather than ported (data layer kept, window itself dropped — a future from-scratch Avalonia rebuild is a real feature request, not a blocker). The UIA automation lane already targeted Avalonia exclusively. Native Runtime groundwork is now real in code (IModelRuntime, Ollama wrapper, llama.cpp server wrapper, LLamaSharp runtime, shared text tool-call parser, Chat/Swarm/HIVE worker/reviewer migration, ModelDepot, SessionManager, AdapterManager with per-role persistent LoRA contexts, RuntimeOrchestrator wiring all three together, `IRoleRuntime`/`NativeRoleRuntime`, Settings-panel telemetry/smoke surfaces, OrcScheduler VRAM-budget admission checks, workload-aware native model-admission, and CUDA backend-selection diagnostics for driver-only GPU nodes). **As of 2026-07-29, native main chat and native HIVE workers are the default** (`NATIVE_RUNTIME_V2_SPEC.md` §6, recorded against `NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md`'s HV-6 fleet evidence); Ollama remains available through explicit compatibility selection, while production native main chat and native campaign jobs fail closed and do not automatically fall back to Ollama. Context Fabric CF-0 through CF-8 have landed their focused framework/distribution/benchmark/hard-ingestion gates, and **the CF-7 benchmark gate closed GO on the honest, un-marked corpus (2026-07-17, v1.13.0)** — `cf-expanded-book-v1`, 128 segments, 120 real held-out questions, Qwen3.5-9B at 104/120 questions, 97.1% citation precision, 128/128 segments read, best competing baseline 52/120. This GO replaces (does not merely re-confirm) the retracted 2026-07-03 GO, which was found to have scored against a corpus containing marked/leaked evidence lines. Unattended million-token/LongBench runs and full multimodal page understanding remain future benchmark/product work.
 
 ---
 
@@ -557,8 +564,10 @@ OrcChat — both off by default under one settings toggle.
   flag, teacher identity, repair lineage, redaction state) are enforced for the
   toolcaller repair lane specifically, not yet as a schema-level gate every
   Foundry/Training Pit capture path must satisfy.
-- ORCISH TONGUE remains the planned universal tool-caller rename/runtime
-  direction; existing prompt-layer adaptation remains under current code names.
+- ORCISH TONGUE v1 is experimental and landed for OrcChat: native calls,
+  ReAct XML, JSON-brace parsing, and an opt-in repair lane converge on the same
+  approval-gated execution loop. The universal cross-surface layer and a
+  dedicated native specialist runtime remain future work.
 
 ### HIVE MIND: hive identity, membership certs, auto-promotion — v1.9.4 (all 4 phases shipped 2026-06-21)
 Spec: [`HIVE_MEMBERSHIP_SPEC.md`](HIVE_MEMBERSHIP_SPEC.md). Adds a hive-wide `HiveId` (survives Warchief elections, unlike per-node identity), membership certificates so a node can prove hive membership to a peer it never directly paired with (avoids O(n²) manual-approval pairing at "100s of nodes" scale), an authenticated `/hive/mesh/role-assign` RPC + "👑 Declare this machine Warchief" UI action (first real consumer of the long-dormant `HiveAcceptControlPolicy` enum), and a first-run/repair discovery wizard (`HiveDiscoveryWizard`: scan LAN → join existing hive or found a new one, with three trigger sites). All four phases landed same day, each build+test+grok-review-CLEAN before commit; full swarmcli parity (`--list-peers`, `--declare-warchief`, `--set-accept-control`). Also fixed a naming collision: the pre-existing "🎯 Set as Warchief" menu item was an unrelated swarm-task-routing preference, renamed to "📤 Route my swarm tasks here". One deferred remainder: presenting a membership cert at the request-time auth gate needs its own subject-proves-key signature scheme (issuance + verification shipped; wire-gate consumption intentionally not bolted on).
@@ -651,7 +660,11 @@ and run as a service before the GUI-as-client changeover happens.
 
 ## TheOrc Native Runtime — v2.0 direction
 
-> Contracts/design spec: [`docs/RUNTIME_PHASE0_SPEC.md`](RUNTIME_PHASE0_SPEC.md). Status changed after ORC ACADEMY v3 completed: early runtime groundwork has landed, but native runtime is still pre-production and not the default.
+> Historical foundation contract: [`docs/RUNTIME_PHASE0_SPEC.md`](RUNTIME_PHASE0_SPEC.md).
+> Its original opt-in/default checklists are superseded by the production status
+> recorded in [`docs/CURRENT_STATE.yaml`](CURRENT_STATE.yaml), the
+> [`Runtime Support Matrix`](RUNTIME_SUPPORT_MATRIX.md), and
+> [`NATIVE_RUNTIME_V2_SPEC.md`](NATIVE_RUNTIME_V2_SPEC.md) §6.
 >
 > Current foundation-hardening plan (the specific work the Phase 3/4 rows below flag as
 > "remaining"): [`docs/NATIVE_RUNTIME_V2_SPEC.md`](NATIVE_RUNTIME_V2_SPEC.md). As of 2026-07-20,
@@ -680,7 +693,7 @@ and run as a service before the GUI-as-client changeover happens.
 
 | Phase | Scope | Status | Risk |
 |---|---|---|---|
-| **0** | `IModelRuntime` abstraction + `OllamaRuntime` wrapper. | ✅ Landed — local generation paths can depend on the runtime interface; native is now the default as of the 2026-07-29 §6 flip (Ollama remains available, fallback). | Low |
+| **0** | `IModelRuntime` abstraction + `OllamaRuntime` wrapper. | ✅ Landed — local generation paths can depend on the runtime interface; native is now the default as of the 2026-07-29 §6 flip (Ollama remains available through explicit selection, not automatic fallback). | Low |
 | **1** | `LlamaCppServerRuntime` — wraps the **existing** `LlamaServerManager` + `InferenceBackend.LlamaCpp`. | ✅ Landed — server lifecycle and HTTP routing exist behind the runtime interface. | Low |
 | **2** | `LLamaSharpRuntime` — in-process GGUF streaming, embedded-template probing, stats, shared text tool-call parsing. | ⚠️ Prototype landed — this row is about the *prototype's own completeness*, not runtime-selection default status (native IS the default as of the 2026-07-29 §6 flip, see the box above): LoRA hot-swap, backend install flow, and full runtime selection are not complete. | Med |
 | **2.5** | Close abstraction leaks from the first migration. | ✅ Closed for `HiveWorkerAgent` and reviewer inference — both use `IModelRuntime`; SwarmSession's Ollama-specific eviction escape hatch and remote HIVE task-queue/node HTTP remain separate follow-up plumbing. | Med |
@@ -690,7 +703,7 @@ and run as a service before the GUI-as-client changeover happens.
 
 **Caveat (permanent, now mechanically confirmed — not just inferred):** shared KV cache across *different* LoRA-specialized agents is not guaranteed safe — adapters change activations, and LLamaSharp 0.27.0's `SetLoraAdapters` applies per-context, not per-sequence, so forked sequences sharing a context cannot run different adapters. Start with simple prefix caching of the common system prompt only **within one role**; cross-role sharing is research, never a promised deliverable. LoRA hot-swap requires a verification spike before it joins a committed phase — that spike ran (§7), and the verdict (separate persistent contexts per role) is implemented in `AdapterManager`.
 
-~~Ollama stays the **default and fallback** until the ModelDepot + installer first-run story is bulletproof and the reviewer/Swarm abstraction leaks are closed.~~ **Superseded 2026-07-29:** native is now the default, per the §6 decision recorded against live HV-6 fleet evidence rather than this criterion. Ollama remains the fallback backend.
+~~Ollama stays the **default and fallback** until the ModelDepot + installer first-run story is bulletproof and the reviewer/Swarm abstraction leaks are closed.~~ **Superseded 2026-07-29:** native is now the default, per the §6 decision recorded against live HV-6 fleet evidence rather than this criterion. Ollama remains an explicitly selected compatibility backend; production native main chat does not automatically fall back to it.
 
 ### Native runtime function priorities
 

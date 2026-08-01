@@ -341,9 +341,9 @@ The app used to depend directly on Ollama-oriented call sites. The current branc
 has a real runtime abstraction:
 
 - `IModelRuntime` is the common generation surface
-- `OllamaRuntime` wraps the current default backend
+- `OllamaRuntime` wraps the explicitly selected compatibility backend
 - `LlamaCppServerRuntime` wraps the existing llama.cpp server bridge
-- `LLamaSharpRuntime` is the in-process native runtime prototype
+- `LLamaSharpRuntime` is the in-process native inference implementation
 
 Phase 3 runtime orchestration pieces now exist:
 
@@ -352,14 +352,14 @@ Phase 3 runtime orchestration pieces now exist:
 - `AdapterManager` owns per-role persistent LoRA-backed executors
 - `RuntimeOrchestrator` wires the managers together from one shared runtime
 - `IRoleRuntime` / `NativeRoleRuntime` expose that stack as a role-aware
-  streaming surface for opt-in call sites
-- `OrcScheduler` has started with a real VRAM-budget admission check
+  streaming surface
+- `OrcScheduler` supplies fail-closed VRAM-budget admission
 
 Important caveats:
 
-- Native Runtime is **not** the default path yet
-- native main chat and native HIVE workers are explicit opt-ins; other paths
-  may still use the configured default runtime
+- Native Runtime is the production default for main chat and HIVE workers as of
+  2026-07-29; the two `ExperimentalNative*` settings remain opt-out controls
+- production native execution fails closed; it does not silently become Ollama
 - Phase 3B `native_agent` jobs require the native role runtime and fail closed
   rather than silently substituting Ollama
 - Session/Adapter telemetry is only partially surfaced
@@ -429,12 +429,14 @@ goal
   -> better future planning
 ```
 
-Native Runtime extends that loop instead of replacing it. The point is not to
-become an inference engine from scratch; it is to own more of the scheduling,
-session, adapter, and feedback path locally while keeping the operator in
-control.
+Native Runtime extends that loop instead of replacing it. Its production purpose
+is to own scheduling, session, adapter, tool, and feedback policy above LLamaSharp/
+llama.cpp while keeping the operator in control. `docs/OrcEngine/` is a separately
+authorized, evidence-gated research track exploring a narrow from-scratch
+computation plane; it is not an implementation claim or a redefinition of the
+production Native Runtime.
 
 ---
 
-*Last updated: 2026-07-03 — architecture refreshed for Context Fabric CF-5/CF-8
-closeout status, Phase 3B native campaign groundwork, and CodeGraph lifecycle.*
+*Last updated: 2026-07-31 — synchronized with the native-default decision,
+fail-closed runtime boundary, and separately scoped OrcEngine research track.*

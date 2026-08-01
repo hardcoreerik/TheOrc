@@ -1,12 +1,14 @@
 # Orcish Tongue v1 — OrcChat Tool-Call Reliability
 
+> **Current status (2026-07-31):** v1 is implemented and live-verified in OrcChat. It is not yet a universal cross-surface protocol, and the dedicated native deployment for the promoted toolcaller remains unimplemented. The paragraphs below preserve the original design sequence and subsequent landing evidence.
+
 > **Relationship to the roadmap entry:** `docs/CURRENT_STATE.yaml`'s `orcish_tongue` entry has read
 > `status: planned` / `"Universal tool-call adaptation rename/runtime direction. Not started."`
 > since it was written — this document is where it actually starts, scoped deliberately narrow
 > (see §0.1). It does not attempt "universal" in one pass; it closes the specific, real gap found
 > live on 2026-07-30 and lays a foundation the wider vision can build on later.
 >
-> **Status: design only, zero code written at time of writing.** Written in response to an
+> **Original status: design only, zero code written at time of writing.** Written in response to an
 > explicit request for a spec before implementation, matching this repo's established pattern
 > (`NATIVE_BROWSER_AUTOMATION_SPEC.md`). Scope was set via three explicit decisions from the
 > requester (recorded in §0.1) rather than assumed.
@@ -25,6 +27,28 @@
 > Domain".` — Path 3's JSON-brace fallback recognized the bare-JSON call this model produces, where
 > before it silently rendered as unexecuted text. Both outstanding verification items (§3 Phase A's
 > third bullet, §3 Phase D's last bullet) are now closed with real evidence.
+>
+> **Update, pending PR #96 at `16501dae` (2026-07-31):** mixed-format
+> continuation calls are now handled inside the native loop (for example, a
+> native first call followed by valid ReAct XML), and unsupported observed tool
+> shapes are visibly marked as not executed. The same PR adds CaseForge, Art
+> Forge, and KeyHound Atlas vocabulary to OrcChat. This remains OrcChat-scoped:
+> the tools are not yet shared with headless/HIVE profiles, and the promoted
+> toolcaller has not been retrained for them.
+>
+> **Native specialist deployment correction:** `LLamaSharpRuntime` ignores the
+> requested model name and serves the GGUF already loaded in that runtime.
+> Therefore Path 4 does not run the promoted specialist when it receives the
+> primary native runtime; it runs the active primary model. The promoted r3
+> artifact is also a base GGUF plus a separate LoRA adapter. A valid native
+> specialist trial requires a dedicated, admission-controlled session loading
+> and identifying both artifacts. A base-blob-only probe is not specialist
+> evidence.
+>
+> **Product decision, 2026-07-31:** r3 remains proof-of-concept evidence, not a
+> dependable router for studio or newly added Function Pack tools. Do not widen
+> its frozen vocabulary. CaseForge, Art Forge, KeyHound Atlas, browser, and
+> future schemas belong in the later `theorc-toolcaller-v2` training plan.
 
 ---
 

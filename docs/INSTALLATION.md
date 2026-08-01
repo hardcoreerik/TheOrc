@@ -27,6 +27,8 @@ The installer path is the best fit when you want:
 - model/runtime download help
 - a clean first-run setup
 
+The normal installer path provisions a llama.cpp runtime package and downloads GGUF models directly. Ollama is available under the collapsed advanced choice; it is not required.
+
 After install, continue with [QUICK_START.md](QUICK_START.md).
 
 ---
@@ -42,7 +44,7 @@ Expect to configure:
   and a fallback; see [RUNTIME_SUPPORT_MATRIX.md](RUNTIME_SUPPORT_MATRIX.md)
   for the full lane-by-lane breakdown (Ollama, llama.cpp server, native
   in-process, remote HIVE) including which are on by default and how
-  automatic fallback actually behaves
+  fallback actually behaves
 - model selection
 - workspace and settings paths
 
@@ -71,11 +73,11 @@ If you are only checking compile health, you can build without a live model. If 
 
 ---
 
-## Inference Backend Setup
+## Inference Runtime Setup
 
-The current shell is designed around reachable local or LAN inference endpoints.
+Native in-process inference is enabled by default. It discovers compatible GGUF files from the configured model roots and fails closed if discovery, admission, loading, or generation fails. It does not silently substitute Ollama.
 
-Common setup:
+The installer supplies the usual local runtime and model setup. For an explicitly selected Ollama configuration:
 
 ```powershell
 ollama serve
@@ -88,7 +90,7 @@ The default Ollama host is:
 http://localhost:11434
 ```
 
-The app can also point at another host in Settings, which is useful when a second machine has the stronger GPU.
+The app can point at another Ollama host in Settings, which is useful when a second machine has the stronger GPU. A managed standalone llama.cpp server is another supported explicit backend. See [RUNTIME_SUPPORT_MATRIX.md](RUNTIME_SUPPORT_MATRIX.md) before changing lanes.
 
 ---
 

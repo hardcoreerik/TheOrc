@@ -3,10 +3,9 @@
 New to TheOrc? Start with [QUICK_START.md](QUICK_START.md) for your first run, then
 [USER_GUIDE.md](USER_GUIDE.md) to understand the app. The guides below cover every feature in depth.
 
-For the authoritative public "what is shipped vs planned" status, use
-[ROADMAP.md](ROADMAP.md); when a guide and the roadmap disagree, the roadmap
-wins. [`../.grok/PROJECT_TRUTH.md`](../.grok/PROJECT_TRUTH.md) is retained as
-adversarial-review context and may contain deeper implementation notes.
+For current machine-readable ship state, use [CURRENT_STATE.yaml](CURRENT_STATE.yaml).
+[ROADMAP.md](ROADMAP.md) explains the product sequence, while
+[RUNTIME_SUPPORT_MATRIX.md](RUNTIME_SUPPORT_MATRIX.md) is authoritative for runtime selection and fallback behavior. Historical specifications retain the decisions and status that were true when they were written; their status banners point back to these current authorities.
 
 ---
 
@@ -52,6 +51,16 @@ adversarial-review context and may contain deeper implementation notes.
 - [MODEL_WIKI_AND_LAB.md](MODEL_WIKI_AND_LAB.md) — in-app model intelligence: trends, comparison,
   capability tests, export
 - [HARDWARE_GUIDE.md](HARDWARE_GUIDE.md) — hardware tiers and what they mean for inference and training
+
+---
+
+## Native Runtime And Tool Calling
+
+- [RUNTIME_SUPPORT_MATRIX.md](RUNTIME_SUPPORT_MATRIX.md) — current runtime defaults, selection, and fail-closed behavior
+- [NATIVE_RUNTIME_V2_SPEC.md](NATIVE_RUNTIME_V2_SPEC.md) — production-hardening record and remaining native-runtime work
+- [NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md](NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md) — shared tool-surface plan across OrcChat, headless loops, and HIVE
+- [ORCISH_TONGUE_SPEC.md](ORCISH_TONGUE_SPEC.md) — versioned model-to-tool intent and repair contract
+- [OrcEngine/README.md](OrcEngine/README.md) — separate documentation-only research track for a possible TheOrc-owned computation plane
 
 ---
 

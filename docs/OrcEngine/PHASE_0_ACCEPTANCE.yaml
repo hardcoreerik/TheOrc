@@ -1,0 +1,63 @@
+schema_version: 1
+contract_id: OE-PHASE0-ACCEPTANCE-1
+project: OrcEngine
+phase: 0
+status: active_contract_no_results
+policy:
+  required_result_values: [pass, fail]
+  missing_result: fail
+  skipped_result: fail
+  unknown_result: fail
+  phase_pass_rule: all_required_checks_pass
+profiles:
+  synthetic:
+    id: OE-L0-SYNTH-1
+    specification: PHASE_0_ARCHITECTURE_PROFILE.md
+  real_candidate:
+    repository: HuggingFaceTB/SmolLM2-135M
+    revision: 93efa2f097d58c2a74874c7e644dbc9b0cee75a2
+    role: candidate_not_supported_model
+required_checks:
+  - id: provenance_complete
+    evidence: manifest with source, tokenizer, converter, GGUF, environment, license, and SHA-256 identities
+    result: null
+  - id: three_way_oracle_independence
+    evidence: hand-derived microcases, Python semantic oracle, and pinned llama.cpp deployment oracle
+    result: null
+  - id: artifact_schema_complete
+    evidence: every tensor record includes name, dtype, logical shape, byte strides, layout, endianness, and hash
+    result: null
+  - id: tokenizer_dual_source_agreement
+    evidence: source-tokenizer and GGUF-embedded-tokenizer fixtures agree exactly or candidate is rejected
+    result: null
+  - id: raw_prompt_identity
+    evidence: raw bytes, rendered template, token IDs, and their hashes are retained
+    result: null
+  - id: synthetic_operator_microcases
+    evidence: hand-verifiable operator vectors pass exact or approved numeric comparisons
+    result: null
+  - id: synthetic_layer_taps
+    evidence: all required OE-L0-SYNTH-1 intermediate taps pass named tolerance profiles
+    result: null
+  - id: cache_equivalence
+    evidence: full-prefix and incremental decode last-position states and logits agree within approved bounds
+    result: null
+  - id: near_tie_logits
+    evidence: fixtures include a controlled near-tie and verify logits, top-token margin, argmax, and exact-tie rule
+    result: null
+  - id: deterministic_regeneration
+    evidence: two clean regenerations produce identical non-floating identities and approved floating comparisons
+    result: null
+  - id: fault_injection
+    evidence: every required seeded fault fails first at its expected checkpoint class
+    result: null
+  - id: real_candidate_conversion
+    evidence: pinned conversion command and GGUF hash with strict parser manifest
+    result: null
+  - id: real_candidate_logits
+    evidence: layer-boundary and final logits comparisons against both pinned oracles
+    result: null
+  - id: independent_reproduction
+    evidence: reviewer reproduces the synthetic bundle from documented commands
+    result: null
+phase_result: null

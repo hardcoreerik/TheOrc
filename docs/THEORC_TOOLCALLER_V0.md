@@ -31,7 +31,10 @@ The proof is allowed to conclude that training is unnecessary.
 ORCISH TONGUE is the planned name and direction for TheOrc's universal
 tool-format/tool-calling layer. The current code still contains existing names
 and prompt-layer format probing, instruction building, and defensive parsing.
-The rename and Native Runtime decoder-constrained path have not fully landed.
+Orcish Tongue v1 has landed for OrcChat, including four recognition/repair paths
+and a fail-closed approval gate. The universal cross-surface layer, dedicated
+native specialist session, wider retrained vocabulary, and Native Runtime
+decoder-constrained path have not landed.
 
 The responsibilities are complementary:
 

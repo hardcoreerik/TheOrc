@@ -13,7 +13,7 @@
 
 | Runtime | Current status | Default? | How you switch to it | Fallback behavior | Recommended use |
 |---|---|---|---|---|---|
-| **Ollama** | `production` (explicit legacy lane) | No, as of 2026-07-29 | Disable native main chat, then select `AppSettings.Backend = Ollama` | No automatic cross-runtime fallback | Onboarding, model management, current specialist deployment (`theorc-toolcaller`) |
+| **Ollama** | Transitional explicit legacy lane | No, as of 2026-07-29 | Disable native main chat, then select `AppSettings.Backend = Ollama` | No automatic cross-runtime fallback | Compatibility while remaining native gaps and the r3 proof-of-concept specialist deployment are retired |
 | **Native in-process** | `production` | **Yes**, as of 2026-07-29 (`NATIVE_RUNTIME_V2_SPEC.md` §6 flip) | On by default; Settings → `ExperimentalNativeMainChatEnabled` / `ExperimentalNativeHiveWorkerEnabled` remain as the opt-OUT toggles | Fails closed on prerequisite, admission, load, or execution failure | General chat/swarm/HIVE use, Context Fabric, future Foundry specialists |
 | **llama.cpp server** | `opt-in` | No | Settings → `AppSettings.Backend = LlamaCpp` (`InferenceBackend` enum) | Configurable; not wrapped by `NativeWithFallbackRuntime` today | General local inference without any Ollama dependency |
 | **Remote HIVE runtime** | `opt-in`, per-workload | No | HIVE node targeting in Chat/Swarm; campaign dispatch | Depends entirely on the workload's own retry/requeue policy | Multi-node execution, distributed campaigns |
@@ -30,6 +30,11 @@ and execution failures surface as explicit errors instead of becoming Ollama out
 
 Ollama remains a supported runtime, but only through an explicit opt-out from native main chat.
 There is no automatic native-to-Ollama transition in the production main-chat construction path.
+
+**Direction decided 2026-07-31:** native-only is the target. An Ollama path is
+migration debt, not a resilience mechanism. If a native workload fails, pause
+and repair that native capability, verify the repair, then remove the matching
+Ollama dependency from the loop. Do not add new Ollama fallback call sites.
 
 ## What "for benchmarks, never silently substitute" actually looks like today
 
@@ -56,4 +61,4 @@ A persistent per-call runtime-status indicator remains open UI work.
 
 ## Onboarding language
 
-Quick Start and the installation guide may still use Ollama as the easiest legacy setup (`production` status per `CURRENT_STATE.yaml`), but application runtime selection now defaults to native. Both docs should link here so a reader understands that native, Ollama, llama.cpp server, and remote HIVE are distinct, explicitly selected lanes.
+Quick Start and the installation guide lead with the installer's native-first local setup. Ollama commands are retained only for users who explicitly select that compatibility lane. Both docs link here so a reader can distinguish native in-process execution, Ollama, the managed llama.cpp server, and remote HIVE.

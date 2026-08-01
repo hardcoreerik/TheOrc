@@ -6,6 +6,8 @@
 #          training_pit/ROLE_ARCHITECTURE.md, docs/sql-migration/00_ROADMAP.md
 # Generated: 2026-06-17
 
+> Historical consolidated snapshot. This file preserves the project state and review notes recorded in June 2026; it is not the current ship-state authority. For current status use `docs/CURRENT_STATE.yaml`, for runtime/default behavior use `docs/RUNTIME_SUPPORT_MATRIX.md`, and for product sequencing use `docs/ROADMAP.md`. In particular, native in-process main chat and HIVE-worker execution became the production defaults on 2026-07-29 and now fail closed without automatic Ollama substitution.
+
 ---
 
 ## BLOCKER (2026-06-19, overnight autonomous session) — Codex CLI non-interactive task dispatch produced no output

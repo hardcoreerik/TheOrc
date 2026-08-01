@@ -6,9 +6,11 @@ For project vocabulary, see [GLOSSARY.md](GLOSSARY.md). For the bigger picture, 
 
 ---
 
-## 1. Start Your Inference Backend
+## 1. Install a Runtime and Model
 
-TheOrc needs an AI model to talk to. If you're using Ollama (the most common local option), start it first:
+The supported installer is the fastest path: it detects your hardware, provisions a local llama.cpp package, downloads a compatible GGUF model, and writes the initial settings. Native in-process inference is enabled by default when the app starts.
+
+If you deliberately selected Ollama under the installer's advanced options, start it first:
 
 ```powershell
 ollama serve
@@ -20,19 +22,19 @@ Then confirm it's running:
 ollama list
 ```
 
-TheOrc connects to Ollama at `http://localhost:11434` by default.
+The default Ollama host is `http://localhost:11434`, but Ollama is not the default application runtime. The runtime lanes and their fallback rules are listed in [RUNTIME_SUPPORT_MATRIX.md](RUNTIME_SUPPORT_MATRIX.md).
 
 ---
 
-## 2. Pull a Model
+## 2. Confirm a Model Is Available
 
-You need at least one AI model installed. A coding-capable model is the best choice for your first run. How much VRAM (video memory) your GPU has determines which model fits:
+The installer already downloads the selected GGUF model. If you chose Ollama instead, pull at least one coding-capable model. How much VRAM (video memory) your GPU has determines which model fits:
 
 - **6 to 8 GB VRAM** — `qwen2.5-coder:7b`
 - **10 to 16 GB VRAM** — `qwen2.5-coder:14b`
 - **More VRAM** — see [MODEL_GUIDE.md](MODEL_GUIDE.md) for better options
 
-To pull a model:
+For the optional Ollama lane:
 
 ```powershell
 ollama pull qwen2.5-coder:14b
@@ -49,7 +51,7 @@ Open the app. Before doing anything else, check these four things in the status 
 - The workspace badge shows a folder path
 - The build stamp (version number) is visible
 - The model name is filled in
-- No Ollama connection error is shown
+- No runtime or model-load error is shown
 
 If something looks wrong, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 

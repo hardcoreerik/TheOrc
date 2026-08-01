@@ -1,0 +1,223 @@
+schema_version: 1
+project: OrcEngine
+as_of:
+  date: "2026-07-31"
+  timezone: America/Los_Angeles
+  repository: "F:\\Ai\\OrchestratorIDE-dev"
+  branch: codex/docs-truth-sync
+  verified_product_commit: 6ecdd66e5b6bd83de2c5aee2f6c7ed86568d40b7
+  pending_integration_commit: 16501dae4568391e8891dc091f8869d43ca6b7b9
+
+status:
+  lifecycle: phase_0_research
+  implementation_exists: false
+  runnable_engine_exists: false
+  theorc_integration_exists: false
+  production_ready: false
+  default_runtime: false
+  experimental_backend_available: false
+  summary: >-
+    OrcEngine is a proposed from-scratch inference-engine research project.
+    Only the starter documentation suite exists. Existing TheOrc runtime paths
+    remain authoritative and unchanged.
+
+truth_labels:
+  verified: directly observed in current code, reproducible evidence, or a primary source
+  decided: accepted direction recorded in DECISION_LOG.md
+  proposed: concrete design awaiting approval or evidence
+  hypothesis: testable belief not yet demonstrated
+  unknown: insufficient evidence
+  out_of_scope: deliberately excluded from the current milestone
+
+current_theorc_runtime:
+  default:
+    name: native_in_process
+    construction: NativeWithFallbackRuntime_with_NoFallbackRuntime
+    status: verified
+    effective_since: "2026-07-29"
+    failure_policy: fail_closed_no_automatic_ollama_substitution
+  implementations:
+    - name: OllamaRuntime
+      execution: out_of_process_ollama
+      status: verified
+    - name: LlamaCppServerRuntime
+      execution: out_of_process_llama_cpp_server
+      status: verified
+    - name: LLamaSharpRuntime
+      execution: in_process_llamasharp_llama_cpp
+      package_version: 0.27.0
+      status: verified
+  legacy_backend_field_default: Ollama
+  legacy_backend_field_effect: used_when_native_main_chat_is_explicitly_disabled
+  control_plane_owned_by_theorc:
+    - runtime abstraction
+    - prompt and tool pipeline
+    - streaming and callbacks
+    - model session and role lifecycle
+    - adapter coordination
+    - VRAM admission and reservations
+    - telemetry and fallback policy
+  computation_plane_not_owned_by_theorc_today:
+    - full GGUF model loading
+    - transformer graph numerical execution
+    - CPU and CUDA kernels
+    - native KV cache implementation
+    - quantized dot product execution
+
+decisions:
+  - id: OE-ADR-001
+    state: accepted
+    summary: documentation and deterministic oracle precede implementation
+  - id: OE-ADR-002
+    state: accepted
+    summary: coexist with existing runtimes; do not replace or change defaults
+  - id: OE-ADR-003
+    state: accepted
+    summary: own inference semantics while allowing general compute libraries
+  - id: OE-ADR-004
+    state: accepted
+    summary: reference-oracle-first development
+  - id: OE-ADR-005
+    state: accepted
+    summary: first engine is tiny CPU-only float32 single-sequence greedy
+  - id: OE-ADR-007
+    state: accepted
+    summary: compatibility claims use an exact tuple
+  - id: OE-ADR-010
+    state: accepted
+    summary: OrcEngine is a separately authorized experimental research track
+  - id: OE-ADR-011
+    state: accepted
+    summary: product value may be a prevented capability or measured improvement
+  - id: OE-ADR-012
+    state: accepted
+    summary: Python oracle, C++20 core, later CUDA C++, C ABI, and C# wrapper
+  - id: OE-ADR-013
+    state: accepted
+    summary: narrow standards-compatible strict GGUF ingestion
+  - id: OE-ADR-014
+    state: accepted
+    summary: OE-L0-SYNTH-1 profile and SmolLM2-135M real-model candidate
+
+phases:
+  - id: D0
+    name: documentation_and_research_foundation
+    state: complete
+    implementation: false
+  - id: 0
+    name: deterministic_reference_oracle
+    state: in_progress
+    implementation: test_and_research_only
+  - id: 1
+    name: tiny_synthetic_float32_cpu_transformer
+    state: not_started
+  - id: 2
+    name: strict_gguf_reader_and_inspector
+    state: not_started
+  - id: 3
+    name: real_model_float32_cpu_inference
+    state: not_started
+  - id: 4
+    name: cpu_usability_baseline
+    state: not_started
+  - id: 5
+    name: initial_quantization
+    state: not_started
+  - id: 6
+    name: cuda_correctness_baseline
+    state: not_started
+  - id: 7
+    name: stable_native_api_and_managed_wrapper
+    state: not_started
+  - id: 8
+    name: experimental_theorc_backend
+    state: not_started
+  - id: 9
+    name: agent_native_experiments
+    state: not_started
+
+phase_0_blockers:
+  - complete model and tokenizer provenance and licensing review
+  - pin primary and secondary oracle versions
+  - approve intermediate capture schema
+  - derive numerical tolerance profiles
+  - approve artifact storage and retention
+
+first_engine_scope:
+  architecture_count: 1
+  architecture_profile: OE-L0-SYNTH-1
+  modality: text
+  backend: cpu
+  weight_and_activation_precision: float32_reference
+  batch_size: 1
+  sequence_count: 1
+  decoding: greedy
+  context: fixed_fail_closed_on_overflow
+
+explicit_non_goals:
+  - replacing LLamaSharpRuntime
+  - replacing OllamaRuntime
+  - production default changes
+  - competitive performance in the correctness phase
+  - CUDA before CPU correctness
+  - quantization before float correctness
+  - multiple model architectures
+  - continuous batching
+  - LoRA or adapter hot_swap
+  - grammar constrained decoding
+  - multimodal models
+  - multi_GPU or HIVE distribution
+
+evidence:
+  repository_observed:
+    - OrchestratorIDE/Core/Runtime/IModelRuntime.cs
+    - OrchestratorIDE/Core/Runtime/LLamaSharpRuntime.cs
+    - OrchestratorIDE/Core/Runtime/OllamaRuntime.cs
+    - OrchestratorIDE/Core/Runtime/LlamaCppServerRuntime.cs
+    - OrchestratorIDE/Core/Runtime/NativeWithFallbackRuntime.cs
+    - OrchestratorIDE/Core/Runtime/RuntimeOrchestrator.cs
+    - OrchestratorIDE/Core/Runtime/AdapterManager.cs
+    - OrchestratorIDE/Core/Runtime/SessionManager.cs
+    - OrchestratorIDE/Core/Runtime/OrcScheduler.cs
+    - OrchestratorIDE/Core/Runtime/GgufMetadataReader.cs
+    - OrchestratorIDE.NativeRuntime/OrchestratorIDE.NativeRuntime.csproj
+  primary_external_sources:
+    - https://github.com/ggml-org/ggml/blob/master/docs/gguf.md
+    - https://github.com/ggml-org/llama.cpp
+    - https://github.com/ggml-org/llama.cpp/blob/master/docs/development/HOWTO-add-model.md
+    - https://github.com/SciSharp/LLamaSharp
+    - https://docs.nvidia.com/cuda/cuda-programming-guide/
+    - https://docs.nvidia.com/cuda/cublas/
+    - https://docs.pytorch.org/docs/stable/notes/numerical_accuracy.html
+    - https://github.com/google/sentencepiece
+    - https://huggingface.co/HuggingFaceTB/SmolLM2-135M
+
+phase_0_selection:
+  synthetic_profile:
+    id: OE-L0-SYNTH-1
+    specification: PHASE_0_ARCHITECTURE_PROFILE.md
+  real_model_candidate:
+    repository: HuggingFaceTB/SmolLM2-135M
+    revision: 93efa2f097d58c2a74874c7e644dbc9b0cee75a2
+    license_metadata: apache-2.0
+    state: candidate_pending_artifact_and_oracle_gates
+  acceptance_contract: PHASE_0_ACCEPTANCE.yaml
+
+document_inventory:
+  expected_foundation_count: 32
+  supplemental_review_count: 1
+  supplemental_reviews:
+    - grok_OrcEngine_review.md
+  index: README.md
+  machine_readable_state: CURRENT_STATE.yaml
+  truth: PROJECT_TRUTH.md
+  roadmap: ENGINEERING_ROADMAP.md
+  decision_log: DECISION_LOG.md
+  open_questions: OPEN_QUESTIONS.md
+
+next_action:
+  state: phase_0_oracle_bundle
+  summary: >-
+    Build the reproducible OE-L0-SYNTH-1 oracle bundle and provenance manifest,
+    then pin and convert the SmolLM2 candidate. Do not start engine implementation
+    until every required Phase 0 acceptance check explicitly passes.

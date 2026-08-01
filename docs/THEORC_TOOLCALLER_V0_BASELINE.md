@@ -4,6 +4,12 @@
 > by +33.4 points decision accuracy on the sealed 260-example held-out set.
 > Per [THEORC_TOOLCALLER_V0.md](THEORC_TOOLCALLER_V0.md) this authorizes the opt-in
 > Native Runtime trial only — not default runtime integration.
+>
+> **Historical scope:** this is the r2 baseline report. The promoted incumbent is
+> r3; its later Arena/refusal evidence is recorded in
+> `TOOLCALLER_REFUSAL_GAUNTLET.md` and the promotion registry. Open items below
+> describe this r2 snapshot and must not be presented as the current r3 backlog.
+> A dedicated native base+adapter deployment proof is still genuinely open.
 
 ---
 

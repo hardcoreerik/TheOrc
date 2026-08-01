@@ -9,6 +9,12 @@
 > Fabric repair, routing, review, swarm planning) remains strategy-only — this
 > document does not claim those exist. Do not assume "Foundry" as a whole is
 > either fully shipped or fully unimplemented; check the specific track.
+>
+> **Product posture (2026-07-31):** r3 proved the Foundry pipeline and repair-lane
+> concept; it is not considered a dependable universal tool router. New
+> studio/browser/Function Pack vocabulary is deferred to
+> `theorc-toolcaller-v2` planning. The frozen v0/v1 contracts remain unchanged,
+> and Ollama-hosted deployment is migration debt on the native-only roadmap.
 
 ---
 
@@ -79,16 +85,16 @@ migration changes them. This strategy does not silently redefine that subsystem.
 |---|---|---|
 | Training Pit | Capture, review, dataset schemas, suitability checks, and export | Existing foundation; expanded datasets are planned |
 | ORC ACADEMY | Local adapter training, checkpoints, resume, and training telemetry | Existing execution surface for initial LoRA/QLoRA work |
-| Native Runtime | Local model execution, persistent role contexts, scheduling, and telemetry | Opt-in proof paths exist; Foundry-specific routing and constrained decoding remain planned |
-| ORCISH TONGUE | Directional name for the universal tool-format/tool-calling layer | Prompt-layer adaptation exists under current code names; rename and decoder-constrained direction are not fully landed |
+| Native Runtime | Local model execution, persistent role contexts, scheduling, and telemetry | Production/default since 2026-07-29; dedicated specialist routing and constrained decoding remain planned |
+| ORCISH TONGUE | Versioned tool-intent adaptation between models and TheOrc's tool layer | OrcChat v1 is experimental and landed; universal cross-surface arbitration and decoder constraints remain planned |
 | Context Fabric | Source-addressable document memory and retrieval | Potential producer and consumer of future Foundry datasets/models |
 | HIVE / Warbands | Distributed execution on other nodes | Capture/evaluation first; remote training is later work |
 | Reviewer Quality Gate | Evidence-based trust and review authority | Supplies the trust pattern for Foundry promotion |
 
-The production inference path remains Ollama-first. Native Runtime has real
-opt-in components, including `ModelDepot`, `SessionManager`, `AdapterManager`,
-`RuntimeOrchestrator`, and early scheduler admission logic, but it is not yet the
-default runtime. Foundry planning must preserve that distinction.
+The production inference path is native-first as of 2026-07-29. Ollama remains
+an explicitly selected compatibility backend and currently hosts the promoted
+toolcaller tag. Foundry must distinguish the product's default reasoning runtime
+from the specialist's actual deployment backend and artifact identity.
 
 ---
 
@@ -238,13 +244,14 @@ Foundry requires the Native Runtime direction to mature in measured increments:
 6. Keep small specialists resident only when measurements justify the cost.
 7. Fail explicitly when a required capability is unavailable; do not silently
    substitute an unmeasured model.
-8. Preserve current Ollama-first production behavior until native candidates pass
-   their own admission gates.
+8. Preserve native fail-closed admission and actual-runtime disclosure; never
+   substitute Ollama or an unmeasured model silently.
 
-ORCISH TONGUE is the planned name/direction for universal tool-call adaptation.
-Today, prompt-layer probing and defensive parsing exist under current code names.
-The rename and Native Runtime grammar-constrained path remain planned and must not
-be described as shipped.
+ORCISH TONGUE v1 is shipped experimentally for OrcChat: native calls, ReAct XML,
+JSON-brace parsing, and an opt-in repair lane converge on approval-gated
+execution. Universal cross-surface arbitration, a schema-conditioned retrained
+specialist, a dedicated native base+adapter runtime, and grammar-constrained
+decoding remain planned and must not be described as shipped.
 
 ---
 

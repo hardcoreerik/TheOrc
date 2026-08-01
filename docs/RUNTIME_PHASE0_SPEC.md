@@ -14,6 +14,13 @@
 > had zero Settings UI exposure until tonight -- fixed, not a code gap, a discoverability one.
 > **Author:** Claude (code-grounded). ChatGPT and Grok contributed the strategic framing and phasing; this doc is the authoritative spec because it is written against the actual codebase, not a generic mental model.
 > **Canonical location:** `docs/RUNTIME_PHASE0_SPEC.md` (moved here from `.grok/` — this is an architectural spec, not review scratch). Referenced from `docs/ROADMAP.md` and `.grok/PROJECT_TRUTH.md` §4.
+>
+> **Historical-contract notice (2026-07-31):** this file preserves the Phase 0
+> decisions and implementation history. Its unchecked boxes and statements such
+> as "Ollama remains default" describe the original gate, not current product
+> status. Native became the production default on 2026-07-29 after HV-1 through
+> HV-6; use `docs/CURRENT_STATE.yaml`, `docs/RUNTIME_SUPPORT_MATRIX.md`, and
+> `docs/NATIVE_RUNTIME_V2_SPEC.md` §6 for current truth.
 
 ---
 
@@ -181,7 +188,7 @@ Generation call sites using `StreamCompletionAsync` (these consume `IModelRuntim
 | Boss plan + execute loop | [AgentLoop.cs:97](../OrchestratorIDE/Core/AgentLoop.cs#L97), [:248](../OrchestratorIDE/Core/AgentLoop.cs#L248) | **Migrate this one in Phase 0** — highest-value proof |
 | Swarm workers | [SwarmSession.cs](../OrchestratorIDE/Agents/SwarmSession.cs) | spins up per-node clients dynamically ([:162](../OrchestratorIDE/Agents/SwarmSession.cs#L162)) |
 | HIVE remote worker | [HiveWorkerAgent.cs](../OrchestratorIDE/Services/Hive/HiveWorkerAgent.cs) | trust-boundary sensitive — migrate carefully |
-| Agent Builder | [AgentBuilderDialog.xaml.cs](../OrchestratorIDE/UI/Dialogs/AgentBuilderDialog.xaml.cs) | v1.9 Avalonia dialog work in flight |
+| Agent Builder | Retired WPF surface (no current source file) | Historical v1.9 inventory entry; do not use as a current code anchor |
 | Just-Chat | [ChatEngine.cs](../OrchestratorIDE/Research/ChatEngine.cs) | |
 | Test fake | [FakeOllamaClient.cs](../OrchestratorIDE/Tests/FakeOllamaClient.cs) | already overrides the signature |
 

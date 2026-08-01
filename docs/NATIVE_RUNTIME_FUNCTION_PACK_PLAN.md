@@ -3,16 +3,28 @@
 > Purpose: phase the highest-value local function packs into the shared native
 > runtime so OrcChat, AgentLoop, swarm execution, and Phase 3B campaign work all
 > use the same capabilities instead of each surface growing its own one-off tools.
+>
+> **Current status — 2026-07-31:** Phase 0 capability contracts and the Phase 1
+> browser mechanism are landed; see `NATIVE_BROWSER_AUTOMATION_SPEC.md` for the
+> verified interactive/headless boundary and remaining HIVE origin-grant gap.
+> PR #96 adds CaseForge, Art Forge, and KeyHound Atlas tools to OrcChat only;
+> those integrations are pending and do not count as complete Function Packs
+> until the shared headless/HIVE surface and capability policy exist. Phases 2–6
+> remain planned. The N.5 research directions remain uncommitted research.
+> The product decision is that studio integrations are TheOrc-wide capabilities,
+> not OrcChat features. The current r3 specialist is proof-of-concept quality and
+> is not expected to understand these tools; vocabulary training waits for the
+> separately planned `theorc-toolcaller-v2` rather than blocking shared plumbing.
 
 ---
 
 ## Why this exists
 
-The native runtime is already proving it can generate text without Ollama. That
-is necessary, but it is not sufficient.
+The native runtime now generates text without Ollama as the production default.
+That foundation is necessary, but it is not sufficient.
 
-To become the default daily runtime, it needs the local function surface people
-actually use in modern AI chat:
+To become the complete daily workbench, it needs the local function surface
+people actually use in modern AI chat:
 
 - browser interaction
 - screenshot and image understanding
@@ -76,8 +88,8 @@ Phase 0/1), so none are ready to start.
 
 ## Architecture rule
 
-All function packs should hang off the shared native-runtime core, not a single
-panel:
+Function packs belong to TheOrc's shared orchestration/tool layer above inference
+runtimes, not inside one model backend or UI panel:
 
 - `IModelRuntime` / `IRoleRuntime`
 - shared headless loop
@@ -87,6 +99,28 @@ panel:
 
 If a function only works from OrcChat but not from the headless runtime, it is
 not done.
+
+CaseForge, Art Forge, and KeyHound Atlas therefore register through the same
+shared capability/tool profiles used by OrcChat, AgentLoop, swarm, and HIVE.
+Surface-specific UI may differ; tool identity, schemas, policy, and execution do
+not fork.
+
+`OrcEngine` is a future experimental inference backend, not a tool host or
+authorization layer. It may later advertise constrained-decoding capability,
+but tool discovery, policy, approval, execution, and traces remain owned by
+TheOrc.
+
+## Orcish Tongue and specialist boundary
+
+The Function Pack defines live capabilities, schemas, typed results, and
+execution. Orcish Tongue defines how model intent becomes a versioned tool
+decision. The learned toolcaller selects the next semantic action; it never
+executes, authorizes, or overrides capability state.
+
+The current promoted specialist is still a frozen six-tool, single-next-action
+repair model. A future universal revision must be schema-conditioned and tested
+against held-out tool names, but each training/evaluation corpus remains frozen
+and hash-addressed for reproducibility. Do not silently extend v0 or v1.
 
 ---
 

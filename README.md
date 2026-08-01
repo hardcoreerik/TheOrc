@@ -10,7 +10,7 @@
 
 **Local-first AI orchestration, native runtimes, and source-grounded memory for people who would rather own the machine than rent permission from one.**
 
-[**Download**](https://github.com/hardcoreerik/TheOrc/releases) · [**Docs**](docs/ARCHITECTURE.md) · [**Context Fabric**](docs/The%20Orc%20Context%20Fabric.md) · [**Benchmark Corpus**](docs/CONTEXT_FABRIC_BENCHMARK_CORPUS.md) · [**Roadmap**](docs/ROADMAP.md)
+[**Download**](https://github.com/hardcoreerik/TheOrc/releases) · [**Docs**](docs/README.md) · [**Context Fabric**](docs/The%20Orc%20Context%20Fabric.md) · [**Benchmark Corpus**](docs/CONTEXT_FABRIC_BENCHMARK_CORPUS.md) · [**Roadmap**](docs/ROADMAP.md)
 
 </div>
 
@@ -20,7 +20,7 @@
 >
 > Context Fabric — TheOrc's source-grounded memory system — has closed its benchmark gate at **GO** on an honest, un-marked corpus: **104 of 120** held-out questions answered, **97.1%** citation precision, **128 of 128** segments read, against a best competing baseline of 52/120. That is the milestone the whole CF program was built to reach, and it is now behind us.
 >
-> With durable memory proven, **v2.0 turns to the runtime and the operator's hands**: making native local inference the default lane (Ollama fully optional), and giving agents real reach — browser automation and page understanding, workspace and shell intelligence, and multimodal document intake. [Jump to the v2.0 roadmap ↓](#the-road-to-v20)
+> With durable memory proven, **v2.0 turns to the runtime and the operator's hands**: native local inference is now the default lane (Ollama remains optional), and the active work is giving agents real reach — browser automation and page understanding, workspace and shell intelligence, and multimodal document intake. [Jump to the v2.0 roadmap ↓](#the-road-to-v20)
 
 ---
 
@@ -80,7 +80,7 @@ If Copilot is a better autocomplete, TheOrc is trying to become a better local A
 TheOrc is a production local AI orchestrator, not a swarm experiment. The major subsystems are built, shipped, and verified in the running app:
 
 - **Avalonia-only desktop shell** — one cross-platform codebase. WPF has been removed entirely.
-- **Native runtime** — in-process local inference is a first-class runtime lane, with automatic Ollama fallback on any fault.
+- **Native runtime** — in-process local inference is the production default and fails closed on runtime faults; Ollama is available through explicit compatibility selection.
 - **HIVE MIND** — distributed worker and campaign execution across enrolled machines, secured by a full cryptographic identity layer.
 - **ORC ACADEMY** — the self-training loop that turns reviewed swarm plans into a better boss model; the shipped `theorc-boss:gemma4-ft` adapter scores 99.3% on structured planning.
 - **TheOrc Foundry** — the specialist-model pipeline; its first model, `theorc-toolcaller`, is trained, benchmarked, and deployed.
@@ -170,7 +170,7 @@ Context Fabric is what makes TheOrc more than "an AI swarm for code": a local sy
 
 ## Flagship system: Native Runtime
 
-**Ollama is a great piece of software, and TheOrc doesn't need it.** That's the whole pitch: instead of installing a separate server, managing its lifecycle, and talking to it over HTTP for every single message, TheOrc can load a model straight into its own process and run it directly — no subprocess, no local server to keep alive, no round trip. Ollama remains fully supported (it's still the default, on purpose — more on that below), but the native path is real, fast, and getting more real every week: **a genuine CUDA build measured 67.7 tok/s on an RTX 4060, versus ~6 tok/s CPU-only** — the difference between a tool that keeps up with you and one that doesn't.
+**TheOrc is moving to a native-only runtime.** It can load a model straight into its own process and run it directly—no subprocess, local model server, or HTTP round trip. Native in-process inference has been the default main-chat and HIVE-worker lane since 2026-07-29. Ollama remains only as transitional, explicitly selected compatibility debt while the remaining native gaps and the proof-of-concept toolcaller deployment are removed. A native failure is surfaced and fixed, never silently hidden by an Ollama fallback. A genuine CUDA build measured **67.7 tok/s on an RTX 4060, versus ~6 tok/s CPU-only**.
 
 **The hard part was never "load a GGUF file and generate text."** Plenty of hobby projects do that. The hard part is doing it the way production software has to: never crash the GPU by overcommitting memory, never let a user-visible failure turn into a silent, unexplained personality-swap to a different backend, and never let one AI role's bad moment take the whole system down with it.
 
@@ -179,7 +179,7 @@ Context Fabric is what makes TheOrc more than "an AI swarm for code": a local sy
 - **A broken request never lies about what happened.** If native inference can't serve a request, it fails loudly and explicitly — it does not quietly hand the conversation to Ollama behind your back and pretend nothing happened. Silent backend swaps are exactly the kind of thing that erodes trust in a tool, so TheOrc simply doesn't do it. This is a tested guarantee, not a policy on paper: a dedicated always-on check proves it on every single build.
 - **Found a real bug by actually looking, and fixed it properly.** Cancelling a generation partway through turned out to be able to permanently wedge that AI role until restart — a genuinely nasty class of bug that only shows up under real, adversarial testing, not casual use. It was caught by a test built specifically to try it, root-caused, and fixed by reusing an existing, already-proven recovery mechanism rather than a quick patch. Verified fixed, repeatedly, on real hardware.
 
-**Where it stands today:** the native path is real, fast, measured, and — as of this release — has a full recorded proof of one complete real-model run: discovery, a genuine capacity check against live GPU memory, model load, real inference, and a full telemetry snapshot, all in one pass, with the results saved to disk. Ollama stays the default and the safety net until that same rigor has been proven not just on one machine, but across a real multi-machine HIVE fleet — see [the road to v2.0](#the-road-to-v20) below for exactly what that bar is.
+**Where it stands today:** native is the production default. Its admission, lifecycle, cancellation, telemetry, failure, and no-silent-fallback behavior were exercised across the multi-machine HV-1 through HV-6 campaign before the default changed. The exact current runtime/fallback contract lives in [the Runtime Support Matrix](docs/RUNTIME_SUPPORT_MATRIX.md); historical release sections below retain the status that was true for each release.
 
 ---
 
@@ -235,13 +235,13 @@ That's HIVE MIND doing the one thing that actually matters: turning "the machine
 
 ## The road to v2.0
 
-With Context Fabric complete, v2.0 is about two things: making the **native runtime the default**, and giving agents **real operational reach** beyond generating text. Four workstreams define the release. None of these are claimed as shipped — this is what the project is building next, in priority order.
+With Context Fabric complete and native now the default, v2.0 is about giving agents **reliable operational reach** beyond generating text. The foundation and browser-function work below have started landing; image/OCR, broader cross-surface function packs, universal Orcish Tongue routing, and artifact export remain active work.
 
-### 1. Native Runtime becomes the default
-The defining change of v2.0. Local in-process inference — already a real, verified runtime lane — is promoted from opt-in to the default path, with Ollama becoming fully optional rather than the assumed backend. The `RuntimeOrchestrator` / `AdapterManager` / `OrcScheduler` layer (per-role persistent LoRA contexts, VRAM-budget admission control, automatic fallback) graduates out of experimental status. This flip is **gated on multi-machine HIVE validation across a real LAN/Tailscale network** — a measured bar, not a calendar date.
+### 1. Native Runtime becomes the default — complete
+Local in-process inference became the default on 2026-07-29 after the multi-machine HV-1 through HV-6 campaign closed. `RuntimeOrchestrator`, `AdapterManager`, and `OrcScheduler` provide per-role contexts, fail-closed VRAM admission, lifecycle recovery, and measured telemetry. Production native execution does **not** automatically fall back to Ollama.
 
-### 2. Browser automation + page understanding
-The highest-impact new capability: agents that can drive a real browser and understand what they see. Playwright-backed navigation, interaction, and page comprehension turn "read the docs" and "check the live site" from hand-offs into tasks a worker completes itself — under the same approval gates as every other tool.
+### 2. Browser automation + page understanding — mechanism landed
+Playwright-backed navigation, interaction, extraction, screenshots, and downloads are registered for interactive and headless loops. Interactive navigation/downloads use approval gates; headless execution is deny-by-default and policy-bounded. Production HIVE task bundles still need per-task origin-grant plumbing before remote browser work is broadly enabled.
 
 ### 3. Workspace + shell intelligence
 Sharper hands on the local machine: fast ripgrep-backed search, safe structured file I/O, real diffs, and bounded build/test/shell execution. Every command still flows through the operator approval flow — the goal is capability with control, not an unsupervised shell.
@@ -496,7 +496,7 @@ The biggest release since the swarm itself. v1.5 closes the training loop — fr
 ### One-click installer
 
 1. Grab `OrchestratorSetup.exe` from [Releases](https://github.com/hardcoreerik/TheOrc/releases)
-2. The installer detects your GPU and walks through Ollama setup — it's pretty painless
+2. The installer detects your GPU, provisions a local llama.cpp runtime, and downloads a compatible GGUF model; Ollama is an optional advanced choice
 3. Launch TheOrc, open a workspace folder, describe something you want built
 
 ### Build from source
@@ -507,9 +507,9 @@ cd TheOrc
 dotnet run --project OrchestratorIDE.Avalonia/OrchestratorIDE.Avalonia.csproj
 ```
 
-**Requirements:** Windows 10/11 · .NET 10 · [Ollama](https://ollama.com) · 8 GB VRAM minimum (16 GB recommended for running a full swarm)
+**Requirements:** Windows 10/11 · .NET 10 · a local GGUF model or another configured inference backend · 8 GB VRAM recommended for GPU inference (16 GB recommended for a full swarm)
 
-Ollama is the easiest path to get running, which is why it's the default here — it is not the only one. Native in-process inference and a standalone llama.cpp server are both real, supported lanes with zero Ollama dependency; see [docs/RUNTIME_SUPPORT_MATRIX.md](docs/RUNTIME_SUPPORT_MATRIX.md) for what's default, what's opt-in, and how fallback between them actually works.
+The installer is the easiest path because it provisions the runtime and model for you. Native in-process inference is the application default; a standalone llama.cpp server and Ollama remain explicitly selected supported lanes. See [docs/RUNTIME_SUPPORT_MATRIX.md](docs/RUNTIME_SUPPORT_MATRIX.md) for the exact runtime and fallback contract.
 
 ### Grab a model and go
 

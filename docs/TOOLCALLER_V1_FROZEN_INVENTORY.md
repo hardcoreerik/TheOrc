@@ -15,6 +15,12 @@
 > Same hashing convention as v0: plain SHA-256 over the checked-in file's raw bytes.
 > Any edit changes the hash and invalidates every v1 example generated against the
 > prior version.
+>
+> **Current boundary — 2026-07-31:** PR #96 introduces CaseForge, Art Forge,
+> and KeyHound Atlas tools after this inventory was frozen. Browser tools also
+> remain outside v1. Do not append them here. A future universal/tool-schema-
+> conditioned round requires a new schema version, frozen artifacts, held-out
+> unseen-tool evaluation, and explicit training authorization.
 
 ---
 

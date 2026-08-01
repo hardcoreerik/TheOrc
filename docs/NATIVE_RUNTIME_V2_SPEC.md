@@ -4,23 +4,14 @@
 > phases; it does not implement them. **No implementation lands with this document.** Each
 > phase below is implemented and reviewed in its own later PR.
 >
-> **Implementation status (updated as phases land, not on every edit — check PR history for
-> the authoritative record):** as of 2026-07-20, [Phase A](#phase-a--authoritative-fail-closed-admission-boundary)
-> (admission boundary, PR #70), [Phase B](#phase-b--real-vram-budget--overhead-aware-estimate)
-> (live VRAM budget, PR #72, the cost-*estimate* side — a GGUF-header-based KV/compute formula,
-> PR #76 — and the load-time VRAM *measurement* side, parsed from llama.cpp's own log lines and
-> replacing the WDDM-dead nvidia-smi per-process read, PR #77 — all three landed), and
-> [Phase C](#phase-c--real-telemetry-surfacing) (real telemetry, PR #73) are landed.
-> [Phase D](#phase-d--real-model-native-path-proof-lane) is in progress: the negative
-> "admission denial fails closed, no silent Ollama substitution" test (§3.4, PR #78) and the
-> cancellation leg (PR #79 — found and fixed a real bug in the process, see the Phase D section
-> below) have both landed as always-on tests, one of them hardware-gated. The evidence-artifact
-> E2E lane (discovery through telemetry, with a real admission budget and a retained JSON
-> artifact) is in flight (PR pending). Still open: extending that lane to a second concurrent
-> role. This section is the one place in the document allowed to describe *shipped* state —
-> the rest of the spec
-> below is design intent for later PRs, per each phase's own `[Verified]`/`[Proposed]` markers
-> at time of writing.
+> **Implementation status (synchronized 2026-07-31):** Phases A–D landed: authoritative
+> fail-closed admission, live VRAM budgeting plus GGUF-aware estimates and measured allocation,
+> production telemetry, negative/cancellation coverage, and the retained-evidence real-model E2E
+> lane. The separately gated §6 decision also landed on 2026-07-29, making native main chat and
+> HIVE-worker execution the production defaults. Remaining work is operational reach and
+> additional validation, not completion of the original A–D foundation. Historical
+> `[Verified]`/`[Proposed]` markers below retain the state at which each requirement was written;
+> current ship state is owned by `CURRENT_STATE.yaml` and `RUNTIME_SUPPORT_MATRIX.md`.
 >
 > **Scope discipline:** this spec did **not itself** change the product's default runtime — see
 > [§0.3 Explicitly out of scope](#03-explicitly-out-of-scope) for what it covers. **The
@@ -40,14 +31,14 @@
 
 ### 0.1 Purpose
 
-The [ROADMAP](ROADMAP.md)'s v2.0 direction names the foundation-hardening work still open
-for the native runtime, verbatim:
+The [ROADMAP](ROADMAP.md)'s original v2.0 direction named the foundation-hardening work that was
+open when this specification was written, verbatim:
 
 > "keep proving the real-model path, surface SessionManager/AdapterManager-backed
 > telemetry, wire OrcScheduler into AdapterManager, and do not make native the main
 > chat/swarm default yet."
 
-This spec turns that sentence into a phased, verifiable implementation plan. It covers
+This spec turned that sentence into a phased, verifiable implementation plan. It covers
 exactly four workstreams:
 
 1. **[§1](#1-orcscheduler--adaptermanager-integration-authoritative-admission-boundary)** — Wire `OrcScheduler` admission into `AdapterManager` so VRAM admission is a single authoritative, un-bypassable boundary.
@@ -64,7 +55,7 @@ must diverge, it says so explicitly (see [§0.4](#04-known-contradictions--stale
 |---|---|
 | [`docs/RUNTIME_PHASE0_SPEC.md`](RUNTIME_PHASE0_SPEC.md) | The runtime contracts (`IModelRuntime`/`ILocalModelRuntime`), the DI decision (§4), the LoRA hot-swap spike verdict (§7), and the `AdapterManager` per-role-context design (§7a). **This spec builds on it; it does not re-decide those.** |
 | [`docs/RUNTIME_SUPPORT_MATRIX.md`](RUNTIME_SUPPORT_MATRIX.md) | The four runtime lanes, which is default/opt-in, and the fail-closed boundary between native and explicit legacy runtimes. |
-| [`docs/CURRENT_STATE.yaml`](CURRENT_STATE.yaml) | The machine-readable "is X actually shipped?" status vocabulary. `native_runtime: opt-in`. |
+| [`docs/CURRENT_STATE.yaml`](CURRENT_STATE.yaml) | The machine-readable "is X actually shipped?" status vocabulary. `native_runtime: production` and default since 2026-07-29. |
 | [`docs/ROADMAP.md`](ROADMAP.md) | The v2.0 phase table (Phases 0–5) and ranked function priorities. |
 | [`docs/NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md`](NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md) | The adjacent, **separate** track: browser/OCR/workspace/shell/artifact function packs. Related but out of scope here — this spec hardens the runtime *foundation*, not the tool surface on top of it. |
 
@@ -850,11 +841,11 @@ default construction path in `MainWindow`'s HIVE-worker and main-chat runtime bu
 
 | Component | Verified today | Proposed (later PRs) |
 |---|---|---|
-| `RuntimeOrchestrator` | Sole admission gate; serialized ledger; generation-tagged reservations; reservation snapshot | Fail-closed on missing budget; explicit per-role release; rejection counter (Phases A, C) |
-| `OrcScheduler` | Pure decision fn; file-size estimate; lane assignment | Overhead-aware estimate (Phase B) — stays stateless |
-| `AdapterManager` | Per-role persistent contexts; refcounted `TrackedConversation`; recycle/hard-limit guards | Minting made un-bypassable; read-only residency snapshot (Phases A, C) |
-| `SessionManager` | Persistent base load; reuse; snapshot | Correct stale "pending adapter" wording (Phase C) |
+| `RuntimeOrchestrator` | Sole fail-closed admission gate; serialized ledger; generation-tagged reservations; rejection/reservation telemetry | No open v2 foundation change; multi-base specialist admission is a separate future design problem. |
+| `OrcScheduler` | Pure decision function; GGUF/KV-aware cold estimate plus measured load data; lane assignment | Remains stateless; new runtime consumers must not bypass its boundary. |
+| `AdapterManager` | Per-role persistent contexts; refcounted `TrackedConversation`; internal minting; residency snapshot; recycle/hard-limit guards | No live adapter swapping; dedicated specialist-session design remains future work. |
+| `SessionManager` | Persistent base load; reuse; corrected bound-adapter snapshot | No open v2 foundation change. |
 | `ModelDepot` | Local scan + role resolution | Unchanged (used by the proof lane) |
-| `IModelRuntime` / `NativeRoleRuntime` | Contracts; per-role measured stats; text-parsed tool calls | Measured-or-null VRAM instead of file-size proxy (Phase C) |
-| Production wiring (`MainWindow`, `HiveService`, daemon) | Constructs native runtime; null scheduler on budget-derivation failure (fail-open) | Fail-closed native execution; real budget provider (Phases A, B) |
-| Test/proof lanes | Unit tests per component; real path proven only via spike/manual | Standardized opt-in real-model E2E lane (Phase D) |
+| `IModelRuntime` / `NativeRoleRuntime` | Contracts; per-role measured stats; text-parsed tool calls; measured-or-null VRAM | Constrained decoding remains a separate Function Pack/engine capability. |
+| Production wiring (`MainWindow`, `HiveService`, daemon) | Native default; real budget provider; explicit fail-closed errors; no production Ollama fallback | Preserve requested/actual-runtime visibility as new consumers land. |
+| Test/proof lanes | Unit/component lanes plus standardized real-model E2E and full HIVE HV-1–HV-6 evidence | Add dedicated specialist base+adapter proof before native toolcaller promotion. |

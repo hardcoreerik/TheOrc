@@ -1,6 +1,12 @@
 # Native Runtime Function Pack — Addendum
 
 > Cutting-edge capabilities that exceed current frontier-model function, backed by 2026 research and shipping technology.
+>
+> **Status — 2026-07-31:** research-direction appendix only. None of the N.5
+> phases is authorized or shipped. Specific adoption/benchmark numbers below
+> are historical research inputs, not current product claims; primary-source
+> re-verification is required before they influence scope, scheduling, or
+> marketing.
 
 > **Integration note (2026-07-30):** wired into
 > [`docs/NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md`](NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md) as ranks 8-14
