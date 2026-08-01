@@ -104,8 +104,7 @@ public partial class SettingsPanel : UserControl
     {
         InitializeComponent();
         _ollama = ollama;
-        TbInstallPath.Text = Path.GetDirectoryName(
-            Assembly.GetExecutingAssembly().Location) ?? "(unknown)";
+        TbInstallPath.Text = AppContext.BaseDirectory;
     }
 
     // ── Load / Read ───────────────────────────────────────────────────────────
@@ -1004,7 +1003,7 @@ public partial class SettingsPanel : UserControl
 
     private void BtnOpenInstallFolder_Click(object? sender, RoutedEventArgs e)
     {
-        var path = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        var path = AppContext.BaseDirectory;
         if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
             OpenInExplorer(path);
         else
