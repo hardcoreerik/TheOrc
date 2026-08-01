@@ -435,25 +435,12 @@ public partial class SettingsPanel : UserControl
         }
 
         var settings = ReadSettings();
-        if (string.IsNullOrWhiteSpace(settings.OllamaHost))
+        if (!settings.ExperimentalNativeMainChatEnabled
+            && settings.Backend == InferenceBackend.Ollama
+            && string.IsNullOrWhiteSpace(settings.OllamaHost))
         {
             SetStatus("✗  Ollama host cannot be empty", "#F44747");
             return;
-        }
-
-        // An incomplete llama.cpp config used to abort BtnSave_Click entirely -- silently
-        // discarding every OTHER change on the page (found live 2026-07-30: a user's Native
-        // Runtime toggle flips never persisted because an unrelated, half-filled llama.cpp
-        // section blocked the whole Save). Auto-correct back to Ollama instead of failing
-        // closed on the whole form -- Ollama is always a safe fallback backend, so the rest of
-        // the page's changes should never be held hostage by one incomplete section.
-        var revertedLlamaCpp = false;
-        if (settings.Backend == InferenceBackend.LlamaCpp &&
-            (string.IsNullOrWhiteSpace(settings.LlamaCppRuntimePath) ||
-             string.IsNullOrWhiteSpace(settings.LlamaCppModelPath)))
-        {
-            settings.Backend = InferenceBackend.Ollama;
-            revertedLlamaCpp = true;
         }
 
         if (!settings.Save(out var saveError))
@@ -467,15 +454,7 @@ public partial class SettingsPanel : UserControl
         }
 
         _current = settings;
-
-        if (revertedLlamaCpp)
-        {
-            RbBackendOllama.IsChecked     = true;
-            PnlLlamaCppSettings.IsVisible = false;
-        }
-        SetStatus(revertedLlamaCpp
-            ? "✓  Saved (llama.cpp backend needs a runtime folder and model file -- reverted to Ollama for now)"
-            : "✓  Saved", revertedLlamaCpp ? "#CCA700" : "#76B900");
+        SetStatus("✓  Saved", "#76B900");
         if (SettingsSaved is not null)
         {
             try
@@ -915,13 +894,6 @@ public partial class SettingsPanel : UserControl
             return;
         }
 
-        var fallbackModel = TbDefaultModel.Text?.Trim() ?? "";
-        if (string.IsNullOrWhiteSpace(fallbackModel))
-        {
-            TbNativeRuntimeTestResult.Text = "Default Model is empty, so there is no Ollama fallback target.";
-            return;
-        }
-
         BtnRunNativeRuntimeTest.IsEnabled = false;
         TbNativeRuntimeTestResult.Text = $"Running native test for {option.Binding.Role}...";
         TbNativeRuntimeLiveOutput.Text = "(starting)";
@@ -930,55 +902,25 @@ public partial class SettingsPanel : UserControl
         {
             var binding = option.Binding;
             var promptText = NativeRuntimeTestPrompt.PromptText;
-            var outcome = await NativeRuntimeFallbackCoordinator.ExecuteAsync(
-                async ct =>
-                {
-                    TbNativeRuntimeTestResult.Text =
-                        $"Native runtime test\nBinding: {option}\nBackend: LLamaSharpRuntime";
-                    TbNativeRuntimeLiveOutput.Text = string.Empty;
+            TbNativeRuntimeTestResult.Text =
+                $"Native runtime test\nBinding: {option}\nBackend: LLamaSharpRuntime";
+            TbNativeRuntimeLiveOutput.Text = string.Empty;
 
-                    return await NativeRuntimeTestRunner.RunLocalAsync(
-                        binding.BaseModel.Path,
-                        promptText: promptText,
-                        onToken: AppendNativeRuntimeLiveOutput,
-                        ct: ct);
-                },
-                async (nativeAttempt, ct) =>
-                {
-                    var topLevel = TopLevel.GetTopLevel(this) as Window;
-                    if (topLevel is null)
-                        return false;
-
-                    TbNativeRuntimeTestResult.Text =
-                        $"Native runtime failed: {nativeAttempt.ErrorType ?? "UnknownError"} - {nativeAttempt.ErrorMessage ?? "no detail"}";
-
-                    return await DialogHelper.ShowYesNoAsync(
-                        topLevel,
-                        "Native Runtime Failed",
-                        $"Native runtime failed for {binding.BaseModel.DisplayName}.\n\n" +
-                        $"{nativeAttempt.ErrorType ?? "Error"}: {nativeAttempt.ErrorMessage ?? "No detail"}\n\n" +
-                        $"Retry the same Settings test with Ollama model '{fallbackModel}'?");
-                },
-                async ct =>
-                {
-                    TbNativeRuntimeTestResult.Text =
-                        $"Retrying with Ollama fallback ({fallbackModel})...";
-                    TbNativeRuntimeLiveOutput.Text +=
-                        $"{Environment.NewLine}{Environment.NewLine}--- Ollama fallback ---{Environment.NewLine}";
-
-                    return await NativeRuntimeTestRunner.RunRuntimeAsync(
-                        new OllamaRuntime(_ollama),
-                        fallbackModel,
-                        promptText: promptText,
-                        onToken: AppendNativeRuntimeLiveOutput,
-                        ct: ct);
-                });
+            var nativeAttempt = await NativeRuntimeTestRunner.RunLocalAsync(
+                binding.BaseModel.Path,
+                promptText: promptText,
+                onToken: AppendNativeRuntimeLiveOutput);
+            var outcome = new NativeRuntimeTestOutcome(
+                nativeAttempt.Success
+                    ? NativeRuntimeTestOutcomeKind.NativeSuccess
+                    : NativeRuntimeTestOutcomeKind.NativeFailed,
+                nativeAttempt);
 
             var evidencePath = await NativeRuntimeFallbackEvidenceStore.WriteAsync(
                 outcome,
                 workspaceRoot: !string.IsNullOrWhiteSpace(_current.DefaultWorkspace) ? _current.DefaultWorkspace : null);
 
-            TbNativeRuntimeTestResult.Text = FormatNativeRuntimeOutcome(option.Binding, fallbackModel, outcome, evidencePath);
+            TbNativeRuntimeTestResult.Text = FormatNativeRuntimeOutcome(option.Binding, outcome, evidencePath);
             RaiseActivity(outcome);
         }
         catch (OperationCanceledException)
@@ -997,7 +939,6 @@ public partial class SettingsPanel : UserControl
 
     private static string FormatNativeRuntimeOutcome(
         RuntimeRoleBinding binding,
-        string fallbackModel,
         NativeRuntimeTestOutcome outcome,
         string? evidencePath)
     {
@@ -1006,15 +947,8 @@ public partial class SettingsPanel : UserControl
         sb.AppendLine($"State: {outcome.Kind}");
         sb.AppendLine($"Binding: {binding.Role} -> {binding.BaseModel.DisplayName}");
         sb.AppendLine($"Adapter: {(binding.Adapter?.DisplayName ?? "(none in this slice)")}");
-        sb.AppendLine($"Fallback model: {fallbackModel}");
         sb.AppendLine();
         AppendAttempt(sb, "Native", outcome.NativeAttempt);
-
-        if (outcome.FallbackAttempt is not null)
-        {
-            sb.AppendLine();
-            AppendAttempt(sb, "Fallback", outcome.FallbackAttempt);
-        }
 
         if (!string.IsNullOrWhiteSpace(evidencePath))
         {
@@ -1046,17 +980,9 @@ public partial class SettingsPanel : UserControl
 
     private void RaiseActivity(NativeRuntimeTestOutcome outcome)
     {
-        var summary = outcome.Kind switch
-        {
-            NativeRuntimeTestOutcomeKind.NativeSuccess =>
-                $"Native Settings test passed ({outcome.NativeAttempt.ModelRef})",
-            NativeRuntimeTestOutcomeKind.NativeFailedFallbackAcceptedOllamaSuccess =>
-                $"Native Settings test failed; Ollama fallback passed ({outcome.FallbackAttempt?.ModelRef})",
-            NativeRuntimeTestOutcomeKind.NativeFailedFallbackAcceptedOllamaFailed =>
-                $"Native Settings test failed; Ollama fallback also failed ({outcome.FallbackAttempt?.ModelRef})",
-            _ =>
-                $"Native Settings test failed and fallback was declined ({outcome.NativeAttempt.ModelRef})",
-        };
+        var summary = outcome.Kind is NativeRuntimeTestOutcomeKind.NativeSuccess
+            ? $"Native Settings test passed ({outcome.NativeAttempt.ModelRef})"
+            : $"Native Settings test failed; fix the native failure before continuing ({outcome.NativeAttempt.ModelRef})";
 
         var kind = outcome.Kind is NativeRuntimeTestOutcomeKind.NativeSuccess
             ? CoreActivityKind.Info
