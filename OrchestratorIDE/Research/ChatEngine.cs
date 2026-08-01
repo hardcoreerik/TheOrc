@@ -342,6 +342,12 @@ public class ChatEngine
                 text, $@"\b{System.Text.RegularExpressions.Regex.Escape(t.Name)}\s*\(",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase) ||
             System.Text.RegularExpressions.Regex.IsMatch(
+                text, $@"\b{System.Text.RegularExpressions.Regex.Escape(t.Name)}\s*\{{",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase) ||
+            System.Text.RegularExpressions.Regex.IsMatch(
+                text, $@"<\s*{System.Text.RegularExpressions.Regex.Escape(t.Name)}\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase) ||
+            System.Text.RegularExpressions.Regex.IsMatch(
                 text, $@"[""']name[""']\s*:\s*[""']{System.Text.RegularExpressions.Regex.Escape(t.Name)}[""']",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase));
 
@@ -420,6 +426,24 @@ public class ChatEngine
             {
                 lastText += token;
                 OnToken?.Invoke(token);
+            }
+
+            // A model can switch formats after seeing a tool result (observed with Qwen2.5:
+            // native call first, then valid Orcish Tongue XML). Keep the same fallback order
+            // used for the first response so a valid continuation is not rendered as prose.
+            if (toolCalls.Count == 0)
+            {
+                var reactCalls = ResearchToolset.ParseReActCalls(lastText);
+                if (reactCalls.Count > 0)
+                {
+                    foreach (var call in reactCalls)
+                        lastText = lastText.Replace(call.FullMatch, "").Trim();
+                    toolCalls = ToToolCalls(reactCalls);
+                }
+                else
+                {
+                    toolCalls = ToolCallTextParser.Parse(lastText);
+                }
             }
         }
 

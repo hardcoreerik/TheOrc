@@ -286,6 +286,49 @@ public class ChatEngineTests
         });
     }
 
+    private sealed class NativeThenReactRuntime : IModelRuntime
+    {
+        private int _calls;
+        public string RuntimeName => "NativeThenReact";
+        public Task<bool> IsReachableAsync(CancellationToken ct = default) => Task.FromResult(true);
+        public Task<List<string>> GetInstalledModelsAsync(CancellationToken ct = default) => Task.FromResult(new List<string>());
+        public Task<int?> GetContextLengthAsync(string model, CancellationToken ct = default) => Task.FromResult<int?>(null);
+
+        public async IAsyncEnumerable<string> StreamCompletionAsync(
+            string model, IEnumerable<AgentMessage> history, IReadOnlyList<object>? tools = null,
+            double temperature = 0.1, double? topP = null, int maxTokens = 4096,
+            Action<ToolCall>? onToolCall = null, Action<int, int>? onUsage = null,
+            [EnumeratorCancellation] CancellationToken ct = default)
+        {
+            await Task.Yield();
+            if (_calls++ == 0)
+                onToolCall?.Invoke(new ToolCall { Name = "read_file", Arguments = new() { ["path"] = "a.txt" } });
+            else if (_calls == 2)
+                yield return "<tool_call><name>list_files</name><args>{\"path\":\".\"}</args></tool_call>";
+            else
+                yield return "done";
+        }
+
+        public RuntimeHealth GetHealth() => new(true, RuntimeName);
+        public RuntimeStats GetStats() => new(RuntimeName);
+    }
+
+    [Test]
+    public async Task NativeToolLoop_ExecutesReactCallFromContinuation()
+    {
+        var executed = new List<string>();
+        var tools = new List<ToolDefinition>
+        {
+            new() { Name = "read_file", Description = "Read.", Parameters = new(), Handler = (_, _) => { executed.Add("read_file"); return Task.FromResult("contents"); } },
+            new() { Name = "list_files", Description = "List.", Parameters = new(), Handler = (_, _) => { executed.Add("list_files"); return Task.FromResult("files"); } },
+        };
+        var engine = new ChatEngine(new NativeThenReactRuntime(), "some-model", systemPrompt: "", tools: tools);
+
+        await engine.SendAsync("Read a.txt, then list files.");
+
+        Assert.That(executed, Is.EqualTo(new[] { "read_file", "list_files" }));
+    }
+
     // ── Orcish Tongue v1: Path 3 (ToolCallTextParser), Path 4 (repair lane),
     //    and the extended unexecuted-tool-attempt warning (docs/ORCISH_TONGUE_SPEC.md) ──────
 
@@ -377,6 +420,22 @@ public class ChatEngineTests
 
         public RuntimeHealth GetHealth() => new(true, RuntimeName);
         public RuntimeStats GetStats() => new(RuntimeName);
+    }
+
+    [TestCase("image_gallery {\"limit\":\"3\"}")]
+    [TestCase("<tool_call><image_gallery>{\"limit\":\"3\"}</image_gallery></tool_call>")]
+    public async Task UnsupportedObservedToolShapes_AreWarnedInsteadOfPresentedAsExecuted(string output)
+    {
+        var engine = new ChatEngine(new IntegrationToolCallRuntime(output), "some-model", systemPrompt: "", tools:
+        [
+            new ToolDefinition { Name = "image_gallery", Description = "List.", Parameters = new() },
+        ]);
+        string? finalText = null;
+        engine.OnTurnComplete += text => finalText = text;
+
+        await engine.SendAsync("List recent images.");
+
+        Assert.That(finalText, Does.StartWith("⚠️ This model appears to have attempted a tool call in an unsupported format"));
     }
 
     [TestCase("model3d_status", "job_id", "0123456789abcdef0123456789abcdef", false)]

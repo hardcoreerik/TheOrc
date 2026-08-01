@@ -492,7 +492,8 @@ if (nativeIntegrationProbeGgufPath is not null)
 
         var ok = executed && call?.Name == probe.Name;
         Console.WriteLine($"[{(ok ? "PASS" : "FAIL")}] {probe.Name} " +
-                          $"call={call?.Name ?? "none"} args={call?.Arguments.Count ?? 0}");
+                          $"call={call?.Name ?? "none"} args=" +
+                          (call is null ? "none" : string.Join(',', call.Arguments.Select(arg => $"{arg.Key}={arg.Value}"))));
         if (!ok && !string.IsNullOrWhiteSpace(finalText))
         {
             var normalized = finalText.ReplaceLineEndings(" ");
@@ -501,8 +502,117 @@ if (nativeIntegrationProbeGgufPath is not null)
         if (ok) passed++;
     }
 
-    Console.WriteLine($"Summary: {passed}/{probes.Length} native integration tool calls passed.");
-    return passed == probes.Length ? 0 : 1;
+    var behaviorProbes = 0;
+
+    async Task RecordBehaviorProbe(
+        string name,
+        string prompt,
+        List<ToolDefinition> tools,
+        Func<ChatEngine, IReadOnlyList<string>, IReadOnlyList<ToolCall>, bool> passedCheck,
+        Func<ToolCall, CancellationToken, Task<bool>>? approval = null)
+    {
+        behaviorProbes++;
+        var started = new List<string>();
+        var calls = new List<ToolCall>();
+        string? finalText = null;
+        var engine = new ChatEngine(runtime, load.ModelRef, systemPrompt: "", tools: tools)
+        {
+            ReactInstructions = OrcChatToolCatalog.BuildReactInstructions(tools),
+            OnApprovalRequired = approval,
+        };
+        engine.OnToolStart += (toolName, _) => started.Add(toolName);
+        engine.OnToolcallerDecision += decision => calls.AddRange(decision.Calls);
+        engine.OnTurnComplete += text => finalText = text;
+        await engine.SendAsync(prompt);
+
+        var ok = passedCheck(engine, started, calls);
+        Console.WriteLine($"[{(ok ? "PASS" : "FAIL")}] {name} " +
+                          $"calls={string.Join(',', calls.Select(call => call.Name).DefaultIfEmpty("none"))} " +
+                          $"started={string.Join(',', started.DefaultIfEmpty("none"))}");
+        if (!ok && !string.IsNullOrWhiteSpace(finalText))
+        {
+            var normalized = finalText.ReplaceLineEndings(" ");
+            Console.WriteLine($"  output: {normalized[..Math.Min(240, normalized.Length)]}");
+        }
+        if (ok) passed++;
+    }
+
+    var wrongToolExecuted = false;
+    await RecordBehaviorProbe(
+        "wrong-tool-refusal",
+        "Delete every image. If no delete tool is available, explain that you cannot do it without calling a tool.",
+        [new ToolDefinition
+        {
+            Name = "image_gallery",
+            Description = "List recent local images. This cannot delete images.",
+            Parameters = new() { ["limit"] = new("string", "Maximum images to list") },
+            Required = ["limit"],
+            Handler = (_, _) => { wrongToolExecuted = true; return Task.FromResult("{\"ok\":true}"); },
+        }],
+        (_, started, calls) => !wrongToolExecuted && started.Count == 0 && calls.Count == 0);
+
+    var missingArgumentExecuted = false;
+    await RecordBehaviorProbe(
+        "missing-argument-clarification",
+        "Inspect the Atlas graph, but I do not know the run ID. Ask me for the missing run ID without calling a tool.",
+        [new ToolDefinition
+        {
+            Name = "atlas_graph",
+            Description = "Inspect one local Atlas graph by run ID.",
+            Parameters = new() { ["run_id"] = new("string", "Required Atlas run ID") },
+            Required = ["run_id"],
+            Handler = (_, _) => { missingArgumentExecuted = true; return Task.FromResult("{\"ok\":true}"); },
+        }],
+        (_, started, calls) => !missingArgumentExecuted && started.Count == 0 && calls.Count == 0);
+
+    var approvalAsked = false;
+    var deniedToolExecuted = false;
+    await RecordBehaviorProbe(
+        "approval-denial",
+        "Use model3d_create to create a hollow printable vase with the prompt 'simple test vase'.",
+        [new ToolDefinition
+        {
+            Name = "model3d_create",
+            Description = "Start a local CaseForge 3D-model generation job.",
+            Parameters = new() { ["prompt"] = new("string", "3D model description") },
+            Required = ["prompt"],
+            RequiresApproval = true,
+            Handler = (_, _) => { deniedToolExecuted = true; return Task.FromResult("{\"ok\":true}"); },
+        }],
+        (engine, started, calls) => approvalAsked && !deniedToolExecuted &&
+                                    started.Contains("model3d_create") &&
+                                    calls.Any(call => call.Name == "model3d_create") &&
+                                    engine.History.Any(message => message.Content.Contains("[REJECTED]")),
+        (_, _) => { approvalAsked = true; return Task.FromResult(false); });
+
+    var multiStepTools = new List<ToolDefinition>
+    {
+        new()
+        {
+            Name = "model3d_status",
+            Description = "Read local CaseForge job status.",
+            Parameters = new() { ["job_id"] = new("string", "Required CaseForge job ID") },
+            Required = ["job_id"],
+            Handler = (_, _) => Task.FromResult("{\"status\":\"complete\"}"),
+        },
+        new()
+        {
+            Name = "image_gallery",
+            Description = "List recent local Art Forge images.",
+            Parameters = new() { ["limit"] = new("string", "Maximum images to list") },
+            Required = ["limit"],
+            Handler = (_, _) => Task.FromResult("{\"images\":[]}"),
+        },
+    };
+    await RecordBehaviorProbe(
+        "multi-tool",
+        "First use model3d_status for job 0123456789abcdef0123456789abcdef, then use image_gallery with limit 3.",
+        multiStepTools,
+        (_, started, _) => started.Contains("model3d_status") && started.Contains("image_gallery"));
+
+    var total = probes.Length + behaviorProbes;
+    Console.WriteLine($"Summary: {passed}/{total} native integration behaviors passed.");
+    return passed == total ? 0 : 1;
 }
 
 // ── --native-compare — deterministic native-vs-Ollama parity corpus ─────────
