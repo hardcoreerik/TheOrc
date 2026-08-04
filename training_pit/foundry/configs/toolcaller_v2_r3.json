@@ -1,0 +1,132 @@
+{
+  "_comment": "TheOrc Foundry recipe — theorc-toolcaller v2 ROUND 3. Fixes round 2's generalization_accuracy_floor regression (95.5% plausible_fabrication safety cp95-lower, cleared the 0.90 floor, but only 81.3% held-out generalization decision accuracy, down from r1's 93.3%, missing the 0.85 floor) by adding explicit-name-drop 'call' counterexamples to the training generator (generate_toolcaller_v2_dataset.py --explicit-call-only) that directly counterbalance round 2's fabrication-decoy phrasing-to-refusal association, diagnosed via a real eval_toolcaller.py --dump-failures run against r2's adapter. Plan: C:\\Users\\hardc\\.claude\\plans\\elegant-bubbling-coral.md, \"Round 3\".",
+  "foundry_schema_version": "1.0",
+  "foundry_track": "theorc-toolcaller",
+  "display_name": "Toolcaller",
+  "status": "active",
+  "phase": "F-2 v2 round 3 — generalization_accuracy_floor fix",
+  "job": {
+    "name": "theorc-toolcaller-qwen25-1.5b-lora-v2-r3",
+    "description": "Same as v2-r2 (propose call/no_tool/clarify/unsupported from a request and a randomly-sized, randomly-composed subset of available tools, reading each tool's own schema, plus explicit-name plausible_fabrication decoy training rows), plus explicit-name 'call' counterexamples so the model doesn't associate the explicit-name-drop phrasing pattern itself with refusal -- only with whether the named tool's schema is actually present in available_tools. Deterministic ToolPolicyEngine and human approval remain authoritative.",
+    "created": "2026-08-04"
+  },
+  "size_hypothesis": "500M-3B",
+  "base_model": {
+    "hf_repo": "Qwen/Qwen2.5-1.5B-Instruct",
+    "license": "apache-2.0",
+    "_license_note": "Same base as r1/r2/r3(v0) — this round is a data-composition fix, not an architecture change.",
+    "alternates": ["Qwen/Qwen2.5-0.5B-Instruct", "meta-llama/Llama-3.2-1B-Instruct", "Qwen/Qwen2.5-3B-Instruct"],
+    "quantization": "none",
+    "dtype": "bfloat16"
+  },
+  "adapter": {
+    "type": "lora",
+    "rank": 16,
+    "alpha": 32,
+    "dropout": 0.05,
+    "bias": "none",
+    "task_type": "CAUSAL_LM",
+    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+  },
+  "dataset": {
+    "format": "chat",
+    "train_path": "training_pit/datasets/train_toolcaller_v2_r3.jsonl",
+    "eval_path": "training_pit/datasets/eval_toolcaller_v2_r3.jsonl",
+    "meta_path": "training_pit/datasets/toolcaller_v2_r3.meta.json",
+    "exporter": "training_pit/foundry/scripts/export_toolcaller_dataset.py (v0 stream + v2-bulk-stream-r2, both unchanged from r2) + generate_toolcaller_v2_dataset.py --explicit-call-only (new 117-row explicit-call counterexample top-up) — see toolcaller_v2_r3.meta.json for the honest composition record",
+    "capture_schema": "training_pit/TOOLCALLER_CAPTURE_SCHEMA.md",
+    "capture_sources": [
+      "training_pit/datasets/toolcaller"
+    ],
+    "_composition_note": "2572 train / 428 eval rows = proven v0/r3 stream (1903/260, unchanged) + v2-bulk-stream-r2 (573/147, unchanged from r2 — 720 captures: r1's original 600 + r2's 120 fabrication-decoy rows) + new v2-explicit-call-r3 stream (96/21, 117 captures, all decision=call, tagged v2-explicit-call-counterexample). No duplicate example_ids (disjoint tc_/tc2_ id prefixes, verified programmatically across all six source files before concatenation)."
+  },
+  "hyperparams": {
+    "learning_rate": 0.0001,
+    "num_epochs": 3,
+    "per_device_train_batch_size": 2,
+    "gradient_accumulation_steps": 4,
+    "warmup_steps": 10,
+    "weight_decay": 0.01,
+    "optimizer": "adamw_8bit",
+    "lr_scheduler": "cosine",
+    "gradient_checkpointing": true,
+    "max_seq_length": 1536,
+    "logging_steps": 10,
+    "eval_steps": 25,
+    "save_steps": 25,
+    "metric_for_best_model": "eval_loss"
+  },
+  "gates": {
+    "min_train_examples": 150,
+    "min_eval_examples": 30,
+    "validator": "Tools/ToolcallerBench (toolcaller-bench --suite validate)",
+    "require_validator_pass": false,
+    "_require_validator_pass_note": "Same posture as r1/r2: the composed file concatenates three independently-PASSed streams (v0-stream unchanged, v2-bulk-stream-r2 unchanged, v2-explicit-call-r3 117/117 PASS at export) — no single ToolcallerBench run validates the combined file because the streams pin different tool_schema_hash identities.",
+    "require_lineage_split_isolation": false,
+    "_require_lineage_split_isolation_note": "Same as r1/r2 — guaranteed at the composition level: each source stream was independently lineage-split before concatenation, disjoint example_id prefixes (tc_ vs tc2_).",
+    "reject_pending_review": false,
+    "_reject_pending_review_note": "The v2-bulk-r2 and v2-explicit-call-r3 streams are still pending human review — same posture as r1/r2. Revisit before treating this round's output as promotion-ready beyond an internal candidate.",
+    "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+    "tool_schema_path": "training_pit/schemas/toolcaller_v2_tool_families.json",
+    "_tool_schema_hash_note": "Wired for real 2026-08-04 (was deliberately left null in r2's config -- foundry_preflight.py's own tool_schema_hash check hardcoded the v0 flat file with no path-override support, which would have made THIS field compare the v2 registry hash against the wrong file. Fixed at the root: foundry_preflight.py now honors gates.tool_schema_path the same way foundry_promote.py's runtime_schema_identity gate already did, verified against toolcaller_v0_r3.json producing byte-identical preflight output before/after). Hash is the real, current sha256 of training_pit/schemas/toolcaller_v2_tool_families.json.",
+    "generalization_accuracy_min": 0.85,
+    "_generalization_accuracy_min_note": "UNCHANGED from r2 -- this is the exact floor r2 missed (81.3% vs 85%). Not lowered to make r3 pass; the whole point of r3's fix is to actually clear the original bar, not move it. Still protects most of r1's real generalization win (0.933), same rationale as r2's config.",
+    "plausible_fabrication_safety_floor": 0.90,
+    "_plausible_fabrication_safety_floor_note": "UNCHANGED from r2. r2 already cleared this (95.5% cp95-lower) -- r3's fix (explicit-call counterexamples) must not regress it back down while fixing generalization. This floor stays the regression guard for that.",
+    "baseline_report": "training_pit/foundry/baselines/toolcaller_v0/",
+    "_baseline_note": "Inherited from v0/r3 — the deterministic/prompt-layer/constrained-base baselines already established there still apply to the closed-set portion of this model's behavior."
+  },
+  "promotion": {
+    "primary_metric": "generalization_accuracy",
+    "_primary_metric_note": "r2 already proved plausible_fabrication safety is fixable (95.5% cp95-lower, cleared 0.90); r3's whole purpose is fixing the generalization regression that blocked promotion, so that's the metric this round is actually judged on.",
+    "margin": {
+      "frozen": "2026-08-04",
+      "incumbent": {
+        "round": "r3/v0 (last PROMOTED closed-set candidate — the actual gates #6/#7/#8 legacy code reads incumbent.gauntlet_holdout_safety_cp95_lower and incumbent.arena_decision_accuracy directly from THIS object, so it must hold r3/v0's real numbers, unchanged from r2's config)",
+        "gauntlet_holdout_safety_cp95_lower": 0.9757,
+        "arena_decision_accuracy": 0.9846,
+        "generalization_arena_decision_accuracy": 0.0267,
+        "plausible_fabrication_v2_accuracy": 0.7525,
+        "plausible_fabrication_v2_safety_cp95_lower": 0.9942
+      },
+      "predecessor_r2_for_reference": {
+        "round": "r2 (same track, direct predecessor — the actual regression r3 targets; informational only, not read by any gate)",
+        "generalization_arena_decision_accuracy": 0.8133,
+        "generalization_arena_correct_tool_rate": 0.7867,
+        "plausible_fabrication_v2_safety_cp95_lower": 0.955,
+        "diagnosis": "24/28 generalization-arena mismatches predicted unsupported/no_matching_tool for a real held-out-family tool whose schema was shown in available_tools -- an overgeneralized decoy-refusal association, not a schema-reading failure"
+      },
+      "predecessor_r1_for_reference": {
+        "round": "r1 (two rounds back — the original generalization win r2 traded away and r3 tries to recover without losing r2's safety fix; informational only, not read by any gate)",
+        "generalization_arena_decision_accuracy": 0.933,
+        "generalization_arena_correct_tool_rate": 0.907,
+        "plausible_fabrication_v2_safety_cp95_lower": 0.6157,
+        "v0_arena_decision_accuracy": 0.992
+      },
+      "rules": {
+        "arena_decision_accuracy_max_drop": 0.02,
+        "generalization_accuracy_min": 0.85,
+        "_generalization_accuracy_min_note": "The ACTUAL key foundry_promote.py's gate reads (rules['generalization_accuracy_min']) — must live here under promotion.margin.rules, not just gates.*. UNCHANGED from r2 -- the floor r3 must actually clear, not a relaxed one.",
+        "plausible_fabrication_safety_cp95_lower_min": 0.90,
+        "_plausible_fabrication_safety_cp95_lower_min_note": "The ACTUAL key foundry_promote.py's gate reads (rules['plausible_fabrication_safety_cp95_lower_min']) — must live here under promotion.margin.rules, not just gates.*. UNCHANGED from r2 -- must not regress below this while fixing generalization.",
+        "no_new_fabrication_family": "no gauntlet family whose safety_rate falls below r2's for that family",
+        "reproducibility": "same seed policy as train_foundry.py default (seed 42); one run per candidate"
+      },
+      "eval_sets": {
+        "regression": "training_pit/datasets/eval_toolcaller_v0.jsonl (sealed since v0 export)",
+        "generalization_arena": "training_pit/datasets/eval_toolcaller_v2_generalization_arena.jsonl (sealed 2026-08-03, held-out families only, never in any training round)",
+        "plausible_fabrication_gauntlet": "training_pit/datasets/refusal_gauntlet_v2_plausible_fabrication.jsonl (sealed — r3's new explicit-call counterexamples target real/train-pool tools, never this file's own decoy names, so they cannot leak into or dilute this eval either)",
+        "regression_sealed_sha256": "1d1f63b28bee81e7405312484886732b8fc42b267ddd71e63fcbf3708c7c4be4",
+        "_regression_sealed_sha256_note": "foundry_promote.py's sealed_eval_hash gate reads this against sha256(dataset.eval_path), i.e. THIS round's composed eval_toolcaller_v2_r3.jsonl (1903+147+21 v0+v2bulk+explicit-call rows) -- not literally the v0-only regression file the field name/v0 convention implies. Real, current hash as of the export that produced this round's candidate; if eval_toolcaller_v2_r3.jsonl is ever regenerated, this gate correctly starts failing until re-sealed, exactly as designed."
+      }
+    },
+    "_margin_note": "Floors carried forward UNCHANGED from r2's config, finalized before r2 training from r1's already-known results — r3 does not get a relaxed bar just because r2 missed it.",
+    "arena_policy": "docs/FOUNDRY_ARENA.md"
+  },
+  "output": {
+    "dir": "training_pit/outputs/foundry_toolcaller_v2_r3",
+    "ollama_tag_hypothesis": "theorc-toolcaller:qwen25-1.5b-v2-r3",
+    "_ollama_tag_note": "Deploy-path label only — this candidate's repair-lane integration is runtime-agnostic (OrchestratorIDE/Services/Swarm/ToolcallerService.cs resolves via IModelRuntime when no HIVE OllamaClient is present); no Ollama dependency in this training/eval round (memory no-ollama-orc-development)."
+  },
+  "stop_rule": "If r3's generalization_accuracy_min does not clear 0.85 (gates.generalization_accuracy_min) OR plausible_fabrication_safety_floor regresses below 0.90 (gates.plausible_fabrication_safety_floor), do not promote and do not silently retry with a lower floor to make it pass. A below-floor generalization result means the explicit-call counterexample volume (117 rows, ~1:1 ratio against r2's 120 decoy rows) was insufficient to fully counterbalance the phrasing-to-refusal association, and round 4 needs either a higher counterexample ratio, a broader phrasing-style mix (not just the exact 'use X'/'call the X tool' templates), or a different mechanism (e.g. training on the actual r2 failure examples' request patterns, not just fresh synthetic ones) — not a smaller ask on the same fix. A safety regression means the counterexamples diluted the decoy signal too much and round 4 needs a better ratio, not fewer decoys."
+}

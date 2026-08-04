@@ -1,0 +1,57 @@
+{
+  "key": "toolcaller_v2_r3",
+  "schema_version": "mixed (toolcaller-v0, toolcaller-v2)",
+  "created": "2026-08-04",
+  "notes": "Round-3 composition, fixing round 2's generalization_accuracy_floor regression (r2: 95.5% plausible_fabrication safety cp95-lower but only 81.3% held-out generalization decision accuracy, down from r1's 93.3%, floor 85% -- see plan elegant-bubbling-coral.md \"Round 3\"). Diagnosed via a real eval_toolcaller.py --dump-failures run against r2's adapter on the sealed generalization arena: 24/28 mismatches were the model predicting {\"decision\": \"unsupported\", \"reason_code\": \"no_matching_tool\"} for a REAL held-out-family tool whose full schema WAS present in available_tools -- the exact response shape round 2's fabrication-decoy training taught, misfiring on a target it should have called. Root cause: every round-2 training row using explicit-name-drop phrasing (\"use X to...\", \"call the X tool so we can...\") was a decoy (correct answer unsupported); normal synthetic-tool call scenarios never used that phrasing, so the model learned the phrasing pattern itself as weak evidence for refusal. v0/r3 stream and v2-bulk-stream-r2 (round 1's 600 + round 2's 120 fabrication decoys) both unchanged -- neither is what broke, and the decoy rows still teach real, necessary safety behavior. New: 117 freshly-generated explicit-call counterexamples (generate_toolcaller_v2_dataset.py --explicit-call-only, tag v2-explicit-call-counterexample) -- same explicit-name-drop phrasing style as the decoys, but targeting a real or train-pool-synthetic tool that IS in available_tools, expected decision \"call\". Roughly 1:1 volume against round 2's 120 decoys, directly counterbalancing the phrasing-to-refusal association rather than diluting the safety signal by cutting decoy volume. File-level concatenation of three independently ToolcallerBench-PASSed exports, same honest-composition posture as round 1/round 2's meta files.",
+  "sources": {
+    "v0_stream": {
+      "train_path": "training_pit/datasets/train_toolcaller_v0_r3.jsonl",
+      "eval_path": "training_pit/datasets/eval_toolcaller_v0.jsonl",
+      "meta_path": "training_pit/datasets/toolcaller_v0_r3.meta.json",
+      "review_status": "accepted (all rows)"
+    },
+    "v2_bulk_stream_r2": {
+      "train_path": "training_pit/datasets/train_toolcaller_v2_bulk_r2.jsonl",
+      "eval_path": "training_pit/datasets/eval_toolcaller_v2_bulk_r2.jsonl",
+      "meta_path": "training_pit/datasets/toolcaller_v2_bulk_r2.meta.json",
+      "review_status": "pending (all rows) -- unchanged from round 2, carried forward"
+    },
+    "v2_explicit_call_stream_r3": {
+      "train_path": "training_pit/datasets/train_toolcaller_v2_explicit_call_r3.jsonl",
+      "eval_path": "training_pit/datasets/eval_toolcaller_v2_explicit_call_r3.jsonl",
+      "meta_path": "training_pit/datasets/toolcaller_v2_explicit_call_r3.meta.json",
+      "review_status": "pending (all rows) -- fresh synthetic generation (117 captures, all decision=call, tag v2-explicit-call-counterexample), schema-validated at generation time and ToolcallerBench-PASS (117/117) at export time, not yet human-reviewed"
+    }
+  },
+  "train_count": 2572,
+  "eval_count": 428,
+  "decision_balance": {
+    "train": {
+      "call": 929,
+      "unsupported": 940,
+      "no_tool": 318,
+      "clarify": 385
+    },
+    "eval": {
+      "no_tool": 66,
+      "call": 250,
+      "clarify": 44,
+      "unsupported": 68
+    }
+  },
+  "contains_pending": true,
+  "validator": {
+    "suite": "toolcaller-bench validate (run separately per source stream, not on the combined file)",
+    "verdict": "N/A",
+    "note": "All three source streams independently PASSed ToolcallerBench before concatenation (see sources.*.meta_path). Same documented posture as round 1/round 2's meta files."
+  },
+  "round2_regression_context": {
+    "generalization_arena_decision_accuracy_r2": 0.8133,
+    "generalization_arena_decision_accuracy_r1": 0.933,
+    "plausible_fabrication_v2_safety_cp95_lower_r2": 0.955,
+    "diagnosis": "eval_toolcaller.py --dump-failures against r2's adapter + the sealed generalization arena: 24/28 mismatches predicted unsupported/no_matching_tool for a real held-out-family tool whose schema was shown in available_tools",
+    "fix": "explicit-name-drop 'call' counterexamples baked into the training generator (explicit_call_scenarios / --explicit-call-only), directly counterbalancing round 2's fabrication-decoy phrasing-to-refusal association"
+  },
+  "train_sha256": "a59e8f435e2e4efb71872573f2e90b52a3fceda87873e49035434de69230e095",
+  "eval_sha256": "1d1f63b28bee81e7405312484886732b8fc42b267ddd71e63fcbf3708c7c4be4"
+}

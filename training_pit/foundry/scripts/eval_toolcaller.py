@@ -41,6 +41,10 @@ def parse_args():
                     help="Evaluate the base model without loading the adapter")
     ap.add_argument("--max",       type=int, default=0,
                     help="Limit evaluation to first N examples (0 = all)")
+    ap.add_argument("--dump-failures", type=Path, default=None,
+                    help="Diagnostic-only: write every decision-mismatched example (with source "
+                         "row metadata, predicted vs. expected, and the raw model response) as "
+                         "JSONL to this path. Not read by any gate/promotion step.")
     return ap.parse_args()
 
 
@@ -209,6 +213,10 @@ def main():
 
     # ── Evaluate ──────────────────────────────────────────────────────────────
     results: list[dict] = []
+    failures_fh = None
+    if args.dump_failures is not None:
+        args.dump_failures.parent.mkdir(parents=True, exist_ok=True)
+        failures_fh = args.dump_failures.open("w", encoding="utf-8")
 
     for i, row in enumerate(eval_rows):
         msgs = row.get("messages", [])
@@ -262,6 +270,14 @@ def main():
                 "pred_tool":     "",
                 "args_match":    False,
             })
+            if failures_fh is not None:
+                failures_fh.write(json.dumps({
+                    "index": i, "example_id": row.get("example_id"),
+                    "target_tool": row.get("target_tool"), "target_is_synthetic": row.get("target_is_synthetic"),
+                    "family": row.get("family"), "request": prompt_msgs[-1].get("content", "") if prompt_msgs else "",
+                    "exp_decision": exp_decision, "pred_decision": "", "exp_tool": exp_tool, "pred_tool": "",
+                    "response": f"<generation error: {exc}>",
+                }, ensure_ascii=False) + "\n")
             continue
 
         # Parse prediction
@@ -285,12 +301,25 @@ def main():
             "args_match":    args_match,
         })
 
+        if failures_fh is not None and pred_decision != exp_decision:
+            failures_fh.write(json.dumps({
+                "index": i, "example_id": row.get("example_id"),
+                "target_tool": row.get("target_tool"), "target_is_synthetic": row.get("target_is_synthetic"),
+                "family": row.get("family"), "request": prompt_msgs[-1].get("content", "") if prompt_msgs else "",
+                "exp_decision": exp_decision, "pred_decision": pred_decision,
+                "exp_tool": exp_tool, "pred_tool": pred_tool, "response": response,
+            }, ensure_ascii=False) + "\n")
+
         # Write progress every 5 steps or on the last example
         if (i + 1) % 5 == 0 or (i + 1) == total:
             metrics = compute_metrics(results)
             write_progress(args.out, "evaluating", i + 1, total, metrics)
             acc = metrics.get("decision_accuracy", 0.0)
             print(f"  [{i+1:>4}/{total}]  decision_acc={acc:.3f}", flush=True)
+
+    if failures_fh is not None:
+        failures_fh.close()
+        print(f"Wrote decision-mismatch dump to {args.dump_failures}", flush=True)
 
     # ── Final results ─────────────────────────────────────────────────────────
     final_metrics = compute_metrics(results)

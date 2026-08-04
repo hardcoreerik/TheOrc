@@ -194,6 +194,52 @@ def fabrication_decoy_scenarios(
     return scenarios
 
 
+def explicit_call_scenarios(
+    count: int, rng: random.Random, real_names: list[str],
+    fictional_by_domain: dict[str, list[dict]],
+) -> list[tuple[str, str | None, str, bool, str | None]]:
+    """Round 3 (plan elegant-bubbling-coral.md, "Round 3"): the direct counterbalance to
+    fabrication_decoy_scenarios. Diagnosis (real eval_toolcaller.py --dump-failures run against
+    r2's generalization arena failures, 2026-08-04): 24/28 mismatches were the model predicting
+    {"decision": "unsupported", "reason_code": "no_matching_tool"} for a REAL held-out-family
+    tool whose full schema WAS present in available_tools -- the exact response shape round 2's
+    decoy training taught, fired on a target it should have called instead. Root cause: every
+    training row using the "use X to...", "call the X tool so we can..." explicit-name-drop
+    phrasing style was a decoy (tool absent, correct answer "unsupported") -- normal "call"
+    scenarios on synthetic/unfamiliar targets (plan_scenarios_v2, ~35% of "call" rows) never use
+    that phrasing, only a generic "Something that needs: X" hint. The model learned "explicit
+    name-drop of an unfamiliar tool" as itself weak evidence for "unsupported", because that
+    phrasing pattern was ALWAYS paired with that answer in training.
+
+    Returns (decision="call", tool, context_hint, tool_is_synthetic, required_name) tuples --
+    same tuple shape as fabrication_decoy_scenarios/plan_scenarios_v2, so the rest of main()'s
+    generation loop and validate_and_build_capture's required_decoy_name check (semantically
+    "the request must literally include this name", true regardless of decision) need no other
+    changes. Target is drawn from real_names AND fictional (train-pool synthetic) tools, weighted
+    toward synthetic (0.6) since "unfamiliar name, never seen in training, but IS in the tool
+    list" is precisely the axis the held-out generalization arena tests -- a real registered name
+    the model already knows doesn't exercise the failing discrimination as directly."""
+    fictional_flat = [t for tools in fictional_by_domain.values() for t in tools]
+    scenarios: list[tuple[str, str | None, str, bool, str | None]] = []
+    for _ in range(count):
+        if rng.random() < 0.6 and fictional_flat:
+            entry = rng.choice(fictional_flat)
+            name, desc, synthetic = entry["name"], entry["description"], True
+        else:
+            name, synthetic = rng.choice(real_names), False
+            desc = "(use the tool's own listed description/parameters above)"
+        context_hint = (
+            f"The request must explicitly ask to use a tool named exactly '{name}' -- "
+            f"naturally phrased, e.g. \"use {name} to ...\", \"call the {name} tool so we can "
+            f"...\", or \"... -- {name} should be able to do that\". '{name}' IS one of the "
+            f"available tools listed below ({desc}) -- the correct response is to CALL it with "
+            f"realistic arguments matching its schema, not to refuse. An unfamiliar-sounding "
+            f"name is not evidence the tool is unavailable when it is right there in the list."
+        )
+        scenarios.append(("call", name, context_hint, synthetic, name))
+    return scenarios
+
+
 def _load_family_registry() -> tuple[dict[str, dict], str]:
     """Returns (trainable tool schemas by name, registry file's own SHA-256 hex digest)."""
     if not FAMILIES_PATH.exists():
@@ -296,6 +342,20 @@ GENERATOR_SYSTEM_FABRICATION = GENERATOR_SYSTEM.replace(
     "- For this batch: the context hint names a specific fake tool. The request text MUST "
     "literally include that exact tool name, phrased naturally (not just describe what it "
     "would do) -- follow the hint's example phrasings closely.\n"
+    "- Output ONLY the JSON object.",
+)
+
+# Round 3: the counterpart to GENERATOR_SYSTEM_FABRICATION for explicit_call_scenarios --
+# same "must literally use the given name" instruction, but for a REAL available target where
+# the correct decision is "call", not "unsupported".
+GENERATOR_SYSTEM_EXPLICIT_CALL = GENERATOR_SYSTEM.replace(
+    "- Output ONLY the JSON object.",
+    "- For this batch: the context hint names a specific tool that IS in the available tools "
+    "list. The request text MUST literally include that exact tool name, phrased naturally "
+    "(not just describe what it would do) -- follow the hint's example phrasings closely. The "
+    "expected_decision MUST be \"call\" with realistic expected_arguments matching that tool's "
+    "own parameter schema shown above -- do not respond \"unsupported\" just because the name "
+    "sounds unfamiliar; it is genuinely available.\n"
     "- Output ONLY the JSON object.",
 )
 
@@ -490,7 +550,16 @@ def main():
                           "scenarios (fabrication_decoy_scenarios) instead of the normal "
                           "call/no_tool/clarify/unsupported mix. Use for a targeted batch to "
                           "fold into an existing v2-bulk stream, not a full reroll.")
+    ap.add_argument("--explicit-call-only", action="store_true",
+                     help="Round 3 top-up mode: generate ONLY explicit-name-drop 'call' "
+                          "scenarios (explicit_call_scenarios) -- the counterbalance to "
+                          "--fabrication-only, teaching that an explicit \"use X\" name-drop on "
+                          "a tool actually in available_tools must be called, not refused. "
+                          "Mutually exclusive with --fabrication-only.")
     args = ap.parse_args()
+    if args.fabrication_only and args.explicit_call_only:
+        print("ERROR: --fabrication-only and --explicit-call-only are mutually exclusive.", flush=True)
+        sys.exit(1)
 
     api_key: str | None = os.environ.get("ANTHROPIC_API_KEY")
     # No auto-fallback to Ollama (memory no-ollama-orc-development) -- must be explicit.
@@ -599,6 +668,11 @@ def main():
               f"{sum(len(v) for v in TRAIN_DECOY_NAMES_BY_FAMILY.values())} train-side decoy names "
               "(verified disjoint from the sealed eval's own decoy list and the real registry)",
               flush=True)
+    elif args.explicit_call_only:
+        scenarios = explicit_call_scenarios(args.count, rng, real_names, fictional_by_domain)
+        generator_system = GENERATOR_SYSTEM_EXPLICIT_CALL
+        print("explicit-call-only mode: explicit-name-drop 'call' counterexamples "
+              "(round 3, counterbalances round 2's fabrication-decoy training)", flush=True)
     else:
         scenarios = plan_scenarios_v2(args.count, rng, real_names, fictional_by_domain)
         generator_system = GENERATOR_SYSTEM
@@ -647,7 +721,12 @@ def main():
                 # tool_is_synthetic is recorded on the capture (not discarded) so downstream
                 # analysis can split real vs. train-pool-synthetic "call" targets (CodeRabbit
                 # review, PR #99).
-                extra_tags = ["v2-fabrication-decoy"] if args.fabrication_only else []
+                if args.fabrication_only:
+                    extra_tags = ["v2-fabrication-decoy"]
+                elif args.explicit_call_only:
+                    extra_tags = ["v2-explicit-call-counterexample"]
+                else:
+                    extra_tags = []
                 if tool_is_synthetic:
                     extra_tags = extra_tags + ["v2-synthetic-target"]
 
