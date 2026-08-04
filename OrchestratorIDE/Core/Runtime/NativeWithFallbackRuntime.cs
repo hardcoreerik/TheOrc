@@ -44,6 +44,17 @@ public sealed class NativeWithFallbackRuntime : IModelRuntime, IAsyncDisposable
     public int FallbackCount => _fallbackCount;
     public string? LastFallbackReason => _lastFallbackReason;
 
+    // This is also the explicit-degrade signal ORCISH TONGUE Phase 2 (plan
+    // elegant-bubbling-coral.md, GBNF grammar-constrained decoding) requires per
+    // docs/THEORC_TOOLCALLER_V0.md's Native Runtime Trial section: "the runtime must not
+    // silently fall back to an unmeasured candidate." Grammar constraint only applies on the
+    // native path (LLamaSharpRuntime.StreamCompletionAsync) -- every fallback recorded here is
+    // therefore also a fallback away from grammar-constrained decoding, and it was already loud
+    // (FallbackCount/LastFallbackReason/_onFallback) before GBNF existed. No separate
+    // grammar-specific tracking needed; a caller checking whether the last call was
+    // grammar-constrained should check _lastCallUsedNative (or equivalently, whether
+    // FallbackCount changed) rather than adding a parallel signal.
+
     private readonly Action<string>? _onNativeModelChanged;
 
     // Not volatile -- Interlocked.Exchange below already provides the necessary memory-ordering

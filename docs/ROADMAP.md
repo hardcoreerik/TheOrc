@@ -557,8 +557,12 @@ OrcChat — both off by default under one settings toggle.
   flag, teacher identity, repair lineage, redaction state) are enforced for the
   toolcaller repair lane specifically, not yet as a schema-level gate every
   Foundry/Training Pit capture path must satisfy.
-- ORCISH TONGUE remains the planned universal tool-caller rename/runtime
-  direction; existing prompt-layer adaptation remains under current code names.
+- ORCISH TONGUE's decoder-layer direction landed 2026-08-03 (PR #99):
+  `ToolCallGrammarBuilder` + GBNF grammar-constrained decoding, wired into
+  `LLamaSharpRuntime` and live automatically for OrcChat/Swarm/HIVE. See
+  `RUNTIME_PHASE0_SPEC.md` §11. The GOBLIN MIND → ORCISH TONGUE symbol/
+  display-string rename itself (`.grok/RENAME_GOBLIN_MIND.md`) is still not
+  applied — prompt-layer adaptation code remains under the old names.
 
 ### HIVE MIND: hive identity, membership certs, auto-promotion — v1.9.4 (all 4 phases shipped 2026-06-21)
 Spec: [`HIVE_MEMBERSHIP_SPEC.md`](HIVE_MEMBERSHIP_SPEC.md). Adds a hive-wide `HiveId` (survives Warchief elections, unlike per-node identity), membership certificates so a node can prove hive membership to a peer it never directly paired with (avoids O(n²) manual-approval pairing at "100s of nodes" scale), an authenticated `/hive/mesh/role-assign` RPC + "👑 Declare this machine Warchief" UI action (first real consumer of the long-dormant `HiveAcceptControlPolicy` enum), and a first-run/repair discovery wizard (`HiveDiscoveryWizard`: scan LAN → join existing hive or found a new one, with three trigger sites). All four phases landed same day, each build+test+grok-review-CLEAN before commit; full swarmcli parity (`--list-peers`, `--declare-warchief`, `--set-accept-control`). Also fixed a naming collision: the pre-existing "🎯 Set as Warchief" menu item was an unrelated swarm-task-routing preference, renamed to "📤 Route my swarm tasks here". One deferred remainder: presenting a membership cert at the request-time auth gate needs its own subject-proves-key signature scheme (issuance + verification shipped; wire-gate consumption intentionally not bolted on).
@@ -590,7 +594,7 @@ Warchief (GUI)  ──→  Warband 1 (linux-x64, Vast.ai GPU)
 
 **Current shape (now):** each Warband in Docker needs an Ollama sidecar — two containers per deployment.
 
-**Post-Native-Runtime target shape:** LLamaSharp in-process eliminates the sidecar. One container, GGUF mounted as a volume, ORCISH TONGUE GBNF constraints work on any model. See `RUNTIME_PHASE0_SPEC.md` §11. The initial runtime code exists now, but this deployment shape is not shipped yet.
+**Post-Native-Runtime target shape:** LLamaSharp in-process eliminates the sidecar. One container, GGUF mounted as a volume. See `RUNTIME_PHASE0_SPEC.md` §11. The initial runtime code exists now, but this deployment shape (single-container Warband) is not shipped yet. ORCISH TONGUE's GBNF constraints themselves already work on any model served through `LLamaSharpRuntime` (landed 2026-08-03, PR #99) — that part isn't gated on the container consolidation, only on a Warband actually running native in-process, which it does not yet by default.
 
 **Mac/Linux Warband binaries** now ship as release artifacts (`linux-x64` and `osx-arm64`). The remaining deployment-product gap is container registry publishing and deeper real-host soak, not raw daemon artifact production.
 

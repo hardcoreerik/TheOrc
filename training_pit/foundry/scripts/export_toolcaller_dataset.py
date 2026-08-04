@@ -21,6 +21,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 FROZEN_TOOLS = REPO_ROOT / "training_pit" / "schemas" / "toolcaller_v0_frozen_tools.json"
+FAMILIES_V2 = REPO_ROOT / "training_pit" / "schemas" / "toolcaller_v2_tool_families.json"
 DATASETS_DIR = REPO_ROOT / "training_pit" / "datasets"
 DEFAULT_SOURCES = [
     REPO_ROOT / ".orc" / "swarm" / "dataset-staging" / "toolcaller",
@@ -64,17 +65,30 @@ def sha256_file_lf(path: Path) -> str:
     return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
-def load_frozen_tools() -> tuple[list[dict], str]:
-    tools = json.loads(FROZEN_TOOLS.read_text(encoding="utf-8"))
-    return tools, sha256_file_lf(FROZEN_TOOLS)
+def load_frozen_tools(schema_version: str, frozen_tools_path: Path | None = None
+                      ) -> tuple[list[dict], str, Path]:
+    """Returns (tools, hash, resolved_path). Returning the resolved path too (CodeRabbit
+    review, PR #99) means callers never re-derive the default-selection rule themselves --
+    the prior version had this logic duplicated at the call site, so the exporter could in
+    principle hash one file while the validator/gate read a different one if the two copies
+    ever drifted."""
+    if schema_version == "toolcaller-v2":
+        path = frozen_tools_path or FAMILIES_V2
+        data = json.loads(path.read_text(encoding="utf-8"))
+        tools = [t for fam in data["families"] if not fam["held_out"] for t in fam["tools"]]
+        return tools, sha256_file_lf(path), path
+    path = frozen_tools_path or FROZEN_TOOLS
+    tools = json.loads(path.read_text(encoding="utf-8"))
+    return tools, sha256_file_lf(path), path
 
 
-def render_tools_block(names: list[str], frozen: dict[str, dict]) -> str:
+def render_tools_block(names: list[str], frozen: dict[str, dict], capture_schema: dict[str, dict] | None = None) -> str:
     lines = []
     for name in names:
-        tool = frozen.get(name)
+        tool = frozen.get(name) or (capture_schema.get(name) if capture_schema else None)
         if tool is None:
-            raise ValueError(f"available_tools contains '{name}' which is not in the frozen inventory")
+            raise ValueError(f"available_tools contains '{name}' which is not in the frozen inventory "
+                              "and has no embedded schema on this capture")
         params = tool.get("parameters", {}) or {}
         required = set(tool.get("required", []) or [])
         plines = [f"    - {p} ({spec.get('type', '?')}{', required' if p in required else ''}): {spec.get('description', '')}"
@@ -98,7 +112,7 @@ def render_assistant(expected: dict) -> str:
 def capture_to_chat(cap: dict, frozen: dict[str, dict]) -> dict:
     system = SYSTEM_TEMPLATE.format(
         role=cap["role"],
-        tools_block=render_tools_block(cap["available_tools"], frozen))
+        tools_block=render_tools_block(cap["available_tools"], frozen, cap.get("available_tools_schema")))
     user = cap["request"]
     approval = cap.get("approval_state")
     if approval and approval != "n/a":
@@ -125,7 +139,7 @@ def hash_split(group: str, eval_frac: float) -> str:
     return "eval" if bucket < int(eval_frac * 100) else "train"
 
 
-def run_validator(files: list[Path], out_dir: Path) -> str:
+def run_validator(files: list[Path], out_dir: Path, frozen_tools_path: Path) -> str:
     bench = next((p for p in BENCH_CANDIDATES if p.exists()), None)
     tmp = Path(tempfile.mkdtemp(prefix="toolcaller_export_"))
     try:
@@ -141,7 +155,7 @@ def run_validator(files: list[Path], out_dir: Path) -> str:
             cmd = ["dotnet", "run", "--project",
                    str(REPO_ROOT / "Tools" / "ToolcallerBench"), "--"]
         cmd += ["--suite", "validate", "--captures", str(tmp),
-                "--tools", str(FROZEN_TOOLS), "--output", str(out_dir / "bench")]
+                "--tools", str(frozen_tools_path), "--output", str(out_dir / "bench")]
         proc = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO_ROOT)
         sys.stdout.write(proc.stdout)
         sys.stderr.write(proc.stderr)
@@ -167,6 +181,11 @@ def main():
                          "the export for a real training run)")
     ap.add_argument("--skip-validator", action="store_true",
                     help="skip the ToolcallerBench mechanical gate (meta records verdict 'skipped')")
+    ap.add_argument("--schema-version", default="toolcaller-v0", choices=["toolcaller-v0", "toolcaller-v2"],
+                    help="which capture stream to export (v0/v1 and v2 are never mixed)")
+    ap.add_argument("--frozen-tools", type=Path, default=None,
+                    help="override the frozen-tools/family-registry path (default: v0 flat file, "
+                         "or the v2 family registry when --schema-version toolcaller-v2)")
     args = ap.parse_args()
 
     sources = args.captures or [d for d in DEFAULT_SOURCES if d.exists()]
@@ -180,7 +199,7 @@ def main():
               "training_pit/TOOLCALLER_CAPTURE_SCHEMA.md.")
         raise SystemExit(1)
 
-    frozen_list, tools_hash = load_frozen_tools()
+    frozen_list, tools_hash, frozen_tools_path = load_frozen_tools(args.schema_version, args.frozen_tools)
     frozen = {t["name"]: t for t in frozen_list}
 
     captures, files, skipped = [], [], Counter()
@@ -191,7 +210,7 @@ def main():
             except json.JSONDecodeError:
                 skipped["unparseable"] += 1
                 continue
-            if cap.get("schema_version") != "toolcaller-v0":
+            if cap.get("schema_version") != args.schema_version:
                 skipped["not_toolcaller"] += 1
                 continue
             status = cap.get("review_status", "pending")
@@ -222,7 +241,7 @@ def main():
         verdict = "skipped"
         print("[validator] SKIPPED by flag — this export cannot pass training preflight gates")
     else:
-        verdict = run_validator(files, out_dir)
+        verdict = run_validator(files, out_dir, frozen_tools_path)
         if verdict != "PASS":
             print(f"[validator] {verdict} — fix the findings (report under {out_dir / 'bench'}) "
                   "and re-export. Nothing was written.")
@@ -264,10 +283,13 @@ def main():
     contains_pending = any(status != "accepted" for _cap, status in captures)
     meta = {
         "key": args.out_key,
-        "schema_version": "toolcaller-v0",
+        "schema_version": args.schema_version,
         "created": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "notes": "Foundry toolcaller v0 export — bounded tool-proposal decisions "
-                 "(training_pit/TOOLCALLER_CAPTURE_SCHEMA.md)",
+        "notes": ("Foundry toolcaller v2 export — subset-sampled tool-proposal decisions "
+                  "including train-pool synthetic tools (training_pit/TOOLCALLER_CAPTURE_SCHEMA.md)"
+                  if args.schema_version == "toolcaller-v2" else
+                  "Foundry toolcaller v0 export — bounded tool-proposal decisions "
+                  "(training_pit/TOOLCALLER_CAPTURE_SCHEMA.md)"),
         "role": "toolcaller",
         "data_type": "chat-sft",
         "source": "+".join(str(s) for s in sources),

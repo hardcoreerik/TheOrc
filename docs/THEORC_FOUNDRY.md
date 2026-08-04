@@ -79,8 +79,8 @@ migration changes them. This strategy does not silently redefine that subsystem.
 |---|---|---|
 | Training Pit | Capture, review, dataset schemas, suitability checks, and export | Existing foundation; expanded datasets are planned |
 | ORC ACADEMY | Local adapter training, checkpoints, resume, and training telemetry | Existing execution surface for initial LoRA/QLoRA work |
-| Native Runtime | Local model execution, persistent role contexts, scheduling, and telemetry | Opt-in proof paths exist; Foundry-specific routing and constrained decoding remain planned |
-| ORCISH TONGUE | Directional name for the universal tool-format/tool-calling layer | Prompt-layer adaptation exists under current code names; rename and decoder-constrained direction are not fully landed |
+| Native Runtime | Local model execution, persistent role contexts, scheduling, and telemetry | Opt-in proof paths exist; grammar-constrained decoding landed 2026-08-03 (PR #99); Foundry-specific routing (training a specialist to run through the native path itself) remains planned |
+| ORCISH TONGUE | Directional name for the universal tool-format/tool-calling layer | Prompt-layer adaptation exists under current code names; decoder-constrained GBNF path landed 2026-08-03 (`ToolCallGrammarBuilder`, PR #99); the GOBLIN MIND → ORCISH TONGUE symbol/display-string rename itself is not fully landed |
 | Context Fabric | Source-addressable document memory and retrieval | Potential producer and consumer of future Foundry datasets/models |
 | HIVE / Warbands | Distributed execution on other nodes | Capture/evaluation first; remote training is later work |
 | Reviewer Quality Gate | Evidence-based trust and review authority | Supplies the trust pattern for Foundry promotion |
@@ -241,10 +241,13 @@ Foundry requires the Native Runtime direction to mature in measured increments:
 8. Preserve current Ollama-first production behavior until native candidates pass
    their own admission gates.
 
-ORCISH TONGUE is the planned name/direction for universal tool-call adaptation.
-Today, prompt-layer probing and defensive parsing exist under current code names.
-The rename and Native Runtime grammar-constrained path remain planned and must not
-be described as shipped.
+ORCISH TONGUE is the name for universal tool-call adaptation. Prompt-layer
+probing and defensive parsing exist under current code names. The Native
+Runtime grammar-constrained (GBNF) path landed 2026-08-03 (`ToolCallGrammarBuilder`,
+PR #99) and covers calls served by `LLamaSharpRuntime` only — Ollama/server
+backends still rely on prompt-layer probing + defensive parsing. The
+GOBLIN MIND → ORCISH TONGUE symbol/display-string rename itself remains
+planned and must not be described as shipped.
 
 ---
 

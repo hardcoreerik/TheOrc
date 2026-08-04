@@ -146,6 +146,19 @@ Implemented capability areas:
 The important architectural point is unchanged: TheOrc does not assume one
 universal tool-call format works for every local model. It probes and adapts.
 
+**Native runtime adds a second, deterministic layer on top of probing**
+(landed 2026-08-03, PR #99): `ToolCallGrammarBuilder` compiles the live
+tool list into a GBNF grammar, enforced via LLamaSharp's
+`DefaultSamplingPipeline.Grammar` in `LLamaSharpRuntime.StreamCompletionAsync`
+whenever a native call includes tools. This makes it structurally impossible
+for the model to emit a tool-call JSON naming anything outside the live
+registry — valid by construction rather than by cooperation. It only covers
+calls actually served by `LLamaSharpRuntime`; Ollama/server-backed calls
+still rely on the probe-and-adapt layer above. OrcChat, Swarm, and HIVE all
+pick this up automatically through their shared `IModelRuntime` reference —
+no per-surface wiring. See `docs/RUNTIME_PHASE0_SPEC.md` §11 for the full
+design rationale.
+
 The next layer now exists in scaffold form for the native runtime as well:
 
 - `ModelAdmissionGate` fingerprints local GGUF names into model families

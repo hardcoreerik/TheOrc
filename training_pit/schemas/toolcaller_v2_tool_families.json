@@ -1,0 +1,556 @@
+{
+  "registry_version": "toolcaller-v2-families-1.0",
+  "notes": "docs/NATIVE_RUNTIME_V2_SPEC.md Phase E context; training_pit/foundry PLAN elegant-bubbling-coral.md. Replaces the single flat frozen-tools file (toolcaller_v0/v1_frozen_tools.json) with named families, each grounded in a real *Tools.cs source file, so a candidate's TRAIN-time tool universe can vary in composition per example instead of being one fixed list. held_out=true families must NEVER appear in ANY training example -- they exist exclusively to build the generalization arena (a real, never-trained tool the model must call correctly from its in-context schema alone). Every tool schema below was read directly from its source file (name/description/parameters/required verbatim), not invented.",
+  "cross_agent_note": "hardcoreerik, 2026-08-02: broaden the trained universe with real tool vocabularies from OTHER AI coding agents, not just TheOrc's own -- families cross_agent_claude_code (HIGH confidence: read verbatim from this session's own live tool definitions) and cross_agent_codex (MEDIUM confidence: public Codex CLI documentation, not verified against a live session -- treat as representative of the naming convention, not a byte-exact spec) were added for exactly this. Grok was explicitly requested too but is OMITTED: no verified, stable, publicly-documented tool-calling schema for a 'Grok CLI' agent was found -- this repo's own Grok usage (Tools/grok-review.ps1) is a plain chat-completions API wrapper with no agent tool-calling surface of its own to ground schemas in. Per this project's own no-invention discipline (see F:\\3DModels\\caseforge RESEARCH_NOTES.md's identical convention), fabricating plausible-looking Grok tool names was rejected rather than silently done -- add a Grok family here if/when a real, citable source (e.g. an actual Grok agent CLI's own tool-definition output) becomes available.",
+  "families": [
+    {
+      "family": "file_ops",
+      "held_out": false,
+      "source": "OrchestratorIDE/Tools/FileTools.cs",
+      "tools": [
+        {
+          "name": "read_file",
+          "description": "Read the contents of a file.",
+          "parameters": { "path": { "type": "string", "description": "File path relative to workspace root, or absolute." } },
+          "required": ["path"]
+        },
+        {
+          "name": "write_file",
+          "description": "Create or overwrite a file with the given content.",
+          "parameters": {
+            "path":    { "type": "string", "description": "File path relative to workspace root, or absolute." },
+            "content": { "type": "string", "description": "Full file content to write." },
+            "reason":  { "type": "string", "description": "Optional short reason for the write, shown in the diff preview." }
+          },
+          "required": ["path", "content"]
+        },
+        {
+          "name": "list_files",
+          "description": "Browse the workspace directory tree.",
+          "parameters": {
+            "path":  { "type": "string", "description": "Directory to list; defaults to workspace root." },
+            "depth": { "type": "integer", "description": "Recursion depth." }
+          },
+          "required": []
+        }
+      ]
+    },
+    {
+      "family": "shell",
+      "held_out": false,
+      "source": "OrchestratorIDE/Tools/ShellTools.cs",
+      "tools": [
+        {
+          "name": "run_shell",
+          "description": "Run any shell command (dotnet, npm, git, python, ...).",
+          "parameters": {
+            "command":    { "type": "string", "description": "The shell command to execute." },
+            "cwd":        { "type": "string", "description": "Optional working directory." },
+            "env_setup":  { "type": "string", "description": "Optional environment setup to run first." },
+            "reason":     { "type": "string", "description": "Optional short reason, shown to the user." }
+          },
+          "required": ["command"]
+        }
+      ]
+    },
+    {
+      "family": "search",
+      "held_out": false,
+      "source": "OrchestratorIDE/Tools/SearchTools.cs",
+      "tools": [
+        {
+          "name": "grep_code",
+          "description": "Search file contents with a regex pattern.",
+          "parameters": {
+            "pattern": { "type": "string", "description": "Regex pattern to search for." },
+            "glob":    { "type": "string", "description": "Optional filename glob to restrict the search." },
+            "path":    { "type": "string", "description": "Optional directory to scope the search to." }
+          },
+          "required": ["pattern"]
+        },
+        {
+          "name": "get_outline",
+          "description": "Retrieve the structural outline of a file (classes, methods, functions).",
+          "parameters": { "path": { "type": "string", "description": "File path." } },
+          "required": ["path"]
+        }
+      ]
+    },
+    {
+      "family": "web",
+      "held_out": false,
+      "source": "OrchestratorIDE/Tools/WebTools.cs / ResearchToolset",
+      "tools": [
+        {
+          "name": "web_search",
+          "description": "Search the public web and return ranked results.",
+          "parameters": {
+            "query":       { "type": "string", "description": "Search query." },
+            "max_results": { "type": "integer", "description": "Maximum results to return." }
+          },
+          "required": ["query"]
+        },
+        {
+          "name": "fetch_page",
+          "description": "Fetch a web page's content in a given mode.",
+          "parameters": {
+            "url":  { "type": "string", "description": "Page URL." },
+            "mode": { "type": "string", "description": "Extraction mode." }
+          },
+          "required": ["url"]
+        },
+        {
+          "name": "fetch_url",
+          "description": "Download a web page or call an API and return the text.",
+          "parameters": {
+            "url":        { "type": "string", "description": "URL to fetch." },
+            "max_chars":  { "type": "integer", "description": "Maximum characters to return." }
+          },
+          "required": ["url"]
+        }
+      ]
+    },
+    {
+      "family": "graph",
+      "held_out": false,
+      "source": "OrchestratorIDE/Tools/GraphTools.cs",
+      "tools": [
+        {
+          "name": "graph_search",
+          "description": "Search the code knowledge graph (BM25 full-text over names + qualified names with camelCase tokenization, plus structural boosting). Returns a plain-text ranked list. Read-only.",
+          "parameters": {
+            "query":        { "type": "string", "description": "Search terms (natural language or identifier fragments). BM25 over graph_fts." },
+            "label":        { "type": "string", "description": "Optional label filter: Method | Function | Class | Interface | Route | File." },
+            "file_pattern": { "type": "string", "description": "Optional file path substring or wildcard filter." },
+            "min_degree":   { "type": "number", "description": "Optional minimum combined edge degree (in+out)." },
+            "limit":        { "type": "number", "description": "Maximum results to return. Default 50, max 200." }
+          },
+          "required": []
+        },
+        {
+          "name": "trace_path",
+          "description": "Trace caller/callee paths in the code graph to a given depth. Uses structural CALLS edges (or DATA_FLOWS when available). Returns a plain-text indented tree. Read-only.",
+          "parameters": {
+            "qualified_name": { "type": "string", "description": "Fully qualified name of the starting symbol (from graph_search)." },
+            "direction":       { "type": "string", "description": "both | callers | callees. Default 'both'." },
+            "depth":           { "type": "number", "description": "Max depth to traverse. Default 3, max 8." },
+            "mode":            { "type": "string", "description": "calls | data_flow. 'calls' uses CALLS edges; 'data_flow' prefers DATA_FLOWS when present." }
+          },
+          "required": ["qualified_name"]
+        },
+        {
+          "name": "get_architecture",
+          "description": "Returns a high-level architecture snapshot from the graph: namespaces, top-degree hub nodes, routes, and aggregate counts. Read-only.",
+          "parameters": {},
+          "required": []
+        },
+        {
+          "name": "detect_changes",
+          "description": "Use git (LibGit2Sharp) to find .cs files changed since base_ref (default HEAD~1), look up graph nodes for those files, and report impact sorted by degree. Includes blast-radius count of unique callers within depth 2. Read-only.",
+          "parameters": {
+            "base_ref":    { "type": "string", "description": "Git ref or commit to diff against (e.g. HEAD~1, abc123). Default HEAD~1." },
+            "path_filter": { "type": "string", "description": "Optional glob or substring to filter changed file paths (e.g. src/* or *Service.cs)." }
+          },
+          "required": []
+        },
+        {
+          "name": "graph_adr",
+          "description": "Architecture Decision Records store. action=list|get|add. list: recent 20. get: by id (full incl body). add: requires title+decision+status (proposed|accepted|deprecated|superseded); writes to DB. status is required for add.",
+          "parameters": {
+            "action":   { "type": "string", "description": "list | get | add" },
+            "id":       { "type": "number", "description": "For get: ADR id" },
+            "title":    { "type": "string", "description": "For add: short title" },
+            "decision": { "type": "string", "description": "For add: the decision text" },
+            "status":   { "type": "string", "description": "For add: proposed | accepted | deprecated | superseded" },
+            "body":     { "type": "string", "description": "For add: optional additional body/details" }
+          },
+          "required": ["action"]
+        }
+      ]
+    },
+    {
+      "family": "browser",
+      "held_out": false,
+      "source": "OrchestratorIDE/Tools/BrowserTools.cs",
+      "tools": [
+        {
+          "name": "browser_navigate",
+          "description": "Navigate the browser to a URL and return the resulting page title.",
+          "parameters": { "url": { "type": "string", "description": "The absolute URL to navigate to (must include a scheme, e.g. https://)." } },
+          "required": ["url"]
+        },
+        {
+          "name": "browser_click",
+          "description": "Click an element on the current page, identified by a CSS selector.",
+          "parameters": { "selector": { "type": "string", "description": "CSS selector of the element to click." } },
+          "required": ["selector"]
+        },
+        {
+          "name": "browser_type",
+          "description": "Type text into an input element, identified by a CSS selector (replaces any existing value).",
+          "parameters": {
+            "selector": { "type": "string", "description": "CSS selector of the input element." },
+            "text":     { "type": "string", "description": "The text to type." }
+          },
+          "required": ["selector", "text"]
+        },
+        {
+          "name": "browser_wait",
+          "description": "Wait for an element to become visible on the page, bounded by a timeout (default 10s, max 60s).",
+          "parameters": {
+            "selector":        { "type": "string", "description": "CSS selector to wait for." },
+            "timeout_seconds": { "type": "number", "description": "Maximum seconds to wait (default 10, max 60)." }
+          },
+          "required": ["selector"]
+        },
+        {
+          "name": "browser_extract",
+          "description": "Extract visible text from the current page, optionally scoped to a CSS selector (omit for the whole page).",
+          "parameters": { "selector": { "type": "string", "description": "Optional CSS selector to scope extraction to; omit for the full page body." } },
+          "required": []
+        },
+        {
+          "name": "browser_screenshot",
+          "description": "Capture a full-page screenshot of the current page and save it inside the workspace.",
+          "parameters": {},
+          "required": []
+        },
+        {
+          "name": "browser_download",
+          "description": "Click an element that triggers a download and save the resulting file inside the workspace.",
+          "parameters": {
+            "trigger_selector": { "type": "string", "description": "CSS selector of the element that triggers the download when clicked." },
+            "directory":        { "type": "string", "description": "Relative directory inside the workspace to save into (default: downloads/)." }
+          },
+          "required": ["trigger_selector"]
+        }
+      ]
+    },
+    {
+      "family": "art_forge",
+      "held_out": false,
+      "source": "OrchestratorIDE.Avalonia/Tools/ArtForgeTools.cs",
+      "tools": [
+        {
+          "name": "image_create",
+          "description": "Create an image with the local Art Forge Studio and ComfyUI runtime.",
+          "parameters": {
+            "prompt":          { "type": "string", "description": "Image description" },
+            "negative_prompt": { "type": "string", "description": "Optional unwanted details" },
+            "checkpoint":      { "type": "string", "description": "Optional installed checkpoint name" },
+            "lora":            { "type": "string", "description": "Optional installed LoRA name" },
+            "size":            { "type": "string", "description": "Image size such as 768x768" },
+            "seed":            { "type": "integer", "description": "Deterministic generation seed" },
+            "style":           { "type": "string", "description": "Optional style guidance" },
+            "content_profile": { "type": "string", "description": "sfw or mature_capable; defaults to sfw" }
+          },
+          "required": ["prompt"]
+        },
+        {
+          "name": "image_status",
+          "description": "Read a local Art Forge Studio image job's progress and outputs.",
+          "parameters": { "job_id": { "type": "string", "description": "Art Forge Studio job identifier" } },
+          "required": ["job_id"]
+        },
+        {
+          "name": "image_gallery",
+          "description": "List recent local Art Forge Studio gallery assets.",
+          "parameters": { "limit": { "type": "integer", "description": "Number of assets from 1 through 100" } },
+          "required": []
+        },
+        {
+          "name": "image_open",
+          "description": "Open the local Art Forge Studio workspace.",
+          "parameters": {},
+          "required": []
+        }
+      ]
+    },
+    {
+      "family": "case_forge",
+      "held_out": true,
+      "source": "OrchestratorIDE.Avalonia/Tools/CaseForgeTools.cs",
+      "tools": [
+        {
+          "name": "model3d_create",
+          "description": "Create a local CaseForge enclosure, object, or portrait job. Final GPU work requires approval.",
+          "parameters": {
+            "mode":                 { "type": "string", "description": "enclosure, object, or portrait" },
+            "quality":              { "type": "string", "description": "draft or final" },
+            "prompt":               { "type": "string", "description": "What to create or modify" },
+            "inputs_json":          { "type": "string", "description": "Optional JSON array of content-addressed input artifacts" },
+            "parameters_json":      { "type": "string", "description": "Optional JSON object of validated enclosure parameters" },
+            "width_mm":             { "type": "number", "description": "Optional target width in millimetres" },
+            "depth_mm":             { "type": "number", "description": "Optional target depth in millimetres" },
+            "height_mm":            { "type": "number", "description": "Optional target height in millimetres" },
+            "style":                { "type": "string", "description": "faithful, softened, cartoon, or relief" },
+            "seed":                 { "type": "integer", "description": "Deterministic generation seed" },
+            "retain_inputs":        { "type": "boolean", "description": "Keep source images for later revisions" },
+            "rights_acknowledged":  { "type": "boolean", "description": "Confirms rights or permission for portrait photos" }
+          },
+          "required": ["mode", "quality", "prompt"]
+        },
+        {
+          "name": "model3d_status",
+          "description": "Read a local CaseForge job's progress and outputs.",
+          "parameters": { "job_id": { "type": "string", "description": "CaseForge job identifier" } },
+          "required": ["job_id"]
+        },
+        {
+          "name": "model3d_cancel",
+          "description": "Cancel a local CaseForge job.",
+          "parameters": { "job_id": { "type": "string", "description": "CaseForge job identifier" } },
+          "required": ["job_id"]
+        },
+        {
+          "name": "model3d_open",
+          "description": "Open a CaseForge job in the local 3D workspace.",
+          "parameters": { "job_id": { "type": "string", "description": "CaseForge job identifier" } },
+          "required": ["job_id"]
+        }
+      ]
+    },
+    {
+      "family": "keyhound_atlas",
+      "held_out": true,
+      "source": "OrchestratorIDE.Avalonia/Tools/KeyHoundAtlasTools.cs",
+      "tools": [
+        {
+          "name": "atlas_start",
+          "description": "Start a KeyHound Atlas evidence-graph run for a target. This may initiate network research.",
+          "parameters": { "target": { "type": "string", "description": "Domain, handle, email, phone, IP, or other research target" } },
+          "required": ["target"]
+        },
+        {
+          "name": "atlas_graph",
+          "description": "Read an existing KeyHound Atlas evidence graph.",
+          "parameters": { "run_id": { "type": "string", "description": "KeyHound Atlas run identifier" } },
+          "required": ["run_id"]
+        },
+        {
+          "name": "atlas_expand",
+          "description": "Expand one entity in an existing KeyHound Atlas evidence graph. This may initiate network research.",
+          "parameters": {
+            "run_id":    { "type": "string", "description": "KeyHound Atlas run identifier" },
+            "entity_id": { "type": "string", "description": "Entity identifier from atlas_graph" }
+          },
+          "required": ["run_id", "entity_id"]
+        },
+        {
+          "name": "atlas_evidence",
+          "description": "Read the evidence and provenance supporting one KeyHound Atlas graph link.",
+          "parameters": { "link_id": { "type": "string", "description": "Link identifier from atlas_graph" } },
+          "required": ["link_id"]
+        },
+        {
+          "name": "atlas_open",
+          "description": "Open KeyHound Atlas to a research target.",
+          "parameters": { "target": { "type": "string", "description": "Optional target to open in the PEPE graph workspace" } },
+          "required": []
+        }
+      ]
+    },
+    {
+      "family": "fabric",
+      "held_out": true,
+      "source": "OrchestratorIDE/Tools/FabricTools.cs",
+      "tools": [
+        {
+          "name": "library_list",
+          "description": "List corpora available in the Context Fabric library.",
+          "parameters": {},
+          "required": []
+        },
+        {
+          "name": "library_search",
+          "description": "Search a Context Fabric corpus.",
+          "parameters": {
+            "corpus_id": { "type": "string", "description": "Corpus to search." },
+            "query":     { "type": "string", "description": "Search query." },
+            "limit":     { "type": "integer", "description": "Maximum results." }
+          },
+          "required": ["query"]
+        },
+        {
+          "name": "library_open",
+          "description": "Open a document/segment from a Context Fabric corpus.",
+          "parameters": {
+            "document_id":   { "type": "string", "description": "Document to open." },
+            "segment_id":    { "type": "string", "description": "Optional segment within the document." },
+            "start_ordinal": { "type": "integer", "description": "Optional starting ordinal." },
+            "count":         { "type": "integer", "description": "Number of segments to return." }
+          },
+          "required": []
+        },
+        {
+          "name": "library_graph",
+          "description": "Read a Context Fabric corpus's entity graph.",
+          "parameters": {
+            "corpus_id": { "type": "string", "description": "Corpus to query." },
+            "entity_id": { "type": "string", "description": "Optional entity to expand from." },
+            "query":     { "type": "string", "description": "Optional graph query." },
+            "limit":     { "type": "integer", "description": "Maximum results." }
+          },
+          "required": ["corpus_id"]
+        }
+      ]
+    },
+    {
+      "family": "interaction",
+      "held_out": false,
+      "source": "OrchestratorIDE/Core/ToolRegistry.cs (OnAskUser)",
+      "tools": [
+        {
+          "name": "ask_user",
+          "description": "Ask the human a clarifying question and wait for their answer.",
+          "parameters": {
+            "question": { "type": "string", "description": "The question to ask." },
+            "options":  { "type": "string", "description": "Optional list of suggested answers." }
+          },
+          "required": ["question"]
+        }
+      ]
+    },
+    {
+      "family": "testing",
+      "held_out": false,
+      "source": "OrchestratorIDE/Tools/TestTools.cs",
+      "tools": [
+        {
+          "name": "run_tests",
+          "description": "Build the project and run its test suite.",
+          "parameters": { "path": { "type": "string", "description": "Optional path to scope the test run to." } },
+          "required": []
+        }
+      ]
+    },
+    {
+      "family": "docs",
+      "held_out": false,
+      "source": "OrcChatToolCatalog (synthesized save_markdown_document tool)",
+      "tools": [
+        {
+          "name": "save_markdown_document",
+          "description": "Save a markdown document into the current workspace and return its path.",
+          "parameters": {
+            "filename": { "type": "string", "description": "File name, with or without the .md extension." },
+            "content":  { "type": "string", "description": "Full markdown document body to save." },
+            "folder":   { "type": "string", "description": "Optional workspace-relative folder. Defaults to chat-output." }
+          },
+          "required": ["filename", "content"]
+        }
+      ]
+    },
+    {
+      "family": "cross_agent_claude_code",
+      "held_out": false,
+      "source": "Claude Code's own tool definitions (verbatim from this session's actual system tool list, 2026-08-02) -- HIGH confidence, not inferred.",
+      "notes": "hardcoreerik, 2026-08-02: broaden the trained tool universe with REAL naming conventions from other AI coding agents, not just TheOrc's own registered tools -- the same capability (read a file, run a shell command) named differently is exactly the kind of cross-ecosystem generalization a 'future-proof' toolcaller should handle, distinct from Task #1's synthetic fictional-domain tools (calendar/notes/etc.), which test genuinely novel capabilities rather than differently-named familiar ones.",
+      "tools": [
+        {
+          "name": "Read",
+          "description": "Reads a file from the local filesystem.",
+          "parameters": {
+            "file_path": { "type": "string", "description": "The absolute path to the file to read." },
+            "offset":    { "type": "integer", "description": "The line number to start reading from." },
+            "limit":     { "type": "integer", "description": "The number of lines to read." }
+          },
+          "required": ["file_path"]
+        },
+        {
+          "name": "Write",
+          "description": "Writes a file to the local filesystem, overwriting it if it already exists.",
+          "parameters": {
+            "file_path": { "type": "string", "description": "The absolute path to the file to write." },
+            "content":   { "type": "string", "description": "The content to write to the file." }
+          },
+          "required": ["file_path", "content"]
+        },
+        {
+          "name": "Edit",
+          "description": "Performs exact string replacements in files.",
+          "parameters": {
+            "file_path":   { "type": "string",  "description": "The absolute path to the file to modify." },
+            "old_string":  { "type": "string",  "description": "The text to replace." },
+            "new_string":  { "type": "string",  "description": "The text to replace it with." },
+            "replace_all": { "type": "boolean", "description": "Replace all occurrences of old_string." }
+          },
+          "required": ["file_path", "old_string", "new_string"]
+        },
+        {
+          "name": "Bash",
+          "description": "Executes a given shell command and returns its output.",
+          "parameters": {
+            "command":          { "type": "string",  "description": "The command to execute." },
+            "description":      { "type": "string",  "description": "Clear, concise description of what this command does." },
+            "timeout":          { "type": "integer", "description": "Optional timeout in milliseconds." },
+            "run_in_background":{ "type": "boolean", "description": "Set to true to run this command in the background." }
+          },
+          "required": ["command"]
+        },
+        {
+          "name": "Grep",
+          "description": "A powerful search tool built on ripgrep for searching file contents.",
+          "parameters": {
+            "pattern":     { "type": "string",  "description": "The regular expression pattern to search for in file contents." },
+            "path":        { "type": "string",  "description": "File or directory to search in." },
+            "glob":        { "type": "string",  "description": "Glob pattern to filter files." },
+            "output_mode": { "type": "string",  "description": "content | files_with_matches | count." }
+          },
+          "required": ["pattern"]
+        },
+        {
+          "name": "Glob",
+          "description": "Fast file pattern matching tool that works with any codebase size.",
+          "parameters": {
+            "pattern": { "type": "string", "description": "The glob pattern to match files against." },
+            "path":    { "type": "string", "description": "The directory to search in." }
+          },
+          "required": ["pattern"]
+        },
+        {
+          "name": "WebFetch",
+          "description": "Fetches content from a specified URL and processes it.",
+          "parameters": {
+            "url":    { "type": "string", "description": "The URL to fetch content from." },
+            "prompt": { "type": "string", "description": "The prompt to run on the fetched content." }
+          },
+          "required": ["url", "prompt"]
+        },
+        {
+          "name": "WebSearch",
+          "description": "Allows searching the web and using the results.",
+          "parameters": {
+            "query": { "type": "string", "description": "The search query to use." }
+          },
+          "required": ["query"]
+        }
+      ]
+    },
+    {
+      "family": "cross_agent_codex",
+      "held_out": false,
+      "source": "OpenAI Codex CLI's publicly documented tool primitives -- MEDIUM confidence (public docs/community references, not verified against a live Codex CLI session the way TheOrc's own tools and Claude Code's tools above were). Exact current parameter names may have since evolved; treat as representative of the naming CONVENTION (patch-based editing vs. read/write, single 'shell' primitive vs. TheOrc's read_file/write_file/run_shell split) rather than a byte-exact spec.",
+      "tools": [
+        {
+          "name": "shell",
+          "description": "Runs a shell command and returns its output.",
+          "parameters": {
+            "command": { "type": "string", "description": "The shell command to execute." },
+            "workdir": { "type": "string", "description": "Working directory for the command." },
+            "timeout_ms": { "type": "integer", "description": "Timeout in milliseconds." }
+          },
+          "required": ["command"]
+        },
+        {
+          "name": "apply_patch",
+          "description": "Applies a structured patch (V4A-style diff) to create, update, or delete files.",
+          "parameters": {
+            "patch": { "type": "string", "description": "The full patch text, in the *** Begin Patch / *** End Patch envelope format." }
+          },
+          "required": ["patch"]
+        }
+      ]
+    }
+  ]
+}

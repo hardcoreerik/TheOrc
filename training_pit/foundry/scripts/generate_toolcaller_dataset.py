@@ -8,13 +8,25 @@ seeded scenario templates. The decision type and tool are **predetermined** by t
 generation recipe — the model only fills in realistic request text and arguments, so the
 label cannot drift from the intended category.
 
-Supports three backends (--api):
-  native   Use TheOrc native llama.cpp runtime (port 8080, /v1/chat/completions).
-           Fully local — no cloud, no Ollama. Requires the native runtime to be running
-           with a ≥3B model loaded. Model auto-discovered from /v1/models if not set.
+Supports four backends (--api):
+  swarmcli Preferred local backend. Drives Tools/SwarmCli's `--native-complete` mode --
+           the REAL in-process Native Runtime v2 (LLamaSharpRuntime, our own code over
+           the LLamaSharp inference kernel). No server, no Ollama, no third-party
+           binary. Needs --swarmcli-exe (built swarmcli.exe) and --swarmcli-gguf (a
+           local GGUF file).
+  native   Use llama-server.exe's OpenAI-compat HTTP server (port 8080). This is a
+           THIRD-PARTY server binary (llama.cpp's own, not ours) -- prefer `swarmcli`
+           instead. Kept for compatibility with an already-running llama-server.exe.
   claude   Use Anthropic Claude API. Reads ANTHROPIC_API_KEY env var.
            Default model: claude-haiku-4-5-20251001 (fast and high quality).
-  ollama   Use a local Ollama instance (--ollama-host / --model).
+  ollama   Use a local Ollama instance (--ollama-host / --model). Per memory
+           no-ollama-orc-development, this is never auto-selected -- pass --api ollama
+           explicitly if you have a specific reason to use it.
+
+For Cerebras-backed generation, use the separate
+generate_toolcaller_dataset_cerebras.py script instead (mirrors
+generate_v4gold_cerebras.py's standalone pattern — Cerebras is an external development
+tool for bulk dataset generation, kept deliberately apart from this multi-backend script).
 
 Each output file is a valid toolcaller-v0 capture JSON placed in:
     training_pit/datasets/toolcaller/
@@ -46,11 +58,15 @@ Args:
 """
 
 import argparse
+import contextlib
 import json
 import os
+import queue
 import random
 import re
+import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -311,6 +327,130 @@ def native_list_models(host: str) -> list[str]:
     return [m["id"] for m in r.json().get("data", [])]
 
 
+# ── swarmcli --native-complete client (real in-process Native Runtime v2) ────────
+#
+# native_generate() above talks to llama-server.exe's OpenAI-compat HTTP surface --
+# that's a third-party server binary (llama.cpp's own), same category concern as
+# Ollama, just a different vendor (see memory no-ollama-orc-development). This backend
+# instead drives Tools/SwarmCli's `--native-complete` mode: our own in-process
+# LLamaSharpRuntime code, no server, no external process beyond the one subprocess we
+# own. The subprocess loads the GGUF once and answers one JSON line per generate() call
+# for the life of the batch -- launch a SwarmCliBackend as a context manager and reuse
+# it across every call instead of spawning per-example (a fresh LLamaSharp model load
+# takes real time).
+
+class SwarmCliBackend:
+    """Persistent stdin/stdout wrapper around `swarmcli --native-complete <gguf>`.
+
+    Both stdout and stderr are drained by dedicated background threads into queues for the
+    life of the subprocess (started once in __enter__), rather than read synchronously per
+    call. Two real bugs this fixes (CodeRabbit review, PR #99):
+      - stderr was only ever read once (the startup banner) -- any output after that sat in
+        the OS pipe buffer, which fills and blocks the child process on Windows once enough
+        accumulates, silently hanging generation with no diagnostic.
+      - the startup readiness wait and each generate() call blocked on a plain readline() with
+        no timeout at all -- a hung/crashed subprocess would block forever instead of raising.
+    """
+
+    def __init__(self, swarmcli_exe: Path, gguf_path: Path, startup_timeout: float = 120.0):
+        self.swarmcli_exe = swarmcli_exe
+        self.gguf_path    = gguf_path
+        self._proc: subprocess.Popen | None = None
+        self._startup_timeout = startup_timeout
+        self._stdout_queue: "queue.Queue[str | None]" = queue.Queue()
+        self._stderr_lines: list[str] = []
+
+    def _pump(self, stream, into_queue: "queue.Queue[str | None] | None") -> None:
+        """Background-thread target: reads lines from `stream` forever, either queuing them
+        (stdout, one response per generate() call) or just buffering the last few for
+        diagnostics (stderr, which is otherwise just noise/progress). Puts None on EOF so a
+        blocked queue.get() call unblocks instead of hanging when the process exits."""
+        try:
+            for line in iter(stream.readline, ""):
+                if into_queue is not None:
+                    into_queue.put(line)
+                else:
+                    self._stderr_lines.append(line)
+                    if len(self._stderr_lines) > 50:
+                        self._stderr_lines.pop(0)
+        finally:
+            if into_queue is not None:
+                into_queue.put(None)
+
+    def __enter__(self) -> "SwarmCliBackend":
+        if not self.swarmcli_exe.exists():
+            raise FileNotFoundError(f"swarmcli executable not found: {self.swarmcli_exe}")
+        if not self.gguf_path.exists():
+            raise FileNotFoundError(f"GGUF model not found: {self.gguf_path}")
+        self._proc = subprocess.Popen(
+            [str(self.swarmcli_exe), "--native-complete", str(self.gguf_path)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", bufsize=1,
+        )
+        assert self._proc.stdout is not None and self._proc.stderr is not None
+        stderr_queue: "queue.Queue[str | None]" = queue.Queue()
+        threading.Thread(target=self._pump, args=(self._proc.stdout, self._stdout_queue), daemon=True).start()
+        threading.Thread(target=self._pump, args=(self._proc.stderr, None), daemon=True).start()
+
+        # First stderr line is the "loaded ... ready" banner (or a load failure) -- wait for it
+        # with a real timeout instead of blocking forever, polling _stderr_lines (populated by
+        # the background pump thread above) rather than reading the stream directly.
+        deadline = time.monotonic() + self._startup_timeout
+        while not self._stderr_lines:
+            if self._proc.poll() is not None:
+                raise RuntimeError("swarmcli --native-complete exited immediately during startup")
+            if time.monotonic() > deadline:
+                self._proc.kill()
+                self._proc.wait(timeout=10)
+                raise TimeoutError(
+                    f"swarmcli --native-complete did not report ready within {self._startup_timeout}s")
+            time.sleep(0.05)
+        if self._proc.poll() is not None:
+            raise RuntimeError(f"swarmcli --native-complete exited immediately: {self._stderr_lines[0].strip()}")
+        return self
+
+    def __exit__(self, *exc) -> None:
+        if self._proc is not None:
+            try:
+                if self._proc.stdin:
+                    self._proc.stdin.close()
+                self._proc.wait(timeout=10)
+            except Exception:
+                self._proc.kill()
+                self._proc.wait(timeout=10)
+
+    def generate(self, system: str, prompt: str, max_tokens: int = 512, timeout: float = 60.0) -> str:
+        assert self._proc is not None and self._proc.stdin is not None
+        req = json.dumps({"system": system, "user": prompt, "max_tokens": max_tokens}, ensure_ascii=False)
+        self._proc.stdin.write(req + "\n")
+        self._proc.stdin.flush()
+
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"swarmcli --native-complete did not respond within {timeout}s")
+            try:
+                line = self._stdout_queue.get(timeout=remaining)
+            except queue.Empty:
+                raise TimeoutError(f"swarmcli --native-complete did not respond within {timeout}s")
+            if line is None:
+                raise RuntimeError("swarmcli --native-complete closed stdout unexpectedly")
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                resp = json.loads(line)
+            except json.JSONDecodeError:
+                # Non-JSON diagnostic noise on stdout (should not normally happen, but a crash
+                # here would be worse than skipping a stray line) -- keep waiting for the real
+                # response within the same deadline rather than raising.
+                continue
+            if "error" in resp:
+                raise RuntimeError(f"swarmcli --native-complete: {resp['error']}")
+            return resp["text"].strip()
+
+
 # ── Claude API client ────────────────────────────────────────────────────────────
 
 def claude_generate(api_key: str, model: str, system: str, prompt: str, timeout: int = 30) -> str:
@@ -526,10 +666,22 @@ def plan_scenarios(count: int, rng: random.Random) -> list[tuple[str, str, str |
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--api",          choices=["native", "claude", "ollama"], default=None,
-                    help="Backend. Auto: native if runtime healthy, else claude if key set, else ollama.")
+    ap.add_argument("--api",          choices=["swarmcli", "native", "claude", "ollama"], default=None,
+                    help="Backend. Auto: claude if ANTHROPIC_API_KEY is set, else swarmcli if the exe+gguf "
+                         "resolve; otherwise errors (CodeRabbit review, PR #99: this help text previously "
+                         "said the auto-detect falls back to ollama, but it doesn't -- memory "
+                         "no-ollama-orc-development means ollama is never auto-selected here, only usable "
+                         "via an explicit --api ollama). swarmcli is the real in-process Native Runtime v2 "
+                         "(no server, no Ollama) -- prefer it over 'native', which talks to "
+                         "llama-server.exe's HTTP server (a third-party binary).")
     ap.add_argument("--native-host",  default="http://127.0.0.1:8080",
-                    help="Native llama.cpp runtime base URL (used when --api native)")
+                    help="Native llama.cpp SERVER runtime base URL (used when --api native, i.e. llama-server.exe)")
+    ap.add_argument("--swarmcli-exe", type=Path,
+                    default=Path(__file__).resolve().parents[3] / "Tools" / "SwarmCli" / "bin" / "Debug"
+                            / "net10.0-windows" / "swarmcli.exe",
+                    help="Path to swarmcli.exe (used when --api swarmcli)")
+    ap.add_argument("--swarmcli-gguf", type=Path, default=None,
+                    help="Path to the GGUF model swarmcli --native-complete should load (used when --api swarmcli)")
     ap.add_argument("--claude-model", default="claude-haiku-4-5-20251001",
                     help="Claude model ID (used when --api claude)")
     ap.add_argument("--model",        default="qwen2.5-coder:14b",
@@ -540,14 +692,24 @@ def main():
     ap.add_argument("--seed",         type=int, default=42)
     args = ap.parse_args()
 
-    # Auto-detect API backend: native → claude → ollama
+    # Auto-detect API backend: claude → swarmcli. Ollama is never auto-selected (see
+    # memory no-ollama-orc-development: any Ollama use here must be a deliberate,
+    # explicit --api ollama choice, not a silent fallback). "native" (llama-server.exe)
+    # is likewise opt-in only via explicit --api native -- it's a third-party server
+    # binary, not ours.
     api_key: str | None = os.environ.get("ANTHROPIC_API_KEY")
     if args.api is None:
-        try:
-            r = requests.get(f"{args.native_host.rstrip('/')}/health", timeout=3)
-            args.api = "native" if r.status_code == 200 else ("claude" if api_key else "ollama")
-        except Exception:
-            args.api = "claude" if api_key else "ollama"
+        if api_key:
+            args.api = "claude"
+        elif args.swarmcli_gguf is not None and args.swarmcli_exe.exists() and args.swarmcli_gguf.exists():
+            args.api = "swarmcli"
+        else:
+            print("ERROR: no backend could be auto-selected (no ANTHROPIC_API_KEY, and "
+                  "--swarmcli-gguf not given or not found). Pass --api explicitly: "
+                  "swarmcli --swarmcli-gguf <path>, claude (needs ANTHROPIC_API_KEY), "
+                  "or native (needs a running llama-server.exe). Ollama is never "
+                  "auto-selected here.", flush=True)
+            sys.exit(1)
 
     rng = random.Random(args.seed)
 
@@ -570,7 +732,13 @@ def main():
     counter  = len(existing) + 1
 
     # Determine canonical model name and teacher provenance
-    if args.api == "native":
+    if args.api == "swarmcli":
+        if args.swarmcli_gguf is None:
+            print("ERROR: --api swarmcli requires --swarmcli-gguf <path-to-gguf>.", flush=True)
+            sys.exit(1)
+        active_model  = args.swarmcli_gguf.stem
+        teacher_model = active_model  # local model acts as teacher
+    elif args.api == "native":
         # Discover model from runtime if not explicitly set
         if args.model and args.model != "qwen2.5-coder:14b":
             active_model = args.model  # user specified a native model name
@@ -596,7 +764,22 @@ def main():
     print(f"progress    : {progress_path}", flush=True)
     print(flush=True)
 
-    if args.api == "native":
+    # A `with` block guarantees SwarmCliBackend.__exit__ runs even on an exception raised
+    # partway through the generation loop (including KeyboardInterrupt) -- manual __enter__/
+    # __exit__ calls (the prior version of this code) leave the swarmcli.exe subprocess running
+    # with the GGUF still loaded in VRAM if anything throws between the two calls (CodeRabbit
+    # review, PR #99). nullcontext() for the non-swarmcli backends means the rest of this
+    # function's generation loop can run identically regardless of backend, with the `with`
+    # covering both cases uniformly rather than a swarmcli-only special case.
+    swarmcli_backend_cm: SwarmCliBackend | contextlib.AbstractContextManager
+    if args.api == "swarmcli":
+        swarmcli_backend_cm = SwarmCliBackend(args.swarmcli_exe, args.swarmcli_gguf)
+    else:
+        swarmcli_backend_cm = contextlib.nullcontext()
+
+    if args.api == "swarmcli":
+        pass  # readiness printed once the `with` block below actually starts the subprocess
+    elif args.api == "native":
         try:
             r = requests.get(f"{args.native_host.rstrip('/')}/health", timeout=10)
             r.raise_for_status()
@@ -628,81 +811,93 @@ def main():
             sys.exit(1)
         print(f"Ollama ready at {args.ollama_host}", flush=True)
 
-    write_progress(progress_path, "running", 0, 0, args.count)
+    try:
+        with swarmcli_backend_cm as swarmcli_backend:
+            if args.api == "swarmcli":
+                print(f"swarmcli --native-complete ready · model: {active_model} "
+                      "(real in-process Native Runtime v2, no server, no Ollama)", flush=True)
 
-    scenarios = plan_scenarios(args.count, rng)
-    generated = 0
-    rejected  = 0
+            write_progress(progress_path, "running", 0, 0, args.count)
 
-    for role, decision, tool, context_hint in scenarios:
-        if generated >= args.count:
-            break
+            scenarios = plan_scenarios(args.count, rng)
+            generated = 0
+            rejected  = 0
 
-        prompt = build_generator_prompt(role, decision, tool, context_hint, tool_schemas)
+            for role, decision, tool, context_hint in scenarios:
+                if generated >= args.count:
+                    break
 
-        try:
-            if args.api == "native":
-                raw_text = native_generate(
-                    host=args.native_host,
-                    model=active_model,
-                    system=GENERATOR_SYSTEM,
-                    prompt=prompt,
+                prompt = build_generator_prompt(role, decision, tool, context_hint, tool_schemas)
+
+                try:
+                    if args.api == "swarmcli":
+                        raw_text = swarmcli_backend.generate(GENERATOR_SYSTEM, prompt)
+                    elif args.api == "native":
+                        raw_text = native_generate(
+                            host=args.native_host,
+                            model=active_model,
+                            system=GENERATOR_SYSTEM,
+                            prompt=prompt,
+                        )
+                    elif args.api == "claude":
+                        raw_text = claude_generate(api_key, active_model, GENERATOR_SYSTEM, prompt)
+                    else:
+                        raw_text = ollama_generate(
+                            host=args.ollama_host,
+                            model=active_model,
+                            system=GENERATOR_SYSTEM,
+                            prompt=prompt,
+                        )
+                except Exception as e:
+                    backend_label = {"swarmcli": "swarmcli --native-complete", "native": "Native runtime",
+                                      "claude": "Claude API"}.get(args.api, "Ollama")
+                    print(f"  [warn] {backend_label} error: {e}", flush=True)
+                    rejected += 1
+                    continue
+
+                raw_dict = extract_json(raw_text)
+                if raw_dict is None:
+                    print(f"  [reject] no JSON in response (decision={decision}, role={role})", flush=True)
+                    rejected += 1
+                    continue
+
+                ts         = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+                example_id = f"tc_{ts}_{counter:04d}"
+                lineage_id = f"tc_lg_{example_id}"
+
+                capture = validate_and_build_capture(
+                    raw=raw_dict,
+                    role=role,
+                    tool_schemas=tool_schemas,
+                    lineage_id=lineage_id,
+                    example_id=example_id,
+                    model_name=active_model,
+                    teacher_model=teacher_model,
                 )
-            elif args.api == "claude":
-                raw_text = claude_generate(api_key, active_model, GENERATOR_SYSTEM, prompt)
-            else:
-                raw_text = ollama_generate(
-                    host=args.ollama_host,
-                    model=active_model,
-                    system=GENERATOR_SYSTEM,
-                    prompt=prompt,
-                )
-        except Exception as e:
-            backend_label = {"native": "Native runtime", "claude": "Claude API"}.get(args.api, "Ollama")
-            print(f"  [warn] {backend_label} error: {e}", flush=True)
-            rejected += 1
-            continue
 
-        raw_dict = extract_json(raw_text)
-        if raw_dict is None:
-            print(f"  [reject] no JSON in response (decision={decision}, role={role})", flush=True)
-            rejected += 1
-            continue
+                if capture is None:
+                    print(f"  [reject] validation failed (decision={decision}, role={role})", flush=True)
+                    rejected += 1
+                    continue
 
-        ts         = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-        example_id = f"tc_{ts}_{counter:04d}"
-        lineage_id = f"tc_lg_{example_id}"
+                out_file = CAPTURES_DIR / f"toolcaller_capture_{example_id}.json"
+                out_file.write_text(json.dumps(capture, indent=2, ensure_ascii=False), encoding="utf-8")
+                generated += 1
+                counter   += 1
 
-        capture = validate_and_build_capture(
-            raw=raw_dict,
-            role=role,
-            tool_schemas=tool_schemas,
-            lineage_id=lineage_id,
-            example_id=example_id,
-            model_name=active_model,
-            teacher_model=teacher_model,
-        )
+                req_preview = capture["request"][:60].replace("\n", " ")
+                print(f"  [{generated:>4}/{args.count}] {decision:12s} {role:12s} "
+                      f"{(tool or '-'):12s} — {req_preview!r}", flush=True)
 
-        if capture is None:
-            print(f"  [reject] validation failed (decision={decision}, role={role})", flush=True)
-            rejected += 1
-            continue
+                write_progress(progress_path, "running", generated, rejected, args.count)
 
-        out_file = CAPTURES_DIR / f"toolcaller_capture_{example_id}.json"
-        out_file.write_text(json.dumps(capture, indent=2, ensure_ascii=False), encoding="utf-8")
-        generated += 1
-        counter   += 1
+                # Polite pause — Claude API has rate limits; native/Ollama just need breathing room
+                time.sleep(0.3 if args.api == "claude" else 0.1)
 
-        req_preview = capture["request"][:60].replace("\n", " ")
-        print(f"  [{generated:>4}/{args.count}] {decision:12s} {role:12s} "
-              f"{(tool or '-'):12s} — {req_preview!r}", flush=True)
-
-        write_progress(progress_path, "running", generated, rejected, args.count)
-
-        # Polite pause — Claude API has rate limits; native/Ollama just need breathing room
-        time.sleep(0.3 if args.api == "claude" else 0.1)
-
-    write_progress(progress_path, "done", generated, rejected, args.count)
+            write_progress(progress_path, "done", generated, rejected, args.count)
+    except (FileNotFoundError, RuntimeError, TimeoutError) as e:
+        print(f"ERROR: swarmcli --native-complete failed to start: {e}", flush=True)
+        sys.exit(1)
 
     print(flush=True)
     print(f"=== done: {generated} valid, {rejected} rejected ===", flush=True)

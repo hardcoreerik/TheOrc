@@ -291,7 +291,7 @@ Full spec: `.grok/WARBANDS.md`. The `OrchestratorIDE.Daemon` project IS the Warb
 - Daemon is already `net10.0` + AES-256-GCM — cross-platform today
 - Current Docker: Warband container + Ollama sidecar (2 containers)
 - Post-Native-Runtime (Phase 2): Warband loads GGUF in-process, no sidecar (1 container)
-- ORCISH TONGUE GBNF tool-call constraints work in-process on any model (post-Phase 2)
+- ORCISH TONGUE GBNF tool-call constraints work in-process on any model — **landed 2026-08-03** (`ToolCallGrammarBuilder`, wired into `LLamaSharpRuntime`; PR #99). Applies to any surface routed through `LLamaSharpRuntime`, including a Warband once it runs native in-process (no separate Warband-specific work needed, same convergence-point argument as the main app).
 - **2026-06-24**: CI publish matrix and Docker template both shipped (see below) -- neither
   has had a real GitHub Actions run or a live `docker build`/`docker run` yet; both were
   validated locally only (cross-compile + YAML syntax checking for the CI job; YAML parsing +
@@ -341,7 +341,7 @@ Settings UI and verified end-to-end (single-turn and multi-turn). `SwarmSession`
 remains on the configured default runtime -- genuinely not touched, not just
 forgotten to update here.
 
-**ORCISH TONGUE** (universal tool caller, formerly GOBLIN MIND — renamed to end the GOBLIN MIND / HIVE MIND collision; inventory in `.grok/RENAME_GOBLIN_MIND.md`, not yet applied to code). Native runtime is the substrate that upgrades it from prompt-layer format adaptation (probe + parse defensively) to **decoder-layer grammar-constrained tool calls (GBNF)** — valid by construction, works on any model even untrained-for-tools. This is the real "why native" capability, not just dropping the Ollama install. See `docs/RUNTIME_PHASE0_SPEC.md` §11.
+**ORCISH TONGUE** (universal tool caller, formerly GOBLIN MIND — renamed to end the GOBLIN MIND / HIVE MIND collision; symbol/display-string rename inventory in `.grok/RENAME_GOBLIN_MIND.md`, still not applied to code — the *name* ORCISH TONGUE is used in new docs/code going forward, but old GOBLIN MIND symbols haven't been mass-renamed). Native runtime is the substrate that upgrades it from prompt-layer format adaptation (probe + parse defensively) to **decoder-layer grammar-constrained tool calls (GBNF)** — valid by construction, works on any model even untrained-for-tools — **landed 2026-08-03** (PR #99): `ToolCallGrammarBuilder` compiles the live tool list to GBNF, wired into `LLamaSharpRuntime.StreamCompletionAsync`, live automatically for OrcChat/Swarm/HIVE through the shared `IModelRuntime` reference. Verified end-to-end that a model cannot emit a tool name outside the grammar even when a request explicitly names it inline. Only covers the native (LLamaSharp) runtime — Ollama/server-backed calls still rely on prompt-layer probing + defensive parsing. This is the real "why native" capability, not just dropping the Ollama install. See `docs/RUNTIME_PHASE0_SPEC.md` §11.
 
 ### Promised from README "What's coming" section
 | Item | Source |

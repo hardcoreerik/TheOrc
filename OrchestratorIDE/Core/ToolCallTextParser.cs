@@ -8,8 +8,12 @@ namespace OrchestratorIDE.Core;
 
 /// <summary>
 /// Parses text-format tool calls from raw model output.
-/// Single source of truth shared by AgentLoop and LLamaSharpRuntime.
-/// Phase 3 will replace this with GBNF-constrained generation.
+/// Single source of truth shared by AgentLoop and LLamaSharpRuntime. On the native runtime path,
+/// output is now GBNF grammar-constrained (see <see cref="Runtime.ToolCallGrammarBuilder"/>)
+/// before it ever reaches this parser, so malformed/fabricated tool names become unreachable
+/// rather than needing to be caught here -- this parser still runs unchanged either way (grammar
+/// constrains syntax, not the parsing step), and remains the only parser for the Ollama/server
+/// backends, which are not grammar-constrained.
 /// </summary>
 public static class ToolCallTextParser
 {

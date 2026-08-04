@@ -33,6 +33,12 @@ public sealed record ToolcallerCapture(
     [property: JsonPropertyName("role")] string Role,
     [property: JsonPropertyName("request")] string Request,
     [property: JsonPropertyName("available_tools")] IReadOnlyList<string> AvailableTools,
+    // toolcaller-v2 only: full schema for every tool actually presented, keyed by name.
+    // Train-pool synthetic tools (synthetic_tool_schemas.py) are procedurally generated
+    // per generation run and never persisted in any frozen registry -- without this, a v2
+    // capture whose expected.tool is synthetic would be mechanically unvalidatable (no
+    // "live registration" to check against). null for v0/v1 captures.
+    [property: JsonPropertyName("available_tools_schema")] IReadOnlyDictionary<string, FrozenTool>? AvailableToolsSchema,
     [property: JsonPropertyName("approval_state")] string ApprovalState,
     [property: JsonPropertyName("expected")] ToolcallerExpected Expected,
     [property: JsonPropertyName("policy_outcome")] ToolcallerPolicyOutcome? PolicyOutcome,

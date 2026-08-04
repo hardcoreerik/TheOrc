@@ -7,6 +7,16 @@
 > and evaluation contract for historical/audit purposes — current results live
 > in [THEORC_TOOLCALLER_V0_BASELINE.md](THEORC_TOOLCALLER_V0_BASELINE.md) and
 > [TOOLCALLER_REFUSAL_GAUNTLET.md](TOOLCALLER_REFUSAL_GAUNTLET.md).
+>
+> A **toolcaller-v2** track (generalization beyond the frozen v0 tool set, via
+> a tool-family registry + schema-conditioned training rather than name
+> memorization) exists as of 2026-08-03 — round 2 is a trained, evaluated
+> candidate (`training_pit/foundry/configs/toolcaller_v2_r2.json`), not yet
+> promoted (round 2 cleared its `plausible_fabrication` safety floor but
+> missed the `generalization_accuracy_floor`, per `foundry_promote.py`).
+> r3/v0 above remains the only **promoted and deployed** specialist. See
+> `C:\Users\hardc\.claude\plans\elegant-bubbling-coral.md` for the full v2
+> design and round-by-round results.
 
 ---
 
@@ -28,10 +38,16 @@ The proof is allowed to conclude that training is unnecessary.
 
 ## Relationship To ORCISH TONGUE
 
-ORCISH TONGUE is the planned name and direction for TheOrc's universal
-tool-format/tool-calling layer. The current code still contains existing names
-and prompt-layer format probing, instruction building, and defensive parsing.
-The rename and Native Runtime decoder-constrained path have not fully landed.
+ORCISH TONGUE is the name for TheOrc's universal tool-format/tool-calling
+layer. The rename landed alongside the existing prompt-layer format probing,
+instruction building, and defensive parsing. The Native Runtime
+decoder-constrained path (GBNF grammar compiled from the live tool list,
+enforced via LLamaSharp's `DefaultSamplingPipeline.Grammar`) landed
+2026-08-03 — see `docs/RUNTIME_PHASE0_SPEC.md` §11 and
+`OrchestratorIDE/Core/Runtime/ToolCallGrammarBuilder.cs`. It applies only
+when the native (LLamaSharp) runtime is actually serving the request; the
+Ollama/server backends still rely on prompt-layer probing + defensive
+parsing only.
 
 The responsibilities are complementary:
 

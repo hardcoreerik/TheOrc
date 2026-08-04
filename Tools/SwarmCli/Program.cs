@@ -71,6 +71,7 @@ bool    showIdentity = false;
 bool    pairMode     = false;
 bool    noRun        = false;
 string? nativeTestGgufPath = null;
+string? nativeCompleteGgufPath = null;
 string? nativeIntegrationProbeGgufPath = null;
 string? nativeCompareGgufPath = null;
 string? nativeCompareOllamaModel = null;
@@ -118,6 +119,7 @@ for (int i = 0; i < args.Length; i++)
         case "--pair":          pairMode     = true;            break;
         case "--no-run":        noRun        = true;            break;
         case "--native-test":   nativeTestGgufPath = Next();    break;
+        case "--native-complete": nativeCompleteGgufPath = Next(); break;
         case "--native-integration-probe": nativeIntegrationProbeGgufPath = Next(); break;
         case "--native-compare": nativeCompareGgufPath = Next(); break;
         case "--ollama-model":  nativeCompareOllamaModel = Next(); break;
@@ -432,6 +434,88 @@ if (nativeTestGgufPath is not null)
         $"vram~{(attempt.Stats.EstimatedVramBytes is { } vramBytes ? $"{vramBytes / 1024 / 1024}MB" : "n/a")}");
 
     return attempt.Success ? 0 : 1;
+}
+
+// ── --native-complete — persistent in-process completion server for scripts ────
+// No Ollama with Orc development (memory no-ollama-orc-development): the training_pit
+// Python generators' "native" backend previously meant POSTing to llama-server.exe's
+// /v1/chat/completions, which is a third-party server-based deployment (llama.cpp's own
+// binary, not ours), same category concern as Ollama, just a different upstream vendor.
+// This mode instead drives the real in-process Native Runtime v2 (LLamaSharpRuntime --
+// our own orchestration code over the LLamaSharp inference kernel) directly, with no
+// HTTP server and no external process at all: load the GGUF once, then serve one
+// completion per line of stdin JSON for the life of this process, so a Python script can
+// keep it running across a whole generation batch instead of paying model-load cost per call.
+//
+// Protocol: one JSON object per line on stdin, one JSON object per line on stdout (both
+// UTF-8, LF-terminated). Request: {"system": "...", "user": "...", "max_tokens": 512,
+// "tools": [...]} (max_tokens optional, default 512; tools optional, same wire shape
+// ToolDefinition.ToOllamaSchema() produces -- presence enables ORCISH TONGUE's GBNF grammar
+// constraint on this call). Response: {"text": "..."} on success, or
+// {"error": "..."} on failure -- the request line is still consumed either way, so the
+// caller can keep the stream open after an error instead of every failure killing the batch.
+// A blank input line, or EOF, ends the process (exit 0).
+if (nativeCompleteGgufPath is not null)
+{
+    if (!File.Exists(nativeCompleteGgufPath))
+    {
+        Console.Error.WriteLine($"--native-complete: file not found: {nativeCompleteGgufPath}");
+        return 1;
+    }
+
+    var completeRuntime = new LLamaSharpRuntime();
+    var completeLoad = await completeRuntime.LoadModelAsync(nativeCompleteGgufPath);
+    if (!completeLoad.Success)
+    {
+        Console.Error.WriteLine($"--native-complete: failed to load model: {completeLoad.Message}");
+        await completeRuntime.DisposeAsync();
+        return 1;
+    }
+    Console.Error.WriteLine($"--native-complete: loaded {nativeCompleteGgufPath} via LLamaSharp, ready.");
+
+    string? line;
+    while ((line = await Console.In.ReadLineAsync()) is not null)
+    {
+        if (line.Length == 0)
+            break;
+
+        try
+        {
+            using var reqDoc = System.Text.Json.JsonDocument.Parse(line);
+            var root = reqDoc.RootElement;
+            var system   = root.TryGetProperty("system", out var sysEl)   ? sysEl.GetString()   ?? "" : "";
+            var user     = root.TryGetProperty("user", out var userEl)    ? userEl.GetString()  ?? "" : "";
+            var maxTokens = root.TryGetProperty("max_tokens", out var mtEl) && mtEl.TryGetInt32(out var mt) ? mt : 512;
+            // Optional "tools" field for exercising ORCISH TONGUE's GBNF grammar constraint
+            // (plan elegant-bubbling-coral.md): same wire shape ToolDefinition.ToOllamaSchema()
+            // produces -- [{"type":"function","function":{"name":"...","parameters":{...}}}].
+            List<object>? tools = root.TryGetProperty("tools", out var toolsEl)
+                ? System.Text.Json.JsonSerializer.Deserialize<List<object>>(toolsEl.GetRawText())
+                : null;
+
+            var completeHistory = new List<AgentMessage>
+            {
+                new() { Role = MessageRole.System, Content = system, Status = MessageStatus.Complete },
+                new() { Role = MessageRole.User,   Content = user,   Status = MessageStatus.Complete },
+            };
+
+            var sb = new System.Text.StringBuilder();
+            await foreach (var token in completeRuntime.StreamCompletionAsync(
+                nativeCompleteGgufPath, completeHistory, tools: tools, temperature: 0.8, maxTokens: maxTokens))
+            {
+                sb.Append(token);
+            }
+
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { text = sb.ToString() }));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { error = ex.Message }));
+        }
+    }
+
+    await completeRuntime.DisposeAsync();
+    return 0;
 }
 
 // ── --native-integration-probe — real native-model Orcish Tongue smoke ─────
