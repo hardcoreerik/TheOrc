@@ -1,0 +1,44 @@
+{
+  "key": "toolcaller_v2",
+  "schema_version": "mixed (toolcaller-v0, toolcaller-v2)",
+  "created": "2026-08-03",
+  "notes": "Round-1 v2 bootstrap composition: proven v0/r3 stream (train_toolcaller_v0_r3.jsonl + eval_toolcaller_v0.jsonl, already-accepted, already ToolcallerBench-PASS at export time) concatenated with the new toolcaller-v2 subset-sampled/synthetic-augmented stream (train_toolcaller_v2_bulk.jsonl + eval_toolcaller_v2_bulk.jsonl). File-level concatenation, not a single exporter run -- the two streams use disjoint schema_version/tool_schema_hash identities and cannot be validated as one ToolcallerBench call. Each stream was independently ToolcallerBench-validated PASS BEFORE concatenation (see sources below); this sidecar records that composition honestly rather than claiming one blended verdict.",
+  "sources": {
+    "v0_stream": {
+      "train_path": "training_pit/datasets/train_toolcaller_v0_r3.jsonl",
+      "eval_path": "training_pit/datasets/eval_toolcaller_v0.jsonl",
+      "meta_path": "training_pit/datasets/toolcaller_v0_r3.meta.json",
+      "review_status": "accepted (all rows)"
+    },
+    "v2_bulk_stream": {
+      "train_path": "training_pit/datasets/train_toolcaller_v2_bulk.jsonl",
+      "eval_path": "training_pit/datasets/eval_toolcaller_v2_bulk.jsonl",
+      "meta_path": "training_pit/datasets/toolcaller_v2_bulk.meta.json",
+      "review_status": "pending (all rows) -- fresh synthetic generation, schema-validated at generation time and ToolcallerBench-PASS at export time, not yet human-reviewed"
+    }
+  },
+  "train_count": 2382,
+  "eval_count": 381,
+  "decision_balance": {
+    "train": {
+      "call": 833,
+      "unsupported": 846,
+      "no_tool": 318,
+      "clarify": 385
+    },
+    "eval": {
+      "no_tool": 66,
+      "call": 229,
+      "clarify": 44,
+      "unsupported": 42
+    }
+  },
+  "contains_pending": true,
+  "validator": {
+    "suite": "toolcaller-bench validate (run separately per source stream, not on the combined file)",
+    "verdict": "N/A",
+    "note": "v0_stream and v2_bulk_stream each independently PASSed ToolcallerBench before concatenation (see sources.*.meta_path). No single ToolcallerBench run validates the combined file because the two streams pin different tool_schema_hash identities. Same documented posture as toolcaller_v0_r3.meta.json (validator.verdict N/A there too, for the analogous reason of gauntlet-derived rows carrying no capture-level PASS)."
+  },
+  "train_sha256": "9204534707eccc807cabaa48453dfa62c279f19249f3b4b96ea8652b504afc1f",
+  "eval_sha256": "f0005ba747ce336c7f249ed2f34b7b24a22bd043e12da88a3572be2a721197d4"
+}

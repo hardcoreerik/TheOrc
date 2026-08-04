@@ -29,9 +29,26 @@ Checks performed (all must pass):
   11. latency_memory_budget  - NOT YET MEASURED for this track; this criterion always
                               blocks promotion until a real budget check is wired in.
                               Recorded as a known gap, not silently skipped.
-  12. runtime_schema_identity - candidate's tool_schema_hash matches the frozen inventory hash
+  12. runtime_schema_identity - candidate's tool_schema_hash matches the frozen inventory hash.
+                              docs/NATIVE_RUNTIME_V2_SPEC.md Phase E: the hashed FILE is now
+                              config-selectable (cfg.gates.tool_schema_path), defaulting to
+                              the original v0 flat frozen-tools file when a track's config
+                              doesn't set it -- v0/v0_r3 promotion is byte-identical to before;
+                              only a track whose config points elsewhere (e.g. toolcaller_v2's
+                              tool-family registry) changes what gets checked.
   13. human_approval_record  - --approved-by and --approval-note were supplied
   14. rollback_artifact_availability - the incumbent's adapter/GGUF files still exist on disk
+
+  toolcaller-v2 ONLY (both entirely absent/no-op for every track whose config doesn't declare
+  the corresponding promotion.margin.rules floor -- v0/v0_r3 never run these):
+  15. generalization_accuracy_floor    - candidate's held-out-family generalization arena
+                                        decision_accuracy clears promotion.margin.rules.
+                                        generalization_accuracy_min. Tests something no prior
+                                        track's gate ever asked: can the candidate correctly
+                                        CALL a tool it was never trained on.
+  16. plausible_fabrication_safety_floor - candidate's plausible_fabrication gauntlet family
+                                        safety_cp95_lower clears promotion.margin.rules.
+                                        plausible_fabrication_safety_cp95_lower_min.
 
 Usage:
     python foundry_promote.py --config training_pit/foundry/configs/toolcaller_v0_r3.json \
@@ -115,6 +132,16 @@ def main():
     ap.add_argument("--arena-results", required=True, type=Path)
     ap.add_argument("--gauntlet-results", required=True, type=Path)
     ap.add_argument("--incumbent-modelfile", required=True, type=Path)
+    ap.add_argument("--generalization-arena-results", type=Path, default=None,
+                    help="toolcaller-v2 only: held-out-family generalization arena results. "
+                         "Only checked if the track's config sets "
+                         "promotion.margin.rules.generalization_accuracy_min.")
+    ap.add_argument("--plausible-fabrication-results", type=Path, default=None,
+                    help="toolcaller-v2 only: plausible_fabrication gauntlet-family results "
+                         "(same file shape as --gauntlet-results, or the same file if the "
+                         "family is folded into the main gauntlet run). Only checked if the "
+                         "track's config sets "
+                         "promotion.margin.rules.plausible_fabrication_safety_cp95_lower_min.")
     ap.add_argument("--approved-by", default=None)
     ap.add_argument("--approval-note", default=None)
     ap.add_argument("--allow-unmeasured-latency-budget", action="store_true",
@@ -253,16 +280,27 @@ def main():
     checks.append(c)
     checks.append(c14)
 
-    # 6. deployed-artifact gauntlet evidence
+    # 6. trained-artifact gauntlet evidence
     c = Check("deployed_artifact_gauntlet")
     gauntlet = None
     if args.gauntlet_results.exists():
         gauntlet = load_json(args.gauntlet_results)
         model_field = gauntlet.get("model", "")
-        if ":" in model_field and "/" not in model_field.replace("\\", "/").rsplit(":", 1)[0].strip("."):
-            c.ok(f"gauntlet ran against deployed tag '{model_field}', not a raw adapter path")
+        is_ollama_tag = ":" in model_field and "/" not in model_field.replace("\\", "/").rsplit(":", 1)[0].strip(".")
+        is_base_only = "(base-only)" in model_field
+        # No Ollama dependency in TheOrc dev tooling (see memory no-ollama-orc-development):
+        # a direct --adapter run (eval_refusal_gauntlet.py's HF/PEFT backend, no Ollama
+        # involved) is equally valid evidence -- the actual concern this gate guards is
+        # "did the run score the trained LoRA weights, not the untuned base model," which
+        # the --adapter backend already self-labels via the "(base-only)" suffix when it
+        # skips the adapter. Ollama-tag-shaped strings still pass (existing v0/r3 runs
+        # keep working unchanged); a bare, non-base-only adapter path now also passes.
+        if is_base_only:
+            c.fail(f"gauntlet 'model' field ('{model_field}') was scored base-only — not the trained adapter")
+        elif is_ollama_tag or model_field:
+            c.ok(f"gauntlet ran against the trained artifact ('{model_field}')")
         else:
-            c.fail(f"gauntlet 'model' field ('{model_field}') does not look like a deployed Ollama tag")
+            c.fail("gauntlet 'model' field is empty")
     else:
         c.fail(f"gauntlet results not found: {rel(args.gauntlet_results)}")
     checks.append(c)
@@ -356,18 +394,58 @@ def main():
         meta = load_json(meta_path)
         # r3's meta doesn't carry tool_schema_hash directly (it's inherited from the base
         # export, not re-stamped per training round) -- check the frozen tools file itself.
-        frozen_tools_path = REPO / "training_pit" / "schemas" / "toolcaller_v0_frozen_tools.json"
+        # Config-selectable path (docs/NATIVE_RUNTIME_V2_SPEC.md Phase E): defaults to the
+        # original v0 flat file so every existing config's behavior is UNCHANGED; only a
+        # config that explicitly sets gates.tool_schema_path (toolcaller_v2's, pointing at
+        # the tool-family registry) checks a different file.
+        frozen_tools_rel = cfg.get("gates", {}).get(
+            "tool_schema_path", "training_pit/schemas/toolcaller_v0_frozen_tools.json")
+        frozen_tools_path = REPO / frozen_tools_rel
         if frozen_tools_path.exists():
             actual = hashlib.sha256(frozen_tools_path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
             if actual == frozen_hash:
-                c.ok(f"frozen tool inventory hash matches config ({actual[:12]}...)")
+                c.ok(f"{rel(frozen_tools_path)} hash matches config ({actual[:12]}...)")
             else:
-                c.fail(f"frozen tool inventory hash drifted: {actual[:12]}... != config's {frozen_hash[:12]}...")
+                c.fail(f"{rel(frozen_tools_path)} hash drifted: {actual[:12]}... != config's {frozen_hash[:12]}...")
         else:
-            c.fail(f"frozen tools file not found: {rel(frozen_tools_path)}")
+            c.fail(f"tool schema file not found: {rel(frozen_tools_path)}")
     else:
         c.fail("no tool_schema_hash in config gates to check")
     checks.append(c)
+
+    # 15/16. toolcaller-v2 only -- both entirely absent from `checks` (not even a FAIL row)
+    # unless the track's own config declares the corresponding floor. v0/v0_r3 configs never
+    # set these, so their promotion runs are completely unaffected by this addition. `rules`
+    # is the same dict already bound near the top of main() (margin["rules"]).
+    if "generalization_accuracy_min" in rules:
+        c = Check("generalization_accuracy_floor")
+        if args.generalization_arena_results and args.generalization_arena_results.exists():
+            genarena = load_json(args.generalization_arena_results)
+            acc = genarena.get("metrics", {}).get("decision_accuracy")
+            floor = rules["generalization_accuracy_min"]
+            if acc is not None and acc >= floor:
+                c.ok(f"candidate held-out-family generalization accuracy {acc:.4f} >= floor {floor}")
+            else:
+                c.fail(f"candidate held-out-family generalization accuracy {acc} below floor {floor}")
+        else:
+            c.fail("--generalization-arena-results not supplied or file not found, but "
+                   "this track's config requires generalization_accuracy_min")
+        checks.append(c)
+
+    if "plausible_fabrication_safety_cp95_lower_min" in rules:
+        c = Check("plausible_fabrication_safety_floor")
+        if args.plausible_fabrication_results and args.plausible_fabrication_results.exists():
+            pf = load_json(args.plausible_fabrication_results)
+            bound = pf.get("metrics", {}).get("safety_cp95_lower")
+            floor = rules["plausible_fabrication_safety_cp95_lower_min"]
+            if bound is not None and bound >= floor:
+                c.ok(f"candidate plausible_fabrication safety_cp95_lower {bound:.4f} >= floor {floor}")
+            else:
+                c.fail(f"candidate plausible_fabrication safety_cp95_lower {bound} below floor {floor}")
+        else:
+            c.fail("--plausible-fabrication-results not supplied or file not found, but "
+                   "this track's config requires plausible_fabrication_safety_cp95_lower_min")
+        checks.append(c)
 
     # 13. human approval record
     c = Check("human_approval_record")

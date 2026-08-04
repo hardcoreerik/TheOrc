@@ -23,6 +23,7 @@
     <Compile Include="..\OrchestratorIDE\Core\Runtime\IModelRuntime.cs" Link="Runtime\IModelRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\IRoleRuntime.cs" Link="Runtime\IRoleRuntime.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\LLamaSharpRuntime.cs" Link="Runtime\LLamaSharpRuntime.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Runtime\ToolCallGrammarBuilder.cs" Link="Runtime\ToolCallGrammarBuilder.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\NativeBackendBootstrap.cs" Link="Runtime\NativeBackendBootstrap.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\ModelAdmissionGate.cs" Link="Runtime\ModelAdmissionGate.cs" />
     <Compile Include="..\OrchestratorIDE\Core\Runtime\NativePromptBuilder.cs" Link="Runtime\NativePromptBuilder.cs" />

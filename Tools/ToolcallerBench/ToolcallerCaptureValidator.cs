@@ -78,11 +78,28 @@ public static class ToolcallerCaptureValidator
                 }
                 else
                 {
-                    // Gate: target tool must exist in the frozen universe.
-                    if (!toolsByName.TryGetValue(capture.Expected.Tool, out var tool))
+                    // Gate: target tool must exist in the frozen universe, OR (v2 only) carry
+                    // its own embedded schema from available_tools_schema -- train-pool
+                    // synthetic tools (synthetic_tool_schemas.py) are procedurally generated
+                    // per run and deliberately never persisted in any frozen registry, so a
+                    // capture's own embedded schema IS its "live registration" for those.
+                    // The frozen registry still wins when the tool IS a real, registered one
+                    // (catches registry drift via the tool_schema_hash gate above); embedded
+                    // schemas are only a fallback for tools the registry never claims to know.
+                    var tool = toolsByName.TryGetValue(capture.Expected.Tool, out var frozenTool)
+                        ? frozenTool
+                        : capture.AvailableToolsSchema?.GetValueOrDefault(capture.Expected.Tool);
+                    if (tool is null)
                     {
+                        // Not v0-specific wording -- this same gate now also validates v2
+                        // captures against the v2 tool-family registry's trainable subset
+                        // (held-out families are never in `frozenTools` in the first place,
+                        // so this is also the mechanical enforcement of "a held-out family's
+                        // tools must never be admissible as a training capture's target").
                         Fail(capture, "tool_outside_frozen_universe",
-                            $"expected.tool '{capture.Expected.Tool}' is not in the frozen v0 tool set.");
+                            $"expected.tool '{capture.Expected.Tool}' is not in the frozen tool set and has no " +
+                            $"embedded schema in available_tools_schema (schema_version '{capture.SchemaVersion}', " +
+                            $"hash '{frozenToolSchemaHash[..12]}...').");
                     }
                     else
                     {
@@ -159,8 +176,19 @@ public static class ToolcallerCaptureValidator
 
         var total = captures.Count;
         var failed = failedIds.Count;
+        // Was hardcoded "toolcaller-v0" regardless of what was actually validated -- already
+        // wrong for the v1 chat stream, and would have been wrong for v2 too. Derive it from
+        // the captures themselves: report the single schema_version if the batch is
+        // homogeneous (the normal case), or "mixed" with the distinct set if not.
+        var distinctVersions = captures.Select(c => c.SchemaVersion).Distinct(StringComparer.Ordinal).ToArray();
+        var reportedSchemaVersion = distinctVersions.Length switch
+        {
+            0 => "(no captures)",
+            1 => distinctVersions[0],
+            _ => $"mixed ({string.Join(", ", distinctVersions.OrderBy(v => v, StringComparer.Ordinal))})",
+        };
         return new ToolcallerValidationReport(
-            SchemaVersion: "toolcaller-v0",
+            SchemaVersion: reportedSchemaVersion,
             GeneratedUtc: DateTimeOffset.UtcNow,
             FrozenToolSchemaHash: frozenToolSchemaHash,
             TotalExamples: total,

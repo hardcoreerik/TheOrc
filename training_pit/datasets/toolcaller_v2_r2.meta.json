@@ -1,0 +1,51 @@
+{
+  "key": "toolcaller_v2_r2",
+  "schema_version": "mixed (toolcaller-v0, toolcaller-v2)",
+  "created": "2026-08-03",
+  "notes": "Round-2 composition, fixing round 1's plausible_fabrication safety regression (r1: 93.3% held-out generalization but only 63.9% gauntlet safety, cp95>=61.57%, vs r3 incumbent 99.42% -- see plan elegant-bubbling-coral.md \"Round 1 result\"/\"Round 2\"). v0/r3 stream unchanged (proven, not what broke). v2-bulk stream RE-EXPORTED from all 720 captures now on disk: round 1's original 600 (call/no_tool/clarify/unsupported subset-sampled mix, unchanged content) + 120 freshly-generated plausible_fabrication decoy rows (generate_toolcaller_v2_dataset.py --fabrication-only, tag v2-fabrication-decoy) -- explicit-name decoys drawn from TRAIN_DECOY_NAMES_BY_FAMILY, verified disjoint from the sealed eval gauntlet's own decoy list and the real registry (_assert_train_decoys_disjoint, ran clean). File-level concatenation of two independently ToolcallerBench-PASSed exports, not a single exporter run -- same honest-composition posture as round 1's toolcaller_v2.meta.json.",
+  "sources": {
+    "v0_stream": {
+      "train_path": "training_pit/datasets/train_toolcaller_v0_r3.jsonl",
+      "eval_path": "training_pit/datasets/eval_toolcaller_v0.jsonl",
+      "meta_path": "training_pit/datasets/toolcaller_v0_r3.meta.json",
+      "review_status": "accepted (all rows)"
+    },
+    "v2_bulk_stream_r2": {
+      "train_path": "training_pit/datasets/train_toolcaller_v2_bulk_r2.jsonl",
+      "eval_path": "training_pit/datasets/eval_toolcaller_v2_bulk_r2.jsonl",
+      "meta_path": "training_pit/datasets/toolcaller_v2_bulk_r2.meta.json",
+      "review_status": "pending (all rows) -- fresh synthetic generation (720 captures: 600 from round 1 + 120 new plausible_fabrication decoys), schema-validated at generation time and ToolcallerBench-PASS (720/720) at export time, not yet human-reviewed"
+    }
+  },
+  "train_count": 2476,
+  "eval_count": 407,
+  "decision_balance": {
+    "train": {
+      "call": 833,
+      "unsupported": 940,
+      "no_tool": 318,
+      "clarify": 385
+    },
+    "eval": {
+      "no_tool": 66,
+      "call": 229,
+      "clarify": 44,
+      "unsupported": 68
+    }
+  },
+  "contains_pending": true,
+  "validator": {
+    "suite": "toolcaller-bench validate (run separately per source stream, not on the combined file)",
+    "verdict": "N/A",
+    "note": "v0_stream and v2_bulk_stream_r2 each independently PASSed ToolcallerBench before concatenation (see sources.*.meta_path). Same documented posture as round 1's toolcaller_v2.meta.json and toolcaller_v0_r3.meta.json before it."
+  },
+  "round1_regression_context": {
+    "plausible_fabrication_safety_r1": 0.6392,
+    "plausible_fabrication_safety_cp95_lower_r1": 0.6157,
+    "plausible_fabrication_safety_incumbent_r3": 0.9942,
+    "generalization_arena_decision_accuracy_r1": 0.933,
+    "fix": "explicit-name decoy scenarios baked into the training generator itself (fabrication_decoy_scenarios / --fabrication-only), not just the eval-only gauntlet"
+  },
+  "train_sha256": "0d93870235d274e765d12377bf4edf93a05a4e26cb39310deeba0e2fddf2f98e",
+  "eval_sha256": "d54baa0aa242caa18e32c2eabb7f685a57fde9de58b20a85c1a1e2109639c29a"
+}

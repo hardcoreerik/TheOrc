@@ -37,8 +37,39 @@ try
     var toolsHash = Convert.ToHexString(SHA256.HashData(NormalizeLineEndings(toolsBytes))).ToLowerInvariant();
 
     var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
-    var frozenTools = JsonSerializer.Deserialize<List<FrozenTool>>(toolsBytes, jsonOptions)
-        ?? throw new InvalidOperationException("Frozen tool inventory parsed to null.");
+
+    // docs/NATIVE_RUNTIME_V2_SPEC.md Phase E: toolcaller_v2_tool_families.json is a NESTED
+    // {families:[{family, held_out, tools:[...]}]} document, not the flat array v0/v1's
+    // frozen-tools files are -- --tools pointed at it would otherwise fail to deserialize as
+    // List<FrozenTool>. Detect the shape and flatten when it's the v2 registry; every other
+    // path (the default, or --tools pointed at any flat v0/v1-shaped file) is byte-identical
+    // to before. Only held_out=false families are flattened in -- a held-out family's tools
+    // must never be admissible as a training capture's expected.tool, so this is the gate
+    // that mechanically enforces that invariant, not just generator-script discipline.
+    List<FrozenTool> frozenTools;
+    using (var probe = JsonDocument.Parse(toolsBytes))
+    {
+        if (probe.RootElement.ValueKind == JsonValueKind.Object &&
+            probe.RootElement.TryGetProperty("families", out var familiesEl))
+        {
+            frozenTools = [];
+            foreach (var fam in familiesEl.EnumerateArray())
+            {
+                if (fam.TryGetProperty("held_out", out var heldOutEl) && heldOutEl.GetBoolean())
+                    continue;
+                var famTools = fam.GetProperty("tools").Deserialize<List<FrozenTool>>(jsonOptions)
+                    ?? throw new InvalidOperationException("A family's tools array parsed to null.");
+                frozenTools.AddRange(famTools);
+            }
+            Console.WriteLine($"Loaded v2 tool-family registry: {frozenTools.Count} trainable tools " +
+                               "(held_out families excluded).");
+        }
+        else
+        {
+            frozenTools = JsonSerializer.Deserialize<List<FrozenTool>>(toolsBytes, jsonOptions)
+                ?? throw new InvalidOperationException("Frozen tool inventory parsed to null.");
+        }
+    }
 
     Console.WriteLine($"Frozen tool inventory: {frozenTools.Count} tools, sha256 {toolsHash}");
 

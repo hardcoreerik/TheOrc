@@ -14,9 +14,11 @@ namespace OrchestratorIDE.Core.Runtime;
 /// ILocalModelRuntime for in-process GGUF inference via LLamaSharp (Phase 2).
 ///
 /// This is the "no Ollama required" runtime. Models are loaded directly from
-/// GGUF files — no server process, no HTTP. Tool calling uses text-format
-/// parsing (same path as the OllamaClient LlamaCpp backend) until GBNF
-/// constrained decoding is implemented in Phase 3.
+/// GGUF files — no server process, no HTTP. When a live tool list is present,
+/// generation is GBNF grammar-constrained (see <see cref="ToolCallGrammarBuilder"/>) so the
+/// model cannot emit a tool name outside that list; output is still parsed via the same
+/// text-format path (<see cref="ToolCallTextParser"/>, shared with the OllamaClient LlamaCpp
+/// backend) since grammar constrains syntax, not the parsing step itself.
 ///
 /// Construction:
 ///   var runtime = new LLamaSharpRuntime();
@@ -168,13 +170,25 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             // Falls back to ChatML format if the model has no template.
             var prompt = BuildPromptForLoadedModel(history, tools);
 
-            // TopP is init-only on DefaultSamplingPipeline -- must be set in the initializer,
-            // not assigned after construction. Only overridden when explicitly set, otherwise
-            // omitted from the initializer entirely so the pipeline's own default applies,
-            // same as before this parameter existed.
+            // TopP and Grammar are both init-only on DefaultSamplingPipeline -- must be set in
+            // the object initializer, not assigned after construction.
+            //
+            // ORCISH TONGUE Phase 2 (plan elegant-bubbling-coral.md): when a live tool list is
+            // present, constrain decoding so the model cannot emit a tool-call JSON naming
+            // anything outside that list -- structurally, not probabilistically. Verified via a
+            // real adversarial spike (explicit "call the delete_everything_now tool" prompt):
+            // unconstrained, the model happily emitted the fake name; grammar-constrained, it
+            // physically could not. `Build` returns null when no tool names could be extracted
+            // (e.g. an unrecognized wire shape) -- fall back to unconstrained decoding rather
+            // than emit a grammar with an empty name alternation, which would make every tool
+            // call unreachable, silently worse than no grammar at all.
+            LLama.Sampling.Grammar? toolGrammar = null;
+            if (tools is { Count: > 0 } && ToolCallGrammarBuilder.Build(tools) is { } gbnf)
+                toolGrammar = new LLama.Sampling.Grammar(gbnf, "root");
+
             var samplingPipeline = topP is { } p
-                ? new LLama.Sampling.DefaultSamplingPipeline { Temperature = (float)temperature, TopP = (float)p }
-                : new LLama.Sampling.DefaultSamplingPipeline { Temperature = (float)temperature };
+                ? new LLama.Sampling.DefaultSamplingPipeline { Temperature = (float)temperature, TopP = (float)p, Grammar = toolGrammar }
+                : new LLama.Sampling.DefaultSamplingPipeline { Temperature = (float)temperature, Grammar = toolGrammar };
 
             var inferParams = new InferenceParams
             {
@@ -204,7 +218,9 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             if (elapsed.TotalSeconds > 0)
                 _lastTokensPerSecond = completionTokens / elapsed.TotalSeconds;
 
-            // Tool calls: parse from the text output (GBNF constrained decoding is Phase 3).
+            // Tool calls: parse from the text output. Grammar (above) already guarantees the
+            // name/JSON shape is valid when a tool list was present -- this parse step still
+            // runs unchanged (ToolCallTextParser has no grammar-awareness and needs none).
             if (onToolCall != null)
                 foreach (var tc in ParseToolCalls(outputText))
                     onToolCall(tc);
@@ -423,8 +439,10 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
     /// <summary>
     /// Converts the message history into a raw prompt string using the model's
     /// embedded GGUF chat template. Falls back to ChatML if the model has none.
-    /// Tools are injected into the system message as a JSON block (Phase 2 text approach;
-    /// Phase 3 will use GBNF grammar constraints instead).
+    /// Tools are injected into the system message as a JSON block. Kept even now that GBNF
+    /// grammar constraints (see StreamCompletionAsync) enforce the shape structurally --
+    /// models still benefit from being told the expected format, and the instruction costs
+    /// nothing when the grammar is already guaranteeing correctness.
     ///
     /// Template probe result is cached after the first call so templateless models
     /// skip the try/catch entirely on subsequent turns.
