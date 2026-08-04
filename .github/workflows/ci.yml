@@ -38,6 +38,19 @@ jobs:
             --no-incremental
         shell: cmd
 
+      # Build OrchestratorIDE.Daemon (theorc-warband — the headless HIVE node).
+      # It cherry-picks shared source via <Compile Include="..\OrchestratorIDE\..."> items
+      # rather than a ProjectReference, so a file added to the main project and referenced
+      # from shared code breaks ONLY here. Before this step existed, d7f9463b broke the
+      # daemon build for weeks because CI only ever built OrchestratorIDE.Avalonia.
+      - name: Build OrchestratorIDE.Daemon
+        run: |
+          dotnet build OrchestratorIDE.Daemon/OrchestratorIDE.Daemon.csproj ^
+            --configuration Release ^
+            --no-restore ^
+            --no-incremental
+        shell: cmd
+
       # Build OrchestratorSetup (installer)
       - name: Build OrchestratorSetup
         run: |

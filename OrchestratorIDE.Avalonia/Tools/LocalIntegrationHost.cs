@@ -21,10 +21,19 @@ internal static class LocalIntegrationHost
         PooledConnectionLifetime = TimeSpan.FromMinutes(5),
     };
 
-    public static HttpClient CreateClient(string bearerToken)
+    /// <summary>
+    /// <paramref name="bearerToken"/> is optional (hardcoreerik, 2026-08-01: his own local
+    /// Art Forge Studio / ComfyUI / KeyHound instances run with no auth at all — a hobby-project
+    /// front end for ComfyUI he wrote himself, not a service that issues device tokens). No
+    /// Authorization header is sent when it's null/blank; this is only safe because every caller
+    /// already gates on <see cref="IsLocal"/> first, so an unauthenticated request can only ever
+    /// reach a loopback/private-IP/single-label host, never a public one.
+    /// </summary>
+    public static HttpClient CreateClient(string? bearerToken)
     {
         var http = new HttpClient(SharedHandler, disposeHandler: false) { Timeout = TimeSpan.FromMinutes(2) };
-        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+        if (!string.IsNullOrWhiteSpace(bearerToken))
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
         return http;
     }
 

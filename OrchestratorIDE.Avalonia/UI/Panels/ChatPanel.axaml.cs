@@ -19,6 +19,7 @@ using OrchestratorIDE.Research;
 using OrchestratorIDE.Services;
 using OrchestratorIDE.Services.ContextFabric;
 using OrchestratorIDE.Services.Hive;
+using OrchestratorIDE.Trust;
 using OrchestratorIDE.UI;
 using OrchestratorIDE.UI.Controls;
 using OrchestratorIDE.UI.ViewModels;
@@ -59,6 +60,21 @@ public partial class ChatPanel : UserControl
     public string WorkspaceRoot { get; set; } = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     /// <summary>
+    /// Fired from CbModel_SelectionChanged with CbModel's newly-selected model -- both on a real
+    /// user pick AND on the programmatic CbModel.SelectedIndex assignment SetModels/
+    /// SetActiveModel make (Avalonia's ComboBox raises SelectionChanged either way; this handler
+    /// doesn't distinguish the two, matching how it already treats _engine.Model = model the
+    /// same way on the very next line). Wired by MainWindow to keep the status bar's model badge
+    /// (SbModel/TbModelBadge, driven off _session.ActiveModel) in sync -- before this,
+    /// CbModel_SelectionChanged only touched _engine.Model, so switching models inside OrcChat
+    /// left the bottom status bar showing whatever model was active before OrcChat was opened,
+    /// indefinitely (hardcoreerik, 2026-08-01: "the bottom status bar doesn't update when i
+    /// select a new model"). Re-firing on the programmatic case is harmless here -- it just
+    /// re-syncs the badge to the same value MainWindow set it to in the first place.
+    /// </summary>
+    public Action<string>? ActiveModelChanged { get; set; }
+
+    /// <summary>
     /// Approval prompt for OrcChat's tool calls (write_file's diff-preview gate AND every
     /// RequiresApproval=true tool via ChatEngine.OnApprovalRequired) -- (message, title) →
     /// (approved, alwaysApprove). Wired by MainWindow to a real dialog
@@ -71,10 +87,27 @@ public partial class ChatPanel : UserControl
     public Func<string, string, Task<ToolApprovalResult>>? ConfirmToolApprovalAsync { get; set; }
 
     /// <summary>
+    /// The SAME trust-level source the status bar's Plan/Guarded/Standard/Full Auto chips and
+    /// the Agent panel already read (MainWindow's <c>_approvals</c>). Wired by MainWindow so
+    /// OrcChat's tool-call and file-write approvals honor the global trust level instead of only
+    /// the per-conversation "Always approve" checkbox below -- before this, setting the status
+    /// bar to Full Auto had zero effect on OrcChat: it still prompted for every RequiresApproval
+    /// tool (image_create, atlas_start, model3d_create, ...) until a user clicked "Always
+    /// approve" on THIS conversation's own dialog (hardcoreerik, 2026-08-01, confirmed live in
+    /// OrcChat). Null (e.g. in tests) preserves the exact prior behavior: only the local
+    /// _autoApproveToolCalls flag and the dialog govern approval.
+    /// </summary>
+    public ApprovalQueue? Approvals { get; set; }
+
+    /// <summary>
     /// Set once a user checks "Auto Approve Tool" on a ToolApprovalResult -- every subsequent
     /// gated tool call this conversation skips the dialog entirely. Reset in ResetConversationUi
     /// so a fresh conversation (Clear, workspace switch, model/node switch) always starts back
     /// at asking -- this is a per-conversation convenience, not a standing trust decision.
+    /// Independent of <see cref="Approvals"/>'s global trust level: this can auto-approve within
+    /// a Guarded conversation even when the global level still prompts, but it never overrides a
+    /// global Plan (still rejects) or narrows a global FullAuto/Standard (those already skip the
+    /// dialog before this flag is even consulted).
     /// </summary>
     private bool _autoApproveToolCalls;
 
@@ -288,17 +321,34 @@ public partial class ChatPanel : UserControl
         // neither was gated at all in OrcChat -- see ChatEngine.OnApprovalRequired's own doc
         // comment for the full history.
         Task<bool> ConfirmDiffAsync(string path, string oldContent, string newContent, string reason, CancellationToken ct) =>
-            ConfirmAsync(BuildDiffApprovalMessage(path, oldContent, newContent, reason), "Approve file write?", ct);
+            ConfirmAsync(BuildDiffApprovalMessage(path, oldContent, newContent, reason), "Approve file write?", ct,
+                isFileWrite: true);
 
         Task<bool> ConfirmToolCallAsync(ToolCall tc, CancellationToken ct) =>
-            ConfirmAsync($"{tc.Name}({FormatArgsForApproval(tc.Arguments)})", "Approve tool call?", ct);
+            ConfirmAsync($"{tc.Name}({FormatArgsForApproval(tc.Arguments)})", "Approve tool call?", ct,
+                isFileWrite: false);
 
-        async Task<bool> ConfirmAsync(string message, string title, CancellationToken ct)
+        async Task<bool> ConfirmAsync(string message, string title, CancellationToken ct, bool isFileWrite)
         {
             // grok-review BLOCKER: the pre-auto-approve dialog path always raced against `ct`
             // and denied on cancel -- this fast path must preserve that, or a cancelled turn
             // whose tool call happens to land after auto-approve latches would still execute.
             if (_autoApproveToolCalls) return !ct.IsCancellationRequested;
+
+            // Global trust level (status bar Plan/Guarded/Standard/Full Auto), same semantics
+            // ApprovalQueue.RequestApprovalAsync already enforces for the Agent panel -- see
+            // Approvals' own doc comment for why this wasn't wired before. A Guarded level (or no
+            // Approvals wired at all, e.g. tests) falls through unchanged to the dialog below.
+            switch (Approvals?.Level)
+            {
+                case TrustLevel.FullAuto:
+                    return !ct.IsCancellationRequested;
+                case TrustLevel.Standard when isFileWrite:
+                    return !ct.IsCancellationRequested;
+                case TrustLevel.Plan:
+                    return false;
+            }
+
             if (ConfirmToolApprovalAsync is null) return false;
             var dialogTask = ConfirmToolApprovalAsync(message, title);
 
@@ -424,6 +474,7 @@ public partial class ChatPanel : UserControl
         var model = CbModel.SelectedItem as string;
         if (string.IsNullOrEmpty(model)) return;
         if (_engine is not null) _engine.Model = model;
+        ActiveModelChanged?.Invoke(model);
         _ = RefreshContextLimitAsync();
     }
 

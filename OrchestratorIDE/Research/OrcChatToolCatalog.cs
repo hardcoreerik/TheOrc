@@ -74,8 +74,12 @@ public static class OrcChatToolCatalog
         BrowserTools.Register(registry, workspaceRoot);
         var caseForgeUrl = Environment.GetEnvironmentVariable("THEORC_CASEFORGE_URL");
         var caseForgeToken = Environment.GetEnvironmentVariable("THEORC_CASEFORGE_TOKEN");
-        if (Uri.TryCreate(caseForgeUrl, UriKind.Absolute, out var caseForgeUri)
-            && caseForgeToken?.Length >= 16)
+        // Token is optional (hardcoreerik, 2026-08-01) -- his own local CaseForge/ComfyUI/Art
+        // Forge/KeyHound instances run unauthenticated. Registration is gated on a valid URL
+        // alone; CaseForgeTools.Register itself still enforces the loopback/private-IP/
+        // single-label host restriction, so an unauthenticated call can only ever reach a local
+        // service, never a public one.
+        if (Uri.TryCreate(caseForgeUrl, UriKind.Absolute, out var caseForgeUri))
         {
             var workspaceSetting = Environment.GetEnvironmentVariable("THEORC_CASEFORGE_WORKSPACE_URL");
             try
@@ -118,8 +122,9 @@ public static class OrcChatToolCatalog
     private static void RegisterArtForge(ToolRegistry registry)
     {
         var url = Environment.GetEnvironmentVariable("THEORC_ARTFORGE_URL");
+        // Token optional -- see the CaseForge block above for why.
         var token = Environment.GetEnvironmentVariable("THEORC_ARTFORGE_TOKEN");
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var serviceUri) || token?.Length is not >= 16) return;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var serviceUri)) return;
 
         var workspaceSetting = Environment.GetEnvironmentVariable("THEORC_ARTFORGE_WORKSPACE_URL");
         try
@@ -128,7 +133,7 @@ public static class OrcChatToolCatalog
             if (!string.IsNullOrWhiteSpace(workspaceSetting)
                 && !Uri.TryCreate(workspaceSetting, UriKind.Absolute, out workspaceUri))
                 throw new ArgumentException("THEORC_ARTFORGE_WORKSPACE_URL must be an absolute URL.");
-            ArtForgeTools.Register(registry, serviceUri, token!, workspaceUri);
+            ArtForgeTools.Register(registry, serviceUri, token, workspaceUri);
         }
         catch (ArgumentException)
         {
@@ -139,8 +144,9 @@ public static class OrcChatToolCatalog
     private static void RegisterKeyHound(ToolRegistry registry)
     {
         var url = Environment.GetEnvironmentVariable("THEORC_KEYHOUND_URL");
+        // Token optional -- see the CaseForge block above for why.
         var token = Environment.GetEnvironmentVariable("THEORC_KEYHOUND_TOKEN");
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var serviceUri) || token?.Length is not >= 32) return;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var serviceUri)) return;
 
         var workspaceSetting = Environment.GetEnvironmentVariable("THEORC_KEYHOUND_WORKSPACE_URL");
         try
@@ -149,7 +155,7 @@ public static class OrcChatToolCatalog
             if (!string.IsNullOrWhiteSpace(workspaceSetting)
                 && !Uri.TryCreate(workspaceSetting, UriKind.Absolute, out workspaceUri))
                 throw new ArgumentException("THEORC_KEYHOUND_WORKSPACE_URL must be an absolute URL.");
-            KeyHoundAtlasTools.Register(registry, serviceUri, token!, workspaceUri);
+            KeyHoundAtlasTools.Register(registry, serviceUri, token, workspaceUri);
         }
         catch (ArgumentException)
         {

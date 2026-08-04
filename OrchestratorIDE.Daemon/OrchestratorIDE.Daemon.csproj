@@ -52,6 +52,18 @@
     <Compile Include="..\OrchestratorIDE\Services\Hive\WorkerCapabilityDetector.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\CampaignPackCatalog.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\NativeWorkerToolProfile.cs" />
+    <!--
+      Headless browser automation (docs/NATIVE_BROWSER_AUTOMATION_SPEC.md §2.4, Phase 1b).
+      The Warband IS the headless HIVE worker this phase was written for, so the browser
+      subsystem is carried here in full rather than #if'd out: Microsoft.Playwright's .NET
+      package is managed and cross-platform (it resolves per-OS Chromium from the local
+      `playwright install` cache at runtime), and NativeToolCapabilities gates availability
+      at runtime — a node without browsers installed simply advertises no browser_* tools.
+    -->
+    <Compile Include="..\OrchestratorIDE\Services\Hive\NativeWorkerBrowserToolProfile.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\Browser\BrowserSession.cs" />
+    <Compile Include="..\OrchestratorIDE\Core\NativeToolCapability.cs" />
+    <Compile Include="..\OrchestratorIDE\Trust\PathSandbox.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\ContainerPackRunner.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\CampaignTemplates.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Hive\HiveEventBus.cs" />
@@ -85,6 +97,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Playwright"              Version="1.61.0"  />
     <PackageReference Include="Microsoft.Data.Sqlite"             Version="10.0.0"  />
     <PackageReference Include="System.Text.Json"                  Version="10.0.8"  />
     <PackageReference Include="Microsoft.Extensions.Hosting"      Version="10.0.0"   />

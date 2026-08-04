@@ -40,17 +40,25 @@ public sealed class CaseForgeToolsTests
     }
 
     [Test]
-    public void RejectsMissingTokenAndPublicWorkspace()
+    public void RejectsPublicWorkspace()
     {
         var registry = new ToolRegistry(new ApprovalQueue());
-        Assert.Multiple(() =>
-        {
-            Assert.Throws<ArgumentException>(() =>
-                CaseForgeTools.Register(registry, new Uri("http://localhost:8788")));
-            Assert.Throws<ArgumentException>(() =>
-                CaseForgeTools.Register(registry, new Uri("http://localhost:8788"), "test-token-012345",
-                    new Uri("https://example.com")));
-        });
+        Assert.Throws<ArgumentException>(() =>
+            CaseForgeTools.Register(registry, new Uri("http://localhost:8788"), "test-token-012345",
+                new Uri("https://example.com")));
+    }
+
+    [Test]
+    public void RegistersWithNoTokenOnALocalHost()
+    {
+        // hardcoreerik's own CaseForge worker runs unauthenticated -- a bearer token is an
+        // optional extra, not a requirement, as long as the host is local (enforced by
+        // RejectsPublicWorkerUrls/RejectsPublicWorkspace -- an unauthenticated call must never be
+        // able to reach a public URL).
+        var registry = new ToolRegistry(new ApprovalQueue());
+        Assert.DoesNotThrow(() =>
+            CaseForgeTools.Register(registry, new Uri("http://localhost:8788")));
+        Assert.That(registry.TryGet("model3d_create", out var create) && create is not null, Is.True);
     }
 
     [Test]

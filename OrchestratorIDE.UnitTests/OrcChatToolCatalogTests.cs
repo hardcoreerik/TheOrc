@@ -107,6 +107,22 @@ public class OrcChatToolCatalogTests
     }
 
     [Test]
+    public void CreateWorkspaceTools_addsArtForgeAndKeyHoundWithNoTokenConfigured()
+    {
+        // hardcoreerik's own local Art Forge Studio/ComfyUI/KeyHound instances run with no auth
+        // at all (2026-08-01) -- THEORC_*_TOKEN unset must not block registration, only a valid
+        // URL should.
+        var root = TestContext.CurrentContext.WorkDirectory;
+        Environment.SetEnvironmentVariable("THEORC_ARTFORGE_URL", "http://localhost:8288");
+        Environment.SetEnvironmentVariable("THEORC_KEYHOUND_URL", "http://localhost:8000");
+
+        var names = OrcChatToolCatalog.CreateWorkspaceTools(root).Select(t => t.Name).ToList();
+
+        Assert.That(names, Does.Contain("image_create"));
+        Assert.That(names, Does.Contain("atlas_start"));
+    }
+
+    [Test]
     public void BuildReactInstructions_addsOnlyConfiguredIntegrationWorkflows()
     {
         var root = TestContext.CurrentContext.WorkDirectory;

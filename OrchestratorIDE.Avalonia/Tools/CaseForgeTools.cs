@@ -22,8 +22,6 @@ public static class CaseForgeTools
             throw new ArgumentException("CaseForge must use a loopback, private IP, or single-label LAN host.", nameof(workerUrl));
         if (workspaceUrl is not null && !IsLocal(workspaceUrl))
             throw new ArgumentException("The CaseForge workspace must be local.", nameof(workspaceUrl));
-        if (string.IsNullOrWhiteSpace(bearerToken) || bearerToken.Length < 16)
-            throw new ArgumentException("A CaseForge worker token of at least 16 characters is required.", nameof(bearerToken));
 
         var http = LocalIntegrationHost.CreateClient(bearerToken);
         var api = workerUrl.ToString().TrimEnd('/');

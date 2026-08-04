@@ -99,6 +99,11 @@ public partial class MainWindow : Window
     // Single retained countdown timer for the "Accept re-sync" window — replaced (stopped
     // first) on each click so repeated clicks can't leave overlapping timers racing the label.
     private          DispatcherTimer?               _hiveResyncCountdownTimer;
+    // Polls nvidia-smi off the UI thread and refreshes the always-visible status-bar VRAM badge
+    // (hardcoreerik, 2026-08-01: "I also want a clear vram display to always show on the bottom
+    // status bar" — distinct from Settings' RefreshRuntimeStatusAsync, which only reads VRAM
+    // once, on-demand, when the Settings panel itself is opened).
+    private          DispatcherTimer?               _vramStatusTimer;
     private          Services.Data.SqliteStore?       _sqlStore;
     private          Services.Data.PlanRepository?   _planRepo;
     private          Services.Data.RunRepository?    _runRepo;
@@ -363,6 +368,8 @@ public partial class MainWindow : Window
 
     private async Task OnLoadedAsync()
     {
+        StartVramStatusPolling();
+
         // ── llama.cpp server ─────────────────────────────────────────────
         if (_activeRuntimeSettings.Backend == InferenceBackend.LlamaCpp && _llamaServer != null)
         {
@@ -618,6 +625,59 @@ public partial class MainWindow : Window
         }
 
         InitDataLayer(_session.WorkspaceRoot);
+    }
+
+    /// <summary>
+    /// Starts the always-on status-bar VRAM badge (hardcoreerik, 2026-08-01). One-shot refresh
+    /// immediately (don't make the user wait out the first tick for a cold badge), then every
+    /// 5 s via nvidia-smi -- cheap enough to poll continuously (NativeVramProbe's own 3 s
+    /// subprocess timeout is the worst case, well under the 5 s interval) and, unlike Settings'
+    /// RefreshRuntimeStatusAsync, not gated behind the user having that panel open.
+    /// </summary>
+    private void StartVramStatusPolling()
+    {
+        _vramStatusTimer?.Stop();
+        _ = RefreshVramStatusAsync();
+
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        var polling = false;
+        timer.Tick += async (_, _) =>
+        {
+            // Guard against overlap: a slow/hung nvidia-smi call must not stack a second
+            // subprocess launch on top of the first every 5 s (same "single in-flight" pattern
+            // as _hiveWorkerLifecycleGate elsewhere in this file, cheap bool since this is
+            // always the UI thread, not cross-thread).
+            if (polling) return;
+            polling = true;
+            try { await RefreshVramStatusAsync(); }
+            finally { polling = false; }
+        };
+        _vramStatusTimer = timer;
+        timer.Start();
+    }
+
+    private async Task RefreshVramStatusAsync()
+    {
+        var budget = await Task.Run(NativeVramProbe.TryQueryLiveNvidiaBudget);
+
+        if (budget is null)
+        {
+            TxtSbVram.Text = "🎮 VRAM n/a";
+            TxtSbVram.Foreground = new SolidColorBrush(Color.Parse("#666666"));
+            return;
+        }
+
+        var usedGb = budget.ReservedBytes / (1024.0 * 1024 * 1024);
+        var totalGb = budget.TotalBytes / (1024.0 * 1024 * 1024);
+        var usedFraction = budget.TotalBytes > 0 ? (double)budget.ReservedBytes / budget.TotalBytes : 0;
+
+        TxtSbVram.Text = $"🎮 {usedGb:F1}/{totalGb:F1} GB";
+        TxtSbVram.Foreground = new SolidColorBrush(Color.Parse(usedFraction switch
+        {
+            >= 0.92 => "#F44747", // red    — essentially full, the next admission will likely deny/degrade
+            >= 0.75 => "#CCA700", // amber  — getting tight
+            _       => "#76B900", // green  — plenty of headroom
+        }));
     }
 
     /// <summary>
@@ -1217,6 +1277,8 @@ public partial class MainWindow : Window
                         AvailableBytes         = reservation?.AvailableBytes ?? 0,
                         RejectedAdmissionCount = reservation?.RejectedAdmissionCount ?? 0,
                         LastRejectionReason    = reservation?.LastRejectionReason,
+                        DegradedAdmissionCount = reservation?.DegradedAdmissionCount ?? 0,
+                        LastDegradedReason     = reservation?.LastDegradedReason,
                         FallbackCount          = _hiveWorkerAgent?.FallbackCount ?? 0,
                         LastFallbackReason     = _hiveWorkerAgent?.LastFallbackReason,
                         Residency = nrr.GetResidencySnapshot().Select(r => new
@@ -2353,6 +2415,12 @@ public partial class MainWindow : Window
             // the same tool-call shape dozens of times during a GUI model-sweep was pure
             // friction. ChatPanel._autoApproveToolCalls owns the actual scope decision.
             _chatPanel.ConfirmToolApprovalAsync = (msg, title) => DialogHelper.ShowToolApprovalAsync(this, title, msg);
+            _chatPanel.Approvals = _approvals;
+            _chatPanel.ActiveModelChanged = model =>
+            {
+                _session.ActiveModel = model;
+                UpdateStatusBar();
+            };
             _chatPanel.SetModels(_installedModels, _session.ActiveModel);
             _chatPanel.RefreshHiveHosts();
             _chatPanel.LoadPersistedMemory();

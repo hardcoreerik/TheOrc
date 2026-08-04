@@ -69,11 +69,21 @@ public enum SchedulingLane
 }
 
 /// <summary>
-/// Result of a TryAdmit call. <see cref="Reason"/> is populated only when
-/// <see cref="Admitted"/> is false — explains why (e.g. "requires 6.2 GB, only 3.1 GB available")
-/// so a caller can surface something more useful than a bare denial.
+/// Result of a TryAdmit call. <see cref="Reason"/> is populated when <see cref="Admitted"/> is
+/// false (explains why, e.g. "requires 6.2 GB, only 3.1 GB available") OR when it is true but
+/// <see cref="EffectiveGpuLayers"/> is set (explains the degradation) — a caller can surface
+/// something more useful than a bare denial either way.
 /// </summary>
-public sealed record SchedulingDecision(bool Admitted, SchedulingLane Lane, string? Reason = null);
+/// <param name="EffectiveGpuLayers">
+/// Null when the binding was admitted at the GpuLayers the caller requested (full offload, or
+/// whatever <see cref="RuntimeOptions.GpuLayers"/> already said). Non-null means TryAdmit could
+/// not fit the full request but found a smaller GPU-layer count that does — "still try to run,
+/// slower and partly on CPU, instead of refusing outright" (hardcoreerik, 2026-08-01: a
+/// VRAM-tight box should degrade, not hard-fail every chat turn). The caller is responsible for
+/// actually loading with this reduced value; TryAdmit itself never touches the model.
+/// </param>
+public sealed record SchedulingDecision(
+    bool Admitted, SchedulingLane Lane, string? Reason = null, int? EffectiveGpuLayers = null);
 
 /// <summary>
 /// First real OrcScheduler capability (Phase 4): a VRAM-budget admission check. With
@@ -139,10 +149,50 @@ public sealed class OrcScheduler : IOrcScheduler
         if (requiredBytes <= budget.AvailableBytes)
             return new SchedulingDecision(Admitted: true, Lane: lane);
 
+        // The full-offload request doesn't fit. Rather than refuse outright, look for the
+        // largest GPU-layer count that DOES fit and admit in degraded (partial GPU + CPU) mode —
+        // "still try to run, slower, instead of a hard denial on every turn" per hardcoreerik,
+        // 2026-08-01. Only possible when we can resolve a real layer count from the GGUF header;
+        // the legacy file-size-only estimate (no options, or an unreadable header) has no notion
+        // of layers to reduce, so it keeps the original bare denial.
+        var triedCpuOnly = false;
+        if (options is not null)
+        {
+            var header = GgufMetadataReader.TryRead(binding.BaseModel.Path);
+            if (header is { BlockCount: > 0 })
+            {
+                var requestedLayers = options.GpuLayers < 0
+                    ? header.BlockCount
+                    : Math.Min(options.GpuLayers, header.BlockCount);
+
+                for (var layers = requestedLayers - 1; layers >= 0; layers--)
+                {
+                    triedCpuOnly = layers == 0;
+                    var degradedBytes = EstimateRequiredBytes(
+                        binding, options, baseWeightsAlreadyResident, gpuLayerOverride: layers);
+                    if (degradedBytes > budget.AvailableBytes)
+                        continue;
+
+                    var reason = layers == 0
+                        ? $"Full GPU residency needs ~{FormatGb(requiredBytes)}, only " +
+                          $"{FormatGb(budget.AvailableBytes)} available — running all " +
+                          $"{header.BlockCount} layers on CPU instead. Generation will be much slower."
+                        : $"Full GPU residency needs ~{FormatGb(requiredBytes)}, only " +
+                          $"{FormatGb(budget.AvailableBytes)} available — offloading {layers}/" +
+                          $"{header.BlockCount} layers to GPU, the rest on CPU. Generation will be slower.";
+                    return new SchedulingDecision(
+                        Admitted: true, Lane: lane, Reason: reason, EffectiveGpuLayers: layers);
+                }
+            }
+        }
+
         return new SchedulingDecision(
             Admitted: false,
             Lane: lane,
-            Reason: $"Requires ~{FormatGb(requiredBytes)}, only {FormatGb(budget.AvailableBytes)} available.");
+            Reason: $"Requires ~{FormatGb(requiredBytes)}, only {FormatGb(budget.AvailableBytes)} available" +
+                    (triedCpuOnly
+                        ? " (even running fully on CPU does not fit the fixed CUDA/compute overhead)."
+                        : "."));
     }
 
     // internal (not private): RuntimeOrchestrator needs the same estimate to maintain its own
@@ -161,10 +211,22 @@ public sealed class OrcScheduler : IOrcScheduler
     /// cache, compute buffer, recurrent state and adapter are NOT, because AdapterManager builds
     /// a separate persistent executor (and therefore a separate context) per role.
     /// </param>
+    /// <param name="gpuLayerOverride">
+    /// Null (the default) estimates full GPU residency — every existing caller's exact previous
+    /// behavior. A non-null value estimates admitting with only that many of the model's
+    /// transformer blocks resident on the GPU (the rest run on CPU via llama.cpp's own partial
+    /// offload): the base-weight and KV-cache terms scale down proportionally to
+    /// <c>gpuLayerOverride / header.BlockCount</c>, since only the GPU-resident layers' weights
+    /// and KV entries occupy VRAM — the CUDA runtime overhead and compute-buffer allowance stay
+    /// fixed regardless of how few layers are offloaded (used by TryAdmit's degraded-admission
+    /// search, see its doc; not exposed there as "CPU offload" to keep this method a pure
+    /// estimator with no admission policy of its own).
+    /// </param>
     internal static long EstimateRequiredBytes(
         RuntimeRoleBinding binding,
         RuntimeOptions? options = null,
-        bool baseWeightsAlreadyResident = false)
+        bool baseWeightsAlreadyResident = false,
+        int? gpuLayerOverride = null)
     {
         // BaseModel.SizeBytes is null only if ModelDepot ever classified a directory as
         // BaseModelGguf, which its own scan logic never does (BaseModelGguf is always a single
@@ -208,6 +270,15 @@ public sealed class OrcScheduler : IOrcScheduler
             ? RecurrentStatePerSlotBytes * AdapterManager.SequenceHardLimit
             : 0;
 
+        // Only the GPU-resident fraction of the base weights and their KV entries occupy VRAM;
+        // layers left on CPU (partial offload) cost nothing here. 1.0 (no scaling) when the
+        // caller didn't ask for a reduced layer count, matching every pre-existing caller exactly.
+        var gpuFraction = gpuLayerOverride is { } layers
+            ? Math.Clamp(layers, 0, header.BlockCount) / (double)header.BlockCount
+            : 1.0;
+        var gpuBaseBytes = (long)(baseBytes * gpuFraction);
+        var gpuKvBytes = (long)(kvBytes * gpuFraction);
+
         // The reuse discount is applied ONLY here, on the context-aware path -- never on the two
         // legacy returns above. Those are file-size-only estimates with no term representing the
         // context, so dropping the base there would charge a reusing role literally nothing and
@@ -216,10 +287,10 @@ public sealed class OrcScheduler : IOrcScheduler
         // is exactly the protection that must not regress). Down here kvBytes and the compute
         // buffer price the real increment, so removing the shared base is a correction rather
         // than a giveaway. CUDA runtime overhead is likewise per-process, paid at the first load.
-        var sharedBaseCredit = baseWeightsAlreadyResident ? baseBytes : 0;
+        var sharedBaseCredit = baseWeightsAlreadyResident ? gpuBaseBytes : 0;
         var cudaOverhead = baseWeightsAlreadyResident ? 0 : CudaRuntimeOverheadBytes;
 
-        return legacy - sharedBaseCredit + cudaOverhead + kvBytes
+        return gpuBaseBytes + adapterBytes - sharedBaseCredit + cudaOverhead + gpuKvBytes
                + ComputeBufferAllowanceBytes + recurrentBytes;
     }
 

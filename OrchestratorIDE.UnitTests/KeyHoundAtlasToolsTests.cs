@@ -32,16 +32,23 @@ public sealed class KeyHoundAtlasToolsTests
     }
 
     [Test]
-    public void RejectsMissingTokenAndPublicUrls()
+    public void RejectsPublicUrls()
     {
         var registry = new ToolRegistry(new ApprovalQueue());
-        Assert.Multiple(() =>
-        {
-            Assert.Throws<ArgumentException>(() =>
-                KeyHoundAtlasTools.Register(registry, new Uri("http://localhost:8000"), "short"));
-            Assert.Throws<ArgumentException>(() =>
-                KeyHoundAtlasTools.Register(registry, new Uri("https://example.com"), Token));
-        });
+        Assert.Throws<ArgumentException>(() =>
+            KeyHoundAtlasTools.Register(registry, new Uri("https://example.com"), Token));
+    }
+
+    [Test]
+    public void RegistersWithNoTokenOnALocalHost()
+    {
+        // hardcoreerik's own KeyHound instance runs unauthenticated -- a bearer token is an
+        // optional extra, not a requirement, as long as the host is local (enforced above by
+        // RejectsPublicUrls -- an unauthenticated call must never be able to reach a public URL).
+        var registry = new ToolRegistry(new ApprovalQueue());
+        Assert.DoesNotThrow(() =>
+            KeyHoundAtlasTools.Register(registry, new Uri("http://localhost:8000")));
+        Assert.That(registry.TryGet("atlas_start", out var start) && start is not null, Is.True);
     }
 
     [Test]
