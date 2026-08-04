@@ -182,7 +182,7 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
             // against on their own gates — this class was missing the equivalent check).
             ThrowIfDisposed();
 
-            var (admittedBytes, effectiveOptions) = EnsureAdmitted(binding, options);
+            var (admittedBytes, effectiveOptions, degradedReason) = EnsureAdmitted(binding, options);
 
             var loadResult = await _sessionManager.LoadBindingAsync(binding, effectiveOptions, ct).ConfigureAwait(false);
             if (!loadResult.Success || loadResult.Binding is null)
@@ -192,6 +192,15 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
             var conversation = await _adapterManager
                 .CreateConversationAsync(loadResult.Binding, ct)
                 .ConfigureAwait(false);
+
+            // Record the degraded-admission telemetry only now, after the load and conversation
+            // create this admission was granted for have actually succeeded (CodeRabbit review,
+            // PR #100: recording it inside EnsureAdmitted, before either of those ran, meant a
+            // load or conversation-create failure still left the counter claiming a successful
+            // degraded admission that never happened). Beside the reservation commit below for
+            // the same reason that commit itself waits until here.
+            if (degradedReason is not null)
+                RecordDegradation(degradedReason);
 
             // Commit only now, with the generation observed AFTER the load — never the pre-load
             // generation EnsureAdmitted saw. The load above may have been the one that bumped
@@ -295,14 +304,20 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
     /// degraded to a smaller GpuLayers (partial GPU + CPU), in which case this carries that
     /// reduced value. Loading with the original <paramref name="options"/> instead would silently
     /// re-attempt full GPU residency and defeat the whole point of the degraded admission.
+    /// DegradedReason: non-null exactly when a degraded admission happened (mirrors
+    /// EffectiveGpuLayers being set). The caller records this via RecordDegradation itself, only
+    /// AFTER the load and conversation-create this admission was granted for actually succeed
+    /// (CodeRabbit review, PR #100: recording it here, before either of those run, meant a load
+    /// or conversation-create failure still left the telemetry counter claiming a successful
+    /// degraded admission that never actually happened).
     /// </returns>
-    internal (long RequiredBytes, RuntimeOptions? EffectiveOptions) EnsureAdmitted(
+    internal (long RequiredBytes, RuntimeOptions? EffectiveOptions, string? DegradedReason) EnsureAdmitted(
         RuntimeRoleBinding binding, RuntimeOptions? options = null)
     {
         if (_scheduler is null || _budgetProvider is null)
         {
             if (_allowUnbudgetedExecution)
-                return (0, options);
+                return (0, options, null);
 
             var unavailableDecision = new SchedulingDecision(
                 Admitted: false,
@@ -386,6 +401,7 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
         }
 
         var effectiveOptions = options;
+        string? degradedReason = null;
         if (decision.EffectiveGpuLayers is { } reducedLayers)
         {
             // TryAdmit could not fit the full-offload request but found a smaller GPU-layer
@@ -395,11 +411,13 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
             // reservation ledger reflects what was actually admitted, and rebuild the options
             // the caller loads with so the reduced GpuLayers actually takes effect (options is
             // never null here: TryAdmit only sets EffectiveGpuLayers when it was given options
-            // to search against).
+            // to search against). RecordDegradation itself is NOT called here -- see
+            // DegradedReason's doc above; the caller records it after the load it's granting
+            // actually succeeds.
             requiredBytes = OrcScheduler.EstimateRequiredBytes(
                 binding, options, reusesBaseWeights, gpuLayerOverride: reducedLayers);
             effectiveOptions = options! with { GpuLayers = reducedLayers };
-            RecordDegradation(decision.Reason);
+            degradedReason = decision.Reason;
         }
 
         // requiredBytes is returned so the caller commits the EXACT number that was admitted.
@@ -409,7 +427,7 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
         // role. effectiveOptions is the original options unless TryAdmit degraded the request
         // (see above) -- the caller must load with THIS, not the original, or a reduced-GpuLayers
         // admission would silently attempt full GPU residency anyway.
-        return (requiredBytes, effectiveOptions);
+        return (requiredBytes, effectiveOptions, degradedReason);
     }
 
     private void RecordRejection(string? reason)

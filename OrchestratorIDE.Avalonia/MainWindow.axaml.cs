@@ -2391,9 +2391,10 @@ public partial class MainWindow : Window
             if (swarmModel != _session.ActiveModel)
                 ApplyModelSwitch(swarmModel, saveToSingleSlot: false);
 
-            _swarmPanel.ActiveModel   = _session.ActiveModel;
-            _swarmPanel.WorkspaceRoot = _session.WorkspaceRoot;
-            _swarmPanel.LocalUrl      = _activeRuntimeSettings.OllamaHost;
+            _swarmPanel.ActiveModel      = _session.ActiveModel;
+            _swarmPanel.WorkspaceRoot    = _session.WorkspaceRoot;
+            _swarmPanel.LocalUrl         = _activeRuntimeSettings.OllamaHost;
+            _swarmPanel.RuntimeResolver  = BuildSwarmRuntime;
             _swarmPanel.PopulateModelPickers(_installedModels);
             _swarmPanel.RefreshGate();
             MainContent.Content    = _swarmPanel;
@@ -2992,6 +2993,15 @@ public partial class MainWindow : Window
         BuildExperimentalNativeRoleRuntime("native main chat", _activeRuntimeSettings.ExperimentalNativeMainChatEnabled);
 
     /// <summary>
+    /// Mirrors <see cref="BuildExperimentalNativeMainChatRuntime"/> exactly, gated by
+    /// <see cref="AppSettings.ExperimentalNativeSwarmEnabled"/> for the local Swarm board
+    /// instead. A separate toggle and a separate NativeRoleRuntime instance, same VRAM
+    /// double-booking caveat as the other two.
+    /// </summary>
+    private IRoleRuntime? BuildExperimentalNativeSwarmRuntime() =>
+        BuildExperimentalNativeRoleRuntime("native swarm", _activeRuntimeSettings.ExperimentalNativeSwarmEnabled);
+
+    /// <summary>
     /// Shared scan/budget/construction logic extracted from the original HIVE-worker-only
     /// builder so the main-chat opt-in (added later) doesn't duplicate it. <paramref name="featureLabel"/>
     /// is folded into every activity-log message so the two callers stay distinguishable in the
@@ -3226,6 +3236,42 @@ public partial class MainWindow : Window
             // actually changes -- not on every chat turn. "Resolved," not "loaded"/"resident":
             // it fires at role-resolution time, before generation runs, so a load failure right
             // after this line (surfaced separately via onFallback above) is possible and expected.
+            onNativeModelChanged: activeModel => AddActivity(new ActivityEvent(ActivityKind.Info, "Native Runtime",
+                $"Native model resolved: {activeModel}", DateTime.Now)));
+        return runtime;
+    }
+
+    /// <summary>
+    /// Runtime for the local Swarm board's boss/worker/researcher pipeline
+    /// (<see cref="SwarmBoardPanel.RuntimeResolver"/>). Mirrors <see cref="BuildAgentLoopRuntime"/>
+    /// exactly — same fail-closed policy (native failure surfaces as an explicit error via
+    /// <see cref="NoFallbackRuntime"/>, never a silent Ollama fallback), same one-instance-covers-
+    /// every-role-via-modelNameFilter mechanism <see cref="NativeWithFallbackRuntime"/> already
+    /// uses for OrcChat's model switcher: SwarmSession passes different model-name strings per
+    /// role (boss/coder/researcher) through the same <see cref="IModelRuntime"/> instance, and
+    /// <c>NativeRoleRuntime.StreamRoleCompletionAsync</c>'s <c>modelNameFilter</c> resolves the
+    /// correct GGUF per call regardless of the single bound <see cref="RuntimeRole.Boss"/> here.
+    /// Gated by <see cref="AppSettings.ExperimentalNativeSwarmEnabled"/> — the one core surface
+    /// still hardcoded to Ollama when the other two flipped to native-by-default 2026-07-29; this
+    /// closes that gap. Only when the toggle is off does this return the plain Ollama runtime.
+    /// </summary>
+    private IModelRuntime BuildSwarmRuntime()
+    {
+        if (!_activeRuntimeSettings.ExperimentalNativeSwarmEnabled)
+            return new OllamaRuntime(_ollama);
+
+        var native = BuildExperimentalNativeSwarmRuntime();
+        if (native is null)
+            return new NoFallbackRuntime();
+
+        NativeWithFallbackRuntime runtime = null!;
+        runtime = new NativeWithFallbackRuntime(
+            native,
+            RuntimeRole.Boss,
+            new NoFallbackRuntime(),
+            onFallback: reason => AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
+                $"Swarm native generation failed (failure #{runtime.FallbackCount} this session) — " +
+                $"Ollama fallback is disabled by policy, surfacing as an error instead: {reason}", DateTime.Now)),
             onNativeModelChanged: activeModel => AddActivity(new ActivityEvent(ActivityKind.Info, "Native Runtime",
                 $"Native model resolved: {activeModel}", DateTime.Now)));
         return runtime;

@@ -335,6 +335,76 @@ public sealed class OrcSchedulerTests
         }
     }
 
+    [Test]
+    public void TryAdmit_With_Explicit_Partial_GpuLayers_That_Fits_Does_Not_Reduce_Further()
+    {
+        // CodeRabbit review, PR #100: the old code always estimated full (28-layer) residency
+        // first, then searched DOWN from requestedLayers-1 regardless of what was actually
+        // requested -- so an explicit partial GpuLayers=10 request that ALREADY fit at 10
+        // layers got needlessly reduced to some smaller count instead of being admitted as
+        // requested.
+        var path = WriteLlamaHeaderFixture(blockCount: 28, headCountKv: 8, keyLength: 128);
+        try
+        {
+            var scheduler = new OrcScheduler();
+            var binding = new RuntimeRoleBinding(RuntimeRole.Boss,
+                BaseModelAsset(RuntimeRole.Boss, GB(2)) with { Path = path }, Adapter: null);
+            var options = new RuntimeOptions(ContextLength: 8192, GpuLayers: 10);
+
+            var tenLayerBytes = OrcScheduler.EstimateRequiredBytes(binding, options, gpuLayerOverride: 10);
+            var fullBytes = OrcScheduler.EstimateRequiredBytes(binding, options, gpuLayerOverride: 28);
+            Assume.That(tenLayerBytes, Is.LessThan(fullBytes),
+                "fixture must make the 10-layer estimate strictly smaller than full for this test to be meaningful");
+            var budget = new VramBudget(TotalBytes: tenLayerBytes + GB(0.05), ReservedBytes: 0);
+
+            var decision = scheduler.TryAdmit(binding, budget, options);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(decision.Admitted, Is.True, "the explicit 10-layer request fits and must be admitted as-is");
+                Assert.That(decision.EffectiveGpuLayers, Is.Null,
+                    "admitting exactly what was requested is not a degradation -- EffectiveGpuLayers must stay null");
+            });
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Test]
+    public void TryAdmit_With_Explicit_Zero_GpuLayers_That_Fits_Is_Admitted()
+    {
+        // CodeRabbit review, PR #100: GpuLayers=0 (explicit CPU-only) resolved
+        // requestedLayers=0, so the old degrade-search loop's own bound (requestedLayers-1 =
+        // -1) was already below its lower bound (0) before the loop started -- a CPU-only
+        // request that WOULD fit was denied outright, never even evaluated.
+        var path = WriteLlamaHeaderFixture(blockCount: 28, headCountKv: 8, keyLength: 128);
+        try
+        {
+            var scheduler = new OrcScheduler();
+            var binding = new RuntimeRoleBinding(RuntimeRole.Boss,
+                BaseModelAsset(RuntimeRole.Boss, GB(2)) with { Path = path }, Adapter: null);
+            var options = new RuntimeOptions(ContextLength: 8192, GpuLayers: 0);
+
+            var cpuOnlyBytes = OrcScheduler.EstimateRequiredBytes(binding, options, gpuLayerOverride: 0);
+            var budget = new VramBudget(TotalBytes: cpuOnlyBytes + GB(0.05), ReservedBytes: 0);
+
+            var decision = scheduler.TryAdmit(binding, budget, options);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(decision.Admitted, Is.True, "explicit CPU-only request fits and must be admitted");
+                Assert.That(decision.EffectiveGpuLayers, Is.Null,
+                    "admitting exactly what was requested (0 layers) is not a degradation");
+            });
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     private static string WriteLlamaHeaderFixture(int blockCount, int headCountKv, int keyLength) =>
         WriteHeaderFixture("llama", blockCount, headCountKv, keyLength);
 

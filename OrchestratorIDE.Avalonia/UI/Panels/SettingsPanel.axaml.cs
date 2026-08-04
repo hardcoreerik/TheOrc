@@ -157,6 +157,7 @@ public partial class SettingsPanel : UserControl
         TglNativeHiveWorker.IsChecked = s.ExperimentalNativeHiveWorkerEnabled;
         TglAutoResync.IsChecked       = s.HiveDevAutoResyncEnabled;
         TglNativeMainChat.IsChecked   = s.ExperimentalNativeMainChatEnabled;
+        TglNativeSwarm.IsChecked      = s.ExperimentalNativeSwarmEnabled;
         TglToolcallerDatasetCapture.IsChecked = s.ToolcallerDatasetCaptureEnabled;
         TglToolcallerRepair.IsChecked         = s.ToolcallerRepairEnabled;
         RowModelStorage.PathText  = s.ModelStoragePath;
@@ -373,6 +374,7 @@ public partial class SettingsPanel : UserControl
         s.ExperimentalNativeHiveWorkerEnabled = TglNativeHiveWorker.IsChecked == true;
         s.HiveDevAutoResyncEnabled            = TglAutoResync.IsChecked == true;
         s.ExperimentalNativeMainChatEnabled   = TglNativeMainChat.IsChecked == true;
+        s.ExperimentalNativeSwarmEnabled      = TglNativeSwarm.IsChecked == true;
         s.ToolcallerDatasetCaptureEnabled     = TglToolcallerDatasetCapture.IsChecked == true;
         s.ToolcallerRepairEnabled             = TglToolcallerRepair.IsChecked == true;
         s.ModelStoragePath  = RowModelStorage.PathText.Trim();

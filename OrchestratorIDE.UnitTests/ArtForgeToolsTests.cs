@@ -50,6 +50,20 @@ public sealed class ArtForgeToolsTests
     }
 
     [Test]
+    public void RejectsNoTokenOnAPrivateLanHost()
+    {
+        // CodeRabbit review, PR #100, CWE-306: a private-IP host (unlike loopback) is reachable
+        // by another machine on the same LAN -- tokenless access there is a real exposure, not
+        // just this one machine's own hobby-project ComfyUI front end. IsLocal still admits
+        // this host (RegistersWithNoTokenOnALocalHost above proves the loopback case is fine);
+        // this proves the stricter no-token-requires-loopback boundary actually rejects the
+        // broader IsLocal cases when unauthenticated.
+        var registry = new ToolRegistry(new ApprovalQueue());
+        Assert.Throws<ArgumentException>(() =>
+            ArtForgeTools.Register(registry, new Uri("http://192.168.1.50:8288")));
+    }
+
+    [Test]
     public void RejectsMalformedJobIdBeforeSending()
     {
         var registry = new ToolRegistry(new ApprovalQueue());

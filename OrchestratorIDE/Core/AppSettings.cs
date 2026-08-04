@@ -19,8 +19,18 @@ public enum InferenceBackend { Ollama, LlamaCpp }
 public class AppSettings
 {
     // ── Inference backend ─────────────────────────────────────────────────
-    /// <summary>Which runtime to use. Default: Ollama (backwards-compatible).</summary>
-    public InferenceBackend Backend { get; set; } = InferenceBackend.Ollama;
+    /// <summary>
+    /// Which runtime OrcChat/Research's shared <c>OllamaClient</c> talks to when
+    /// <see cref="ExperimentalNativeMainChatEnabled"/> is off (that flag, true by default,
+    /// governs the primary in-process LLamaSharp path and doesn't consult this property at
+    /// all — see <c>BuildAgentLoopRuntime</c>). Default flipped to <see cref="InferenceBackend.LlamaCpp"/>
+    /// 2026-08-04, same "Ollama is never the silent default" policy as the other native flags:
+    /// per hardcoreerik's standing direction, a broken/unconfigured llama.cpp fallback (e.g.
+    /// <see cref="LlamaCppModelPath"/> left empty) should surface loudly as something to fix,
+    /// not be quietly papered over by falling back to Ollama. Ollama remains fully selectable —
+    /// this only changes what a fresh install defaults to.
+    /// </summary>
+    public InferenceBackend Backend { get; set; } = InferenceBackend.LlamaCpp;
 
     // ── Ollama (Backend == Ollama) ────────────────────────────────────────
     public string OllamaHost    { get; set; } = "http://localhost:11434";
@@ -318,6 +328,17 @@ public class AppSettings
     /// yet), each loading its own copy of the base model into VRAM.
     /// </summary>
     public bool ExperimentalNativeMainChatEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Native Runtime for the local Swarm board (<c>SwarmBoardPanel</c>'s boss/worker/researcher
+    /// pipeline). Default true (2026-08-04) — SwarmSession was the one core surface never
+    /// switched over when §6's default-runtime decision landed for HIVE worker and main chat;
+    /// closing that gap is what this flag does. Independent of the other two experimental native
+    /// flags for the same VRAM-double-booking reason. Follows the same fail-closed policy as
+    /// <see cref="ExperimentalNativeMainChatEnabled"/>: when enabled, a native failure surfaces
+    /// as an explicit error via <c>NoFallbackRuntime</c>, never a silent Ollama fallback.
+    /// </summary>
+    public bool ExperimentalNativeSwarmEnabled { get; set; } = true;
 
     /// <summary>
     /// Foundry F-1 dataset capture opt-in. When true, ToolcallerDatasetCapture stages real

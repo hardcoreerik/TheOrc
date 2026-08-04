@@ -145,44 +145,54 @@ public sealed class OrcScheduler : IOrcScheduler
             ? SchedulingLane.Interactive
             : SchedulingLane.Background;
 
-        var requiredBytes = EstimateRequiredBytes(binding, options, baseWeightsAlreadyResident);
+        // Resolve the actual requested GPU-layer count (when resolvable) BEFORE the first
+        // estimate, so the very first admission check evaluates against what the caller
+        // actually asked for -- not unconditionally against full GPU residency (CodeRabbit
+        // review, PR #100: the old code always estimated full residency first and only ever
+        // searched DOWN from requestedLayers-1, so an explicit partial GpuLayers request that
+        // already fit got needlessly reduced further, and GpuLayers=0 (explicit CPU-only)
+        // could never be evaluated by the search loop at all -- its own upper bound,
+        // requestedLayers-1 = -1, was already below its lower bound of 0 before the loop
+        // started, so a CPU-only request that WOULD fit was denied outright).
+        var header = options is not null ? GgufMetadataReader.TryRead(binding.BaseModel.Path) : null;
+        var requestedLayers = header is { BlockCount: > 0 }
+            ? options!.GpuLayers < 0 ? header.BlockCount : Math.Min(options.GpuLayers, header.BlockCount)
+            : (int?)null;
+
+        var requiredBytes = requestedLayers is { } rl
+            ? EstimateRequiredBytes(binding, options, baseWeightsAlreadyResident, gpuLayerOverride: rl)
+            : EstimateRequiredBytes(binding, options, baseWeightsAlreadyResident);
         if (requiredBytes <= budget.AvailableBytes)
             return new SchedulingDecision(Admitted: true, Lane: lane);
 
-        // The full-offload request doesn't fit. Rather than refuse outright, look for the
-        // largest GPU-layer count that DOES fit and admit in degraded (partial GPU + CPU) mode —
-        // "still try to run, slower, instead of a hard denial on every turn" per hardcoreerik,
-        // 2026-08-01. Only possible when we can resolve a real layer count from the GGUF header;
-        // the legacy file-size-only estimate (no options, or an unreadable header) has no notion
-        // of layers to reduce, so it keeps the original bare denial.
-        var triedCpuOnly = false;
-        if (options is not null)
+        // The requested residency doesn't fit. Rather than refuse outright, look for the
+        // largest GPU-layer count BELOW what was requested that DOES fit and admit in degraded
+        // (partial GPU + CPU) mode — "still try to run, slower, instead of a hard denial on
+        // every turn" per hardcoreerik, 2026-08-01. Only possible when a real layer count was
+        // resolved above; the legacy file-size-only estimate (no options, or an unreadable
+        // header) has no notion of layers to reduce, so it keeps the original bare denial.
+        // requestedLayers == 0 (explicit CPU-only) means the check just above WAS the
+        // CPU-only check, so triedCpuOnly is already known without entering the loop below.
+        var triedCpuOnly = requestedLayers == 0;
+        if (header is { BlockCount: > 0 } h && requestedLayers is > 0 and var startLayers)
         {
-            var header = GgufMetadataReader.TryRead(binding.BaseModel.Path);
-            if (header is { BlockCount: > 0 })
+            for (var layers = startLayers - 1; layers >= 0; layers--)
             {
-                var requestedLayers = options.GpuLayers < 0
-                    ? header.BlockCount
-                    : Math.Min(options.GpuLayers, header.BlockCount);
+                triedCpuOnly = layers == 0;
+                var degradedBytes = EstimateRequiredBytes(
+                    binding, options, baseWeightsAlreadyResident, gpuLayerOverride: layers);
+                if (degradedBytes > budget.AvailableBytes)
+                    continue;
 
-                for (var layers = requestedLayers - 1; layers >= 0; layers--)
-                {
-                    triedCpuOnly = layers == 0;
-                    var degradedBytes = EstimateRequiredBytes(
-                        binding, options, baseWeightsAlreadyResident, gpuLayerOverride: layers);
-                    if (degradedBytes > budget.AvailableBytes)
-                        continue;
-
-                    var reason = layers == 0
-                        ? $"Full GPU residency needs ~{FormatGb(requiredBytes)}, only " +
-                          $"{FormatGb(budget.AvailableBytes)} available — running all " +
-                          $"{header.BlockCount} layers on CPU instead. Generation will be much slower."
-                        : $"Full GPU residency needs ~{FormatGb(requiredBytes)}, only " +
-                          $"{FormatGb(budget.AvailableBytes)} available — offloading {layers}/" +
-                          $"{header.BlockCount} layers to GPU, the rest on CPU. Generation will be slower.";
-                    return new SchedulingDecision(
-                        Admitted: true, Lane: lane, Reason: reason, EffectiveGpuLayers: layers);
-                }
+                var reason = layers == 0
+                    ? $"Full GPU residency needs ~{FormatGb(requiredBytes)}, only " +
+                      $"{FormatGb(budget.AvailableBytes)} available — running all " +
+                      $"{h.BlockCount} layers on CPU instead. Generation will be much slower."
+                    : $"Full GPU residency needs ~{FormatGb(requiredBytes)}, only " +
+                      $"{FormatGb(budget.AvailableBytes)} available — offloading {layers}/" +
+                      $"{h.BlockCount} layers to GPU, the rest on CPU. Generation will be slower.";
+                return new SchedulingDecision(
+                    Admitted: true, Lane: lane, Reason: reason, EffectiveGpuLayers: layers);
             }
         }
 

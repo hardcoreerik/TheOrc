@@ -24,7 +24,7 @@ public static class KeyHoundAtlasTools
         if (workspaceUrl is not null && !IsLocal(workspaceUrl))
             throw new ArgumentException("The KeyHound Atlas workspace must be local.", nameof(workspaceUrl));
 
-        var http = LocalIntegrationHost.CreateClient(bearerToken);
+        var http = LocalIntegrationHost.CreateClient(bearerToken, serviceUrl);
         var api = serviceUrl.ToString().TrimEnd('/');
         var editor = (workspaceUrl ?? serviceUrl).ToString().TrimEnd('/');
 

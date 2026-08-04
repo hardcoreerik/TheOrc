@@ -844,6 +844,37 @@ than that older criterion, which the ROADMAP should be updated to reflect.
 remains implemented and available as `IModelRuntime`'s other backend; it is no longer the
 default construction path in `MainWindow`'s HIVE-worker and main-chat runtime builders.
 
+**2026-08-04 — remaining Ollama-only surfaces closed.** An audit against this §6 decision found
+two code paths that never got switched over when the flip landed: the local Swarm board
+(`SwarmBoardPanel`'s boss/worker/researcher pipeline) unconditionally constructed
+`new OllamaRuntime(Ollama)` with no native option and no gate, hard-erroring "Ollama client not
+configured" if none was set up; and OrcChat/Research's shared `OllamaClient.Backend` setting
+(governs the fallback path only when `ExperimentalNativeMainChatEnabled` is off) still defaulted
+to `InferenceBackend.Ollama`. Both closed the same day, same fail-closed policy as the rest of
+this section (no silent Ollama fallback — a native failure is a gap to fix):
+
+- **`AppSettings.ExperimentalNativeSwarmEnabled`** (new, default `true`) gates a
+  `BuildSwarmRuntime()` in `MainWindow.axaml.cs` mirroring `BuildAgentLoopRuntime()` exactly —
+  same `NativeWithFallbackRuntime` + `NoFallbackRuntime` pattern, same
+  `RuntimeOrchestrator`/`ModelDepot` construction path. One runtime instance serves boss/coder/
+  researcher: `SwarmSession` already passes a distinct model-name string per role through a
+  single `IModelRuntime`, and `NativeRoleRuntime.StreamRoleCompletionAsync`'s `modelNameFilter`
+  (the same mechanism OrcChat's model switcher already relies on) resolves the correct GGUF per
+  call regardless of the one bound `RuntimeRole.Boss`. `SwarmBoardPanel` gained a
+  `RuntimeResolver` delegate (mirrors `ChatPanel.RuntimeResolver`) wired by `MainWindow` in
+  `SetMode("swarm")`; the panel no longer constructs `OllamaRuntime` directly or hard-blocks
+  launch when `Ollama` is null — only when neither a native resolver nor Ollama is available at
+  all. Settings UI toggle: "Native Swarm (boss/worker/researcher)."
+- **`AppSettings.Backend`** default changed `Ollama` → `LlamaCpp`. Only affects the fallback path
+  when native main chat is explicitly disabled (the primary path, `ExperimentalNativeMainChatEnabled`,
+  doesn't read this property at all). An unconfigured `LlamaCppModelPath` on a fresh install with
+  native main chat off will now surface a broken llama.cpp server rather than quietly working
+  Ollama — deliberate per the same policy: loud failure to fix, not a silent Ollama fallback to
+  hide behind.
+
+Verified: full `OrchestratorIDE.UnitTests` suite (796/796, 13 real-model lanes correctly skipped
+with no GGUF configured) green after both changes; `OrchestratorIDE.Avalonia` builds clean.
+
 ---
 
 ## 7. Summary of proposed changes by component
@@ -858,3 +889,134 @@ default construction path in `MainWindow`'s HIVE-worker and main-chat runtime bu
 | `IModelRuntime` / `NativeRoleRuntime` | Contracts; per-role measured stats; text-parsed tool calls | Measured-or-null VRAM instead of file-size proxy (Phase C) |
 | Production wiring (`MainWindow`, `HiveService`, daemon) | Constructs native runtime; null scheduler on budget-derivation failure (fail-open) | Fail-closed native execution; real budget provider (Phases A, B) |
 | Test/proof lanes | Unit tests per component; real path proven only via spike/manual | Standardized opt-in real-model E2E lane (Phase D) |
+
+---
+
+## 8. Self-authored skills (Phase E — swarm-driven tool creation)
+
+Separate track from §4's admission/telemetry/proof-lane phases (A–D) — this is an
+*extensibility* milestone, not a runtime-foundation one. Recorded here rather than in
+`docs/NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md` at hardcoreerik's explicit direction (2026-08-01):
+documenting this is itself the milestone he wants tracked against the native runtime's overall
+capability story, not filed as a first-party function pack.
+
+**The problem this replaces:** every local-project integration before this (Art Forge Studio,
+CaseForge, KeyHound Atlas — PR #96) was a hand-written C# class hardcoded into
+`OrcChatToolCatalog`. That doesn't scale: most installs don't have these tools, and every new
+integration meant a TheOrc source change. A **skill** — a folder,
+`{workspaceRoot}/.orc/skills/{name}/`, containing `SKILL.md` (model-facing instructions; YAML
+frontmatter `name`/`description` + markdown sections — deliberately the same shape widely used
+for AI-agent skill files, so a skill authored for one AI is readable by another) and `tools.json`
+(the machine-readable schema below) — replaces that with a declarative, dynamically-loaded
+alternative. No TheOrc source change is needed for a new local integration.
+
+**The harder requirement this phase actually tests:** the skill-authoring process itself must be
+done *entirely by TheOrc's own native swarm* (`SwarmSession`/`SwarmCli --goal`) — reading an
+external project's documentation and API surface and producing its own `SKILL.md`/`tools.json`,
+with no hand-authoring by a human or by an external AI assistant. This is as much a real-world
+proof point for the swarm's tool-use reliability as it is a new extensibility mechanism — what it
+gets right or wrong when building its own tool is exactly the signal wanted.
+
+### Phase E — Swarm-driven tool creation
+
+- **Purpose / outcome:** TheOrc's own swarm can read a local project's docs/API and
+  autonomously produce a working, loadable skill for it — proving both a new dynamic-tool
+  mechanism and the swarm's real-world tool-use reliability on an unscripted, open-ended task.
+- **Components:**
+  - `tools.json` schema (below) — declarative name/method/path/params/auth/approval per tool.
+  - `OrchestratorIDE/Core/SkillLoader.cs` — scans `{workspaceRoot}/.orc/skills/*/tools.json`,
+    builds one generic HTTP-calling `ToolDefinition` per declared entry (reusing
+    `LocalIntegrationHost`'s client/local-only gate from PR #96), registers via
+    `ToolRegistry.Register`. Wired into the same workspace-open hook as `ToolCompiler`
+    (`MainWindow.AutoLoadWorkspaceToolsAsync`) — the declarative counterpart to
+    `ToolCompiler`'s compiled-C# custom tools, same auto-load convention, same per-file
+    error-tolerant scan.
+  - A `swarmcli --goal` invocation (goal prompt recorded in the dated run log below) that
+    drives the actual authoring — infrastructure only; the goal's *content* (the skill itself)
+    is entirely swarm output, never hand-edited afterward except to record a genuine failure.
+- **Dependencies:** `SwarmSession`/`SwarmCli` (existing), `LocalIntegrationHost` (PR #96),
+  `ToolRegistry` (existing). Independent of Phases A–D — does not touch admission, telemetry,
+  or the proof lane.
+- **Safety invariants:** a skill-declared tool is bound by the exact same
+  `LocalIntegrationHost.IsLocal` restriction every hand-written integration already has — a
+  skill can never point at a public host, with or without a bearer token. `requires_approval`
+  defaults to `true` when a manifest entry omits it (fail-toward-caution). A malformed skill
+  (bad JSON, missing required fields on an entry) is skipped and logged, never crashes
+  workspace-open and never blocks other skills in the same scan.
+- **`tools.json` schema:**
+  ```json
+  {
+    "name": "example",
+    "base_url_env": "EXAMPLE_URL",
+    "base_url_default": "http://127.0.0.1:9999",
+    "auth": { "type": "bearer_optional", "token_env": "EXAMPLE_TOKEN" },
+    "tools": [
+      {
+        "name": "example_health",
+        "description": "Check liveness.",
+        "method": "GET",
+        "path": "/health",
+        "params": [],
+        "requires_approval": false
+      }
+    ]
+  }
+  ```
+- **Targeted tests:** `SkillLoaderTests.cs` — valid manifest registers correct `ToolDefinition`s;
+  an invalid entry is skipped without blocking the rest of the manifest; a public
+  `base_url_default` is refused (proves the `IsLocal` gate applies to skill-declared tools, not
+  just hand-written ones).
+- **`/verify`:** a real `swarmcli --goal` run, driven by TheOrc's own swarm with no
+  hand-authoring, against a real local project (`F:\3DModels\caseforge` — chosen because it
+  already publishes machine-readable docs/API: `docs/AGENT_API.md`, `/health`,
+  `/v1/capabilities`, `/openapi.json`, a CLI). The produced `SKILL.md`/`tools.json` must load via
+  `SkillLoader` and at least one generated tool must complete a real HTTP round-trip against the
+  actual running service.
+- **Evidence:** recorded in the dated run log below once the authoring run completes — the
+  swarm's `.orc/swarm/trace.jsonl` transcript and `final_report.md`, archived (the trace file is
+  overwritten on the next run).
+- **Failure/rollback:** `SkillLoader` failures are always per-file and non-fatal (same posture
+  as `ToolCompiler.ScanAndLoadAll`) — a skill that fails to parse or load never blocks workspace
+  open or any other skill.
+- **Definition of Done:** the CaseForge skill exists, loads without error, and a live tool call
+  against it round-trips successfully — documented in the dated run log.
+- **Non-goals:** OrcChat's curated `TopToolNames` list is untouched this phase — skills load into
+  the Agent-panel registry only, not OrcChat's per-turn tool list (a separate follow-up if
+  wanted). No `Origin`/`Source` tagging on `ToolDefinition`. No MCP transport — that is
+  `docs/NATIVE_RUNTIME_FUNCTION_PACK_PLAN.md`'s Phase 1.5 (MCP-native tool layer), a distinct,
+  separate track (consuming existing MCP servers, not a swarm authoring new tool descriptions).
+  No skill-editor UI. No per-field regex validation matching the hand-written integrations'
+  bespoke checks (job-ID patterns, size patterns, etc.) — a skill trades some bespoke input
+  safety for genericity.
+
+#### Phase E run log (2026-08-02): CaseForge, first attempt
+
+**Setup.** `swarmcli --goal "<prompt above>" --native qwen3:14b.gguf --workspace F:\3DModels\caseforge --timeout 1800`. CaseForge's worker confirmed live and healthy beforehand (`curl http://127.0.0.1:8788/health` → 200, real JSON). No hand-authoring at any point — the goal text and the `tools.json` schema shown to the swarm are the only human input; everything else in `.orc/skills/caseforge/` is swarm output.
+
+**Result: NOT CLOSED — the swarm did not produce a usable skill.** The infrastructure worked exactly as designed; the swarm's authored content did not.
+
+- **Research phase produced fabricated ("ghost") output** — the boss's own log flagged it: `⚠ 1 researcher(s) returned ghost output — coders proceeding without research context`. The researcher's actual result confused *its own* available tool vocabulary (`read_file`, `list_files`, `grep_code`, `fetch_url` — the agent's own tools) with CaseForge's documented API capabilities, and never extracted any of the real endpoints from `docs/AGENT_API.md` (`/health`, `/v1/jobs`, `/v1/capabilities`, the portrait-angle and Creator5 routes, etc.). It also concluded "the CaseForge worker is not running locally," which was false — the worker was live and healthy at the time; the researcher either never actually ran `caseforge.cmd health` via `run_shell` or ran it and could not interpret the output.
+- **Coder proceeded ungrounded and hallucinated tool names.** With no real research context, the coder invented and called four non-existent tools (`caseforge_execute`, `caseforge_load`, `caseforge_validate`, `caseforge_log`) as if they were registered TheOrc tools — each correctly rejected with `[Tool not found]` — before falling back to the real `write_file` tool it actually had.
+- **The produced content is semantically wrong, not just incomplete.** `SKILL.md` describes a generic "case workflow" system (`caseforge execute --case=example_case.yaml`) with no relation to CaseForge's real 3D-print job API, and uses `title:` in its frontmatter instead of the specified `name:`. `tools.json` is a bare JSON array of four invented endpoints (`/api/caseforge/execute`, `/load`, `/validate`, `/log` — none of which exist), not the object-wrapped shape (`name`/`base_url_default`/`auth`/`tools`) the schema in the goal actually specified.
+- **Self-verification gave false confidence.** The auto-spawned Tester reported `STATUS: PASS ... All files present and syntax checks pass`, and `final_report.md`'s own Verification section claimed `PASS — ... correctly represent the CaseForge API capabilities.` Both checks were syntax-only (valid YAML/JSON, non-empty fields) — neither caught the semantic mismatch or the schema-shape mismatch. Taken at face value, the swarm's own report would have been actively misleading.
+- **A `run_shell` friction point:** eight consecutive `mkdir`/`if not exist` variants against `.orc\skills\caseforge`, all exit 1 with PowerShell CLIXML stderr — most likely because `write_file` had already created the directory and each attempt was retrying a redundant, differently-phrased command against a false-negative "failure" rather than recognizing the directory already existed.
+- **A native runtime crash, after the bad content was already written:** `llama_decode failed: 'NoKvSlot'` ended the coder task. This happened downstream of the semantic failures above (not their cause) — a KV-cache exhaustion event under a workload with several repeated failed tool calls building up context. Worth tracking as a possible recurrence of the class of issue PR #63 addressed, not yet root-caused here.
+- **What worked correctly: `SkillLoader` itself.** Run against the real (malformed) `tools.json` this attempt produced, it rejected the file cleanly — `Invalid JSON: The JSON value could not be converted to OrchestratorIDE.Core.SkillManifest` — registering zero tools, no exception escaping, exactly the fail-tolerant behavior the design called for. The one part of the full loop that is proven solid is the loader's refusal to silently accept bad input.
+
+**Verdict: Phase E's `/verify` bar (a loadable skill + one successful live round-trip) is NOT met on this first attempt.** The failure mode is entirely on the swarm-authoring side (research grounding, self-verification depth), not the loader/schema infrastructure, which behaved exactly as designed against real, unplanned bad input. Evidence: `.orc/skill-authoring-evidence/20260802_015334/` (`trace.jsonl`, `final_report.md`, per-agent task/result files, the produced `SKILL.md`/`tools.json`).
+
+#### Phase E run log (2026-08-02): CaseForge, retry with a tightened goal prompt
+
+**Setup.** Same command as the first attempt, immediately re-run with a goal prompt tightened to address every specific failure mode found above: an explicit `RESEARCH_NOTES.md` grounding step demanded before any other file, an explicit instruction not to describe the agent's own tools as the target's API, the exact object-shaped `tools.json` schema restated, an instruction to omit rather than invent any endpoint it couldn't confirm, and an explicit "be a harsh grader" self-check instruction. CaseForge's worker reconfirmed live immediately before the run.
+
+**Result: still NOT CLOSED, but a genuinely different (partially better, partially worse) failure profile — not a repeat of the first attempt's failure mode.**
+
+- **Real improvements.** `tools.json` this time is a proper JSON *object* with the five required top-level keys (`name`/`base_url_env`/`base_url_default`/`auth`/`tools`) — the schema-shape fix landed. `SKILL.md`'s frontmatter correctly uses `name`/`description`, not the first attempt's `title`. The coder genuinely executed `caseforge.cmd health` and `caseforge.cmd capabilities` via `run_shell` and got real `exit 0` JSON back (visible in `trace.jsonl`) — real grounding data was available in context this time, unlike the first attempt.
+- **New regression: the base URL got worse, not better.** `base_url_default` is `https://api.caseforge.com/v1` — an invented **public** URL (the real service is `http://127.0.0.1:8788`, correctly used by the first attempt at least for this one field). Would be caught by `LocalIntegrationHost.IsLocal` if reached, but `SkillLoader` never got that far — a different, earlier field failed first (below).
+- **Invented endpoints despite an explicit "omit, don't invent" instruction.** Of the 11 tool entries, `health-check` (`/health`) and the two `/v1/jobs` entries are plausible-to-real; `job-cancel` (`DELETE /v1/jobs/{job_id}`), `model-list`, `model-detail`, `task-list`, `task-create`, `task-cancel`, `task-detail` are fabricated — CaseForge's real API has no generic "models" or "tasks" resource at all (confirmed against `docs/AGENT_API.md`'s actual capability table). The instruction to leave out anything unconfirmed rather than invent it was not followed; the model filled gaps with generic REST-API boilerplate instead.
+- **The mandated `RESEARCH_NOTES.md` grounding step was never actually written**, despite `final_report.md` explicitly listing it under "Files Created" with a description of its contents. Confirmed absent from the entire run directory and the CaseForge repo — not merely misplaced. The final report also claims a `main.py` was created "to verify that the documentation and API endpoints were correctly read and processed" — a file nobody asked for, also absent from disk. This is a step beyond the first run's false PASS: not just a shallow check giving false confidence, but a narrative report describing deliverables that were never actually written by any tool call.
+- **New defect: path-inconsistent concurrent writes.** The coder wrote `tools.json` to the correct `.orc/skills/caseforge/` (leading dot); a separate concurrent worker (UIDeveloper, assigned `SKILL.md`) wrote both `SKILL.md` *and its own copy of* `tools.json` to `orc/skills/caseforge/` — missing the leading dot, a sibling directory at the workspace root instead of a hidden one. Two workers on the same run, given the same explicit path in the same goal text, landed on two different literal paths.
+- **Self-verification partially improved.** Unlike the first run's false `PASS`, this run's `final_report.md` honestly reports `STATUS: FAIL` (twice — once for the file-not-found race against a "planned" tester that checked before the coder finished writing, once for the phantom `main.py`'s syntax error). The harsher-grading instruction did make the report less falsely confident, even though the underlying content problems (invented endpoints, fabricated file list) went uncaught.
+- **`SkillLoader` again rejected the file correctly, this time for a third distinct reason.** `auth` is a plain string (`"Bearer token from environment variable CASEFORGE_API_TOKEN"`) rather than the specified `{type, token_env}` object, so deserialization fails on that field: `Invalid JSON: The JSON value could not be converted to OrchestratorIDE.Core.SkillAuth. Path: $.auth`. Zero tools registered, no exception escaped — the loader's fail-safe behavior held up under a second, differently-malformed real input.
+
+**Verdict: still NOT CLOSED.** Two independent attempts, with materially different goal prompts, both failed to produce a loadable, accurate skill — each for different reasons (total fabrication vs. partial grounding with invented gap-filling and a fabricated deliverable list). This is no longer read as "the prompt needs more tuning" — the pattern across two attempts points at the swarm's research-grounding and self-verification reliability itself, not prompt phrasing. Per hardcoreerik's own next step: investigate `SwarmSession`'s research-phase "ghost output" behavior as a defect before attempting a third authoring run. `SkillLoader` is 3-for-3 on safely rejecting real, unplanned malformed output across two runs (three distinct rejection reasons: bare array, then a nested-object-typed-as-string field) — the loader/schema half of Phase E is holding up; the swarm-authoring half needs the follow-up investigation. Evidence: `.orc/skill-authoring-evidence/20260802_030113/` (`trace.jsonl`, `final_report.md`, per-agent task/result files, both path-inconsistent copies of the produced skill).

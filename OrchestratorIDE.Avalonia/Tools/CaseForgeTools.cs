@@ -23,7 +23,7 @@ public static class CaseForgeTools
         if (workspaceUrl is not null && !IsLocal(workspaceUrl))
             throw new ArgumentException("The CaseForge workspace must be local.", nameof(workspaceUrl));
 
-        var http = LocalIntegrationHost.CreateClient(bearerToken);
+        var http = LocalIntegrationHost.CreateClient(bearerToken, workerUrl);
         var api = workerUrl.ToString().TrimEnd('/');
         var editor = (workspaceUrl ?? workerUrl).ToString().TrimEnd('/');
 

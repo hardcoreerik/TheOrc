@@ -28,6 +28,18 @@ public partial class SwarmBoardPanel : UserControl
     public string?         LocalUrl      { get; set; }
     public AppSettings?    Settings      { get; set; }
 
+    /// <summary>
+    /// Builds the runtime the launched <see cref="SwarmSession"/> actually uses (native GGUF via
+    /// <c>AppSettings.ExperimentalNativeSwarmEnabled</c>, or plain Ollama when that's off/unset).
+    /// Wired by MainWindow (mirrors <c>ChatPanel.RuntimeResolver</c>) so this panel never
+    /// constructs <see cref="OllamaRuntime"/> directly and never assumes Ollama is configured —
+    /// before this, <see cref="Ollama"/> being null unconditionally blocked launching a swarm
+    /// even when native was fully available. Null only in contexts that never wire it (e.g. a
+    /// unit test constructing this panel directly); <see cref="BtnLaunch_Click"/> falls back to
+    /// <see cref="Ollama"/> in that case, preserving prior behavior exactly.
+    /// </summary>
+    public Func<IModelRuntime>? RuntimeResolver { get; set; }
+
     // ── Delegate callbacks injected by MainWindow ─────────────────────────────
     public Func<string, string, Task>?          AlertAsync   { get; set; }
     public Func<string, string, Task<bool>>?    ConfirmAsync { get; set; }
@@ -304,9 +316,14 @@ public partial class SwarmBoardPanel : UserControl
             await (AlertAsync?.Invoke("Please enter a goal.", "Launch Swarm") ?? Task.CompletedTask);
             return;
         }
-        if (Ollama is null)
+        // Native Runtime (AppSettings.ExperimentalNativeSwarmEnabled, default true 2026-08-04)
+        // no longer requires Ollama to be configured -- RuntimeResolver builds a native or
+        // Ollama runtime depending on that setting. Only block if NEITHER is available: no
+        // resolver wired at all AND no Ollama client either, meaning there is genuinely no way
+        // to run anything.
+        if (RuntimeResolver is null && Ollama is null)
         {
-            await (AlertAsync?.Invoke("Ollama client not configured.", "Launch Swarm") ?? Task.CompletedTask);
+            await (AlertAsync?.Invoke("No runtime available -- neither native nor Ollama is configured.", "Launch Swarm") ?? Task.CompletedTask);
             return;
         }
 
@@ -322,13 +339,18 @@ public partial class SwarmBoardPanel : UserControl
         _activeTab = "boss";
         SwitchTab("boss");
 
+        // RuntimeResolver ?? plain Ollama, not the other way around: when a resolver IS wired,
+        // it already returns the correct runtime for whatever ExperimentalNativeSwarmEnabled
+        // says (native OR Ollama) -- falling back to Ollama here only ever applies when no
+        // resolver exists at all (see the guard above).
+        var runtime = RuntimeResolver?.Invoke() ?? new OllamaRuntime(Ollama!);
         _session = new SwarmSession(
-            new OllamaRuntime(Ollama),
+            runtime,
             bossModel,
             WorkspaceRoot,
             workerModel,
             resModel,
-            new OllamaRuntime(Ollama));
+            runtime);
 
         if (Settings is not null)
         {
