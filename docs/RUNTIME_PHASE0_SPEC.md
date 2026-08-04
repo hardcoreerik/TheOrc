@@ -361,9 +361,11 @@ every entry was attempted (never abandoning the rest of the cleanup on the first
 
 ORCISH TONGUE probes each model's preferred tool-call format (`FormatProbeEngine`: `BareJson`, `OpenAiJson`, `HermesXml`, `PythonStyle`, `YamlBlock`), injects matching instructions (`BuildToolFormatSection`), then parses defensively — including the `TryParseTextToolCalls` fallback for models that ignore the format and emit loose text. This is **"probe, ask nicely, parse defensively, hope."** It adapts to whatever the model does; it cannot guarantee.
 
-### What native unlocks (decoder layer — deterministic)
+### What native unlocks (decoder layer — deterministic) — LANDED 2026-08-03
 
 llama.cpp supports **grammar-constrained decoding (GBNF)**. In-process via LLamaSharp, the decoder can be constrained so the model **physically cannot emit a token** that breaks the tool-call schema — valid by construction, not by cooperation.
+
+Implemented: `ToolCallGrammarBuilder` (`OrchestratorIDE/Core/Runtime/ToolCallGrammarBuilder.cs`) compiles the live tool list into a GBNF grammar, wired into `LLamaSharpRuntime.StreamCompletionAsync` via `DefaultSamplingPipeline.Grammar` whenever `tools` is non-empty. `ChatEngine` (OrcChat), `SwarmSession` (Swarm), and `HiveWorkerAgent` (HIVE) all pick this up automatically through the shared `IModelRuntime` reference — no surface-specific wiring. Verified end-to-end with an adversarial test: unconstrained, a model complied with "call the delete_everything_now tool"; grammar-constrained, it structurally could not, including with the name embedded mid-sentence rather than as a leading token (PR #99, CodeRabbit-flagged smuggling-gap fix). Only applies when `LLamaSharpRuntime` is actually serving the request — `NativeWithFallbackRuntime` falling back to Ollama/server backends means no grammar, and grammar-construction failures degrade to unconstrained decoding rather than aborting the call.
 
 | Today (via HTTP) | Native (ORCISH TONGUE + GBNF) |
 |---|---|
@@ -383,8 +385,8 @@ Going in-process, the app inherits the "server-side tool-call translation" that 
 ### Phasing fit
 
 - ORCISH TONGUE (prompt-layer) keeps working unchanged through Phases 0–1.
-- GBNF constrained decoding is a **Phase 2 capability** (needs `LLamaSharpRuntime`). Built on existing `FormatProbeEngine` probe data.
-- `TryParseTextToolCalls` is deprecated only once GBNF is proven on the native path — keep it as the fallback for the Ollama/server backends.
+- GBNF constrained decoding is a **Phase 2 capability** (needs `LLamaSharpRuntime`) — **landed 2026-08-03**, see above.
+- `TryParseTextToolCalls` / `ToolCallTextParser` is **not deprecated** — it remains the parser for grammar-constrained output too (grammar guarantees well-formed JSON, the parser still extracts it from the stream) and stays the sole path for the Ollama/server backends, which GBNF does not cover.
 
 ### Related: grammar-constrained *plans*
 
