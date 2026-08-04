@@ -126,11 +126,20 @@ def run_preflight(cfg: dict, repo_root: Path = REPO_ROOT) -> list[str]:
                                     f"(meta {key} mismatch) — re-run the exporter")
 
     # ── Frozen tool inventory hash (toolcaller-specific) ─────────────────
+    # gates.tool_schema_path override (mirrors foundry_promote.py's runtime_schema_identity
+    # gate, which already supported this): defaults to the v0 flat file so every existing
+    # config's behavior is unchanged; a config that explicitly sets tool_schema_path (v2's,
+    # pointing at the tool-family registry) checks that file instead. Before this fix, this
+    # script always checked FROZEN_TOOLS regardless of tool_schema_path, which is why v2's
+    # configs deliberately left tool_schema_hash null rather than set it to the registry's
+    # real hash -- setting it would have made THIS check compare the v2 hash against the v0
+    # file, a guaranteed mismatch on every future preflight run.
     expected_hash = gates.get("tool_schema_hash")
     if expected_hash:
-        if not FROZEN_TOOLS.exists():
-            findings.append(f"SCHEMA: frozen tool inventory missing: {FROZEN_TOOLS}")
-        elif sha256_file_lf(FROZEN_TOOLS) != expected_hash:
+        frozen_tools_path = (repo_root / gates["tool_schema_path"]) if "tool_schema_path" in gates else FROZEN_TOOLS
+        if not frozen_tools_path.exists():
+            findings.append(f"SCHEMA: frozen tool inventory missing: {frozen_tools_path}")
+        elif sha256_file_lf(frozen_tools_path) != expected_hash:
             findings.append("SCHEMA: frozen tool inventory hash changed since this recipe was "
                             "frozen — regenerate/revalidate the dataset and update gates.tool_schema_hash")
         if meta is not None and meta.get("tool_schema_hash") != expected_hash:

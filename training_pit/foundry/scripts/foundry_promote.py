@@ -115,6 +115,22 @@ def load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def load_example_ids(path: Path) -> set[str]:
+    """example_id set of a chat-format JSONL dataset file, for the toolcaller-v2 composed-
+    multi-stream branch of the frozen_group_split gate below -- a direct, on-disk leakage
+    check (do train and eval actually share any example_id?) rather than v0's parameter-match
+    check (did the generator run with the frozen frac/seed?), since v2 datasets aren't built
+    by one frac/seed split, they're concatenated from independently-generated, independently
+    lineage-split streams."""
+    ids: set[str] = set()
+    with path.open(encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if line:
+                ids.add(json.loads(line)["example_id"])
+    return ids
+
+
 def find_incumbent_gguf(modelfile_path: Path) -> Path | None:
     if not modelfile_path.exists():
         return None
@@ -228,13 +244,41 @@ def main():
     c = Check("frozen_group_split")
     if meta_path.exists():
         meta = load_json(meta_path)
-        isolation = meta.get("isolation", "")
-        frozen = eval_sets.get("group_split", {})
-        expected = f"holdout_frac={frozen.get('holdout_frac')}, seed={frozen.get('seed')}"
-        if f"holdout_frac={frozen.get('holdout_frac')}" in isolation and f"seed={frozen.get('seed')}" in isolation:
-            c.ok(f"meta.json isolation matches frozen split ({expected})")
+        if "isolation" not in meta:
+            # toolcaller-v2 composed-multi-stream shape (2026-08-04): v0's meta.json always
+            # carries an "isolation" string (the frac/seed split description checked in the
+            # else-branch below); v2's honest multi-stream meta.json never does -- it also has
+            # its own "sources" key, but so does v0's (a differently-shaped one, just source
+            # file labels), so "isolation" absence, not "sources" presence, is the real
+            # discriminator. No single frac/seed split
+            # exists here -- each source stream was independently generated and lineage-split
+            # BEFORE concatenation (see meta.json's own sources.*.review_status/notes). The
+            # actual guarantee this gate exists to protect -- "candidate wasn't scored against
+            # something it trained on" -- is checked directly and more strongly than v0's
+            # parameter-match ever did: real zero-overlap of example_id between the composed
+            # train and eval files on disk, not just trusting that generator parameters matched.
+            eval_path_for_split = REPO / cfg["dataset"]["eval_path"]
+            if train_path.exists() and eval_path_for_split.exists():
+                train_ids = load_example_ids(train_path)
+                eval_ids  = load_example_ids(eval_path_for_split)
+                overlap = train_ids & eval_ids
+                if overlap:
+                    c.fail(f"{len(overlap)} example_id(s) appear in BOTH train and eval "
+                           f"(e.g. {next(iter(overlap))}) -- real train/eval leakage")
+                else:
+                    c.ok(f"train ({len(train_ids)}) and eval ({len(eval_ids)}) example_ids are "
+                         f"fully disjoint across {len(meta['sources'])} composed stream(s), no leakage")
+            else:
+                c.fail(f"missing train or eval file to verify split isolation against "
+                       f"({rel(train_path)} / {rel(eval_path_for_split)})")
         else:
-            c.fail(f"meta.json isolation '{isolation}' does not match frozen split ({expected})")
+            isolation = meta.get("isolation", "")
+            frozen = eval_sets.get("group_split", {})
+            expected = f"holdout_frac={frozen.get('holdout_frac')}, seed={frozen.get('seed')}"
+            if f"holdout_frac={frozen.get('holdout_frac')}" in isolation and f"seed={frozen.get('seed')}" in isolation:
+                c.ok(f"meta.json isolation matches frozen split ({expected})")
+            else:
+                c.fail(f"meta.json isolation '{isolation}' does not match frozen split ({expected})")
     else:
         c.fail("no meta.json to verify split isolation against")
     checks.append(c)
