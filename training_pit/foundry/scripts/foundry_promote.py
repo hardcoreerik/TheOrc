@@ -417,16 +417,49 @@ def main():
     # unless the track's own config declares the corresponding floor. v0/v0_r3 configs never
     # set these, so their promotion runs are completely unaffected by this addition. `rules`
     # is the same dict already bound near the top of main() (margin["rules"]).
+    # Provenance validation (CodeRabbit review, PR #99): both gates below previously trusted
+    # any JSON blob with the right metric key, regardless of which artifact or eval set actually
+    # produced it -- a stale or mismatched result file would silently pass. Now each result must
+    # identify the candidate artifact actually being promoted and the configured eval set, or
+    # the gate fails closed rather than trusting an unverified number.
+    def _artifact_matches(result: dict) -> bool:
+        # eval_toolcaller.py's results carry "adapter"; eval_refusal_gauntlet.py's carry "model"
+        # -- check whichever is present against the candidate directory actually being promoted.
+        # Two path components (parent/name), not just the leaf name: every round's adapter
+        # directory is literally named "adapter" (foundry_toolcaller_v2_r1/adapter,
+        # .../r2/adapter, ...), so a leaf-only comparison would treat every round as a match --
+        # caught by testing this check against a real cross-round mismatch before trusting it.
+        identity = result.get("adapter") or result.get("model") or ""
+        if not identity:
+            return False
+        candidate_two_level = f"{args.candidate_dir.parent.name}/{args.candidate_dir.name}"
+        identity_normalized = str(identity).replace("\\", "/")
+        return candidate_two_level in identity_normalized or str(args.candidate_dir) in identity
+
     if "generalization_accuracy_min" in rules:
         c = Check("generalization_accuracy_floor")
         if args.generalization_arena_results and args.generalization_arena_results.exists():
             genarena = load_json(args.generalization_arena_results)
-            acc = genarena.get("metrics", {}).get("decision_accuracy")
-            floor = rules["generalization_accuracy_min"]
-            if acc is not None and acc >= floor:
-                c.ok(f"candidate held-out-family generalization accuracy {acc:.4f} >= floor {floor}")
+            # eval_sets values in the config are descriptive strings (e.g. "path.jsonl (sealed
+            # ..., held-out families only)"), not clean paths -- check the ACTUAL scored file's
+            # own name appears as a substring of that description, not the other way around
+            # (Path(descriptive_string).name is meaningless on a string with parens/spaces).
+            expected_eval = margin.get("eval_sets", {}).get("generalization_arena")
+            actual_eval_name = Path(str(genarena.get("eval_path", ""))).name
+            if not _artifact_matches(genarena):
+                c.fail(f"generalization-arena-results' adapter/model field does not match the "
+                       f"candidate being promoted ({rel(args.candidate_dir)}) -- refusing to "
+                       "trust results that may be from a different artifact")
+            elif expected_eval and (not actual_eval_name or actual_eval_name not in expected_eval):
+                c.fail(f"generalization-arena-results was scored against '{genarena.get('eval_path')}', "
+                       f"not the configured eval set ({expected_eval})")
             else:
-                c.fail(f"candidate held-out-family generalization accuracy {acc} below floor {floor}")
+                acc = genarena.get("metrics", {}).get("decision_accuracy")
+                floor = rules["generalization_accuracy_min"]
+                if acc is not None and acc >= floor:
+                    c.ok(f"candidate held-out-family generalization accuracy {acc:.4f} >= floor {floor}")
+                else:
+                    c.fail(f"candidate held-out-family generalization accuracy {acc} below floor {floor}")
         else:
             c.fail("--generalization-arena-results not supplied or file not found, but "
                    "this track's config requires generalization_accuracy_min")
@@ -436,12 +469,25 @@ def main():
         c = Check("plausible_fabrication_safety_floor")
         if args.plausible_fabrication_results and args.plausible_fabrication_results.exists():
             pf = load_json(args.plausible_fabrication_results)
-            bound = pf.get("metrics", {}).get("safety_cp95_lower")
-            floor = rules["plausible_fabrication_safety_cp95_lower_min"]
-            if bound is not None and bound >= floor:
-                c.ok(f"candidate plausible_fabrication safety_cp95_lower {bound:.4f} >= floor {floor}")
+            per_family = pf.get("metrics", {}).get("per_family", {})
+            if not _artifact_matches(pf):
+                c.fail(f"plausible-fabrication-results' adapter/model field does not match the "
+                       f"candidate being promoted ({rel(args.candidate_dir)}) -- refusing to "
+                       "trust results that may be from a different artifact")
+            elif "plausible_fabrication" not in per_family:
+                c.fail("plausible-fabrication-results has no per_family.plausible_fabrication "
+                       "entry -- must be a dedicated single-family report, not an aggregate "
+                       "combined-gauntlet value that could be diluted by other, easier families")
             else:
-                c.fail(f"candidate plausible_fabrication safety_cp95_lower {bound} below floor {floor}")
+                # Family-scoped bound, not the top-level aggregate (which could blend in other
+                # families if this ever stops being a single-family run) -- the whole reason
+                # per_family exists is to make this number un-diluteable.
+                bound = per_family["plausible_fabrication"].get("safety_cp95_lower")
+                floor = rules["plausible_fabrication_safety_cp95_lower_min"]
+                if bound is not None and bound >= floor:
+                    c.ok(f"candidate plausible_fabrication safety_cp95_lower {bound:.4f} >= floor {floor}")
+                else:
+                    c.fail(f"candidate plausible_fabrication safety_cp95_lower {bound} below floor {floor}")
         else:
             c.fail("--plausible-fabrication-results not supplied or file not found, but "
                    "this track's config requires plausible_fabrication_safety_cp95_lower_min")

@@ -40,6 +40,7 @@ Output rows are chat-format JSONL, same shape as generate_refusal_gauntlet.py's 
 
 import argparse
 import json
+import os
 import random
 import sys
 from pathlib import Path
@@ -135,19 +136,33 @@ def main():
                     help="target case count (rounded down to whole paraphrase groups)")
     args = ap.parse_args()
 
+    # This is a sealed eval file -- refuse to overwrite one that already exists (CodeRabbit
+    # review, PR #99, same fix applied to build_generalization_arena_v2.py).
+    if args.out.exists():
+        print(f"ERROR: {args.out} already exists. This is a sealed eval file -- generate a "
+              "new file with a new name instead of overwriting it.")
+        sys.exit(1)
+
     tool_schemas, schema_hash = _load_family_registry()
     real_names = list(tool_schemas.keys())
 
     for fam, decoys in DECOY_NAMES_BY_FAMILY.items():
         for d in decoys:
-            assert d not in tool_schemas, f"{fam}: decoy {d!r} collides with a real tool"
+            # Explicit raise, not assert (CodeRabbit review, PR #99): python -O strips asserts,
+            # and this is the only guard against an eval decoy accidentally colliding with a
+            # real registered tool name.
+            if d in tool_schemas:
+                raise ValueError(f"{fam}: decoy {d!r} collides with a real tool")
 
     rng = random.Random(args.seed)
     groups = max(1, args.per_family // len(PHRASINGS))
     cases = build_cases(rng, groups, real_names)
 
+    # Atomic write (CodeRabbit review, PR #99): write to a temp file, then os.replace into the
+    # final sealed path, so a crash mid-write never leaves a truncated file at args.out.
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    with args.out.open("w", encoding="utf-8", newline="\n") as fh:
+    tmp_path = args.out.with_suffix(args.out.suffix + ".tmp")
+    with tmp_path.open("w", encoding="utf-8", newline="\n") as fh:
         for idx, case in enumerate(cases):
             # available_tools shown to the model for each case: the full trainable real
             # roster from case["family"]'s neighborhood (all trainable families' real tools
@@ -172,6 +187,7 @@ def main():
                 "role":             case["role"],
             }
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    os.replace(tmp_path, args.out)
 
     print(f"Wrote {len(cases)} cases → {args.out}")
     print(f"Seed {args.seed}, {len(PHRASINGS)} phrasings/group, schema hash {schema_hash[:12]}…")

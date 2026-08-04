@@ -243,7 +243,12 @@ def main():
                     help="target cases per family (rounded down to whole paraphrase groups)")
     args = ap.parse_args()
 
-    tools_list, schema_hash = load_frozen_tools()
+    # Real bug found and fixed while addressing CodeRabbit's PR #99 review: this call site was
+    # never updated when load_frozen_tools() gained a required schema_version parameter (v2 work
+    # earlier in the same session) and later a 3rd return value (this same fix pass) -- neither
+    # change touched this file's own diff, so nothing caught it until now. v0's own gauntlet
+    # always wants the v0 flat frozen-tools file.
+    tools_list, schema_hash, _ = load_frozen_tools("toolcaller-v0")
     frozen = {t["name"]: t for t in tools_list}
 
     rng = random.Random(args.seed)

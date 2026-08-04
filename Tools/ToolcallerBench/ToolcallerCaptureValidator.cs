@@ -31,11 +31,13 @@ public static class ToolcallerCaptureValidator
     public static ToolcallerValidationReport Validate(
         IReadOnlyList<ToolcallerCapture> captures,
         IReadOnlyList<FrozenTool> frozenTools,
-        string frozenToolSchemaHash)
+        string frozenToolSchemaHash,
+        IReadOnlySet<string>? heldOutToolNames = null)
     {
         ArgumentNullException.ThrowIfNull(captures);
         ArgumentNullException.ThrowIfNull(frozenTools);
         ArgumentException.ThrowIfNullOrWhiteSpace(frozenToolSchemaHash);
+        heldOutToolNames ??= new HashSet<string>(StringComparer.Ordinal);
 
         var toolsByName = frozenTools.ToDictionary(t => t.Name, StringComparer.Ordinal);
         var findings = new List<ValidationFinding>();
@@ -78,19 +80,36 @@ public static class ToolcallerCaptureValidator
                 }
                 else
                 {
-                    // Gate: target tool must exist in the frozen universe, OR (v2 only) carry
-                    // its own embedded schema from available_tools_schema -- train-pool
-                    // synthetic tools (synthetic_tool_schemas.py) are procedurally generated
-                    // per run and deliberately never persisted in any frozen registry, so a
-                    // capture's own embedded schema IS its "live registration" for those.
-                    // The frozen registry still wins when the tool IS a real, registered one
-                    // (catches registry drift via the tool_schema_hash gate above); embedded
-                    // schemas are only a fallback for tools the registry never claims to know.
-                    var tool = toolsByName.TryGetValue(capture.Expected.Tool, out var frozenTool)
-                        ? frozenTool
-                        : capture.AvailableToolsSchema?.GetValueOrDefault(capture.Expected.Tool);
-                    if (tool is null)
+                    // Gate: a held-out family's tool must never be admissible as a training
+                    // capture's target -- checked FIRST, before the embedded-schema fallback
+                    // below, because that fallback would otherwise happily accept a capture that
+                    // embeds its own schema for a genuinely held-out real tool name (CodeRabbit
+                    // review, PR #99). The embedded-schema fallback is only meant to cover
+                    // train-pool SYNTHETIC tools (which have no frozen registration at all,
+                    // held-out or otherwise) -- it was never meant to let a capture self-certify
+                    // a real held-out tool as usable just by attaching a schema for it. This is
+                    // an `if/else if/else` chain (not three independent ifs) so a held-out name
+                    // is never ALSO processed by the tool-resolution branch below it.
+                    if (heldOutToolNames.Contains(capture.Expected.Tool))
                     {
+                        Fail(capture, "tool_outside_frozen_universe",
+                            $"expected.tool '{capture.Expected.Tool}' belongs to a held_out family -- " +
+                            "never admissible as a training capture's target, regardless of any embedded schema.");
+                    }
+                    else if ((toolsByName.TryGetValue(capture.Expected.Tool, out var frozenTool)
+                                ? frozenTool
+                                : capture.AvailableToolsSchema?.GetValueOrDefault(capture.Expected.Tool))
+                             is not { } tool)
+                    {
+                        // Gate: target tool must exist in the frozen universe, OR (v2 only) carry
+                        // its own embedded schema from available_tools_schema -- train-pool
+                        // synthetic tools (synthetic_tool_schemas.py) are procedurally generated
+                        // per run and deliberately never persisted in any frozen registry, so a
+                        // capture's own embedded schema IS its "live registration" for those.
+                        // The frozen registry still wins when the tool IS a real, registered one
+                        // (catches registry drift via the tool_schema_hash gate above); embedded
+                        // schemas are only a fallback for tools the registry never claims to know.
+                        //
                         // Not v0-specific wording -- this same gate now also validates v2
                         // captures against the v2 tool-family registry's trainable subset
                         // (held-out families are never in `frozenTools` in the first place,

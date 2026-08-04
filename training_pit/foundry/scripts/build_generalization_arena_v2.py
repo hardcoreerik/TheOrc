@@ -32,7 +32,9 @@ Usage:
         --out training_pit/datasets/eval_toolcaller_v2_generalization_arena.jsonl
 """
 
+import contextlib
 import json
+import os
 import random
 import sys
 from pathlib import Path
@@ -112,15 +114,28 @@ def main():
                   "--api claude (needs ANTHROPIC_API_KEY), or --api native explicitly.", flush=True)
             sys.exit(1)
 
-    swarmcli_backend: SwarmCliBackend | None = None
+    # This is a sealed output file (see module docstring) -- refuse to overwrite one that
+    # already exists rather than silently clobber a real, already-scored eval set (CodeRabbit
+    # review, PR #99).
+    if args.out.exists():
+        print(f"ERROR: {args.out} already exists. This is a SEALED file (see module docstring) "
+              "-- generate a new file with a new name instead of overwriting it.", flush=True)
+        sys.exit(1)
+
+    # Same `with`-block pattern as generate_toolcaller_dataset.py / generate_toolcaller_v2_dataset.py
+    # (CodeRabbit review, PR #99): guarantees SwarmCliBackend.__exit__ runs even on an exception.
+    swarmcli_backend_cm: SwarmCliBackend | contextlib.AbstractContextManager
     if args.api == "swarmcli":
         if args.swarmcli_gguf is None:
             print("ERROR: --api swarmcli requires --swarmcli-gguf <path-to-gguf>.", flush=True)
             sys.exit(1)
         active_model = args.swarmcli_gguf.stem
-        swarmcli_backend = SwarmCliBackend(args.swarmcli_exe, args.swarmcli_gguf)
-        swarmcli_backend.__enter__()
-        print(f"swarmcli --native-complete ready · model: {active_model}", flush=True)
+        swarmcli_backend_cm = SwarmCliBackend(args.swarmcli_exe, args.swarmcli_gguf)
+    else:
+        swarmcli_backend_cm = contextlib.nullcontext()
+
+    if args.api == "swarmcli":
+        pass  # readiness printed once the `with` block below actually starts the subprocess
     elif args.api == "native":
         active_model = args.model if args.model != "qwen2.5-coder:14b" else (
             (native_list_models(args.native_host) or ["native-unknown"])[0])
@@ -164,91 +179,107 @@ def main():
     rows: list[dict] = []
     generated = 0
     rejected = 0
-    attempt = 0
-    while generated < args.count and attempt < args.count * 4:
-        attempt += 1
-        target = rng.choice(held_out_names)
-        available = sample_available_tools(rng, trainable_names, target_tool=None, min_size=4, max_size=10)
-        # target must be visible; other held-out tools may also appear as realistic distractors
-        other_held_out = [n for n in held_out_names if n != target]
-        rng.shuffle(other_held_out)
-        available = available + [target] + other_held_out[: rng.randint(0, 2)]
-        rng.shuffle(available)
 
-        prompt = (
-            "Available tools:\n\n"
-            + "\n".join(
-                f"  {n}: {all_visible_schemas[n]['description']} | "
-                f"params: {', '.join(all_visible_schemas[n]['parameters'].keys()) or '(none)'}"
-                for n in available
-            )
-            + f"\n\nTarget tool: {target} — {held_out_schemas[target]['description']}\n"
-            + "Generate the example."
-        )
-
-        try:
+    try:
+        with swarmcli_backend_cm as swarmcli_backend:
             if args.api == "swarmcli":
-                raw_text = swarmcli_backend.generate(GENERATOR_SYSTEM, prompt)
-            elif args.api == "native":
-                raw_text = native_generate(args.native_host, active_model, GENERATOR_SYSTEM, prompt)
-            elif args.api == "claude":
-                raw_text = claude_generate(api_key, active_model, GENERATOR_SYSTEM, prompt)
-            else:
-                raw_text = ollama_generate(args.ollama_host, active_model, GENERATOR_SYSTEM, prompt)
-        except Exception as e:
-            print(f"  [warn] backend error: {e}", flush=True)
-            rejected += 1
-            continue
+                print(f"swarmcli --native-complete ready · model: {active_model}", flush=True)
 
-        raw = extract_json(raw_text)
-        if raw is None:
-            rejected += 1
-            continue
-        request   = (raw.get("request") or "").strip()
-        arguments = raw.get("expected_arguments")
-        if len(request) < 10 or not isinstance(arguments, dict):
-            rejected += 1
-            continue
+            attempt = 0
+            while generated < args.count and attempt < args.count * 4:
+                attempt += 1
+                target = rng.choice(held_out_names)
+                available = sample_available_tools(rng, trainable_names, target_tool=None, min_size=4, max_size=10)
+                # target must be visible; other held-out tools may also appear as realistic distractors
+                other_held_out = [n for n in held_out_names if n != target]
+                rng.shuffle(other_held_out)
+                available = available + [target] + other_held_out[: rng.randint(0, 2)]
+                rng.shuffle(available)
 
-        schema_params   = set(held_out_schemas[target]["parameters"].keys())
-        required_params = set(held_out_schemas[target]["required"])
-        if not set(arguments.keys()).issubset(schema_params):
-            rejected += 1
-            continue
-        if not required_params.issubset(set(k for k, v in arguments.items() if v)):
-            rejected += 1
-            continue
+                # Reuse render_tools_block (CodeRabbit review, PR #99) instead of hand-formatting
+                # descriptions/param names for the generator prompt -- the prior manual version
+                # only showed param NAMES via .keys(), dropping type/required info that
+                # render_tools_block (already used for the SYSTEM prompt below) includes, so the
+                # generator model saw a weaker schema than the eval row it was building actually
+                # carries.
+                prompt = (
+                    "Available tools:\n\n"
+                    + render_tools_block(available, all_visible_schemas)
+                    + f"\n\nTarget tool: {target} — {held_out_schemas[target]['description']}\n"
+                    + "Generate the example."
+                )
 
-        system = SYSTEM_TEMPLATE.format(role="chat", tools_block=render_tools_block(available, all_visible_schemas))
-        assistant = json.dumps({"decision": "call", "tool": target, "arguments": arguments}, ensure_ascii=False)
-        rows.append({
-            "messages": [
-                {"role": "system",    "content": system},
-                {"role": "user",      "content": request},
-                {"role": "assistant", "content": assistant},
-            ],
-            "example_id": f"genarena_v2_{args.seed}_{generated:05d}",
-            "schema_version": "generalization-arena-v2",
-            "target_tool": target,
-            "target_is_synthetic": target in held_out_synth,
-        })
-        generated += 1
-        if generated % 10 == 0:
-            print(f"  [{generated}/{args.count}] target={target}", flush=True)
+                try:
+                    if args.api == "swarmcli":
+                        raw_text = swarmcli_backend.generate(GENERATOR_SYSTEM, prompt)
+                    elif args.api == "native":
+                        raw_text = native_generate(args.native_host, active_model, GENERATOR_SYSTEM, prompt)
+                    elif args.api == "claude":
+                        raw_text = claude_generate(api_key, active_model, GENERATOR_SYSTEM, prompt)
+                    else:
+                        raw_text = ollama_generate(args.ollama_host, active_model, GENERATOR_SYSTEM, prompt)
+                except Exception as e:
+                    print(f"  [warn] backend error: {e}", flush=True)
+                    rejected += 1
+                    continue
 
-    if swarmcli_backend is not None:
-        swarmcli_backend.__exit__()
+                raw = extract_json(raw_text)
+                if raw is None:
+                    rejected += 1
+                    continue
+                request   = (raw.get("request") or "").strip()
+                arguments = raw.get("expected_arguments")
+                if len(request) < 10 or not isinstance(arguments, dict):
+                    rejected += 1
+                    continue
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    with args.out.open("w", encoding="utf-8", newline="\n") as fh:
-        for row in rows:
-            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+                schema_params   = set(held_out_schemas[target]["parameters"].keys())
+                required_params = set(held_out_schemas[target]["required"])
+                if not set(arguments.keys()).issubset(schema_params):
+                    rejected += 1
+                    continue
+                if not required_params.issubset(set(k for k, v in arguments.items() if v)):
+                    rejected += 1
+                    continue
+
+                system = SYSTEM_TEMPLATE.format(role="chat", tools_block=render_tools_block(available, all_visible_schemas))
+                assistant = json.dumps({"decision": "call", "tool": target, "arguments": arguments}, ensure_ascii=False)
+                rows.append({
+                    "messages": [
+                        {"role": "system",    "content": system},
+                        {"role": "user",      "content": request},
+                        {"role": "assistant", "content": assistant},
+                    ],
+                    "example_id": f"genarena_v2_{args.seed}_{generated:05d}",
+                    "schema_version": "generalization-arena-v2",
+                    "target_tool": target,
+                    "target_is_synthetic": target in held_out_synth,
+                })
+                generated += 1
+                if generated % 10 == 0:
+                    print(f"  [{generated}/{args.count}] target={target}", flush=True)
+    except (FileNotFoundError, RuntimeError, TimeoutError) as e:
+        print(f"ERROR: swarmcli --native-complete failed to start: {e}", flush=True)
+        sys.exit(1)
 
     print(flush=True)
-    print(f"=== done: {generated} valid, {rejected} rejected → {args.out} ===", flush=True)
+    print(f"=== done: {generated} valid, {rejected} rejected ===", flush=True)
     if generated < args.count:
-        print(f"WARNING: only {generated}/{args.count} reached.", flush=True)
+        print(f"WARNING: only {generated}/{args.count} reached -- NOT writing {args.out} "
+              "(CodeRabbit review, PR #99: a sealed eval file must never be a silent partial "
+              "artifact). Re-run once the shortfall is understood.", flush=True)
         sys.exit(1)
+
+    # Atomic write (CodeRabbit review, PR #99): write to a temp file in the same directory, then
+    # os.replace into the final sealed path -- a crash or Ctrl-C mid-write can never leave a
+    # truncated/corrupt file at args.out, only at the temp path (which is never read by anything).
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = args.out.with_suffix(args.out.suffix + ".tmp")
+    with tmp_path.open("w", encoding="utf-8", newline="\n") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    os.replace(tmp_path, args.out)
+    print(f"Wrote {generated} rows → {args.out}", flush=True)
 
 
 if __name__ == "__main__":

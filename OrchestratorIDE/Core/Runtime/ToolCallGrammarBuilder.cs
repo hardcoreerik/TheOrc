@@ -21,8 +21,19 @@ namespace OrchestratorIDE.Core.Runtime;
 /// is real, and the arguments are syntactically valid JSON.
 ///
 /// root ::= tool-call | free-text -- a turn is not always a tool call, so the grammar must allow
-/// ordinary conversational replies too. free-text is deliberately permissive (anything not
-/// starting with '{'); tool-call is deliberately strict (name must be one of the live tools).
+/// ordinary conversational replies too. free-text is deliberately permissive but forbids the
+/// '{' character ANYWHERE in it, not just as the first character -- CodeRabbit correctly caught
+/// that an earlier version only forbade a *leading* brace, so a free-text response could still
+/// embed a `{...}` blob later in the text (e.g. "Sure -- {\"tool\":\"fake_name\",\"args\":{}}").
+/// ToolCallTextParser.Parse scans the ENTIRE output for any balanced-brace JSON using flexible
+/// key aliases (name/tool/function, arguments/args/parameters/inputs), so an embedded blob in
+/// the free-text branch would still get parsed and could still execute a fabricated tool call --
+/// completely bypassing tool-call's own name restriction, since free-text was never
+/// name-constrained. Disallowing '{' anywhere in free-text closes this: the only place a '{' can
+/// appear anywhere in the whole grammar-constrained output is inside tool-call itself, whose
+/// shape (name/arguments only) this grammar fully controls -- so the parser's alternate key
+/// aliases (tool/function/args/parameters/inputs) are now unreachable dead paths for
+/// grammar-constrained output, not a gap to also widen the grammar for.
 /// </summary>
 public static class ToolCallGrammarBuilder
 {
@@ -55,7 +66,7 @@ public static class ToolCallGrammarBuilder
             str-char    ::= [^"\\] | "\\" ["\\/bfnrt]
             json-number ::= "-"? ("0" | [1-9] [0-9]*) ("." [0-9]+)? ([eE] [+-]? [0-9]+)?
             ws          ::= [ \t\n]*
-            free-text   ::= [^{] [^\x00]*
+            free-text   ::= [^{\x00]*
             """;
     }
 
@@ -76,10 +87,18 @@ public static class ToolCallGrammarBuilder
 
         foreach (var entry in doc.RootElement.EnumerateArray())
         {
+            // JsonElement.TryGetProperty throws InvalidOperationException when ValueKind isn't
+            // Object -- reachable via Tools/SwarmCli/Program.cs's --native-complete "tools" field,
+            // which deserializes arbitrary stdin JSON. A malformed entry (null/string/number)
+            // must be skipped, not abort the whole completion.
+            if (entry.ValueKind != JsonValueKind.Object)
+                continue;
+
             // Wire shape: {"type":"function","function":{"name":"...", ...}}. Defensive fallback
             // to a flat {"name":"..."} shape in case a future caller passes tools pre-unwrapped.
             string? name = null;
-            if (entry.TryGetProperty("function", out var fn) && fn.TryGetProperty("name", out var n1))
+            if (entry.TryGetProperty("function", out var fn) && fn.ValueKind == JsonValueKind.Object
+                && fn.TryGetProperty("name", out var n1))
                 name = n1.GetString();
             else if (entry.TryGetProperty("name", out var n2))
                 name = n2.GetString();

@@ -448,8 +448,10 @@ if (nativeTestGgufPath is not null)
 // keep it running across a whole generation batch instead of paying model-load cost per call.
 //
 // Protocol: one JSON object per line on stdin, one JSON object per line on stdout (both
-// UTF-8, LF-terminated). Request: {"system": "...", "user": "...", "max_tokens": 512}
-// (max_tokens optional, default 512). Response: {"text": "..."} on success, or
+// UTF-8, LF-terminated). Request: {"system": "...", "user": "...", "max_tokens": 512,
+// "tools": [...]} (max_tokens optional, default 512; tools optional, same wire shape
+// ToolDefinition.ToOllamaSchema() produces -- presence enables ORCISH TONGUE's GBNF grammar
+// constraint on this call). Response: {"text": "..."} on success, or
 // {"error": "..."} on failure -- the request line is still consumed either way, so the
 // caller can keep the stream open after an error instead of every failure killing the batch.
 // A blank input line, or EOF, ends the process (exit 0).

@@ -184,8 +184,14 @@ DOMAINS: list[dict] = [
 
 
 def _load_real_tool_names() -> set[str]:
+    # Fail loud, not silently (CodeRabbit review, PR #99): returning an empty set when the
+    # registry is missing would make every synthetic name look collision-free by construction,
+    # silently disabling the one check that keeps fictional tools from colliding with real
+    # TheOrc tools -- a configuration problem should stop the run, not be swallowed.
     if not FAMILIES_PATH.exists():
-        return set()
+        raise FileNotFoundError(
+            f"tool family registry not found: {FAMILIES_PATH} -- cannot verify synthetic tool "
+            "names are collision-free without it")
     data = json.loads(FAMILIES_PATH.read_text(encoding="utf-8"))
     return {t["name"] for fam in data["families"] for t in fam["tools"]}
 
@@ -216,11 +222,27 @@ def generate_fictional_tools(rng: random.Random, count: int, held_out: bool = Fa
             name = f"{verb}_{noun}{'s' if plural else ''}"
             if name in real_names:
                 continue
-            assert set(required).issubset(param_pool.keys()), (
-                f"{name}: required {required} not a subset of declared params {list(param_pool)}"
-            )
+            if not set(required).issubset(param_pool.keys()):
+                # Explicit raise, not assert (CodeRabbit review, PR #99): `python -O` strips
+                # asserts, and this is the only guard against DOMAINS declaring a required
+                # param that was never added to that domain's param_pool.
+                raise ValueError(
+                    f"{name}: required {required} not a subset of declared params {list(param_pool)}")
 
-            parameters = {p: {"type": t, "description": d} for p, (t, d) in param_pool.items()}
+            # Every verb previously declared the domain's ENTIRE param_pool, so e.g.
+            # cancel_calendar_event declared title/start_time/end_time/attendees/event_id/
+            # reminder_minutes even though only event_id is semantically relevant to
+            # cancelling something (CodeRabbit review, PR #99) -- this both undercut the
+            # "structurally realistic" goal and weakened the downstream argument-key check
+            # (generate_toolcaller_v2_dataset.py's schema_params validation), since nearly any
+            # domain-plausible key would pass regardless of which verb it was checked against.
+            # Fix: required params always included, plus up to 2 more pool params (deterministic
+            # by pool declaration order, not random, so the same seed still reproduces the same
+            # schemas) -- narrows the declared surface per verb without needing to hand-curate
+            # an explicit optional-param list for every one of DOMAINS' ~20 verb entries.
+            optional_extra = [p for p in param_pool if p not in required][:2]
+            verb_params = list(required) + optional_extra
+            parameters = {p: {"type": param_pool[p][0], "description": param_pool[p][1]} for p in verb_params}
 
             candidates.append({
                 "name": name,

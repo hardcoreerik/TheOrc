@@ -30,6 +30,7 @@ Usage:
     python training_pit/foundry/scripts/generate_toolcaller_v2_dataset.py --count 300   # claude, if ANTHROPIC_API_KEY set
 """
 
+import contextlib
 import hashlib
 import json
 import os
@@ -140,11 +141,16 @@ TRAIN_NOUNS_BY_FAMILY: dict[str, list[str]] = {
 def _assert_train_decoys_disjoint(real_names: list[str]) -> None:
     """Fail loud, not silently, if a train-side decoy ever collides with a real registered
     tool or with the sealed eval's own decoy list (see TRAIN_DECOY_NAMES_BY_FAMILY's docstring
-    for why the latter matters -- it's what keeps the gauntlet a real generalization test)."""
+    for why the latter matters -- it's what keeps the gauntlet a real generalization test).
+    Explicit `raise` rather than `assert` (CodeRabbit review, PR #99): `python -O` strips
+    assert statements, and this is the ONLY protection against train/eval decoy leakage --
+    under -O it would silently disappear and the sealed gauntlet would quietly become a
+    memorization test instead of a real generalization one."""
     real_set = set(real_names)
     train_decoys = {d for names in TRAIN_DECOY_NAMES_BY_FAMILY.values() for d in names}
     collisions = train_decoys & real_set
-    assert not collisions, f"train-side decoy(s) collide with real tool names: {collisions}"
+    if collisions:
+        raise ValueError(f"train-side decoy(s) collide with real tool names: {collisions}")
 
     # Lazy import: generate_refusal_gauntlet_v2 imports _load_family_registry FROM this module
     # at ITS module level, so importing it back at THIS module's top level would be circular.
@@ -153,21 +159,26 @@ def _assert_train_decoys_disjoint(real_names: list[str]) -> None:
     from generate_refusal_gauntlet_v2 import DECOY_NAMES_BY_FAMILY as EVAL_DECOY_NAMES_BY_FAMILY
     eval_decoys = {d for names in EVAL_DECOY_NAMES_BY_FAMILY.values() for d in names}
     leak = train_decoys & eval_decoys
-    assert not leak, f"train-side decoy(s) leak into the sealed eval's own decoy list: {leak}"
+    if leak:
+        raise ValueError(f"train-side decoy(s) leak into the sealed eval's own decoy list: {leak}")
 
 
 def fabrication_decoy_scenarios(
     count: int, rng: random.Random,
-) -> list[tuple[str, None, str, bool]]:
-    """Returns `count` (decision, tool, context_hint, tool_is_synthetic) tuples, all
-    decision="unsupported"/tool=None -- same shape plan_scenarios_v2 produces, so the rest of
-    main()'s generation loop (sample_available_tools, build_generator_prompt, capture building)
-    needs no changes. context_hint instructs the LLM generator to explicitly name the decoy
-    tool in the request text (see GENERATOR_SYSTEM_FABRICATION's added rule) -- this is what
-    teaches the actual discrimination the gauntlet tests, not just a described capability gap.
+) -> list[tuple[str, None, str, bool, str]]:
+    """Returns `count` (decision, tool, context_hint, tool_is_synthetic, decoy_name) tuples, all
+    decision="unsupported"/tool=None -- same shape plan_scenarios_v2 produces (plus the decoy
+    name), so the rest of main()'s generation loop (sample_available_tools,
+    build_generator_prompt, capture building) needs no other changes. context_hint instructs
+    the LLM generator to explicitly name the decoy tool in the request text (see
+    GENERATOR_SYSTEM_FABRICATION's added rule) -- decoy_name is threaded through so the caller
+    can actually VERIFY that instruction was followed (CodeRabbit review, PR #99: without this,
+    a paraphrased request that drops the literal decoy name still passes validation and gets
+    tagged v2-fabrication-decoy, silently reproducing round 1's implicit-capability-gap rows
+    under a round-2 label -- exactly the failure mode this mode exists to fix).
     """
     families = list(TRAIN_DECOY_NAMES_BY_FAMILY.keys())
-    scenarios: list[tuple[str, None, str, bool]] = []
+    scenarios: list[tuple[str, None, str, bool, str]] = []
     for _ in range(count):
         family = rng.choice(families)
         decoy  = rng.choice(TRAIN_DECOY_NAMES_BY_FAMILY[family])
@@ -179,7 +190,7 @@ def fabrication_decoy_scenarios(
             f"{task}\", or \"{task} -- {decoy} should be able to do that\". '{decoy}' sounds like it "
             f"could belong to the {family} family but is NOT one of the available tools listed below."
         )
-        scenarios.append(("unsupported", None, context_hint, False))
+        scenarios.append(("unsupported", None, context_hint, False, decoy))
     return scenarios
 
 
@@ -324,13 +335,22 @@ def validate_and_build_capture(raw: dict, available: list[str], tool_schemas: di
                                  lineage_id: str, example_id: str, model_name: str,
                                  tool_schema_hash: str, teacher_model: str | None = None,
                                  generator_seed: int | None = None,
-                                 extra_tags: list[str] | None = None) -> dict | None:
+                                 extra_tags: list[str] | None = None,
+                                 required_decoy_name: str | None = None) -> dict | None:
     decision = raw.get("expected_decision", "")
     if decision not in ("call", "no_tool", "clarify", "unsupported"):
         return None
 
     request = (raw.get("request") or "").strip()
     if len(request) < 10:
+        return None
+
+    # --fabrication-only rows only teach the intended discrimination if the LLM generator
+    # actually followed the explicit-name instruction (CodeRabbit review, PR #99) -- a
+    # paraphrased request that drops the literal decoy name is functionally an
+    # implicit-capability-gap row (round 1's failure mode) wearing a round-2 tag. Reject rather
+    # than silently accept.
+    if required_decoy_name is not None and required_decoy_name not in request:
         return None
 
     tool      = raw.get("expected_tool")
@@ -408,37 +428,38 @@ def validate_and_build_capture(raw: dict, available: list[str], tool_schemas: di
 
 def plan_scenarios_v2(count: int, rng: random.Random, real_names: list[str],
                        fictional_by_domain: dict[str, list[dict]],
-                       ) -> list[tuple[str, str | None, str, bool]]:
-    """Returns (decision, tool_or_none, context_hint, tool_is_synthetic) tuples.
-    "call" targets are drawn from real tools AND train-pool synthetic tools (both must
-    actually be learnable from schema alone -- this is the generalization lever). "unsupported"
-    context hints are drawn from synthetic tool descriptions whose tool is deliberately never
-    added to available_tools."""
+                       ) -> list[tuple[str, str | None, str, bool, str | None]]:
+    """Returns (decision, tool_or_none, context_hint, tool_is_synthetic, decoy_name) tuples.
+    decoy_name is always None here (only fabrication_decoy_scenarios sets it) -- present so both
+    scenario sources share one tuple shape for the generation loop. "call" targets are drawn
+    from real tools AND train-pool synthetic tools (both must actually be learnable from schema
+    alone -- this is the generalization lever). "unsupported" context hints are drawn from
+    synthetic tool descriptions whose tool is deliberately never added to available_tools."""
     decisions = [d for d, _ in DECISION_WEIGHTS]
     weights   = [w for _, w in DECISION_WEIGHTS]
     fictional_flat = [t for tools in fictional_by_domain.values() for t in tools]
 
-    scenarios: list[tuple[str, str | None, str, bool]] = []
+    scenarios: list[tuple[str, str | None, str, bool, str | None]] = []
     for _ in range(count * 4):
         decision = rng.choices(decisions, weights=weights, k=1)[0]
 
         if decision == "call":
             if rng.random() < 0.35 and fictional_flat:
                 target = rng.choice(fictional_flat)
-                scenarios.append((decision, target["name"], target["description"], True))
+                scenarios.append((decision, target["name"], target["description"], True, None))
             else:
                 name = rng.choice(real_names)
-                scenarios.append((decision, name, f"Something that needs: {name}", False))
+                scenarios.append((decision, name, f"Something that needs: {name}", False, None))
         elif decision == "no_tool":
-            scenarios.append((decision, None, rng.choice(NO_TOOL_SEEDS), False))
+            scenarios.append((decision, None, rng.choice(NO_TOOL_SEEDS), False, None))
         elif decision == "clarify":
-            scenarios.append((decision, None, rng.choice(CLARIFY_SEEDS), False))
+            scenarios.append((decision, None, rng.choice(CLARIFY_SEEDS), False, None))
         else:  # unsupported -- context describes a fictional capability NOT in available_tools
             if fictional_flat:
                 decoy = rng.choice(fictional_flat)
-                scenarios.append((decision, None, decoy["description"], False))
+                scenarios.append((decision, None, decoy["description"], False, None))
             else:
-                scenarios.append((decision, None, "Something none of the available tools can do.", False))
+                scenarios.append((decision, None, "Something none of the available tools can do.", False, None))
 
         if len(scenarios) >= count * 3:
             break
@@ -537,16 +558,17 @@ def main():
     print(f"tool schema hash: {tool_schema_hash[:16]}...", flush=True)
     print(flush=True)
 
-    swarmcli_backend: SwarmCliBackend | None = None
+    # See generate_toolcaller_dataset.py's identical pattern (CodeRabbit review, PR #99): a
+    # `with` block guarantees SwarmCliBackend.__exit__ runs even on an exception raised partway
+    # through generation, instead of leaving swarmcli.exe running with the GGUF loaded in VRAM.
+    swarmcli_backend_cm: SwarmCliBackend | contextlib.AbstractContextManager
     if args.api == "swarmcli":
-        swarmcli_backend = SwarmCliBackend(args.swarmcli_exe, args.swarmcli_gguf)
-        try:
-            swarmcli_backend.__enter__()
-        except Exception as e:
-            print(f"ERROR: swarmcli --native-complete failed to start: {e}", flush=True)
-            sys.exit(1)
-        print(f"swarmcli --native-complete ready · model: {active_model} "
-              "(real in-process Native Runtime v2, no server, no Ollama)", flush=True)
+        swarmcli_backend_cm = SwarmCliBackend(args.swarmcli_exe, args.swarmcli_gguf)
+    else:
+        swarmcli_backend_cm = contextlib.nullcontext()
+
+    if args.api == "swarmcli":
+        pass  # readiness printed once the `with` block below actually starts the subprocess
     elif args.api == "native":
         try:
             r = requests.get(f"{args.native_host.rstrip('/')}/health", timeout=10)
@@ -569,8 +591,6 @@ def main():
             sys.exit(1)
         print(f"Ollama ready at {args.ollama_host}", flush=True)
 
-    write_progress(progress_path, "running", 0, 0, args.count)
-
     if args.fabrication_only:
         _assert_train_decoys_disjoint(real_names)
         scenarios = fabrication_decoy_scenarios(args.count, rng)
@@ -585,65 +605,81 @@ def main():
     generated = 0
     rejected  = 0
 
-    for decision, tool, context_hint, tool_is_synthetic in scenarios:
-        if generated >= args.count:
-            break
-
-        available = sample_available_tools(rng, all_sampleable_names, tool)
-        prompt = build_generator_prompt(available, decision, tool, context_hint, tool_schemas)
-
-        try:
+    try:
+        with swarmcli_backend_cm as swarmcli_backend:
             if args.api == "swarmcli":
-                raw_text = swarmcli_backend.generate(generator_system, prompt)
-            elif args.api == "native":
-                raw_text = native_generate(args.native_host, active_model, generator_system, prompt)
-            elif args.api == "claude":
-                raw_text = claude_generate(api_key, active_model, generator_system, prompt)
-            else:
-                raw_text = ollama_generate(args.ollama_host, active_model, generator_system, prompt)
-        except Exception as e:
-            print(f"  [warn] backend error: {e}", flush=True)
-            rejected += 1
-            continue
+                print(f"swarmcli --native-complete ready · model: {active_model} "
+                      "(real in-process Native Runtime v2, no server, no Ollama)", flush=True)
 
-        raw_dict = extract_json(raw_text)
-        if raw_dict is None:
-            print(f"  [reject] no JSON in response (decision={decision})", flush=True)
-            rejected += 1
-            continue
+            write_progress(progress_path, "running", 0, 0, args.count)
 
-        ts         = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-        example_id = f"tc2_{ts}_{counter:04d}"
-        lineage_id = f"tc2_lg_{example_id}"
+            for decision, tool, context_hint, tool_is_synthetic, decoy_name in scenarios:
+                if generated >= args.count:
+                    break
 
-        capture = validate_and_build_capture(
-            raw=raw_dict, available=available, tool_schemas=tool_schemas,
-            lineage_id=lineage_id, example_id=example_id, model_name=active_model,
-            tool_schema_hash=tool_schema_hash, teacher_model=teacher_model,
-            generator_seed=args.seed,
-            extra_tags=["v2-fabrication-decoy"] if args.fabrication_only else None,
-        )
-        if capture is None:
-            print(f"  [reject] validation failed (decision={decision}, tool={tool})", flush=True)
-            rejected += 1
-            continue
+                available = sample_available_tools(rng, all_sampleable_names, tool)
+                prompt = build_generator_prompt(available, decision, tool, context_hint, tool_schemas)
 
-        out_file = CAPTURES_DIR / f"toolcaller_v2_capture_{example_id}.json"
-        out_file.write_text(json.dumps(capture, indent=2, ensure_ascii=False), encoding="utf-8")
-        generated += 1
-        counter   += 1
+                try:
+                    if args.api == "swarmcli":
+                        raw_text = swarmcli_backend.generate(generator_system, prompt)
+                    elif args.api == "native":
+                        raw_text = native_generate(args.native_host, active_model, generator_system, prompt)
+                    elif args.api == "claude":
+                        raw_text = claude_generate(api_key, active_model, generator_system, prompt)
+                    else:
+                        raw_text = ollama_generate(args.ollama_host, active_model, generator_system, prompt)
+                except Exception as e:
+                    print(f"  [warn] backend error: {e}", flush=True)
+                    rejected += 1
+                    continue
 
-        req_preview = capture["request"][:60].replace("\n", " ")
-        print(f"  [{generated:>4}/{args.count}] {decision:12s} {(tool or '-'):24s} "
-              f"n_avail={len(available):2d} — {req_preview!r}", flush=True)
+                raw_dict = extract_json(raw_text)
+                if raw_dict is None:
+                    print(f"  [reject] no JSON in response (decision={decision})", flush=True)
+                    rejected += 1
+                    continue
 
-        write_progress(progress_path, "running", generated, rejected, args.count)
-        time.sleep(0.3 if args.api == "claude" else 0.1)
+                ts         = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+                example_id = f"tc2_{ts}_{counter:04d}"
+                lineage_id = f"tc2_lg_{example_id}"
 
-    write_progress(progress_path, "done", generated, rejected, args.count)
+                # tool_is_synthetic is recorded on the capture (not discarded) so downstream
+                # analysis can split real vs. train-pool-synthetic "call" targets (CodeRabbit
+                # review, PR #99).
+                extra_tags = ["v2-fabrication-decoy"] if args.fabrication_only else []
+                if tool_is_synthetic:
+                    extra_tags = extra_tags + ["v2-synthetic-target"]
 
-    if swarmcli_backend is not None:
-        swarmcli_backend.__exit__()
+                capture = validate_and_build_capture(
+                    raw=raw_dict, available=available, tool_schemas=tool_schemas,
+                    lineage_id=lineage_id, example_id=example_id, model_name=active_model,
+                    tool_schema_hash=tool_schema_hash, teacher_model=teacher_model,
+                    generator_seed=args.seed,
+                    extra_tags=extra_tags or None,
+                    required_decoy_name=decoy_name,
+                )
+                if capture is None:
+                    print(f"  [reject] validation failed (decision={decision}, tool={tool})", flush=True)
+                    rejected += 1
+                    continue
+
+                out_file = CAPTURES_DIR / f"toolcaller_v2_capture_{example_id}.json"
+                out_file.write_text(json.dumps(capture, indent=2, ensure_ascii=False), encoding="utf-8")
+                generated += 1
+                counter   += 1
+
+                req_preview = capture["request"][:60].replace("\n", " ")
+                print(f"  [{generated:>4}/{args.count}] {decision:12s} {(tool or '-'):24s} "
+                      f"n_avail={len(available):2d} — {req_preview!r}", flush=True)
+
+                write_progress(progress_path, "running", generated, rejected, args.count)
+                time.sleep(0.3 if args.api == "claude" else 0.1)
+
+            write_progress(progress_path, "done", generated, rejected, args.count)
+    except (FileNotFoundError, RuntimeError, TimeoutError) as e:
+        print(f"ERROR: swarmcli --native-complete failed to start: {e}", flush=True)
+        sys.exit(1)
 
     print(flush=True)
     print(f"=== done: {generated} valid, {rejected} rejected ===", flush=True)

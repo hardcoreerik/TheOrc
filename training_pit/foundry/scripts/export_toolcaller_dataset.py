@@ -65,15 +65,21 @@ def sha256_file_lf(path: Path) -> str:
     return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
-def load_frozen_tools(schema_version: str, frozen_tools_path: Path | None = None) -> tuple[list[dict], str]:
+def load_frozen_tools(schema_version: str, frozen_tools_path: Path | None = None
+                      ) -> tuple[list[dict], str, Path]:
+    """Returns (tools, hash, resolved_path). Returning the resolved path too (CodeRabbit
+    review, PR #99) means callers never re-derive the default-selection rule themselves --
+    the prior version had this logic duplicated at the call site, so the exporter could in
+    principle hash one file while the validator/gate read a different one if the two copies
+    ever drifted."""
     if schema_version == "toolcaller-v2":
         path = frozen_tools_path or FAMILIES_V2
         data = json.loads(path.read_text(encoding="utf-8"))
         tools = [t for fam in data["families"] if not fam["held_out"] for t in fam["tools"]]
-        return tools, sha256_file_lf(path)
+        return tools, sha256_file_lf(path), path
     path = frozen_tools_path or FROZEN_TOOLS
     tools = json.loads(path.read_text(encoding="utf-8"))
-    return tools, sha256_file_lf(path)
+    return tools, sha256_file_lf(path), path
 
 
 def render_tools_block(names: list[str], frozen: dict[str, dict], capture_schema: dict[str, dict] | None = None) -> str:
@@ -193,9 +199,8 @@ def main():
               "training_pit/TOOLCALLER_CAPTURE_SCHEMA.md.")
         raise SystemExit(1)
 
-    frozen_list, tools_hash = load_frozen_tools(args.schema_version, args.frozen_tools)
+    frozen_list, tools_hash, frozen_tools_path = load_frozen_tools(args.schema_version, args.frozen_tools)
     frozen = {t["name"]: t for t in frozen_list}
-    frozen_tools_path = args.frozen_tools or (FAMILIES_V2 if args.schema_version == "toolcaller-v2" else FROZEN_TOOLS)
 
     captures, files, skipped = [], [], Counter()
     for src in sources:

@@ -164,6 +164,12 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         // regardless of how the iteration ends.
         using var suppressMeasurement = _loadMeasurement.Suppress();
         var executor = new StatelessExecutor(_weights, _statelessModelParams);
+        // Declared outside the try so `finally` can dispose it (DefaultSamplingPipeline owns
+        // native sampler-chain resources, including the grammar sampler when Grammar is set --
+        // confirmed against LLamaSharp 0.27.0's own source; leaving it undisposed leaks native
+        // memory every call, the same class of bug the executor.Context.Dispose() below already
+        // guards against).
+        LLama.Sampling.DefaultSamplingPipeline? samplingPipeline = null;
         try
         {
             // Build the raw prompt using the GGUF's embedded chat template.
@@ -181,12 +187,27 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             // physically could not. `Build` returns null when no tool names could be extracted
             // (e.g. an unrecognized wire shape) -- fall back to unconstrained decoding rather
             // than emit a grammar with an empty name alternation, which would make every tool
-            // call unreachable, silently worse than no grammar at all.
+            // call unreachable, silently worse than no grammar at all. The Grammar constructor
+            // itself can also throw on a malformed GBNF string even when Build() returns
+            // non-null (e.g. a tool name whose escaping produces an unexpected sequence) -- that
+            // failure must degrade to unconstrained decoding too, not abort the whole call.
             LLama.Sampling.Grammar? toolGrammar = null;
             if (tools is { Count: > 0 } && ToolCallGrammarBuilder.Build(tools) is { } gbnf)
-                toolGrammar = new LLama.Sampling.Grammar(gbnf, "root");
+            {
+                try
+                {
+                    toolGrammar = new LLama.Sampling.Grammar(gbnf, "root");
+                }
+                catch (Exception ex)
+                {
+                    // Matches this file's existing lightweight [Tag] Console logging convention
+                    // (see NativeLog below) -- no ILogger is injected into this class.
+                    Console.Error.WriteLine($"[ORCISH TONGUE] failed to construct GBNF grammar, " +
+                        $"falling back to unconstrained decoding for this call: {ex.Message}");
+                }
+            }
 
-            var samplingPipeline = topP is { } p
+            samplingPipeline = topP is { } p
                 ? new LLama.Sampling.DefaultSamplingPipeline { Temperature = (float)temperature, TopP = (float)p, Grammar = toolGrammar }
                 : new LLama.Sampling.DefaultSamplingPipeline { Temperature = (float)temperature, Grammar = toolGrammar };
 
@@ -231,7 +252,10 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
         finally
         {
             // Runs even on cancellation or an exception from InferAsync — the native context
-            // must not leak just because the caller cancelled mid-stream.
+            // must not leak just because the caller cancelled mid-stream. samplingPipeline may
+            // still be null if an exception was thrown before it was assigned (e.g. from
+            // BuildPromptForLoadedModel) -- Dispose() is only called when it was actually built.
+            samplingPipeline?.Dispose();
             executor.Context.Dispose();
         }
     }

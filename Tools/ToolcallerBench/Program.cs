@@ -47,6 +47,13 @@ try
     // must never be admissible as a training capture's expected.tool, so this is the gate
     // that mechanically enforces that invariant, not just generator-script discipline.
     List<FrozenTool> frozenTools;
+    // Held-out family tool names -- passed to the validator so it can reject a v2 capture whose
+    // expected.tool matches a held-out name even when the capture carries its own embedded
+    // schema for it (CodeRabbit review, PR #99: the embedded-schema fallback was scoped
+    // correctly for train-pool SYNTHETIC tools, but nothing stopped a capture from embedding a
+    // schema for a name that happens to match a genuinely held-out real family, defeating the
+    // whole point of holding that family out of training).
+    var heldOutToolNames = new HashSet<string>(StringComparer.Ordinal);
     using (var probe = JsonDocument.Parse(toolsBytes))
     {
         if (probe.RootElement.ValueKind == JsonValueKind.Object &&
@@ -55,14 +62,27 @@ try
             frozenTools = [];
             foreach (var fam in familiesEl.EnumerateArray())
             {
-                if (fam.TryGetProperty("held_out", out var heldOutEl) && heldOutEl.GetBoolean())
-                    continue;
+                // A missing held_out property must fail loud, not default to "trainable"
+                // (CodeRabbit review, PR #99): the prior `TryGetProperty(...) &&
+                // heldOutEl.GetBoolean()` short-circuited to false -- treating the family as
+                // trainable -- on a malformed/incomplete registry entry, silently leaking a
+                // family that may have been intended to stay held-out.
+                var famName = fam.TryGetProperty("family", out var nameEl) ? nameEl.GetString() : "(unnamed)";
+                if (!fam.TryGetProperty("held_out", out var heldOutEl) || heldOutEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    throw new InvalidOperationException(
+                        $"Family '{famName}' is missing a boolean held_out property in the tool-family registry.");
                 var famTools = fam.GetProperty("tools").Deserialize<List<FrozenTool>>(jsonOptions)
                     ?? throw new InvalidOperationException("A family's tools array parsed to null.");
+                if (heldOutEl.GetBoolean())
+                {
+                    foreach (var t in famTools)
+                        heldOutToolNames.Add(t.Name);
+                    continue;
+                }
                 frozenTools.AddRange(famTools);
             }
             Console.WriteLine($"Loaded v2 tool-family registry: {frozenTools.Count} trainable tools " +
-                               "(held_out families excluded).");
+                               $"({heldOutToolNames.Count} held_out tools excluded).");
         }
         else
         {
@@ -98,7 +118,7 @@ try
 
     Console.WriteLine($"Loaded {captures.Count} capture(s) from {options.CapturesDir}");
 
-    var report = ToolcallerCaptureValidator.Validate(captures, frozenTools, toolsHash);
+    var report = ToolcallerCaptureValidator.Validate(captures, frozenTools, toolsHash, heldOutToolNames);
     var output = options.OutputDir ?? Path.Combine(Environment.CurrentDirectory, ".orc", "toolcaller-bench");
     var (jsonPath, markdownPath) = await ToolcallerReportWriter.WriteAsync(report, output);
 
