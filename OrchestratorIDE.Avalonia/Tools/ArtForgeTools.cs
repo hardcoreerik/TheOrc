@@ -15,7 +15,7 @@ public static class ArtForgeTools
     private static readonly Regex JobIdPattern = new("^[0-9a-f]{32}$", RegexOptions.CultureInvariant);
     private static readonly Regex SizePattern = new("^(?<width>[0-9]{3,4})x(?<height>[0-9]{3,4})$", RegexOptions.CultureInvariant);
 
-    public static void Register(ToolRegistry registry, Uri serviceUrl, string bearerToken,
+    public static void Register(ToolRegistry registry, Uri serviceUrl, string? bearerToken = null,
         Uri? workspaceUrl = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
@@ -23,10 +23,8 @@ public static class ArtForgeTools
             throw new ArgumentException("Art Forge Studio must use a loopback, private IP, or single-label LAN host.", nameof(serviceUrl));
         if (workspaceUrl is not null && !IsLocal(workspaceUrl))
             throw new ArgumentException("The Art Forge Studio workspace must be local.", nameof(workspaceUrl));
-        if (string.IsNullOrWhiteSpace(bearerToken) || bearerToken.Length < 16)
-            throw new ArgumentException("An Art Forge Studio device token of at least 16 characters is required.", nameof(bearerToken));
 
-        var http = LocalIntegrationHost.CreateClient(bearerToken);
+        var http = LocalIntegrationHost.CreateClient(bearerToken, serviceUrl);
         var api = serviceUrl.ToString().TrimEnd('/');
         var editor = (workspaceUrl ?? serviceUrl).ToString().TrimEnd('/');
 

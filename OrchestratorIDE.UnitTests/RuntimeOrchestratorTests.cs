@@ -482,6 +482,80 @@ public sealed class RuntimeOrchestratorTests
         Assert.Throws<ObjectDisposedException>(() => orchestrator.GetReservationSnapshot());
     }
 
+    [Test]
+    public async Task EnsureAdmitted_ReportsDegradation_ButDoesNotRecordItselfUntilCallerDoes()
+    {
+        // CodeRabbit review, PR #100: RecordDegradation used to run INSIDE EnsureAdmitted,
+        // before the caller's load/conversation-create ever ran -- a load failure after a
+        // degraded admission still left the telemetry counter claiming a successful degraded
+        // admission that never actually happened. EnsureAdmitted itself must only REPORT the
+        // degradation (via the returned DegradedReason) -- GetConversationForBindingAsync is
+        // the one that calls RecordDegradation, only after its own load+conversation-create
+        // succeed. This exercises EnsureAdmitted directly (the same isolated seam the
+        // AllowUnbudgetedExecution test above uses), so it needs no real model load to prove
+        // the telemetry-timing change.
+        var path = WriteLlamaHeaderFixture(blockCount: 28, headCountKv: 8, keyLength: 128);
+        try
+        {
+            var baseModel = new RuntimeModelAsset(
+                Id: "degrade-test", Kind: RuntimeAssetKind.BaseModelGguf, Path: path,
+                DisplayName: "degrade-test.gguf", SizeBytes: 2_000_000_000,
+                LastModifiedUtc: DateTimeOffset.UnixEpoch, SuggestedRoles: [RuntimeRole.Boss]);
+            var binding = new RuntimeRoleBinding(RuntimeRole.Boss, baseModel, Adapter: null);
+            var options = new RuntimeOptions(ContextLength: 8192);
+
+            // Budget fits a partial GPU-layer count but not full 28-layer residency -- the exact
+            // shape that makes OrcScheduler.TryAdmit return a degraded (not denied) decision.
+            var tenLayerBytes = OrcScheduler.EstimateRequiredBytes(binding, options, gpuLayerOverride: 10);
+            var budget = new VramBudget(TotalBytes: tenLayerBytes + 50_000_000, ReservedBytes: 0);
+
+            await using var runtime = new LLamaSharpRuntime();
+            await using var orchestrator = new RuntimeOrchestrator(
+                runtime, scheduler: new OrcScheduler(), budgetProvider: () => budget);
+
+            var (_, _, degradedReason) = orchestrator.EnsureAdmitted(binding, options);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(degradedReason, Is.Not.Null,
+                    "TryAdmit should have found this a degraded-not-denied admission");
+                Assert.That(orchestrator.GetReservationSnapshot()!.DegradedAdmissionCount, Is.EqualTo(0),
+                    "calling EnsureAdmitted alone must not record telemetry -- only the caller " +
+                    "does, after its own load actually succeeds");
+            });
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static string WriteLlamaHeaderFixture(int blockCount, int headCountKv, int keyLength)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "orc-runtime-orch-gguf-" + Guid.NewGuid().ToString("N") + ".gguf");
+        using var stream = new FileStream(path, FileMode.Create, FileAccess.Write);
+        using var w = new BinaryWriter(stream, System.Text.Encoding.UTF8);
+
+        void Str(string s)
+        {
+            var b = System.Text.Encoding.UTF8.GetBytes(s);
+            w.Write((ulong)b.Length);
+            w.Write(b);
+        }
+        void KvU32(string key, uint value) { Str(key); w.Write(4u); w.Write(value); }
+
+        w.Write(0x46554747u); // "GGUF"
+        w.Write(3u);
+        w.Write(0ul);          // tensor_count
+        w.Write(5ul);          // kv_count
+        Str("general.architecture"); w.Write(8u); Str("llama");
+        KvU32("llama.block_count", (uint)blockCount);
+        KvU32("llama.attention.head_count_kv", (uint)headCountKv);
+        KvU32("llama.attention.key_length", (uint)keyLength);
+        KvU32("llama.attention.value_length", (uint)keyLength);
+        return path;
+    }
+
     private static RuntimeModelAsset FakeBaseModel() => new(
         Id: "fake-base",
         Kind: RuntimeAssetKind.BaseModelGguf,

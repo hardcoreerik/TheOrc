@@ -99,6 +99,11 @@ public partial class MainWindow : Window
     // Single retained countdown timer for the "Accept re-sync" window — replaced (stopped
     // first) on each click so repeated clicks can't leave overlapping timers racing the label.
     private          DispatcherTimer?               _hiveResyncCountdownTimer;
+    // Polls nvidia-smi off the UI thread and refreshes the always-visible status-bar VRAM badge
+    // (hardcoreerik, 2026-08-01: "I also want a clear vram display to always show on the bottom
+    // status bar" — distinct from Settings' RefreshRuntimeStatusAsync, which only reads VRAM
+    // once, on-demand, when the Settings panel itself is opened).
+    private          DispatcherTimer?               _vramStatusTimer;
     private          Services.Data.SqliteStore?       _sqlStore;
     private          Services.Data.PlanRepository?   _planRepo;
     private          Services.Data.RunRepository?    _runRepo;
@@ -363,6 +368,8 @@ public partial class MainWindow : Window
 
     private async Task OnLoadedAsync()
     {
+        StartVramStatusPolling();
+
         // ── llama.cpp server ─────────────────────────────────────────────
         if (_activeRuntimeSettings.Backend == InferenceBackend.LlamaCpp && _llamaServer != null)
         {
@@ -618,6 +625,59 @@ public partial class MainWindow : Window
         }
 
         InitDataLayer(_session.WorkspaceRoot);
+    }
+
+    /// <summary>
+    /// Starts the always-on status-bar VRAM badge (hardcoreerik, 2026-08-01). One-shot refresh
+    /// immediately (don't make the user wait out the first tick for a cold badge), then every
+    /// 5 s via nvidia-smi -- cheap enough to poll continuously (NativeVramProbe's own 3 s
+    /// subprocess timeout is the worst case, well under the 5 s interval) and, unlike Settings'
+    /// RefreshRuntimeStatusAsync, not gated behind the user having that panel open.
+    /// </summary>
+    private void StartVramStatusPolling()
+    {
+        _vramStatusTimer?.Stop();
+        _ = RefreshVramStatusAsync();
+
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        var polling = false;
+        timer.Tick += async (_, _) =>
+        {
+            // Guard against overlap: a slow/hung nvidia-smi call must not stack a second
+            // subprocess launch on top of the first every 5 s (same "single in-flight" pattern
+            // as _hiveWorkerLifecycleGate elsewhere in this file, cheap bool since this is
+            // always the UI thread, not cross-thread).
+            if (polling) return;
+            polling = true;
+            try { await RefreshVramStatusAsync(); }
+            finally { polling = false; }
+        };
+        _vramStatusTimer = timer;
+        timer.Start();
+    }
+
+    private async Task RefreshVramStatusAsync()
+    {
+        var budget = await Task.Run(NativeVramProbe.TryQueryLiveNvidiaBudget);
+
+        if (budget is null)
+        {
+            TxtSbVram.Text = "🎮 VRAM n/a";
+            TxtSbVram.Foreground = new SolidColorBrush(Color.Parse("#666666"));
+            return;
+        }
+
+        var usedGb = budget.ReservedBytes / (1024.0 * 1024 * 1024);
+        var totalGb = budget.TotalBytes / (1024.0 * 1024 * 1024);
+        var usedFraction = budget.TotalBytes > 0 ? (double)budget.ReservedBytes / budget.TotalBytes : 0;
+
+        TxtSbVram.Text = $"🎮 {usedGb:F1}/{totalGb:F1} GB";
+        TxtSbVram.Foreground = new SolidColorBrush(Color.Parse(usedFraction switch
+        {
+            >= 0.92 => "#F44747", // red    — essentially full, the next admission will likely deny/degrade
+            >= 0.75 => "#CCA700", // amber  — getting tight
+            _       => "#76B900", // green  — plenty of headroom
+        }));
     }
 
     /// <summary>
@@ -1217,6 +1277,8 @@ public partial class MainWindow : Window
                         AvailableBytes         = reservation?.AvailableBytes ?? 0,
                         RejectedAdmissionCount = reservation?.RejectedAdmissionCount ?? 0,
                         LastRejectionReason    = reservation?.LastRejectionReason,
+                        DegradedAdmissionCount = reservation?.DegradedAdmissionCount ?? 0,
+                        LastDegradedReason     = reservation?.LastDegradedReason,
                         FallbackCount          = _hiveWorkerAgent?.FallbackCount ?? 0,
                         LastFallbackReason     = _hiveWorkerAgent?.LastFallbackReason,
                         Residency = nrr.GetResidencySnapshot().Select(r => new
@@ -2329,9 +2391,10 @@ public partial class MainWindow : Window
             if (swarmModel != _session.ActiveModel)
                 ApplyModelSwitch(swarmModel, saveToSingleSlot: false);
 
-            _swarmPanel.ActiveModel   = _session.ActiveModel;
-            _swarmPanel.WorkspaceRoot = _session.WorkspaceRoot;
-            _swarmPanel.LocalUrl      = _activeRuntimeSettings.OllamaHost;
+            _swarmPanel.ActiveModel      = _session.ActiveModel;
+            _swarmPanel.WorkspaceRoot    = _session.WorkspaceRoot;
+            _swarmPanel.LocalUrl         = _activeRuntimeSettings.OllamaHost;
+            _swarmPanel.RuntimeResolver  = BuildSwarmRuntime;
             _swarmPanel.PopulateModelPickers(_installedModels);
             _swarmPanel.RefreshGate();
             MainContent.Content    = _swarmPanel;
@@ -2353,6 +2416,12 @@ public partial class MainWindow : Window
             // the same tool-call shape dozens of times during a GUI model-sweep was pure
             // friction. ChatPanel._autoApproveToolCalls owns the actual scope decision.
             _chatPanel.ConfirmToolApprovalAsync = (msg, title) => DialogHelper.ShowToolApprovalAsync(this, title, msg);
+            _chatPanel.Approvals = _approvals;
+            _chatPanel.ActiveModelChanged = model =>
+            {
+                _session.ActiveModel = model;
+                UpdateStatusBar();
+            };
             _chatPanel.SetModels(_installedModels, _session.ActiveModel);
             _chatPanel.RefreshHiveHosts();
             _chatPanel.LoadPersistedMemory();
@@ -2924,6 +2993,15 @@ public partial class MainWindow : Window
         BuildExperimentalNativeRoleRuntime("native main chat", _activeRuntimeSettings.ExperimentalNativeMainChatEnabled);
 
     /// <summary>
+    /// Mirrors <see cref="BuildExperimentalNativeMainChatRuntime"/> exactly, gated by
+    /// <see cref="AppSettings.ExperimentalNativeSwarmEnabled"/> for the local Swarm board
+    /// instead. A separate toggle and a separate NativeRoleRuntime instance, same VRAM
+    /// double-booking caveat as the other two.
+    /// </summary>
+    private IRoleRuntime? BuildExperimentalNativeSwarmRuntime() =>
+        BuildExperimentalNativeRoleRuntime("native swarm", _activeRuntimeSettings.ExperimentalNativeSwarmEnabled);
+
+    /// <summary>
     /// Shared scan/budget/construction logic extracted from the original HIVE-worker-only
     /// builder so the main-chat opt-in (added later) doesn't duplicate it. <paramref name="featureLabel"/>
     /// is folded into every activity-log message so the two callers stay distinguishable in the
@@ -3158,6 +3236,42 @@ public partial class MainWindow : Window
             // actually changes -- not on every chat turn. "Resolved," not "loaded"/"resident":
             // it fires at role-resolution time, before generation runs, so a load failure right
             // after this line (surfaced separately via onFallback above) is possible and expected.
+            onNativeModelChanged: activeModel => AddActivity(new ActivityEvent(ActivityKind.Info, "Native Runtime",
+                $"Native model resolved: {activeModel}", DateTime.Now)));
+        return runtime;
+    }
+
+    /// <summary>
+    /// Runtime for the local Swarm board's boss/worker/researcher pipeline
+    /// (<see cref="SwarmBoardPanel.RuntimeResolver"/>). Mirrors <see cref="BuildAgentLoopRuntime"/>
+    /// exactly — same fail-closed policy (native failure surfaces as an explicit error via
+    /// <see cref="NoFallbackRuntime"/>, never a silent Ollama fallback), same one-instance-covers-
+    /// every-role-via-modelNameFilter mechanism <see cref="NativeWithFallbackRuntime"/> already
+    /// uses for OrcChat's model switcher: SwarmSession passes different model-name strings per
+    /// role (boss/coder/researcher) through the same <see cref="IModelRuntime"/> instance, and
+    /// <c>NativeRoleRuntime.StreamRoleCompletionAsync</c>'s <c>modelNameFilter</c> resolves the
+    /// correct GGUF per call regardless of the single bound <see cref="RuntimeRole.Boss"/> here.
+    /// Gated by <see cref="AppSettings.ExperimentalNativeSwarmEnabled"/> — the one core surface
+    /// still hardcoded to Ollama when the other two flipped to native-by-default 2026-07-29; this
+    /// closes that gap. Only when the toggle is off does this return the plain Ollama runtime.
+    /// </summary>
+    private IModelRuntime BuildSwarmRuntime()
+    {
+        if (!_activeRuntimeSettings.ExperimentalNativeSwarmEnabled)
+            return new OllamaRuntime(_ollama);
+
+        var native = BuildExperimentalNativeSwarmRuntime();
+        if (native is null)
+            return new NoFallbackRuntime();
+
+        NativeWithFallbackRuntime runtime = null!;
+        runtime = new NativeWithFallbackRuntime(
+            native,
+            RuntimeRole.Boss,
+            new NoFallbackRuntime(),
+            onFallback: reason => AddActivity(new ActivityEvent(ActivityKind.Warning, "Native Runtime",
+                $"Swarm native generation failed (failure #{runtime.FallbackCount} this session) — " +
+                $"Ollama fallback is disabled by policy, surfacing as an error instead: {reason}", DateTime.Now)),
             onNativeModelChanged: activeModel => AddActivity(new ActivityEvent(ActivityKind.Info, "Native Runtime",
                 $"Native model resolved: {activeModel}", DateTime.Now)));
         return runtime;

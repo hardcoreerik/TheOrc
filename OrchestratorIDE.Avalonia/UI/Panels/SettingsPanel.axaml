@@ -255,6 +255,20 @@
 
                 <Border Classes="SettingRowBorder">
                     <DockPanel LastChildFill="True">
+                        <ToggleButton x:Name="TglNativeSwarm"
+                                      DockPanel.Dock="Right"
+                                      Theme="{StaticResource ToggleStyle}"
+                                      IsChecked="True"/>
+                        <StackPanel Margin="0,0,8,0">
+                            <TextBlock Text="Native Swarm (boss/worker/researcher)" Classes="SettingLabel"/>
+                            <TextBlock Text="On by default. The local Swarm board's boss/worker/researcher pipeline runs on the local ModelDepot/LLamaSharp role runtime, in-process -- no Ollama needed. A native failure surfaces as a visible error instead of silently completing on Ollama (Ollama fallback is disabled by policy for this path, same as native main chat). Separate from the other native toggles -- enabling more than one loads its own independent copy of the base model into VRAM. Runtime and model-source changes are saved immediately and apply together after restarting TheOrc."
+                                       Classes="SettingHint" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <Border Classes="SettingRowBorder">
+                    <DockPanel LastChildFill="True">
                         <ToggleButton x:Name="TglToolcallerDatasetCapture"
                                       DockPanel.Dock="Right"
                                       Theme="{StaticResource ToggleStyle}"

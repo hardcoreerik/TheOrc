@@ -465,6 +465,19 @@
                            Margin="0,0,8,0" VerticalAlignment="Center" FontSize="11"
                            AutomationProperties.AutomationId="StatusBar.Build"/>
 
+                <!-- Live VRAM widget — always visible, polls nvidia-smi every few seconds -->
+                <Border x:Name="SbVramStatus"
+                        DockPanel.Dock="Right"
+                        Background="#111111" CornerRadius="3"
+                        Padding="6,1" Margin="0,2,8,2"
+                        ToolTip.Tip="Live GPU VRAM usage (nvidia-smi)"
+                        AutomationProperties.AutomationId="StatusBar.Vram">
+                    <TextBlock x:Name="TxtSbVram"
+                               Text="🎮 VRAM —"
+                               Foreground="#888888"
+                               FontFamily="Consolas" FontSize="12"/>
+                </Border>
+
                 <!-- Model status widget -->
                 <Border x:Name="SbModelStatus"
                         DockPanel.Dock="Right"

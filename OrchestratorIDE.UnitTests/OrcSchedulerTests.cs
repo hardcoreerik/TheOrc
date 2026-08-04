@@ -267,10 +267,14 @@ public sealed class OrcSchedulerTests
     }
 
     [Test]
-    public void TryAdmit_With_Options_Denies_What_Legacy_FileSize_Estimate_Would_Admit()
+    public void TryAdmit_With_Options_Degrades_What_Legacy_FileSize_Estimate_Would_Admit_Unconditionally()
     {
         // The 2.2x-underestimate scenario from the spike, in miniature: budget fits the file
-        // size exactly, but not file size + context costs. Legacy admits; context-aware denies.
+        // size exactly, but not file size + context costs. Legacy admits unconditionally (no
+        // notion of context at all). Context-aware admits too, but only by degrading to fewer
+        // GPU layers -- 2 GB of budget can't hold the full 2 GB of weights AND ~896 MiB of KV
+        // cache AND the fixed overheads, but it can hold most of the weights on GPU with the
+        // rest on CPU (hardcoreerik, 2026-08-01: "still try to run... slower or use cpu").
         var path = WriteLlamaHeaderFixture(blockCount: 28, headCountKv: 8, keyLength: 128);
         try
         {
@@ -279,13 +283,120 @@ public sealed class OrcSchedulerTests
                 BaseModelAsset(RuntimeRole.Boss, GB(2)) with { Path = path }, Adapter: null);
             var budget = new VramBudget(TotalBytes: GB(2), ReservedBytes: 0);
 
+            var legacyDecision = scheduler.TryAdmit(binding, budget);
+            var contextAwareDecision = scheduler.TryAdmit(binding, budget, new RuntimeOptions(ContextLength: 8192));
+
             Assert.Multiple(() =>
             {
-                Assert.That(scheduler.TryAdmit(binding, budget).Admitted, Is.True,
+                Assert.That(legacyDecision.Admitted, Is.True,
                     "legacy estimate admits the exact-file-size fit");
-                Assert.That(scheduler.TryAdmit(binding, budget, new RuntimeOptions(ContextLength: 8192)).Admitted,
-                    Is.False,
-                    "context-aware estimate must count KV + overheads and deny");
+                Assert.That(legacyDecision.EffectiveGpuLayers, Is.Null,
+                    "legacy (no options) estimate has no layer count to degrade");
+                Assert.That(contextAwareDecision.Admitted, Is.True,
+                    "context-aware estimate must still try, degrading GPU layers rather than refusing");
+                Assert.That(contextAwareDecision.EffectiveGpuLayers, Is.Not.Null.And.LessThan(28),
+                    "the full 28-layer request didn't fit, so admission must have reduced it");
+                Assert.That(contextAwareDecision.Reason, Does.Contain("CPU"));
+            });
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Test]
+    public void TryAdmit_Denies_When_Even_Zero_GpuLayers_Does_Not_Fit()
+    {
+        // Below OrcScheduler.CudaRuntimeOverheadBytes + ComputeBufferAllowanceBytes (the fixed
+        // floor that doesn't shrink no matter how many layers are offloaded to CPU) -- no amount
+        // of degradation can make this fit, so it must still fail closed rather than claim a
+        // GPU-layer count that would immediately OOM.
+        var path = WriteLlamaHeaderFixture(blockCount: 28, headCountKv: 8, keyLength: 128);
+        try
+        {
+            var scheduler = new OrcScheduler();
+            var binding = new RuntimeRoleBinding(RuntimeRole.Boss,
+                BaseModelAsset(RuntimeRole.Boss, GB(2)) with { Path = path }, Adapter: null);
+            var budget = new VramBudget(TotalBytes: GB(0.0001), ReservedBytes: 0); // ~100 KB
+
+            var decision = scheduler.TryAdmit(binding, budget, new RuntimeOptions(ContextLength: 8192));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(decision.Admitted, Is.False);
+                Assert.That(decision.EffectiveGpuLayers, Is.Null);
+                Assert.That(decision.Reason, Does.Contain("fully on CPU does not fit"));
+            });
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Test]
+    public void TryAdmit_With_Explicit_Partial_GpuLayers_That_Fits_Does_Not_Reduce_Further()
+    {
+        // CodeRabbit review, PR #100: the old code always estimated full (28-layer) residency
+        // first, then searched DOWN from requestedLayers-1 regardless of what was actually
+        // requested -- so an explicit partial GpuLayers=10 request that ALREADY fit at 10
+        // layers got needlessly reduced to some smaller count instead of being admitted as
+        // requested.
+        var path = WriteLlamaHeaderFixture(blockCount: 28, headCountKv: 8, keyLength: 128);
+        try
+        {
+            var scheduler = new OrcScheduler();
+            var binding = new RuntimeRoleBinding(RuntimeRole.Boss,
+                BaseModelAsset(RuntimeRole.Boss, GB(2)) with { Path = path }, Adapter: null);
+            var options = new RuntimeOptions(ContextLength: 8192, GpuLayers: 10);
+
+            var tenLayerBytes = OrcScheduler.EstimateRequiredBytes(binding, options, gpuLayerOverride: 10);
+            var fullBytes = OrcScheduler.EstimateRequiredBytes(binding, options, gpuLayerOverride: 28);
+            Assume.That(tenLayerBytes, Is.LessThan(fullBytes),
+                "fixture must make the 10-layer estimate strictly smaller than full for this test to be meaningful");
+            var budget = new VramBudget(TotalBytes: tenLayerBytes + GB(0.05), ReservedBytes: 0);
+
+            var decision = scheduler.TryAdmit(binding, budget, options);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(decision.Admitted, Is.True, "the explicit 10-layer request fits and must be admitted as-is");
+                Assert.That(decision.EffectiveGpuLayers, Is.Null,
+                    "admitting exactly what was requested is not a degradation -- EffectiveGpuLayers must stay null");
+            });
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Test]
+    public void TryAdmit_With_Explicit_Zero_GpuLayers_That_Fits_Is_Admitted()
+    {
+        // CodeRabbit review, PR #100: GpuLayers=0 (explicit CPU-only) resolved
+        // requestedLayers=0, so the old degrade-search loop's own bound (requestedLayers-1 =
+        // -1) was already below its lower bound (0) before the loop started -- a CPU-only
+        // request that WOULD fit was denied outright, never even evaluated.
+        var path = WriteLlamaHeaderFixture(blockCount: 28, headCountKv: 8, keyLength: 128);
+        try
+        {
+            var scheduler = new OrcScheduler();
+            var binding = new RuntimeRoleBinding(RuntimeRole.Boss,
+                BaseModelAsset(RuntimeRole.Boss, GB(2)) with { Path = path }, Adapter: null);
+            var options = new RuntimeOptions(ContextLength: 8192, GpuLayers: 0);
+
+            var cpuOnlyBytes = OrcScheduler.EstimateRequiredBytes(binding, options, gpuLayerOverride: 0);
+            var budget = new VramBudget(TotalBytes: cpuOnlyBytes + GB(0.05), ReservedBytes: 0);
+
+            var decision = scheduler.TryAdmit(binding, budget, options);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(decision.Admitted, Is.True, "explicit CPU-only request fits and must be admitted");
+                Assert.That(decision.EffectiveGpuLayers, Is.Null,
+                    "admitting exactly what was requested (0 layers) is not a degradation");
             });
         }
         finally

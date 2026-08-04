@@ -90,6 +90,13 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
     // nothing left to protect by resetting it.
     private long _rejectedAdmissionCount;
     private string? _lastRejectionReason;
+    // Same shape and guard as the rejection counters above, for the "admitted but degraded to
+    // partial GPU + CPU offload" case (hardcoreerik, 2026-08-01) — a distinct lifetime counter
+    // rather than folding it into _rejectedAdmissionCount because this path is NOT a denial: the
+    // role loads and runs, just slower. Conflating the two would make "how many admissions
+    // actually failed" impossible to read off the snapshot.
+    private long _degradedAdmissionCount;
+    private string? _lastDegradedReason;
     private readonly SemaphoreSlim _admissionGate = new(1, 1);
     // Separate from _admissionGate: that semaphore serializes the async admission DECISION
     // pipeline (check -> load -> commit), but Dictionary itself is not thread-safe even for a
@@ -175,9 +182,9 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
             // against on their own gates — this class was missing the equivalent check).
             ThrowIfDisposed();
 
-            var admittedBytes = EnsureAdmitted(binding, options);
+            var (admittedBytes, effectiveOptions, degradedReason) = EnsureAdmitted(binding, options);
 
-            var loadResult = await _sessionManager.LoadBindingAsync(binding, options, ct).ConfigureAwait(false);
+            var loadResult = await _sessionManager.LoadBindingAsync(binding, effectiveOptions, ct).ConfigureAwait(false);
             if (!loadResult.Success || loadResult.Binding is null)
                 throw new InvalidOperationException(
                     $"Could not load base model for role {binding.Role}: {loadResult.Message}");
@@ -185,6 +192,15 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
             var conversation = await _adapterManager
                 .CreateConversationAsync(loadResult.Binding, ct)
                 .ConfigureAwait(false);
+
+            // Record the degraded-admission telemetry only now, after the load and conversation
+            // create this admission was granted for have actually succeeded (CodeRabbit review,
+            // PR #100: recording it inside EnsureAdmitted, before either of those ran, meant a
+            // load or conversation-create failure still left the counter claiming a successful
+            // degraded admission that never happened). Beside the reservation commit below for
+            // the same reason that commit itself waits until here.
+            if (degradedReason is not null)
+                RecordDegradation(degradedReason);
 
             // Commit only now, with the generation observed AFTER the load — never the pre-load
             // generation EnsureAdmitted saw. The load above may have been the one that bumped
@@ -280,16 +296,28 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
     /// isolation without a real model load, unlike the rest of GetConversationForBindingAsync.
     /// </summary>
     /// <returns>
-    /// The footprint this admission was granted against, for the caller to record verbatim in the
-    /// reservation ledger. Zero when admission is bypassed via allowUnbudgetedExecution (there is
-    /// no budget to account against in that mode).
+    /// RequiredBytes: the footprint this admission was granted against, for the caller to record
+    /// verbatim in the reservation ledger. Zero when admission is bypassed via
+    /// allowUnbudgetedExecution (there is no budget to account against in that mode).
+    /// EffectiveOptions: the options the caller must actually load with — identical to
+    /// <paramref name="options"/> unless the scheduler could not fit the full request and
+    /// degraded to a smaller GpuLayers (partial GPU + CPU), in which case this carries that
+    /// reduced value. Loading with the original <paramref name="options"/> instead would silently
+    /// re-attempt full GPU residency and defeat the whole point of the degraded admission.
+    /// DegradedReason: non-null exactly when a degraded admission happened (mirrors
+    /// EffectiveGpuLayers being set). The caller records this via RecordDegradation itself, only
+    /// AFTER the load and conversation-create this admission was granted for actually succeed
+    /// (CodeRabbit review, PR #100: recording it here, before either of those run, meant a load
+    /// or conversation-create failure still left the telemetry counter claiming a successful
+    /// degraded admission that never actually happened).
     /// </returns>
-    internal long EnsureAdmitted(RuntimeRoleBinding binding, RuntimeOptions? options = null)
+    internal (long RequiredBytes, RuntimeOptions? EffectiveOptions, string? DegradedReason) EnsureAdmitted(
+        RuntimeRoleBinding binding, RuntimeOptions? options = null)
     {
         if (_scheduler is null || _budgetProvider is null)
         {
             if (_allowUnbudgetedExecution)
-                return 0;
+                return (0, options, null);
 
             var unavailableDecision = new SchedulingDecision(
                 Admitted: false,
@@ -372,11 +400,34 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
             throw new RuntimeAdmissionDeniedException(binding, budget, decision);
         }
 
-        // Returned so the caller commits the EXACT number that was admitted. Recomputing it after
-        // the load would silently use a different residency answer -- the first role's own load
-        // makes its base resident, so a post-load recompute would record it as if it had reused
-        // weights it actually paid for, under-reporting it to every later role.
-        return requiredBytes;
+        var effectiveOptions = options;
+        string? degradedReason = null;
+        if (decision.EffectiveGpuLayers is { } reducedLayers)
+        {
+            // TryAdmit could not fit the full-offload request but found a smaller GPU-layer
+            // count that does (hardcoreerik, 2026-08-01: degrade to CPU-assisted rather than
+            // hard-deny every chat turn on a VRAM-tight box). Recompute the estimate against
+            // THAT reduced footprint -- not the full-offload requiredBytes above -- so the
+            // reservation ledger reflects what was actually admitted, and rebuild the options
+            // the caller loads with so the reduced GpuLayers actually takes effect (options is
+            // never null here: TryAdmit only sets EffectiveGpuLayers when it was given options
+            // to search against). RecordDegradation itself is NOT called here -- see
+            // DegradedReason's doc above; the caller records it after the load it's granting
+            // actually succeeds.
+            requiredBytes = OrcScheduler.EstimateRequiredBytes(
+                binding, options, reusesBaseWeights, gpuLayerOverride: reducedLayers);
+            effectiveOptions = options! with { GpuLayers = reducedLayers };
+            degradedReason = decision.Reason;
+        }
+
+        // requiredBytes is returned so the caller commits the EXACT number that was admitted.
+        // Recomputing it after the load would silently use a different residency answer -- the
+        // first role's own load makes its base resident, so a post-load recompute would record
+        // it as if it had reused weights it actually paid for, under-reporting it to every later
+        // role. effectiveOptions is the original options unless TryAdmit degraded the request
+        // (see above) -- the caller must load with THIS, not the original, or a reduced-GpuLayers
+        // admission would silently attempt full GPU residency anyway.
+        return (requiredBytes, effectiveOptions, degradedReason);
     }
 
     private void RecordRejection(string? reason)
@@ -385,6 +436,15 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
         {
             _rejectedAdmissionCount++;
             _lastRejectionReason = reason;
+        }
+    }
+
+    private void RecordDegradation(string? reason)
+    {
+        lock (_telemetryGate)
+        {
+            _degradedAdmissionCount++;
+            _lastDegradedReason = reason;
         }
     }
 
@@ -468,6 +528,8 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
         List<RuntimeRoleReservation> active;
         long rejectedCount;
         string? lastRejectionReason;
+        long degradedCount;
+        string? lastDegradedReason;
         lock (_telemetryGate)
         {
             active = _reservedByRole
@@ -476,6 +538,8 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
                 .ToList();
             rejectedCount = _rejectedAdmissionCount;
             lastRejectionReason = _lastRejectionReason;
+            degradedCount = _degradedAdmissionCount;
+            lastDegradedReason = _lastDegradedReason;
         }
         // MAX, not SUM. The two inputs measure overlapping things, so adding them double-counts
         // every resident model — the same trap EnsureAdmitted documents above, in the reporting
@@ -506,7 +570,9 @@ public sealed class RuntimeOrchestrator : IAsyncDisposable
             reservedBytes,
             AvailableBytes: Math.Max(0, baseline.TotalBytes - reservedBytes),
             RejectedAdmissionCount: rejectedCount,
-            LastRejectionReason: lastRejectionReason);
+            LastRejectionReason: lastRejectionReason,
+            DegradedAdmissionCount: degradedCount,
+            LastDegradedReason: lastDegradedReason);
     }
 
     private void ThrowIfDisposed()
@@ -524,9 +590,12 @@ public sealed record RuntimeRoleReservation(RuntimeRole Role, long Bytes);
 /// lists only roles whose reservation generation still matches the runtime's current generation —
 /// stale entries (torn down by an intervening reload) are excluded, same filter <see cref="RuntimeOrchestrator"/>
 /// itself uses for admission decisions. <see cref="RejectedAdmissionCount"/>/<see cref="LastRejectionReason"/>
-/// are lifetime counters (Native Runtime v2.0 Phase C) — every denial since construction, not
-/// just ones still "active"; unlike <see cref="Reservations"/> they are never generation-filtered
-/// since a past denial doesn't become stale the way a live reservation does.
+/// and <see cref="DegradedAdmissionCount"/>/<see cref="LastDegradedReason"/> are both lifetime
+/// counters (Native Runtime v2.0 Phase C, the latter added 2026-08-01) — every denial or
+/// GPU-layer degradation since construction, not just ones still "active"; unlike
+/// <see cref="Reservations"/> they are never generation-filtered since a past event doesn't
+/// become stale the way a live reservation does. Degraded is distinct from rejected: a degraded
+/// admission still loaded and is running, just on fewer GPU layers than requested.
 /// </summary>
 public sealed record RuntimeReservationSnapshot(
     IReadOnlyList<RuntimeRoleReservation> Reservations,
@@ -534,7 +603,9 @@ public sealed record RuntimeReservationSnapshot(
     long ReservedBytes,
     long AvailableBytes,
     long RejectedAdmissionCount,
-    string? LastRejectionReason);
+    string? LastRejectionReason,
+    long DegradedAdmissionCount = 0,
+    string? LastDegradedReason = null);
 
 public sealed class RuntimeAdmissionDeniedException : InvalidOperationException
 {

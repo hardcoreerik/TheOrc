@@ -15,7 +15,7 @@ public static class KeyHoundAtlasTools
     private static readonly Regex EntityIdPattern = new("^ent_[0-9a-f]{12}$", RegexOptions.CultureInvariant);
     private static readonly Regex LinkIdPattern = new("^lnk_[0-9a-f]{12}$", RegexOptions.CultureInvariant);
 
-    public static void Register(ToolRegistry registry, Uri serviceUrl, string bearerToken,
+    public static void Register(ToolRegistry registry, Uri serviceUrl, string? bearerToken = null,
         Uri? workspaceUrl = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
@@ -23,10 +23,8 @@ public static class KeyHoundAtlasTools
             throw new ArgumentException("KeyHound Atlas must use a loopback, private IP, or single-label LAN host.", nameof(serviceUrl));
         if (workspaceUrl is not null && !IsLocal(workspaceUrl))
             throw new ArgumentException("The KeyHound Atlas workspace must be local.", nameof(workspaceUrl));
-        if (string.IsNullOrWhiteSpace(bearerToken) || bearerToken.Length < 32)
-            throw new ArgumentException("A KeyHound Atlas integration token of at least 32 characters is required.", nameof(bearerToken));
 
-        var http = LocalIntegrationHost.CreateClient(bearerToken);
+        var http = LocalIntegrationHost.CreateClient(bearerToken, serviceUrl);
         var api = serviceUrl.ToString().TrimEnd('/');
         var editor = (workspaceUrl ?? serviceUrl).ToString().TrimEnd('/');
 

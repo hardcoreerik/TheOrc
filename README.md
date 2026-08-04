@@ -235,10 +235,10 @@ That's HIVE MIND doing the one thing that actually matters: turning "the machine
 
 ## The road to v2.0
 
-With Context Fabric complete, v2.0 is about two things: making the **native runtime the default**, and giving agents **real operational reach** beyond generating text. Four workstreams define the release. None of these are claimed as shipped — this is what the project is building next, in priority order.
+With Context Fabric complete, v2.0 is about two things: making the **native runtime the default**, and giving agents **real operational reach** beyond generating text. Workstream 1 below shipped; the rest are still in progress, in priority order.
 
-### 1. Native Runtime becomes the default
-The defining change of v2.0. Local in-process inference — already a real, verified runtime lane — is promoted from opt-in to the default path, with Ollama becoming fully optional rather than the assumed backend. The `RuntimeOrchestrator` / `AdapterManager` / `OrcScheduler` layer (per-role persistent LoRA contexts, VRAM-budget admission control, automatic fallback) graduates out of experimental status. This flip is **gated on multi-machine HIVE validation across a real LAN/Tailscale network** — a measured bar, not a calendar date.
+### 1. Native Runtime becomes the default — ✅ shipped
+The defining change of v2.0. **The flip happened 2026-07-29**, gated on live multi-machine HIVE validation (`docs/NATIVE_RUNTIME_HIVE_VALIDATION_PLAN.md` HV-1 through HV-6, all closed with 3×-repeated, 9/9-lane evidence) and an explicit recorded product decision — not a calendar date. `AppSettings.ExperimentalNativeHiveWorkerEnabled` / `ExperimentalNativeMainChatEnabled` both default to `true`; the `RuntimeOrchestrator` / `AdapterManager` / `OrcScheduler` layer (per-role persistent LoRA contexts, VRAM-budget admission control, fail-closed — no silent Ollama fallback) is production, not experimental. **2026-08-04**: the one remaining Ollama-only surface, the local Swarm board's boss/worker/researcher pipeline, closed the same way (`ExperimentalNativeSwarmEnabled`, default `true`), and OrcChat/Research's own backend default flipped from Ollama to llama.cpp too. Ollama remains fully implemented and selectable everywhere — it's simply no longer the default anywhere in the app. See `docs/NATIVE_RUNTIME_V2_SPEC.md` §6 for the full gate record.
 
 ### 2. Browser automation + page understanding
 The highest-impact new capability: agents that can drive a real browser and understand what they see. Playwright-backed navigation, interaction, and page comprehension turn "read the docs" and "check the live site" from hand-offs into tasks a worker completes itself — under the same approval gates as every other tool.
@@ -328,8 +328,7 @@ Everything below this line is preserved release history. The sections above desc
 
 ## Looking ahead to v2.0
 
-v2.0's defining change: **Native Runtime becomes the default, Ollama becomes fully optional.** That flip is explicitly gated on multi-machine HIVE MIND validation of this release's native opt-in path across a real LAN/Tailscale network — not a fixed date. Also planned, not yet started:
-- Promoting the experimental `RuntimeOrchestrator`/`AdapterManager`/`OrcScheduler` layer out of opt-in status once the v1.9 HIVE testing round validates it under real concurrent multi-role load.
+v2.0's defining change: **Native Runtime becomes the default, Ollama becomes fully optional.** ✅ **Shipped 2026-07-29** (HIVE worker + main chat) **and 2026-08-04** (local Swarm board + OrcChat/Research backend default) — gated on multi-machine HIVE MIND validation across a real LAN/Tailscale network and an explicit recorded product decision, not a fixed date. `RuntimeOrchestrator`/`AdapterManager`/`OrcScheduler` is production, not opt-in — the v1.9 HIVE testing round (HV-1 through HV-6) validated it under real concurrent multi-role load across the fleet. Ollama remains fully implemented and selectable; it's just no longer the default anywhere. See `docs/NATIVE_RUNTIME_V2_SPEC.md` §6. Also planned, not yet started:
 - HIVE MIND Phase 3B — full multi-step `AgentLoop`-style tool execution on remote workers (file writes, shell commands, web search running on the worker machine itself), not just single-pass LLM calls.
 - A first-class container/GHCR release lane for Warband deployments. The raw `linux-x64` and `osx-arm64` Warband binaries now ship in GitHub Releases; container publishing is the remaining deployment-product step.
 - A from-scratch, data-bound Avalonia rebuild of the Model Wiki/catalogue browsing experience retired in v1.9.0.

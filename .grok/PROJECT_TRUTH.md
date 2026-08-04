@@ -337,9 +337,11 @@ a separate toggle, separate `NativeRoleRuntime` instance, same `NativeWithFallba
 fallback mechanism. Research/OrcChat took a different, complementary route to the same
 "no Ollama" goal: it inherits the shared `OllamaClient`'s live `Backend` switch
 (out-of-process `llama-server`, not in-process `LLamaSharp`), also now exposed via
-Settings UI and verified end-to-end (single-turn and multi-turn). `SwarmSession`
-remains on the configured default runtime -- genuinely not touched, not just
-forgotten to update here.
+Settings UI and verified end-to-end (single-turn and multi-turn) -- **its default flipped
+Ollama -> LlamaCpp 2026-08-04**, same "never silently default to Ollama" policy. `SwarmSession`
+**closed 2026-08-04** (`AppSettings.ExperimentalNativeSwarmEnabled`, default true) -- the one
+core surface that stayed Ollama-only when the other two flipped 2026-07-29. See
+`docs/NATIVE_RUNTIME_V2_SPEC.md` §6's 2026-08-04 entry for the full record.
 
 **ORCISH TONGUE** (universal tool caller, formerly GOBLIN MIND — renamed to end the GOBLIN MIND / HIVE MIND collision; symbol/display-string rename inventory in `.grok/RENAME_GOBLIN_MIND.md`, still not applied to code — the *name* ORCISH TONGUE is used in new docs/code going forward, but old GOBLIN MIND symbols haven't been mass-renamed). Native runtime is the substrate that upgrades it from prompt-layer format adaptation (probe + parse defensively) to **decoder-layer grammar-constrained tool calls (GBNF)** — valid by construction, works on any model even untrained-for-tools — **landed 2026-08-03** (PR #99): `ToolCallGrammarBuilder` compiles the live tool list to GBNF, wired into `LLamaSharpRuntime.StreamCompletionAsync`, live automatically for OrcChat/Swarm/HIVE through the shared `IModelRuntime` reference. Verified end-to-end that a model cannot emit a tool name outside the grammar even when a request explicitly names it inline. Only covers the native (LLamaSharp) runtime — Ollama/server-backed calls still rely on prompt-layer probing + defensive parsing. This is the real "why native" capability, not just dropping the Ollama install. See `docs/RUNTIME_PHASE0_SPEC.md` §11.
 
