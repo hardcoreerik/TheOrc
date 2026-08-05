@@ -1,0 +1,246 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804162011_0098",
+  "lineage_group_id": "tc2_lg_tc2_20260804162011_0098",
+  "captured_at": "2026-08-04T16:20:11Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Could you please use the create_contact tool to add John Doe as a new contact with the email john.doe@example.com and phone number +1234567890?",
+  "available_tools": [
+    "create_contact",
+    "WebSearch",
+    "get_outline",
+    "run_tests",
+    "grep_code",
+    "get_architecture",
+    "Write",
+    "create_calendar_event",
+    "Edit",
+    "browser_extract",
+    "browser_wait"
+  ],
+  "available_tools_schema": {
+    "create_contact": {
+      "name": "create_contact",
+      "description": "Create a new contact.",
+      "parameters": {
+        "name": {
+          "type": "string",
+          "description": "Contact full name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address."
+        },
+        "phone": {
+          "type": "string",
+          "description": "Contact phone number."
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "WebSearch": {
+      "name": "WebSearch",
+      "description": "Allows searching the web and using the results.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "The search query to use."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "get_outline": {
+      "name": "get_outline",
+      "description": "Retrieve the structural outline of a file (classes, methods, functions).",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "File path."
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "run_tests": {
+      "name": "run_tests",
+      "description": "Build the project and run its test suite.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "Optional path to scope the test run to."
+        }
+      },
+      "required": []
+    },
+    "grep_code": {
+      "name": "grep_code",
+      "description": "Search file contents with a regex pattern.",
+      "parameters": {
+        "pattern": {
+          "type": "string",
+          "description": "Regex pattern to search for."
+        },
+        "glob": {
+          "type": "string",
+          "description": "Optional filename glob to restrict the search."
+        },
+        "path": {
+          "type": "string",
+          "description": "Optional directory to scope the search to."
+        }
+      },
+      "required": [
+        "pattern"
+      ]
+    },
+    "get_architecture": {
+      "name": "get_architecture",
+      "description": "Returns a high-level architecture snapshot from the graph: namespaces, top-degree hub nodes, routes, and aggregate counts. Read-only.",
+      "parameters": {},
+      "required": []
+    },
+    "Write": {
+      "name": "Write",
+      "description": "Writes a file to the local filesystem, overwriting it if it already exists.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to write."
+        },
+        "content": {
+          "type": "string",
+          "description": "The content to write to the file."
+        }
+      },
+      "required": [
+        "file_path",
+        "content"
+      ]
+    },
+    "create_calendar_event": {
+      "name": "create_calendar_event",
+      "description": "Create a new calendar event.",
+      "parameters": {
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        },
+        "end_time": {
+          "type": "string",
+          "description": "Event end time, ISO 8601."
+        },
+        "attendees": {
+          "type": "string",
+          "description": "Comma-separated attendee list."
+        }
+      },
+      "required": [
+        "title",
+        "start_time"
+      ]
+    },
+    "Edit": {
+      "name": "Edit",
+      "description": "Performs exact string replacements in files.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to modify."
+        },
+        "old_string": {
+          "type": "string",
+          "description": "The text to replace."
+        },
+        "new_string": {
+          "type": "string",
+          "description": "The text to replace it with."
+        },
+        "replace_all": {
+          "type": "boolean",
+          "description": "Replace all occurrences of old_string."
+        }
+      },
+      "required": [
+        "file_path",
+        "old_string",
+        "new_string"
+      ]
+    },
+    "browser_extract": {
+      "name": "browser_extract",
+      "description": "Extract visible text from the current page, optionally scoped to a CSS selector (omit for the whole page).",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "Optional CSS selector to scope extraction to; omit for the full page body."
+        }
+      },
+      "required": []
+    },
+    "browser_wait": {
+      "name": "browser_wait",
+      "description": "Wait for an element to become visible on the page, bounded by a timeout (default 10s, max 60s).",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "CSS selector to wait for."
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "description": "Maximum seconds to wait (default 10, max 60)."
+        }
+      },
+      "required": [
+        "selector"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "create_contact",
+    "arguments": {
+      "name": "John Doe",
+      "email": "john.doe@example.com",
+      "phone": "+1234567890"
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "write_workspace",
+    "is_destructive": true,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

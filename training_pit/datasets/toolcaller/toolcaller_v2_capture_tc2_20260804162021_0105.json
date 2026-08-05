@@ -1,0 +1,330 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804162021_0105",
+  "lineage_group_id": "tc2_lg_tc2_20260804162021_0105",
+  "captured_at": "2026-08-04T16:20:21Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Can you use get_weather_forecast to check the weather for New York City for the next three days in imperial units?",
+  "available_tools": [
+    "archive_note",
+    "ask_user",
+    "browser_download",
+    "browser_screenshot",
+    "run_tests",
+    "WebFetch",
+    "cancel_calendar_event",
+    "browser_type",
+    "Write",
+    "image_create",
+    "get_outline",
+    "write_file",
+    "search_contacts",
+    "get_weather_forecast"
+  ],
+  "available_tools_schema": {
+    "archive_note": {
+      "name": "archive_note",
+      "description": "Archive an existing note.",
+      "parameters": {
+        "note_id": {
+          "type": "string",
+          "description": "Identifier of an existing note."
+        },
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        }
+      },
+      "required": [
+        "note_id"
+      ]
+    },
+    "ask_user": {
+      "name": "ask_user",
+      "description": "Ask the human a clarifying question and wait for their answer.",
+      "parameters": {
+        "question": {
+          "type": "string",
+          "description": "The question to ask."
+        },
+        "options": {
+          "type": "string",
+          "description": "Optional list of suggested answers."
+        }
+      },
+      "required": [
+        "question"
+      ]
+    },
+    "browser_download": {
+      "name": "browser_download",
+      "description": "Click an element that triggers a download and save the resulting file inside the workspace.",
+      "parameters": {
+        "trigger_selector": {
+          "type": "string",
+          "description": "CSS selector of the element that triggers the download when clicked."
+        },
+        "directory": {
+          "type": "string",
+          "description": "Relative directory inside the workspace to save into (default: downloads/)."
+        }
+      },
+      "required": [
+        "trigger_selector"
+      ]
+    },
+    "browser_screenshot": {
+      "name": "browser_screenshot",
+      "description": "Capture a full-page screenshot of the current page and save it inside the workspace.",
+      "parameters": {},
+      "required": []
+    },
+    "run_tests": {
+      "name": "run_tests",
+      "description": "Build the project and run its test suite.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "Optional path to scope the test run to."
+        }
+      },
+      "required": []
+    },
+    "WebFetch": {
+      "name": "WebFetch",
+      "description": "Fetches content from a specified URL and processes it.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "The URL to fetch content from."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "The prompt to run on the fetched content."
+        }
+      },
+      "required": [
+        "url",
+        "prompt"
+      ]
+    },
+    "cancel_calendar_event": {
+      "name": "cancel_calendar_event",
+      "description": "Cancel an existing calendar event.",
+      "parameters": {
+        "event_id": {
+          "type": "string",
+          "description": "Identifier of an existing event."
+        },
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        }
+      },
+      "required": [
+        "event_id"
+      ]
+    },
+    "browser_type": {
+      "name": "browser_type",
+      "description": "Type text into an input element, identified by a CSS selector (replaces any existing value).",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "CSS selector of the input element."
+        },
+        "text": {
+          "type": "string",
+          "description": "The text to type."
+        }
+      },
+      "required": [
+        "selector",
+        "text"
+      ]
+    },
+    "Write": {
+      "name": "Write",
+      "description": "Writes a file to the local filesystem, overwriting it if it already exists.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to write."
+        },
+        "content": {
+          "type": "string",
+          "description": "The content to write to the file."
+        }
+      },
+      "required": [
+        "file_path",
+        "content"
+      ]
+    },
+    "image_create": {
+      "name": "image_create",
+      "description": "Create an image with the local Art Forge Studio and ComfyUI runtime.",
+      "parameters": {
+        "prompt": {
+          "type": "string",
+          "description": "Image description"
+        },
+        "negative_prompt": {
+          "type": "string",
+          "description": "Optional unwanted details"
+        },
+        "checkpoint": {
+          "type": "string",
+          "description": "Optional installed checkpoint name"
+        },
+        "lora": {
+          "type": "string",
+          "description": "Optional installed LoRA name"
+        },
+        "size": {
+          "type": "string",
+          "description": "Image size such as 768x768"
+        },
+        "seed": {
+          "type": "integer",
+          "description": "Deterministic generation seed"
+        },
+        "style": {
+          "type": "string",
+          "description": "Optional style guidance"
+        },
+        "content_profile": {
+          "type": "string",
+          "description": "sfw or mature_capable; defaults to sfw"
+        }
+      },
+      "required": [
+        "prompt"
+      ]
+    },
+    "get_outline": {
+      "name": "get_outline",
+      "description": "Retrieve the structural outline of a file (classes, methods, functions).",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "File path."
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "write_file": {
+      "name": "write_file",
+      "description": "Create or overwrite a file with the given content.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "File path relative to workspace root, or absolute."
+        },
+        "content": {
+          "type": "string",
+          "description": "Full file content to write."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Optional short reason for the write, shown in the diff preview."
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ]
+    },
+    "search_contacts": {
+      "name": "search_contacts",
+      "description": "Search contacts by name or company.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search term."
+        },
+        "name": {
+          "type": "string",
+          "description": "Contact full name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "get_weather_forecast": {
+      "name": "get_weather_forecast",
+      "description": "Get the current weather forecast for a location.",
+      "parameters": {
+        "location": {
+          "type": "string",
+          "description": "City name or coordinates."
+        },
+        "days_ahead": {
+          "type": "integer",
+          "description": "How many days ahead to forecast."
+        },
+        "units": {
+          "type": "string",
+          "description": "metric or imperial."
+        }
+      },
+      "required": [
+        "location"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "get_weather_forecast",
+    "arguments": {
+      "location": "New York City",
+      "days_ahead": 3,
+      "units": "imperial"
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "read_workspace",
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

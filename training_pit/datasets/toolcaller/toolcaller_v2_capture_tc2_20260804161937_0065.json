@@ -1,0 +1,239 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804161937_0065",
+  "lineage_group_id": "tc2_lg_tc2_20260804161937_0065",
+  "captured_at": "2026-08-04T16:19:37Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "I need to delete a contact named John Doe from my contacts list. -- delete_contact should be able to do that",
+  "available_tools": [
+    "Edit",
+    "delete_contact",
+    "list_calendar_events",
+    "detect_translation",
+    "browser_extract",
+    "browser_type",
+    "create_calendar_event",
+    "image_create"
+  ],
+  "available_tools_schema": {
+    "Edit": {
+      "name": "Edit",
+      "description": "Performs exact string replacements in files.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to modify."
+        },
+        "old_string": {
+          "type": "string",
+          "description": "The text to replace."
+        },
+        "new_string": {
+          "type": "string",
+          "description": "The text to replace it with."
+        },
+        "replace_all": {
+          "type": "boolean",
+          "description": "Replace all occurrences of old_string."
+        }
+      },
+      "required": [
+        "file_path",
+        "old_string",
+        "new_string"
+      ]
+    },
+    "delete_contact": {
+      "name": "delete_contact",
+      "description": "Delete an existing contact.",
+      "parameters": {
+        "contact_id": {
+          "type": "string",
+          "description": "Identifier of an existing contact."
+        },
+        "name": {
+          "type": "string",
+          "description": "Contact full name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address."
+        }
+      },
+      "required": [
+        "contact_id"
+      ]
+    },
+    "list_calendar_events": {
+      "name": "list_calendar_events",
+      "description": "List upcoming calendar events.",
+      "parameters": {
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        }
+      },
+      "required": []
+    },
+    "detect_translation": {
+      "name": "detect_translation",
+      "description": "Detect the language of a piece of text.",
+      "parameters": {
+        "text": {
+          "type": "string",
+          "description": "Text to translate or detect."
+        },
+        "source_language": {
+          "type": "string",
+          "description": "Optional source language code."
+        },
+        "target_language": {
+          "type": "string",
+          "description": "Target language code."
+        }
+      },
+      "required": [
+        "text"
+      ]
+    },
+    "browser_extract": {
+      "name": "browser_extract",
+      "description": "Extract visible text from the current page, optionally scoped to a CSS selector (omit for the whole page).",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "Optional CSS selector to scope extraction to; omit for the full page body."
+        }
+      },
+      "required": []
+    },
+    "browser_type": {
+      "name": "browser_type",
+      "description": "Type text into an input element, identified by a CSS selector (replaces any existing value).",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "CSS selector of the input element."
+        },
+        "text": {
+          "type": "string",
+          "description": "The text to type."
+        }
+      },
+      "required": [
+        "selector",
+        "text"
+      ]
+    },
+    "create_calendar_event": {
+      "name": "create_calendar_event",
+      "description": "Create a new calendar event.",
+      "parameters": {
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        },
+        "end_time": {
+          "type": "string",
+          "description": "Event end time, ISO 8601."
+        },
+        "attendees": {
+          "type": "string",
+          "description": "Comma-separated attendee list."
+        }
+      },
+      "required": [
+        "title",
+        "start_time"
+      ]
+    },
+    "image_create": {
+      "name": "image_create",
+      "description": "Create an image with the local Art Forge Studio and ComfyUI runtime.",
+      "parameters": {
+        "prompt": {
+          "type": "string",
+          "description": "Image description"
+        },
+        "negative_prompt": {
+          "type": "string",
+          "description": "Optional unwanted details"
+        },
+        "checkpoint": {
+          "type": "string",
+          "description": "Optional installed checkpoint name"
+        },
+        "lora": {
+          "type": "string",
+          "description": "Optional installed LoRA name"
+        },
+        "size": {
+          "type": "string",
+          "description": "Image size such as 768x768"
+        },
+        "seed": {
+          "type": "integer",
+          "description": "Deterministic generation seed"
+        },
+        "style": {
+          "type": "string",
+          "description": "Optional style guidance"
+        },
+        "content_profile": {
+          "type": "string",
+          "description": "sfw or mature_capable; defaults to sfw"
+        }
+      },
+      "required": [
+        "prompt"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "delete_contact",
+    "arguments": {
+      "contact_id": "12345",
+      "name": "John Doe",
+      "email": "john.doe@example.com"
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "write_workspace",
+    "is_destructive": true,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

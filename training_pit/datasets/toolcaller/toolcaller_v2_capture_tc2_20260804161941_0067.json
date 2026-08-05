@@ -1,0 +1,243 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804161941_0067",
+  "lineage_group_id": "tc2_lg_tc2_20260804161941_0067",
+  "captured_at": "2026-08-04T16:19:41Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Can you use archive_note to archive the note with ID 'note123'? The title is 'Meeting Notes' and the body is 'Details of the recent team meeting.'",
+  "available_tools": [
+    "archive_note",
+    "image_open",
+    "browser_screenshot",
+    "cancel_calendar_event",
+    "Write",
+    "browser_type",
+    "delete_contact",
+    "trace_path",
+    "run_shell",
+    "update_calendar_event"
+  ],
+  "available_tools_schema": {
+    "archive_note": {
+      "name": "archive_note",
+      "description": "Archive an existing note.",
+      "parameters": {
+        "note_id": {
+          "type": "string",
+          "description": "Identifier of an existing note."
+        },
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        }
+      },
+      "required": [
+        "note_id"
+      ]
+    },
+    "image_open": {
+      "name": "image_open",
+      "description": "Open the local Art Forge Studio workspace.",
+      "parameters": {},
+      "required": []
+    },
+    "browser_screenshot": {
+      "name": "browser_screenshot",
+      "description": "Capture a full-page screenshot of the current page and save it inside the workspace.",
+      "parameters": {},
+      "required": []
+    },
+    "cancel_calendar_event": {
+      "name": "cancel_calendar_event",
+      "description": "Cancel an existing calendar event.",
+      "parameters": {
+        "event_id": {
+          "type": "string",
+          "description": "Identifier of an existing event."
+        },
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        }
+      },
+      "required": [
+        "event_id"
+      ]
+    },
+    "Write": {
+      "name": "Write",
+      "description": "Writes a file to the local filesystem, overwriting it if it already exists.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to write."
+        },
+        "content": {
+          "type": "string",
+          "description": "The content to write to the file."
+        }
+      },
+      "required": [
+        "file_path",
+        "content"
+      ]
+    },
+    "browser_type": {
+      "name": "browser_type",
+      "description": "Type text into an input element, identified by a CSS selector (replaces any existing value).",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "CSS selector of the input element."
+        },
+        "text": {
+          "type": "string",
+          "description": "The text to type."
+        }
+      },
+      "required": [
+        "selector",
+        "text"
+      ]
+    },
+    "delete_contact": {
+      "name": "delete_contact",
+      "description": "Delete an existing contact.",
+      "parameters": {
+        "contact_id": {
+          "type": "string",
+          "description": "Identifier of an existing contact."
+        },
+        "name": {
+          "type": "string",
+          "description": "Contact full name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address."
+        }
+      },
+      "required": [
+        "contact_id"
+      ]
+    },
+    "trace_path": {
+      "name": "trace_path",
+      "description": "Trace caller/callee paths in the code graph to a given depth. Uses structural CALLS edges (or DATA_FLOWS when available). Returns a plain-text indented tree. Read-only.",
+      "parameters": {
+        "qualified_name": {
+          "type": "string",
+          "description": "Fully qualified name of the starting symbol (from graph_search)."
+        },
+        "direction": {
+          "type": "string",
+          "description": "both | callers | callees. Default 'both'."
+        },
+        "depth": {
+          "type": "number",
+          "description": "Max depth to traverse. Default 3, max 8."
+        },
+        "mode": {
+          "type": "string",
+          "description": "calls | data_flow. 'calls' uses CALLS edges; 'data_flow' prefers DATA_FLOWS when present."
+        }
+      },
+      "required": [
+        "qualified_name"
+      ]
+    },
+    "run_shell": {
+      "name": "run_shell",
+      "description": "Run any shell command (dotnet, npm, git, python, ...).",
+      "parameters": {
+        "command": {
+          "type": "string",
+          "description": "The shell command to execute."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Optional working directory."
+        },
+        "env_setup": {
+          "type": "string",
+          "description": "Optional environment setup to run first."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Optional short reason, shown to the user."
+        }
+      },
+      "required": [
+        "command"
+      ]
+    },
+    "update_calendar_event": {
+      "name": "update_calendar_event",
+      "description": "Update the time or details of a calendar event.",
+      "parameters": {
+        "event_id": {
+          "type": "string",
+          "description": "Identifier of an existing event."
+        },
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        }
+      },
+      "required": [
+        "event_id"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "archive_note",
+    "arguments": {
+      "note_id": "note123",
+      "title": "Meeting Notes",
+      "body": "Details of the recent team meeting."
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "read_workspace",
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

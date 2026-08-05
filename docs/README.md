@@ -135,6 +135,8 @@ the authoritative ship-state.
 - [WARBAND_MODULE_SPEC.md](WARBAND_MODULE_SPEC.md) — daemon-first distributed-computing module (research draft)
 - [WORKTREE_ISOLATION_DESIGN.md](WORKTREE_ISOLATION_DESIGN.md) — worktree-per-task file-ownership
   isolation (shipped v1.5)
+- [safetensors-engine/README.md](safetensors-engine/README.md) — spec suite for the planned
+  two-week managed-.NET safetensors inference-engine spike (🔲 nothing implemented)
 
 ---
 

@@ -1,0 +1,337 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804161918_0052",
+  "lineage_group_id": "tc2_lg_tc2_20260804161918_0052",
+  "captured_at": "2026-08-04T16:19:18Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Use the tag_note tool to add the tag 'urgent' to the note titled 'Project Deadline' with the body 'The project is due next week.'",
+  "available_tools": [
+    "create_contact",
+    "browser_extract",
+    "translate_translation",
+    "browser_wait",
+    "tag_note",
+    "shell",
+    "read_spreadsheet_rows",
+    "Write",
+    "cancel_calendar_event",
+    "list_calendar_events",
+    "browser_type",
+    "image_status",
+    "trace_path",
+    "web_search"
+  ],
+  "available_tools_schema": {
+    "create_contact": {
+      "name": "create_contact",
+      "description": "Create a new contact.",
+      "parameters": {
+        "name": {
+          "type": "string",
+          "description": "Contact full name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address."
+        },
+        "phone": {
+          "type": "string",
+          "description": "Contact phone number."
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "browser_extract": {
+      "name": "browser_extract",
+      "description": "Extract visible text from the current page, optionally scoped to a CSS selector (omit for the whole page).",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "Optional CSS selector to scope extraction to; omit for the full page body."
+        }
+      },
+      "required": []
+    },
+    "translate_translation": {
+      "name": "translate_translation",
+      "description": "Translate text from one language to another.",
+      "parameters": {
+        "text": {
+          "type": "string",
+          "description": "Text to translate or detect."
+        },
+        "target_language": {
+          "type": "string",
+          "description": "Target language code."
+        },
+        "source_language": {
+          "type": "string",
+          "description": "Optional source language code."
+        }
+      },
+      "required": [
+        "text",
+        "target_language"
+      ]
+    },
+    "browser_wait": {
+      "name": "browser_wait",
+      "description": "Wait for an element to become visible on the page, bounded by a timeout (default 10s, max 60s).",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "CSS selector to wait for."
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "description": "Maximum seconds to wait (default 10, max 60)."
+        }
+      },
+      "required": [
+        "selector"
+      ]
+    },
+    "tag_note": {
+      "name": "tag_note",
+      "description": "Add a tag to an existing note.",
+      "parameters": {
+        "note_id": {
+          "type": "string",
+          "description": "Identifier of an existing note."
+        },
+        "tag": {
+          "type": "string",
+          "description": "Tag to apply."
+        },
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        }
+      },
+      "required": [
+        "note_id",
+        "tag"
+      ]
+    },
+    "shell": {
+      "name": "shell",
+      "description": "Runs a shell command and returns its output.",
+      "parameters": {
+        "command": {
+          "type": "string",
+          "description": "The shell command to execute."
+        },
+        "workdir": {
+          "type": "string",
+          "description": "Working directory for the command."
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "description": "Timeout in milliseconds."
+        }
+      },
+      "required": [
+        "command"
+      ]
+    },
+    "read_spreadsheet_rows": {
+      "name": "read_spreadsheet_rows",
+      "description": "Read rows from a spreadsheet range.",
+      "parameters": {
+        "sheet_id": {
+          "type": "string",
+          "description": "Spreadsheet identifier."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range, e.g. A1:C10."
+        },
+        "values": {
+          "type": "string",
+          "description": "Comma-separated row values."
+        },
+        "row_number": {
+          "type": "integer",
+          "description": "Row number to act on."
+        }
+      },
+      "required": [
+        "sheet_id",
+        "range"
+      ]
+    },
+    "Write": {
+      "name": "Write",
+      "description": "Writes a file to the local filesystem, overwriting it if it already exists.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to write."
+        },
+        "content": {
+          "type": "string",
+          "description": "The content to write to the file."
+        }
+      },
+      "required": [
+        "file_path",
+        "content"
+      ]
+    },
+    "cancel_calendar_event": {
+      "name": "cancel_calendar_event",
+      "description": "Cancel an existing calendar event.",
+      "parameters": {
+        "event_id": {
+          "type": "string",
+          "description": "Identifier of an existing event."
+        },
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        }
+      },
+      "required": [
+        "event_id"
+      ]
+    },
+    "list_calendar_events": {
+      "name": "list_calendar_events",
+      "description": "List upcoming calendar events.",
+      "parameters": {
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        }
+      },
+      "required": []
+    },
+    "browser_type": {
+      "name": "browser_type",
+      "description": "Type text into an input element, identified by a CSS selector (replaces any existing value).",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "CSS selector of the input element."
+        },
+        "text": {
+          "type": "string",
+          "description": "The text to type."
+        }
+      },
+      "required": [
+        "selector",
+        "text"
+      ]
+    },
+    "image_status": {
+      "name": "image_status",
+      "description": "Read a local Art Forge Studio image job's progress and outputs.",
+      "parameters": {
+        "job_id": {
+          "type": "string",
+          "description": "Art Forge Studio job identifier"
+        }
+      },
+      "required": [
+        "job_id"
+      ]
+    },
+    "trace_path": {
+      "name": "trace_path",
+      "description": "Trace caller/callee paths in the code graph to a given depth. Uses structural CALLS edges (or DATA_FLOWS when available). Returns a plain-text indented tree. Read-only.",
+      "parameters": {
+        "qualified_name": {
+          "type": "string",
+          "description": "Fully qualified name of the starting symbol (from graph_search)."
+        },
+        "direction": {
+          "type": "string",
+          "description": "both | callers | callees. Default 'both'."
+        },
+        "depth": {
+          "type": "number",
+          "description": "Max depth to traverse. Default 3, max 8."
+        },
+        "mode": {
+          "type": "string",
+          "description": "calls | data_flow. 'calls' uses CALLS edges; 'data_flow' prefers DATA_FLOWS when present."
+        }
+      },
+      "required": [
+        "qualified_name"
+      ]
+    },
+    "web_search": {
+      "name": "web_search",
+      "description": "Search the public web and return ranked results.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search query."
+        },
+        "max_results": {
+          "type": "integer",
+          "description": "Maximum results to return."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "tag_note",
+    "arguments": {
+      "note_id": "note12345",
+      "tag": "urgent",
+      "title": "Project Deadline",
+      "body": "The project is due next week."
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "read_workspace",
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

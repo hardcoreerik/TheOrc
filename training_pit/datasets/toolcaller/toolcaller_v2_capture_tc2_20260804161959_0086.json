@@ -1,0 +1,262 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804161959_0086",
+  "lineage_group_id": "tc2_lg_tc2_20260804161959_0086",
+  "captured_at": "2026-08-04T16:19:59Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Use read_spreadsheet_rows to get the first 5 rows from the 'sales_data' sheet.",
+  "available_tools": [
+    "create_contact",
+    "image_gallery",
+    "WebFetch",
+    "web_search",
+    "ask_user",
+    "detect_translation",
+    "read_spreadsheet_rows",
+    "detect_changes",
+    "trace_path",
+    "run_tests",
+    "fetch_url"
+  ],
+  "available_tools_schema": {
+    "create_contact": {
+      "name": "create_contact",
+      "description": "Create a new contact.",
+      "parameters": {
+        "name": {
+          "type": "string",
+          "description": "Contact full name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address."
+        },
+        "phone": {
+          "type": "string",
+          "description": "Contact phone number."
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "image_gallery": {
+      "name": "image_gallery",
+      "description": "List recent local Art Forge Studio gallery assets.",
+      "parameters": {
+        "limit": {
+          "type": "integer",
+          "description": "Number of assets from 1 through 100"
+        }
+      },
+      "required": []
+    },
+    "WebFetch": {
+      "name": "WebFetch",
+      "description": "Fetches content from a specified URL and processes it.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "The URL to fetch content from."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "The prompt to run on the fetched content."
+        }
+      },
+      "required": [
+        "url",
+        "prompt"
+      ]
+    },
+    "web_search": {
+      "name": "web_search",
+      "description": "Search the public web and return ranked results.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search query."
+        },
+        "max_results": {
+          "type": "integer",
+          "description": "Maximum results to return."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "ask_user": {
+      "name": "ask_user",
+      "description": "Ask the human a clarifying question and wait for their answer.",
+      "parameters": {
+        "question": {
+          "type": "string",
+          "description": "The question to ask."
+        },
+        "options": {
+          "type": "string",
+          "description": "Optional list of suggested answers."
+        }
+      },
+      "required": [
+        "question"
+      ]
+    },
+    "detect_translation": {
+      "name": "detect_translation",
+      "description": "Detect the language of a piece of text.",
+      "parameters": {
+        "text": {
+          "type": "string",
+          "description": "Text to translate or detect."
+        },
+        "source_language": {
+          "type": "string",
+          "description": "Optional source language code."
+        },
+        "target_language": {
+          "type": "string",
+          "description": "Target language code."
+        }
+      },
+      "required": [
+        "text"
+      ]
+    },
+    "read_spreadsheet_rows": {
+      "name": "read_spreadsheet_rows",
+      "description": "Read rows from a spreadsheet range.",
+      "parameters": {
+        "sheet_id": {
+          "type": "string",
+          "description": "Spreadsheet identifier."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range, e.g. A1:C10."
+        },
+        "values": {
+          "type": "string",
+          "description": "Comma-separated row values."
+        },
+        "row_number": {
+          "type": "integer",
+          "description": "Row number to act on."
+        }
+      },
+      "required": [
+        "sheet_id",
+        "range"
+      ]
+    },
+    "detect_changes": {
+      "name": "detect_changes",
+      "description": "Use git (LibGit2Sharp) to find .cs files changed since base_ref (default HEAD~1), look up graph nodes for those files, and report impact sorted by degree. Includes blast-radius count of unique callers within depth 2. Read-only.",
+      "parameters": {
+        "base_ref": {
+          "type": "string",
+          "description": "Git ref or commit to diff against (e.g. HEAD~1, abc123). Default HEAD~1."
+        },
+        "path_filter": {
+          "type": "string",
+          "description": "Optional glob or substring to filter changed file paths (e.g. src/* or *Service.cs)."
+        }
+      },
+      "required": []
+    },
+    "trace_path": {
+      "name": "trace_path",
+      "description": "Trace caller/callee paths in the code graph to a given depth. Uses structural CALLS edges (or DATA_FLOWS when available). Returns a plain-text indented tree. Read-only.",
+      "parameters": {
+        "qualified_name": {
+          "type": "string",
+          "description": "Fully qualified name of the starting symbol (from graph_search)."
+        },
+        "direction": {
+          "type": "string",
+          "description": "both | callers | callees. Default 'both'."
+        },
+        "depth": {
+          "type": "number",
+          "description": "Max depth to traverse. Default 3, max 8."
+        },
+        "mode": {
+          "type": "string",
+          "description": "calls | data_flow. 'calls' uses CALLS edges; 'data_flow' prefers DATA_FLOWS when present."
+        }
+      },
+      "required": [
+        "qualified_name"
+      ]
+    },
+    "run_tests": {
+      "name": "run_tests",
+      "description": "Build the project and run its test suite.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "Optional path to scope the test run to."
+        }
+      },
+      "required": []
+    },
+    "fetch_url": {
+      "name": "fetch_url",
+      "description": "Download a web page or call an API and return the text.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "URL to fetch."
+        },
+        "max_chars": {
+          "type": "integer",
+          "description": "Maximum characters to return."
+        }
+      },
+      "required": [
+        "url"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "read_spreadsheet_rows",
+    "arguments": {
+      "sheet_id": "sales_data",
+      "range": "A1:E5",
+      "values": null,
+      "row_number": 1
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "read_workspace",
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

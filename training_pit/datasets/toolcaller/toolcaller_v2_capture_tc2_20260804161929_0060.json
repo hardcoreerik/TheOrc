@@ -1,0 +1,269 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804161929_0060",
+  "lineage_group_id": "tc2_lg_tc2_20260804161929_0060",
+  "captured_at": "2026-08-04T16:19:29Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Could you please use the archive_note tool to archive the note with ID 'note123'? I want to keep a record of it.",
+  "available_tools": [
+    "archive_note",
+    "browser_type",
+    "browser_screenshot",
+    "Read",
+    "create_note",
+    "list_files",
+    "ask_user",
+    "browser_navigate",
+    "apply_patch",
+    "read_spreadsheet_rows",
+    "graph_adr"
+  ],
+  "available_tools_schema": {
+    "archive_note": {
+      "name": "archive_note",
+      "description": "Archive an existing note.",
+      "parameters": {
+        "note_id": {
+          "type": "string",
+          "description": "Identifier of an existing note."
+        },
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        }
+      },
+      "required": [
+        "note_id"
+      ]
+    },
+    "browser_type": {
+      "name": "browser_type",
+      "description": "Type text into an input element, identified by a CSS selector (replaces any existing value).",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "CSS selector of the input element."
+        },
+        "text": {
+          "type": "string",
+          "description": "The text to type."
+        }
+      },
+      "required": [
+        "selector",
+        "text"
+      ]
+    },
+    "browser_screenshot": {
+      "name": "browser_screenshot",
+      "description": "Capture a full-page screenshot of the current page and save it inside the workspace.",
+      "parameters": {},
+      "required": []
+    },
+    "Read": {
+      "name": "Read",
+      "description": "Reads a file from the local filesystem.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to read."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "The line number to start reading from."
+        },
+        "limit": {
+          "type": "integer",
+          "description": "The number of lines to read."
+        }
+      },
+      "required": [
+        "file_path"
+      ]
+    },
+    "create_note": {
+      "name": "create_note",
+      "description": "Create a new note.",
+      "parameters": {
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        },
+        "note_id": {
+          "type": "string",
+          "description": "Identifier of an existing note."
+        },
+        "tag": {
+          "type": "string",
+          "description": "Tag to apply."
+        }
+      },
+      "required": [
+        "title",
+        "body"
+      ]
+    },
+    "list_files": {
+      "name": "list_files",
+      "description": "Browse the workspace directory tree.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "Directory to list; defaults to workspace root."
+        },
+        "depth": {
+          "type": "integer",
+          "description": "Recursion depth."
+        }
+      },
+      "required": []
+    },
+    "ask_user": {
+      "name": "ask_user",
+      "description": "Ask the human a clarifying question and wait for their answer.",
+      "parameters": {
+        "question": {
+          "type": "string",
+          "description": "The question to ask."
+        },
+        "options": {
+          "type": "string",
+          "description": "Optional list of suggested answers."
+        }
+      },
+      "required": [
+        "question"
+      ]
+    },
+    "browser_navigate": {
+      "name": "browser_navigate",
+      "description": "Navigate the browser to a URL and return the resulting page title.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "The absolute URL to navigate to (must include a scheme, e.g. https://)."
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "apply_patch": {
+      "name": "apply_patch",
+      "description": "Applies a structured patch (V4A-style diff) to create, update, or delete files.",
+      "parameters": {
+        "patch": {
+          "type": "string",
+          "description": "The full patch text, in the *** Begin Patch / *** End Patch envelope format."
+        }
+      },
+      "required": [
+        "patch"
+      ]
+    },
+    "read_spreadsheet_rows": {
+      "name": "read_spreadsheet_rows",
+      "description": "Read rows from a spreadsheet range.",
+      "parameters": {
+        "sheet_id": {
+          "type": "string",
+          "description": "Spreadsheet identifier."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range, e.g. A1:C10."
+        },
+        "values": {
+          "type": "string",
+          "description": "Comma-separated row values."
+        },
+        "row_number": {
+          "type": "integer",
+          "description": "Row number to act on."
+        }
+      },
+      "required": [
+        "sheet_id",
+        "range"
+      ]
+    },
+    "graph_adr": {
+      "name": "graph_adr",
+      "description": "Architecture Decision Records store. action=list|get|add. list: recent 20. get: by id (full incl body). add: requires title+decision+status (proposed|accepted|deprecated|superseded); writes to DB. status is required for add.",
+      "parameters": {
+        "action": {
+          "type": "string",
+          "description": "list | get | add"
+        },
+        "id": {
+          "type": "number",
+          "description": "For get: ADR id"
+        },
+        "title": {
+          "type": "string",
+          "description": "For add: short title"
+        },
+        "decision": {
+          "type": "string",
+          "description": "For add: the decision text"
+        },
+        "status": {
+          "type": "string",
+          "description": "For add: proposed | accepted | deprecated | superseded"
+        },
+        "body": {
+          "type": "string",
+          "description": "For add: optional additional body/details"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "archive_note",
+    "arguments": {
+      "note_id": "note123"
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "read_workspace",
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

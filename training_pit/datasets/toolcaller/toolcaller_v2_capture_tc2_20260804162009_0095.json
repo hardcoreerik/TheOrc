@@ -1,0 +1,237 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804162009_0095",
+  "lineage_group_id": "tc2_lg_tc2_20260804162009_0095",
+  "captured_at": "2026-08-04T16:20:09Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Please use the Edit tool to replace all occurrences of 'oldText' with 'newText' in the file '/path/to/file.txt'.",
+  "available_tools": [
+    "create_contact",
+    "grep_code",
+    "WebSearch",
+    "save_markdown_document",
+    "update_calendar_event",
+    "fetch_page",
+    "Edit",
+    "web_search",
+    "Write"
+  ],
+  "available_tools_schema": {
+    "create_contact": {
+      "name": "create_contact",
+      "description": "Create a new contact.",
+      "parameters": {
+        "name": {
+          "type": "string",
+          "description": "Contact full name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address."
+        },
+        "phone": {
+          "type": "string",
+          "description": "Contact phone number."
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "grep_code": {
+      "name": "grep_code",
+      "description": "Search file contents with a regex pattern.",
+      "parameters": {
+        "pattern": {
+          "type": "string",
+          "description": "Regex pattern to search for."
+        },
+        "glob": {
+          "type": "string",
+          "description": "Optional filename glob to restrict the search."
+        },
+        "path": {
+          "type": "string",
+          "description": "Optional directory to scope the search to."
+        }
+      },
+      "required": [
+        "pattern"
+      ]
+    },
+    "WebSearch": {
+      "name": "WebSearch",
+      "description": "Allows searching the web and using the results.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "The search query to use."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "save_markdown_document": {
+      "name": "save_markdown_document",
+      "description": "Save a markdown document into the current workspace and return its path.",
+      "parameters": {
+        "filename": {
+          "type": "string",
+          "description": "File name, with or without the .md extension."
+        },
+        "content": {
+          "type": "string",
+          "description": "Full markdown document body to save."
+        },
+        "folder": {
+          "type": "string",
+          "description": "Optional workspace-relative folder. Defaults to chat-output."
+        }
+      },
+      "required": [
+        "filename",
+        "content"
+      ]
+    },
+    "update_calendar_event": {
+      "name": "update_calendar_event",
+      "description": "Update the time or details of a calendar event.",
+      "parameters": {
+        "event_id": {
+          "type": "string",
+          "description": "Identifier of an existing event."
+        },
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        }
+      },
+      "required": [
+        "event_id"
+      ]
+    },
+    "fetch_page": {
+      "name": "fetch_page",
+      "description": "Fetch a web page's content in a given mode.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "Page URL."
+        },
+        "mode": {
+          "type": "string",
+          "description": "Extraction mode."
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "Edit": {
+      "name": "Edit",
+      "description": "Performs exact string replacements in files.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to modify."
+        },
+        "old_string": {
+          "type": "string",
+          "description": "The text to replace."
+        },
+        "new_string": {
+          "type": "string",
+          "description": "The text to replace it with."
+        },
+        "replace_all": {
+          "type": "boolean",
+          "description": "Replace all occurrences of old_string."
+        }
+      },
+      "required": [
+        "file_path",
+        "old_string",
+        "new_string"
+      ]
+    },
+    "web_search": {
+      "name": "web_search",
+      "description": "Search the public web and return ranked results.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search query."
+        },
+        "max_results": {
+          "type": "integer",
+          "description": "Maximum results to return."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "Write": {
+      "name": "Write",
+      "description": "Writes a file to the local filesystem, overwriting it if it already exists.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to write."
+        },
+        "content": {
+          "type": "string",
+          "description": "The content to write to the file."
+        }
+      },
+      "required": [
+        "file_path",
+        "content"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "Edit",
+    "arguments": {
+      "file_path": "/path/to/file.txt",
+      "old_string": "oldText",
+      "new_string": "newText",
+      "replace_all": true
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "read_workspace",
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample"
+  ]
+}

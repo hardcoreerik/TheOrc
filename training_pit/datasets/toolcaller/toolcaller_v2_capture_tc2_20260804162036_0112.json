@@ -1,0 +1,363 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804162036_0112",
+  "lineage_group_id": "tc2_lg_tc2_20260804162036_0112",
+  "captured_at": "2026-08-04T16:20:36Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Use append_spreadsheet_row to add a new row with the values 'John Doe', 'john.doe@example.com', 'Manager' to the 'employees' spreadsheet.",
+  "available_tools": [
+    "browser_wait",
+    "detect_translation",
+    "browser_download",
+    "image_status",
+    "delete_contact",
+    "read_file",
+    "get_weather_forecast",
+    "fetch_url",
+    "delete_spreadsheet_row",
+    "Bash",
+    "browser_navigate",
+    "append_spreadsheet_row",
+    "image_create",
+    "create_calendar_event"
+  ],
+  "available_tools_schema": {
+    "browser_wait": {
+      "name": "browser_wait",
+      "description": "Wait for an element to become visible on the page, bounded by a timeout (default 10s, max 60s).",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "CSS selector to wait for."
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "description": "Maximum seconds to wait (default 10, max 60)."
+        }
+      },
+      "required": [
+        "selector"
+      ]
+    },
+    "detect_translation": {
+      "name": "detect_translation",
+      "description": "Detect the language of a piece of text.",
+      "parameters": {
+        "text": {
+          "type": "string",
+          "description": "Text to translate or detect."
+        },
+        "source_language": {
+          "type": "string",
+          "description": "Optional source language code."
+        },
+        "target_language": {
+          "type": "string",
+          "description": "Target language code."
+        }
+      },
+      "required": [
+        "text"
+      ]
+    },
+    "browser_download": {
+      "name": "browser_download",
+      "description": "Click an element that triggers a download and save the resulting file inside the workspace.",
+      "parameters": {
+        "trigger_selector": {
+          "type": "string",
+          "description": "CSS selector of the element that triggers the download when clicked."
+        },
+        "directory": {
+          "type": "string",
+          "description": "Relative directory inside the workspace to save into (default: downloads/)."
+        }
+      },
+      "required": [
+        "trigger_selector"
+      ]
+    },
+    "image_status": {
+      "name": "image_status",
+      "description": "Read a local Art Forge Studio image job's progress and outputs.",
+      "parameters": {
+        "job_id": {
+          "type": "string",
+          "description": "Art Forge Studio job identifier"
+        }
+      },
+      "required": [
+        "job_id"
+      ]
+    },
+    "delete_contact": {
+      "name": "delete_contact",
+      "description": "Delete an existing contact.",
+      "parameters": {
+        "contact_id": {
+          "type": "string",
+          "description": "Identifier of an existing contact."
+        },
+        "name": {
+          "type": "string",
+          "description": "Contact full name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address."
+        }
+      },
+      "required": [
+        "contact_id"
+      ]
+    },
+    "read_file": {
+      "name": "read_file",
+      "description": "Read the contents of a file.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "File path relative to workspace root, or absolute."
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "get_weather_forecast": {
+      "name": "get_weather_forecast",
+      "description": "Get the current weather forecast for a location.",
+      "parameters": {
+        "location": {
+          "type": "string",
+          "description": "City name or coordinates."
+        },
+        "days_ahead": {
+          "type": "integer",
+          "description": "How many days ahead to forecast."
+        },
+        "units": {
+          "type": "string",
+          "description": "metric or imperial."
+        }
+      },
+      "required": [
+        "location"
+      ]
+    },
+    "fetch_url": {
+      "name": "fetch_url",
+      "description": "Download a web page or call an API and return the text.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "URL to fetch."
+        },
+        "max_chars": {
+          "type": "integer",
+          "description": "Maximum characters to return."
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "delete_spreadsheet_row": {
+      "name": "delete_spreadsheet_row",
+      "description": "Delete a row from a spreadsheet.",
+      "parameters": {
+        "sheet_id": {
+          "type": "string",
+          "description": "Spreadsheet identifier."
+        },
+        "row_number": {
+          "type": "integer",
+          "description": "Row number to act on."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range, e.g. A1:C10."
+        },
+        "values": {
+          "type": "string",
+          "description": "Comma-separated row values."
+        }
+      },
+      "required": [
+        "sheet_id",
+        "row_number"
+      ]
+    },
+    "Bash": {
+      "name": "Bash",
+      "description": "Executes a given shell command and returns its output.",
+      "parameters": {
+        "command": {
+          "type": "string",
+          "description": "The command to execute."
+        },
+        "description": {
+          "type": "string",
+          "description": "Clear, concise description of what this command does."
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "Optional timeout in milliseconds."
+        },
+        "run_in_background": {
+          "type": "boolean",
+          "description": "Set to true to run this command in the background."
+        }
+      },
+      "required": [
+        "command"
+      ]
+    },
+    "browser_navigate": {
+      "name": "browser_navigate",
+      "description": "Navigate the browser to a URL and return the resulting page title.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "The absolute URL to navigate to (must include a scheme, e.g. https://)."
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "append_spreadsheet_row": {
+      "name": "append_spreadsheet_row",
+      "description": "Append a row to a spreadsheet.",
+      "parameters": {
+        "sheet_id": {
+          "type": "string",
+          "description": "Spreadsheet identifier."
+        },
+        "values": {
+          "type": "string",
+          "description": "Comma-separated row values."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range, e.g. A1:C10."
+        },
+        "row_number": {
+          "type": "integer",
+          "description": "Row number to act on."
+        }
+      },
+      "required": [
+        "sheet_id",
+        "values"
+      ]
+    },
+    "image_create": {
+      "name": "image_create",
+      "description": "Create an image with the local Art Forge Studio and ComfyUI runtime.",
+      "parameters": {
+        "prompt": {
+          "type": "string",
+          "description": "Image description"
+        },
+        "negative_prompt": {
+          "type": "string",
+          "description": "Optional unwanted details"
+        },
+        "checkpoint": {
+          "type": "string",
+          "description": "Optional installed checkpoint name"
+        },
+        "lora": {
+          "type": "string",
+          "description": "Optional installed LoRA name"
+        },
+        "size": {
+          "type": "string",
+          "description": "Image size such as 768x768"
+        },
+        "seed": {
+          "type": "integer",
+          "description": "Deterministic generation seed"
+        },
+        "style": {
+          "type": "string",
+          "description": "Optional style guidance"
+        },
+        "content_profile": {
+          "type": "string",
+          "description": "sfw or mature_capable; defaults to sfw"
+        }
+      },
+      "required": [
+        "prompt"
+      ]
+    },
+    "create_calendar_event": {
+      "name": "create_calendar_event",
+      "description": "Create a new calendar event.",
+      "parameters": {
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        },
+        "end_time": {
+          "type": "string",
+          "description": "Event end time, ISO 8601."
+        },
+        "attendees": {
+          "type": "string",
+          "description": "Comma-separated attendee list."
+        }
+      },
+      "required": [
+        "title",
+        "start_time"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "append_spreadsheet_row",
+    "arguments": {
+      "sheet_id": "spreadsheet123",
+      "values": "John Doe,john.doe@example.com,Manager",
+      "range": "A1:C10",
+      "row_number": 10
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "read_workspace",
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

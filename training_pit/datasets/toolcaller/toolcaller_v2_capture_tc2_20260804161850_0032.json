@@ -1,0 +1,350 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804161850_0032",
+  "lineage_group_id": "tc2_lg_tc2_20260804161850_0032",
+  "captured_at": "2026-08-04T16:18:50Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Can you use list_calendar_events to show me the upcoming events for this week?",
+  "available_tools": [
+    "Read",
+    "delete_contact",
+    "list_calendar_events",
+    "browser_screenshot",
+    "archive_note",
+    "graph_search",
+    "graph_adr",
+    "translate_translation",
+    "image_status",
+    "create_note",
+    "detect_translation",
+    "ask_user",
+    "Grep",
+    "WebFetch"
+  ],
+  "available_tools_schema": {
+    "Read": {
+      "name": "Read",
+      "description": "Reads a file from the local filesystem.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to read."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "The line number to start reading from."
+        },
+        "limit": {
+          "type": "integer",
+          "description": "The number of lines to read."
+        }
+      },
+      "required": [
+        "file_path"
+      ]
+    },
+    "delete_contact": {
+      "name": "delete_contact",
+      "description": "Delete an existing contact.",
+      "parameters": {
+        "contact_id": {
+          "type": "string",
+          "description": "Identifier of an existing contact."
+        },
+        "name": {
+          "type": "string",
+          "description": "Contact full name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address."
+        }
+      },
+      "required": [
+        "contact_id"
+      ]
+    },
+    "list_calendar_events": {
+      "name": "list_calendar_events",
+      "description": "List upcoming calendar events.",
+      "parameters": {
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        }
+      },
+      "required": []
+    },
+    "browser_screenshot": {
+      "name": "browser_screenshot",
+      "description": "Capture a full-page screenshot of the current page and save it inside the workspace.",
+      "parameters": {},
+      "required": []
+    },
+    "archive_note": {
+      "name": "archive_note",
+      "description": "Archive an existing note.",
+      "parameters": {
+        "note_id": {
+          "type": "string",
+          "description": "Identifier of an existing note."
+        },
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        }
+      },
+      "required": [
+        "note_id"
+      ]
+    },
+    "graph_search": {
+      "name": "graph_search",
+      "description": "Search the code knowledge graph (BM25 full-text over names + qualified names with camelCase tokenization, plus structural boosting). Returns a plain-text ranked list. Read-only.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search terms (natural language or identifier fragments). BM25 over graph_fts."
+        },
+        "label": {
+          "type": "string",
+          "description": "Optional label filter: Method | Function | Class | Interface | Route | File."
+        },
+        "file_pattern": {
+          "type": "string",
+          "description": "Optional file path substring or wildcard filter."
+        },
+        "min_degree": {
+          "type": "number",
+          "description": "Optional minimum combined edge degree (in+out)."
+        },
+        "limit": {
+          "type": "number",
+          "description": "Maximum results to return. Default 50, max 200."
+        }
+      },
+      "required": []
+    },
+    "graph_adr": {
+      "name": "graph_adr",
+      "description": "Architecture Decision Records store. action=list|get|add. list: recent 20. get: by id (full incl body). add: requires title+decision+status (proposed|accepted|deprecated|superseded); writes to DB. status is required for add.",
+      "parameters": {
+        "action": {
+          "type": "string",
+          "description": "list | get | add"
+        },
+        "id": {
+          "type": "number",
+          "description": "For get: ADR id"
+        },
+        "title": {
+          "type": "string",
+          "description": "For add: short title"
+        },
+        "decision": {
+          "type": "string",
+          "description": "For add: the decision text"
+        },
+        "status": {
+          "type": "string",
+          "description": "For add: proposed | accepted | deprecated | superseded"
+        },
+        "body": {
+          "type": "string",
+          "description": "For add: optional additional body/details"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
+    "translate_translation": {
+      "name": "translate_translation",
+      "description": "Translate text from one language to another.",
+      "parameters": {
+        "text": {
+          "type": "string",
+          "description": "Text to translate or detect."
+        },
+        "target_language": {
+          "type": "string",
+          "description": "Target language code."
+        },
+        "source_language": {
+          "type": "string",
+          "description": "Optional source language code."
+        }
+      },
+      "required": [
+        "text",
+        "target_language"
+      ]
+    },
+    "image_status": {
+      "name": "image_status",
+      "description": "Read a local Art Forge Studio image job's progress and outputs.",
+      "parameters": {
+        "job_id": {
+          "type": "string",
+          "description": "Art Forge Studio job identifier"
+        }
+      },
+      "required": [
+        "job_id"
+      ]
+    },
+    "create_note": {
+      "name": "create_note",
+      "description": "Create a new note.",
+      "parameters": {
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        },
+        "note_id": {
+          "type": "string",
+          "description": "Identifier of an existing note."
+        },
+        "tag": {
+          "type": "string",
+          "description": "Tag to apply."
+        }
+      },
+      "required": [
+        "title",
+        "body"
+      ]
+    },
+    "detect_translation": {
+      "name": "detect_translation",
+      "description": "Detect the language of a piece of text.",
+      "parameters": {
+        "text": {
+          "type": "string",
+          "description": "Text to translate or detect."
+        },
+        "source_language": {
+          "type": "string",
+          "description": "Optional source language code."
+        },
+        "target_language": {
+          "type": "string",
+          "description": "Target language code."
+        }
+      },
+      "required": [
+        "text"
+      ]
+    },
+    "ask_user": {
+      "name": "ask_user",
+      "description": "Ask the human a clarifying question and wait for their answer.",
+      "parameters": {
+        "question": {
+          "type": "string",
+          "description": "The question to ask."
+        },
+        "options": {
+          "type": "string",
+          "description": "Optional list of suggested answers."
+        }
+      },
+      "required": [
+        "question"
+      ]
+    },
+    "Grep": {
+      "name": "Grep",
+      "description": "A powerful search tool built on ripgrep for searching file contents.",
+      "parameters": {
+        "pattern": {
+          "type": "string",
+          "description": "The regular expression pattern to search for in file contents."
+        },
+        "path": {
+          "type": "string",
+          "description": "File or directory to search in."
+        },
+        "glob": {
+          "type": "string",
+          "description": "Glob pattern to filter files."
+        },
+        "output_mode": {
+          "type": "string",
+          "description": "content | files_with_matches | count."
+        }
+      },
+      "required": [
+        "pattern"
+      ]
+    },
+    "WebFetch": {
+      "name": "WebFetch",
+      "description": "Fetches content from a specified URL and processes it.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "The URL to fetch content from."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "The prompt to run on the fetched content."
+        }
+      },
+      "required": [
+        "url",
+        "prompt"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "list_calendar_events",
+    "arguments": {
+      "title": "",
+      "start_time": "2023-10-01T00:00:00Z"
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "read_workspace",
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

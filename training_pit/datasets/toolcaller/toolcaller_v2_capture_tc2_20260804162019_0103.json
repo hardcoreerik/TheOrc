@@ -1,0 +1,342 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804162019_0103",
+  "lineage_group_id": "tc2_lg_tc2_20260804162019_0103",
+  "captured_at": "2026-08-04T16:20:19Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Please use the create_contact tool to add a new contact with the name John Doe, email john.doe@example.com, and phone number 123-456-7890.",
+  "available_tools": [
+    "get_architecture",
+    "Glob",
+    "image_create",
+    "WebFetch",
+    "Read",
+    "create_contact",
+    "image_gallery",
+    "Edit",
+    "run_shell",
+    "image_open",
+    "cancel_calendar_event",
+    "browser_extract",
+    "tag_note",
+    "append_spreadsheet_row"
+  ],
+  "available_tools_schema": {
+    "get_architecture": {
+      "name": "get_architecture",
+      "description": "Returns a high-level architecture snapshot from the graph: namespaces, top-degree hub nodes, routes, and aggregate counts. Read-only.",
+      "parameters": {},
+      "required": []
+    },
+    "Glob": {
+      "name": "Glob",
+      "description": "Fast file pattern matching tool that works with any codebase size.",
+      "parameters": {
+        "pattern": {
+          "type": "string",
+          "description": "The glob pattern to match files against."
+        },
+        "path": {
+          "type": "string",
+          "description": "The directory to search in."
+        }
+      },
+      "required": [
+        "pattern"
+      ]
+    },
+    "image_create": {
+      "name": "image_create",
+      "description": "Create an image with the local Art Forge Studio and ComfyUI runtime.",
+      "parameters": {
+        "prompt": {
+          "type": "string",
+          "description": "Image description"
+        },
+        "negative_prompt": {
+          "type": "string",
+          "description": "Optional unwanted details"
+        },
+        "checkpoint": {
+          "type": "string",
+          "description": "Optional installed checkpoint name"
+        },
+        "lora": {
+          "type": "string",
+          "description": "Optional installed LoRA name"
+        },
+        "size": {
+          "type": "string",
+          "description": "Image size such as 768x768"
+        },
+        "seed": {
+          "type": "integer",
+          "description": "Deterministic generation seed"
+        },
+        "style": {
+          "type": "string",
+          "description": "Optional style guidance"
+        },
+        "content_profile": {
+          "type": "string",
+          "description": "sfw or mature_capable; defaults to sfw"
+        }
+      },
+      "required": [
+        "prompt"
+      ]
+    },
+    "WebFetch": {
+      "name": "WebFetch",
+      "description": "Fetches content from a specified URL and processes it.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "The URL to fetch content from."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "The prompt to run on the fetched content."
+        }
+      },
+      "required": [
+        "url",
+        "prompt"
+      ]
+    },
+    "Read": {
+      "name": "Read",
+      "description": "Reads a file from the local filesystem.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to read."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "The line number to start reading from."
+        },
+        "limit": {
+          "type": "integer",
+          "description": "The number of lines to read."
+        }
+      },
+      "required": [
+        "file_path"
+      ]
+    },
+    "create_contact": {
+      "name": "create_contact",
+      "description": "Create a new contact.",
+      "parameters": {
+        "name": {
+          "type": "string",
+          "description": "Contact full name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address."
+        },
+        "phone": {
+          "type": "string",
+          "description": "Contact phone number."
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "image_gallery": {
+      "name": "image_gallery",
+      "description": "List recent local Art Forge Studio gallery assets.",
+      "parameters": {
+        "limit": {
+          "type": "integer",
+          "description": "Number of assets from 1 through 100"
+        }
+      },
+      "required": []
+    },
+    "Edit": {
+      "name": "Edit",
+      "description": "Performs exact string replacements in files.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to modify."
+        },
+        "old_string": {
+          "type": "string",
+          "description": "The text to replace."
+        },
+        "new_string": {
+          "type": "string",
+          "description": "The text to replace it with."
+        },
+        "replace_all": {
+          "type": "boolean",
+          "description": "Replace all occurrences of old_string."
+        }
+      },
+      "required": [
+        "file_path",
+        "old_string",
+        "new_string"
+      ]
+    },
+    "run_shell": {
+      "name": "run_shell",
+      "description": "Run any shell command (dotnet, npm, git, python, ...).",
+      "parameters": {
+        "command": {
+          "type": "string",
+          "description": "The shell command to execute."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Optional working directory."
+        },
+        "env_setup": {
+          "type": "string",
+          "description": "Optional environment setup to run first."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Optional short reason, shown to the user."
+        }
+      },
+      "required": [
+        "command"
+      ]
+    },
+    "image_open": {
+      "name": "image_open",
+      "description": "Open the local Art Forge Studio workspace.",
+      "parameters": {},
+      "required": []
+    },
+    "cancel_calendar_event": {
+      "name": "cancel_calendar_event",
+      "description": "Cancel an existing calendar event.",
+      "parameters": {
+        "event_id": {
+          "type": "string",
+          "description": "Identifier of an existing event."
+        },
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        }
+      },
+      "required": [
+        "event_id"
+      ]
+    },
+    "browser_extract": {
+      "name": "browser_extract",
+      "description": "Extract visible text from the current page, optionally scoped to a CSS selector (omit for the whole page).",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "Optional CSS selector to scope extraction to; omit for the full page body."
+        }
+      },
+      "required": []
+    },
+    "tag_note": {
+      "name": "tag_note",
+      "description": "Add a tag to an existing note.",
+      "parameters": {
+        "note_id": {
+          "type": "string",
+          "description": "Identifier of an existing note."
+        },
+        "tag": {
+          "type": "string",
+          "description": "Tag to apply."
+        },
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        }
+      },
+      "required": [
+        "note_id",
+        "tag"
+      ]
+    },
+    "append_spreadsheet_row": {
+      "name": "append_spreadsheet_row",
+      "description": "Append a row to a spreadsheet.",
+      "parameters": {
+        "sheet_id": {
+          "type": "string",
+          "description": "Spreadsheet identifier."
+        },
+        "values": {
+          "type": "string",
+          "description": "Comma-separated row values."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range, e.g. A1:C10."
+        },
+        "row_number": {
+          "type": "integer",
+          "description": "Row number to act on."
+        }
+      },
+      "required": [
+        "sheet_id",
+        "values"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "create_contact",
+    "arguments": {
+      "name": "John Doe",
+      "email": "john.doe@example.com",
+      "phone": "123-456-7890"
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "write_workspace",
+    "is_destructive": true,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

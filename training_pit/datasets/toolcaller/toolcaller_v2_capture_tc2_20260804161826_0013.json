@@ -1,0 +1,243 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804161826_0013",
+  "lineage_group_id": "tc2_lg_tc2_20260804161826_0013",
+  "captured_at": "2026-08-04T16:18:26Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Could you please translate 'Hello, how are you?' to Spanish using the translate_translation tool?",
+  "available_tools": [
+    "Grep",
+    "fetch_url",
+    "browser_navigate",
+    "WebFetch",
+    "browser_click",
+    "append_spreadsheet_row",
+    "run_tests",
+    "translate_translation",
+    "browser_download",
+    "get_weather_forecast"
+  ],
+  "available_tools_schema": {
+    "Grep": {
+      "name": "Grep",
+      "description": "A powerful search tool built on ripgrep for searching file contents.",
+      "parameters": {
+        "pattern": {
+          "type": "string",
+          "description": "The regular expression pattern to search for in file contents."
+        },
+        "path": {
+          "type": "string",
+          "description": "File or directory to search in."
+        },
+        "glob": {
+          "type": "string",
+          "description": "Glob pattern to filter files."
+        },
+        "output_mode": {
+          "type": "string",
+          "description": "content | files_with_matches | count."
+        }
+      },
+      "required": [
+        "pattern"
+      ]
+    },
+    "fetch_url": {
+      "name": "fetch_url",
+      "description": "Download a web page or call an API and return the text.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "URL to fetch."
+        },
+        "max_chars": {
+          "type": "integer",
+          "description": "Maximum characters to return."
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "browser_navigate": {
+      "name": "browser_navigate",
+      "description": "Navigate the browser to a URL and return the resulting page title.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "The absolute URL to navigate to (must include a scheme, e.g. https://)."
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "WebFetch": {
+      "name": "WebFetch",
+      "description": "Fetches content from a specified URL and processes it.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "The URL to fetch content from."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "The prompt to run on the fetched content."
+        }
+      },
+      "required": [
+        "url",
+        "prompt"
+      ]
+    },
+    "browser_click": {
+      "name": "browser_click",
+      "description": "Click an element on the current page, identified by a CSS selector.",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "CSS selector of the element to click."
+        }
+      },
+      "required": [
+        "selector"
+      ]
+    },
+    "append_spreadsheet_row": {
+      "name": "append_spreadsheet_row",
+      "description": "Append a row to a spreadsheet.",
+      "parameters": {
+        "sheet_id": {
+          "type": "string",
+          "description": "Spreadsheet identifier."
+        },
+        "values": {
+          "type": "string",
+          "description": "Comma-separated row values."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range, e.g. A1:C10."
+        },
+        "row_number": {
+          "type": "integer",
+          "description": "Row number to act on."
+        }
+      },
+      "required": [
+        "sheet_id",
+        "values"
+      ]
+    },
+    "run_tests": {
+      "name": "run_tests",
+      "description": "Build the project and run its test suite.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "Optional path to scope the test run to."
+        }
+      },
+      "required": []
+    },
+    "translate_translation": {
+      "name": "translate_translation",
+      "description": "Translate text from one language to another.",
+      "parameters": {
+        "text": {
+          "type": "string",
+          "description": "Text to translate or detect."
+        },
+        "target_language": {
+          "type": "string",
+          "description": "Target language code."
+        },
+        "source_language": {
+          "type": "string",
+          "description": "Optional source language code."
+        }
+      },
+      "required": [
+        "text",
+        "target_language"
+      ]
+    },
+    "browser_download": {
+      "name": "browser_download",
+      "description": "Click an element that triggers a download and save the resulting file inside the workspace.",
+      "parameters": {
+        "trigger_selector": {
+          "type": "string",
+          "description": "CSS selector of the element that triggers the download when clicked."
+        },
+        "directory": {
+          "type": "string",
+          "description": "Relative directory inside the workspace to save into (default: downloads/)."
+        }
+      },
+      "required": [
+        "trigger_selector"
+      ]
+    },
+    "get_weather_forecast": {
+      "name": "get_weather_forecast",
+      "description": "Get the current weather forecast for a location.",
+      "parameters": {
+        "location": {
+          "type": "string",
+          "description": "City name or coordinates."
+        },
+        "days_ahead": {
+          "type": "integer",
+          "description": "How many days ahead to forecast."
+        },
+        "units": {
+          "type": "string",
+          "description": "metric or imperial."
+        }
+      },
+      "required": [
+        "location"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "translate_translation",
+    "arguments": {
+      "text": "Hello, how are you?",
+      "target_language": "es"
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "read_workspace",
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

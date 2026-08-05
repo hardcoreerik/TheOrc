@@ -1,0 +1,236 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804162008_0094",
+  "lineage_group_id": "tc2_lg_tc2_20260804162008_0094",
+  "captured_at": "2026-08-04T16:20:08Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Can you call the delete_contact tool to remove the contact with the name John Doe?",
+  "available_tools": [
+    "search_notes",
+    "delete_spreadsheet_row",
+    "image_open",
+    "delete_contact",
+    "browser_extract",
+    "archive_note",
+    "image_status",
+    "browser_navigate",
+    "browser_download",
+    "read_spreadsheet_rows"
+  ],
+  "available_tools_schema": {
+    "search_notes": {
+      "name": "search_notes",
+      "description": "Search existing notes by keyword.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search keyword."
+        },
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "delete_spreadsheet_row": {
+      "name": "delete_spreadsheet_row",
+      "description": "Delete a row from a spreadsheet.",
+      "parameters": {
+        "sheet_id": {
+          "type": "string",
+          "description": "Spreadsheet identifier."
+        },
+        "row_number": {
+          "type": "integer",
+          "description": "Row number to act on."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range, e.g. A1:C10."
+        },
+        "values": {
+          "type": "string",
+          "description": "Comma-separated row values."
+        }
+      },
+      "required": [
+        "sheet_id",
+        "row_number"
+      ]
+    },
+    "image_open": {
+      "name": "image_open",
+      "description": "Open the local Art Forge Studio workspace.",
+      "parameters": {},
+      "required": []
+    },
+    "delete_contact": {
+      "name": "delete_contact",
+      "description": "Delete an existing contact.",
+      "parameters": {
+        "contact_id": {
+          "type": "string",
+          "description": "Identifier of an existing contact."
+        },
+        "name": {
+          "type": "string",
+          "description": "Contact full name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address."
+        }
+      },
+      "required": [
+        "contact_id"
+      ]
+    },
+    "browser_extract": {
+      "name": "browser_extract",
+      "description": "Extract visible text from the current page, optionally scoped to a CSS selector (omit for the whole page).",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "Optional CSS selector to scope extraction to; omit for the full page body."
+        }
+      },
+      "required": []
+    },
+    "archive_note": {
+      "name": "archive_note",
+      "description": "Archive an existing note.",
+      "parameters": {
+        "note_id": {
+          "type": "string",
+          "description": "Identifier of an existing note."
+        },
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        }
+      },
+      "required": [
+        "note_id"
+      ]
+    },
+    "image_status": {
+      "name": "image_status",
+      "description": "Read a local Art Forge Studio image job's progress and outputs.",
+      "parameters": {
+        "job_id": {
+          "type": "string",
+          "description": "Art Forge Studio job identifier"
+        }
+      },
+      "required": [
+        "job_id"
+      ]
+    },
+    "browser_navigate": {
+      "name": "browser_navigate",
+      "description": "Navigate the browser to a URL and return the resulting page title.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "The absolute URL to navigate to (must include a scheme, e.g. https://)."
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "browser_download": {
+      "name": "browser_download",
+      "description": "Click an element that triggers a download and save the resulting file inside the workspace.",
+      "parameters": {
+        "trigger_selector": {
+          "type": "string",
+          "description": "CSS selector of the element that triggers the download when clicked."
+        },
+        "directory": {
+          "type": "string",
+          "description": "Relative directory inside the workspace to save into (default: downloads/)."
+        }
+      },
+      "required": [
+        "trigger_selector"
+      ]
+    },
+    "read_spreadsheet_rows": {
+      "name": "read_spreadsheet_rows",
+      "description": "Read rows from a spreadsheet range.",
+      "parameters": {
+        "sheet_id": {
+          "type": "string",
+          "description": "Spreadsheet identifier."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range, e.g. A1:C10."
+        },
+        "values": {
+          "type": "string",
+          "description": "Comma-separated row values."
+        },
+        "row_number": {
+          "type": "integer",
+          "description": "Row number to act on."
+        }
+      },
+      "required": [
+        "sheet_id",
+        "range"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "delete_contact",
+    "arguments": {
+      "contact_id": "12345",
+      "name": "John Doe",
+      "email": "john.doe@example.com"
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "write_workspace",
+    "is_destructive": true,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

@@ -1,0 +1,317 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804161836_0021",
+  "lineage_group_id": "tc2_lg_tc2_20260804161836_0021",
+  "captured_at": "2026-08-04T16:18:36Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Can you use save_markdown_document to save a note about our team meeting this afternoon?",
+  "available_tools": [
+    "WebSearch",
+    "web_search",
+    "Edit",
+    "archive_note",
+    "run_shell",
+    "fetch_page",
+    "get_architecture",
+    "graph_search",
+    "search_contacts",
+    "browser_extract",
+    "save_markdown_document",
+    "append_spreadsheet_row",
+    "Read"
+  ],
+  "available_tools_schema": {
+    "WebSearch": {
+      "name": "WebSearch",
+      "description": "Allows searching the web and using the results.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "The search query to use."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "web_search": {
+      "name": "web_search",
+      "description": "Search the public web and return ranked results.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search query."
+        },
+        "max_results": {
+          "type": "integer",
+          "description": "Maximum results to return."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "Edit": {
+      "name": "Edit",
+      "description": "Performs exact string replacements in files.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to modify."
+        },
+        "old_string": {
+          "type": "string",
+          "description": "The text to replace."
+        },
+        "new_string": {
+          "type": "string",
+          "description": "The text to replace it with."
+        },
+        "replace_all": {
+          "type": "boolean",
+          "description": "Replace all occurrences of old_string."
+        }
+      },
+      "required": [
+        "file_path",
+        "old_string",
+        "new_string"
+      ]
+    },
+    "archive_note": {
+      "name": "archive_note",
+      "description": "Archive an existing note.",
+      "parameters": {
+        "note_id": {
+          "type": "string",
+          "description": "Identifier of an existing note."
+        },
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        }
+      },
+      "required": [
+        "note_id"
+      ]
+    },
+    "run_shell": {
+      "name": "run_shell",
+      "description": "Run any shell command (dotnet, npm, git, python, ...).",
+      "parameters": {
+        "command": {
+          "type": "string",
+          "description": "The shell command to execute."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Optional working directory."
+        },
+        "env_setup": {
+          "type": "string",
+          "description": "Optional environment setup to run first."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Optional short reason, shown to the user."
+        }
+      },
+      "required": [
+        "command"
+      ]
+    },
+    "fetch_page": {
+      "name": "fetch_page",
+      "description": "Fetch a web page's content in a given mode.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "Page URL."
+        },
+        "mode": {
+          "type": "string",
+          "description": "Extraction mode."
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "get_architecture": {
+      "name": "get_architecture",
+      "description": "Returns a high-level architecture snapshot from the graph: namespaces, top-degree hub nodes, routes, and aggregate counts. Read-only.",
+      "parameters": {},
+      "required": []
+    },
+    "graph_search": {
+      "name": "graph_search",
+      "description": "Search the code knowledge graph (BM25 full-text over names + qualified names with camelCase tokenization, plus structural boosting). Returns a plain-text ranked list. Read-only.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search terms (natural language or identifier fragments). BM25 over graph_fts."
+        },
+        "label": {
+          "type": "string",
+          "description": "Optional label filter: Method | Function | Class | Interface | Route | File."
+        },
+        "file_pattern": {
+          "type": "string",
+          "description": "Optional file path substring or wildcard filter."
+        },
+        "min_degree": {
+          "type": "number",
+          "description": "Optional minimum combined edge degree (in+out)."
+        },
+        "limit": {
+          "type": "number",
+          "description": "Maximum results to return. Default 50, max 200."
+        }
+      },
+      "required": []
+    },
+    "search_contacts": {
+      "name": "search_contacts",
+      "description": "Search contacts by name or company.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search term."
+        },
+        "name": {
+          "type": "string",
+          "description": "Contact full name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "browser_extract": {
+      "name": "browser_extract",
+      "description": "Extract visible text from the current page, optionally scoped to a CSS selector (omit for the whole page).",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "Optional CSS selector to scope extraction to; omit for the full page body."
+        }
+      },
+      "required": []
+    },
+    "save_markdown_document": {
+      "name": "save_markdown_document",
+      "description": "Save a markdown document into the current workspace and return its path.",
+      "parameters": {
+        "filename": {
+          "type": "string",
+          "description": "File name, with or without the .md extension."
+        },
+        "content": {
+          "type": "string",
+          "description": "Full markdown document body to save."
+        },
+        "folder": {
+          "type": "string",
+          "description": "Optional workspace-relative folder. Defaults to chat-output."
+        }
+      },
+      "required": [
+        "filename",
+        "content"
+      ]
+    },
+    "append_spreadsheet_row": {
+      "name": "append_spreadsheet_row",
+      "description": "Append a row to a spreadsheet.",
+      "parameters": {
+        "sheet_id": {
+          "type": "string",
+          "description": "Spreadsheet identifier."
+        },
+        "values": {
+          "type": "string",
+          "description": "Comma-separated row values."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range, e.g. A1:C10."
+        },
+        "row_number": {
+          "type": "integer",
+          "description": "Row number to act on."
+        }
+      },
+      "required": [
+        "sheet_id",
+        "values"
+      ]
+    },
+    "Read": {
+      "name": "Read",
+      "description": "Reads a file from the local filesystem.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to read."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "The line number to start reading from."
+        },
+        "limit": {
+          "type": "integer",
+          "description": "The number of lines to read."
+        }
+      },
+      "required": [
+        "file_path"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "save_markdown_document",
+    "arguments": {
+      "filename": "team_meeting_notes.md",
+      "content": "# Team Meeting Notes\n\n- Agenda: Review project timeline\n- Action items: Assign tasks to team members\n- Next meeting: 2 PM tomorrow",
+      "folder": "project_notes"
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "read_workspace",
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample"
+  ]
+}

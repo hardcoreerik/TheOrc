@@ -1,0 +1,218 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804161827_0014",
+  "lineage_group_id": "tc2_lg_tc2_20260804161827_0014",
+  "captured_at": "2026-08-04T16:18:27Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Use Grep to search for the pattern 'error' in the file /var/log/syslog.",
+  "available_tools": [
+    "Grep",
+    "Read",
+    "get_outline",
+    "shell",
+    "graph_adr",
+    "translate_translation",
+    "trace_path"
+  ],
+  "available_tools_schema": {
+    "Grep": {
+      "name": "Grep",
+      "description": "A powerful search tool built on ripgrep for searching file contents.",
+      "parameters": {
+        "pattern": {
+          "type": "string",
+          "description": "The regular expression pattern to search for in file contents."
+        },
+        "path": {
+          "type": "string",
+          "description": "File or directory to search in."
+        },
+        "glob": {
+          "type": "string",
+          "description": "Glob pattern to filter files."
+        },
+        "output_mode": {
+          "type": "string",
+          "description": "content | files_with_matches | count."
+        }
+      },
+      "required": [
+        "pattern"
+      ]
+    },
+    "Read": {
+      "name": "Read",
+      "description": "Reads a file from the local filesystem.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to read."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "The line number to start reading from."
+        },
+        "limit": {
+          "type": "integer",
+          "description": "The number of lines to read."
+        }
+      },
+      "required": [
+        "file_path"
+      ]
+    },
+    "get_outline": {
+      "name": "get_outline",
+      "description": "Retrieve the structural outline of a file (classes, methods, functions).",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "File path."
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "shell": {
+      "name": "shell",
+      "description": "Runs a shell command and returns its output.",
+      "parameters": {
+        "command": {
+          "type": "string",
+          "description": "The shell command to execute."
+        },
+        "workdir": {
+          "type": "string",
+          "description": "Working directory for the command."
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "description": "Timeout in milliseconds."
+        }
+      },
+      "required": [
+        "command"
+      ]
+    },
+    "graph_adr": {
+      "name": "graph_adr",
+      "description": "Architecture Decision Records store. action=list|get|add. list: recent 20. get: by id (full incl body). add: requires title+decision+status (proposed|accepted|deprecated|superseded); writes to DB. status is required for add.",
+      "parameters": {
+        "action": {
+          "type": "string",
+          "description": "list | get | add"
+        },
+        "id": {
+          "type": "number",
+          "description": "For get: ADR id"
+        },
+        "title": {
+          "type": "string",
+          "description": "For add: short title"
+        },
+        "decision": {
+          "type": "string",
+          "description": "For add: the decision text"
+        },
+        "status": {
+          "type": "string",
+          "description": "For add: proposed | accepted | deprecated | superseded"
+        },
+        "body": {
+          "type": "string",
+          "description": "For add: optional additional body/details"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
+    "translate_translation": {
+      "name": "translate_translation",
+      "description": "Translate text from one language to another.",
+      "parameters": {
+        "text": {
+          "type": "string",
+          "description": "Text to translate or detect."
+        },
+        "target_language": {
+          "type": "string",
+          "description": "Target language code."
+        },
+        "source_language": {
+          "type": "string",
+          "description": "Optional source language code."
+        }
+      },
+      "required": [
+        "text",
+        "target_language"
+      ]
+    },
+    "trace_path": {
+      "name": "trace_path",
+      "description": "Trace caller/callee paths in the code graph to a given depth. Uses structural CALLS edges (or DATA_FLOWS when available). Returns a plain-text indented tree. Read-only.",
+      "parameters": {
+        "qualified_name": {
+          "type": "string",
+          "description": "Fully qualified name of the starting symbol (from graph_search)."
+        },
+        "direction": {
+          "type": "string",
+          "description": "both | callers | callees. Default 'both'."
+        },
+        "depth": {
+          "type": "number",
+          "description": "Max depth to traverse. Default 3, max 8."
+        },
+        "mode": {
+          "type": "string",
+          "description": "calls | data_flow. 'calls' uses CALLS edges; 'data_flow' prefers DATA_FLOWS when present."
+        }
+      },
+      "required": [
+        "qualified_name"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "Grep",
+    "arguments": {
+      "pattern": "error",
+      "path": "/var/log/syslog",
+      "glob": null,
+      "output_mode": "content"
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "read_workspace",
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample"
+  ]
+}

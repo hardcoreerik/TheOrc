@@ -1,0 +1,331 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804161858_0039",
+  "lineage_group_id": "tc2_lg_tc2_20260804161858_0039",
+  "captured_at": "2026-08-04T16:18:58Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Use fetch_url to download the latest version of the project documentation from the company's website.",
+  "available_tools": [
+    "grep_code",
+    "search_notes",
+    "detect_changes",
+    "Grep",
+    "browser_type",
+    "create_note",
+    "run_shell",
+    "fetch_url",
+    "detect_translation",
+    "read_file",
+    "browser_wait",
+    "graph_adr",
+    "web_search"
+  ],
+  "available_tools_schema": {
+    "grep_code": {
+      "name": "grep_code",
+      "description": "Search file contents with a regex pattern.",
+      "parameters": {
+        "pattern": {
+          "type": "string",
+          "description": "Regex pattern to search for."
+        },
+        "glob": {
+          "type": "string",
+          "description": "Optional filename glob to restrict the search."
+        },
+        "path": {
+          "type": "string",
+          "description": "Optional directory to scope the search to."
+        }
+      },
+      "required": [
+        "pattern"
+      ]
+    },
+    "search_notes": {
+      "name": "search_notes",
+      "description": "Search existing notes by keyword.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search keyword."
+        },
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "detect_changes": {
+      "name": "detect_changes",
+      "description": "Use git (LibGit2Sharp) to find .cs files changed since base_ref (default HEAD~1), look up graph nodes for those files, and report impact sorted by degree. Includes blast-radius count of unique callers within depth 2. Read-only.",
+      "parameters": {
+        "base_ref": {
+          "type": "string",
+          "description": "Git ref or commit to diff against (e.g. HEAD~1, abc123). Default HEAD~1."
+        },
+        "path_filter": {
+          "type": "string",
+          "description": "Optional glob or substring to filter changed file paths (e.g. src/* or *Service.cs)."
+        }
+      },
+      "required": []
+    },
+    "Grep": {
+      "name": "Grep",
+      "description": "A powerful search tool built on ripgrep for searching file contents.",
+      "parameters": {
+        "pattern": {
+          "type": "string",
+          "description": "The regular expression pattern to search for in file contents."
+        },
+        "path": {
+          "type": "string",
+          "description": "File or directory to search in."
+        },
+        "glob": {
+          "type": "string",
+          "description": "Glob pattern to filter files."
+        },
+        "output_mode": {
+          "type": "string",
+          "description": "content | files_with_matches | count."
+        }
+      },
+      "required": [
+        "pattern"
+      ]
+    },
+    "browser_type": {
+      "name": "browser_type",
+      "description": "Type text into an input element, identified by a CSS selector (replaces any existing value).",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "CSS selector of the input element."
+        },
+        "text": {
+          "type": "string",
+          "description": "The text to type."
+        }
+      },
+      "required": [
+        "selector",
+        "text"
+      ]
+    },
+    "create_note": {
+      "name": "create_note",
+      "description": "Create a new note.",
+      "parameters": {
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        },
+        "note_id": {
+          "type": "string",
+          "description": "Identifier of an existing note."
+        },
+        "tag": {
+          "type": "string",
+          "description": "Tag to apply."
+        }
+      },
+      "required": [
+        "title",
+        "body"
+      ]
+    },
+    "run_shell": {
+      "name": "run_shell",
+      "description": "Run any shell command (dotnet, npm, git, python, ...).",
+      "parameters": {
+        "command": {
+          "type": "string",
+          "description": "The shell command to execute."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Optional working directory."
+        },
+        "env_setup": {
+          "type": "string",
+          "description": "Optional environment setup to run first."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Optional short reason, shown to the user."
+        }
+      },
+      "required": [
+        "command"
+      ]
+    },
+    "fetch_url": {
+      "name": "fetch_url",
+      "description": "Download a web page or call an API and return the text.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "URL to fetch."
+        },
+        "max_chars": {
+          "type": "integer",
+          "description": "Maximum characters to return."
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "detect_translation": {
+      "name": "detect_translation",
+      "description": "Detect the language of a piece of text.",
+      "parameters": {
+        "text": {
+          "type": "string",
+          "description": "Text to translate or detect."
+        },
+        "source_language": {
+          "type": "string",
+          "description": "Optional source language code."
+        },
+        "target_language": {
+          "type": "string",
+          "description": "Target language code."
+        }
+      },
+      "required": [
+        "text"
+      ]
+    },
+    "read_file": {
+      "name": "read_file",
+      "description": "Read the contents of a file.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "File path relative to workspace root, or absolute."
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "browser_wait": {
+      "name": "browser_wait",
+      "description": "Wait for an element to become visible on the page, bounded by a timeout (default 10s, max 60s).",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "CSS selector to wait for."
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "description": "Maximum seconds to wait (default 10, max 60)."
+        }
+      },
+      "required": [
+        "selector"
+      ]
+    },
+    "graph_adr": {
+      "name": "graph_adr",
+      "description": "Architecture Decision Records store. action=list|get|add. list: recent 20. get: by id (full incl body). add: requires title+decision+status (proposed|accepted|deprecated|superseded); writes to DB. status is required for add.",
+      "parameters": {
+        "action": {
+          "type": "string",
+          "description": "list | get | add"
+        },
+        "id": {
+          "type": "number",
+          "description": "For get: ADR id"
+        },
+        "title": {
+          "type": "string",
+          "description": "For add: short title"
+        },
+        "decision": {
+          "type": "string",
+          "description": "For add: the decision text"
+        },
+        "status": {
+          "type": "string",
+          "description": "For add: proposed | accepted | deprecated | superseded"
+        },
+        "body": {
+          "type": "string",
+          "description": "For add: optional additional body/details"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
+    "web_search": {
+      "name": "web_search",
+      "description": "Search the public web and return ranked results.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search query."
+        },
+        "max_results": {
+          "type": "integer",
+          "description": "Maximum results to return."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "fetch_url",
+    "arguments": {
+      "url": "https://companywebsite.com/project-documentation/latest.pdf",
+      "max_chars": 10000
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "read_workspace",
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample"
+  ]
+}

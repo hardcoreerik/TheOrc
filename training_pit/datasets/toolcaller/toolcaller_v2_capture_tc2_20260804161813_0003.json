@@ -1,0 +1,180 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804161813_0003",
+  "lineage_group_id": "tc2_lg_tc2_20260804161813_0003",
+  "captured_at": "2026-08-04T16:18:13Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Could you please use read_file to check the contents of the file located at 'data/logs/application.log'?",
+  "available_tools": [
+    "list_files",
+    "image_create",
+    "read_file",
+    "archive_note",
+    "detect_changes",
+    "delete_contact"
+  ],
+  "available_tools_schema": {
+    "list_files": {
+      "name": "list_files",
+      "description": "Browse the workspace directory tree.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "Directory to list; defaults to workspace root."
+        },
+        "depth": {
+          "type": "integer",
+          "description": "Recursion depth."
+        }
+      },
+      "required": []
+    },
+    "image_create": {
+      "name": "image_create",
+      "description": "Create an image with the local Art Forge Studio and ComfyUI runtime.",
+      "parameters": {
+        "prompt": {
+          "type": "string",
+          "description": "Image description"
+        },
+        "negative_prompt": {
+          "type": "string",
+          "description": "Optional unwanted details"
+        },
+        "checkpoint": {
+          "type": "string",
+          "description": "Optional installed checkpoint name"
+        },
+        "lora": {
+          "type": "string",
+          "description": "Optional installed LoRA name"
+        },
+        "size": {
+          "type": "string",
+          "description": "Image size such as 768x768"
+        },
+        "seed": {
+          "type": "integer",
+          "description": "Deterministic generation seed"
+        },
+        "style": {
+          "type": "string",
+          "description": "Optional style guidance"
+        },
+        "content_profile": {
+          "type": "string",
+          "description": "sfw or mature_capable; defaults to sfw"
+        }
+      },
+      "required": [
+        "prompt"
+      ]
+    },
+    "read_file": {
+      "name": "read_file",
+      "description": "Read the contents of a file.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "File path relative to workspace root, or absolute."
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "archive_note": {
+      "name": "archive_note",
+      "description": "Archive an existing note.",
+      "parameters": {
+        "note_id": {
+          "type": "string",
+          "description": "Identifier of an existing note."
+        },
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        }
+      },
+      "required": [
+        "note_id"
+      ]
+    },
+    "detect_changes": {
+      "name": "detect_changes",
+      "description": "Use git (LibGit2Sharp) to find .cs files changed since base_ref (default HEAD~1), look up graph nodes for those files, and report impact sorted by degree. Includes blast-radius count of unique callers within depth 2. Read-only.",
+      "parameters": {
+        "base_ref": {
+          "type": "string",
+          "description": "Git ref or commit to diff against (e.g. HEAD~1, abc123). Default HEAD~1."
+        },
+        "path_filter": {
+          "type": "string",
+          "description": "Optional glob or substring to filter changed file paths (e.g. src/* or *Service.cs)."
+        }
+      },
+      "required": []
+    },
+    "delete_contact": {
+      "name": "delete_contact",
+      "description": "Delete an existing contact.",
+      "parameters": {
+        "contact_id": {
+          "type": "string",
+          "description": "Identifier of an existing contact."
+        },
+        "name": {
+          "type": "string",
+          "description": "Contact full name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address."
+        }
+      },
+      "required": [
+        "contact_id"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "read_file",
+    "arguments": {
+      "path": "data/logs/application.log"
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "read_workspace",
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": false
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample"
+  ]
+}

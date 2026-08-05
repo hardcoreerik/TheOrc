@@ -1,0 +1,264 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804162000_0087",
+  "lineage_group_id": "tc2_lg_tc2_20260804162000_0087",
+  "captured_at": "2026-08-04T16:20:00Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Let's use append_spreadsheet_row to add a new row to the sales report for this month.",
+  "available_tools": [
+    "create_note",
+    "get_weather_forecast",
+    "trace_path",
+    "browser_download",
+    "create_contact",
+    "image_open",
+    "Read",
+    "Glob",
+    "append_spreadsheet_row",
+    "write_file"
+  ],
+  "available_tools_schema": {
+    "create_note": {
+      "name": "create_note",
+      "description": "Create a new note.",
+      "parameters": {
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        },
+        "note_id": {
+          "type": "string",
+          "description": "Identifier of an existing note."
+        },
+        "tag": {
+          "type": "string",
+          "description": "Tag to apply."
+        }
+      },
+      "required": [
+        "title",
+        "body"
+      ]
+    },
+    "get_weather_forecast": {
+      "name": "get_weather_forecast",
+      "description": "Get the current weather forecast for a location.",
+      "parameters": {
+        "location": {
+          "type": "string",
+          "description": "City name or coordinates."
+        },
+        "days_ahead": {
+          "type": "integer",
+          "description": "How many days ahead to forecast."
+        },
+        "units": {
+          "type": "string",
+          "description": "metric or imperial."
+        }
+      },
+      "required": [
+        "location"
+      ]
+    },
+    "trace_path": {
+      "name": "trace_path",
+      "description": "Trace caller/callee paths in the code graph to a given depth. Uses structural CALLS edges (or DATA_FLOWS when available). Returns a plain-text indented tree. Read-only.",
+      "parameters": {
+        "qualified_name": {
+          "type": "string",
+          "description": "Fully qualified name of the starting symbol (from graph_search)."
+        },
+        "direction": {
+          "type": "string",
+          "description": "both | callers | callees. Default 'both'."
+        },
+        "depth": {
+          "type": "number",
+          "description": "Max depth to traverse. Default 3, max 8."
+        },
+        "mode": {
+          "type": "string",
+          "description": "calls | data_flow. 'calls' uses CALLS edges; 'data_flow' prefers DATA_FLOWS when present."
+        }
+      },
+      "required": [
+        "qualified_name"
+      ]
+    },
+    "browser_download": {
+      "name": "browser_download",
+      "description": "Click an element that triggers a download and save the resulting file inside the workspace.",
+      "parameters": {
+        "trigger_selector": {
+          "type": "string",
+          "description": "CSS selector of the element that triggers the download when clicked."
+        },
+        "directory": {
+          "type": "string",
+          "description": "Relative directory inside the workspace to save into (default: downloads/)."
+        }
+      },
+      "required": [
+        "trigger_selector"
+      ]
+    },
+    "create_contact": {
+      "name": "create_contact",
+      "description": "Create a new contact.",
+      "parameters": {
+        "name": {
+          "type": "string",
+          "description": "Contact full name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address."
+        },
+        "phone": {
+          "type": "string",
+          "description": "Contact phone number."
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "image_open": {
+      "name": "image_open",
+      "description": "Open the local Art Forge Studio workspace.",
+      "parameters": {},
+      "required": []
+    },
+    "Read": {
+      "name": "Read",
+      "description": "Reads a file from the local filesystem.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to read."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "The line number to start reading from."
+        },
+        "limit": {
+          "type": "integer",
+          "description": "The number of lines to read."
+        }
+      },
+      "required": [
+        "file_path"
+      ]
+    },
+    "Glob": {
+      "name": "Glob",
+      "description": "Fast file pattern matching tool that works with any codebase size.",
+      "parameters": {
+        "pattern": {
+          "type": "string",
+          "description": "The glob pattern to match files against."
+        },
+        "path": {
+          "type": "string",
+          "description": "The directory to search in."
+        }
+      },
+      "required": [
+        "pattern"
+      ]
+    },
+    "append_spreadsheet_row": {
+      "name": "append_spreadsheet_row",
+      "description": "Append a row to a spreadsheet.",
+      "parameters": {
+        "sheet_id": {
+          "type": "string",
+          "description": "Spreadsheet identifier."
+        },
+        "values": {
+          "type": "string",
+          "description": "Comma-separated row values."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range, e.g. A1:C10."
+        },
+        "row_number": {
+          "type": "integer",
+          "description": "Row number to act on."
+        }
+      },
+      "required": [
+        "sheet_id",
+        "values"
+      ]
+    },
+    "write_file": {
+      "name": "write_file",
+      "description": "Create or overwrite a file with the given content.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "File path relative to workspace root, or absolute."
+        },
+        "content": {
+          "type": "string",
+          "description": "Full file content to write."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Optional short reason for the write, shown in the diff preview."
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "append_spreadsheet_row",
+    "arguments": {
+      "sheet_id": "sales_report_2023",
+      "values": "2023-10,15000,500,14500",
+      "range": "A1:D1",
+      "row_number": 2
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "read_workspace",
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

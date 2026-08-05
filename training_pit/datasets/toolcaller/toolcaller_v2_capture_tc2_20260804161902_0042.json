@@ -1,0 +1,279 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804161902_0042",
+  "lineage_group_id": "tc2_lg_tc2_20260804161902_0042",
+  "captured_at": "2026-08-04T16:19:02Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Please delete_spreadsheet_row to remove the row number 5 from the spreadsheet with ID 'spreadsheet123' in the range A1:D10.",
+  "available_tools": [
+    "delete_spreadsheet_row",
+    "browser_screenshot",
+    "create_calendar_event",
+    "browser_click",
+    "read_spreadsheet_rows",
+    "create_contact",
+    "graph_adr",
+    "read_file",
+    "ask_user",
+    "image_gallery",
+    "Bash"
+  ],
+  "available_tools_schema": {
+    "delete_spreadsheet_row": {
+      "name": "delete_spreadsheet_row",
+      "description": "Delete a row from a spreadsheet.",
+      "parameters": {
+        "sheet_id": {
+          "type": "string",
+          "description": "Spreadsheet identifier."
+        },
+        "row_number": {
+          "type": "integer",
+          "description": "Row number to act on."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range, e.g. A1:C10."
+        },
+        "values": {
+          "type": "string",
+          "description": "Comma-separated row values."
+        }
+      },
+      "required": [
+        "sheet_id",
+        "row_number"
+      ]
+    },
+    "browser_screenshot": {
+      "name": "browser_screenshot",
+      "description": "Capture a full-page screenshot of the current page and save it inside the workspace.",
+      "parameters": {},
+      "required": []
+    },
+    "create_calendar_event": {
+      "name": "create_calendar_event",
+      "description": "Create a new calendar event.",
+      "parameters": {
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        },
+        "end_time": {
+          "type": "string",
+          "description": "Event end time, ISO 8601."
+        },
+        "attendees": {
+          "type": "string",
+          "description": "Comma-separated attendee list."
+        }
+      },
+      "required": [
+        "title",
+        "start_time"
+      ]
+    },
+    "browser_click": {
+      "name": "browser_click",
+      "description": "Click an element on the current page, identified by a CSS selector.",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "CSS selector of the element to click."
+        }
+      },
+      "required": [
+        "selector"
+      ]
+    },
+    "read_spreadsheet_rows": {
+      "name": "read_spreadsheet_rows",
+      "description": "Read rows from a spreadsheet range.",
+      "parameters": {
+        "sheet_id": {
+          "type": "string",
+          "description": "Spreadsheet identifier."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range, e.g. A1:C10."
+        },
+        "values": {
+          "type": "string",
+          "description": "Comma-separated row values."
+        },
+        "row_number": {
+          "type": "integer",
+          "description": "Row number to act on."
+        }
+      },
+      "required": [
+        "sheet_id",
+        "range"
+      ]
+    },
+    "create_contact": {
+      "name": "create_contact",
+      "description": "Create a new contact.",
+      "parameters": {
+        "name": {
+          "type": "string",
+          "description": "Contact full name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address."
+        },
+        "phone": {
+          "type": "string",
+          "description": "Contact phone number."
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "graph_adr": {
+      "name": "graph_adr",
+      "description": "Architecture Decision Records store. action=list|get|add. list: recent 20. get: by id (full incl body). add: requires title+decision+status (proposed|accepted|deprecated|superseded); writes to DB. status is required for add.",
+      "parameters": {
+        "action": {
+          "type": "string",
+          "description": "list | get | add"
+        },
+        "id": {
+          "type": "number",
+          "description": "For get: ADR id"
+        },
+        "title": {
+          "type": "string",
+          "description": "For add: short title"
+        },
+        "decision": {
+          "type": "string",
+          "description": "For add: the decision text"
+        },
+        "status": {
+          "type": "string",
+          "description": "For add: proposed | accepted | deprecated | superseded"
+        },
+        "body": {
+          "type": "string",
+          "description": "For add: optional additional body/details"
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
+    "read_file": {
+      "name": "read_file",
+      "description": "Read the contents of a file.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "File path relative to workspace root, or absolute."
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "ask_user": {
+      "name": "ask_user",
+      "description": "Ask the human a clarifying question and wait for their answer.",
+      "parameters": {
+        "question": {
+          "type": "string",
+          "description": "The question to ask."
+        },
+        "options": {
+          "type": "string",
+          "description": "Optional list of suggested answers."
+        }
+      },
+      "required": [
+        "question"
+      ]
+    },
+    "image_gallery": {
+      "name": "image_gallery",
+      "description": "List recent local Art Forge Studio gallery assets.",
+      "parameters": {
+        "limit": {
+          "type": "integer",
+          "description": "Number of assets from 1 through 100"
+        }
+      },
+      "required": []
+    },
+    "Bash": {
+      "name": "Bash",
+      "description": "Executes a given shell command and returns its output.",
+      "parameters": {
+        "command": {
+          "type": "string",
+          "description": "The command to execute."
+        },
+        "description": {
+          "type": "string",
+          "description": "Clear, concise description of what this command does."
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "Optional timeout in milliseconds."
+        },
+        "run_in_background": {
+          "type": "boolean",
+          "description": "Set to true to run this command in the background."
+        }
+      },
+      "required": [
+        "command"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "delete_spreadsheet_row",
+    "arguments": {
+      "sheet_id": "spreadsheet123",
+      "row_number": 5,
+      "range": "A1:D10"
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "write_workspace",
+    "is_destructive": true,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

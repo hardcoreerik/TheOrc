@@ -1,0 +1,206 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804162017_0102",
+  "lineage_group_id": "tc2_lg_tc2_20260804162017_0102",
+  "captured_at": "2026-08-04T16:20:17Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Call the create_note tool to add a new note about the project meeting.",
+  "available_tools": [
+    "read_spreadsheet_rows",
+    "cancel_calendar_event",
+    "Glob",
+    "detect_translation",
+    "create_note",
+    "detect_changes",
+    "update_calendar_event"
+  ],
+  "available_tools_schema": {
+    "read_spreadsheet_rows": {
+      "name": "read_spreadsheet_rows",
+      "description": "Read rows from a spreadsheet range.",
+      "parameters": {
+        "sheet_id": {
+          "type": "string",
+          "description": "Spreadsheet identifier."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range, e.g. A1:C10."
+        },
+        "values": {
+          "type": "string",
+          "description": "Comma-separated row values."
+        },
+        "row_number": {
+          "type": "integer",
+          "description": "Row number to act on."
+        }
+      },
+      "required": [
+        "sheet_id",
+        "range"
+      ]
+    },
+    "cancel_calendar_event": {
+      "name": "cancel_calendar_event",
+      "description": "Cancel an existing calendar event.",
+      "parameters": {
+        "event_id": {
+          "type": "string",
+          "description": "Identifier of an existing event."
+        },
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        }
+      },
+      "required": [
+        "event_id"
+      ]
+    },
+    "Glob": {
+      "name": "Glob",
+      "description": "Fast file pattern matching tool that works with any codebase size.",
+      "parameters": {
+        "pattern": {
+          "type": "string",
+          "description": "The glob pattern to match files against."
+        },
+        "path": {
+          "type": "string",
+          "description": "The directory to search in."
+        }
+      },
+      "required": [
+        "pattern"
+      ]
+    },
+    "detect_translation": {
+      "name": "detect_translation",
+      "description": "Detect the language of a piece of text.",
+      "parameters": {
+        "text": {
+          "type": "string",
+          "description": "Text to translate or detect."
+        },
+        "source_language": {
+          "type": "string",
+          "description": "Optional source language code."
+        },
+        "target_language": {
+          "type": "string",
+          "description": "Target language code."
+        }
+      },
+      "required": [
+        "text"
+      ]
+    },
+    "create_note": {
+      "name": "create_note",
+      "description": "Create a new note.",
+      "parameters": {
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        },
+        "note_id": {
+          "type": "string",
+          "description": "Identifier of an existing note."
+        },
+        "tag": {
+          "type": "string",
+          "description": "Tag to apply."
+        }
+      },
+      "required": [
+        "title",
+        "body"
+      ]
+    },
+    "detect_changes": {
+      "name": "detect_changes",
+      "description": "Use git (LibGit2Sharp) to find .cs files changed since base_ref (default HEAD~1), look up graph nodes for those files, and report impact sorted by degree. Includes blast-radius count of unique callers within depth 2. Read-only.",
+      "parameters": {
+        "base_ref": {
+          "type": "string",
+          "description": "Git ref or commit to diff against (e.g. HEAD~1, abc123). Default HEAD~1."
+        },
+        "path_filter": {
+          "type": "string",
+          "description": "Optional glob or substring to filter changed file paths (e.g. src/* or *Service.cs)."
+        }
+      },
+      "required": []
+    },
+    "update_calendar_event": {
+      "name": "update_calendar_event",
+      "description": "Update the time or details of a calendar event.",
+      "parameters": {
+        "event_id": {
+          "type": "string",
+          "description": "Identifier of an existing event."
+        },
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        }
+      },
+      "required": [
+        "event_id"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "create_note",
+    "arguments": {
+      "title": "Project Meeting Notes",
+      "body": "Details of the project meeting will be added here.",
+      "note_id": null,
+      "tag": "meeting_notes"
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "write_workspace",
+    "is_destructive": true,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

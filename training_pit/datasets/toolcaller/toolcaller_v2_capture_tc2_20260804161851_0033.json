@@ -1,0 +1,213 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804161851_0033",
+  "lineage_group_id": "tc2_lg_tc2_20260804161851_0033",
+  "captured_at": "2026-08-04T16:18:51Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Can you use the graph_search tool to find all the methods that call a specific function in our codebase?",
+  "available_tools": [
+    "run_tests",
+    "fetch_page",
+    "grep_code",
+    "apply_patch",
+    "archive_note",
+    "read_spreadsheet_rows",
+    "ask_user",
+    "graph_search"
+  ],
+  "available_tools_schema": {
+    "run_tests": {
+      "name": "run_tests",
+      "description": "Build the project and run its test suite.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "Optional path to scope the test run to."
+        }
+      },
+      "required": []
+    },
+    "fetch_page": {
+      "name": "fetch_page",
+      "description": "Fetch a web page's content in a given mode.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "Page URL."
+        },
+        "mode": {
+          "type": "string",
+          "description": "Extraction mode."
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "grep_code": {
+      "name": "grep_code",
+      "description": "Search file contents with a regex pattern.",
+      "parameters": {
+        "pattern": {
+          "type": "string",
+          "description": "Regex pattern to search for."
+        },
+        "glob": {
+          "type": "string",
+          "description": "Optional filename glob to restrict the search."
+        },
+        "path": {
+          "type": "string",
+          "description": "Optional directory to scope the search to."
+        }
+      },
+      "required": [
+        "pattern"
+      ]
+    },
+    "apply_patch": {
+      "name": "apply_patch",
+      "description": "Applies a structured patch (V4A-style diff) to create, update, or delete files.",
+      "parameters": {
+        "patch": {
+          "type": "string",
+          "description": "The full patch text, in the *** Begin Patch / *** End Patch envelope format."
+        }
+      },
+      "required": [
+        "patch"
+      ]
+    },
+    "archive_note": {
+      "name": "archive_note",
+      "description": "Archive an existing note.",
+      "parameters": {
+        "note_id": {
+          "type": "string",
+          "description": "Identifier of an existing note."
+        },
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        }
+      },
+      "required": [
+        "note_id"
+      ]
+    },
+    "read_spreadsheet_rows": {
+      "name": "read_spreadsheet_rows",
+      "description": "Read rows from a spreadsheet range.",
+      "parameters": {
+        "sheet_id": {
+          "type": "string",
+          "description": "Spreadsheet identifier."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range, e.g. A1:C10."
+        },
+        "values": {
+          "type": "string",
+          "description": "Comma-separated row values."
+        },
+        "row_number": {
+          "type": "integer",
+          "description": "Row number to act on."
+        }
+      },
+      "required": [
+        "sheet_id",
+        "range"
+      ]
+    },
+    "ask_user": {
+      "name": "ask_user",
+      "description": "Ask the human a clarifying question and wait for their answer.",
+      "parameters": {
+        "question": {
+          "type": "string",
+          "description": "The question to ask."
+        },
+        "options": {
+          "type": "string",
+          "description": "Optional list of suggested answers."
+        }
+      },
+      "required": [
+        "question"
+      ]
+    },
+    "graph_search": {
+      "name": "graph_search",
+      "description": "Search the code knowledge graph (BM25 full-text over names + qualified names with camelCase tokenization, plus structural boosting). Returns a plain-text ranked list. Read-only.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search terms (natural language or identifier fragments). BM25 over graph_fts."
+        },
+        "label": {
+          "type": "string",
+          "description": "Optional label filter: Method | Function | Class | Interface | Route | File."
+        },
+        "file_pattern": {
+          "type": "string",
+          "description": "Optional file path substring or wildcard filter."
+        },
+        "min_degree": {
+          "type": "number",
+          "description": "Optional minimum combined edge degree (in+out)."
+        },
+        "limit": {
+          "type": "number",
+          "description": "Maximum results to return. Default 50, max 200."
+        }
+      },
+      "required": []
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "graph_search",
+    "arguments": {
+      "query": "function_name",
+      "label": "Method",
+      "file_pattern": "*",
+      "min_degree": 1,
+      "limit": 100
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "read_workspace",
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample"
+  ]
+}

@@ -1,0 +1,275 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804161816_0005",
+  "lineage_group_id": "tc2_lg_tc2_20260804161816_0005",
+  "captured_at": "2026-08-04T16:18:16Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "cancel_calendar_event to remove the event titled 'Project Meeting' that starts at 2023-10-05T14:00:00Z.",
+  "available_tools": [
+    "browser_navigate",
+    "cancel_calendar_event",
+    "Glob",
+    "update_calendar_event",
+    "Write",
+    "Read",
+    "detect_changes",
+    "Bash",
+    "tag_note",
+    "run_tests",
+    "run_shell"
+  ],
+  "available_tools_schema": {
+    "browser_navigate": {
+      "name": "browser_navigate",
+      "description": "Navigate the browser to a URL and return the resulting page title.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "The absolute URL to navigate to (must include a scheme, e.g. https://)."
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "cancel_calendar_event": {
+      "name": "cancel_calendar_event",
+      "description": "Cancel an existing calendar event.",
+      "parameters": {
+        "event_id": {
+          "type": "string",
+          "description": "Identifier of an existing event."
+        },
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        }
+      },
+      "required": [
+        "event_id"
+      ]
+    },
+    "Glob": {
+      "name": "Glob",
+      "description": "Fast file pattern matching tool that works with any codebase size.",
+      "parameters": {
+        "pattern": {
+          "type": "string",
+          "description": "The glob pattern to match files against."
+        },
+        "path": {
+          "type": "string",
+          "description": "The directory to search in."
+        }
+      },
+      "required": [
+        "pattern"
+      ]
+    },
+    "update_calendar_event": {
+      "name": "update_calendar_event",
+      "description": "Update the time or details of a calendar event.",
+      "parameters": {
+        "event_id": {
+          "type": "string",
+          "description": "Identifier of an existing event."
+        },
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        }
+      },
+      "required": [
+        "event_id"
+      ]
+    },
+    "Write": {
+      "name": "Write",
+      "description": "Writes a file to the local filesystem, overwriting it if it already exists.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to write."
+        },
+        "content": {
+          "type": "string",
+          "description": "The content to write to the file."
+        }
+      },
+      "required": [
+        "file_path",
+        "content"
+      ]
+    },
+    "Read": {
+      "name": "Read",
+      "description": "Reads a file from the local filesystem.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to read."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "The line number to start reading from."
+        },
+        "limit": {
+          "type": "integer",
+          "description": "The number of lines to read."
+        }
+      },
+      "required": [
+        "file_path"
+      ]
+    },
+    "detect_changes": {
+      "name": "detect_changes",
+      "description": "Use git (LibGit2Sharp) to find .cs files changed since base_ref (default HEAD~1), look up graph nodes for those files, and report impact sorted by degree. Includes blast-radius count of unique callers within depth 2. Read-only.",
+      "parameters": {
+        "base_ref": {
+          "type": "string",
+          "description": "Git ref or commit to diff against (e.g. HEAD~1, abc123). Default HEAD~1."
+        },
+        "path_filter": {
+          "type": "string",
+          "description": "Optional glob or substring to filter changed file paths (e.g. src/* or *Service.cs)."
+        }
+      },
+      "required": []
+    },
+    "Bash": {
+      "name": "Bash",
+      "description": "Executes a given shell command and returns its output.",
+      "parameters": {
+        "command": {
+          "type": "string",
+          "description": "The command to execute."
+        },
+        "description": {
+          "type": "string",
+          "description": "Clear, concise description of what this command does."
+        },
+        "timeout": {
+          "type": "integer",
+          "description": "Optional timeout in milliseconds."
+        },
+        "run_in_background": {
+          "type": "boolean",
+          "description": "Set to true to run this command in the background."
+        }
+      },
+      "required": [
+        "command"
+      ]
+    },
+    "tag_note": {
+      "name": "tag_note",
+      "description": "Add a tag to an existing note.",
+      "parameters": {
+        "note_id": {
+          "type": "string",
+          "description": "Identifier of an existing note."
+        },
+        "tag": {
+          "type": "string",
+          "description": "Tag to apply."
+        },
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        }
+      },
+      "required": [
+        "note_id",
+        "tag"
+      ]
+    },
+    "run_tests": {
+      "name": "run_tests",
+      "description": "Build the project and run its test suite.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "Optional path to scope the test run to."
+        }
+      },
+      "required": []
+    },
+    "run_shell": {
+      "name": "run_shell",
+      "description": "Run any shell command (dotnet, npm, git, python, ...).",
+      "parameters": {
+        "command": {
+          "type": "string",
+          "description": "The shell command to execute."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Optional working directory."
+        },
+        "env_setup": {
+          "type": "string",
+          "description": "Optional environment setup to run first."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Optional short reason, shown to the user."
+        }
+      },
+      "required": [
+        "command"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "cancel_calendar_event",
+    "arguments": {
+      "event_id": "12345",
+      "title": "Project Meeting",
+      "start_time": "2023-10-05T14:00:00Z"
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "write_workspace",
+    "is_destructive": true,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

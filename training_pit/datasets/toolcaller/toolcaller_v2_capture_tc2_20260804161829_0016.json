@@ -1,0 +1,279 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804161829_0016",
+  "lineage_group_id": "tc2_lg_tc2_20260804161829_0016",
+  "captured_at": "2026-08-04T16:18:29Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "I need to create a new note to organize my thoughts about the upcoming project deadline -- create_note should be able to do that.",
+  "available_tools": [
+    "list_files",
+    "ask_user",
+    "get_weather_forecast",
+    "run_tests",
+    "browser_wait",
+    "create_note",
+    "append_spreadsheet_row",
+    "Grep",
+    "image_open",
+    "graph_search",
+    "run_shell"
+  ],
+  "available_tools_schema": {
+    "list_files": {
+      "name": "list_files",
+      "description": "Browse the workspace directory tree.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "Directory to list; defaults to workspace root."
+        },
+        "depth": {
+          "type": "integer",
+          "description": "Recursion depth."
+        }
+      },
+      "required": []
+    },
+    "ask_user": {
+      "name": "ask_user",
+      "description": "Ask the human a clarifying question and wait for their answer.",
+      "parameters": {
+        "question": {
+          "type": "string",
+          "description": "The question to ask."
+        },
+        "options": {
+          "type": "string",
+          "description": "Optional list of suggested answers."
+        }
+      },
+      "required": [
+        "question"
+      ]
+    },
+    "get_weather_forecast": {
+      "name": "get_weather_forecast",
+      "description": "Get the current weather forecast for a location.",
+      "parameters": {
+        "location": {
+          "type": "string",
+          "description": "City name or coordinates."
+        },
+        "days_ahead": {
+          "type": "integer",
+          "description": "How many days ahead to forecast."
+        },
+        "units": {
+          "type": "string",
+          "description": "metric or imperial."
+        }
+      },
+      "required": [
+        "location"
+      ]
+    },
+    "run_tests": {
+      "name": "run_tests",
+      "description": "Build the project and run its test suite.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "Optional path to scope the test run to."
+        }
+      },
+      "required": []
+    },
+    "browser_wait": {
+      "name": "browser_wait",
+      "description": "Wait for an element to become visible on the page, bounded by a timeout (default 10s, max 60s).",
+      "parameters": {
+        "selector": {
+          "type": "string",
+          "description": "CSS selector to wait for."
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "description": "Maximum seconds to wait (default 10, max 60)."
+        }
+      },
+      "required": [
+        "selector"
+      ]
+    },
+    "create_note": {
+      "name": "create_note",
+      "description": "Create a new note.",
+      "parameters": {
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        },
+        "note_id": {
+          "type": "string",
+          "description": "Identifier of an existing note."
+        },
+        "tag": {
+          "type": "string",
+          "description": "Tag to apply."
+        }
+      },
+      "required": [
+        "title",
+        "body"
+      ]
+    },
+    "append_spreadsheet_row": {
+      "name": "append_spreadsheet_row",
+      "description": "Append a row to a spreadsheet.",
+      "parameters": {
+        "sheet_id": {
+          "type": "string",
+          "description": "Spreadsheet identifier."
+        },
+        "values": {
+          "type": "string",
+          "description": "Comma-separated row values."
+        },
+        "range": {
+          "type": "string",
+          "description": "Cell range, e.g. A1:C10."
+        },
+        "row_number": {
+          "type": "integer",
+          "description": "Row number to act on."
+        }
+      },
+      "required": [
+        "sheet_id",
+        "values"
+      ]
+    },
+    "Grep": {
+      "name": "Grep",
+      "description": "A powerful search tool built on ripgrep for searching file contents.",
+      "parameters": {
+        "pattern": {
+          "type": "string",
+          "description": "The regular expression pattern to search for in file contents."
+        },
+        "path": {
+          "type": "string",
+          "description": "File or directory to search in."
+        },
+        "glob": {
+          "type": "string",
+          "description": "Glob pattern to filter files."
+        },
+        "output_mode": {
+          "type": "string",
+          "description": "content | files_with_matches | count."
+        }
+      },
+      "required": [
+        "pattern"
+      ]
+    },
+    "image_open": {
+      "name": "image_open",
+      "description": "Open the local Art Forge Studio workspace.",
+      "parameters": {},
+      "required": []
+    },
+    "graph_search": {
+      "name": "graph_search",
+      "description": "Search the code knowledge graph (BM25 full-text over names + qualified names with camelCase tokenization, plus structural boosting). Returns a plain-text ranked list. Read-only.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search terms (natural language or identifier fragments). BM25 over graph_fts."
+        },
+        "label": {
+          "type": "string",
+          "description": "Optional label filter: Method | Function | Class | Interface | Route | File."
+        },
+        "file_pattern": {
+          "type": "string",
+          "description": "Optional file path substring or wildcard filter."
+        },
+        "min_degree": {
+          "type": "number",
+          "description": "Optional minimum combined edge degree (in+out)."
+        },
+        "limit": {
+          "type": "number",
+          "description": "Maximum results to return. Default 50, max 200."
+        }
+      },
+      "required": []
+    },
+    "run_shell": {
+      "name": "run_shell",
+      "description": "Run any shell command (dotnet, npm, git, python, ...).",
+      "parameters": {
+        "command": {
+          "type": "string",
+          "description": "The shell command to execute."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Optional working directory."
+        },
+        "env_setup": {
+          "type": "string",
+          "description": "Optional environment setup to run first."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Optional short reason, shown to the user."
+        }
+      },
+      "required": [
+        "command"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "create_note",
+    "arguments": {
+      "title": "Project Deadline Notes",
+      "body": "Details to be added later.",
+      "note_id": "",
+      "tag": "project"
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "write_workspace",
+    "is_destructive": true,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

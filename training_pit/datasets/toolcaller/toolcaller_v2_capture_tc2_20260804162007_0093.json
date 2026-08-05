@@ -1,0 +1,193 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804162007_0093",
+  "lineage_group_id": "tc2_lg_tc2_20260804162007_0093",
+  "captured_at": "2026-08-04T16:20:07Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Please use the update_calendar_event tool to reschedule our team meeting to 10:00 AM tomorrow.",
+  "available_tools": [
+    "update_calendar_event",
+    "search_notes",
+    "fetch_url",
+    "delete_contact",
+    "search_contacts",
+    "Glob",
+    "web_search"
+  ],
+  "available_tools_schema": {
+    "update_calendar_event": {
+      "name": "update_calendar_event",
+      "description": "Update the time or details of a calendar event.",
+      "parameters": {
+        "event_id": {
+          "type": "string",
+          "description": "Identifier of an existing event."
+        },
+        "title": {
+          "type": "string",
+          "description": "Event title."
+        },
+        "start_time": {
+          "type": "string",
+          "description": "Event start time, ISO 8601."
+        }
+      },
+      "required": [
+        "event_id"
+      ]
+    },
+    "search_notes": {
+      "name": "search_notes",
+      "description": "Search existing notes by keyword.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search keyword."
+        },
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "body": {
+          "type": "string",
+          "description": "Note body text."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "fetch_url": {
+      "name": "fetch_url",
+      "description": "Download a web page or call an API and return the text.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "URL to fetch."
+        },
+        "max_chars": {
+          "type": "integer",
+          "description": "Maximum characters to return."
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "delete_contact": {
+      "name": "delete_contact",
+      "description": "Delete an existing contact.",
+      "parameters": {
+        "contact_id": {
+          "type": "string",
+          "description": "Identifier of an existing contact."
+        },
+        "name": {
+          "type": "string",
+          "description": "Contact full name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address."
+        }
+      },
+      "required": [
+        "contact_id"
+      ]
+    },
+    "search_contacts": {
+      "name": "search_contacts",
+      "description": "Search contacts by name or company.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search term."
+        },
+        "name": {
+          "type": "string",
+          "description": "Contact full name."
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email address."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "Glob": {
+      "name": "Glob",
+      "description": "Fast file pattern matching tool that works with any codebase size.",
+      "parameters": {
+        "pattern": {
+          "type": "string",
+          "description": "The glob pattern to match files against."
+        },
+        "path": {
+          "type": "string",
+          "description": "The directory to search in."
+        }
+      },
+      "required": [
+        "pattern"
+      ]
+    },
+    "web_search": {
+      "name": "web_search",
+      "description": "Search the public web and return ranked results.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search query."
+        },
+        "max_results": {
+          "type": "integer",
+          "description": "Maximum results to return."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "update_calendar_event",
+    "arguments": {
+      "event_id": "12345",
+      "title": "Team Meeting",
+      "start_time": "2023-10-05T10:00:00Z"
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "write_workspace",
+    "is_destructive": true,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample",
+    "v2-synthetic-target"
+  ]
+}

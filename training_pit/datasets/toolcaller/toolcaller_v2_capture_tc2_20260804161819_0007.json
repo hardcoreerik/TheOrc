@@ -1,0 +1,217 @@
+{
+  "schema_version": "toolcaller-v2",
+  "tool_schema_hash": "11de7b775b04a7d0b0c5a053c1f673424771cef234a906181af3b715085472db",
+  "example_id": "tc2_20260804161819_0007",
+  "lineage_group_id": "tc2_lg_tc2_20260804161819_0007",
+  "captured_at": "2026-08-04T16:18:19Z",
+  "provenance": {
+    "source_type": "synthetic",
+    "producing_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "teacher_model": "qwen2.5-coder-7b-instruct-q5_k_m",
+    "prompt_or_recipe_id": "generate_toolcaller_v2_dataset.py/v2",
+    "derived_from_example_id": null,
+    "generator_seed": 88
+  },
+  "role": "chat",
+  "request": "Could you use fetch_url to check the latest news articles about climate change?",
+  "available_tools": [
+    "get_weather_forecast",
+    "WebSearch",
+    "list_files",
+    "ask_user",
+    "get_architecture",
+    "image_gallery",
+    "Write",
+    "fetch_url",
+    "browser_navigate",
+    "graph_search"
+  ],
+  "available_tools_schema": {
+    "get_weather_forecast": {
+      "name": "get_weather_forecast",
+      "description": "Get the current weather forecast for a location.",
+      "parameters": {
+        "location": {
+          "type": "string",
+          "description": "City name or coordinates."
+        },
+        "days_ahead": {
+          "type": "integer",
+          "description": "How many days ahead to forecast."
+        },
+        "units": {
+          "type": "string",
+          "description": "metric or imperial."
+        }
+      },
+      "required": [
+        "location"
+      ]
+    },
+    "WebSearch": {
+      "name": "WebSearch",
+      "description": "Allows searching the web and using the results.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "The search query to use."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "list_files": {
+      "name": "list_files",
+      "description": "Browse the workspace directory tree.",
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "Directory to list; defaults to workspace root."
+        },
+        "depth": {
+          "type": "integer",
+          "description": "Recursion depth."
+        }
+      },
+      "required": []
+    },
+    "ask_user": {
+      "name": "ask_user",
+      "description": "Ask the human a clarifying question and wait for their answer.",
+      "parameters": {
+        "question": {
+          "type": "string",
+          "description": "The question to ask."
+        },
+        "options": {
+          "type": "string",
+          "description": "Optional list of suggested answers."
+        }
+      },
+      "required": [
+        "question"
+      ]
+    },
+    "get_architecture": {
+      "name": "get_architecture",
+      "description": "Returns a high-level architecture snapshot from the graph: namespaces, top-degree hub nodes, routes, and aggregate counts. Read-only.",
+      "parameters": {},
+      "required": []
+    },
+    "image_gallery": {
+      "name": "image_gallery",
+      "description": "List recent local Art Forge Studio gallery assets.",
+      "parameters": {
+        "limit": {
+          "type": "integer",
+          "description": "Number of assets from 1 through 100"
+        }
+      },
+      "required": []
+    },
+    "Write": {
+      "name": "Write",
+      "description": "Writes a file to the local filesystem, overwriting it if it already exists.",
+      "parameters": {
+        "file_path": {
+          "type": "string",
+          "description": "The absolute path to the file to write."
+        },
+        "content": {
+          "type": "string",
+          "description": "The content to write to the file."
+        }
+      },
+      "required": [
+        "file_path",
+        "content"
+      ]
+    },
+    "fetch_url": {
+      "name": "fetch_url",
+      "description": "Download a web page or call an API and return the text.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "URL to fetch."
+        },
+        "max_chars": {
+          "type": "integer",
+          "description": "Maximum characters to return."
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "browser_navigate": {
+      "name": "browser_navigate",
+      "description": "Navigate the browser to a URL and return the resulting page title.",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "The absolute URL to navigate to (must include a scheme, e.g. https://)."
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "graph_search": {
+      "name": "graph_search",
+      "description": "Search the code knowledge graph (BM25 full-text over names + qualified names with camelCase tokenization, plus structural boosting). Returns a plain-text ranked list. Read-only.",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search terms (natural language or identifier fragments). BM25 over graph_fts."
+        },
+        "label": {
+          "type": "string",
+          "description": "Optional label filter: Method | Function | Class | Interface | Route | File."
+        },
+        "file_pattern": {
+          "type": "string",
+          "description": "Optional file path substring or wildcard filter."
+        },
+        "min_degree": {
+          "type": "number",
+          "description": "Optional minimum combined edge degree (in+out)."
+        },
+        "limit": {
+          "type": "number",
+          "description": "Maximum results to return. Default 50, max 200."
+        }
+      },
+      "required": []
+    }
+  },
+  "approval_state": "n/a",
+  "expected": {
+    "decision": "call",
+    "tool": "fetch_url",
+    "arguments": {
+      "url": "https://news.google.com/search?q=climate+change",
+      "max_chars": 1000
+    },
+    "reason_code": null
+  },
+  "policy_outcome": {
+    "evaluated": true,
+    "risk_level": "read_workspace",
+    "is_destructive": false,
+    "touches_outside_workspace": false,
+    "network_access": false,
+    "block_reason": null,
+    "policy_gap_tool": true
+  },
+  "review_status": "pending",
+  "reviewer": null,
+  "split": null,
+  "notes": "Synthetic — generated by generate_toolcaller_v2_dataset.py using qwen2.5-coder-7b-instruct-q5_k_m",
+  "tags": [
+    "synthetic",
+    "v2-subset-sampled",
+    "v2-explicit-call-counterexample"
+  ]
+}
