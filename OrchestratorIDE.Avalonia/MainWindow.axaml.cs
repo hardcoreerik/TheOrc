@@ -2760,6 +2760,17 @@ public partial class MainWindow : Window
         if (results.Count > 0)
             await Dispatcher.UIThread.InvokeAsync(() =>
                 _toolEditorPanel.RefreshLoadedBadge(_toolCompiler.LoadedToolNames));
+
+        var skillResults = await SkillLoader.ScanAndLoadAllAsync(_registry, workspaceRoot);
+        foreach (var (file, ok, error) in skillResults)
+        {
+            if (ok)
+                AddActivity(new ActivityEvent(ActivityKind.Info, "Skill",
+                    error is null ? $"Auto-loaded: {file}" : $"Auto-loaded: {file} ({error})", DateTime.Now));
+            else
+                AddActivity(new ActivityEvent(ActivityKind.Warning, "Skill",
+                    $"Failed to load {file}: {error}", DateTime.Now));
+        }
     }
 
     private void WireAgentLoop(AgentLoop loop)
