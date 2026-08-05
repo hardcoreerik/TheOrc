@@ -220,6 +220,8 @@
             <MenuItem Header="_Models"
                       AutomationProperties.AutomationId="Menu.Models">
                 <MenuItem Header="Choose Model…"      Click="Menu_ModelChoose"/>
+                <MenuItem Header="Model Depot…"        Click="Menu_ModelDepot"
+                          ToolTip.Tip="Browse the curated model library — specs, benchmarks, install state, downloads"/>
                 <MenuItem Header="Download Models…"   Click="Menu_ModelDownload"/>
                 <Separator/>
                 <MenuItem Header="Warm Up">

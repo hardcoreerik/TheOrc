@@ -3642,6 +3642,9 @@ public partial class MainWindow : Window
     private void Menu_ModelDownload(object? sender, RoutedEventArgs e)
         => RunMenuTask(ShowModelDownloaderAsync(), "Model downloader failed to open");
 
+    private void Menu_ModelDepot(object? sender, RoutedEventArgs e)
+        => RunMenuTask(ShowModelDepotAsync(), "Model Depot failed to open");
+
     private async void Menu_WarmUp(object? sender, RoutedEventArgs e)
     {
         if (sender is not MenuItem mi) return;
@@ -3678,6 +3681,12 @@ public partial class MainWindow : Window
     private async Task ShowModelDownloaderAsync()
     {
         var win = new ModelDownloaderWindow(_settings);
+        await win.ShowDialog(this);
+    }
+
+    private async Task ShowModelDepotAsync()
+    {
+        var win = new ModelDepotWindow(_settings);
         await win.ShowDialog(this);
     }
 

@@ -27,6 +27,22 @@ public sealed class ModelSearchService : IDisposable
         _hf = new HuggingFaceClient(accessToken, settings);
     }
 
+    // ── Network-free browse (Model Depot) ─────────────────────────────────────
+
+    /// <summary>
+    /// The full curated catalog as <see cref="ModelSearchResult"/> rows, with no HF/network
+    /// call and no query filter — the default "browse everything" list for Model Depot's card
+    /// grid (SearchAsync always hits the live HF API even for an empty query, which is wrong
+    /// for a default view that should render instantly and work offline). Reuses the exact same
+    /// curated -> result mapping SearchAsync's curated-first pass uses, just without an HF hit
+    /// to enrich download/like stats with (a search later can still upgrade a card in place).
+    /// </summary>
+    public static List<ModelSearchResult> BrowseCurated() =>
+        CuratedModelCatalog.All
+            .OrderByDescending(c => c.QualityStars)
+            .Select(ce => CuratedToResult(ce, hfHit: null))
+            .ToList();
+
     // ── Main search entry point ───────────────────────────────────────────────
 
     /// <summary>

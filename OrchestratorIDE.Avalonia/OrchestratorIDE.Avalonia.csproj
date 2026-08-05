@@ -257,6 +257,8 @@
     <Compile Include="..\OrchestratorIDE\Services\Models\HuggingFaceAccessTokenResolver.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Models\HuggingFaceClient.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Models\ModelCapabilityTestService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Models\ModelDepotBrowserService.cs" />
+    <Compile Include="..\OrchestratorIDE\Services\Models\ModelDepotCardEntry.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Models\ModelDownloadService.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Models\ModelSearchService.cs" />
     <Compile Include="..\OrchestratorIDE\Services\Models\ModelStatusService.cs" />
