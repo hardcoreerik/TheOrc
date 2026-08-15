@@ -34,10 +34,7 @@ from oracle.weights import build_weights
 # Machine-specific -- override with the ORC_LLAMA_SERVER_PATH env var. Get the binary from
 # https://github.com/ggml-org/llama.cpp/releases/tag/b10436 (llama-b10436-bin-win-cpu-x64.zip
 # on Windows; adjust for other platforms) and point this at llama-server(.exe) from that build.
-LLAMA_SERVER_PATH = os.environ.get(
-    "ORC_LLAMA_SERVER_PATH",
-    r"C:\Users\hardc\AppData\Local\Temp\llamacpp_test\llama-server.exe",
-)
+LLAMA_SERVER_PATH = os.environ.get("ORC_LLAMA_SERVER_PATH", "")
 PORT = 8734
 SEED = 20260814
 LOGPROB_ATOL = 0.1  # looser than intra-Python tolerances -- cross-language, cross-library comparison

@@ -27,19 +27,17 @@ import json
 import os
 import subprocess
 
-from gguf import GGUFWriter, TokenType
+from gguf import TokenType
 from tokenizers import Tokenizer
 
-from oracle.convert_real_candidate import SOURCE_DIR, _load_config, _load_tokenizer_arrays
-import torch
-from safetensors import safe_open
+from oracle.convert_real_candidate import SOURCE_DIR, _load_config, _load_tokenizer_arrays, write_gguf
 
 FAULTED_GGUF_PATH = os.path.join(os.path.dirname(__file__), "..", "artifacts", "smollm2-135m-faulted-special-token.gguf")
 CORRECT_GGUF_PATH = os.path.join(os.path.dirname(__file__), "..", "artifacts", "smollm2-135m.gguf")
-LLAMA_TOKENIZE_PATH = os.environ.get(
-    "ORC_LLAMA_TOKENIZE_PATH",
-    r"C:\Users\hardc\AppData\Local\Temp\llamacpp_test\llama-tokenize.exe",
-)
+# No hardcoded local-account default (CodeRabbit finding, PR #102: a hardcoded
+# C:\Users\<name>\... path published a local username in the repo). Must be set
+# explicitly via env var; run() fails loudly with a clear message if it isn't.
+LLAMA_TOKENIZE_PATH = os.environ.get("ORC_LLAMA_TOKENIZE_PATH", "")
 TOKENIZER_JSON_PATH = os.path.join(SOURCE_DIR, "tokenizer.json")
 
 FAULT_TOKEN = "<|im_start|>"
@@ -56,58 +54,12 @@ def _write_faulted_gguf() -> str:
     token_types = list(token_types)
     token_types[fault_idx] = int(TokenType.NORMAL)  # THE FAULT: control -> normal
 
-    hidden, n_layers = config["hidden_size"], config["num_hidden_layers"]
-    intermediate = config["intermediate_size"]
-    n_heads, n_kv_heads = config["num_attention_heads"], config["num_key_value_heads"]
-    head_dim = hidden // n_heads
-
-    writer = GGUFWriter(FAULTED_GGUF_PATH, arch="llama")
-    writer.add_name("SmolLM2-135M-faulted-special-token")
-    writer.add_context_length(config["max_position_embeddings"])
-    writer.add_embedding_length(hidden)
-    writer.add_block_count(n_layers)
-    writer.add_feed_forward_length(intermediate)
-    writer.add_head_count(n_heads)
-    writer.add_head_count_kv(n_kv_heads)
-    writer.add_layer_norm_rms_eps(config["rms_norm_eps"])
-    writer.add_rope_dimension_count(head_dim)
-    writer.add_rope_freq_base(config["rope_theta"])
-    writer.add_file_type(0)
-    writer.add_tokenizer_model("gpt2")
-    writer.add_tokenizer_pre("smollm")
-    writer.add_token_list(tokens)
-    writer.add_token_merges(merges)
-    writer.add_token_types(token_types)  # faulted array
-    writer.add_bos_token_id(config["bos_token_id"])
-    writer.add_eos_token_id(config["eos_token_id"])
-    writer.add_add_bos_token(False)
-    writer.add_add_eos_token(False)
-
-    safetensors_path = os.path.join(SOURCE_DIR, "model.safetensors")
-    with safe_open(safetensors_path, framework="pt") as f:
-        def get(name):
-            return f.get_tensor(name).to(dtype=torch.float32).numpy()
-        embed = get("model.embed_tokens.weight")
-        writer.add_tensor("token_embd.weight", embed)
-        writer.add_tensor("output_norm.weight", get("model.norm.weight"))
-        writer.add_tensor("output.weight", embed)
-        for i in range(n_layers):
-            p = f"model.layers.{i}."
-            writer.add_tensor(f"blk.{i}.attn_norm.weight", get(p + "input_layernorm.weight"))
-            writer.add_tensor(f"blk.{i}.attn_q.weight", get(p + "self_attn.q_proj.weight"))
-            writer.add_tensor(f"blk.{i}.attn_k.weight", get(p + "self_attn.k_proj.weight"))
-            writer.add_tensor(f"blk.{i}.attn_v.weight", get(p + "self_attn.v_proj.weight"))
-            writer.add_tensor(f"blk.{i}.attn_output.weight", get(p + "self_attn.o_proj.weight"))
-            writer.add_tensor(f"blk.{i}.ffn_norm.weight", get(p + "post_attention_layernorm.weight"))
-            writer.add_tensor(f"blk.{i}.ffn_gate.weight", get(p + "mlp.gate_proj.weight"))
-            writer.add_tensor(f"blk.{i}.ffn_up.weight", get(p + "mlp.up_proj.weight"))
-            writer.add_tensor(f"blk.{i}.ffn_down.weight", get(p + "mlp.down_proj.weight"))
-
-    writer.write_header_to_file()
-    writer.write_kv_data_to_file()
-    writer.write_tensors_to_file()
-    writer.close()
-    return FAULTED_GGUF_PATH
+    # Same writer as the correct conversion (oracle.convert_real_candidate.write_gguf) --
+    # only token_types differs, so this fault is isolated to exactly the one variable
+    # under test (CodeRabbit finding, PR #102: previously a hand-duplicated copy of the
+    # whole writer, which could silently drift from convert_real_candidate.py over time).
+    return write_gguf(FAULTED_GGUF_PATH, "SmolLM2-135M-faulted-special-token", config,
+                       tokens, merges, token_types)
 
 
 def _llama_cpp_tokenize(gguf_path: str, text: str) -> list[int]:
@@ -124,6 +76,9 @@ def _llama_cpp_tokenize(gguf_path: str, text: str) -> list[int]:
 
 
 def run() -> bool:
+    if not LLAMA_TOKENIZE_PATH:
+        print("FAIL: ORC_LLAMA_TOKENIZE_PATH is not set (path to llama-tokenize.exe)")
+        return False
     if not os.path.isfile(CORRECT_GGUF_PATH):
         print("FAIL: correct GGUF not found, run oracle.convert_real_candidate first")
         return False

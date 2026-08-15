@@ -10,10 +10,10 @@ PHASE_0_ARCHITECTURE_PROFILE.md's "Synthetic storage contract":
   pinned."
 
 Pinned algorithm: numpy.random.default_rng(seed) (NumPy's PCG64 bit
-generator), standard_normal(), scaled by 0.02 and cast to float32. This
-generator/version pairing is part of the weight identity -- if NumPy's
-default_rng algorithm ever changes, weights must be regenerated and
-re-hashed, not silently assumed identical.
+generator), standard_normal(), scaled by WEIGHT_SCALE (0.1, see below) and
+cast to float32. This generator/version pairing is part of the weight
+identity -- if NumPy's default_rng algorithm ever changes, weights must be
+regenerated and re-hashed, not silently assumed identical.
 
 Every matrix is stored as [out_features, in_features] in C row-major
 order, per the synthetic storage contract. Norm weights are stored as

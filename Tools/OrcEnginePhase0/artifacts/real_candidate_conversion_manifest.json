@@ -1,7 +1,7 @@
 {
   "conversion_command": "python3 -m oracle.convert_real_candidate",
   "converter_script_sha256": "75c6e2f90d03a5bbb0f71a8d87282f91fbf72f8fbe6364b8c75d9936bf9828f6",
-  "output_gguf_path": "F:\\Ai\\OrchestratorIDE-dev\\Tools\\OrcEnginePhase0\\oracle\\..\\artifacts\\smollm2-135m.gguf",
+  "output_gguf_path": "Tools/OrcEnginePhase0/artifacts/smollm2-135m.gguf",
   "output_gguf_sha256": "fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac",
   "parsed_field_count": 24,
   "parsed_metadata_fields": [

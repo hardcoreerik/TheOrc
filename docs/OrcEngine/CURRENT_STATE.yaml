@@ -113,7 +113,7 @@ decisions:
     state: accepted
     summary: Phase 0 product-value thesis (prevented capability, Qwen3.8-27B/LLamaSharp evidence) -- approved by maintainer 2026-08-15
   - id: OE-ADR-017
-    state: superseded_with_correction
+    state: superseded
     summary: real-candidate logit tolerance investigation -- an initial hypothesis was tested and found false (left visible, corrected in place); resolved via real HF reference ground truth, our oracle proven exact match
   - id: OE-ADR-018
     state: accepted

@@ -129,10 +129,13 @@ python3 -m oracle.hf_reference_check            # the real_candidate_logits gate
 ```
 
 Pinned environment: CPython 3.14.3, numpy 2.5.2, torch 2.13.0+cpu,
-gguf 0.19.0, huggingface_hub 1.27.0, safetensors 0.8.0, tokenizers 0.23.1,
+gguf 0.19.0, huggingface_hub 1.27.0, safetensors 0.8.0, tokenizers 0.22.2,
 transformers 5.15.0 (all in `requirements.txt`).
-`oracle.llama_cpp_deployment_oracle` and
-`oracle.tokenizer_special_token_fault` additionally need a pinned llama.cpp
-build (b10436, 2026-08-14) — path configurable via `ORC_LLAMA_SERVER_PATH`
-/ `ORC_LLAMA_TOKENIZE_PATH` env vars, get it from
+`oracle.llama_cpp_deployment_oracle` and `oracle.real_candidate_logits_check`
+additionally need a pinned llama.cpp build (b10436, 2026-08-14) — path
+configurable via the `ORC_LLAMA_SERVER_PATH` env var (no default; must be
+set explicitly). `oracle.tokenizer_special_token_fault` and
+`oracle.tokenizer_dual_source_check` need the same build's
+`llama-tokenize(.exe)` — path via `ORC_LLAMA_TOKENIZE_PATH` (also no
+default). Get the build from
 https://github.com/ggml-org/llama.cpp/releases/tag/b10436.

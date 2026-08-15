@@ -30,10 +30,7 @@ from tokenizers import Tokenizer
 
 TOKENIZER_JSON_PATH = os.path.join(os.path.dirname(__file__), "..", "artifacts", "smollm2-135m", "tokenizer.json")
 GGUF_PATH = os.path.join(os.path.dirname(__file__), "..", "artifacts", "smollm2-135m.gguf")
-LLAMA_TOKENIZE_PATH = os.environ.get(
-    "ORC_LLAMA_TOKENIZE_PATH",
-    r"C:\Users\hardc\AppData\Local\Temp\llamacpp_test\llama-tokenize.exe",
-)
+LLAMA_TOKENIZE_PATH = os.environ.get("ORC_LLAMA_TOKENIZE_PATH", "")
 
 FIXTURES = [
     "The capital of France is",

@@ -44,10 +44,7 @@ from oracle.convert_real_candidate import SOURCE_DIR, _load_config
 from oracle.model import ModelConfig, forward
 from oracle.weights import LayerWeights, ModelWeights
 
-LLAMA_SERVER_PATH = os.environ.get(
-    "ORC_LLAMA_SERVER_PATH",
-    r"C:\Users\hardc\AppData\Local\Temp\llamacpp_test\llama-server.exe",
-)
+LLAMA_SERVER_PATH = os.environ.get("ORC_LLAMA_SERVER_PATH", "")
 PORT = 8735
 # Pass criterion per docs/OrcEngine/DECISION_LOG.md OE-ADR-017: argmax must match exactly,
 # AND the top-3 ranked tokens' log_softmax must agree within this bound. Tail candidates

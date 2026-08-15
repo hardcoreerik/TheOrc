@@ -22,7 +22,9 @@ endianness, and hash, per the acceptance check's own wording.
 from __future__ import annotations
 
 import hashlib
+import os
 import platform
+import subprocess
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -32,10 +34,38 @@ import yaml
 from oracle.artifact_record import TensorArtifactRecord, build_tensor_artifact_record
 
 SCHEMA_VERSION = 1
+_REQUIREMENTS_PATH = os.path.join(os.path.dirname(__file__), "..", "requirements.txt")
 
 
 def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _git_commit() -> str:
+    """Real commit SHA at manifest-generation time, not a 'see git log' placeholder --
+    this is what actually binds a manifest's tensor checksums to the exact oracle/model.py
+    revision that generated them (CodeRabbit finding, PR #102)."""
+    try:
+        out = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True,
+                              cwd=os.path.dirname(__file__), timeout=10)
+        sha = out.stdout.strip()
+        if out.returncode == 0 and sha:
+            dirty = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True,
+                                    cwd=os.path.dirname(__file__), timeout=10).stdout.strip()
+            return f"{sha}{'-dirty' if dirty else ''}"
+    except Exception:
+        pass
+    return "unknown (git rev-parse failed)"
+
+
+def _environment_lock_sha256() -> str:
+    """SHA-256 of requirements.txt's exact pinned-dependency content -- the environment-lock
+    identity this manifest's oracle results depend on."""
+    try:
+        with open(_REQUIREMENTS_PATH, "rb") as f:
+            return _sha256_bytes(f.read())
+    except Exception:
+        return "unknown (requirements.txt unreadable)"
 
 
 @dataclass
@@ -64,7 +94,8 @@ class OracleManifest:
             },
             "oracle": {
                 "implementation": "Tools/OrcEnginePhase0/oracle/model.py (NumPy reference)",
-                "version_or_commit": "see git log for this file at manifest generation time",
+                "version_or_commit": _git_commit(),
+                "environment_lock_sha256": _environment_lock_sha256(),
                 "environment": {
                     "python": platform.python_version(),
                     "numpy": np.__version__,
@@ -94,6 +125,8 @@ REQUIRED_TOP_LEVEL_KEYS = {
 REQUIRED_TENSOR_RECORD_KEYS = {
     "name", "dtype", "logical_shape", "byte_strides", "layout", "endianness", "sha256",
 }
+REQUIRED_ORACLE_KEYS = {"implementation", "version_or_commit", "environment_lock_sha256"}
+_PLACEHOLDER_MARKERS = ("see git log", "unknown")
 
 
 def validate_manifest_dict(d: dict) -> list[str]:
@@ -102,6 +135,16 @@ def validate_manifest_dict(d: dict) -> list[str]:
     missing_top = REQUIRED_TOP_LEVEL_KEYS - set(d.keys())
     if missing_top:
         problems.append(f"missing top-level keys: {sorted(missing_top)}")
+
+    oracle = d.get("oracle", {})
+    missing_oracle = REQUIRED_ORACLE_KEYS - set(oracle.keys())
+    if missing_oracle:
+        problems.append(f"oracle section missing keys: {sorted(missing_oracle)}")
+    for key in ("version_or_commit", "environment_lock_sha256"):
+        val = str(oracle.get(key, ""))
+        if any(marker in val for marker in _PLACEHOLDER_MARKERS):
+            problems.append(f"oracle.{key} is a placeholder, not an immutable value: {val!r}")
+
     for i, t in enumerate(d.get("tensor_artifacts", [])):
         missing = REQUIRED_TENSOR_RECORD_KEYS - set(t.keys())
         if missing:

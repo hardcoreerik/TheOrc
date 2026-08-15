@@ -95,8 +95,17 @@ def _load_tokenizer_arrays() -> tuple[list[str], list[str], list[int]]:
     return tokens_by_id, merges, token_types
 
 
-def convert() -> str:
-    config = _load_config()
+def write_gguf(output_path: str, name: str, config: dict,
+                tokens: list[str], merges: list[str], token_types: list[int]) -> str:
+    """
+    Single source of truth for the real-candidate GGUF layout. Both the correct
+    conversion (convert(), below) and the deliberately-faulted variant
+    (oracle/tokenizer_special_token_fault.py) call this with everything identical
+    except token_types -- extracted per a CodeRabbit finding (PR #102): the fault
+    script originally copy-pasted this whole function, which meant a future
+    metadata change to convert() alone would make the faulted GGUF differ from the
+    correct one in a SECOND dimension, no longer isolating the injected fault.
+    """
     hidden = config["hidden_size"]
     n_layers = config["num_hidden_layers"]
     intermediate = config["intermediate_size"]
@@ -109,15 +118,14 @@ def convert() -> str:
     bos_id = config["bos_token_id"]
     eos_id = config["eos_token_id"]
 
-    tokens, merges, token_types = _load_tokenizer_arrays()
+    assert config.get("tie_word_embeddings", False), \
+        "tie_word_embeddings is false in source config; output.weight must come from " \
+        "lm_head.weight, not token_embd.weight -- this converter only implements the tied case"
 
-    safetensors_path = os.path.join(SOURCE_DIR, "model.safetensors")
-    source_sha256 = _sha256_file(safetensors_path)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    writer = GGUFWriter(output_path, arch="llama")
 
-    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-    writer = GGUFWriter(OUTPUT_PATH, arch="llama")
-
-    writer.add_name("SmolLM2-135M")
+    writer.add_name(name)
     writer.add_context_length(max_pos)
     writer.add_embedding_length(hidden)
     writer.add_block_count(n_layers)
@@ -144,16 +152,17 @@ def convert() -> str:
     writer.add_add_bos_token(False)
     writer.add_add_eos_token(False)
 
+    safetensors_path = os.path.join(SOURCE_DIR, "model.safetensors")
     # Loaded as bfloat16 (config.json: torch_dtype=bfloat16) -- numpy has no native bfloat16,
     # so load via the PyTorch framework (which does) and upcast to float32 explicitly.
     with safe_open(safetensors_path, framework="pt") as f:
-        def get(name: str) -> np.ndarray:
-            return f.get_tensor(name).to(dtype=torch.float32).numpy()
+        def get(tensor_name: str) -> np.ndarray:
+            return f.get_tensor(tensor_name).to(dtype=torch.float32).numpy()
 
         embed = get("model.embed_tokens.weight")
         writer.add_tensor("token_embd.weight", embed)
         writer.add_tensor("output_norm.weight", get("model.norm.weight"))
-        writer.add_tensor("output.weight", embed)  # tied, per config.tie_word_embeddings
+        writer.add_tensor("output.weight", embed)  # tied, asserted above
 
         for i in range(n_layers):
             p = f"model.layers.{i}."
@@ -171,6 +180,17 @@ def convert() -> str:
     writer.write_kv_data_to_file()
     writer.write_tensors_to_file()
     writer.close()
+    return output_path
+
+
+def convert() -> str:
+    config = _load_config()
+    tokens, merges, token_types = _load_tokenizer_arrays()
+
+    safetensors_path = os.path.join(SOURCE_DIR, "model.safetensors")
+    source_sha256 = _sha256_file(safetensors_path)
+
+    write_gguf(OUTPUT_PATH, "SmolLM2-135M", config, tokens, merges, token_types)
 
     output_sha256 = _sha256_file(OUTPUT_PATH)
     size = os.path.getsize(OUTPUT_PATH)

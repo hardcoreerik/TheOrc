@@ -67,7 +67,8 @@ required_checks:
   - id: artifact_schema_complete
     evidence: every tensor record includes name, dtype, logical shape, byte strides, layout, endianness, and hash
     result: pass
-    result_evidence: Tools/OrcEnginePhase0/oracle/manifest.py (OracleManifest, all schema
+    result_evidence: |
+      Tools/OrcEnginePhase0/oracle/manifest.py (OracleManifest, all schema
       sections) + oracle/artifact_record.py (TensorArtifactRecord: name, dtype, logical_shape,
       byte_strides, layout, endianness, sha256) + oracle/generate_manifest.py, which generates
       a real manifest from a live Fixture C run, writes it to
@@ -79,7 +80,8 @@ required_checks:
   - id: tokenizer_dual_source_agreement
     evidence: source-tokenizer and GGUF-embedded-tokenizer fixtures agree exactly or candidate is rejected
     result: pass
-    result_evidence: Tools/OrcEnginePhase0/oracle/tokenizer_dual_source_check.py — 5/5
+    result_evidence: |
+      Tools/OrcEnginePhase0/oracle/tokenizer_dual_source_check.py — 5/5
       fixtures (ASCII, punctuation, digits, leading whitespace, non-ASCII "café résumé")
       tokenize to byte-identical token ID lists between the pinned HF tokenizer.json
       (via the `tokenizers` library) and llama.cpp's own tokenizer reading our converted
@@ -91,7 +93,8 @@ required_checks:
   - id: raw_prompt_identity
     evidence: raw bytes, rendered template, token IDs, and their hashes are retained
     result: pass
-    result_evidence: Tools/OrcEnginePhase0/oracle/raw_prompt_identity.py, writing
+    result_evidence: |
+      Tools/OrcEnginePhase0/oracle/raw_prompt_identity.py, writing
       artifacts/raw_prompt_identity_manifest.json — 6 fixture records (1 synthetic
       Profile A via control tokens, 5 real SmolLM2-135M fixtures via the pinned HF
       tokenizer), each with raw_text, raw_bytes_sha256, rendered_prompt (explicitly
@@ -101,7 +104,8 @@ required_checks:
   - id: synthetic_operator_microcases
     evidence: hand-verifiable operator vectors pass exact or approved numeric comparisons
     result: pass
-    result_evidence: Tools/OrcEnginePhase0/oracle/microcases.py — 11/11 microcases pass
+    result_evidence: |
+      Tools/OrcEnginePhase0/oracle/microcases.py — 11/11 microcases pass
       (matmul, RMSNorm, softmax, causal mask, causal_mask_rectangular, RoPE at position 0
       and position 1, SiLU, elementwise add/multiply, embedding lookup). Expected values
       from a scalar math-stdlib reference path independent of oracle/ops.py. Originally
@@ -111,7 +115,8 @@ required_checks:
   - id: synthetic_layer_taps
     evidence: all required OE-L0-SYNTH-1 intermediate taps pass named tolerance profiles
     result: pass
-    result_evidence: Tools/OrcEnginePhase0/oracle/synthetic_layer_taps_check.py — every
+    result_evidence: |
+      Tools/OrcEnginePhase0/oracle/synthetic_layer_taps_check.py — every
       one of the 17 required per-layer taps (both layers of the full n_layers=2 Profile A)
       plus 3 top-level taps (input_embedding, final_normalized_state, logits) = 37 tap
       comparisons, all pass between the NumPy (oracle/model.py) and independently-written
@@ -122,7 +127,8 @@ required_checks:
   - id: cache_equivalence
     evidence: full-prefix and incremental decode last-position states and logits agree within approved bounds
     result: pass
-    result_evidence: Tools/OrcEnginePhase0/oracle/fixture_c.py — full Profile A (n_layers=2),
+    result_evidence: |
+      Tools/OrcEnginePhase0/oracle/fixture_c.py — full Profile A (n_layers=2),
       seq=5 token sequence. Full-prefix forward() vs prefill(4)+cached-decode(1) last-position
       logits agree, max_abs_diff=2.384e-07 (well within 1e-6 atol/1e-5 rtol). Repeated with a
       fresh KV-cache object (context reset) with identical result. Cross-run bit-identical
@@ -130,7 +136,8 @@ required_checks:
   - id: near_tie_logits
     evidence: fixtures include a controlled near-tie and verify logits, top-token margin, argmax, and exact-tie rule
     result: pass
-    result_evidence: Tools/OrcEnginePhase0/oracle/fixture_near_tie.py — constructs a near-tie
+    result_evidence: |
+      Tools/OrcEnginePhase0/oracle/fixture_near_tie.py — constructs a near-tie
       (two tied-embedding rows perturbed by 1e-4) yielding margin=0.000145 between tokens 7/8,
       and an exact tie (identical rows) yielding bit-exact-equal logits (-0.1041162833571434 ==
       -0.1041162833571434). Exact-tie decode rule (Profile A: lowest token ID wins) verified
@@ -140,7 +147,8 @@ required_checks:
   - id: deterministic_regeneration
     evidence: two clean regenerations produce identical non-floating identities and approved floating comparisons
     result: pass
-    result_evidence: Tools/OrcEnginePhase0/oracle/deterministic_regeneration.py — runs
+    result_evidence: |
+      Tools/OrcEnginePhase0/oracle/deterministic_regeneration.py — runs
       oracle/regen_artifact.py as two SEPARATE python3 subprocesses (fresh interpreter each
       time, not two in-process calls). Non-floating identities (shapes, dtypes, selected
       tokens, weight-array SHA-256s) exactly equal. Floating logits bit-exact (identical
@@ -165,7 +173,8 @@ required_checks:
   - id: real_candidate_conversion
     evidence: pinned conversion command and GGUF hash with strict parser manifest
     result: pass
-    result_evidence: Tools/OrcEnginePhase0/oracle/real_candidate_conversion_manifest.py,
+    result_evidence: |
+      Tools/OrcEnginePhase0/oracle/real_candidate_conversion_manifest.py,
       writing artifacts/real_candidate_conversion_manifest.json — conversion command,
       converter script SHA-256, source safetensors SHA-256, output GGUF SHA-256
       (fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac, reproducible

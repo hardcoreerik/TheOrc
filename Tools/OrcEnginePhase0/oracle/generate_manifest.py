@@ -14,7 +14,7 @@ import numpy as np
 import yaml
 
 from oracle.artifact_record import build_tensor_artifact_record
-from oracle.manifest import OracleManifest, validate_manifest_dict
+from oracle.manifest import REQUIRED_TOP_LEVEL_KEYS, OracleManifest, validate_manifest_dict
 from oracle.model import ModelConfig, forward
 from oracle.weights import build_weights
 
@@ -66,14 +66,9 @@ def run() -> bool:
             print(f"  - {p}")
         return False
 
-    print(f"schema-complete: all {len(REQUIRED_TOP_LEVEL_KEYS_MSG)} top-level sections present, "
+    print(f"schema-complete: all {len(REQUIRED_TOP_LEVEL_KEYS)} top-level sections present, "
           f"{len(reloaded['tensor_artifacts'])} tensor artifacts each with all 7 required fields")
     return True
-
-
-REQUIRED_TOP_LEVEL_KEYS_MSG = {
-    "schema_version", "model", "gguf", "tokenizer", "oracle", "fixture", "numeric", "tensor_artifacts",
-}
 
 
 if __name__ == "__main__":

@@ -10,7 +10,8 @@ tokenizer:
   reason: Profile A consumes raw token IDs directly, no tokenizer exists
 oracle:
   implementation: Tools/OrcEnginePhase0/oracle/model.py (NumPy reference)
-  version_or_commit: see git log for this file at manifest generation time
+  version_or_commit: e0fb621359c0b4fd251144b65050671202ee2ec7-dirty
+  environment_lock_sha256: 3ea470838ff4050b592c77f91bcbf58d7b9da457a9d3a7cdf23f29c7b3641c63
   environment:
     python: 3.14.3
     numpy: 2.5.2
