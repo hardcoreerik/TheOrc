@@ -54,17 +54,16 @@ ladder (Fixture A), not the full ladder.
   integer/byte/shape/token-ID comparisons, `compare_tolerant` for float
   comparisons.
 
-## Known open design point
+## Resolved: weight-init scale was masking faults (OE-ADR-015)
 
-Fixture B's weight-init scale (`WEIGHT_SCALE = 0.02` in `oracle/weights.py`)
-is *my* choice, not something the spec pins. With residual connections and
-tied embeddings, this small a scale keeps the block close to an identity
-function, so on the current test sequence greedy decode trivially recovers
-each input token as its own argmax. That's an expected numerical property
-of small-init residual nets, not a bug — but it means this seed/scale
-combination is a weak fixture for exercising the attention/FFN math under
-test. Worth revisiting (either a larger scale or an adversarial fixture)
-before this fixture is relied on for fault-injection proof.
+Fixture B originally used `WEIGHT_SCALE = 0.02`, which kept residual blocks
+close to identity — greedy decode trivially recovered each input token as
+its own argmax, and a measured test (transposed `w_o`) showed the fault
+produced only a 0.07 max logit diff and did **not** flip argmax: invisible
+to fault-injection comparison. Raised to `WEIGHT_SCALE = 0.1` (2026-08-14,
+see `docs/OrcEngine/DECISION_LOG.md` OE-ADR-015) — the same fault now
+produces a 1.21 max logit diff and reliably flips argmax. Fixture A and B
+both still pass under the new scale.
 
 ## What's deliberately NOT here
 

@@ -28,7 +28,13 @@ import numpy as np
 
 DTYPE = np.float32
 NUMPY_GENERATOR = "numpy.random.default_rng (PCG64)"
-WEIGHT_SCALE = 0.02
+# 0.1, not 0.02: measured 2026-08-14 (see docs/OrcEngine/DECISION_LOG.md
+# OE-ADR-015). At 0.02, a transposed w_o fault on Fixture B (n_layers=1)
+# produced only a 0.070 max logit diff and did NOT flip argmax -- invisible
+# to the fault-injection acceptance check. At 0.1, the same fault produces a
+# 1.21 max logit diff and reliably flips argmax. Values above 0.1 detect
+# faults even more clearly but were not required to clear this bar.
+WEIGHT_SCALE = 0.1
 
 
 @dataclass(frozen=True)

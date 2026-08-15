@@ -128,3 +128,20 @@ Supersedes / superseded by:
 - **Date:** 2026-07-18
 - **Decision:** `OE-L0-SYNTH-1` is the exact synthetic profile. `HuggingFaceTB/SmolLM2-135M` revision `93efa2f097d58c2a74874c7e644dbc9b0cee75a2` is the first real-model candidate.
 - **Consequence:** candidate status does not imply supported execution. Conversion, hashes, tokenizer reconciliation, licensing, and oracle reproduction remain Phase 0 gates.
+
+## OE-ADR-015 — Fixture B/C weight-init scale raised to 0.1
+
+- **Status:** accepted
+- **Date:** 2026-08-14
+- **Owner:** Claude (Sonnet 5), OrcEngine Phase 0 loop
+- **Context:** `oracle/weights.py`'s synthetic weight generator (`numpy.random.default_rng(seed).standard_normal() * WEIGHT_SCALE`) originally used `WEIGHT_SCALE = 0.02`. The Phase 0 exit gate requires the oracle harness to detect seeded faults (transposed projections, wrong RoPE pairing, missing causal mask, etc.); a scale too small relative to the residual path can mask those faults.
+- **Evidence:** measured on Fixture B (`n_layers=1`, hidden=16, seed=20260814, token_ids=[1,5,9,3]), injecting a transposed `w_o` fault and comparing logits against the unfaulted baseline:
+  - `scale=0.02` → max\|Δlogit\|=0.0696, mean\|Δlogit\|=0.0207, **argmax unchanged** (fault invisible to greedy-decode comparison)
+  - `scale=0.10` → max\|Δlogit\|=1.2084, mean\|Δlogit\|=0.3679, argmax changed
+  - `scale=0.30` → max\|Δlogit\|=6.0313, argmax changed
+  - `scale=0.50` → max\|Δlogit\|=10.0058, argmax changed
+  - `scale=1.00` → max\|Δlogit\|=18.9345, argmax changed
+- **Decision:** set `WEIGHT_SCALE = 0.1` — the smallest tested value where the reference fault reliably flips argmax, keeping weights as close to the original small-init intent as the fault-detection requirement allows.
+- **Alternatives:** leave at 0.02 and rely solely on tight numeric-tolerance comparison of intermediate taps (rejected for now: still fragile for faults with small first-order effect, and the exit gate's own bar is "detects at least" the seven listed faults, not "logits differ by any epsilon"); use a much larger scale (e.g. 1.0) for maximum fault visibility (rejected: unnecessarily far from typical small-init transformer behavior for no added benefit at this fixture size).
+- **Consequence:** `Tools/OrcEnginePhase0/oracle/weights.py` regenerates different weight values than any artifact produced under the old scale; any previously retained Fixture B/C artifacts generated at 0.02 are stale and must be regenerated. No such artifacts were committed yet, so no migration is required.
+- **Validation/revisit trigger:** if the full 7-fault injection suite (not yet built) finds a fault type that remains undetectable at 0.1, raise the scale again with the same kind of measured evidence, or introduce a fault-type-specific fixture instead of a single global scale.
