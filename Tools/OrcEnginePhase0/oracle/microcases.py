@@ -129,6 +129,29 @@ def run_all() -> list[ComparisonRecord]:
         reason="" if struct_ok else "causal mask structure mismatch",
     ))
 
+    # 4b. causal_mask_rectangular: scores 2x5 (q_len=2, k_len=5), query_start_position=3
+    #     -> query abs positions [3,4]. Row for abs pos 3 may attend to keys 0..3 (col 4 masked).
+    #     Row for abs pos 4 may attend to keys 0..4 (nothing masked). Needed for Fixture C's
+    #     incremental-decode path, where query positions are offset from key positions by the
+    #     cached prefix length.
+    scores4b = np.array([[1.0, 2.0, 3.0, 4.0, 5.0], [6.0, 7.0, 8.0, 9.0, 10.0]], dtype=np.float32)
+    expected4b = np.array([[1.0, 2.0, 3.0, 4.0, float("-inf")], [6.0, 7.0, 8.0, 9.0, 10.0]], dtype=np.float32)
+    actual4b = ops.causal_mask_rectangular(scores4b, query_start_position=3)
+    struct_ok_4b = np.array_equal(np.isneginf(expected4b), np.isneginf(actual4b)) and np.allclose(
+        expected4b[~np.isneginf(expected4b)], actual4b[~np.isneginf(actual4b)], atol=ATOL, rtol=RTOL
+    )
+    records.append(ComparisonRecord(
+        name="causal_mask_rectangular", layer=None, position=None,
+        dtype=str(actual4b.dtype), shape=actual4b.shape, strides=actual4b.strides,
+        expected_hash="n/a (contains -inf)", actual_hash="n/a (contains -inf)",
+        max_abs_error=0.0 if struct_ok_4b else float("inf"), max_abs_error_index=None,
+        max_rel_error=0.0 if struct_ok_4b else float("inf"), max_rel_error_index=None,
+        mean_abs_error=0.0 if struct_ok_4b else float("inf"),
+        nan_count=int(np.isnan(actual4b).sum()), inf_count=int(np.isinf(actual4b).sum()),
+        cosine_similarity=None, tolerance_profile="structural-exact", passed=struct_ok_4b,
+        reason="" if struct_ok_4b else "rectangular causal mask structure mismatch",
+    ))
+
     # 5. RoPE identity at position 0: any x is unchanged (cos=1, sin=0 everywhere)
     x5 = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
     cos5, sin5 = ops.rope_cos_sin(position=0, head_dim=4, theta=10000.0)

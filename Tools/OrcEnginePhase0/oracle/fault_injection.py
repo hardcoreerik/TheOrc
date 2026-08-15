@@ -11,15 +11,13 @@ forward pass, walks taps in the same order model.py captures them, and
 reports the FIRST tap that mismatches baseline beyond tolerance.
 
 Status (honest, not all 7 -- see README.md and the printed summary):
-  5/7 implemented and tested against Fixture B (full-prefix, n_layers=1):
+  6/7 implemented and tested:
     transposed projection matrix, off-by-one position, incorrect RoPE
-    pairing, missing causal mask, changed RMSNorm epsilon.
-  2/7 explicitly deferred, NOT faked:
-    - swapped K/V cache write: Fixture B has no real KV cache (it's a
-      full-prefix, non-incremental forward pass) -- an actual cache-write
-      fault requires Fixture C's incremental-decode path. Testing a
-      same-effect "swap K and V tensors in attention" proxy here would
-      not be the fault the acceptance check actually names.
+    pairing, missing causal mask, changed RMSNorm epsilon (all against
+    Fixture B's full-prefix forward()); swapped K/V cache write (against
+    forward_cached(), once Fixture C's real KV cache existed to have a
+    write-time fault in the first place).
+  1/7 explicitly deferred, NOT faked:
     - tokenizer special-token error: Profile A has no tokenizer (it
       consumes raw token IDs). This fault type requires Fixture D's real
       tokenizer (SmolLM2-135M candidate).
@@ -31,7 +29,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from oracle.model import FaultSpec, ModelConfig, forward
+from oracle.model import FaultSpec, ModelConfig, empty_kv_cache, forward, forward_cached
 from oracle.weights import build_weights
 
 ATOL = 1e-6
@@ -95,6 +93,36 @@ def _first_mismatch(baseline_taps: dict, faulted_taps: dict) -> str | None:
     return None
 
 
+def _first_mismatch_cached_prefill(baseline_taps: dict, faulted_taps: dict) -> str | None:
+    """
+    Same idea as _first_mismatch, but for forward_cached()'s single-call taps,
+    which include "cache_slice_after_write" (a {k, v} dict) right after
+    k_after_rope/v_projection -- the point a swapped-K/V-on-write fault
+    should first appear.
+    """
+    layer0_base, layer0_fault = baseline_taps["layer_0"], faulted_taps["layer_0"]
+    order = [
+        ("input_embedding", baseline_taps["input_embedding"], faulted_taps["input_embedding"]),
+        ("pre_attention_normalized_state", layer0_base["pre_attention_normalized_state"],
+         layer0_fault["pre_attention_normalized_state"]),
+        ("q_projection", layer0_base["q_projection"], layer0_fault["q_projection"]),
+        ("k_projection", layer0_base["k_projection"], layer0_fault["k_projection"]),
+        ("v_projection", layer0_base["v_projection"], layer0_fault["v_projection"]),
+        ("q_after_rope", layer0_base["q_after_rope"], layer0_fault["q_after_rope"]),
+        ("k_after_rope", layer0_base["k_after_rope"], layer0_fault["k_after_rope"]),
+        ("cache_slice_after_write.k", layer0_base["cache_slice_after_write"]["k"],
+         layer0_fault["cache_slice_after_write"]["k"]),
+        ("cache_slice_after_write.v", layer0_base["cache_slice_after_write"]["v"],
+         layer0_fault["cache_slice_after_write"]["v"]),
+        ("masked_attention_scores", layer0_base["masked_attention_scores"],
+         layer0_fault["masked_attention_scores"]),
+    ]
+    for name, expected, actual in order:
+        if not np.allclose(expected, actual, atol=ATOL, rtol=RTOL):
+            return name
+    return None
+
+
 def _base_config_and_weights():
     config = ModelConfig(vocab=32, hidden=16, intermediate=32, n_layers=1,
                           n_q_heads=4, n_kv_heads=2, head_dim=4, max_positions=16)
@@ -150,13 +178,32 @@ def run_all() -> list[FaultResult]:
     results.append(FaultResult("changed_rmsnorm_epsilon", "pre_attention_normalized_state", first,
                                 first == "pre_attention_normalized_state"))
 
+    # 6. Swapped K/V cache write. Requires a REAL cache (forward_cached), unlike faults 1-5
+    #    which use Fixture B's full-prefix-only forward(). Triage: "only cached path differs
+    #    -> cache write/read/position ownership" -> expect cache_slice_after_write.k (the
+    #    corrupted write itself is the earliest observable checkpoint, upstream of any
+    #    attention-score effect it causes).
+    cached_config = ModelConfig(vocab=32, hidden=16, intermediate=32, n_layers=1,
+                                 n_q_heads=4, n_kv_heads=2, head_dim=4, max_positions=16)
+    cached_weights = build_weights(seed=SEED, vocab=cached_config.vocab, hidden=cached_config.hidden,
+                                    intermediate=cached_config.intermediate, n_layers=cached_config.n_layers,
+                                    n_q_heads=cached_config.n_q_heads, n_kv_heads=cached_config.n_kv_heads,
+                                    head_dim=cached_config.head_dim)
+    prefix_tokens = np.array([1, 5, 9], dtype=np.int64)
+    baseline_cached, _ = forward_cached(prefix_tokens, cached_weights, cached_config,
+                                         kv_cache=empty_kv_cache(cached_config), start_position=0,
+                                         capture_taps=True)
+    faulted_cached, _ = forward_cached(prefix_tokens, cached_weights, cached_config,
+                                        kv_cache=empty_kv_cache(cached_config), start_position=0,
+                                        capture_taps=True, fault=FaultSpec(swap_kv_on_cache_write=True))
+    first = _first_mismatch_cached_prefill(baseline_cached.taps, faulted_cached.taps)
+    results.append(FaultResult("swapped_kv_cache_write", "cache_slice_after_write.k", first,
+                                first == "cache_slice_after_write.k"))
+
     return results
 
 
 DEFERRED = [
-    ("swapped_kv_cache_write",
-     "requires Fixture C's incremental-decode KV cache (doesn't exist yet); "
-     "a same-effect proxy on Fixture B's full-prefix pass would not test the named fault"),
     ("tokenizer_special_token_error",
      "requires Fixture D's real tokenizer (SmolLM2-135M candidate); "
      "Profile A consumes raw token IDs, no tokenizer exists to have a special-token bug"),

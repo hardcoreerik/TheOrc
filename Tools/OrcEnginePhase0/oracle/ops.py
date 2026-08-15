@@ -50,9 +50,29 @@ def causal_mask(scores: np.ndarray) -> np.ndarray:
     query position p may attend only to key positions 0..p (inclusive).
     Masked entries are set to -inf before softmax, per the spec's
     "apply the causal mask before a max-subtracted float32 softmax".
+
+    Equivalent to causal_mask_rectangular(scores, query_start_position=0)
+    when q_len == k_len; kept separate because it's the common case used
+    by the full-prefix (non-cached) forward pass.
     """
     q_len, k_len = scores.shape[-2], scores.shape[-1]
     mask = np.triu(np.ones((q_len, k_len), dtype=bool), k=1)
+    out = scores.astype(DTYPE).copy()
+    out[..., mask] = np.float32("-inf")
+    return out
+
+
+def causal_mask_rectangular(scores: np.ndarray, query_start_position: int) -> np.ndarray:
+    """
+    Causal mask for incremental/cached decode, where query rows correspond
+    to absolute positions [query_start_position, query_start_position+q_len)
+    and key columns correspond to absolute positions [0, k_len) (cached +
+    new). Query absolute position p may attend to key positions 0..p.
+    """
+    q_len, k_len = scores.shape[-2], scores.shape[-1]
+    query_abs = np.arange(query_start_position, query_start_position + q_len)
+    key_abs = np.arange(k_len)
+    mask = key_abs[None, :] > query_abs[:, None]  # True where key is "in the future" of the query
     out = scores.astype(DTYPE).copy()
     out[..., mask] = np.float32("-inf")
     return out

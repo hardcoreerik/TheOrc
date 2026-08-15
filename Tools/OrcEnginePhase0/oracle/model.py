@@ -66,6 +66,7 @@ class FaultSpec:
     wrong_rope_pairing: bool = False       # incorrect RoPE pairing (interleaved instead of split-half)
     skip_causal_mask: bool = False         # missing causal mask fault
     attn_rmsnorm_epsilon_override: float | None = None  # changed RMSNorm epsilon fault
+    swap_kv_on_cache_write: bool = False   # swapped K/V cache write fault (forward_cached only)
 
 
 def _gqa_kv_head_for_query_head(q_head: int) -> int:
@@ -236,3 +237,174 @@ def forward(
         taps["top_token_margin"] = margin.copy()
 
     return ForwardResult(logits=logits, taps=taps)
+
+
+@dataclass
+class LayerKVCache:
+    k: np.ndarray  # [n_kv_heads, cached_len, head_dim] -- post-RoPE K
+    v: np.ndarray  # [n_kv_heads, cached_len, head_dim]
+
+
+@dataclass
+class KVCache:
+    layers: tuple[LayerKVCache, ...]
+
+    @property
+    def length(self) -> int:
+        return self.layers[0].k.shape[1] if self.layers else 0
+
+
+def empty_kv_cache(config: ModelConfig) -> KVCache:
+    layers = tuple(
+        LayerKVCache(
+            k=np.zeros((config.n_kv_heads, 0, config.head_dim), dtype=DTYPE),
+            v=np.zeros((config.n_kv_heads, 0, config.head_dim), dtype=DTYPE),
+        )
+        for _ in range(config.n_layers)
+    )
+    return KVCache(layers=layers)
+
+
+def forward_cached(
+    token_ids: np.ndarray,
+    weights: ModelWeights,
+    config: ModelConfig,
+    *,
+    kv_cache: "KVCache | None" = None,
+    start_position: int = 0,
+    capture_taps: bool = True,
+    fault: "FaultSpec | None" = None,
+) -> tuple[ForwardResult, "KVCache"]:
+    """
+    Incremental-decode variant of forward(): processes only the NEW tokens
+    in token_ids, reusing kv_cache (K/V from prior positions) for attention.
+    Returns logits for the new tokens only, plus the updated cache.
+
+    kv_cache=None / start_position=0 with the full sequence is equivalent
+    (mathematically) to forward()'s full-prefix path -- this equivalence is
+    exactly what Fixture C's cache_equivalence test checks.
+    """
+    taps: dict[str, Any] = {}
+    fault = fault or FaultSpec()
+    new_len = token_ids.shape[0]
+    if kv_cache is None:
+        kv_cache = empty_kv_cache(config)
+    cached_len = kv_cache.length
+
+    x = ops.embedding_lookup(weights.token_embedding, token_ids)  # [new_len, hidden]
+    if capture_taps:
+        taps["input_embedding"] = x.copy()
+
+    cos_by_pos = {}
+    sin_by_pos = {}
+    for p in range(start_position, start_position + new_len):
+        c, s = ops.rope_cos_sin(position=p, head_dim=config.head_dim, theta=config.rope_theta)
+        cos_by_pos[p] = c
+        sin_by_pos[p] = s
+
+    new_layer_caches: list[LayerKVCache] = []
+
+    for layer_idx, lw in enumerate(weights.layers):
+        layer_taps: dict[str, Any] = {}
+
+        a = ops.rmsnorm(x, lw.attn_norm_weight, config.rmsnorm_epsilon)
+        if capture_taps:
+            layer_taps["pre_attention_normalized_state"] = a.copy()
+
+        q_flat = ops.linear_no_bias(a, lw.w_q)
+        k_flat_new = ops.linear_no_bias(a, lw.w_k)
+        v_flat_new = ops.linear_no_bias(a, lw.w_v)
+        if capture_taps:
+            layer_taps["q_projection"] = q_flat.copy()
+            layer_taps["k_projection"] = k_flat_new.copy()
+            layer_taps["v_projection"] = v_flat_new.copy()
+
+        q_heads = _split_heads(q_flat, config.n_q_heads, config.head_dim)
+        k_heads_new = _split_heads(k_flat_new, config.n_kv_heads, config.head_dim)
+        v_heads_new = _split_heads(v_flat_new, config.n_kv_heads, config.head_dim)
+
+        q_rope = np.zeros_like(q_heads)
+        for h in range(config.n_q_heads):
+            for i, p in enumerate(range(start_position, start_position + new_len)):
+                q_rope[h, i] = ops.apply_rope(q_heads[h, i], cos_by_pos[p], sin_by_pos[p])
+        k_rope_new = np.zeros_like(k_heads_new)
+        for h in range(config.n_kv_heads):
+            for i, p in enumerate(range(start_position, start_position + new_len)):
+                k_rope_new[h, i] = ops.apply_rope(k_heads_new[h, i], cos_by_pos[p], sin_by_pos[p])
+        if capture_taps:
+            layer_taps["q_after_rope"] = q_rope.copy()
+            layer_taps["k_after_rope"] = k_rope_new.copy()
+
+        cache_k_prior = kv_cache.layers[layer_idx].k
+        cache_v_prior = kv_cache.layers[layer_idx].v
+        write_k, write_v = (v_heads_new, k_rope_new) if fault.swap_kv_on_cache_write else (k_rope_new, v_heads_new)
+        k_full = np.concatenate([cache_k_prior, write_k], axis=1)   # [n_kv_heads, cached_len+new_len, head_dim]
+        v_full = np.concatenate([cache_v_prior, write_v], axis=1)
+        if capture_taps:
+            layer_taps["cache_slice_after_write"] = {"k": k_full.copy(), "v": v_full.copy()}
+        new_layer_caches.append(LayerKVCache(k=k_full, v=v_full))
+
+        scale = 1.0 / np.sqrt(np.float32(config.head_dim))
+        context_heads = np.zeros_like(q_rope)
+        attn_probs_by_head = []
+        masked_scores_by_head = []
+        for h in range(config.n_q_heads):
+            kv_h = _gqa_kv_head_for_query_head(h)
+            scores = (q_rope[h] @ k_full[kv_h].T).astype(DTYPE) * scale  # [new_len, cached_len+new_len]
+            masked = ops.causal_mask_rectangular(scores, query_start_position=start_position)
+            probs = ops.softmax_last_axis(masked)
+            context_heads[h] = (probs @ v_full[kv_h]).astype(DTYPE)
+            masked_scores_by_head.append(masked.copy())
+            attn_probs_by_head.append(probs.copy())
+        if capture_taps:
+            layer_taps["masked_attention_scores"] = np.stack(masked_scores_by_head)
+            layer_taps["attention_probabilities"] = np.stack(attn_probs_by_head)
+
+        context_flat = context_heads.transpose(1, 0, 2).reshape(new_len, config.n_q_heads * config.head_dim)
+        if capture_taps:
+            layer_taps["attention_output_before_projection"] = context_flat.copy()
+        attn_out = ops.linear_no_bias(context_flat, lw.w_o)
+        if capture_taps:
+            layer_taps["attention_output_after_projection"] = attn_out.copy()
+
+        r = (x + attn_out).astype(DTYPE)
+        if capture_taps:
+            layer_taps["post_attention_residual"] = r.copy()
+
+        f = ops.rmsnorm(r, lw.ffn_norm_weight, config.rmsnorm_epsilon)
+        if capture_taps:
+            layer_taps["pre_ffn_normalized_state"] = f.copy()
+
+        gate = ops.linear_no_bias(f, lw.w_gate)
+        up = ops.linear_no_bias(f, lw.w_up)
+        if capture_taps:
+            layer_taps["gate_projection"] = gate.copy()
+            layer_taps["up_projection"] = up.copy()
+        activated = (ops.silu(gate) * up).astype(DTYPE)
+        if capture_taps:
+            layer_taps["activated_gated_product"] = activated.copy()
+        ffn = ops.linear_no_bias(activated, lw.w_down)
+        if capture_taps:
+            layer_taps["down_projection"] = ffn.copy()
+
+        y = (r + ffn).astype(DTYPE)
+        if capture_taps:
+            layer_taps["post_ffn_residual"] = y.copy()
+
+        x = y
+        if capture_taps:
+            taps[f"layer_{layer_idx}"] = layer_taps
+
+    final_normed = ops.rmsnorm(x, weights.final_norm_weight, config.rmsnorm_epsilon)
+    if capture_taps:
+        taps["final_normalized_state"] = final_normed.copy()
+    logits = ops.linear_no_bias(final_normed, weights.token_embedding)
+    if capture_taps:
+        taps["logits"] = logits.copy()
+        selected = np.argmax(logits, axis=-1)
+        top2 = np.sort(logits, axis=-1)[:, -2:]
+        margin = top2[:, -1] - top2[:, -2]
+        taps["selected_token"] = selected.copy()
+        taps["top_token_margin"] = margin.copy()
+
+    return ForwardResult(logits=logits, taps=taps), KVCache(layers=tuple(new_layer_caches))

@@ -18,11 +18,11 @@ or anywhere else in the repository yet.
 | `synthetic_operator_microcases` | **Done** — see `oracle/microcases.py`, 10/10 passing |
 | `artifact_schema_complete` | Comparison-record schema implemented (`oracle/comparison.py`); full artifact manifest writer not yet built |
 | `three_way_oracle_independence` | Partial — hand-derived/scalar-reference leg only; second NumPy/PyTorch semantic oracle and pinned llama.cpp deployment oracle not started |
-| `synthetic_layer_taps` | Partial — Fixture B forward pass built (`oracle/model.py`, `oracle/fixture_b.py`), all 19 required tap points captured, same-process deterministic. **Not yet a pass**: taps aren't cross-validated against an independent implementation or proven via fault injection — either is required before this check can move to `pass`. |
-| `cache_equivalence` | Not started — needs Fixture C (multi-layer + KV cache) |
+| `synthetic_layer_taps` | Partial — Fixture B forward pass built (`oracle/model.py`, `oracle/fixture_b.py`), all 19 required tap points captured, same-process deterministic. **Not yet a pass**: taps aren't cross-validated against an independent implementation — fault injection now covers 6/7 fault types (strong evidence, not full). |
+| `cache_equivalence` | **Done** — `oracle/fixture_c.py`, full Profile A (n_layers=2). Full-prefix vs prefill+cached-decode last-position logits agree (max diff 2.4e-07), repeated with context reset, cross-run deterministic. |
 | `near_tie_logits` | Not started |
 | `deterministic_regeneration` | Not started — needs two independent clean-environment runs compared |
-| `fault_injection` | Partial (5/7) — `oracle/fault_injection.py`: transposed projection matrix, off-by-one position, incorrect RoPE pairing, missing causal mask, and changed RMSNorm epsilon are all seeded and detected at their exact expected checkpoint. **Not a pass**: 2 required fault types (swapped K/V cache write, tokenizer special-token error) are honestly deferred — they need Fixture C's real incremental cache and Fixture D's real tokenizer respectively, neither of which exists yet. A same-effect proxy would not test the fault the check actually names. |
+| `fault_injection` | Partial (6/7) — `oracle/fault_injection.py`: transposed projection matrix, off-by-one position, incorrect RoPE pairing, missing causal mask, changed RMSNorm epsilon, and swapped K/V cache write (via `oracle/model.py`'s `forward_cached`, once Fixture C existed) are all seeded and detected at their exact expected checkpoint. **Not a pass**: only `tokenizer_special_token_error` remains, honestly deferred — Profile A has no tokenizer; needs Fixture D's real tokenizer (SmolLM2-135M candidate). |
 | `provenance_complete` | Not started — applies to the real-model candidate (SmolLM2-135M), not Profile A |
 | `tokenizer_dual_source_agreement` | Not started (real-model candidate) |
 | `raw_prompt_identity` | Not started (real-model candidate) |
@@ -68,7 +68,6 @@ both still pass under the new scale.
 ## What's deliberately NOT here
 
 - Fixture B (synthetic one-layer model with full tap capture)
-- Fixture C (multi-layer + KV-cache equivalence test)
 - Fixture D (pinned real model — SmolLM2-135M candidate)
 - The artifact manifest writer (YAML schema from `PHASE_0_REFERENCE_ORACLE.md`)
 - Fault-injection harness (transposed weights, off-by-one position, wrong

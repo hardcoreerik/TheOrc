@@ -45,7 +45,12 @@ required_checks:
     result: null
   - id: cache_equivalence
     evidence: full-prefix and incremental decode last-position states and logits agree within approved bounds
-    result: null
+    result: pass
+    result_evidence: Tools/OrcEnginePhase0/oracle/fixture_c.py — full Profile A (n_layers=2),
+      seq=5 token sequence. Full-prefix forward() vs prefill(4)+cached-decode(1) last-position
+      logits agree, max_abs_diff=2.384e-07 (well within 1e-6 atol/1e-5 rtol). Repeated with a
+      fresh KV-cache object (context reset) with identical result. Cross-run bit-identical
+      determinism confirmed. Verified 2026-08-15.
   - id: near_tie_logits
     evidence: fixtures include a controlled near-tie and verify logits, top-token margin, argmax, and exact-tie rule
     result: null
