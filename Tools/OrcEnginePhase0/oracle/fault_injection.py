@@ -10,17 +10,19 @@ downstream symptom). This module seeds each fault, runs the faulted
 forward pass, walks taps in the same order model.py captures them, and
 reports the FIRST tap that mismatches baseline beyond tolerance.
 
-Status (honest, not all 7 -- see README.md and the printed summary):
-  6/7 implemented and tested:
-    transposed projection matrix, off-by-one position, incorrect RoPE
-    pairing, missing causal mask, changed RMSNorm epsilon (all against
-    Fixture B's full-prefix forward()); swapped K/V cache write (against
-    forward_cached(), once Fixture C's real KV cache existed to have a
-    write-time fault in the first place).
-  1/7 explicitly deferred, NOT faked:
-    - tokenizer special-token error: Profile A has no tokenizer (it
-      consumes raw token IDs). This fault type requires Fixture D's real
-      tokenizer (SmolLM2-135M candidate).
+Status: all 7/7 required fault types now implemented and tested:
+  6/7 in this module, against Fixture B's full-prefix forward() or
+    forward_cached(): transposed projection matrix, off-by-one position,
+    incorrect RoPE pairing, missing causal mask, changed RMSNorm epsilon,
+    swapped K/V cache write.
+  1/7 in oracle/tokenizer_special_token_fault.py, against the real
+    SmolLM2-135M candidate's tokenizer (correctly deferred until that
+    conversion existed -- Profile A has no tokenizer to have a
+    special-token bug in): mislabels the "<|im_start|>" control token as
+    NORMAL in a faulted GGUF's tokenizer.ggml.token_type array. Detected:
+    the correct GGUF matches the true HF tokenizer exactly ([1, 4093] for
+    "<|im_start|>user"); the faulted GGUF diverges to an 8-token sequence
+    (the special token gets shattered into ordinary BPE pieces).
 """
 from __future__ import annotations
 
@@ -203,13 +205,6 @@ def run_all() -> list[FaultResult]:
     return results
 
 
-DEFERRED = [
-    ("tokenizer_special_token_error",
-     "requires Fixture D's real tokenizer (SmolLM2-135M candidate); "
-     "Profile A consumes raw token IDs, no tokenizer exists to have a special-token bug"),
-]
-
-
 if __name__ == "__main__":
     results = run_all()
     n_pass = sum(1 for r in results if r.passed)
@@ -217,10 +212,8 @@ if __name__ == "__main__":
         status = "PASS" if r.passed else "FAIL"
         print(f"[{status}] {r.name}: expected first mismatch at '{r.expected_checkpoint}', "
               f"got '{r.actual_first_mismatch}'")
-    print(f"\n{n_pass}/{len(results)} implemented fault-injection cases passed")
-    print(f"\n{len(DEFERRED)} required fault types deliberately deferred (not faked):")
-    for name, reason in DEFERRED:
-        print(f"  - {name}: {reason}")
-    print(f"\noverall: {n_pass}/7 of the required fault types are detected and proven "
-          f"({len(DEFERRED)}/7 blocked on Fixture C/D machinery that doesn't exist yet)")
+    print(f"\n{n_pass}/{len(results)} cases in this module passed")
+    print("the 7th required fault type, tokenizer_special_token_error, is proven "
+          "separately in oracle/tokenizer_special_token_fault.py (against the real "
+          "SmolLM2-135M candidate's tokenizer, which this module has no access to)")
     raise SystemExit(0 if n_pass == len(results) else 1)

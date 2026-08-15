@@ -136,7 +136,21 @@ required_checks:
       SHA-256, max_abs_diff=0.0) across the two processes. Verified 2026-08-15.
   - id: fault_injection
     evidence: every required seeded fault fails first at its expected checkpoint class
-    result: null
+    result: pass
+    result_evidence: |
+      All 7 required fault types now detected, each localized to its correct checkpoint:
+      1-6 in Tools/OrcEnginePhase0/oracle/fault_injection.py (against Fixture B /
+      forward_cached): transposed projection matrix -> q_projection; off-by-one
+      position -> q_after_rope; incorrect RoPE pairing -> q_after_rope; missing
+      causal mask -> masked_attention_scores; changed RMSNorm epsilon ->
+      pre_attention_normalized_state; swapped K/V cache write ->
+      cache_slice_after_write.k.
+      7. tokenizer_special_token_error in oracle/tokenizer_special_token_fault.py
+      (against the real SmolLM2-135M candidate, correctly deferred until that
+      conversion existed): mislabeling "<|im_start|>" CONTROL->NORMAL in a faulted
+      GGUF's tokenizer.ggml.token_type causes tokenization of "<|im_start|>user" to
+      diverge from [1, 4093] (matching the true HF tokenizer) to an 8-token
+      shattered sequence. Verified 2026-08-15.
   - id: real_candidate_conversion
     evidence: pinned conversion command and GGUF hash with strict parser manifest
     result: pass
