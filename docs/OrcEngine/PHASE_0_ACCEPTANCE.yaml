@@ -107,7 +107,15 @@ required_checks:
       math-stdlib reference path independent of oracle/ops.py, verified 2026-08-14.
   - id: synthetic_layer_taps
     evidence: all required OE-L0-SYNTH-1 intermediate taps pass named tolerance profiles
-    result: null
+    result: pass
+    result_evidence: Tools/OrcEnginePhase0/oracle/synthetic_layer_taps_check.py — every
+      one of the 17 required per-layer taps (both layers of the full n_layers=2 Profile A)
+      plus 3 top-level taps (input_embedding, final_normalized_state, logits) = 37 tap
+      comparisons, all pass between the NumPy (oracle/model.py) and independently-written
+      PyTorch (oracle/torch_oracle.py) implementations. Max diff across all 37:
+      4.768e-07, well within tolerance_profile atol=1e-5/rtol=1e-4. masked_attention_scores'
+      -inf pattern (causal mask) verified to match exactly, not just finite entries.
+      Verified 2026-08-15.
   - id: cache_equivalence
     evidence: full-prefix and incremental decode last-position states and logits agree within approved bounds
     result: pass
