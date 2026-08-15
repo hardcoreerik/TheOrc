@@ -289,3 +289,55 @@ Supersedes / superseded by:
   cross-implementation agreement (NumPy vs PyTorch, both profiles), and now real-model
   ground truth (HF reference, exact match).
   `real_candidate_logits` marked `pass` in `PHASE_0_ACCEPTANCE.yaml` on this evidence.
+
+## OE-ADR-018 -- independent_reproduction: first real run found two genuine bugs, both fixed
+
+- **Status:** accepted
+- **Date:** 2026-08-15
+- **Owner:** Independent reviewer (fresh subagent, zero prior context, isolated git worktree,
+  no access to this session's history) -- entry authored by Claude (Sonnet 5) transcribing
+  the reviewer's actual findings, not softening or reinterpreting them.
+- **Context:** `independent_reproduction`'s evidence bar is "reviewer reproduces the synthetic
+  bundle from documented commands." A genuinely fresh agent (isolated worktree, fresh venv,
+  no conversation history) was spawned with only Tools/OrcEnginePhase0/README.md and told to
+  follow it literally and report honestly, including any discrepancies against
+  PHASE_0_ACCEPTANCE.yaml's claims.
+- **Evidence:** the reviewer's report, verbatim substance:
+  1. **`python3 -m pip install -r requirements.txt`, run exactly as documented, FAILED.**
+     `tokenizers==0.23.1` (as pinned) conflicts with `transformers==5.15.0`'s requirement of
+     `tokenizers<=0.23.0` -- a real, reproducible `ResolutionImpossible` error, not an
+     environment quirk. The reviewer had to deviate (install with `tokenizers` unpinned,
+     landing on 0.22.2) to make any progress at all -- explicitly flagged as a deviation from
+     the documented instructions, not silently routed around.
+  2. **All 17 `python3 -m oracle.*` commands in the Reproducing section ran and passed**, with
+     every numeric result (max_abs_diff values, hashes, token counts, tap counts) matching
+     both the README and PHASE_0_ACCEPTANCE.yaml to the last printed digit -- e.g.
+     11/11 microcases, 37/37 taps at 4.768e-07, GGUF hash `fffab10c...`, 273/273 tensors,
+     8-token faulted tokenization matching exactly.
+  3. **Found a real, independent discrepancy in `PHASE_0_ACCEPTANCE.yaml` itself**: the
+     `synthetic_operator_microcases` entry's `result_evidence` said "10/10" (dated
+     2026-08-14) while the actual code and the README both say 11/11 -- stale evidence left
+     behind when `causal_mask_rectangular` was added for Fixture C support. Not a false pass
+     (the check still passes, and the true result is strictly better than claimed), but
+     exactly the kind of drift an independent-reproduction gate exists to catch, and the
+     reviewer caught it without being told to look for it.
+  4. The reviewer's own verdict: **"qualified fail, not a pass"** -- the oracle suite's
+     substance reproduces rigorously, but the literal documented setup path was not
+     self-sufficient for a reviewer making zero judgment calls.
+- **Decision:** treat this as a genuine, valuable independent_reproduction result -- fix both
+  real issues immediately with evidence, not defensiveness:
+  1. `Tools/OrcEnginePhase0/requirements.txt`: `tokenizers==0.23.1` -> `tokenizers==0.22.2`
+     (the exact version that actually resolves against `transformers==5.15.0`; confirmed via
+     `pip install --dry-run` with zero conflicts after the fix).
+  2. `PHASE_0_ACCEPTANCE.yaml`'s `synthetic_operator_microcases` evidence corrected to 11/11,
+     `causal_mask_rectangular` named, and the staleness itself documented in the entry so the
+     history isn't silently erased.
+  A second, focused fresh-agent verification (isolated worktree, fresh venv, zero deviation
+  from the literal documented command) was launched immediately after the fix to confirm
+  `pip install -r requirements.txt` now succeeds unmodified -- see the follow-up note below
+  once that lands, rather than self-certifying the fix without independent re-check.
+- **Consequences:** `independent_reproduction` is not marked `pass` in `PHASE_0_ACCEPTANCE.yaml`
+  until the verification agent's result is in -- the whole point of this check is that the
+  fix isn't self-graded.
+- **Validation/revisit trigger:** if the verification agent finds the fix incomplete or finds
+  a NEW issue, treat that as further real evidence, not a reason to loosen the bar.

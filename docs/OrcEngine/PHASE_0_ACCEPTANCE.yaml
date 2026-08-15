@@ -101,10 +101,13 @@ required_checks:
   - id: synthetic_operator_microcases
     evidence: hand-verifiable operator vectors pass exact or approved numeric comparisons
     result: pass
-    result_evidence: Tools/OrcEnginePhase0/oracle/microcases.py — 10/10 microcases pass
-      (matmul, RMSNorm, softmax, causal mask, RoPE at position 0 and position 1, SiLU,
-      elementwise add/multiply, embedding lookup). Expected values from a scalar
-      math-stdlib reference path independent of oracle/ops.py, verified 2026-08-14.
+    result_evidence: Tools/OrcEnginePhase0/oracle/microcases.py — 11/11 microcases pass
+      (matmul, RMSNorm, softmax, causal mask, causal_mask_rectangular, RoPE at position 0
+      and position 1, SiLU, elementwise add/multiply, embedding lookup). Expected values
+      from a scalar math-stdlib reference path independent of oracle/ops.py. Originally
+      verified 2026-08-14 at 10/10; causal_mask_rectangular was added 2026-08-15 for
+      Fixture C's incremental-decode support (see fixture_c.py) and this entry was stale
+      until an independent-reproduction pass caught the drift — corrected 2026-08-15.
   - id: synthetic_layer_taps
     evidence: all required OE-L0-SYNTH-1 intermediate taps pass named tolerance profiles
     result: pass
