@@ -18,7 +18,7 @@ or anywhere else in the repository yet.
 | `synthetic_operator_microcases` | **Done** — see `oracle/microcases.py`, 10/10 passing |
 | `artifact_schema_complete` | Comparison-record schema implemented (`oracle/comparison.py`); full artifact manifest writer not yet built |
 | `three_way_oracle_independence` | Partial — hand-derived/scalar-reference leg only; second NumPy/PyTorch semantic oracle and pinned llama.cpp deployment oracle not started |
-| `synthetic_layer_taps` | Not started — needs Fixture B (one-layer model forward pass with tap capture) |
+| `synthetic_layer_taps` | Partial — Fixture B forward pass built (`oracle/model.py`, `oracle/fixture_b.py`), all 19 required tap points captured, same-process deterministic. **Not yet a pass**: taps aren't cross-validated against an independent implementation or proven via fault injection — either is required before this check can move to `pass`. |
 | `cache_equivalence` | Not started — needs Fixture C (multi-layer + KV cache) |
 | `near_tie_logits` | Not started |
 | `deterministic_regeneration` | Not started — needs two independent clean-environment runs compared |
@@ -53,6 +53,18 @@ ladder (Fixture A), not the full ladder.
   similarity, pass/fail under a named tolerance profile. `compare_exact` for
   integer/byte/shape/token-ID comparisons, `compare_tolerant` for float
   comparisons.
+
+## Known open design point
+
+Fixture B's weight-init scale (`WEIGHT_SCALE = 0.02` in `oracle/weights.py`)
+is *my* choice, not something the spec pins. With residual connections and
+tied embeddings, this small a scale keeps the block close to an identity
+function, so on the current test sequence greedy decode trivially recovers
+each input token as its own argmax. That's an expected numerical property
+of small-init residual nets, not a bug — but it means this seed/scale
+combination is a weak fixture for exercising the attention/FFN math under
+test. Worth revisiting (either a larger scale or an adversarial fixture)
+before this fixture is relied on for fault-injection proof.
 
 ## What's deliberately NOT here
 
