@@ -1,4 +1,4 @@
-# OrcEngine Phase 0 — Reference Oracle (work in progress)
+# OrcEngine Phase 0 — Reference Oracle (COMPLETE)
 
 This is the Phase 0 reference-oracle implementation for
 [OrcEngine](../../docs/OrcEngine/README.md), following
@@ -6,19 +6,20 @@ This is the Phase 0 reference-oracle implementation for
 [PHASE_0_ARCHITECTURE_PROFILE.md](../../docs/OrcEngine/PHASE_0_ARCHITECTURE_PROFILE.md),
 and [PHASE_0_ACCEPTANCE.yaml](../../docs/OrcEngine/PHASE_0_ACCEPTANCE.yaml).
 
-Per the project's own accepted decision (OE-ADR-001: "documentation and
-deterministic oracle precede implementation"), this directory contains
-**oracle/test code only** — no OrcEngine tensor-execution engine exists here
-or anywhere else in the repository yet.
+**Phase 0 is complete as of 2026-08-15: all 14 required checks pass, and
+the maintainer accepted the product-value thesis (`OE-ADR-016`).** This
+proves the oracle/comparison methodology is correct — hand-derived ground
+truth, an independently-written second implementation, a pinned llama.cpp
+deployment oracle, and (for the real-model candidate) the actual
+HuggingFace reference implementation all agree. **It does not mean an
+OrcEngine tensor-execution engine exists.** Per the project's own accepted
+decision (OE-ADR-001: "documentation and deterministic oracle precede
+implementation"), this directory still contains **oracle/test code only**
+— zero engine code exists here or anywhere else in the repository. Phase 1
+(tiny synthetic float32 CPU transformer, C++20) is the next unblocked
+phase per `docs/OrcEngine/ENGINEERING_ROADMAP.md` and has not started.
 
-## Status against PHASE_0_ACCEPTANCE.yaml — 13 of 14 passing (2026-08-15)
-
-Only `independent_reproduction` remains — it needs a human or separate
-agent to reproduce this bundle starting cold, which this loop cannot do
-for itself. Phase 0's stop gate also requires maintainer approval of the
-product-value thesis (`docs/OrcEngine/DECISION_LOG.md` OE-ADR-016,
-currently proposed, not yet accepted) before Phase 0 formally closes —
-that approval is independent of the 14 checks.
+## Status against PHASE_0_ACCEPTANCE.yaml — 14 of 14 passing (2026-08-15)
 
 | Check | Status |
 |---|---|
@@ -35,7 +36,7 @@ that approval is independent of the 14 checks.
 | `raw_prompt_identity` | **Done** — `oracle/raw_prompt_identity.py`, 6 fixture records (synthetic + 5 real) with raw bytes, rendered prompt, token IDs, and SHA-256 for each, retained in `artifacts/raw_prompt_identity_manifest.json`. |
 | `real_candidate_conversion` | **Done** — `oracle/real_candidate_conversion_manifest.py`. Converted GGUF read back via gguf-py's independent `GGUFReader` ("strict parser"): 273/273 expected tensors, 24 metadata fields, hash reproducible across reruns. |
 | `real_candidate_logits` | **Done** — `oracle/hf_reference_check.py`. Real investigation, not a quick pass: an initial llama.cpp-only comparison showed real divergence (up to 0.95 on one token); ruled out our own code (`oracle/real_candidate_self_consistency_check.py`: NumPy vs PyTorch agree to 3.29e-05) and tokenization mismatch as causes; then ran the actual HuggingFace `transformers` reference (real third-party code) and found **our oracle matches it exactly** (max diff 0.000008) — **llama.cpp is what diverges from ground truth, not us**. Full account in `docs/OrcEngine/DECISION_LOG.md` OE-ADR-017, including a falsified intermediate hypothesis left visible rather than rewritten. |
-| `independent_reproduction` | **Open, correctly parked** — needs a human or a separate agent to reproduce the synthetic bundle from this README's commands, starting cold. Not something this loop can satisfy for itself. |
+| `independent_reproduction` | **Done** — a genuinely fresh subagent (isolated worktree, zero prior context) followed this README's commands literally and found two real bugs without being told to look for them: a broken `requirements.txt` pin and stale evidence in `PHASE_0_ACCEPTANCE.yaml`. Both fixed with evidence; fix independently confirmed. Full account in `docs/OrcEngine/DECISION_LOG.md` OE-ADR-018. |
 
 ## What's implemented
 
@@ -75,23 +76,32 @@ that approval is independent of the 14 checks.
 
 ## What's deliberately NOT here
 
-- Independent reproduction of this bundle by a human or separate agent
-  (`independent_reproduction`) — that's not something this loop can satisfy
-  for itself by definition.
-- Any C++/CUDA engine code — that's explicitly Phase 1+, gated on Phase 0
-  passing in full AND the maintainer approving the product-value thesis
-  (`docs/OrcEngine/DECISION_LOG.md` OE-ADR-016, currently proposed, not
-  yet accepted).
+- Any C++/CUDA engine code. Phase 0 passing does NOT authorize writing it —
+  that's explicitly Phase 1+ (`docs/OrcEngine/ENGINEERING_ROADMAP.md`),
+  with its own definition of done (every operator against hand-calculated/
+  differential cases, layer taps within tolerance, cache/non-cache
+  agreement, leak/sanitizer clean, one deliberate transpose breaks the
+  comparison). Phase 0 completing is the START of that gate opening, not a
+  license to skip it.
 
 ## Known decisions worth knowing about
 
 - **OE-ADR-015**: Fixture B/C's weight-init scale was raised from 0.02 to
   0.1 after measuring that 0.02 made a real fault (transposed `w_o`)
   invisible to fault-injection comparison (0.07 max diff, argmax unchanged).
-- **OE-ADR-016** (proposed, awaiting maintainer approval): the Phase 0
+- **OE-ADR-016** (accepted by hardcoreerik 2026-08-15): the Phase 0
   bounded product-value thesis, using this project's own dated evidence
   (LLamaSharp can't load Qwen3.8-27B; llama.cpp can) as the prevented-
   capability claim.
+- **OE-ADR-017**: a proposed real-candidate logit tolerance was tested and
+  found false within minutes — left visible and corrected in place rather
+  than rewritten. Resolved via the actual HF reference implementation: our
+  oracle matches it exactly (max diff 0.000008); llama.cpp is what
+  diverges from ground truth, not us.
+- **OE-ADR-018**: independent reproduction (a fresh subagent, zero prior
+  context) found two real bugs — a broken `requirements.txt` pin and stale
+  acceptance evidence — without being told to look for either. Both fixed
+  with evidence, fix independently confirmed.
 
 ## Reproducing
 

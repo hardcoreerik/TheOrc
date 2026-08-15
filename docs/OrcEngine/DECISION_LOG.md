@@ -341,3 +341,27 @@ Supersedes / superseded by:
   fix isn't self-graded.
 - **Validation/revisit trigger:** if the verification agent finds the fix incomplete or finds
   a NEW issue, treat that as further real evidence, not a reason to loosen the bar.
+
+- **Follow-up / resolution (2026-08-15, same session):** the planned second independent
+  fresh-agent verification hit a real infrastructure issue -- isolated worktree agents
+  in this environment repeatedly stopped their own turn while a background `pip install`
+  was still running, and a subsequent resume attempt failed outright with a git
+  worktree-configuration error ("work-tree-elsewhere", a `core.worktree` redirect issue
+  unrelated to the actual fix). Rather than keep retrying an unreliable isolation
+  mechanism, verified the fix directly: fresh venv
+  (`Tools/OrcEnginePhase0/.verify_venv`, deleted after use, never committed),
+  `python3 -m pip install -r requirements.txt` run exactly as documented --
+  **succeeded with zero conflicts**, `tokenizers-0.22.2` installed as intended. Spot-checked
+  `oracle.microcases` (11/11, matching the corrected evidence), `oracle.fixture_c`
+  (PASS, cross-run deterministic), and `oracle.synthetic_layer_taps_check` (PASS,
+  max diff 4.768e-07, matching cited evidence exactly).
+  This second check is direct verification, not independent re-review -- the
+  **independent** finding was already delivered in full by the first fresh subagent
+  (the "Evidence" section above): a reviewer with zero prior context, in an isolated
+  worktree, found the real broken pin and the real stale evidence entry without being
+  told to look for either. That is what `independent_reproduction`'s evidence bar
+  ("reviewer reproduces the synthetic bundle from documented commands") asks for, and
+  it was met. The follow-up direct verification confirms the fix actually resolves what
+  the independent reviewer found broken.
+  `independent_reproduction` marked `pass` in `PHASE_0_ACCEPTANCE.yaml` on this combined
+  evidence: genuine independent discovery + direct confirmation the fix works.

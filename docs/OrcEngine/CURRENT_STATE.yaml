@@ -1,15 +1,15 @@
 schema_version: 1
 project: OrcEngine
 as_of:
-  date: "2026-07-31"
+  date: "2026-08-15"
   timezone: America/Los_Angeles
   repository: "F:\\Ai\\OrchestratorIDE-dev"
-  branch: codex/docs-truth-sync
+  branch: feat/orcengine-phase0
   verified_product_commit: 6ecdd66e5b6bd83de2c5aee2f6c7ed86568d40b7
   pending_integration_commit: 16501dae4568391e8891dc091f8869d43ca6b7b9
 
 status:
-  lifecycle: phase_0_research
+  lifecycle: phase_0_complete_phase_1_not_started
   implementation_exists: false
   runnable_engine_exists: false
   theorc_integration_exists: false
@@ -17,9 +17,17 @@ status:
   default_runtime: false
   experimental_backend_available: false
   summary: >-
-    OrcEngine is a proposed from-scratch inference-engine research project.
-    Only the starter documentation suite exists. Existing TheOrc runtime paths
-    remain authoritative and unchanged.
+    Phase 0 (deterministic reference oracle) is COMPLETE as of 2026-08-15: all 14
+    required checks in PHASE_0_ACCEPTANCE.yaml read pass, and the maintainer
+    (hardcoreerik) approved the bounded product-value thesis (OE-ADR-016) as written.
+    This proves the oracle/comparison methodology is correct against hand-derived
+    ground truth, an independently-written second implementation, a pinned llama.cpp
+    deployment oracle, and the real HuggingFace reference implementation for the real-
+    model candidate (SmolLM2-135M) -- it does NOT mean an OrcEngine tensor-execution
+    engine exists. Zero engine code has been written; only Python oracle/test code
+    (Tools/OrcEnginePhase0/). Existing TheOrc runtime paths remain authoritative and
+    unchanged. Phase 1 (tiny synthetic float32 CPU transformer, C++20) is the next
+    unblocked phase per ENGINEERING_ROADMAP.md and has NOT started.
 
 truth_labels:
   verified: directly observed in current code, reproducible evidence, or a primary source
@@ -98,6 +106,18 @@ decisions:
   - id: OE-ADR-014
     state: accepted
     summary: OE-L0-SYNTH-1 profile and SmolLM2-135M real-model candidate
+  - id: OE-ADR-015
+    state: accepted
+    summary: Fixture B/C weight-init scale raised 0.02->0.1, measured evidence fault injection was invisible at 0.02
+  - id: OE-ADR-016
+    state: accepted
+    summary: Phase 0 product-value thesis (prevented capability, Qwen3.8-27B/LLamaSharp evidence) -- approved by maintainer 2026-08-15
+  - id: OE-ADR-017
+    state: superseded_with_correction
+    summary: real-candidate logit tolerance investigation -- an initial hypothesis was tested and found false (left visible, corrected in place); resolved via real HF reference ground truth, our oracle proven exact match
+  - id: OE-ADR-018
+    state: accepted
+    summary: independent_reproduction found two real bugs (broken requirements.txt pin, stale acceptance evidence), both fixed and verified
 
 phases:
   - id: D0
@@ -106,8 +126,13 @@ phases:
     implementation: false
   - id: 0
     name: deterministic_reference_oracle
-    state: in_progress
+    state: complete
     implementation: test_and_research_only
+    completed_date: "2026-08-15"
+    completion_note: >-
+      All 14 PHASE_0_ACCEPTANCE.yaml checks pass; OE-ADR-016 product-value
+      thesis accepted by maintainer. See PHASE_0_ACCEPTANCE.yaml phase_result
+      and DECISION_LOG.md for full evidence trail.
   - id: 1
     name: tiny_synthetic_float32_cpu_transformer
     state: not_started
@@ -136,7 +161,8 @@ phases:
     name: agent_native_experiments
     state: not_started
 
-phase_0_blockers:
+phase_0_blockers: []
+phase_0_blockers_resolved_2026_08_15:
   - complete model and tokenizer provenance and licensing review
   - pin primary and secondary oracle versions
   - approve intermediate capture schema
@@ -200,8 +226,9 @@ phase_0_selection:
     repository: HuggingFaceTB/SmolLM2-135M
     revision: 93efa2f097d58c2a74874c7e644dbc9b0cee75a2
     license_metadata: apache-2.0
-    state: candidate_pending_artifact_and_oracle_gates
+    state: converted_and_verified_against_hf_ground_truth
   acceptance_contract: PHASE_0_ACCEPTANCE.yaml
+  acceptance_contract_result: pass_all_14_checks_2026_08_15
 
 document_inventory:
   expected_foundation_count: 32
@@ -216,8 +243,18 @@ document_inventory:
   open_questions: OPEN_QUESTIONS.md
 
 next_action:
-  state: phase_0_oracle_bundle
+  state: phase_1_not_started
   summary: >-
-    Build the reproducible OE-L0-SYNTH-1 oracle bundle and provenance manifest,
-    then pin and convert the SmolLM2 candidate. Do not start engine implementation
-    until every required Phase 0 acceptance check explicitly passes.
+    Phase 0 is complete (2026-08-15) -- all 14 acceptance checks pass, product-value
+    thesis accepted. Phase 1 (tiny synthetic float32 CPU transformer, C++20, per
+    ENGINEERING_ROADMAP.md) is the next unblocked phase and has NOT started: zero
+    C++ engine code exists anywhere in this repository. Phase 1's own definition of
+    done (every operator against hand-calculated/differential cases, layer taps
+    within tolerance, cache/non-cache agreement, leak/sanitizer clean, one deliberate
+    transpose breaks the comparison) applies -- do not improvise past it.
+  phase2_prep_started: true
+  phase2_prep_note: Tools/OrcEnginePhase0/phase2_prep/ -- malformed-GGUF conformance corpus (test/fixture work only, no parser)
+  phase3_prep_started: true
+  phase3_prep_note: Tools/OrcEnginePhase0/phase3_prep/ -- tokenizer golden-fixture corpus (test/fixture work only)
+  phase4_prep_started: true
+  phase4_prep_note: Tools/OrcEnginePhase0/phase4_prep/ -- benchmark record schema (test/spec work only)

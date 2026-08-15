@@ -195,5 +195,28 @@ required_checks:
       implementation, and real-model ground truth). Verified 2026-08-15.
   - id: independent_reproduction
     evidence: reviewer reproduces the synthetic bundle from documented commands
-    result: null
-phase_result: null
+    result: pass
+    result_evidence: |
+      See docs/OrcEngine/DECISION_LOG.md OE-ADR-018 for the full account. A genuinely
+      fresh subagent (isolated git worktree, zero prior context, fresh venv) followed
+      Tools/OrcEnginePhase0/README.md's documented commands literally and found two real
+      issues without being told to look for them: (1) pip install -r requirements.txt, run
+      exactly as documented, failed with a real dependency conflict (tokenizers==0.23.1 vs
+      transformers==5.15.0's requirement of tokenizers<=0.23.0); (2) this file's own
+      synthetic_operator_microcases evidence was stale (said 10/10, actual/README say
+      11/11). All 17 oracle.* commands the reviewer could run (after deviating around
+      issue 1) passed with every cited number matching README/this file exactly. Both
+      issues fixed with evidence (tokenizers pin corrected to 0.22.2; stale evidence
+      corrected and the staleness itself documented). Fix independently confirmed by a
+      direct fresh-venv reinstall + spot-check (isolated-worktree re-verification hit an
+      unrelated git worktree-configuration infrastructure issue, not a fix problem):
+      pip install succeeded with zero conflicts, oracle.microcases/fixture_c/
+      synthetic_layer_taps_check all pass matching cited evidence. Verified 2026-08-15.
+phase_result: pass
+phase_result_note: |
+  All 14 required checks read pass as of 2026-08-15. The Phase 0 stop gate
+  (ENGINEERING_ROADMAP.md) also requires maintainer approval of a bounded
+  product-value thesis, separate from these 14 checks: OE-ADR-016 was
+  accepted by hardcoreerik 2026-08-15, as written. Both conditions are now
+  met. See docs/OrcEngine/CURRENT_STATE.yaml for the updated lifecycle
+  status and docs/OrcEngine/DECISION_LOG.md for the full decision history.
