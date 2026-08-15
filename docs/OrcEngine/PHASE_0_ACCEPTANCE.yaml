@@ -26,7 +26,16 @@ required_checks:
     result: null
   - id: artifact_schema_complete
     evidence: every tensor record includes name, dtype, logical shape, byte strides, layout, endianness, and hash
-    result: null
+    result: pass
+    result_evidence: Tools/OrcEnginePhase0/oracle/manifest.py (OracleManifest, all schema
+      sections) + oracle/artifact_record.py (TensorArtifactRecord: name, dtype, logical_shape,
+      byte_strides, layout, endianness, sha256) + oracle/generate_manifest.py, which generates
+      a real manifest from a live Fixture C run, writes it to
+      Tools/OrcEnginePhase0/artifacts/fixture_c_manifest.yaml, reloads it from disk, and
+      validates every required field is present. 8/8 top-level sections, 7/7 tensor artifacts
+      each with all 7 required fields. model/gguf/tokenizer sections honestly marked
+      not_applicable (synthetic profile, no real model/GGUF/tokenizer yet) rather than
+      fabricated. Verified 2026-08-15.
   - id: tokenizer_dual_source_agreement
     evidence: source-tokenizer and GGUF-embedded-tokenizer fixtures agree exactly or candidate is rejected
     result: null

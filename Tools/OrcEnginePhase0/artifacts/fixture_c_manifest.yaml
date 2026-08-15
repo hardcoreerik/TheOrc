@@ -1,0 +1,110 @@
+schema_version: 1
+model:
+  not_applicable: true
+  reason: synthetic profile OE-L0-SYNTH-1, no real model source
+gguf:
+  not_applicable: true
+  reason: synthetic profile OE-L0-SYNTH-1, no GGUF conversion involved
+tokenizer:
+  not_applicable: true
+  reason: Profile A consumes raw token IDs directly, no tokenizer exists
+oracle:
+  implementation: Tools/OrcEnginePhase0/oracle/model.py (NumPy reference)
+  version_or_commit: see git log for this file at manifest generation time
+  environment:
+    python: 3.14.3
+    numpy: 2.5.2
+    platform: Windows-11-10.0.26200-SP0
+fixture:
+  id: OE-L0-SYNTH-1-fixtureC-2026-08-15
+  seed: 20260814
+  token_ids:
+  - 1
+  - 5
+  - 9
+  - 3
+  - 7
+  token_ids_sha256: fe2f79432e4407c6a52e0c1ac62a51179c8c08a4150cd5a15f72588e3a5aecd9
+numeric:
+  dtype: float32
+  tolerance_profile: fixture-c-fp32 (atol=1e-6, rtol=1e-5)
+tensor_artifacts:
+- name: input_embedding
+  dtype: float32
+  logical_shape:
+  - 5
+  - 16
+  byte_strides:
+  - 64
+  - 4
+  layout: C-contiguous
+  endianness: little
+  sha256: 4935dadee3957763f1a8a09e4ed6533545f670657e10670926ad084ccff3bde4
+- name: layer_0.pre_attention_normalized_state
+  dtype: float32
+  logical_shape:
+  - 5
+  - 16
+  byte_strides:
+  - 64
+  - 4
+  layout: C-contiguous
+  endianness: little
+  sha256: e2e9ae69beff6fd0eb4b086cf08da411b678be4a07c82f906b80382f4bebab50
+- name: layer_0.q_after_rope
+  dtype: float32
+  logical_shape:
+  - 4
+  - 5
+  - 4
+  byte_strides:
+  - 80
+  - 16
+  - 4
+  layout: C-contiguous
+  endianness: little
+  sha256: 2abb6063b79fe099e869b30467c977205e827c8d4ebbc2a6468f04078a09677a
+- name: layer_1.post_ffn_residual
+  dtype: float32
+  logical_shape:
+  - 5
+  - 16
+  byte_strides:
+  - 64
+  - 4
+  layout: C-contiguous
+  endianness: little
+  sha256: 21a96e42c23f259721663117674d7bd388a9df5862b978468731fbaf67d22b1c
+- name: final_normalized_state
+  dtype: float32
+  logical_shape:
+  - 5
+  - 16
+  byte_strides:
+  - 64
+  - 4
+  layout: C-contiguous
+  endianness: little
+  sha256: 59acf1ee782d4af8e103a9980b192570dad18e79f6b47ef129dbc44f8350d831
+- name: logits
+  dtype: float32
+  logical_shape:
+  - 5
+  - 32
+  byte_strides:
+  - 128
+  - 4
+  layout: C-contiguous
+  endianness: little
+  sha256: 0b448885dd520ede876fc9bc0341f52456a3b3205ec2852b56df4eaf3bb04eb2
+- name: token_embedding_weight
+  dtype: float32
+  logical_shape:
+  - 32
+  - 16
+  byte_strides:
+  - 64
+  - 4
+  layout: C-contiguous
+  endianness: little
+  sha256: 450e6d9cf1cb32c5a78e4235ada726a11126483b005dd72c621a2e914720b2a6

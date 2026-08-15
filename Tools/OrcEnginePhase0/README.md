@@ -16,7 +16,7 @@ or anywhere else in the repository yet.
 | Check | Status |
 |---|---|
 | `synthetic_operator_microcases` | **Done** — see `oracle/microcases.py`, 10/10 passing |
-| `artifact_schema_complete` | Comparison-record schema implemented (`oracle/comparison.py`); full artifact manifest writer not yet built |
+| `artifact_schema_complete` | **Done** — `oracle/manifest.py` + `oracle/artifact_record.py` + `oracle/generate_manifest.py`. Real manifest generated from a live Fixture C run, written to `artifacts/fixture_c_manifest.yaml`, reloaded from disk, schema-validated: 8/8 top-level sections, 7/7 tensor artifacts each with all 7 required fields. |
 | `three_way_oracle_independence` | Partial — hand-derived/scalar-reference leg only; second NumPy/PyTorch semantic oracle and pinned llama.cpp deployment oracle not started |
 | `synthetic_layer_taps` | Partial — Fixture B forward pass built (`oracle/model.py`, `oracle/fixture_b.py`), all 19 required tap points captured, same-process deterministic. **Not yet a pass**: taps aren't cross-validated against an independent implementation — fault injection now covers 6/7 fault types (strong evidence, not full). |
 | `cache_equivalence` | **Done** — `oracle/fixture_c.py`, full Profile A (n_layers=2). Full-prefix vs prefill+cached-decode last-position logits agree (max diff 2.4e-07), repeated with context reset, cross-run deterministic. |
@@ -69,7 +69,6 @@ both still pass under the new scale.
 
 - Fixture B (synthetic one-layer model with full tap capture)
 - Fixture D (pinned real model — SmolLM2-135M candidate)
-- The artifact manifest writer (YAML schema from `PHASE_0_REFERENCE_ORACLE.md`)
 - Fault-injection harness (transposed weights, off-by-one position, wrong
   RoPE pairing, missing mask, swapped K/V cache, changed epsilon, tokenizer
   special-token error)
