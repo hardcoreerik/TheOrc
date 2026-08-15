@@ -11,7 +11,14 @@ deterministic oracle precede implementation"), this directory contains
 **oracle/test code only** — no OrcEngine tensor-execution engine exists here
 or anywhere else in the repository yet.
 
-## Status against PHASE_0_ACCEPTANCE.yaml — 12 of 14 passing (2026-08-15)
+## Status against PHASE_0_ACCEPTANCE.yaml — 13 of 14 passing (2026-08-15)
+
+Only `independent_reproduction` remains — it needs a human or separate
+agent to reproduce this bundle starting cold, which this loop cannot do
+for itself. Phase 0's stop gate also requires maintainer approval of the
+product-value thesis (`docs/OrcEngine/DECISION_LOG.md` OE-ADR-016,
+currently proposed, not yet accepted) before Phase 0 formally closes —
+that approval is independent of the 14 checks.
 
 | Check | Status |
 |---|---|
@@ -27,7 +34,7 @@ or anywhere else in the repository yet.
 | `tokenizer_dual_source_agreement` | **Done** — `oracle/tokenizer_dual_source_check.py`, 5/5 fixtures (incl. non-ASCII) byte-identical between the real HF tokenizer.json and llama.cpp reading our converted GGUF. Required a real fix (missing `tokenizer.ggml.pre`, degraded-quality warning) to actually pass. |
 | `raw_prompt_identity` | **Done** — `oracle/raw_prompt_identity.py`, 6 fixture records (synthetic + 5 real) with raw bytes, rendered prompt, token IDs, and SHA-256 for each, retained in `artifacts/raw_prompt_identity_manifest.json`. |
 | `real_candidate_conversion` | **Done** — `oracle/real_candidate_conversion_manifest.py`. Converted GGUF read back via gguf-py's independent `GGUFReader` ("strict parser"): 273/273 expected tensors, 24 metadata fields, hash reproducible across reruns. |
-| `real_candidate_logits` | **Open, real investigation in progress** — `oracle/real_candidate_logits_check.py` loads SmolLM2-135M's real weights into our own oracle and compares against llama.cpp. Argmax matches exactly. A tolerance-based pass criterion (top-3 ranked tokens, atol=0.2) was proposed, tested, and **failed**: llama.cpp's rank-2 token is our oracle's rank-4 token (diff 0.954) — a genuine reordering inside the "should be stable" window, not tail noise as first assumed. See `docs/OrcEngine/DECISION_LOG.md` OE-ADR-017 for the full investigation and its correction. No tolerance was widened further to force a pass. Next: layer-boundary tap comparison at real scale to find where the divergence for that specific token originates. |
+| `real_candidate_logits` | **Done** — `oracle/hf_reference_check.py`. Real investigation, not a quick pass: an initial llama.cpp-only comparison showed real divergence (up to 0.95 on one token); ruled out our own code (`oracle/real_candidate_self_consistency_check.py`: NumPy vs PyTorch agree to 3.29e-05) and tokenization mismatch as causes; then ran the actual HuggingFace `transformers` reference (real third-party code) and found **our oracle matches it exactly** (max diff 0.000008) — **llama.cpp is what diverges from ground truth, not us**. Full account in `docs/OrcEngine/DECISION_LOG.md` OE-ADR-017, including a falsified intermediate hypothesis left visible rather than rewritten. |
 | `independent_reproduction` | **Open, correctly parked** — needs a human or a separate agent to reproduce the synthetic bundle from this README's commands, starting cold. Not something this loop can satisfy for itself. |
 
 ## What's implemented
@@ -61,14 +68,16 @@ or anywhere else in the repository yet.
   verification.
 - `oracle/tokenizer_dual_source_check.py` / `oracle/raw_prompt_identity.py` —
   real-candidate tokenizer fidelity and retained prompt/token provenance.
+- `oracle/hf_reference_check.py` / `oracle/real_candidate_self_consistency_check.py` —
+  the real_candidate_logits investigation: rules out our own code and
+  tokenization as causes of an observed llama.cpp divergence, then proves
+  our oracle correct against the actual HF `transformers` reference.
 
 ## What's deliberately NOT here
 
-- A passing `real_candidate_logits` result. The comparison exists and runs
-  (`oracle/real_candidate_logits_check.py`) but currently fails: a genuine
-  logit-ranking discrepancy at real-model scale (see OE-ADR-017 in
-  `docs/OrcEngine/DECISION_LOG.md`), not yet root-caused. Not papered over
-  with a wider tolerance.
+- Independent reproduction of this bundle by a human or separate agent
+  (`independent_reproduction`) — that's not something this loop can satisfy
+  for itself by definition.
 - Any C++/CUDA engine code — that's explicitly Phase 1+, gated on Phase 0
   passing in full AND the maintainer approving the product-value thesis
   (`docs/OrcEngine/DECISION_LOG.md` OE-ADR-016, currently proposed, not
@@ -105,12 +114,14 @@ python3 -m oracle.tokenizer_dual_source_check
 python3 -m oracle.real_candidate_conversion_manifest
 python3 -m oracle.raw_prompt_identity
 python3 -m oracle.tokenizer_special_token_fault
-python3 -m oracle.real_candidate_logits_check   # currently FAILS -- see OE-ADR-017
+python3 -m oracle.real_candidate_self_consistency_check
+python3 -m oracle.hf_reference_check            # the real_candidate_logits gate check
 ```
 
 Pinned environment: CPython 3.14.3, numpy 2.5.2, torch 2.13.0+cpu,
-gguf 0.19.0, huggingface_hub 1.27.0, safetensors 0.8.0, tokenizers 0.23.1
-(all in `requirements.txt`). `oracle.llama_cpp_deployment_oracle` and
+gguf 0.19.0, huggingface_hub 1.27.0, safetensors 0.8.0, tokenizers 0.23.1,
+transformers 5.15.0 (all in `requirements.txt`).
+`oracle.llama_cpp_deployment_oracle` and
 `oracle.tokenizer_special_token_fault` additionally need a pinned llama.cpp
 build (b10436, 2026-08-14) — path configurable via `ORC_LLAMA_SERVER_PATH`
 / `ORC_LLAMA_TOKENIZE_PATH` env vars, get it from

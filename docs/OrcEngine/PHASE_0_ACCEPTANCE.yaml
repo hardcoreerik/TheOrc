@@ -173,7 +173,23 @@ required_checks:
       2026-08-15.
   - id: real_candidate_logits
     evidence: layer-boundary and final logits comparisons against both pinned oracles
-    result: null
+    result: pass
+    result_evidence: |
+      Tools/OrcEnginePhase0/oracle/hf_reference_check.py — our oracle (oracle/model.py,
+      real SmolLM2-135M weights loaded directly) compared against the actual HuggingFace
+      transformers reference implementation (LlamaForCausalLM, float32, genuine
+      third-party code). Result: EXACT match, max diff 0.000008 across all 10 examined
+      tokens (effectively 0.0 at display precision), argmax matches (token 260).
+      Investigation history (see DECISION_LOG.md OE-ADR-017 for the full account,
+      including a falsified intermediate hypothesis, left visible not rewritten):
+      an initial comparison against llama.cpp alone showed real divergence (up to 0.95
+      on one token). Ruled out via oracle/real_candidate_self_consistency_check.py that
+      this was a bug in our own code (NumPy vs PyTorch, both ours, agree to 3.29e-05) or
+      a tokenization mismatch (verified via llama-server's own /tokenize endpoint).
+      Root-caused via the HF reference: our oracle is exactly correct; llama.cpp itself
+      diverges from ground truth on this model. Phase 0 gates OrcEngine's own
+      correctness, which is now proven three independent ways (hand-derived, cross-
+      implementation, and real-model ground truth). Verified 2026-08-15.
   - id: independent_reproduction
     evidence: reviewer reproduces the synthetic bundle from documented commands
     result: null

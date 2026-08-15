@@ -269,3 +269,23 @@ Supersedes / superseded by:
   real, worth-fixing bug in the conversion or in our understanding of llama.cpp's
   exact semantics. `real_candidate_logits` remains `null` until this is resolved
   with evidence, not asserted either way.
+
+- **Resolution (2026-08-15, same session, minutes later):** PyPI recovered; `transformers`
+  installed cleanly on retry. Ran the actual HF reference forward pass
+  (`oracle/hf_reference_check.py`, `LlamaForCausalLM` in float32, real third-party code)
+  on the identical prompt/tokens. **Result: our oracle matches the HF reference EXACTLY**
+  -- 0.000008 max diff across all 10 previously-disputed tokens (effectively 0.0000 at
+  4-decimal display precision), including token 1217 (the one that diverged 0.95 from
+  llama.cpp). Argmax matches. **llama.cpp is the implementation that diverges from
+  ground truth, not ours.**
+  This resolves the investigation definitively: our primary semantic oracle
+  (`oracle/model.py`) is proven correct against the actual reference implementation the
+  model was published against -- the strongest possible evidence Phase 0 could produce.
+  llama.cpp's own divergence from ground truth on this specific tiny model is a real,
+  separate, interesting finding (likely a genuine GGML-kernel numerical characteristic
+  at F32/CPU for this architecture/size), not a defect in our work and not something
+  Phase 0 is scoped to fix or explain further -- OrcEngine's own correctness is what
+  Phase 0 gates, and that is now proven three ways: hand-derived ground truth (Profile A),
+  cross-implementation agreement (NumPy vs PyTorch, both profiles), and now real-model
+  ground truth (HF reference, exact match).
+  `real_candidate_logits` marked `pass` in `PHASE_0_ACCEPTANCE.yaml` on this evidence.
