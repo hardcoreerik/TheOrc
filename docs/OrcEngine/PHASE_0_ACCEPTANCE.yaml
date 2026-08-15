@@ -63,7 +63,12 @@ required_checks:
       Verified 2026-08-15.
   - id: deterministic_regeneration
     evidence: two clean regenerations produce identical non-floating identities and approved floating comparisons
-    result: null
+    result: pass
+    result_evidence: Tools/OrcEnginePhase0/oracle/deterministic_regeneration.py — runs
+      oracle/regen_artifact.py as two SEPARATE python3 subprocesses (fresh interpreter each
+      time, not two in-process calls). Non-floating identities (shapes, dtypes, selected
+      tokens, weight-array SHA-256s) exactly equal. Floating logits bit-exact (identical
+      SHA-256, max_abs_diff=0.0) across the two processes. Verified 2026-08-15.
   - id: fault_injection
     evidence: every required seeded fault fails first at its expected checkpoint class
     result: null
