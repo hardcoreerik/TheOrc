@@ -238,3 +238,34 @@ Supersedes / superseded by:
   than argmax's own token) with real diagnostic work — e.g. layer-boundary tap
   comparison at real scale like `synthetic_layer_taps_check.py` does for Profile A —
   before proposing any tolerance again.
+
+- **Follow-up (2026-08-15, later same session):** two hypotheses tested and ruled out
+  with real evidence (`oracle/real_candidate_self_consistency_check.py`):
+  1. **Bug in our own forward pass at real scale?** No. Our NumPy (`oracle/model.py`)
+     and PyTorch (`oracle/torch_oracle.py`) implementations, run independently on the
+     same real weights, agree to `max_abs_diff=3.29e-05` across the full vocab --
+     ~30,000x tighter than the divergence against llama.cpp. This is essentially
+     perfect agreement between two independently-coded implementations; it rules out
+     an error in our own real-scale forward pass.
+  2. **Tokenization mismatch (e.g. a silently-added BOS token shifting the sequence)?**
+     No. Queried llama-server's own `/completion` response (`tokens_evaluated: 5`,
+     `tokens_cached: 5`) and its `/tokenize` endpoint directly
+     (`add_special=True` -> `[504, 3575, 282, 4649, 314]`, exactly 5 tokens, exact
+     match to what our tokenizer and our oracle used). No hidden token.
+  Attempted a third, independent tie-breaker: install `transformers` to run the actual
+  HF reference forward pass (genuinely third-party code, unlike our two
+  self-authored implementations which share conceptual DNA from the same spec).
+  Blocked by a transient PyPI issue (persistent 502 errors serving the `regex`
+  wheel for Python 3.14, retried twice, not a code problem on our end). Parked, not
+  worked around by guessing -- retry when PyPI is healthy, or find an alternative
+  install path.
+  **Current state:** the divergence is confirmed real and specific to llama.cpp's
+  computation (not our code, not tokenization). Root cause still unknown. Two most
+  likely remaining explanations, neither yet tested: (a) legitimate GGML-kernel vs
+  BLAS/PyTorch floating-point accumulation-order differences at 30-layer depth,
+  large enough to flip a near-tied ranking (the "expected, not a bug" explanation);
+  (b) an actual subtle implementation difference (e.g. RoPE frequency computation
+  precision at theta=100000, larger than Profile A's theta=10000) that would be a
+  real, worth-fixing bug in the conversion or in our understanding of llama.cpp's
+  exact semantics. `real_candidate_logits` remains `null` until this is resolved
+  with evidence, not asserted either way.
