@@ -22,7 +22,7 @@ or anywhere else in the repository yet.
 | `cache_equivalence` | Not started — needs Fixture C (multi-layer + KV cache) |
 | `near_tie_logits` | Not started |
 | `deterministic_regeneration` | Not started — needs two independent clean-environment runs compared |
-| `fault_injection` | Not started — needs the full Fixture B/C forward pass to inject faults into |
+| `fault_injection` | Partial (5/7) — `oracle/fault_injection.py`: transposed projection matrix, off-by-one position, incorrect RoPE pairing, missing causal mask, and changed RMSNorm epsilon are all seeded and detected at their exact expected checkpoint. **Not a pass**: 2 required fault types (swapped K/V cache write, tokenizer special-token error) are honestly deferred — they need Fixture C's real incremental cache and Fixture D's real tokenizer respectively, neither of which exists yet. A same-effect proxy would not test the fault the check actually names. |
 | `provenance_complete` | Not started — applies to the real-model candidate (SmolLM2-135M), not Profile A |
 | `tokenizer_dual_source_agreement` | Not started (real-model candidate) |
 | `raw_prompt_identity` | Not started (real-model candidate) |

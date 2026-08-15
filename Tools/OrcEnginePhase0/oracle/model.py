@@ -52,6 +52,22 @@ class ForwardResult:
     taps: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class FaultSpec:
+    """
+    Deliberate, named perturbations for the Phase 0 fault-injection proof
+    (PHASE_0_REFERENCE_ORACLE.md "Fault-injection proof"). Every field is
+    None/False by default (no fault). This is test-only surface area on the
+    reference implementation, not part of Profile A's real semantics --
+    weight-level faults (e.g. a transposed projection matrix) don't need a
+    field here; inject those by building a perturbed ModelWeights instead.
+    """
+    q_rope_position_offset: int = 0        # off-by-one position fault (applied to Q only)
+    wrong_rope_pairing: bool = False       # incorrect RoPE pairing (interleaved instead of split-half)
+    skip_causal_mask: bool = False         # missing causal mask fault
+    attn_rmsnorm_epsilon_override: float | None = None  # changed RMSNorm epsilon fault
+
+
 def _gqa_kv_head_for_query_head(q_head: int) -> int:
     """Query head h maps to KV head floor(h/2) -- the only accepted mapping for Profile A."""
     return q_head // 2
@@ -63,15 +79,30 @@ def _split_heads(x: np.ndarray, n_heads: int, head_dim: int) -> np.ndarray:
     return x.reshape(seq, n_heads, head_dim).transpose(1, 0, 2)
 
 
+def _wrong_pairing_rotate(x: np.ndarray) -> np.ndarray:
+    """
+    Incorrect ("interleaved") RoPE pairing fault: rotates adjacent (even,
+    odd) pairs instead of the correct split-half (first_half, second_half)
+    pairing used by ops.rope_rotate_half. Deliberately wrong for Profile A.
+    """
+    head_dim = x.shape[-1]
+    out = np.zeros_like(x)
+    out[..., 0::2] = -x[..., 1::2]
+    out[..., 1::2] = x[..., 0::2]
+    return out.astype(DTYPE)
+
+
 def forward(
     token_ids: np.ndarray,
     weights: ModelWeights,
     config: ModelConfig,
     *,
     capture_taps: bool = True,
+    fault: "FaultSpec | None" = None,
 ) -> ForwardResult:
     taps: dict[str, Any] = {}
     seq = token_ids.shape[0]
+    fault = fault or FaultSpec()
 
     # Step: input embedding lookup.
     x = ops.embedding_lookup(weights.token_embedding, token_ids)  # [seq, hidden]
@@ -90,7 +121,10 @@ def forward(
         layer_taps: dict[str, Any] = {}
 
         # 1. a = RMSNorm(x, attn_norm_weight, epsilon)
-        a = ops.rmsnorm(x, lw.attn_norm_weight, config.rmsnorm_epsilon)
+        attn_epsilon = (fault.attn_rmsnorm_epsilon_override
+                         if fault.attn_rmsnorm_epsilon_override is not None
+                         else config.rmsnorm_epsilon)
+        a = ops.rmsnorm(x, lw.attn_norm_weight, attn_epsilon)
         if capture_taps:
             layer_taps["pre_attention_normalized_state"] = a.copy()
 
@@ -109,10 +143,19 @@ def forward(
         v_heads = _split_heads(v_flat, config.n_kv_heads, config.head_dim)  # [n_kv_heads, seq, head_dim]
 
         # 4. Apply non-interleaved Llama RoPE to Q and K, per position.
+        def _apply_rope_maybe_faulted(vec, cos, sin, *, is_query: bool) -> np.ndarray:
+            if is_query and fault.wrong_rope_pairing:
+                return (vec.astype(DTYPE) * cos + _wrong_pairing_rotate(vec) * sin).astype(DTYPE)
+            return ops.apply_rope(vec, cos, sin)
+
         q_rope = np.zeros_like(q_heads)
         for h in range(config.n_q_heads):
             for p in range(seq):
-                q_rope[h, p] = ops.apply_rope(q_heads[h, p], cos_by_pos[p], sin_by_pos[p])
+                rope_pos = p + fault.q_rope_position_offset
+                rope_pos = max(0, min(rope_pos, seq - 1))  # clamp -- this is a test fault, not real decode
+                cos_q, sin_q = ((cos_by_pos[rope_pos], sin_by_pos[rope_pos])
+                                if fault.q_rope_position_offset else (cos_by_pos[p], sin_by_pos[p]))
+                q_rope[h, p] = _apply_rope_maybe_faulted(q_heads[h, p], cos_q, sin_q, is_query=True)
         k_rope = np.zeros_like(k_heads)
         for h in range(config.n_kv_heads):
             for p in range(seq):
@@ -130,7 +173,7 @@ def forward(
         for h in range(config.n_q_heads):
             kv_h = _gqa_kv_head_for_query_head(h)
             scores = (q_rope[h] @ k_rope[kv_h].T).astype(DTYPE) * scale  # [seq, seq]
-            masked = ops.causal_mask(scores)
+            masked = scores if fault.skip_causal_mask else ops.causal_mask(scores)
             probs = ops.softmax_last_axis(masked)
             context_heads[h] = (probs @ v_heads[kv_h]).astype(DTYPE)
             masked_scores_by_head.append(masked.copy())
