@@ -136,10 +136,19 @@ def forward(
         if capture_taps:
             layer_taps["pre_attention_normalized_state"] = a.copy()
 
-        # 2. q = a Wq^T, k = a Wk^T, v = a Wv^T
+        # 2. q = a Wq^T (+bias), k = a Wk^T (+bias), v = a Wv^T (+bias)
+        # Bias is None for Profile A / SmolLM2-135M, present for Qwen2-family models
+        # loaded via oracle/gguf_model_loader.py -- added post-projection, pre-RoPE,
+        # matching Qwen2's actual attention block (bias only on Q/K/V, never attn_output).
         q_flat = ops.linear_no_bias(a, lw.w_q)  # [seq, n_q_heads*head_dim]
         k_flat = ops.linear_no_bias(a, lw.w_k)  # [seq, n_kv_heads*head_dim]
         v_flat = ops.linear_no_bias(a, lw.w_v)  # [seq, n_kv_heads*head_dim]
+        if lw.attn_q_bias is not None:
+            q_flat = (q_flat + lw.attn_q_bias).astype(DTYPE)
+        if lw.attn_k_bias is not None:
+            k_flat = (k_flat + lw.attn_k_bias).astype(DTYPE)
+        if lw.attn_v_bias is not None:
+            v_flat = (v_flat + lw.attn_v_bias).astype(DTYPE)
         if capture_taps:
             layer_taps["q_projection"] = q_flat.copy()
             layer_taps["k_projection"] = k_flat.copy()
@@ -321,6 +330,12 @@ def forward_cached(
         q_flat = ops.linear_no_bias(a, lw.w_q)
         k_flat_new = ops.linear_no_bias(a, lw.w_k)
         v_flat_new = ops.linear_no_bias(a, lw.w_v)
+        if lw.attn_q_bias is not None:
+            q_flat = (q_flat + lw.attn_q_bias).astype(DTYPE)
+        if lw.attn_k_bias is not None:
+            k_flat_new = (k_flat_new + lw.attn_k_bias).astype(DTYPE)
+        if lw.attn_v_bias is not None:
+            v_flat_new = (v_flat_new + lw.attn_v_bias).astype(DTYPE)
         if capture_taps:
             layer_taps["q_projection"] = q_flat.copy()
             layer_taps["k_projection"] = k_flat_new.copy()

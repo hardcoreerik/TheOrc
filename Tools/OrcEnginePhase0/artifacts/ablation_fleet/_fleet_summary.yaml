@@ -1,0 +1,44 @@
+models_dir: C:\Users\hardc\AppData\Roaming\OrchestratorIDE\Models
+results:
+- file: 2fa3f013dcdd7b99f9b237717fa0b12d75bbb89984cc1274be1471a465bac9c2.gguf
+  status: completed
+  architecture: llama
+  n_layers: 32
+  hidden: 960
+  elapsed_seconds: 33.14669871330261
+  most_impactful_layer: layer0.full_layer
+  most_impactful_logit_l2: 1136.204342913808
+  least_impactful_layer: layer20.full_layer
+  least_impactful_logit_l2: 94.35630770488513
+- file: Meta-Llama-3.1-8B-Instruct-Q5_K_M.gguf
+  status: skipped
+  reason: 'too large: 32.1GB estimated > 16.7GB budget'
+- file: Qwen2.5-1.5B-Instruct-Q4_K_M.gguf
+  status: completed
+  architecture: qwen2
+  n_layers: 28
+  hidden: 1536
+  elapsed_seconds: 118.38890385627747
+  most_impactful_layer: layer0.full_layer
+  most_impactful_logit_l2: 1948.3944438369763
+  least_impactful_layer: layer13.full_layer
+  least_impactful_logit_l2: 126.15550635925695
+- file: Qwen3.8-27B-IQ4_XS.gguf
+  status: skipped
+  reason: 'unsupported architecture: qwen35'
+- file: Qwen3.8-27B-Q3_K_M.gguf
+  status: skipped
+  reason: 'unsupported architecture: qwen35'
+- file: SmolLM2-360M-Instruct-Q4_K_M.gguf
+  status: completed
+  architecture: llama
+  n_layers: 32
+  hidden: 960
+  elapsed_seconds: 30.594844102859497
+  most_impactful_layer: layer0.full_layer
+  most_impactful_logit_l2: 1136.204342913808
+  least_impactful_layer: layer20.full_layer
+  least_impactful_logit_l2: 94.35630770488513
+- file: theorc-toolcaller-qwen25-1.5b-lora-v0-f16.gguf
+  status: skipped
+  reason: 'load failed: "required GGUF metadata key ''qwen2.block_count'' not found"'

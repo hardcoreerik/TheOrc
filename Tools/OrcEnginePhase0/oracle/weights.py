@@ -48,6 +48,13 @@ class LayerWeights:
     w_gate: np.ndarray              # [intermediate, hidden]
     w_up: np.ndarray                # [intermediate, hidden]
     w_down: np.ndarray              # [hidden, intermediate]
+    # Optional Q/K/V projection bias -- absent (None) for Profile A and the pinned
+    # SmolLM2-135M candidate (both bias-free), but present for Qwen2-family GGUF models
+    # (bias on attn_q/k/v only, never attn_output or the FFN). Modeled explicitly rather
+    # than silently dropped, per oracle/gguf_model_loader.py's real-model support.
+    attn_q_bias: np.ndarray | None = None   # [n_q_heads*head_dim]
+    attn_k_bias: np.ndarray | None = None   # [n_kv_heads*head_dim]
+    attn_v_bias: np.ndarray | None = None   # [n_kv_heads*head_dim]
 
 
 @dataclass(frozen=True)
