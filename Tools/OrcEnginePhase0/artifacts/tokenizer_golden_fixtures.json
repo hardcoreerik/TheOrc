@@ -1,0 +1,1620 @@
+{
+  "tokenizer_source": "artifacts/smollm2-135m/tokenizer.json (SmolLM2-135M, pinned revision 93efa2f097d58c2a74874c7e644dbc9b0cee75a2)",
+  "categories_covered": [
+    "ascii_words_and_punctuation",
+    "bos_eos_combinations",
+    "embedded_nul",
+    "empty_input",
+    "encode_decode_caveat",
+    "multibyte_utf8_boundary",
+    "non_ascii",
+    "special_token_lookalike",
+    "unknown_or_byte_fallback",
+    "whitespace"
+  ],
+  "fixtures": [
+    {
+      "fixture_id": "empty_input",
+      "category": "empty_input",
+      "raw_text_repr": "''",
+      "raw_bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_bytes_length": 0,
+      "token_ids": [],
+      "token_ids_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "token_pieces": [],
+      "offsets": [],
+      "decoded_text_repr": "''",
+      "decoded_bytes_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "encode_decode_round_trips_exactly": true,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "ascii_words",
+      "category": "ascii_words_and_punctuation",
+      "raw_text_repr": "'Hello, world! This is a test: 123.'",
+      "raw_bytes_sha256": "f6e5b6f6ba88f5a31a149f395743d48d41e282437772ebdb8d4862666387d03d",
+      "raw_bytes_length": 34,
+      "token_ids": [
+        19556,
+        28,
+        905,
+        17,
+        669,
+        314,
+        253,
+        1028,
+        42,
+        216,
+        33,
+        34,
+        35,
+        30
+      ],
+      "token_ids_sha256": "8aee7dc512cd266422f39457db2f98efdc15fb85a75d2c5ffb7f01ccc73860b4",
+      "token_pieces": [
+        "Hello",
+        ",",
+        "\u0120world",
+        "!",
+        "\u0120This",
+        "\u0120is",
+        "\u0120a",
+        "\u0120test",
+        ":",
+        "\u0120",
+        "1",
+        "2",
+        "3",
+        "."
+      ],
+      "offsets": [
+        [
+          0,
+          5
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          6,
+          12
+        ],
+        [
+          12,
+          13
+        ],
+        [
+          13,
+          18
+        ],
+        [
+          18,
+          21
+        ],
+        [
+          21,
+          23
+        ],
+        [
+          23,
+          28
+        ],
+        [
+          28,
+          29
+        ],
+        [
+          29,
+          30
+        ],
+        [
+          30,
+          31
+        ],
+        [
+          31,
+          32
+        ],
+        [
+          32,
+          33
+        ],
+        [
+          33,
+          34
+        ]
+      ],
+      "decoded_text_repr": "'Hello, world! This is a test: 123.'",
+      "decoded_bytes_sha256": "f6e5b6f6ba88f5a31a149f395743d48d41e282437772ebdb8d4862666387d03d",
+      "encode_decode_round_trips_exactly": true,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "ascii_punctuation_only",
+      "category": "ascii_words_and_punctuation",
+      "raw_text_repr": "'!@#$%^&*()_+-=[]{}|;\\':\",./<>?'",
+      "raw_bytes_sha256": "58b745a6c9c20be48b4ea3951b4d79bbc834d26d001554c137bc91ff5598fa76",
+      "raw_bytes_length": 29,
+      "token_ids": [
+        17,
+        48,
+        19,
+        20,
+        21,
+        78,
+        22,
+        26,
+        1000,
+        79,
+        34592,
+        30208,
+        6150,
+        108,
+        43,
+        1539,
+        1002,
+        18380,
+        44,
+        46,
+        47
+      ],
+      "token_ids_sha256": "56aae5f5a112f7a85110f4709f9673260c7efec7a50b756cf63f6bc388fee641",
+      "token_pieces": [
+        "!",
+        "@",
+        "#",
+        "$",
+        "%",
+        "^",
+        "&",
+        "*",
+        "()",
+        "_",
+        "+-",
+        "=[]",
+        "{}",
+        "|",
+        ";",
+        "':",
+        "\",",
+        "./",
+        "<",
+        ">",
+        "?"
+      ],
+      "offsets": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          4,
+          5
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          6,
+          7
+        ],
+        [
+          7,
+          8
+        ],
+        [
+          8,
+          10
+        ],
+        [
+          10,
+          11
+        ],
+        [
+          11,
+          13
+        ],
+        [
+          13,
+          16
+        ],
+        [
+          16,
+          18
+        ],
+        [
+          18,
+          19
+        ],
+        [
+          19,
+          20
+        ],
+        [
+          20,
+          22
+        ],
+        [
+          22,
+          24
+        ],
+        [
+          24,
+          26
+        ],
+        [
+          26,
+          27
+        ],
+        [
+          27,
+          28
+        ],
+        [
+          28,
+          29
+        ]
+      ],
+      "decoded_text_repr": "'!@#$%^&*()_+-=[]{}|;\\':\",./<>?'",
+      "decoded_bytes_sha256": "58b745a6c9c20be48b4ea3951b4d79bbc834d26d001554c137bc91ff5598fa76",
+      "encode_decode_round_trips_exactly": true,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "leading_whitespace",
+      "category": "whitespace",
+      "raw_text_repr": "'   leading spaces'",
+      "raw_bytes_sha256": "628e3e6196005d6286d99cd9c954667880fc638b26c71c932fc1bf9f1fc302a9",
+      "raw_bytes_length": 17,
+      "token_ids": [
+        256,
+        2899,
+        5600
+      ],
+      "token_ids_sha256": "c3e4999862ecbb7165cf10c408b0b23192bc888bbb7791cb01f4832cfc6fc83b",
+      "token_pieces": [
+        "\u0120\u0120",
+        "\u0120leading",
+        "\u0120spaces"
+      ],
+      "offsets": [
+        [
+          0,
+          2
+        ],
+        [
+          2,
+          10
+        ],
+        [
+          10,
+          17
+        ]
+      ],
+      "decoded_text_repr": "'   leading spaces'",
+      "decoded_bytes_sha256": "628e3e6196005d6286d99cd9c954667880fc638b26c71c932fc1bf9f1fc302a9",
+      "encode_decode_round_trips_exactly": true,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "trailing_whitespace",
+      "category": "whitespace",
+      "raw_text_repr": "'trailing spaces   '",
+      "raw_bytes_sha256": "0bbae9f33a962046c5e08c7be22142125435a5f963ff73d7492dd5b580074d43",
+      "raw_bytes_length": 18,
+      "token_ids": [
+        4861,
+        4966,
+        5600,
+        333
+      ],
+      "token_ids_sha256": "d4db1ddfe8339b3a3239ec3239ede1c4c4c7ddcf5859fa18fb670e59174658a7",
+      "token_pieces": [
+        "tra",
+        "iling",
+        "\u0120spaces",
+        "\u0120\u0120\u0120"
+      ],
+      "offsets": [
+        [
+          0,
+          3
+        ],
+        [
+          3,
+          8
+        ],
+        [
+          8,
+          15
+        ],
+        [
+          15,
+          18
+        ]
+      ],
+      "decoded_text_repr": "'trailing spaces   '",
+      "decoded_bytes_sha256": "0bbae9f33a962046c5e08c7be22142125435a5f963ff73d7492dd5b580074d43",
+      "encode_decode_round_trips_exactly": true,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "repeated_whitespace",
+      "category": "whitespace",
+      "raw_text_repr": "'a    b     c'",
+      "raw_bytes_sha256": "869244288a5429f7380cdd0b32085fbebd25c1c1503ea4c27058d9961a9edf69",
+      "raw_bytes_length": 12,
+      "token_ids": [
+        81,
+        333,
+        278,
+        289,
+        265
+      ],
+      "token_ids_sha256": "5b5944695254a8f4a3b3bf068e253c2e3821ded8769a4b1c44db2f2925e951a6",
+      "token_pieces": [
+        "a",
+        "\u0120\u0120\u0120",
+        "\u0120b",
+        "\u0120\u0120\u0120\u0120",
+        "\u0120c"
+      ],
+      "offsets": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          4
+        ],
+        [
+          4,
+          6
+        ],
+        [
+          6,
+          10
+        ],
+        [
+          10,
+          12
+        ]
+      ],
+      "decoded_text_repr": "'a    b     c'",
+      "decoded_bytes_sha256": "869244288a5429f7380cdd0b32085fbebd25c1c1503ea4c27058d9961a9edf69",
+      "encode_decode_round_trips_exactly": true,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "newline_and_tab",
+      "category": "whitespace",
+      "raw_text_repr": "'line one\\nline two\\tafter tab'",
+      "raw_bytes_sha256": "7687fd32666ba84b2062e7f09a734e1f7a824935b66cffb0f20b8b9001854433",
+      "raw_bytes_length": 27,
+      "token_ids": [
+        1311,
+        582,
+        198,
+        1311,
+        827,
+        197,
+        9110,
+        10147
+      ],
+      "token_ids_sha256": "673540b9d3bd9bb0fd5c38c6f91d39e05da2b7d42669ea23379317e5183db570",
+      "token_pieces": [
+        "line",
+        "\u0120one",
+        "\u010a",
+        "line",
+        "\u0120two",
+        "\u0109",
+        "after",
+        "\u0120tab"
+      ],
+      "offsets": [
+        [
+          0,
+          4
+        ],
+        [
+          4,
+          8
+        ],
+        [
+          8,
+          9
+        ],
+        [
+          9,
+          13
+        ],
+        [
+          13,
+          17
+        ],
+        [
+          17,
+          18
+        ],
+        [
+          18,
+          23
+        ],
+        [
+          23,
+          27
+        ]
+      ],
+      "decoded_text_repr": "'line one\\nline two\\tafter tab'",
+      "decoded_bytes_sha256": "7687fd32666ba84b2062e7f09a734e1f7a824935b66cffb0f20b8b9001854433",
+      "encode_decode_round_trips_exactly": true,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "only_whitespace",
+      "category": "whitespace",
+      "raw_text_repr": "'   \\n\\t  '",
+      "raw_bytes_sha256": "f85ca008e762758d9cf5b8d7c44c3e74673139ada7adf2e48b4f12715f69f67c",
+      "raw_bytes_length": 7,
+      "token_ids": [
+        333,
+        3354,
+        256
+      ],
+      "token_ids_sha256": "e78b0a3003444e7a6b66a845664910cf7698b9edba59911b5ee01a26c004fccb",
+      "token_pieces": [
+        "\u0120\u0120\u0120",
+        "\u010a\u0109",
+        "\u0120\u0120"
+      ],
+      "offsets": [
+        [
+          0,
+          3
+        ],
+        [
+          3,
+          5
+        ],
+        [
+          5,
+          7
+        ]
+      ],
+      "decoded_text_repr": "'   \\n\\t  '",
+      "decoded_bytes_sha256": "f85ca008e762758d9cf5b8d7c44c3e74673139ada7adf2e48b4f12715f69f67c",
+      "encode_decode_round_trips_exactly": true,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "non_ascii_latin",
+      "category": "non_ascii",
+      "raw_text_repr": "'caf\u00e9 r\u00e9sum\u00e9 na\u00efve Z\u00fcrich'",
+      "raw_bytes_sha256": "d833c93d393b6abf6aa09ab86578ea4aaace65d33a9ff43e06ad64308b173372",
+      "raw_bytes_length": 29,
+      "token_ids": [
+        83,
+        1939,
+        2756,
+        412,
+        2756,
+        5422,
+        2756,
+        15486,
+        46494,
+        1777,
+        7170,
+        5130
+      ],
+      "token_ids_sha256": "65e5aaaae256167ab36a32ce89687ff2844d4ab59c360e133c8b65ca72957e1c",
+      "token_pieces": [
+        "c",
+        "af",
+        "\u00c3\u00a9",
+        "\u0120r",
+        "\u00c3\u00a9",
+        "sum",
+        "\u00c3\u00a9",
+        "\u0120na",
+        "\u00c3\u00afve",
+        "\u0120Z",
+        "\u00c3\u00bc",
+        "rich"
+      ],
+      "offsets": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          3
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          4,
+          6
+        ],
+        [
+          6,
+          7
+        ],
+        [
+          7,
+          10
+        ],
+        [
+          10,
+          11
+        ],
+        [
+          11,
+          14
+        ],
+        [
+          14,
+          17
+        ],
+        [
+          17,
+          19
+        ],
+        [
+          19,
+          20
+        ],
+        [
+          20,
+          24
+        ]
+      ],
+      "decoded_text_repr": "'caf\u00e9 r\u00e9sum\u00e9 na\u00efve Z\u00fcrich'",
+      "decoded_bytes_sha256": "d833c93d393b6abf6aa09ab86578ea4aaace65d33a9ff43e06ad64308b173372",
+      "encode_decode_round_trips_exactly": true,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "non_ascii_cjk",
+      "category": "non_ascii",
+      "raw_text_repr": "'\u4f60\u597d\u4e16\u754c \u3053\u3093\u306b\u3061\u306f\u4e16\u754c \uc548\ub155\ud558\uc138\uc694'",
+      "raw_bytes_sha256": "e5b5e8d93904175821c2971272f460cf7b5090803b433ce6ec809c5b1ea35128",
+      "raw_bytes_length": 50,
+      "token_ids": [
+        18645,
+        250,
+        48392,
+        138,
+        7906,
+        240,
+        178,
+        239,
+        230,
+        46673,
+        237,
+        10391,
+        237,
+        41152,
+        7365,
+        111,
+        7365,
+        124,
+        7906,
+        240,
+        178,
+        239,
+        230,
+        18601,
+        239,
+        226,
+        182,
+        223,
+        239,
+        33085,
+        242,
+        183,
+        222,
+        133,
+        183,
+        244,
+        238
+      ],
+      "token_ids_sha256": "01f82ec5fd502efb0925dd05b4798e6e73c192e87119d03e4524a75b4b728ff3",
+      "token_pieces": [
+        "\u00e4\u00bd",
+        "\u0142",
+        "\u00e5\u00a5",
+        "\u00bd",
+        "\u00e4\u00b8",
+        "\u0138",
+        "\u00e7",
+        "\u0137",
+        "\u012e",
+        "\u0120\u00e3\u0123",
+        "\u0135",
+        "\u00e3\u0124",
+        "\u0135",
+        "\u00e3\u0123\u00ab",
+        "\u00e3\u0123",
+        "\u00a1",
+        "\u00e3\u0123",
+        "\u00af",
+        "\u00e4\u00b8",
+        "\u0138",
+        "\u00e7",
+        "\u0137",
+        "\u012e",
+        "\u0120\u00ec",
+        "\u0137",
+        "\u012a",
+        "\u00eb",
+        "\u0127",
+        "\u0137",
+        "\u00ed\u0137",
+        "\u013a",
+        "\u00ec",
+        "\u0126",
+        "\u00b8",
+        "\u00ec",
+        "\u013c",
+        "\u0136"
+      ],
+      "offsets": [
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          4,
+          6
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          6,
+          7
+        ],
+        [
+          6,
+          7
+        ],
+        [
+          7,
+          8
+        ],
+        [
+          8,
+          9
+        ],
+        [
+          8,
+          9
+        ],
+        [
+          9,
+          10
+        ],
+        [
+          9,
+          10
+        ],
+        [
+          10,
+          11
+        ],
+        [
+          10,
+          11
+        ],
+        [
+          11,
+          12
+        ],
+        [
+          11,
+          12
+        ],
+        [
+          11,
+          12
+        ],
+        [
+          12,
+          14
+        ],
+        [
+          13,
+          14
+        ],
+        [
+          13,
+          14
+        ],
+        [
+          14,
+          15
+        ],
+        [
+          14,
+          15
+        ],
+        [
+          14,
+          15
+        ],
+        [
+          15,
+          16
+        ],
+        [
+          15,
+          16
+        ],
+        [
+          16,
+          17
+        ],
+        [
+          16,
+          17
+        ],
+        [
+          16,
+          17
+        ],
+        [
+          17,
+          18
+        ],
+        [
+          17,
+          18
+        ],
+        [
+          17,
+          18
+        ]
+      ],
+      "decoded_text_repr": "'\u4f60\u597d\u4e16\u754c \u3053\u3093\u306b\u3061\u306f\u4e16\u754c \uc548\ub155\ud558\uc138\uc694'",
+      "decoded_bytes_sha256": "e5b5e8d93904175821c2971272f460cf7b5090803b433ce6ec809c5b1ea35128",
+      "encode_decode_round_trips_exactly": true,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "non_ascii_emoji",
+      "category": "non_ascii",
+      "raw_text_repr": "'hello \ud83d\ude00 world \ud83c\udf0d emoji \ud83d\ude80'",
+      "raw_bytes_sha256": "61f1c7d9a2122d2fef77d2646bc6723e382f85def6b1f29affc93732b63f91a5",
+      "raw_bytes_length": 32,
+      "token_ids": [
+        28120,
+        40303,
+        218,
+        905,
+        15107,
+        230,
+        231,
+        649,
+        33777,
+        15107,
+        244,
+        218
+      ],
+      "token_ids_sha256": "ec127a4daabcf130a5a60a4283c6da00fe57d314082be12c9985bae2d7b9cb8c",
+      "token_pieces": [
+        "hello",
+        "\u0120\u00f0\u0141\u013a",
+        "\u0122",
+        "\u0120world",
+        "\u0120\u00f0\u0141",
+        "\u012e",
+        "\u012f",
+        "\u0120em",
+        "oji",
+        "\u0120\u00f0\u0141",
+        "\u013c",
+        "\u0122"
+      ],
+      "offsets": [
+        [
+          0,
+          5
+        ],
+        [
+          5,
+          7
+        ],
+        [
+          6,
+          7
+        ],
+        [
+          7,
+          13
+        ],
+        [
+          13,
+          15
+        ],
+        [
+          14,
+          15
+        ],
+        [
+          14,
+          15
+        ],
+        [
+          15,
+          18
+        ],
+        [
+          18,
+          21
+        ],
+        [
+          21,
+          23
+        ],
+        [
+          22,
+          23
+        ],
+        [
+          22,
+          23
+        ]
+      ],
+      "decoded_text_repr": "'hello \ud83d\ude00 world \ud83c\udf0d emoji \ud83d\ude80'",
+      "decoded_bytes_sha256": "61f1c7d9a2122d2fef77d2646bc6723e382f85def6b1f29affc93732b63f91a5",
+      "encode_decode_round_trips_exactly": true,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "non_ascii_combining_marks",
+      "category": "non_ascii",
+      "raw_text_repr": "'e\u0301 a\u0300 o\u0302 combining diacritics'",
+      "raw_bytes_sha256": "67b5853d3521e5418a7878b02a487e009d66150358a6b5b8a554fe690b754cf0",
+      "raw_bytes_length": 32,
+      "token_ids": [
+        85,
+        151,
+        219,
+        253,
+        151,
+        218,
+        263,
+        151,
+        220,
+        9301,
+        801,
+        387,
+        608,
+        747
+      ],
+      "token_ids_sha256": "04693e02aa1bc3701cb498557082ac575c8418f97823de5f1a74f89f6220bc84",
+      "token_pieces": [
+        "e",
+        "\u00cc",
+        "\u0123",
+        "\u0120a",
+        "\u00cc",
+        "\u0122",
+        "\u0120o",
+        "\u00cc",
+        "\u0124",
+        "\u0120combining",
+        "\u0120di",
+        "ac",
+        "rit",
+        "ics"
+      ],
+      "offsets": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          4
+        ],
+        [
+          4,
+          5
+        ],
+        [
+          4,
+          5
+        ],
+        [
+          5,
+          7
+        ],
+        [
+          7,
+          8
+        ],
+        [
+          7,
+          8
+        ],
+        [
+          8,
+          18
+        ],
+        [
+          18,
+          21
+        ],
+        [
+          21,
+          23
+        ],
+        [
+          23,
+          26
+        ],
+        [
+          26,
+          29
+        ]
+      ],
+      "decoded_text_repr": "'e\u0301 a\u0300 o\u0302 combining diacritics'",
+      "decoded_bytes_sha256": "67b5853d3521e5418a7878b02a487e009d66150358a6b5b8a554fe690b754cf0",
+      "encode_decode_round_trips_exactly": true,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "text_resembling_special_tokens",
+      "category": "special_token_lookalike",
+      "raw_text_repr": "'this <|endoftext|> looks like a special token'",
+      "raw_bytes_sha256": "cc56418641a6b5f741eff89affa405e29adc59632a561928b2c18e57ab03eeaf",
+      "raw_bytes_length": 45,
+      "token_ids": [
+        8232,
+        216,
+        0,
+        5117,
+        702,
+        253,
+        1767,
+        9624
+      ],
+      "token_ids_sha256": "25da33e2eee132e4f92b8fb56cf8ed21db1a3ba6f3b6e39cfb6cccc8dcff41a1",
+      "token_pieces": [
+        "this",
+        "\u0120",
+        "<|endoftext|>",
+        "\u0120looks",
+        "\u0120like",
+        "\u0120a",
+        "\u0120special",
+        "\u0120token"
+      ],
+      "offsets": [
+        [
+          0,
+          4
+        ],
+        [
+          4,
+          5
+        ],
+        [
+          5,
+          18
+        ],
+        [
+          18,
+          24
+        ],
+        [
+          24,
+          29
+        ],
+        [
+          29,
+          31
+        ],
+        [
+          31,
+          39
+        ],
+        [
+          39,
+          45
+        ]
+      ],
+      "decoded_text_repr": "'this  looks like a special token'",
+      "decoded_bytes_sha256": "9e984c536b0ec768f1b84978957cc4a47b55c753a130e203f98047fb0dbd8591",
+      "encode_decode_round_trips_exactly": false,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "text_resembling_special_tokens_2",
+      "category": "special_token_lookalike",
+      "raw_text_repr": "'<|im_start|>not really a chat turn<|im_end|>'",
+      "raw_bytes_sha256": "c821e3252c8390ac2ee6a5936af7f40c1f0b343315babe0ddc2f5061dc7274c5",
+      "raw_bytes_length": 44,
+      "token_ids": [
+        1,
+        1766,
+        2159,
+        253,
+        11743,
+        1607,
+        2
+      ],
+      "token_ids_sha256": "6c1e941c1e9e59f1dd1bdfd044fb7615eaee8600ff76797990f24e686d45079b",
+      "token_pieces": [
+        "<|im_start|>",
+        "not",
+        "\u0120really",
+        "\u0120a",
+        "\u0120chat",
+        "\u0120turn",
+        "<|im_end|>"
+      ],
+      "offsets": [
+        [
+          0,
+          12
+        ],
+        [
+          12,
+          15
+        ],
+        [
+          15,
+          22
+        ],
+        [
+          22,
+          24
+        ],
+        [
+          24,
+          29
+        ],
+        [
+          29,
+          34
+        ],
+        [
+          34,
+          44
+        ]
+      ],
+      "decoded_text_repr": "'not really a chat turn'",
+      "decoded_bytes_sha256": "cf5c6652199c77bf2fa8ffc8fb7f67e92b967df9323bc00d49999650c6ebfb99",
+      "encode_decode_round_trips_exactly": false,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "unusual_unicode_ranges",
+      "category": "unknown_or_byte_fallback",
+      "raw_text_repr": "'\u2603\u2764\\ufeff mixed symbols and BOM-like char'",
+      "raw_bytes_sha256": "8c03d7a78d383d2bcc56563c3d7bc70427712622b50bae9818a6e8e62323f7b1",
+      "raw_bytes_length": 41,
+      "token_ids": [
+        173,
+        242,
+        221,
+        173,
+        247,
+        114,
+        186,
+        136,
+        140,
+        6468,
+        7349,
+        284,
+        389,
+        9232,
+        29,
+        2579,
+        1336
+      ],
+      "token_ids_sha256": "2f446ae95e84f31a671d4e5353d08c05599a068de8ea6568b279e2232dc47034",
+      "token_pieces": [
+        "\u00e2",
+        "\u013a",
+        "\u0125",
+        "\u00e2",
+        "\u013f",
+        "\u00a4",
+        "\u00ef",
+        "\u00bb",
+        "\u00bf",
+        "\u0120mixed",
+        "\u0120symbols",
+        "\u0120and",
+        "\u0120B",
+        "OM",
+        "-",
+        "like",
+        "\u0120char"
+      ],
+      "offsets": [
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          3,
+          9
+        ],
+        [
+          9,
+          17
+        ],
+        [
+          17,
+          21
+        ],
+        [
+          21,
+          23
+        ],
+        [
+          23,
+          25
+        ],
+        [
+          25,
+          26
+        ],
+        [
+          26,
+          30
+        ],
+        [
+          30,
+          35
+        ]
+      ],
+      "decoded_text_repr": "'\u2603\u2764\\ufeff mixed symbols and BOM-like char'",
+      "decoded_bytes_sha256": "8c03d7a78d383d2bcc56563c3d7bc70427712622b50bae9818a6e8e62323f7b1",
+      "encode_decode_round_trips_exactly": true,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "multibyte_utf8_boundary",
+      "category": "multibyte_utf8_boundary",
+      "raw_text_repr": "'\ud83d\ude00\ud83d\ude01\ud83d\ude02 consecutive multibyte emoji'",
+      "raw_bytes_sha256": "8e1516d15216df4aa4356a7d0ab4dc375ce2ccf7d70b7f70990932f810e56577",
+      "raw_bytes_length": 40,
+      "token_ids": [
+        10813,
+        242,
+        218,
+        10813,
+        242,
+        219,
+        10813,
+        242,
+        220,
+        19996,
+        1575,
+        505,
+        105,
+        676,
+        649,
+        33777
+      ],
+      "token_ids_sha256": "2557c219456466e0a51d0b2e998d3722a79feae20acec62d0d4691a634cd0ba9",
+      "token_pieces": [
+        "\u00f0\u0141",
+        "\u013a",
+        "\u0122",
+        "\u00f0\u0141",
+        "\u013a",
+        "\u0123",
+        "\u00f0\u0141",
+        "\u013a",
+        "\u0124",
+        "\u0120consecutive",
+        "\u0120mult",
+        "ib",
+        "y",
+        "te",
+        "\u0120em",
+        "oji"
+      ],
+      "offsets": [
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          3,
+          15
+        ],
+        [
+          15,
+          20
+        ],
+        [
+          20,
+          22
+        ],
+        [
+          22,
+          23
+        ],
+        [
+          23,
+          25
+        ],
+        [
+          25,
+          28
+        ],
+        [
+          28,
+          31
+        ]
+      ],
+      "decoded_text_repr": "'\ud83d\ude00\ud83d\ude01\ud83d\ude02 consecutive multibyte emoji'",
+      "decoded_bytes_sha256": "8e1516d15216df4aa4356a7d0ab4dc375ce2ccf7d70b7f70990932f810e56577",
+      "encode_decode_round_trips_exactly": true,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "mixed_script",
+      "category": "non_ascii",
+      "raw_text_repr": "'English \u4e2d\u6587 \u65e5\u672c\u8a9e \ud55c\uad6d\uc5b4 \u0627\u0644\u0639\u0631\u0628\u064a\u0629'",
+      "raw_bytes_sha256": "fc985dde7a8a5dbac149738af4f914034845dd5e8131ff1f271e0aee94cece9a",
+      "raw_bytes_length": 49,
+      "token_ids": [
+        14901,
+        216,
+        28589,
+        29184,
+        17097,
+        241,
+        115,
+        40993,
+        179,
+        120,
+        248,
+        216,
+        33085,
+        246,
+        181,
+        130,
+        251,
+        183,
+        240,
+        129,
+        27819,
+        34966,
+        20602,
+        31462,
+        23339,
+        43463
+      ],
+      "token_ids_sha256": "5d0fbb844957198380db3fbcf9d3d8c1a80144cb373c8c19d1a3746c14de331e",
+      "token_pieces": [
+        "English",
+        "\u0120",
+        "\u00e4\u00b8\u0143",
+        "\u00e6\u0138\u0129",
+        "\u0120\u00e6",
+        "\u0139",
+        "\u00a5",
+        "\u00e6\u013e\u00ac",
+        "\u00e8",
+        "\u00aa",
+        "\u0140",
+        "\u0120",
+        "\u00ed\u0137",
+        "\u013e",
+        "\u00ea",
+        "\u00b5",
+        "\u0143",
+        "\u00ec",
+        "\u0138",
+        "\u00b4",
+        "\u0120\u00d8\u00a7\u00d9\u0126",
+        "\u00d8\u00b9",
+        "\u00d8\u00b1",
+        "\u00d8\u00a8",
+        "\u00d9\u012c",
+        "\u00d8\u00a9"
+      ],
+      "offsets": [
+        [
+          0,
+          7
+        ],
+        [
+          7,
+          8
+        ],
+        [
+          8,
+          9
+        ],
+        [
+          9,
+          10
+        ],
+        [
+          10,
+          12
+        ],
+        [
+          11,
+          12
+        ],
+        [
+          11,
+          12
+        ],
+        [
+          12,
+          13
+        ],
+        [
+          13,
+          14
+        ],
+        [
+          13,
+          14
+        ],
+        [
+          13,
+          14
+        ],
+        [
+          14,
+          15
+        ],
+        [
+          15,
+          16
+        ],
+        [
+          15,
+          16
+        ],
+        [
+          16,
+          17
+        ],
+        [
+          16,
+          17
+        ],
+        [
+          16,
+          17
+        ],
+        [
+          17,
+          18
+        ],
+        [
+          17,
+          18
+        ],
+        [
+          17,
+          18
+        ],
+        [
+          18,
+          21
+        ],
+        [
+          21,
+          22
+        ],
+        [
+          22,
+          23
+        ],
+        [
+          23,
+          24
+        ],
+        [
+          24,
+          25
+        ],
+        [
+          25,
+          26
+        ]
+      ],
+      "decoded_text_repr": "'English \u4e2d\u6587 \u65e5\u672c\u8a9e \ud55c\uad6d\uc5b4 \u0627\u0644\u0639\u0631\u0628\u064a\u0629'",
+      "decoded_bytes_sha256": "fc985dde7a8a5dbac149738af4f914034845dd5e8131ff1f271e0aee94cece9a",
+      "encode_decode_round_trips_exactly": true,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "embedded_nul_char",
+      "category": "embedded_nul",
+      "raw_text_repr": "'before\\x00after'",
+      "raw_bytes_sha256": "92e7bd379d664df834acaff3d7abcf375095bc5cafa5ebc76309307386deab95",
+      "raw_bytes_length": 12,
+      "token_ids": [
+        17985,
+        190,
+        9110
+      ],
+      "token_ids_sha256": "1f77ae92d5ffd35b5529d27f620013ca4158aebe272ed02e79002b5762ed32d6",
+      "token_pieces": [
+        "before",
+        "\u0100",
+        "after"
+      ],
+      "offsets": [
+        [
+          0,
+          6
+        ],
+        [
+          6,
+          7
+        ],
+        [
+          7,
+          12
+        ]
+      ],
+      "decoded_text_repr": "'before\\x00after'",
+      "decoded_bytes_sha256": "92e7bd379d664df834acaff3d7abcf375095bc5cafa5ebc76309307386deab95",
+      "encode_decode_round_trips_exactly": true,
+      "encode_decode_round_trips_with_special_tokens_kept": true
+    },
+    {
+      "fixture_id": "bos_eos_combination",
+      "category": "bos_eos_combinations",
+      "plain_ids": [
+        2129
+      ],
+      "with_add_special_tokens_true_ids": [
+        2129
+      ],
+      "add_special_tokens_changes_output": false,
+      "bos_id": 0,
+      "eos_id": 0,
+      "note": "SmolLM2-135M's bos_token_id == eos_token_id == 0 (both '<|endoftext|>'), per config.json"
+    },
+    {
+      "fixture_id": "encode_decode_encode_caveat",
+      "category": "encode_decode_caveat",
+      "original_text_repr": "'  Multiple   spaces\\tand\\ttabs  '",
+      "first_decode_repr": "'  Multiple   spaces\\tand\\ttabs  '",
+      "exact_round_trip": true,
+      "ids_stable_after_one_round_trip": true
+    }
+  ]
+}
