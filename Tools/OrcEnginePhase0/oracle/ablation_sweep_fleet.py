@@ -1,9 +1,23 @@
 # Copyright (C) 2025-present hardcoreerik / TheOrc contributors
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """
-Runs ablation_sweep's full-layer-impact sweep against every real, on-disk
-GGUF model TheOrc already has in its model store (%APPDATA%/OrchestratorIDE/
-Models by default), not just the pinned SmolLM2-135M Phase 0 candidate.
+Runs ablation_sweep's full-layer-impact sweep against every real GGUF
+model TheOrc has access to, from THREE sources -- not just the pinned
+SmolLM2-135M Phase 0 candidate:
+
+  1. %APPDATA%/OrchestratorIDE/Models -- TheOrc's default native-runtime
+     model root (named *.gguf files).
+  2. Any directories in ORC_EXTRA_MODELS_DIRS (semicolon-separated) --
+     e.g. F:\\AI\\Models, mirroring settings.json's nativeRuntimeModelRoots
+     (a second drive with more GGUFs, per that setting's own comment).
+  3. Ollama's model store (OLLAMA_MODELS env var if set, else the default
+     ~/.ollama). Ollama's "blobs" are content-addressed files with NO
+     .gguf extension, but the model-weight layer IS a raw GGUF file
+     (verified: reading the first 4 bytes of an Ollama model blob gives
+     b"GGUF") -- gguf.GGUFReader reads by content, not extension, so
+     these work directly. Each manifest under models/manifests/**/<tag>
+     is parsed to find the "application/vnd.ollama.image.model" layer's
+     digest, which maps to blobs/sha256-<digest>.
 
 This is deliberately honest about two hard limits rather than silently
 skipping or silently approximating past them:
@@ -22,9 +36,12 @@ skipping or silently approximating past them:
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import time
 import traceback
+from dataclasses import dataclass
 
 import numpy as np
 import psutil
@@ -38,7 +55,22 @@ MODELS_DIR = os.environ.get(
     "ORC_MODELS_DIR",
     os.path.join(os.environ.get("APPDATA", ""), "OrchestratorIDE", "Models"),
 )
+EXTRA_MODELS_DIRS = [d for d in os.environ.get("ORC_EXTRA_MODELS_DIRS", "").split(";") if d]
+# Ollama's default (when OLLAMA_MODELS isn't set) is ~/.ollama directly -- NOT
+# ~/.ollama/models -- containing blobs/ and manifests/ as immediate subdirectories.
+# Verified against this fleet's actual OLLAMA_MODELS=F:\.ollama layout.
+OLLAMA_MODELS_DIR = os.environ.get(
+    "OLLAMA_MODELS",
+    os.path.join(os.environ.get("USERPROFILE", ""), ".ollama"),
+)
 FLEET_REPORT_DIR = os.path.join(os.path.dirname(__file__), "..", "artifacts", "ablation_fleet")
+
+
+@dataclass(frozen=True)
+class DiscoveredModel:
+    display_name: str  # human-readable, used as the report filename and model_label
+    path: str           # actual file path GGUFReader should open (may lack .gguf extension)
+    source: str          # "models_dir" | "extra_dir" | "ollama"
 
 # Fraction of TOTAL physical RAM a model's dequantized-to-float32 weight size may consume
 # before we refuse to load it. Conservative -- forward-pass intermediates, the Python
@@ -60,15 +92,92 @@ def _prompts_for_vocab(vocab: int) -> list[np.ndarray]:
     ]
 
 
-def _discover_gguf_files(models_dir: str) -> list[str]:
+def _discover_gguf_files(models_dir: str, source: str) -> list[DiscoveredModel]:
     if not os.path.isdir(models_dir):
         return []
-    paths = []
+    found = []
     for root, _dirs, files in os.walk(models_dir):
         for name in files:
             if name.lower().endswith(".gguf"):
-                paths.append(os.path.join(root, name))
-    return sorted(paths)
+                path = os.path.join(root, name)
+                found.append(DiscoveredModel(display_name=name, path=path, source=source))
+    return sorted(found, key=lambda m: m.display_name)
+
+
+def _discover_ollama_models(ollama_dir: str) -> list[DiscoveredModel]:
+    """Walks models/manifests/**/<tag> (tag is the last path component; everything before
+    it is the repo/namespace), reads each manifest JSON for the
+    "application/vnd.ollama.image.model" layer's digest, and maps that to
+    blobs/sha256-<digest> -- the actual GGUF file, just without a .gguf extension."""
+    manifests_dir = os.path.join(ollama_dir, "manifests")
+    blobs_dir = os.path.join(ollama_dir, "blobs")
+    if not os.path.isdir(manifests_dir) or not os.path.isdir(blobs_dir):
+        return []
+
+    found = []
+    for root, _dirs, files in os.walk(manifests_dir):
+        for name in files:
+            manifest_path = os.path.join(root, name)
+            rel = os.path.relpath(manifest_path, manifests_dir)
+            display_name = rel.replace(os.sep, "/")  # e.g. "registry.ollama.ai/library/llama3.1/8b"
+            try:
+                with open(manifest_path, encoding="utf-8") as f:
+                    manifest = json.load(f)
+            except Exception as e:
+                print(f"[ollama:{display_name}] SKIP: unreadable manifest ({e})")
+                continue
+            model_layer = next(
+                (l for l in manifest.get("layers", []) if "image.model" in l.get("mediaType", "")), None
+            )
+            if model_layer is None:
+                # Not every manifest layer set has a weight blob (e.g. embedding-only or
+                # adapter-only manifests) -- skip quietly, this isn't a fault condition.
+                continue
+            digest = model_layer["digest"].replace(":", "-")  # "sha256:abc" -> "sha256-abc"
+            blob_path = os.path.join(blobs_dir, digest)
+            if not os.path.isfile(blob_path):
+                print(f"[ollama:{display_name}] SKIP: manifest references missing blob {digest}")
+                continue
+            found.append(DiscoveredModel(display_name=display_name, path=blob_path, source="ollama"))
+    return sorted(found, key=lambda m: m.display_name)
+
+
+def _discover_all_models() -> list[DiscoveredModel]:
+    models = []
+    print(f"scanning {MODELS_DIR!r} (models_dir) for *.gguf ...")
+    models.extend(_discover_gguf_files(MODELS_DIR, "models_dir"))
+    for extra in EXTRA_MODELS_DIRS:
+        print(f"scanning {extra!r} (extra_dir) for *.gguf ...")
+        models.extend(_discover_gguf_files(extra, "extra_dir"))
+    print(f"scanning {OLLAMA_MODELS_DIR!r} (ollama) for tagged models ...")
+    models.extend(_discover_ollama_models(OLLAMA_MODELS_DIR))
+
+    # De-duplicate by content: the same underlying model can appear under multiple names
+    # (an Ollama pull of the same repo TheOrc's Models dir also has a named copy of, or two
+    # Ollama tags sharing one blob via content-addressing). Dedupe by (size, path) isn't
+    # enough since Ollama blobs and named .gguf copies have different paths for identical
+    # content -- dedupe by file size + a cheap partial hash of the first 1MB instead, since
+    # a full sha256 over every candidate (some 15GB+) before even knowing if it's runnable
+    # would be wasteful. Not cryptographically rigorous, but sufficient to catch the exact
+    # scenario this fleet actually has (Ollama blob duplicated as a named .gguf elsewhere).
+    seen = {}
+    deduped = []
+    for m in models:
+        try:
+            size = os.path.getsize(m.path)
+            with open(m.path, "rb") as f:
+                head_hash = hashlib.sha256(f.read(1024 * 1024)).hexdigest()
+        except OSError:
+            deduped.append(m)
+            continue
+        key = (size, head_hash)
+        if key in seen:
+            print(f"  [{m.display_name}] SKIP: duplicate content of already-discovered "
+                  f"{seen[key]!r} (same size + head hash)")
+            continue
+        seen[key] = m.display_name
+        deduped.append(m)
+    return deduped
 
 
 def _estimate_param_bytes(path: str) -> tuple[int, str | None]:
@@ -82,21 +191,24 @@ def _estimate_param_bytes(path: str) -> tuple[int, str | None]:
 
 
 def run() -> bool:
-    models_dir = MODELS_DIR
-    print(f"scanning {models_dir} for *.gguf ...")
-    paths = _discover_gguf_files(models_dir)
-    if not paths:
-        print(f"FAIL: no .gguf files found under {models_dir!r}")
+    discovered = _discover_all_models()
+    if not discovered:
+        print("FAIL: no models found across models_dir, extra_dirs, or the Ollama store")
         return False
 
     total_ram = psutil.virtual_memory().total
     ram_budget = total_ram * MAX_RAM_FRACTION
-    print(f"found {len(paths)} GGUF file(s); system RAM={total_ram / 1e9:.1f}GB, "
-          f"per-model budget={ram_budget / 1e9:.1f}GB ({MAX_RAM_FRACTION:.0%} of total)\n")
+    by_source = {}
+    for m in discovered:
+        by_source[m.source] = by_source.get(m.source, 0) + 1
+    print(f"\nfound {len(discovered)} model(s) after de-duplication ({by_source}); "
+          f"system RAM={total_ram / 1e9:.1f}GB, per-model budget={ram_budget / 1e9:.1f}GB "
+          f"({MAX_RAM_FRACTION:.0%} of total)\n")
 
     fleet_summary = []
-    for path in paths:
-        name = os.path.basename(path)
+    for model in discovered:
+        path = model.path
+        name = model.display_name
         try:
             est_bytes, arch = _estimate_param_bytes(path)
         except Exception as e:
@@ -146,15 +258,17 @@ def run() -> bool:
             continue
 
         report["gguf_info"] = info
+        report["source"] = model.source
         _print_summary(report)
         _demo_per_position_query(report)
-        out_path = os.path.join(FLEET_REPORT_DIR, f"{os.path.splitext(name)[0]}.yaml")
+        safe_name = name.replace("/", "__").replace("\\", "__").replace(":", "_")
+        out_path = os.path.join(FLEET_REPORT_DIR, f"{os.path.splitext(safe_name)[0]}.yaml")
         _write_report(report, out_path)
 
         most_impactful = report["results"][0]
         least_impactful = report["results"][-1]
         fleet_summary.append({
-            "file": name, "status": "completed", "architecture": arch,
+            "file": name, "source": model.source, "status": "completed", "architecture": arch,
             "n_layers": config.n_layers, "hidden": config.hidden,
             "elapsed_seconds": report["elapsed_seconds"],
             "most_impactful_layer": most_impactful["label"],
@@ -169,8 +283,10 @@ def run() -> bool:
     os.makedirs(FLEET_REPORT_DIR, exist_ok=True)
     summary_path = os.path.join(FLEET_REPORT_DIR, "_fleet_summary.yaml")
     with open(summary_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump({"models_dir": models_dir, "results": fleet_summary}, f,
-                        sort_keys=False, default_flow_style=False)
+        yaml.safe_dump({
+            "models_dir": MODELS_DIR, "extra_models_dirs": EXTRA_MODELS_DIRS,
+            "ollama_models_dir": OLLAMA_MODELS_DIR, "results": fleet_summary,
+        }, f, sort_keys=False, default_flow_style=False)
 
     print(f"\n{'=' * 60}\nfleet sweep summary\n{'=' * 60}")
     for r in fleet_summary:
