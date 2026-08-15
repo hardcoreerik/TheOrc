@@ -16,6 +16,8 @@ or anywhere else in the repository yet.
 | Check | Status |
 |---|---|
 | `provenance_complete` | **Done** — `oracle/download_candidate.py` (pinned revision, per-file SHA-256) + `oracle/convert_real_candidate.py` (converter, GGUF hash) + `docs/OrcEngine/LICENSING_AND_ATTRIBUTION.md` attribution ledger (Apache-2.0). |
+| `real_candidate_conversion` | **Done** — `oracle/real_candidate_conversion_manifest.py`. GGUF read back via gguf-py's independent `GGUFReader`: 273/273 expected tensors, 24 metadata fields, hash reproducible across reruns. |
+| `raw_prompt_identity` | **Done** — `oracle/raw_prompt_identity.py`, 6 fixture records (synthetic + 5 real) with raw bytes, rendered prompt, token IDs, and SHA-256 for each, retained in `artifacts/raw_prompt_identity_manifest.json`. |
 | `tokenizer_dual_source_agreement` | **Done** — `oracle/tokenizer_dual_source_check.py`, 5/5 fixtures (incl. non-ASCII) byte-identical between the HF tokenizer.json and llama.cpp reading our converted GGUF. Required a real fix (missing `tokenizer.ggml.pre`, degraded-quality warning) to actually pass. |
 | `synthetic_operator_microcases` | **Done** — see `oracle/microcases.py`, 10/10 passing |
 | `artifact_schema_complete` | **Done** — `oracle/manifest.py` + `oracle/artifact_record.py` + `oracle/generate_manifest.py`. Real manifest generated from a live Fixture C run, written to `artifacts/fixture_c_manifest.yaml`, reloaded from disk, schema-validated: 8/8 top-level sections, 7/7 tensor artifacts each with all 7 required fields. |

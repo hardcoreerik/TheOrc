@@ -90,7 +90,14 @@ required_checks:
       2026-08-15.
   - id: raw_prompt_identity
     evidence: raw bytes, rendered template, token IDs, and their hashes are retained
-    result: null
+    result: pass
+    result_evidence: Tools/OrcEnginePhase0/oracle/raw_prompt_identity.py, writing
+      artifacts/raw_prompt_identity_manifest.json — 6 fixture records (1 synthetic
+      Profile A via control tokens, 5 real SmolLM2-135M fixtures via the pinned HF
+      tokenizer), each with raw_text, raw_bytes_sha256, rendered_prompt (explicitly
+      recorded as equal to raw_text for all current fixtures, not silently assumed —
+      no chat template is in scope yet), rendered_prompt_sha256, token_ids, and
+      token_ids_sha256. Verified 2026-08-15.
   - id: synthetic_operator_microcases
     evidence: hand-verifiable operator vectors pass exact or approved numeric comparisons
     result: pass
@@ -132,7 +139,16 @@ required_checks:
     result: null
   - id: real_candidate_conversion
     evidence: pinned conversion command and GGUF hash with strict parser manifest
-    result: null
+    result: pass
+    result_evidence: Tools/OrcEnginePhase0/oracle/real_candidate_conversion_manifest.py,
+      writing artifacts/real_candidate_conversion_manifest.json — conversion command,
+      converter script SHA-256, source safetensors SHA-256, output GGUF SHA-256
+      (fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac, reproducible
+      across reruns), and a "strict parser manifest": the converted GGUF read back via
+      gguf-py's own GGUFReader (an independent, established parser, not our writer
+      trusting itself) — 273/273 expected tensors parsed back correctly (token_embd +
+      output_norm + output + 30 layers × 9 tensors each), 24 metadata fields. Verified
+      2026-08-15.
   - id: real_candidate_logits
     evidence: layer-boundary and final logits comparisons against both pinned oracles
     result: null
