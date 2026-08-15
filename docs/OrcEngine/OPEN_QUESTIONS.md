@@ -11,7 +11,7 @@
 | OQ-005 | C++ immediately? | Python oracle then C++20 core | Python oracle then C++20; CUDA/C ABI/C# later | Decided |
 | OQ-006 | First CPU matrix dependency? | Scalar only; BLAS; installed library | Scalar tiny path, BLAS only after profile/portability review | Open |
 | OQ-007 | Required first OS? | Windows x64; Windows+Linux; cross-platform | Verify Windows x64 first; label others unknown | Proposed |
-| OQ-008 | Product-value gate before engine code? | Prevented capability; measurable improvement | Accept either with a bounded evidence thesis | Decided; thesis selection open |
+| OQ-008 | Product-value gate before engine code? | Prevented capability; measurable improvement | Accept either with a bounded evidence thesis | Decided; specific thesis proposed as OE-ADR-016 (2026-08-15), awaiting maintainer approval |
 
 ## Architecture questions
 
