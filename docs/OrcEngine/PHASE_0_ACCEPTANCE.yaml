@@ -20,7 +20,26 @@ profiles:
 required_checks:
   - id: provenance_complete
     evidence: manifest with source, tokenizer, converter, GGUF, environment, license, and SHA-256 identities
-    result: null
+    result: pass
+    result_evidence: |
+      Source: Tools/OrcEnginePhase0/artifacts/smollm2-135m/download_manifest.json
+      (oracle/download_candidate.py) -- repo_id, pinned revision
+      93efa2f097d58c2a74874c7e644dbc9b0cee75a2, per-file SHA-256 for every downloaded
+      file including model.safetensors and tokenizer.json.
+      Tokenizer: same download_manifest.json (tokenizer.json, vocab.json, merges.txt
+      all hashed).
+      Converter: oracle/convert_real_candidate.py (committed, git-tracked, deterministic
+      given the same source files).
+      GGUF: converted file SHA-256 printed by convert_real_candidate.py
+      (9a20b74743b21fe3da9f0298ab82de47aa66facdcf71feb709f0bf16ab516e9e for the
+      pre-tokenizer-fix revision; fffab10c5298f8b1399088e893c1ddd64e48cd7e5020982a5b2a848e445a4aac
+      after adding tokenizer.ggml.pre="smollm" -- both recorded, not just the latest,
+      since the fix changed the artifact identity).
+      Environment: CPython 3.14.3, numpy 2.5.2, torch 2.13.0+cpu, gguf 0.19.0,
+      huggingface_hub 1.27.0, safetensors, tokenizers -- all pinned in requirements.txt.
+      License: docs/OrcEngine/LICENSING_AND_ATTRIBUTION.md attribution ledger entry,
+      Apache-2.0, confirmed by direct inspection of the downloaded README.md.
+      Verified 2026-08-15.
   - id: three_way_oracle_independence
     evidence: hand-derived microcases, Python semantic oracle, and pinned llama.cpp deployment oracle
     result: pass
@@ -59,7 +78,16 @@ required_checks:
       fabricated. Verified 2026-08-15.
   - id: tokenizer_dual_source_agreement
     evidence: source-tokenizer and GGUF-embedded-tokenizer fixtures agree exactly or candidate is rejected
-    result: null
+    result: pass
+    result_evidence: Tools/OrcEnginePhase0/oracle/tokenizer_dual_source_check.py — 5/5
+      fixtures (ASCII, punctuation, digits, leading whitespace, non-ASCII "café résumé")
+      tokenize to byte-identical token ID lists between the pinned HF tokenizer.json
+      (via the `tokenizers` library) and llama.cpp's own tokenizer reading our converted
+      GGUF's tokenizer.ggml.* metadata. Required a real fix found and applied, not just
+      luck: tokenizer.ggml.pre was initially omitted, llama.cpp warned "GENERATION
+      QUALITY WILL BE DEGRADED"; added pre="smollm" (confirmed against llama.cpp's own
+      convert_hf_to_gguf_update.py mapping table) and the warning disappeared. Verified
+      2026-08-15.
   - id: raw_prompt_identity
     evidence: raw bytes, rendered template, token IDs, and their hashes are retained
     result: null

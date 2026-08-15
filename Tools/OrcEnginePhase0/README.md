@@ -15,6 +15,8 @@ or anywhere else in the repository yet.
 
 | Check | Status |
 |---|---|
+| `provenance_complete` | **Done** — `oracle/download_candidate.py` (pinned revision, per-file SHA-256) + `oracle/convert_real_candidate.py` (converter, GGUF hash) + `docs/OrcEngine/LICENSING_AND_ATTRIBUTION.md` attribution ledger (Apache-2.0). |
+| `tokenizer_dual_source_agreement` | **Done** — `oracle/tokenizer_dual_source_check.py`, 5/5 fixtures (incl. non-ASCII) byte-identical between the HF tokenizer.json and llama.cpp reading our converted GGUF. Required a real fix (missing `tokenizer.ggml.pre`, degraded-quality warning) to actually pass. |
 | `synthetic_operator_microcases` | **Done** — see `oracle/microcases.py`, 10/10 passing |
 | `artifact_schema_complete` | **Done** — `oracle/manifest.py` + `oracle/artifact_record.py` + `oracle/generate_manifest.py`. Real manifest generated from a live Fixture C run, written to `artifacts/fixture_c_manifest.yaml`, reloaded from disk, schema-validated: 8/8 top-level sections, 7/7 tensor artifacts each with all 7 required fields. |
 | `three_way_oracle_independence` | **Done** — all three legs real: (1) hand-derived microcases (11/11), (2) NumPy vs. independently-written PyTorch oracle agree to 2.4e-07, (3) `oracle/export_gguf.py` writes Profile A's weights into a real "llama"-architecture GGUF (control-token trick for exact tokenization) and `oracle/llama_cpp_deployment_oracle.py` runs it through pinned llama.cpp `b10436` — argmax matches exactly, top-5 log_softmax agrees within 0.02-0.04 (documented cross-language tolerance). |

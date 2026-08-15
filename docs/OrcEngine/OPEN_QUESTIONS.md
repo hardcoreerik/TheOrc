@@ -7,7 +7,7 @@
 | OQ-001 | Where should implementation eventually live? | Monorepo native project; separate repository; defer | Defer until Phase 0 proves value | Open |
 | OQ-002 | What is the first model? | Synthetic plus published tiny model | `OE-L0-SYNTH-1` plus SmolLM2-135M candidate | Decided; artifacts pending |
 | OQ-003 | What primary oracle? | Python semantic oracle plus independent checks | Hand math + pinned Python + pinned llama.cpp | Decided; versions pending |
-| OQ-004 | Can real-model artifacts be redistributed? | Commit; scripted download; local-only | Decide after license/provenance review | Blocked |
+| OQ-004 | Can real-model artifacts be redistributed? | Commit; scripted download; local-only | Scripted download (not committed) | Resolved for SmolLM2-135M 2026-08-15: Apache-2.0 permits redistribution; repo hygiene (not license) rules out committing the 269MB weights file. See LICENSING_AND_ATTRIBUTION.md attribution ledger. Re-review per future candidate. |
 | OQ-005 | C++ immediately? | Python oracle then C++20 core | Python oracle then C++20; CUDA/C ABI/C# later | Decided |
 | OQ-006 | First CPU matrix dependency? | Scalar only; BLAS; installed library | Scalar tiny path, BLAS only after profile/portability review | Open |
 | OQ-007 | Required first OS? | Windows x64; Windows+Linux; cross-platform | Verify Windows x64 first; label others unknown | Proposed |
