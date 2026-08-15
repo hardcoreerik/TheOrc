@@ -23,7 +23,28 @@ required_checks:
     result: null
   - id: three_way_oracle_independence
     evidence: hand-derived microcases, Python semantic oracle, and pinned llama.cpp deployment oracle
-    result: null
+    result: pass
+    result_evidence: |
+      Three independence classes, all with real run evidence (2026-08-15):
+      1. Independent ground truth: Tools/OrcEnginePhase0/oracle/microcases.py, 11/11
+         hand-derived operator microcases pass.
+      2. Primary semantic oracle: oracle/model.py (NumPy) cross-validated against
+         oracle/torch_oracle.py (independently re-derived in PyTorch, not translated
+         from the NumPy code) via oracle/cross_oracle_check.py -- max_abs_diff=2.4e-07
+         on both n_layers=1 and n_layers=2 configs.
+      3. Secondary deployment oracle: oracle/export_gguf.py writes Profile A's own
+         weights into a real "llama"-architecture GGUF (Profile A's RMSNorm/GQA/RoPE/
+         SwiGLU block semantics ARE the standard llama.cpp architecture, just tiny --
+         not a proprietary synthetic format). oracle/llama_cpp_deployment_oracle.py
+         starts a pinned llama.cpp b10436 (2026-08-14) llama-server.exe against it and
+         requests logprobs via its OpenAI-compatible /completion endpoint. Tokenization
+         via distinct control tokens ("<0>".."<31>", TOKEN_TYPE=CONTROL) verified exact
+         via llama-tokenize: prompt "<1><5><9><3><7>" -> [1,5,9,3,7], matching intent
+         exactly. Result: argmax token agrees exactly (token 7 both sides); top-5
+         log_softmax values agree within 0.02-0.04 (looser cross-language/cross-library
+         tolerance than the intra-Python legs, documented and justified in
+         oracle/llama_cpp_deployment_oracle.py -- not widened to force a pass).
+
   - id: artifact_schema_complete
     evidence: every tensor record includes name, dtype, logical shape, byte strides, layout, endianness, and hash
     result: pass
