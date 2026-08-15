@@ -53,7 +53,14 @@ required_checks:
       determinism confirmed. Verified 2026-08-15.
   - id: near_tie_logits
     evidence: fixtures include a controlled near-tie and verify logits, top-token margin, argmax, and exact-tie rule
-    result: null
+    result: pass
+    result_evidence: Tools/OrcEnginePhase0/oracle/fixture_near_tie.py — constructs a near-tie
+      (two tied-embedding rows perturbed by 1e-4) yielding margin=0.000145 between tokens 7/8,
+      and an exact tie (identical rows) yielding bit-exact-equal logits (-0.1041162833571434 ==
+      -0.1041162833571434). Exact-tie decode rule (Profile A: lowest token ID wins) verified
+      directly on a synthetic 2-way-tied logits vector: argmax([5,5,3]) = 0. Both logits, the
+      margin, the selected token, and the tie rule are recorded, not just token agreement.
+      Verified 2026-08-15.
   - id: deterministic_regeneration
     evidence: two clean regenerations produce identical non-floating identities and approved floating comparisons
     result: null
