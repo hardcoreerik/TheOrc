@@ -35,7 +35,11 @@ required_checks:
     result: null
   - id: synthetic_operator_microcases
     evidence: hand-verifiable operator vectors pass exact or approved numeric comparisons
-    result: null
+    result: pass
+    result_evidence: Tools/OrcEnginePhase0/oracle/microcases.py — 10/10 microcases pass
+      (matmul, RMSNorm, softmax, causal mask, RoPE at position 0 and position 1, SiLU,
+      elementwise add/multiply, embedding lookup). Expected values from a scalar
+      math-stdlib reference path independent of oracle/ops.py, verified 2026-08-14.
   - id: synthetic_layer_taps
     evidence: all required OE-L0-SYNTH-1 intermediate taps pass named tolerance profiles
     result: null
