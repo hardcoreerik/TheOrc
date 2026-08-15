@@ -27,7 +27,7 @@ or anywhere else in the repository yet.
 | `tokenizer_dual_source_agreement` | **Done** — `oracle/tokenizer_dual_source_check.py`, 5/5 fixtures (incl. non-ASCII) byte-identical between the real HF tokenizer.json and llama.cpp reading our converted GGUF. Required a real fix (missing `tokenizer.ggml.pre`, degraded-quality warning) to actually pass. |
 | `raw_prompt_identity` | **Done** — `oracle/raw_prompt_identity.py`, 6 fixture records (synthetic + 5 real) with raw bytes, rendered prompt, token IDs, and SHA-256 for each, retained in `artifacts/raw_prompt_identity_manifest.json`. |
 | `real_candidate_conversion` | **Done** — `oracle/real_candidate_conversion_manifest.py`. Converted GGUF read back via gguf-py's independent `GGUFReader` ("strict parser"): 273/273 expected tensors, 24 metadata fields, hash reproducible across reruns. |
-| `real_candidate_logits` | **Open** — needs SmolLM2-135M's actual layer-boundary/final logits compared against both pinned oracles (our own oracle loaded with the real weights, and llama.cpp via the converted GGUF). The conversion, tokenization, and provenance are done; the logit comparison itself is not. |
+| `real_candidate_logits` | **Open, real investigation in progress** — `oracle/real_candidate_logits_check.py` loads SmolLM2-135M's real weights into our own oracle and compares against llama.cpp. Argmax matches exactly. A tolerance-based pass criterion (top-3 ranked tokens, atol=0.2) was proposed, tested, and **failed**: llama.cpp's rank-2 token is our oracle's rank-4 token (diff 0.954) — a genuine reordering inside the "should be stable" window, not tail noise as first assumed. See `docs/OrcEngine/DECISION_LOG.md` OE-ADR-017 for the full investigation and its correction. No tolerance was widened further to force a pass. Next: layer-boundary tap comparison at real scale to find where the divergence for that specific token originates. |
 | `independent_reproduction` | **Open, correctly parked** — needs a human or a separate agent to reproduce the synthetic bundle from this README's commands, starting cold. Not something this loop can satisfy for itself. |
 
 ## What's implemented
@@ -64,9 +64,11 @@ or anywhere else in the repository yet.
 
 ## What's deliberately NOT here
 
-- The real-candidate logit comparison itself (`real_candidate_logits`) —
-  everything needed to build it (conversion, tokenizer, llama.cpp
-  integration) exists; the comparison isn't written yet.
+- A passing `real_candidate_logits` result. The comparison exists and runs
+  (`oracle/real_candidate_logits_check.py`) but currently fails: a genuine
+  logit-ranking discrepancy at real-model scale (see OE-ADR-017 in
+  `docs/OrcEngine/DECISION_LOG.md`), not yet root-caused. Not papered over
+  with a wider tolerance.
 - Any C++/CUDA engine code — that's explicitly Phase 1+, gated on Phase 0
   passing in full AND the maintainer approving the product-value thesis
   (`docs/OrcEngine/DECISION_LOG.md` OE-ADR-016, currently proposed, not
@@ -103,6 +105,7 @@ python3 -m oracle.tokenizer_dual_source_check
 python3 -m oracle.real_candidate_conversion_manifest
 python3 -m oracle.raw_prompt_identity
 python3 -m oracle.tokenizer_special_token_fault
+python3 -m oracle.real_candidate_logits_check   # currently FAILS -- see OE-ADR-017
 ```
 
 Pinned environment: CPython 3.14.3, numpy 2.5.2, torch 2.13.0+cpu,

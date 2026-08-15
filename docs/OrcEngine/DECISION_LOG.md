@@ -157,3 +157,84 @@ Supersedes / superseded by:
 - **Alternatives:** (a) a measurable-improvement thesis (e.g., faster load time, lower VRAM overhead, better throughput than LLamaSharp on models it *can* load) — rejected as the *primary* Phase 0 thesis because OrcEngine's earliest concrete, dated evidence is about capability LLamaSharp categorically lacks, not incremental improvement on capability it already has; a measurable-improvement thesis remains a legitimate *secondary* claim once Phase 3+ produces comparable real-model numbers. (b) No thesis until a real model reaches Phase 3 — rejected because the roadmap requires the thesis to gate Phase 0's own closure, not defer it past Phase 0.
 - **Consequences:** if accepted, Phase 0's closure requires this thesis statement (or the maintainer's edited version of it) alongside all 14 acceptance checks — not a vaguer or unstated one. It also sets an explicit non-claim: Phase 0 passing does NOT mean OrcEngine can run Qwen3.8-27B; that claim only becomes assessable once real-model + GPU phases (3, 6+) exist. Scope-creep risk (claiming more than Phase 0 proves) is deliberately fenced off in the wording above.
 - **Validation/revisit trigger:** if the maintainer rejects "prevented capability" as the framing, or wants the thesis scoped to a different model/architecture gap, or wants a measurable-improvement clause added now rather than later — revise this entry (new status, not a silent edit) rather than treating it as settled.
+
+## OE-ADR-017 — Real-candidate logit tolerance investigation (superseded by its own evidence — see correction below)
+
+- **Status:** superseded — the top-3/atol=0.2 criterion this entry originally proposed was
+  tested immediately after being written and FAILED on real data (see "Correction" at the
+  end). Left in place with the correction appended, per the decision-log rule "append
+  decisions; do not rewrite old outcomes to look inevitable" — this is the record of a
+  reasonable-looking hypothesis that turned out to be wrong when actually tested, which is
+  itself useful evidence for the next person who tries a similar shortcut.
+- **Date:** 2026-08-15
+- **Owner:** Claude (Sonnet 5), OrcEngine Phase 0 loop
+- **Context:** `oracle/llama_cpp_deployment_oracle.py` (Profile A, 2 layers, hidden=16) used
+  `LOGPROB_ATOL = 0.1` and measured max diff 0.02-0.04 in practice. Applying that same
+  bound to the real candidate (SmolLM2-135M, 30 layers, hidden=576) failed: top-token
+  diff was 0.14 (borderline), but several lower-ranked candidates in the top-10 differed
+  by up to 0.95.
+- **Evidence:** investigated before touching the tolerance, per the project's own rule.
+  Checked whether this looked like a real bug or expected accumulated float32 divergence:
+  1. Argmax agrees exactly between our oracle and llama.cpp (token 260) — the single
+     highest-confidence claim is unaffected.
+  2. Forced `-ctk f32 -ctv f32` (F32 KV cache instead of llama.cpp's default) on
+     llama-server: logprobs were bit-identical to the default run. Rules out KV-cache
+     precision as the cause (also expected: a single-token, no-continuation completion
+     has no multi-step cache accumulation to matter here).
+  3. Compared full top-10 rankings: all 10 tokens llama.cpp reports in its top-10 also
+     appear in our oracle's own top-10 — no missing/extra candidates, no wrong argmax.
+     Only the middle-ranked, near-tied candidates reorder slightly (e.g. token 1343:
+     llama.cpp rank 4, our rank 8). This is the same "near-tie reordering under small
+     perturbation" behavior already proven expected and correct in `near_tie_logits`
+     (`oracle/fixture_near_tie.py`) — not a new or surprising failure mode.
+  4. The magnitude of drift (0.02-0.04 on 2 layers vs. up to 0.95 on 30 layers) scales
+     with depth in the direction accumulated float32 rounding error predicts: two
+     independently-coded float32 implementations (different libraries, different
+     internal operation ordering in matmul/softmax/RMSNorm reductions) diverge more
+     as more sequential floating-point operations compound. This is expected numerical
+     behavior for cross-implementation comparison at 15x the layer count, not evidence
+     of a wrong computation.
+- **Decision:** for `real_candidate_logits`, the pass criterion is: (a) argmax matches
+  exactly between our oracle and llama.cpp, AND (b) the top-3 ranked tokens' log_softmax
+  values agree within `atol=0.2` (looser than Profile A's 0.1, justified by the
+  layer-count-scaling evidence above, not chosen to make a borderline case pass — 0.2
+  comfortably covers the measured 0.14 top-token diff with margin, while still being far
+  tighter than the 0.95 worst-case tail divergence this decision explicitly does NOT
+  paper over). Tail candidates (rank 4+) are reported for transparency but are not part
+  of the pass/fail criterion, since near-tie reordering among them is expected behavior,
+  not a claim this check makes.
+- **Alternatives:** (a) keep `atol=0.1` for everything and let this fail — rejected:
+  would falsely brand accumulated float32 divergence as a defect when the actual
+  functional claim (argmax + top candidates agree) holds. (b) widen `atol` to ~1.0 to
+  cover the full top-10 — rejected: too loose to be informative, and would silently
+  accept real errors of similar magnitude in future runs. (c) require bit-exact
+  cross-language agreement — rejected as unrealistic for two independently-coded float32
+  implementations at this depth; Phase 0's own docs never claim bit-exactness across
+  language/library boundaries, only within a single pinned implementation.
+- **Consequences:** `real_candidate_logits`'s pass claim is narrower and more honest than
+  Profile A's: "top prediction and top-3 ranked candidates agree," not "all 10 examined
+  candidates agree to tight tolerance." This narrower claim is recorded here so it isn't
+  silently forgotten or later misquoted as full agreement.
+- **Validation/revisit trigger:** if a genuine real-candidate bug is later found that
+  this looser tolerance would have masked, tighten the bound and add a fault-injection
+  case at real-candidate scale to catch it explicitly, rather than reverting to the
+  Profile-A bound blindly.
+
+- **Correction (2026-08-15, same session):** ran `oracle/real_candidate_logits_check.py`
+  with the top-3/atol=0.2 criterion above immediately after writing it. It FAILED:
+  llama.cpp's rank-2 token (id 1217, logprob -2.172) is our oracle's rank-4 token
+  (log_softmax -3.127, diff 0.954) — a reordering *inside* the top-3 window, not
+  confined to the "tail" this entry assumed based on eyeballing the raw list before
+  actually re-scoping and re-running the check. The "only middle/tail candidates
+  reorder" claim above was wrong; it was formed from insufficiently careful reading of
+  which token IDs corresponded to which mismatch, not a properly re-verified conclusion.
+  **Decision reversed:** `real_candidate_logits` remains `null` (not pass) in
+  `PHASE_0_ACCEPTANCE.yaml`. No further tolerance widening was attempted after this
+  falsification, per the project's own no-widen-without-new-evidence rule — the
+  argmax-plus-top-3-tolerance approach itself is now known not to hold, and proposing
+  a third bound without a real hypothesis for *why* token 1217 specifically diverges
+  this much would just be curve-fitting to the one data point available. Real next
+  step: investigate token 1217 specifically (what is it, why would it diverge more
+  than argmax's own token) with real diagnostic work — e.g. layer-boundary tap
+  comparison at real scale like `synthetic_layer_taps_check.py` does for Profile A —
+  before proposing any tolerance again.
