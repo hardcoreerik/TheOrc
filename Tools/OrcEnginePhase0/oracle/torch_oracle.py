@@ -111,8 +111,9 @@ def forward_torch(token_ids: np.ndarray, weights: ModelWeights, *,
         context_per_head = []
         masked_scores_per_head = []
         probs_per_head = []
+        gqa_group_size = n_q_heads // n_kv_heads  # generalized, NOT hardcoded to Profile A's ratio of 2
         for h in range(n_q_heads):
-            kv_h = h // 2  # GQA mapping, per Profile A
+            kv_h = h // gqa_group_size  # GQA mapping
             scores = (q[h] @ k[kv_h].T) * scale  # [seq, seq]
             scores = scores.masked_fill(causal, float("-inf"))
             probs = torch.softmax(scores, dim=-1)

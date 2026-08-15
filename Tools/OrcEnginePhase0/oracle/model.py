@@ -69,9 +69,16 @@ class FaultSpec:
     swap_kv_on_cache_write: bool = False   # swapped K/V cache write fault (forward_cached only)
 
 
-def _gqa_kv_head_for_query_head(q_head: int) -> int:
-    """Query head h maps to KV head floor(h/2) -- the only accepted mapping for Profile A."""
-    return q_head // 2
+def _gqa_kv_head_for_query_head(q_head: int, n_q_heads: int, n_kv_heads: int) -> int:
+    """
+    Query head h maps to KV head floor(h / group_size), group_size = n_q_heads // n_kv_heads.
+    Profile A's group_size is 2 (4 q heads : 2 kv heads), which is where the original
+    hardcoded "h // 2" came from -- generalized here because real models use other
+    ratios (e.g. SmolLM2-135M: 9 q heads : 3 kv heads, group_size 3, NOT 2).
+    """
+    assert n_q_heads % n_kv_heads == 0, f"n_q_heads={n_q_heads} not divisible by n_kv_heads={n_kv_heads}"
+    group_size = n_q_heads // n_kv_heads
+    return q_head // group_size
 
 
 def _split_heads(x: np.ndarray, n_heads: int, head_dim: int) -> np.ndarray:
@@ -172,7 +179,7 @@ def forward(
         attn_probs_by_head = []
         masked_scores_by_head = []
         for h in range(config.n_q_heads):
-            kv_h = _gqa_kv_head_for_query_head(h)
+            kv_h = _gqa_kv_head_for_query_head(h, config.n_q_heads, config.n_kv_heads)
             scores = (q_rope[h] @ k_rope[kv_h].T).astype(DTYPE) * scale  # [seq, seq]
             masked = scores if fault.skip_causal_mask else ops.causal_mask(scores)
             probs = ops.softmax_last_axis(masked)
@@ -349,7 +356,7 @@ def forward_cached(
         attn_probs_by_head = []
         masked_scores_by_head = []
         for h in range(config.n_q_heads):
-            kv_h = _gqa_kv_head_for_query_head(h)
+            kv_h = _gqa_kv_head_for_query_head(h, config.n_q_heads, config.n_kv_heads)
             scores = (q_rope[h] @ k_full[kv_h].T).astype(DTYPE) * scale  # [new_len, cached_len+new_len]
             masked = ops.causal_mask_rectangular(scores, query_start_position=start_position)
             probs = ops.softmax_last_axis(masked)
