@@ -430,3 +430,45 @@ Supersedes / superseded by:
   x_in; mask_head = zeroing activation equals zeroing weight columns; disable_ffn = ffn output
   is exactly zero) no longer hold, that must be re-derived and re-verified per-architecture, not
   assumed to generalize automatically.
+
+## OE-ADR-020 — Freeze Phase 2 and move the residency question ahead of CPU optimization
+
+- **Status:** Phase-2 closure accepted; Phase-3 scope proposed pending maintainer
+  design review.
+- **Context:** the original roadmap limited Phase 2 to GGUF inspection and gave
+  Phase 3 the first real-model F32 execution milestone. Actual Phase 2 went
+  further: it semantically mapped and executed real explicit/tied F32 GGUFs,
+  matched the original Hugging Face/PyTorch model, and proved the parser's >4
+  GiB safety. It still materializes every required weight before execution.
+  Separately, the Python streaming oracle proved whole-layer streaming on an
+  oversized real model, while Fringe Lab showed chunked output heads remain
+  exact and general LRU policy can be pathological or irrelevant depending on
+  the execution trace.
+- **Accepted decision:** Phase 2 is COMPLETE / FROZEN at
+  `b8e06a0058a56f2ae9fbd1f92ae0bade40b88ec7`, tagged by the immutable pushed
+  annotated tag `orcengine-phase2-freeze`. The tag must never move.
+- **Proposed decision:** redefine Phase 3 as the real-model streaming/working-set
+  reference. Start with one real GGUF-backed layer at a time, retain conservative
+  bookend weights, use no cache, preserve frozen arithmetic, compare
+  bit-identically with full materialization, and measure residency/read
+  amplification. Run at most one narrower experiment selected by the measured
+  dominant term. Defer tokenizer, KV cache, BLAS, quantization, and CUDA.
+- **Observed planning baseline:** one-step frozen Release execution materialized
+  651,306,240 bytes and reached a sampled 668,950,528-byte process working set
+  for the explicit artifact; the tied artifact materialized 538,060,032 bytes
+  and reached 548,528,128 bytes. The largest layer is 14,160,384 bytes. Static
+  bookend-plus-largest-layer accounting predicts 240,655,104 bytes explicit and
+  127,408,896 bytes tied before runtime/activation/transient overhead. These are
+  planning measurements and predictions, not streamed results.
+- **Alternatives considered:** keep the old Phase 3 bundle (rejected because it
+  mixes residency, tokenizer, and KV-cache semantics after real F32 execution is
+  already proven); proceed to CPU optimization (rejected because it optimizes a
+  full-residency object model before measuring the required working set); build
+  a generic planner/cache now (rejected as unsupported complexity); start at
+  tensor/tile granularity (rejected until whole-layer C++ measurements identify
+  a real blocker).
+- **Evidence authority:** `PHASE2_FREEZE_HARDENING.md`,
+  `PHASE3_WORKING_SET_SPEC.md`, `PROJECT_TRUTH.md`, and the Fringe Lab report on
+  `research/orcengine-fringe-lab`.
+- **Acceptance trigger:** maintainer approval of the Phase-3 specification. Until
+  then no Phase-3 branch or engine implementation begins.

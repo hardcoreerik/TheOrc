@@ -61,11 +61,14 @@ No phase changes TheOrc’s default runtime without a separate product decision.
 
 **Stop gate:** decide whether the architecture remains understandable without a generic graph system.
 
-## Phase 2 — Strict GGUF reader and inspector
+## Phase 2 — Strict GGUF ingestion and real F32 reference — COMPLETE / FROZEN
 
-**Goal:** parse and validate the pinned artifact without executing it.
+**Original goal:** parse and validate the pinned artifact without executing it.
 
-**Scope:** supported GGUF version, typed metadata, alignment, tensor descriptors, bounds/overflow validation, file mapping, supported tensor types.
+**Actual completed scope:** supported GGUF version, typed metadata, alignment,
+tensor descriptors, bounds/overflow validation, file-backed extents, supported
+tensor types, dense-Llama semantic mapping, F32/F16-to-F32 materialization, and
+real explicit/tied F32 execution through frozen Phase-1 math.
 
 **Deliverables:** `orc-gguf-inspect`, machine-readable manifest, malformed fixtures, tensor-name/dimension validator.
 
@@ -76,29 +79,64 @@ No phase changes TheOrc’s default runtime without a separate product decision.
 - fuzz/sanitizer smoke covers the parser;
 - no tensor data is trusted before full descriptor validation.
 
-## Phase 3 — Real-model float32 CPU inference
+**Closure:** accepted at
+`b8e06a0058a56f2ae9fbd1f92ae0bade40b88ec7` and frozen by the immutable
+annotated tag `orcengine-phase2-freeze` on 2026-08-16. The direct Hugging
+Face/PyTorch comparison, real tied-output execution, >4 GiB sparse extent test,
+and explicit four-lane validation matrix are recorded in
+[Phase-2 Freeze Hardening](PHASE2_FREEZE_HARDENING.md).
 
-**Goal:** load the pinned model and match the oracle.
+Phase 2 exceeded its original scope deliberately after the parser was proven:
+it established real F32 execution correctness before stopping. That invalidates
+the old assumption that real-model loading/execution remained wholly in Phase 3.
 
-**Scope:** exact tokenizer, fixed graph, batch one, one sequence, prompt evaluation, cached decode, greedy output.
+## Phase 3 — Real-model streaming / working-set reference — PROPOSED
+
+**Question:** what is the minimum practical working set required to execute the
+real F32 model correctly?
+
+**Reason for reconciliation:** the original Phase-3 goal—load the pinned real
+F32 model and match the oracle—was completed and independently frozen in Phase
+2. Tokenization and KV-cached decode remain undone, but combining those semantic
+changes with the first nonresident execution path would confound the memory
+experiment.
+
+**Proposed scope:** retain Phase-1 math and Phase-2 interpretation; keep the
+validated manifest open; retain only embedding/final-norm/distinct-output
+bookends; materialize one real GGUF-backed layer at a time; release it before
+the next; compare against full materialization and Hugging Face/PyTorch; measure
+resident bytes, process peak RAM, materializations, backing reads, repeated
+reads, and time.
 
 **Definition of done:**
 
-- tokenization matches byte-for-byte fixtures;
-- all required weights and dimensions validate;
-- intermediate tensors and logits meet approved bounds;
-- generated token IDs match for the approved fixture set;
-- repeated create/run/destroy is leak-free;
-- cancellation and malformed-input checks pass;
-- performance is reported honestly without a pass threshold.
+- frozen Phase-1/2 gates remain unchanged and green;
+- full-resident behavior remains bit-identical after any shared layer-block extraction;
+- real explicit and tied F32 artifacts execute one layer at a time;
+- streamed taps/logits/tokens are bit-identical to full materialization and remain tolerance-clean against Hugging Face/PyTorch;
+- no more than one transformer layer's residents coexist;
+- engine-owned peak resident weight bytes are below 50% of full materialization for both retained artifacts;
+- process peak RAM, bytes read, repeated reads, materialization count, and timing are reported for one and four steps;
+- one evidence-based decision records whether layer granularity is sufficient or one narrower experiment is warranted;
+- strict/ASan/Debug/Release inclusion is explicit;
+- independent freeze review accepts the result.
 
-**Stop gate:** assess strategic value and maintenance cost before optimization.
+**Non-goals:** tokenizer, KV cache, CUDA, quantized compute, BLAS/SIMD/threading,
+generic planner/cache framework, batching, product integration, and tile paging.
 
-## Phase 4 — CPU usability baseline
+**Authority:** see [Phase-3 Working-Set Specification](PHASE3_WORKING_SET_SPEC.md).
+Implementation is stopped pending design review.
 
-**Goal:** make the correct CPU engine measurable and usable for experiments.
+## Phase 4 — Practical CPU inference semantics and usability baseline
 
-**Candidate work:** BLAS-backed GEMM, workspace reuse, mapped weights, bounded threading, tiled kernels, then SIMD where profiling justifies it.
+**Goal:** turn the correct nonresident CPU reference into a practical inference
+baseline without losing its diagnostic path.
+
+**Candidate order:** exact tokenizer/text boundary; incremental KV-cached decode
+equivalent to full-prefix recompute; reusable bounded activation workspace;
+lifecycle/cancellation; prompt/decode benchmark separation; then BLAS-backed
+GEMM, bounded threading, tiled kernels, and SIMD only where profiling justifies
+them.
 
 **Definition of done:**
 
@@ -147,6 +185,12 @@ No phase changes TheOrc’s default runtime without a separate product decision.
 - Unknown/unsupported resource cost is `UnknownCost(reason)` / `UnsupportedCostModel(reason)`, an explicit state the planner understands, not a numeric placeholder. (The Native Runtime C# patch for the equivalent admission bug used a large sentinel constant as a pragmatic, narrowly-scoped compatibility fix — that sentinel-value pattern is explicitly NOT the design to carry into OrcEngine's own cost model.)
 
 **Definition of done:** the three type distinctions above exist as documented contracts (`ARCHITECTURE.md`) with trivial Phase-1-appropriate implementations (`ResidentView` = a CPU pointer; `ExecutionPlanner` = always chooses `ResidentCPU`; `ContextStateStore` = `ContiguousKVStore`) — sophistication belongs in the contracts, not in Phase 1's code.
+
+**Roadmap reconciliation, 2026-08-16:** Phase 1/2 already implemented the three
+storage identities, and proposed Phase 3 now validates temporary CPU residency
+before CUDA. If Phase 3 succeeds, Phase 6B narrows to multi-tier/device
+placement, transfer, fallback, and explicit cost semantics. It must not repeat
+the CPU layer-streaming proof or introduce a planner into Phase 3 prematurely.
 
 ## Phase 6C — Paged/streamed CUDA proof
 

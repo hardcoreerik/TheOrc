@@ -113,10 +113,11 @@ See [Sampling and Decoding](SAMPLING_AND_DECODING.md).
 
 | Resource | Owner | Lifetime |
 |---|---|---|
-| Mapped GGUF bytes | Model | Load to final model release. |
+| GGUF source identity and validated extents | Model manifest | Open/index to final manifest release. Current Phase-2 materialization uses bounded file reads, not an OS mapping. |
 | Validated metadata | Model | Immutable after load. |
-| Weight tensors/views | Model | Immutable after load. |
-| Backend weight copies | Model/backend allocation set | Until model release after all contexts end. |
+| Logical weight tensors | Model manifest | Immutable after semantic mapping. |
+| Resident weight views | Execution strategy | Full-model lifetime in frozen Phase 2; proposed layer scope in Phase 3. |
+| Backend weight copies | Model/backend allocation set | Lifetime is explicit in the selected execution strategy; permanent residency is not assumed. |
 | KV cache | Context | Context creation to reset/destroy. |
 | Scratch/workspace | Context or execution arena | Scoped to documented execution lifetime. |
 | Logits | Context output buffer | Valid until next decode unless copied. |
@@ -165,7 +166,8 @@ Estimates must carry an `estimated` label and the formula inputs.
 
 ## Memory model: a model is a logical address space, not a VRAM resident
 
-**Added 2026-08-15** (`Infinite_Model_Runtime_Claude_Handoff.md` steering review; see [Decision Log](DECISION_LOG.md) OE-ADR-019). This section is a PROPOSED contract for Phase 6B onward, motivated by real evidence gathered in Phase 0's ablation-diagnostic tooling (`Tools/OrcEnginePhase0/oracle/gguf_streaming_loader.py`): Meta-Llama-3.1-8B, which failed to load under every full-residency approach tried in the same research session, completed a full forward-pass sweep using **3.17GB peak VRAM** by loading one transformer layer from disk, using it, and discarding it before loading the next. That is proof, not speculation, that "the model lives in VRAM" cannot be a foundational assumption OrcEngine's types bake in.
+**Added 2026-08-15 and reconciled after Phase-2 freeze on 2026-08-16**
+(`Infinite_Model_Runtime_Claude_Handoff.md` steering review; see [Decision Log](DECISION_LOG.md) OE-ADR-019). This contract was originally assigned to Phase 6B. Phase 1/2 implemented its three storage identities earlier than planned, and proposed Phase 3 now tests temporary CPU residency. Multi-tier/device placement remains Phase 6B work. The contract is motivated by real evidence gathered in Phase 0's ablation-diagnostic tooling (`Tools/OrcEnginePhase0/oracle/gguf_streaming_loader.py`): Meta-Llama-3.1-8B, which failed to load under every full-residency approach tried in the same research session, completed a full forward-pass sweep using **3.17GB peak VRAM** by loading one transformer layer from disk, using it, and discarding it before loading the next. That is proof, not speculation, that "the model lives in VRAM" cannot be a foundational assumption OrcEngine's types bake in.
 
 **Thesis:** VRAM is a cache/execution tier, not synonymous with "the loaded model." RAM and NVMe are additional storage tiers. A logical tensor is not the same thing as its backing bytes, and is not the same thing as a currently-resident allocation.
 
@@ -177,11 +179,17 @@ Three distinct concepts, deliberately kept separate:
 
 **Invariant:** `LogicalTensor != BackingExtent != ResidentView`. Views do not imply ownership of the backing data. Residency is potentially temporary. Code that holds a `LogicalTensor` reference must not assume a `ResidentView` currently exists for it.
 
-**Phase 1 stays deliberately trivial regardless of this contract's eventual sophistication** — see the Permanent verification rule at the bottom of `ENGINEERING_ROADMAP.md`. A correct-but-boring Phase 1 implementation: `ResidentView` = a plain CPU pointer, always. `BackingExtent` = a `mmap`'d GGUF file section. There is exactly one `ResidentView` per `LogicalTensor`, created once at load and never evicted. The contract exists so a LATER implementation (Phase 6B onward) can change *how* these are satisfied without changing the engine's semantics or its callers' code.
+**Observed progression:** frozen Phase 1 uses owned in-memory F32Raw
+`BackingExtent` values in storage tests and fully resident CPU views during
+execution. Frozen Phase 2 creates real GGUF file extents and can open/index a
+model nonresident, but its execution path materializes every weight. Proposed
+Phase 3 keeps the same identities and tests one-layer-at-a-time CPU residency.
+No generic planner or cache is required for that proof. Phase 6B remains the
+later point for multi-tier/device placement policy.
 
 ### "Model loaded" does not mean "fully resident"
 
-For OrcEngine, **"model loaded" means:** source opened, GGUF validated, tensor index built, architecture manifest built, the model is addressable and executable through an execution plan. It does **NOT** require every tensor to be copied into RAM, and does not require every tensor to be copied into VRAM. Separate `Model::Open` (source validation, tensor index) from `ExecutionPlan::Create` (residency/placement decisions) from `Context::Create` (per-sequence state) — or equivalent concepts — rather than one monolithic "load" call that also decides placement. This split is essential for models larger than RAM or VRAM; collapsing it back into one step is exactly the assumption Phase 6B exists to prevent from being baked into Phase 1's types.
+For OrcEngine, **"model loaded" means:** source opened, GGUF validated, tensor index built, architecture manifest built, and the model is addressable by an execution strategy. It does **NOT** require every tensor to be copied into RAM, and does not require every tensor to be copied into VRAM. Frozen Phase 2 already separates indexing/mapping from full materialization. Proposed Phase 3 must execute from that nonresident manifest without introducing the eventual generic `ExecutionPlanner`; model open, residency strategy, and future context creation remain separate responsibilities.
 
 ### ExecutionPlanner is not a second OrcScheduler
 

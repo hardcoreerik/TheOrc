@@ -1,8 +1,8 @@
 # Project Truth
 
-> Snapshot date: 2026-08-15 America/Los_Angeles (Phase 0 + post-Phase-0 ablation/streaming update)
+> Snapshot date: 2026-08-16 America/Los_Angeles (Phase 2 frozen; Phase 3 working-set design proposed)
 >
-> Repository: `F:\Ai\OrchestratorIDE-dev`
+> Repository snapshot: `F:\Ai\OrchestratorIDE-phase2-gguf`
 >
 > Product baseline: `origin/master`
 >
@@ -52,7 +52,10 @@ Four additional questions were raised before allowing Phase 1 to freeze, all ans
 
 The original CTest registration covered only the three F32 executables. The F64 executables were run directly, but were not registered until the hardening review below.
 
-**Per the steering document's explicit stop-gate instruction, Phase 1 work paused here pending maintainer review. No Phase 2 work has started.**
+**HISTORICAL CHECKPOINT:** per the steering document's explicit stop-gate
+instruction, Phase 1 work paused here pending maintainer review; at that point
+no Phase-2 work had started. The hardening and frozen Phase-2 sections below
+record what happened afterward.
 
 ## Phase 1 freeze hardening, 2026-08-16
 
@@ -89,6 +92,39 @@ The original CTest registration covered only the three F32 executables. The F64 
 **VERIFIED:** post-fix validation is Debug 14/14, Release 14/14, strict `/W4 /WX` 10/10, and MSVC ASan 11/11. Exact inclusions and exclusions are explicit in `PHASE2_FREEZE_HARDENING.md`; the strict and ASan lanes do not claim unconfigured real F32 comparisons. The Phase-2 verdict is **ACCEPT FOR PHASE-2 FREEZE**. No Phase-3 work was started.
 
 **UNKNOWN:** no direct Phase-2 llama.cpp differential was run because no local llama.cpp executable/module was available. Direct Hugging Face/PyTorch now supplies the required independent end-to-end reference; llama.cpp remains an additional unperformed comparison rather than a freeze blocker.
+
+## Phase 2 formal closure and Phase 3 planning baseline, 2026-08-16
+
+**VERIFIED:** Phase 2 is COMPLETE / FROZEN at trusted commit
+`b8e06a0058a56f2ae9fbd1f92ae0bade40b88ec7`. The branch
+`feat/orcengine-phase2-gguf` and immutable annotated tag
+`orcengine-phase2-freeze` were pushed. Remote verification showed the branch
+and peeled tag both point exactly to the trusted commit. Later planning/docs
+commits are outside the frozen implementation.
+
+**VERIFIED:** a planning measurement rebuilt the frozen Release executable and
+ran one full-resident forward from token IDs `[1, 5]`. The 653,091,040-byte
+explicit artifact materialized 651,306,240 weight bytes, selected token 28, and
+reached a 668,950,528-byte sampled process working set (50 ms polling);
+materialization was 5,339.167 ms, forward 4,671.577 ms, and process wall
+10,188.547 ms. The 538,076,736-byte tied artifact materialized 538,060,032
+bytes, selected token 28, and reached 548,528,128 bytes; materialization was
+4,150.711 ms, forward 4,015.021 ms, and process wall 8,297.089 ms. These are
+single warm/unknown-cache planning observations, not a benchmark campaign.
+
+**VERIFIED:** manifest accounting shows the largest transformer layer is only
+14,160,384 bytes. Conservative layer-at-a-time residency would retain
+226,494,720 bytes of explicit-model bookends (predicted weight high-water
+240,655,104 bytes, 36.95% of full) or 113,248,512 tied-model bookends
+(predicted 127,408,896 bytes, 23.68% of full), before activation/conversion and
+runtime overhead. These are static predictions, not streamed measurements.
+
+**PROPOSED:** Phase 3 becomes a real-model streaming/working-set reference,
+starting with one real GGUF-backed layer at a time and no cache. It must preserve
+frozen math and GGUF semantics, compare bit-identically with full
+materialization, measure RAM/read amplification honestly, and stop before
+tokenizer, KV cache, optimization, quantization, or CUDA. See
+`PHASE3_WORKING_SET_SPEC.md`. Implementation has not started.
 
 ## Executive truth
 

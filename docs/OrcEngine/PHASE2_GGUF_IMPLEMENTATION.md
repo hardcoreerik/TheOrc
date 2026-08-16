@@ -5,6 +5,12 @@ Status: freeze hardening complete; **ACCEPT FOR PHASE-2 FREEZE** on
 failed command, explicit validation matrix, and remaining limits are preserved
 in [PHASE2_FREEZE_HARDENING.md](PHASE2_FREEZE_HARDENING.md).
 
+Formal closure: **COMPLETE / FROZEN** on 2026-08-16. Trusted commit
+`b8e06a0058a56f2ae9fbd1f92ae0bade40b88ec7`; immutable pushed annotated tag
+`orcengine-phase2-freeze`. The tag peels exactly to the trusted commit and must
+not be moved. Later documentation commits are not part of the frozen
+implementation.
+
 Trusted base: `orcengine-phase1-freeze` at
 `b27bc9323b89b9151c811c30d41145bb672a2943`. Phase 2 extends the storage
 contract and calls the frozen Phase-1 operators; it does not change transformer

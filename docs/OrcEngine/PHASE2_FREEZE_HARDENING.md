@@ -9,6 +9,14 @@ Starting HEAD: `17b91f1230d6e1bc6785594568e4351ab916b7c8`
 Trusted Phase-1 base: `b27bc9323b89b9151c811c30d41145bb672a2943`
 (`orcengine-phase1-freeze`)
 
+Final trusted Phase-2 commit:
+`b8e06a0058a56f2ae9fbd1f92ae0bade40b88ec7`
+
+Formal completion: **COMPLETE / FROZEN**, 2026-08-16
+
+Immutable pushed annotated tag: `orcengine-phase2-freeze` (verified to peel
+exactly to the final trusted commit; never move this tag)
+
 Verdict after the closure work and re-attack: **ACCEPT FOR PHASE-2 FREEZE**.
 This verdict applies only to the reference path documented here. It does not
 approve Phase 3, quantized execution, CUDA, paging, tokenizer work, or product

@@ -1,6 +1,8 @@
 # Phase 1 Implementation — Tiny Synthetic F32 CPU Transformer
 
-**Status as of 2026-08-16: implemented, hardened, and pending final freeze review.** This document is the
+**Status as of 2026-08-16: implemented, hardened, accepted, and frozen at
+`b27bc9323b89b9151c811c30d41145bb672a2943` under
+`orcengine-phase1-freeze`.** This document is the
 Phase-1-specific companion to [Engineering Roadmap](ENGINEERING_ROADMAP.md)'s
 Phase 1 section, [Project Truth](PROJECT_TRUTH.md), and
 [Current State](CURRENT_STATE.yaml).
@@ -21,7 +23,8 @@ This is the ruler, not the race car.
 ## What this is NOT
 
 - Not a GGUF parser (Phase 2).
-- Not connected to any real model (Phase 3).
+- The frozen Phase-1 project itself loads only synthetic fixtures. Phase 2 now
+  supplies real GGUF residents to the same math from a separate project.
 - Not optimized in any way (Phase 4+) — scalar triple loops throughout,
   F32 accumulation by default, no SIMD/BLAS/fusion.
 - Not CUDA (Phase 6A+).
@@ -333,6 +336,7 @@ autoregressive decode steps, all exact.
 
 ## Stop gate
 
-Per the steering document's explicit instruction, Phase 1 stops here
-pending deliberate maintainer review. No Phase 2 (GGUF parser expansion,
-real model loading, quantization, CUDA) work has started.
+Historical gate: Phase 1 stopped here pending deliberate maintainer review.
+That review and hardening subsequently passed, Phase 1 was frozen, and Phase 2
+was completed separately without changing the Phase-1 freeze tag. Quantization
+and CUDA remain unimplemented.

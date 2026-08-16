@@ -19,7 +19,7 @@ The CPU backend is first a correctness vehicle, then a portable performance base
 ### Stage C1: real-model baseline
 
 - reusable workspace;
-- mapped weights;
+- file-backed/streamed weights; use OS mapping only if measurement justifies it;
 - established BLAS allowed for dense multiplication;
 - explicit BLAS thread count;
 - scalar fallback for test-size tensors and unsupported layouts.
