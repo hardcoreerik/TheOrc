@@ -60,9 +60,13 @@ def check_close(label: str, actual: np.ndarray, expected: np.ndarray,
 
 
 def main(executable: str, gguf_path: str, steps: int) -> None:
+    if steps <= 0:
+        raise ValueError("steps must be positive")
     initial = [1, 5]
     command = [executable, gguf_path, *map(str, initial), "--steps", str(steps)]
     cpp = json.loads(subprocess.check_output(command, text=True))
+    if len(cpp["steps"]) != steps:
+        raise AssertionError(f"C++ returned {len(cpp['steps'])} steps, expected {steps}")
     weights, config = load_real_weights()
 
     tokens = initial.copy()

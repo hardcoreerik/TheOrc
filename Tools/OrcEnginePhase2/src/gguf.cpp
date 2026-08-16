@@ -76,19 +76,24 @@ bool valid_utf8(const std::string& value) {
 
 bool valid_metadata_key(const std::string& key) {
     if (key.empty() || key.front() == '.' || key.back() == '.') return false;
-    bool segment_has_character = false;
+    bool previous_was_alphanumeric = false;
     for (char c : key) {
         if (c == '.') {
-            if (!segment_has_character) return false;
-            segment_has_character = false;
+            if (!previous_was_alphanumeric) return false;
+            previous_was_alphanumeric = false;
             continue;
         }
-        const bool valid = (c >= 'a' && c <= 'z') ||
-                           (c >= '0' && c <= '9') || c == '_';
-        if (!valid) return false;
-        segment_has_character = true;
+        const bool alphanumeric = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+        if (alphanumeric) {
+            previous_was_alphanumeric = true;
+        } else if (c == '_') {
+            if (!previous_was_alphanumeric) return false;
+            previous_was_alphanumeric = false;
+        } else {
+            return false;
+        }
     }
-    return segment_has_character;
+    return previous_was_alphanumeric;
 }
 
 struct EncodingTraits {
@@ -402,7 +407,7 @@ GgufArtifact index_gguf(const std::filesystem::path& path, const GgufLimits& lim
     std::unordered_set<std::string> names;
     for (uint64_t i = 0; i < tensor_count; ++i) {
         GgufTensorInfo tensor;
-        tensor.name = reader.string(limits.max_string_bytes, "tensor name");
+        tensor.name = reader.string(64, "tensor name");
         if (tensor.name.empty()) throw GgufError("tensor name must not be empty");
         if (!names.insert(tensor.name).second) throw GgufError("duplicate tensor name '" + tensor.name + "'");
         const uint32_t rank = reader.u32("tensor rank for '" + tensor.name + "'");

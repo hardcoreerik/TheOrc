@@ -72,9 +72,23 @@ The original CTest registration covered only the three F32 executables. The F64 
 
 **VERIFIED:** a 270,590,880-byte real mixed-quantized SmolLM2-360M GGUF maps 290/290 tensors and agrees exactly with `gguf-py` on names, dimensions, encodings, offsets, and lengths while remaining nonresident and non-executable. Inspector peak working set was 22,822,912 bytes (8.43% of file size).
 
-**VERIFIED:** the pinned SmolLM2-135M source was converted to a 653,091,040-byte F32 GGUF, mapped 273/273 tensors, and executed through unchanged Phase-1 math. C++ and the independent Phase-0 Python oracle generated `[1, 5, 28, 284, 260, 198]` token-for-token; all compared intermediate values and logits satisfy the declared `1e-3` absolute-or-relative rule. Release is 11/11, Debug's 10 non-real tests plus its one-step real differential pass, strict `/W4 /WX` is 9/9, and MSVC ASan is 10/10. See `PHASE2_GGUF_IMPLEMENTATION.md` for hashes, limits, support matrix, and commands.
+**VERIFIED:** the pinned SmolLM2-135M source was converted to a 653,091,040-byte F32 GGUF, mapped 273/273 tensors, and executed through unchanged Phase-1 math. C++ and the Phase-0 Python oracle generated `[1, 5, 28, 284, 260, 198]` token-for-token; all compared intermediate values and logits satisfy the declared `1e-3` absolute-or-relative rule.
 
-**UNKNOWN:** no direct Phase-2 llama.cpp differential was run because no local llama.cpp executable/module was available. This does not invalidate the independent Python and `gguf-py` evidence, but it remains an external-reference gap for review.
+## Phase 2 freeze hardening, 2026-08-16
+
+**VERIFIED:** the default 4 GiB parser cap is policy rather than an architectural ceiling. A deterministic sparse GGUF with a valid tensor at absolute offset 4,294,967,424 is rejected under the default cap, accepted under an 8 GiB configured cap with the exact 64-bit offset retained, and indexed without payload materialization. One-byte sparse EOF truncation and near-`UINT64_MAX` extent overflow fail closed.
+
+**VERIFIED:** direct Hugging Face Transformers/PyTorch execution of the original pinned source model, using the same explicit `[1, 5]` token IDs and importing no Phase-0 converter/oracle code, produced the same four-step greedy sequence as OrcEngine. Every last-token logit passed the frozen `1e-3` absolute-or-relative rule (maximum absolute 0.00104618073; maximum relative 0.000288560404).
+
+**VERIFIED:** a deterministic real F32 tied GGUF was derived only after checking byte identity between the explicit output head and token embedding. It removes `output.weight`, maps 272/272 tensors as tied, independently agrees with `gguf-py`, and produces bit-identical logits, first-step taps, and `[1, 5, 28, 284, 260, 198]` greedy sequence versus the 273-tensor explicit artifact.
+
+**VERIFIED (bugs found and fixed):** GGUF metadata-key validation previously accepted noncanonical underscore placement, and tensor names incorrectly inherited the 64 MiB metadata-string cap instead of GGUF's 64-byte tensor-name limit. Strict hierarchical lower-snake-case metadata keys and the 64-byte tensor-name boundary are now enforced by malformed fixtures.
+
+**VERIFIED (test non-vacuity):** all three real-execution checkers now require a positive requested step count and an exact returned trace length. Direct zero-step re-attacks were rejected 3/3.
+
+**VERIFIED:** post-fix validation is Debug 14/14, Release 14/14, strict `/W4 /WX` 10/10, and MSVC ASan 11/11. Exact inclusions and exclusions are explicit in `PHASE2_FREEZE_HARDENING.md`; the strict and ASan lanes do not claim unconfigured real F32 comparisons. The Phase-2 verdict is **ACCEPT FOR PHASE-2 FREEZE**. No Phase-3 work was started.
+
+**UNKNOWN:** no direct Phase-2 llama.cpp differential was run because no local llama.cpp executable/module was available. Direct Hugging Face/PyTorch now supplies the required independent end-to-end reference; llama.cpp remains an additional unperformed comparison rather than a freeze blocker.
 
 ## Executive truth
 

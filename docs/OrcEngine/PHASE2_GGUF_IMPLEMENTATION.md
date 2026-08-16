@@ -1,6 +1,9 @@
 # OrcEngine Phase 2: GGUF ingestion
 
-Status: ready for independent freeze review on `feat/orcengine-phase2-gguf`.
+Status: freeze hardening complete; **ACCEPT FOR PHASE-2 FREEZE** on
+`feat/orcengine-phase2-gguf`. The review challenge, closure experiments,
+failed command, explicit validation matrix, and remaining limits are preserved
+in [PHASE2_FREEZE_HARDENING.md](PHASE2_FREEZE_HARDENING.md).
 
 Trusted base: `orcengine-phase1-freeze` at
 `b27bc9323b89b9151c811c30d41145bb672a2943`. Phase 2 extends the storage
@@ -44,31 +47,48 @@ F32 `ResidentView`. `materialize_gguf_model()` does that explicitly for all
 required tensors before calling the unchanged Phase-1 `forward()` function.
 
 Default parser limits are a 4 GiB file, 100,000 metadata entries, 10,000
-tensors, 64 MiB strings, 10,000,000 array elements, 512 MiB cumulative metadata
-allocation, array depth 8, rank 4, and dimensions no larger than 2^31-1. All
+tensors, 65,535-byte metadata keys, 64 MiB metadata strings, 10,000,000 array
+elements, 512 MiB cumulative metadata allocation, array depth 8, rank 4, and
+dimensions no larger than 2^31-1. All
 count multiplication, offset addition, alignment, and allocation boundaries are
 checked before use. Quantized files must contain uint32
 `general.quantization_version`.
 
+The 4 GiB file limit is policy, not an architectural ceiling. A deterministic
+sparse-file regression places a valid tensor at absolute offset 4,294,967,424,
+proves exact 64-bit retention under an 8 GiB configured limit, and rejects both
+one-byte EOF truncation and near-`UINT64_MAX` extent overflow. The 4.29 GB
+logical file allocated 131,072 physical bytes and indexing retained an estimated
+168-byte manifest; no payload was materialized.
+
+Metadata keys are validated as canonical ASCII hierarchical lower-snake-case.
+Tensor names use the GGUF-specific 64-byte maximum rather than the general
+metadata-string policy.
+
 ## Deterministic fixtures and negative testing
 
-The build generates 32 byte-identical GGUF fixtures: seven valid/indexable
-artifacts and 25 malformed artifacts. The valid set covers a structural
+The build generates 41 byte-identical GGUF fixtures: seven valid/indexable
+artifacts and 34 malformed artifacts. The valid set covers a structural
 baseline, tied and untied inventories, F16, metadata/tensor descriptor
 reordering, 64-byte alignment, and unsupported-architecture classification.
 The malformed set covers envelope, truncation, count and dimension overflow,
 UTF-8, metadata types/arrays/bools, duplicate names, alignment, overlap, EOF,
 missing metadata/tensors, bad shapes, unsupported dtype, and missing
-quantization metadata.
+quantization metadata. Freeze hardening added noncanonical metadata keys, a
+65-byte tensor name, and a missing token embedding.
 
 Two independent generations produced the same aggregate SHA-256 manifest:
 
-`2EE547F653E3112AEF3BED47D2BF0D338D6288EF970BE33A48AE56AF629409C2`
+`B2A59E94BA8E5DD76FC54B6ABC4CC4069BF49CD495F64719B7C929D978E371B3`
 
 The mutation harness performs 512 deterministic bounded byte mutations. A run
 is valid only if the input parses successfully or throws a controlled validation
 error; crashes, hangs, accidental large allocations, and undefined behavior are
 failures.
+
+All three real-execution checkers independently require a positive requested
+step count and an exact returned trace length, preventing zero-step or truncated
+traces from passing vacuously.
 
 ## Real-artifact evidence
 
@@ -131,18 +151,41 @@ steps were at most 0.000134468 absolute.
 
 A direct Phase-2 llama.cpp run was not performed because no local `llama-cli`,
 `llama-server`, or `llama_cpp` module was available. This is reported as an
-uncovered external comparison, not agreement. Phase-0's earlier pinned
-llama.cpp evidence remains separate.
+uncovered llama.cpp comparison, not agreement. The required independent
+end-to-end closure instead loads the original source directly through Hugging
+Face Transformers 5.11.0 and PyTorch 2.11.0, imports no Phase-0 oracle or
+converter code, and compares every last-token logit. It produced the same
+`[1, 5, 28, 284, 260, 198]` sequence over four Release steps with maximum
+absolute/relative differences 0.00104618073/0.000288560404, satisfying the
+declared absolute-or-relative rule.
+
+### Real tied-output execution target
+
+A second real F32 artifact was deterministically derived only after proving
+that the explicit `output.weight` and `token_embd.weight` bytes were identical.
+The tied artifact omits `output.weight`, contains 272 F32 tensors, is
+538,076,736 bytes, and has SHA-256
+`5CA5C86A7421E5A3105BD93806740BD9CF854B22A9AAB578910F109B7BE3681C`.
+A second derivation was byte-identical, and `gguf-py` agreed with OrcEngine on
+every descriptor. Executing the explicit and tied artifacts produced exact
+full logits, exact first-step taps, and the exact same four-token greedy
+sequence. This closes real execution of the GGUF tied mapping rather than only
+its indexing.
 
 ## Verification commands and outcomes
 
-The normal multi-config build included both real artifacts through
-`ORCENGINE_REAL_GGUF` and `ORCENGINE_REAL_F32_GGUF`.
+The normal multi-config build included the Q4 indexing target, explicit F32
+artifact, original Hugging Face source, and tied F32 artifact. The complete
+row-by-row matrix and reproduction commands are in the freeze-hardening report.
 
-- Release: `ctest --test-dir %TEMP%\orcengine-phase2-build-1 -C Release --output-on-failure` — 11/11 passed; four-step real differential included.
-- Debug: 10/10 non-real tests passed, plus the one-step real differential passed separately in 132.97 seconds. Release retains the required four-step gate because unoptimized full-recompute scalar Debug execution exceeded five minutes.
-- Strict MSVC: global `/EHsc /W4 /WX /permissive- /sdl` build — 9/9 applicable tests passed.
-- MSVC ASan: global `/EHsc /fsanitize=address /W4`, RelWithDebInfo — 10/10 applicable tests passed, including malformed fixtures, 512 mutations, real Q4 cross-reader indexing, and all frozen Phase-1 cases.
+- Release: 14/14 passed in 125.54 seconds; all three real F32 comparisons used four generation steps.
+- Debug: 14/14 passed in 547.07 seconds; all three real F32 comparisons used one bounded generation step.
+- Strict MSVC: global `/EHsc /W4 /WX /permissive- /sdl`, Release — 10/10 configured tests passed in 6.33 seconds.
+- MSVC ASan: global `/EHsc /fsanitize=address /W4`, RelWithDebInfo — 11/11 configured tests passed in 12.60 seconds, including real Q4 cross-reader indexing.
+
+The strict lane did not configure real artifacts. The ASan lane configured the
+real Q4 artifact but not the expensive F32 execution comparisons. These are
+explicit exclusions rather than implicit “applicable test” claims.
 
 The only build messages outside the source warning policy were MSBuild's
 `MSB8029` notices that the requested out-of-tree build directories were under
@@ -160,4 +203,4 @@ the tied profile rule.
 
 Nothing found requires a change to frozen Phase-1 transformer math. Phase 3,
 quantized kernels, CUDA, paging, performance work, tokenizer implementation,
-and product integration are intentionally stopped pending independent review.
+and product integration remain intentionally stopped at the Phase-2 freeze.

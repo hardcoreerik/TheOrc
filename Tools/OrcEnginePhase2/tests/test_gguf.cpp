@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <limits>
 #include <set>
 #include <string>
@@ -64,6 +66,10 @@ int main(int argc, char** argv) {
             "inconsistent_dimensions", "huge_metadata_count", "truncated_string",
             "malformed_array", "invalid_alignment", "invalid_bool", "missing_required_tensor",
             "wrong_output_shape", "quantized_missing_version",
+            "metadata_key_uppercase", "metadata_key_hyphen", "metadata_key_leading_underscore",
+            "metadata_key_trailing_underscore", "metadata_key_double_underscore",
+            "metadata_key_empty_segment", "metadata_key_non_ascii", "tensor_name_over_64_bytes",
+            "missing_token_embedding",
         };
         const GgufArtifact baseline = index_gguf(fixtures / "malformed" / "_valid_baseline.gguf");
         require(baseline.version == 3 && baseline.tensors.size() == 1,
@@ -152,8 +158,52 @@ int main(int argc, char** argv) {
         require(extents_are_file_backed, "GGUF BackingExtents stay nonresident after index",
                 "indexing copied tensor data");
 
+        const std::filesystem::path source_path = fixtures / "model_untied.gguf";
+        const GgufArtifact source_artifact = index_gguf(source_path);
+        const auto output_tensor = std::find_if(
+            source_artifact.tensors.begin(), source_artifact.tensors.end(),
+            [](const GgufTensorInfo& tensor) { return tensor.name == "output.weight"; });
+        if (output_tensor == source_artifact.tensors.end()) throw std::runtime_error("fixture output tensor missing");
+        std::ifstream source_stream(source_path, std::ios::binary);
+        std::vector<uint8_t> corrupted_bytes((std::istreambuf_iterator<char>(source_stream)),
+                                             std::istreambuf_iterator<char>());
+        const size_t output_offset = static_cast<size_t>(output_tensor->absolute_offset);
+        const std::filesystem::path corrupted_path =
+            std::filesystem::temp_directory_path() / "orcengine_phase2_corrupted_f32.gguf";
+        auto write_corruption = [&] {
+            std::ofstream output(corrupted_path, std::ios::binary | std::ios::trunc);
+            output.write(reinterpret_cast<const char*>(corrupted_bytes.data()),
+                         static_cast<std::streamsize>(corrupted_bytes.size()));
+            if (!output) throw std::runtime_error("cannot write corrupted F32 fixture");
+        };
+        corrupted_bytes[output_offset] = 0x00;
+        corrupted_bytes[output_offset + 1] = 0x00;
+        corrupted_bytes[output_offset + 2] = 0x00;
+        corrupted_bytes[output_offset + 3] = 0x4f;  // finite 2^31, not NaN/Inf
+        write_corruption();
+        const ForwardResult finite_corruption = load_and_forward(corrupted_path, expected.token_ids);
+        require(max_abs_difference(untied.logits, finite_corruption.logits) > 1.0f,
+                "finite F32 corruption breaks differential", "corrupted output weight escaped comparison");
+
+        corrupted_bytes[output_offset] = 0x00;
+        corrupted_bytes[output_offset + 1] = 0x00;
+        corrupted_bytes[output_offset + 2] = 0xc0;
+        corrupted_bytes[output_offset + 3] = 0x7f;  // quiet NaN
+        write_corruption();
+        bool nan_rejected = false;
+        try {
+            (void)load_and_forward(corrupted_path, expected.token_ids);
+        } catch (const std::exception&) {
+            nan_rejected = true;
+        }
+        std::error_code ignored;
+        std::filesystem::remove(corrupted_path, ignored);
+        require(nan_rejected, "non-finite F32 corruption fails closed",
+                "NaN output weight reached execution");
+
         if (failures == 0) {
-            std::printf("ALL GGUF CONFORMANCE TESTS PASSED: 25 malformed, 7 valid/indexable artifacts, 4 forward equivalences\n");
+            std::printf("ALL GGUF CONFORMANCE TESTS PASSED: 34 malformed, 7 valid/indexable artifacts, "
+                        "4 forward equivalences, 2 corruption regressions\n");
             return 0;
         }
         std::printf("%d GGUF CONFORMANCE FAILURES\n", failures);

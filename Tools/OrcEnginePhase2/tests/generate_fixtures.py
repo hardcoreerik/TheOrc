@@ -179,6 +179,33 @@ def write_extra_fixtures(output: Path) -> None:
     pre_data += b"\x00" * ((-len(pre_data)) % 32)
     (malformed_dir / "quantized_missing_version.gguf").write_bytes(pre_data + b"\x00" * 34)
 
+    for name, key in {
+        "metadata_key_uppercase": "General.architecture",
+        "metadata_key_hyphen": "general.architecture-name",
+        "metadata_key_leading_underscore": "general._architecture",
+        "metadata_key_trailing_underscore": "general.architecture_",
+        "metadata_key_double_underscore": "general.architecture__name",
+        "metadata_key_empty_segment": "general..architecture",
+        "metadata_key_non_ascii": "général.architecture",
+    }.items():
+        invalid_key = RawGGUFBuilder()
+        invalid_key.add_string(key, "llama")
+        (malformed_dir / f"{name}.gguf").write_bytes(invalid_key.build())
+
+    long_name = RawGGUFBuilder()
+    long_name.add_string("general.architecture", "llama")
+    long_name.add_tensor("x" * 65, (1,), struct.pack("<f", 1.0))
+    (malformed_dir / "tensor_name_over_64_bytes.gguf").write_bytes(long_name.build())
+
+    missing_embedding = RawGGUFBuilder()
+    add_metadata(missing_embedding)
+    for name, array in tensor_items(include_output=True):
+        if name == "token_embd.weight":
+            continue
+        contiguous = np.ascontiguousarray(array, dtype=np.float32)
+        missing_embedding.add_tensor(name, contiguous.shape, contiguous.tobytes())
+    (malformed_dir / "missing_token_embedding.gguf").write_bytes(missing_embedding.build())
+
     unsupported = RawGGUFBuilder()
     unsupported.add_string("general.architecture", "qwen2")
     (output / "unsupported_architecture.gguf").write_bytes(unsupported.build())

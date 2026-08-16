@@ -48,9 +48,13 @@ add_executable(test_gguf_mutations tests/test_gguf_mutations.cpp)
 target_link_libraries(test_gguf_mutations PRIVATE orcengine_phase2)
 add_dependencies(test_gguf_mutations generate_phase2_fixtures)
 
+add_executable(test_gguf_large_sparse tests/test_gguf_large_sparse.cpp)
+target_link_libraries(test_gguf_large_sparse PRIVATE orcengine_phase2)
+
 add_test(NAME gguf_conformance COMMAND test_gguf "${PHASE2_FIXTURES}"
          "${CMAKE_CURRENT_SOURCE_DIR}/../OrcEnginePhase0/fixtures_phase1")
 add_test(NAME gguf_mutations COMMAND test_gguf_mutations "${PHASE2_FIXTURES}/model_untied.gguf")
+add_test(NAME gguf_large_sparse COMMAND test_gguf_large_sparse)
 
 set(ORCENGINE_REAL_GGUF "" CACHE FILEPATH "Optional real GGUF for cross-reader indexing test")
 if(ORCENGINE_REAL_GGUF)
@@ -66,4 +70,23 @@ if(ORCENGINE_REAL_F32_GGUF)
                 "$<TARGET_FILE:orcengine_gguf_forward>" "${ORCENGINE_REAL_F32_GGUF}"
                 "$<IF:$<CONFIG:Release>,4,1>")
     set_tests_properties(gguf_real_f32_forward PROPERTIES TIMEOUT 300)
+endif()
+
+set(ORCENGINE_HF_SOURCE_DIR "" CACHE PATH "Optional original Hugging Face source for direct PyTorch differential")
+if(ORCENGINE_REAL_F32_GGUF AND ORCENGINE_HF_SOURCE_DIR)
+    add_test(NAME gguf_real_hf_pytorch_forward
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/hf_pytorch_forward_check.py"
+                "$<TARGET_FILE:orcengine_gguf_forward>" "${ORCENGINE_REAL_F32_GGUF}"
+                "${ORCENGINE_HF_SOURCE_DIR}" "$<IF:$<CONFIG:Release>,4,1>")
+    set_tests_properties(gguf_real_hf_pytorch_forward PROPERTIES TIMEOUT 600)
+endif()
+
+set(ORCENGINE_REAL_TIED_F32_GGUF "" CACHE FILEPATH "Optional real tied F32 GGUF for output-head equivalence")
+if(ORCENGINE_REAL_F32_GGUF AND ORCENGINE_REAL_TIED_F32_GGUF)
+    add_test(NAME gguf_real_tied_forward
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/real_tied_forward_check.py"
+                "$<TARGET_FILE:orcengine_gguf_inspect>" "$<TARGET_FILE:orcengine_gguf_forward>"
+                "${ORCENGINE_REAL_F32_GGUF}" "${ORCENGINE_REAL_TIED_F32_GGUF}"
+                "$<IF:$<CONFIG:Release>,4,1>")
+    set_tests_properties(gguf_real_tied_forward PROPERTIES TIMEOUT 600)
 endif()
