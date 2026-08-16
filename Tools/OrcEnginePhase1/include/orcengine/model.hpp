@@ -33,7 +33,12 @@ struct ModelConfig {
     float rmsnorm_epsilon = 1e-5f;
     float rope_theta = 10000.0f;
 
-    int64_t group_size() const { return n_q_heads / n_kv_heads; }
+    int64_t group_size() const {
+        if (n_q_heads <= 0 || n_kv_heads <= 0 || n_q_heads % n_kv_heads != 0) {
+            throw std::invalid_argument("ModelConfig: invalid GQA head relationship");
+        }
+        return n_q_heads / n_kv_heads;
+    }
 };
 
 struct LayerWeights {

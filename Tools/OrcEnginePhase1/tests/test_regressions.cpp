@@ -8,8 +8,10 @@
 #include <vector>
 
 #include "decode_test_support.hpp"
+#include "orcengine/context.hpp"
 #include "orcengine/fixture_loader.hpp"
 #include "orcengine/forward.hpp"
+#include "orcengine/materialization.hpp"
 #include "orcengine/validation.hpp"
 
 using namespace orcengine;
@@ -35,6 +37,15 @@ void expect_validation_failure(const std::string& name, const std::function<void
         pass(name);
     } catch (const std::exception& ex) {
         fail(name, std::string("wrong exception type: ") + ex.what());
+    }
+}
+
+void expect_clean_failure(const std::string& name, const std::function<void()>& action) {
+    try {
+        action();
+        fail(name, "operation unexpectedly accepted the mutation");
+    } catch (const std::exception&) {
+        pass(name);
     }
 }
 
@@ -141,9 +152,28 @@ int main(int argc, char** argv) {
             model.lm_head = ResidentView(model.token_embedding.shape(), std::move(values));
             (void)forward(model, tied.token_ids);
         });
+        expect_clean_failure("direct group_size rejects invalid GQA metadata", [&] {
+            ModelConfig config = tied.model.config();
+            config.n_kv_heads = 0;
+            (void)config.group_size();
+        });
+        expect_clean_failure("KV-store dimension product overflow", [&] {
+            (void)ContiguousAttentionKVStore(
+                std::numeric_limits<int64_t>::max(), 2, 2, 2);
+        });
+        expect_validation_failure("backing extent size mismatch", [&] {
+            const LogicalTensor logical("bad_backing", TensorShape({2, 2}));
+            const BackingExtent backing = BackingExtent::FromF32({1.0f, 2.0f, 3.0f});
+            (void)materialize(logical, backing);
+        });
+        expect_validation_failure("unsupported backing encoding", [&] {
+            const LogicalTensor logical("text_backing", TensorShape({1}));
+            const BackingExtent backing("fixture.txt", 0, sizeof(float), BackingEncoding::F32Text);
+            (void)materialize(logical, backing);
+        });
 
         if (failures == 0) {
-            std::printf("ALL 14 HARDENING REGRESSIONS PASSED\n");
+            std::printf("ALL 18 HARDENING REGRESSIONS PASSED\n");
             return 0;
         }
         std::printf("%d HARDENING REGRESSION FAILURES\n", failures);

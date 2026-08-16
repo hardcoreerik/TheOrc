@@ -303,7 +303,7 @@ untied fixture, AND across all 8 autoregressive decode steps (see above).
 | `test_gates` (tied, F64 accum) | ALL PASS | 2.38e-7 (logits) | comparison build only |
 | `test_decode` (F32 accum) | ALL PASS | 1.79e-7 (per-step logits) | 8/8 autoregressive steps, token-for-token |
 | `test_metamorphic` (F32 accum) | ALL PASS | 0 (bit-identical) | BackingExtent materialization, tied alias-vs-duplicate, repeated rematerialization |
-| `test_regressions` | ALL PASS | n/a | 14 malformed/missing-evidence mutations rejected |
+| `test_regressions` | ALL PASS | n/a | 18 malformed/missing-evidence/arithmetic/backing regressions rejected |
 
 Argmax agreement: 4/4 single-pass positions (both fixtures) + 8/8
 autoregressive decode steps, all exact.

@@ -18,6 +18,7 @@
 #include "orcengine/execution_plan.hpp"
 #include "orcengine/model.hpp"
 #include "orcengine/tensor.hpp"
+#include "orcengine/validation.hpp"
 
 namespace orcengine {
 
@@ -27,8 +28,8 @@ public:
     ContiguousAttentionKVStore() = default;
     ContiguousAttentionKVStore(int64_t n_layers, int64_t n_kv_heads, int64_t max_positions, int64_t head_dim)
         : n_layers_(n_layers), n_kv_heads_(n_kv_heads), max_positions_(max_positions), head_dim_(head_dim),
-          k_(static_cast<size_t>(n_layers * n_kv_heads * max_positions * head_dim), 0.0f),
-          v_(static_cast<size_t>(n_layers * n_kv_heads * max_positions * head_dim), 0.0f) {}
+          k_(checked_size(n_layers, n_kv_heads, max_positions, head_dim), 0.0f),
+          v_(checked_size(n_layers, n_kv_heads, max_positions, head_dim), 0.0f) {}
 
     int64_t n_layers() const { return n_layers_; }
     int64_t n_kv_heads() const { return n_kv_heads_; }
@@ -36,6 +37,12 @@ public:
     int64_t head_dim() const { return head_dim_; }
 
 private:
+    static size_t checked_size(int64_t n_layers, int64_t n_kv_heads,
+                               int64_t max_positions, int64_t head_dim) {
+        return static_cast<size_t>(
+            TensorShape({n_layers, n_kv_heads, max_positions, head_dim}).element_count());
+    }
+
     int64_t n_layers_ = 0, n_kv_heads_ = 0, max_positions_ = 0, head_dim_ = 0;
     std::vector<float> k_;
     std::vector<float> v_;
@@ -45,6 +52,7 @@ class Context {
 public:
     static Context Create(const Model& model, const ExecutionPlan& plan) {
         (void)plan;
+        validate_model_config(model.config());
         Context ctx;
         ctx.kv_store_ = ContiguousAttentionKVStore(
             model.config().n_layers, model.config().n_kv_heads,
