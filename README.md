@@ -233,6 +233,22 @@ That's HIVE MIND doing the one thing that actually matters: turning "the machine
 
 ---
 
+## Research track: OrcEngine
+
+**Not shipped. Not the production runtime. An active research track with real, measured results.** Native Runtime (above) is what actually powers TheOrc today and isn't going anywhere. OrcEngine asks a narrower, harder question underneath it: *does TheOrc need to own the tensor-execution layer itself, not just the orchestration above it* — and if so, what would that even mean for a model too large to fit in VRAM?
+
+**Phase 0 is complete.** Before writing a single line of engine code, the project built a deterministic reference oracle — hand-derived ground truth, an independently-written second implementation, and a pinned llama.cpp deployment oracle, cross-checked against the real HuggingFace reference model. All 14 required acceptance checks pass, verified by a genuinely independent review (a fresh agent with zero prior context, in an isolated environment, found and helped fix two real bugs no one had caught). Zero shortcuts on the ledger: when the review found the project's own acceptance file silently failed to parse as YAML, or found a test fixture that could pass without actually testing what it claimed to, those got fixed and documented, not waved off.
+
+**Then the research took an unplanned but valuable detour.** Extending Phase 0's fault-injection suite into full *ablation studies* — measuring how much each individual layer, attention head, and FFN component actually matters to a model's output — surfaced a genuine engineering problem worth solving on its own: running these sweeps against real models kept hitting a wall. A model either fits in memory or it doesn't; "doesn't" meant skipped, full stop.
+
+- **Built a true streaming execution path that removes that wall.** Rather than ever loading a whole model at once, it loads one transformer layer from disk, uses it, and discards it before loading the next — peak memory becomes one layer's size, not the model's total size, *regardless of how large the model is*. Proven, not theorized: **Meta-Llama-3.1-8B — a model that had failed to load under every prior approach — completed a full sweep using just 3.17 GB of VRAM.**
+- **Then made it fast.** The naive version re-read the whole model from disk once per thing being measured. Restructuring the sweep to load each layer from disk *exactly once*, regardless of how many measurements are being taken through it, cut real wall-clock time by **over 40x** — verified bit-exact identical to the slow version first, so the speedup cost nothing in correctness.
+- **Caught its own mistakes before they became "facts."** A genuine math bug — some models use a different final-output weight matrix than their input embeddings, and every code path was silently using the wrong one for those models — was found mid-review and corrected. The first Llama-3.1-8B result it produced was formally retracted, the exact reason documented, and the corrected result replaced it. That is what an honest research ledger looks like: results get corrected in the open, not quietly overwritten.
+
+**Where it stands today:** Phase 0 evidence, methodology, and tooling are solid; Phase 1 (a deliberately tiny, boring, standalone C++ engine — no CUDA, no cleverness, correctness only) has not started. See [`docs/OrcEngine/`](docs/OrcEngine/) for the full research ledger, decision log, and architecture notes.
+
+---
+
 ## The road to v2.0
 
 With Context Fabric complete and native now the default, v2.0 is about giving agents **reliable operational reach** beyond generating text. The foundation and browser-function work below have started landing; image/OCR, broader cross-surface function packs, universal Orcish Tongue routing, and artifact export remain active work.
@@ -537,6 +553,7 @@ ollama pull qwen2.5-coder:14b       # coder workers — great speed/quality bala
 | [TRAINING_PIT_GUIDE.md](docs/TRAINING_PIT_GUIDE.md) | Capture → review → ORC ACADEMY training, step by step |
 | [GLOSSARY.md](docs/GLOSSARY.md) | Every TheOrc term in one place — goblins, captures, manifests, all of it |
 | [ROADMAP.md](docs/ROADMAP.md) | What's shipped, what's cooking, what's next |
+| [docs/OrcEngine/](docs/OrcEngine/README.md) | The OrcEngine research ledger — Phase 0 evidence, decision log, and architecture notes for TheOrc's own tensor-execution research track |
 
 ---
 

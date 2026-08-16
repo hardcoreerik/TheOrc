@@ -1,6 +1,6 @@
 # Project Truth
 
-> Snapshot date: 2026-07-31 America/Los_Angeles
+> Snapshot date: 2026-08-15 America/Los_Angeles (Phase 0 + post-Phase-0 ablation/streaming update)
 >
 > Repository: `F:\Ai\OrchestratorIDE-dev`
 >
@@ -9,8 +9,30 @@
 > Verified product commit: `6ecdd66e5b6bd83de2c5aee2f6c7ed86568d40b7`
 >
 > Pending integration reviewed separately: PR #96 head `16501dae4568391e8891dc091f8869d43ca6b7b9`
+>
+> Also pending, separate branch, NOT merged: `fix/native-runtime-grammar-and-admission` @ `198f5db8` (off current master, two verified Native Runtime correctness fixes -- see "Native Runtime findings, 2026-08-15" below)
 
 This document separates repository-observed facts from proposals. Update it only after checking live code, commands, or stored experiment artifacts.
+
+## Phase 0 + post-Phase-0 findings, 2026-08-15
+
+**VERIFIED:** Phase 0 is complete -- all 14 required checks in `PHASE_0_ACCEPTANCE.yaml` read `pass`, maintainer-approved. See `DECISION_LOG.md` OE-ADR-016 through OE-ADR-018.
+
+**VERIFIED:** the ablation-diagnostic tooling built on top of Phase 0 (`Tools/OrcEnginePhase0/oracle/ablation_sweep*.py`, `gguf_streaming_loader.py`) proved, with real measurements against real downloaded GGUF models (not synthetic-only), that a model does not need to fit entirely in VRAM to execute. Meta-Llama-3.1-8B-Instruct (a real model that failed to load under a full-residency CPU approach at ~32GB and a full-residency GPU approach at ~16GB, both tried earlier in the same session) completed a full ablation sweep using a true layer-streaming execution path at **3.17GB peak VRAM**. This is repository-observed evidence, not a claim from the steering document that requested it -- reproducible via `Tools/OrcEnginePhase0/oracle/gguf_streaming_loader.py` against any locally available large GGUF.
+
+**VERIFIED (bug found and fixed):** every OrcEngine oracle forward-pass implementation (CPU, GPU, and streaming) computed final logits using the tied-embedding formula (`token_embedding.T`) unconditionally, even for models with a distinct, untied `output.weight` tensor. This silently corrupted the first Llama-3.1-8B ablation artifact produced in this session -- confirmed via that artifact's own retained `gguf_info.tied_embeddings: false` field. Fixed across all three backends; original artifact preserved (never deleted or overwritten) with a full invalidation record; corrected artifact replaces it as the citable evidence. See `DECISION_LOG.md` OE-ADR-019 for the complete account, including the specific numbers that changed.
+
+**VERIFIED (architecture correction applied):** the first implementation of multi-branch ablation support (running several different ablations that target the same transformer layer) cloned that layer's entire weight set once per branch -- for a full-component sweep (~28 interventions per layer) this meant "baseline weights + ~28 complete cloned copies resident at once," which directly defeats the point of the streaming/oversized-model work. Corrected to `LayerIntervention` (`identity_bypass` / `mask_head` / `disable_ffn`), applied to a single shared, never-cloned, never-mutated layer-weights object per layer. Verified bit-exact against the original spec-major reference implementation (max diff 0.0) and within established fp16-storage tolerance against an independent CPU clone-and-zero reference. A full-component sweep that was unsafe before this fix now runs correctly: 608 components on SmolLM2-360M in 54.3s at 0.32GB peak VRAM.
+
+## Native Runtime findings, 2026-08-15
+
+Found during the same architecture-steering review, in PRODUCTION code (not OrcEngine research code). Both fixed on a separate branch, `fix/native-runtime-grammar-and-admission` (off current master @ `c397f023`), NOT merged into `feat/orcengine-phase0` and NOT yet merged into `master` -- pending maintainer review.
+
+**VERIFIED:** `IRoleRuntime.cs`'s `NativeRoleRuntime` (the persistent per-role execution path, backed by `AdapterManager`'s per-role `BatchedExecutor`) built its own `DefaultSamplingPipeline` with only `Temperature` set -- it never attached `ToolCallGrammarBuilder`'s tool-name grammar, despite `LLamaSharpRuntime.cs`'s own docstring claiming native tool generation was universally grammar-constrained. Only the STATELESS path (`LLamaSharpRuntime.StreamCompletionAsync`) actually attached the grammar. Fixed by extracting one shared `NativeSamplingPolicy` both paths now call. **Caveat, stated honestly (do not overclaim this):** a gated real-model regression test exercising the actual persistent path was added and passes, but the same adversarial prompt also passed on the UNFIXED code with the two small local models available (SmolLM2-360M, Qwen2.5-1.5B) -- confirmed by temporarily reverting the fix and re-running. The test proves the real path executes correctly end-to-end; it does not prove it catches this specific class of regression with these models. The deterministic guarantee comes from the structural fix (one shared construction path) plus the pure-logic grammar-builder tests, not from this adversarial test alone.
+
+**VERIFIED:** `OrcScheduler.EstimateRequiredBytes` fell back to `binding.BaseModel.SizeBytes ?? 0` when a base model's size was unreadable -- an indeterminate cost silently became "free," always admitted regardless of budget. The pre-existing test's own comment already self-documented this as deliberate-but-fail-open. Fixed with `UnknownBaseModelSizeEstimateBytes` (a large sentinel that fails any realistic GPU-resident admission check while still correctly allowing the existing CPU-only degraded-admission fallback to admit, since that path scales the sentinel to exactly 0 at `gpuLayerOverride: 0`). **This sentinel-constant pattern is a narrow, pragmatic C# production patch -- it is explicitly NOT the design OrcEngine's own eventual cost model should use.** OrcEngine should distinguish `KnownCost(bytes)` / `UnknownCost(reason)` / `UnsupportedCostModel(reason)` as explicit states (see `ARCHITECTURE.md`'s memory-model section), not a numeric placeholder.
+
+**Full C# test suite:** 809 passed, 0 failed, 14 skipped (gated real-model tests, separately run with `THEORC_TEST_GGUF` set and confirmed passing).
 
 ## Executive truth
 

@@ -7,6 +7,9 @@ as_of:
   branch: feat/orcengine-phase0
   verified_product_commit: 6ecdd66e5b6bd83de2c5aee2f6c7ed86568d40b7
   pending_integration_commit: 16501dae4568391e8891dc091f8869d43ca6b7b9
+  native_runtime_fix_branch: fix/native-runtime-grammar-and-admission
+  native_runtime_fix_branch_head: 198f5db8
+  native_runtime_fix_branch_status: pushed_not_merged_pending_maintainer_review
 
 status:
   lifecycle: phase_0_complete_phase_1_not_started
@@ -16,6 +19,8 @@ status:
   production_ready: false
   default_runtime: false
   experimental_backend_available: false
+  ablation_diagnostic_tooling_exists: true
+  streaming_oversized_model_execution_proven: true
   summary: >-
     Phase 0 (deterministic reference oracle) is COMPLETE as of 2026-08-15: all 14
     required checks in PHASE_0_ACCEPTANCE.yaml read pass, and the maintainer
@@ -28,6 +33,32 @@ status:
     (Tools/OrcEnginePhase0/). Existing TheOrc runtime paths remain authoritative and
     unchanged. Phase 1 (tiny synthetic float32 CPU transformer, C++20) is the next
     unblocked phase per ENGINEERING_ROADMAP.md and has NOT started.
+
+    Since Phase 0 closed, the same session extended the fault-injection suite into
+    ablation-study diagnostic tooling (oracle/ablation_sweep*.py) and, while making that
+    tooling work against real oversized models, produced evidence that materially changes
+    what Phase 6 (CUDA) and Phase 7 (stable ABI) should assume: a true streaming execution
+    path (oracle/gguf_streaming_loader.py) proved a model does NOT need to fit in VRAM (or
+    even be materialized all at once) to execute -- Meta-Llama-3.1-8B, unloadable under
+    every earlier approach in this same session, completed a full ablation sweep using
+    3.17GB peak VRAM by loading one transformer layer from disk at a time. A follow-on
+    architectural correction (multi-branch ablation via LayerIntervention, not N-times
+    weight cloning) generalizes to "an ablation/adapter/precision-change is an execution
+    intervention on immutable shared weights, not a modified model copy" -- see OE-ADR-019
+    and ENGINEERING_ROADMAP.md's Phase 6A-6D split for how this changes the roadmap before
+    Phase 1 begins. This tooling ALSO caught and corrected a real bug in Phase 0's own
+    oracle code: every forward pass silently used the tied-embedding logit formula even for
+    models with a distinct, untied output.weight tensor -- the first Llama-3.1-8B artifact
+    this produced was invalidated and replaced (OE-ADR-019, full provenance retained).
+
+    Separately, the same architecture-steering review found and fixed two real correctness
+    gaps in the PRODUCTION Native Runtime (not OrcEngine): the persistent per-role tool-call
+    path was not grammar-constrained to the live tool registry (only the stateless path was,
+    despite a docstring claiming otherwise), and an unknown base-model VRAM cost was silently
+    treated as zero (fail-open admission) rather than denied. Both fixed, tested (809 passed /
+    0 failed on the full C# suite), and pushed to fix/native-runtime-grammar-and-admission --
+    a separate branch off master, not merged into feat/orcengine-phase0, pending maintainer
+    review/merge.
 
 truth_labels:
   verified: directly observed in current code, reproducible evidence, or a primary source
@@ -118,6 +149,16 @@ decisions:
   - id: OE-ADR-018
     state: accepted
     summary: independent_reproduction found two real bugs (broken requirements.txt pin, stale acceptance evidence), both fixed and verified
+  - id: OE-ADR-019
+    state: accepted
+    summary: >-
+      untied output-head bug invalidated the first Llama-3.1-8B ablation artifact (every
+      forward pass used token_embedding.T even for untied models); fixed across all
+      three oracle backends, original artifact preserved+invalidated with full
+      provenance, corrected artifact replaces it. Also records the related
+      LayerIntervention architectural correction (ablation = execution intervention on
+      immutable shared weights, not N-times weight cloning) and the true-streaming
+      oversized-model proof (Llama-3.1-8B, 3.17GB peak VRAM).
 
 phases:
   - id: D0
@@ -148,12 +189,44 @@ phases:
   - id: 5
     name: initial_quantization
     state: not_started
-  - id: 6
-    name: cuda_correctness_baseline
+  - id: 6A
+    name: resident_cuda_correctness_baseline
     state: not_started
+    note: >-
+      Formerly "Phase 6"; renumbered 6A because oversized-model evidence (see below)
+      showed full-residency CUDA cannot be the only supported CUDA execution mode.
+  - id: 6B
+    name: execution_planner_explicit_residency_model
+    state: not_started
+    note: >-
+      New phase, added per the Infinite Model Runtime steering review (2026-08-15):
+      formalizes LogicalTensor / BackingExtent / ResidentView as distinct concepts (see
+      ARCHITECTURE.md) and an ExecutionPlanner boundary distinct from TheOrc's own
+      OrcScheduler, BEFORE paged/streamed CUDA is attempted -- so 6C doesn't retrofit
+      residency semantics onto types that assumed permanent residency.
+  - id: 6C
+    name: paged_streamed_cuda_proof
+    state: not_started
+    note: >-
+      Prove the same true-streaming layer-by-layer execution already demonstrated in
+      Python (oracle/gguf_streaming_loader.py: Meta-Llama-3.1-8B ran at 3.17GB peak VRAM
+      by never materializing the whole model) in the actual C++/CUDA engine, not just
+      the Python research harness.
+  - id: 6D
+    name: compressed_transport_and_advanced_paging_research
+    state: not_started
+    note: >-
+      Explicitly experimental/research per the steering doc -- separate source/transport/
+      resident/compute precision, tensor/tile-level paging, ablation-informed
+      quantization bit allocation. Allowed to fail; not a Phase 1 blocker.
   - id: 7
     name: stable_native_api_and_managed_wrapper
     state: not_started
+    note: >-
+      DELIBERATELY GATED on 6C, not just 6A: the stable C ABI must not be frozen before
+      paged/nonresident execution has exercised the model/context/storage contracts, or
+      the ABI bakes in a full-residency worldview the project's own evidence has already
+      disproven. See OE-ADR-019 and Infinite_Model_Runtime_Claude_Handoff.md section 21.
   - id: 8
     name: experimental_theorc_backend
     state: not_started
