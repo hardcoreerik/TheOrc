@@ -16,6 +16,9 @@ status:
   implementation_exists: true
   phase1_cpp_reference_core: implemented
   phase1_differential_tests_passing: true
+  phase1_autoregressive_decode_proven: true
+  phase1_accumulation_semantic: f32_deliberate_default_f64_comparison_only
+  phase1_metamorphic_residency_tests_passing: true
   real_model_loading: not_implemented
   gguf_parser: not_implemented
   cuda_backend: not_implemented
@@ -58,8 +61,15 @@ status:
 
     A separate, explicitly non-architectural research track ("Fringe Lab",
     research/orcengine-fringe-lab) also exists as of 2026-08-15, testing
-    unconventional memory/execution assumptions (chunked lm_head streaming, cache
-    simulation) in isolation from both Phase 0 and Phase 1 -- see FRINGE_LAB.md.
+    unconventional memory/execution assumptions in isolation from both Phase 0
+    and Phase 1: chunked lm_head streaming (both in-RAM NumPy slicing and, as a
+    freeze-audit follow-up, real disk seek()/read() I/O against the real local
+    Meta-Llama-3.1-8B output head -- exact argmax held at every chunk size down
+    to single-row reads, though the disk-bandwidth-bound cost is still unmeasured
+    due to a warm page cache) and cache-policy simulation across 5 execution
+    shapes (single-context decode, staggered multi-context, MoE routing,
+    speculative verification) -- finding NextUse's advantage over LRU is real but
+    regime-dependent, not universal. See FRINGE_LAB.md.
     Nothing from it has been promoted into OrcEngine architecture.
 
     Since Phase 0 closed, the same session extended the fault-injection suite into
@@ -214,7 +224,16 @@ phases:
       (tests/test_gates.cpp) passes every intermediate tap, final logits, and
       greedy argmax against Python-oracle-exported tied and untied fixtures at
       float32 machine-epsilon divergence (~1e-7 vs 1e-3 threshold). Harness
-      verified to catch injected faults, not just pass trivially. Stopped here
+      verified to catch injected faults, not just pass trivially. Freeze audit
+      (same day) added: true autoregressive 8-step greedy decode matching an
+      independently-computed Python trace token-for-token; a deliberate F32-
+      vs-F64 accumulation A/B (F32 selected as default, F64 kept only as a
+      comparison build -- F64 is marginally more precise but not materially
+      necessary); confirmation that activation values were already a distinct
+      type from ResidentView (naming/doc gap closed, not a real bug); and
+      three bit-exact metamorphic tests proving logical model identity survives
+      physical backing relocation, tied-alias-vs-physically-separate-duplicate,
+      and evict/rematerialize. All 3 test binaries pass via ctest. Stopped here
       per steering-document instruction pending maintainer review -- Phase 2 not
       started. See PHASE1_IMPLEMENTATION.md.
   - id: 2

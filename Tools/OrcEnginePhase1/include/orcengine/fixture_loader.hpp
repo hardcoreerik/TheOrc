@@ -22,7 +22,7 @@ namespace orcengine {
 struct LoadedFixture {
     Model model;
     std::vector<int64_t> token_ids;
-    std::unordered_map<std::string, Tap> expected;  // includes float and int taps (int taps use dims only, data as float)
+    std::unordered_map<std::string, ActivationBuffer> expected;  // includes float and int taps (int taps use dims only, data as float)
 };
 
 LoadedFixture load_fixture(const std::string& path);

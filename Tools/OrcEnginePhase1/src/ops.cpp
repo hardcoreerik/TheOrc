@@ -13,12 +13,12 @@ std::vector<float> rmsnorm(const std::vector<float>& x, int64_t rows, int64_t co
                             const std::vector<float>& weight, float epsilon) {
     std::vector<float> out(static_cast<size_t>(rows * cols));
     for (int64_t r = 0; r < rows; ++r) {
-        double sum_sq = 0.0;
+        AccumT sum_sq = AccumT(0);
         for (int64_t c = 0; c < cols; ++c) {
             float v = x[static_cast<size_t>(r * cols + c)];
-            sum_sq += static_cast<double>(v) * static_cast<double>(v);
+            sum_sq += static_cast<AccumT>(v) * static_cast<AccumT>(v);
         }
-        float mean_sq = static_cast<float>(sum_sq / static_cast<double>(cols));
+        float mean_sq = static_cast<float>(sum_sq / static_cast<AccumT>(cols));
         float inv_rms = 1.0f / std::sqrt(mean_sq + epsilon);
         for (int64_t c = 0; c < cols; ++c) {
             size_t idx = static_cast<size_t>(r * cols + c);
@@ -44,15 +44,15 @@ std::vector<float> softmax_last_axis(const std::vector<float>& x, int64_t rows, 
         for (int64_t c = 0; c < cols; ++c) {
             max_v = std::max(max_v, x[static_cast<size_t>(r * cols + c)]);
         }
-        double sum_exp = 0.0;
+        AccumT sum_exp = AccumT(0);
         std::vector<float> exp_row(static_cast<size_t>(cols));
         for (int64_t c = 0; c < cols; ++c) {
             float e = std::exp(x[static_cast<size_t>(r * cols + c)] - max_v);
             exp_row[static_cast<size_t>(c)] = e;
-            sum_exp += static_cast<double>(e);
+            sum_exp += static_cast<AccumT>(e);
         }
         for (int64_t c = 0; c < cols; ++c) {
-            out[static_cast<size_t>(r * cols + c)] = static_cast<float>(exp_row[static_cast<size_t>(c)] / sum_exp);
+            out[static_cast<size_t>(r * cols + c)] = static_cast<float>(static_cast<AccumT>(exp_row[static_cast<size_t>(c)]) / sum_exp);
         }
     }
     return out;
@@ -118,10 +118,10 @@ std::vector<float> linear_no_bias(const std::vector<float>& x, int64_t rows, int
     std::vector<float> out(static_cast<size_t>(rows * out_features), 0.0f);
     for (int64_t r = 0; r < rows; ++r) {
         for (int64_t o = 0; o < out_features; ++o) {
-            double acc = 0.0;
+            AccumT acc = AccumT(0);
             for (int64_t i = 0; i < in_features; ++i) {
-                acc += static_cast<double>(x[static_cast<size_t>(r * in_features + i)]) *
-                       static_cast<double>(weight_out_in[static_cast<size_t>(o * in_features + i)]);
+                acc += static_cast<AccumT>(x[static_cast<size_t>(r * in_features + i)]) *
+                       static_cast<AccumT>(weight_out_in[static_cast<size_t>(o * in_features + i)]);
             }
             out[static_cast<size_t>(r * out_features + o)] = static_cast<float>(acc);
         }

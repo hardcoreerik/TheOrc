@@ -16,20 +16,43 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
-add_library(orcengine_phase1
-    src/ops.cpp
-    src/forward.cpp
-    src/fixture_loader.cpp
-)
-target_include_directories(orcengine_phase1 PUBLIC include)
-target_compile_options(orcengine_phase1 PRIVATE
-    $<$<CXX_COMPILER_ID:MSVC>:/W4>
-    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
-)
+function(add_orcengine_variant target_suffix use_f64)
+    set(lib_name orcengine_phase1${target_suffix})
+    add_library(${lib_name}
+        src/ops.cpp
+        src/forward.cpp
+        src/fixture_loader.cpp
+    )
+    target_include_directories(${lib_name} PUBLIC include)
+    target_compile_options(${lib_name} PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W4>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+    )
+    if(use_f64)
+        target_compile_definitions(${lib_name} PUBLIC ORCENGINE_ACCUM_F64)
+    endif()
 
-add_executable(test_gates tests/test_gates.cpp)
-target_link_libraries(test_gates PRIVATE orcengine_phase1)
+    add_executable(test_gates${target_suffix} tests/test_gates.cpp)
+    target_link_libraries(test_gates${target_suffix} PRIVATE ${lib_name})
+
+    add_executable(test_decode${target_suffix} tests/test_decode.cpp)
+    target_link_libraries(test_decode${target_suffix} PRIVATE ${lib_name})
+
+    add_executable(test_metamorphic${target_suffix} tests/test_metamorphic.cpp)
+    target_link_libraries(test_metamorphic${target_suffix} PRIVATE ${lib_name})
+endfunction()
+
+# Default (Phase-1 spec) variant: F32 storage/compute/accumulate throughout.
+add_orcengine_variant("" FALSE)
+# A/B comparison variant only: F64 accumulation, F32 storage/compute otherwise.
+# Exists purely to answer the freeze-audit's accumulation question -- the F32
+# variant above is the one Phase 1 actually ships.
+add_orcengine_variant("_f64accum" TRUE)
 
 enable_testing()
 add_test(NAME differential_gates
          COMMAND test_gates "${CMAKE_SOURCE_DIR}/../OrcEnginePhase0/fixtures_phase1")
+add_test(NAME autoregressive_decode
+         COMMAND test_decode "${CMAKE_SOURCE_DIR}/../OrcEnginePhase0/fixtures_phase1")
+add_test(NAME metamorphic_residency
+         COMMAND test_metamorphic "${CMAKE_SOURCE_DIR}/../OrcEnginePhase0/fixtures_phase1")

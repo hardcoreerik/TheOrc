@@ -23,7 +23,7 @@ void put_tap(ForwardResult& result, const std::string& name, std::vector<int64_t
         throw std::runtime_error("forward: NaN/Inf detected in tap '" + name +
                                   "' -- failing closed rather than propagating poisoned data");
     }
-    result.taps[name] = Tap{std::move(dims), std::move(data)};
+    result.taps[name] = ActivationBuffer{std::move(dims), std::move(data)};
 }
 
 }  // namespace
@@ -113,10 +113,10 @@ ForwardResult forward(const Model& model, const std::vector<int64_t>& token_ids)
             std::vector<float> scores(static_cast<size_t>(seq * seq));
             for (int64_t qi = 0; qi < seq; ++qi) {
                 for (int64_t ki = 0; ki < seq; ++ki) {
-                    double acc = 0.0;
+                    ops::AccumT acc = ops::AccumT(0);
                     for (int64_t d = 0; d < cfg.head_dim; ++d) {
-                        acc += static_cast<double>(q_rope[static_cast<size_t>((h * seq + qi) * cfg.head_dim + d)]) *
-                               static_cast<double>(k_rope[static_cast<size_t>((kv_h * seq + ki) * cfg.head_dim + d)]);
+                        acc += static_cast<ops::AccumT>(q_rope[static_cast<size_t>((h * seq + qi) * cfg.head_dim + d)]) *
+                               static_cast<ops::AccumT>(k_rope[static_cast<size_t>((kv_h * seq + ki) * cfg.head_dim + d)]);
                     }
                     scores[static_cast<size_t>(qi * seq + ki)] = static_cast<float>(acc) * scale;
                 }
@@ -125,10 +125,10 @@ ForwardResult forward(const Model& model, const std::vector<int64_t>& token_ids)
             std::vector<float> probs = ops::softmax_last_axis(masked, seq, seq);
             for (int64_t qi = 0; qi < seq; ++qi) {
                 for (int64_t d = 0; d < cfg.head_dim; ++d) {
-                    double acc = 0.0;
+                    ops::AccumT acc = ops::AccumT(0);
                     for (int64_t ki = 0; ki < seq; ++ki) {
-                        acc += static_cast<double>(probs[static_cast<size_t>(qi * seq + ki)]) *
-                               static_cast<double>(v_heads[static_cast<size_t>((kv_h * seq + ki) * cfg.head_dim + d)]);
+                        acc += static_cast<ops::AccumT>(probs[static_cast<size_t>(qi * seq + ki)]) *
+                               static_cast<ops::AccumT>(v_heads[static_cast<size_t>((kv_h * seq + ki) * cfg.head_dim + d)]);
                     }
                     context_heads[static_cast<size_t>((h * seq + qi) * cfg.head_dim + d)] = static_cast<float>(acc);
                 }

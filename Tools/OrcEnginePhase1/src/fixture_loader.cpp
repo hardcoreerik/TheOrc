@@ -133,7 +133,7 @@ LoadedFixture load_fixture(const std::string& path) {
             std::vector<int64_t> dims;
             std::vector<float> data;
             r.read_tensor_body(dims, data);
-            out.expected[name] = Tap{dims, data};
+            out.expected[name] = ActivationBuffer{dims, data};
             continue;
         }
         if (marker == "EXPECT_INT") {
@@ -144,7 +144,7 @@ LoadedFixture load_fixture(const std::string& path) {
             std::vector<float> data;
             data.reserve(idata.size());
             for (int64_t v : idata) data.push_back(static_cast<float>(v));
-            out.expected[name] = Tap{dims, data};
+            out.expected[name] = ActivationBuffer{dims, data};
             continue;
         }
         throw std::runtime_error("fixture_loader: unknown marker '" + marker + "'");

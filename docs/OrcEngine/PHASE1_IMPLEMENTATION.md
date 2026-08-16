@@ -108,13 +108,78 @@ full rotation only — no partial rotary factor in Phase 1), `linear_no_bias`
 Grouped-query attention head mapping (`kv_h = h / (n_q_heads/n_kv_heads)`)
 and the tied/untied `effective_lm_head()` resolver live in `forward.cpp`.
 
+## F32 vs F64 accumulation — deliberate decision (2026-08-15 freeze audit)
+
+Phase 1's spec is storage=F32, compute=F32, accumulator=F32 unless evidence
+justifies otherwise. The first implementation used `double` accumulation by
+default without running that comparison — an accidental deviation, not a
+deliberate one. Corrected by making the accumulator type configurable
+(`ops::AccumT`, `include/orcengine/ops.hpp`) and building two CMake targets:
+`orcengine_phase1` (F32 accumulation, the default) and
+`orcengine_phase1_f64accum` (F64 accumulation, comparison-only).
+
+Both were run against the same tied/untied fixtures:
+
+| Accumulator | tied `final_normalized_state` max_abs_err | tied `logits` max_abs_err | untied `logits` max_abs_err | argmax agreement |
+|---|---|---|---|---|
+| F32 | 7.15e-7 | 3.50e-7 | 5.22e-8 | exact, both fixtures |
+| F64 | 4.17e-7 | 2.38e-7 | 5.22e-8 | exact, both fixtures |
+
+F64 is marginally more precise, as expected, but the difference (≈2-3x at
+this tensor size) is itself roughly five orders of magnitude smaller than
+the `1e-3` acceptance threshold in both directions — **F64 is not materially
+necessary here**. Per the stated preference (a clean F32 reference is what
+later CUDA/quantized comparisons actually need), **F32 accumulation is the
+selected, deliberate default** for `orcengine_phase1`. The F64 variant is
+kept only as a standing comparison target — `-DORCENGINE_ACCUM_F64` — not as
+an alternative shipped configuration, in case a future, larger model
+surfaces a reduction-length regime where the gap stops being negligible.
+
+## Activation representation vs ResidentView
+
+`ForwardResult`'s intermediate values use a dedicated `ActivationBuffer`
+type (`forward.hpp`), not `ResidentView`. This was already true in the
+original implementation — `ResidentView` is used exclusively for durable
+model weights loaded via `fixture_loader.cpp` — but the freeze audit's
+concern was valid as a naming/documentation gap: nothing previously stated
+the distinction explicitly, so `ActivationBuffer` now carries a doc comment
+spelling out why it is not a `ResidentView`: an activation has no
+`LogicalTensor` identity, no `BackingExtent`, and no lifetime past one
+`forward()` call, whereas `ResidentView` specifically means "the currently
+materialized copy of a `LogicalTensor` backed by durable storage."
+
+## Metamorphic tests: physical storage vs logical identity
+
+`tests/test_metamorphic.cpp` is Phase 1's first tiny proof of OrcEngine's
+larger thesis — the same logical model produces the same mathematical
+result even when its physical storage/residency changes. Three properties,
+compared bit-for-bit (`std::memcmp`, not a tolerance — these are the exact
+same floating-point operations on the exact same values, so anything but
+exact equality would itself be a bug):
+
+1. **Backing relocation**: every weight tensor is copied into a freshly
+   allocated buffer (confirmed different heap address) before running —
+   logits are bit-identical to the original.
+2. **Tied-alias vs tied-duplicate**: a true tied model (`effective_lm_head()`
+   aliasing `token_embedding`) is compared against a model whose `lm_head`
+   is a physically separate (confirmed different address) but byte-identical
+   copy of the same values — logits are bit-identical. This directly shows
+   tied semantics is a claim about *values*, not a requirement for a shared
+   pointer.
+3. **Evict/rematerialize**: a `ResidentView` is destroyed and rebuilt from
+   its saved source values at a new address — logits before and after are
+   bit-identical.
+
+All three passed on first run, on both the F32 and F64-accumulation
+variants. This is Phase 1's evidence for the `LogicalTensor` /
+`BackingExtent` / `ResidentView` type separation actually meaning something,
+not just existing as unused header names.
+
 Reductions (`rmsnorm`'s mean-of-squares, `linear_no_bias`'s dot products,
-attention's score/context accumulation) use `double` internally even though
-inputs and outputs are `float` — a deliberate safety margin against
-reduction-order divergence from the Python oracle's own accumulation, not a
-production performance choice (see Phase 4 for where BLAS-backed GEMM with
-its own accumulation semantics gets evaluated against tolerance, not assumed
-safe).
+attention's score/context accumulation, `softmax`'s sum) use the configurable
+`ops::AccumT` accumulator (F32 by default, see above) — inputs and outputs
+are always `float`, matching the Python oracle's own `dtype=DTYPE`
+(float32) reductions in `oracle/ops.py`.
 
 ## Differential test harness
 
@@ -143,6 +208,29 @@ Acceptance thresholds: `abs_error > 1e-3 AND rel_error > 1e-3` (both must
 fail for a tap to be flagged — this tolerates a single-ULP-scale float32
 rounding difference without tolerating an order-of-magnitude divergence).
 
+## Autoregressive decode proof (2026-08-15 freeze audit)
+
+The original 72-comparison differential harness proved every intermediate
+tap and one forward pass's argmax match the oracle — it did NOT prove
+multi-step generation, where C++ and Python could in principle diverge on
+step 2 even if step 1's logits matched. `tests/test_decode.cpp` closes that
+gap directly: both sides run **full-recompute greedy decode** (no KV cache
+in either implementation — matching Phase 1's actual scope), each making
+its own independent argmax choice at every step, from the same initial
+tokens `[1, 5]`. `oracle/export_cpp_phase1_decode_fixture.py`'s Python side
+never sees what C++ will choose; it decides its 8 tokens on its own, and the
+C++ side is not fed those choices either — it decides its own 8 tokens
+independently and the test only checks agreement after the fact.
+
+Result: **all 8 steps matched token-for-token**, both making the identical
+sequence of choices: `[1, 5, 5, 5, 29, 29, 29, 29, 29, 29]`. Per-step max
+logit abs error stayed at float32 machine-epsilon scale throughout
+(1.19e-7 to 1.79e-7). The generated sequence collapsing into repeats is
+expected and unconcerning — this is a randomly-initialized synthetic model
+with no learned language structure, so greedy decode has no reason to avoid
+repetition; the test's subject is decode-loop correctness, not output
+quality.
+
 ## NaN/Inf and observability
 
 Every captured tap is checked for NaN/Inf inline (`diagnostics.hpp`,
@@ -158,48 +246,71 @@ zero cost when unset beyond one static bool check per tap.
 cd Tools/OrcEnginePhase1
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Debug
-./build/Debug/test_gates.exe ../OrcEnginePhase0/fixtures_phase1
+ctest --test-dir build -C Debug --output-on-failure
 ```
 
-To regenerate the fixtures from the Python oracle (only needed if
-`oracle/export_cpp_phase1_fixture.py` or the oracle itself changes):
+Or run each binary directly (both the default F32-accumulation build and the
+`_f64accum` comparison build exist for every test):
+
+```bash
+./build/Debug/test_gates.exe ../OrcEnginePhase0/fixtures_phase1
+./build/Debug/test_decode.exe ../OrcEnginePhase0/fixtures_phase1
+./build/Debug/test_metamorphic.exe ../OrcEnginePhase0/fixtures_phase1
+./build/Debug/test_gates_f64accum.exe ../OrcEnginePhase0/fixtures_phase1
+```
+
+To regenerate the fixtures from the Python oracle (only needed if the
+export scripts or the oracle itself changes):
 
 ```bash
 cd Tools/OrcEnginePhase0
 python oracle/export_cpp_phase1_fixture.py
+python oracle/export_cpp_phase1_decode_fixture.py
 ```
 
-## Results (2026-08-15, first green run)
+## Results (2026-08-15, first green run; re-verified same day after freeze audit)
 
 Both fixtures, all taps, all pass. Every divergence measured is at float32
-machine-epsilon scale (`~1e-7` to `~5e-7`), roughly 4 orders of magnitude
-inside the `1e-3` acceptance threshold — consistent with `double`-accumulated
-C++ arithmetic being *more* precise than NumPy's own float32 reductions, not
-less. Greedy argmax matches exactly (integer equality, no tolerance) on all
-4 positions in both the tied and untied fixture.
+machine-epsilon scale (`~1e-7` to `~7e-7`), roughly 4 orders of magnitude
+inside the `1e-3` acceptance threshold. Greedy argmax matches exactly
+(integer equality, no tolerance) on all 4 positions in both the tied and
+untied fixture, AND across all 8 autoregressive decode steps (see above).
 
-| Fixture | Taps compared | Result | Max abs error observed | Max rel error observed |
-|---|---|---|---|---|
-| tied | 34 intermediate taps + logits + selected_token | ALL PASS | 5.36e-7 | 5.36e-7 |
-| untied | 34 intermediate taps + logits + selected_token | ALL PASS | 5.36e-7 | 5.21e-8 |
+| Test | Result | Max abs error observed | Notes |
+|---|---|---|---|
+| `test_gates` (tied, F32 accum) | ALL PASS | 3.50e-7 (logits) | 34 taps + logits + selected_token |
+| `test_gates` (untied, F32 accum) | ALL PASS | 5.22e-8 (logits) | 34 taps + logits + selected_token |
+| `test_gates` (tied, F64 accum) | ALL PASS | 2.38e-7 (logits) | comparison build only |
+| `test_decode` (F32 accum) | ALL PASS | 1.79e-7 (per-step logits) | 8/8 autoregressive steps, token-for-token |
+| `test_metamorphic` (F32 accum) | ALL PASS | 0 (bit-identical) | relocation, tied-alias-vs-duplicate, evict/rematerialize |
 
-Argmax agreement: 4/4 positions, both fixtures, exact.
+Argmax agreement: 4/4 single-pass positions (both fixtures) + 8/8
+autoregressive decode steps, all exact.
 
 ## Known limitations / explicitly deferred
 
-- Full-prefix forward pass only — no incremental/cached decode
-  (`ContiguousAttentionKVStore` exists as a contract type but is not
-  exercised by any test yet; that's Phase 3's job).
+- Full-prefix recompute every decode step, no KV cache — proven correct
+  across 8 autoregressive steps above, but each step re-runs the whole
+  forward pass rather than reusing prior K/V (`ContiguousAttentionKVStore`
+  exists as a contract type but is not exercised by any test yet; cached
+  decode equivalence is Phase 3's job, matching the Python oracle's own
+  scope split).
 - No partial rotary factor (`rotary_dim < head_dim`) support in
   `apply_rope` — Fixture C uses full rotation, so this was never needed for
   Phase-1 gate-passing; the Python oracle already supports it for later reuse.
 - No GGUF, no quantization, no CUDA, no batching, no multi-sequence context.
 - `BackingExtent` is defined but not yet populated per-tensor by the fixture
   loader (it always reads eagerly from one path) — the type exists for
-  Phase 2's GGUF-backed extents, not exercised here.
+  Phase 2's GGUF-backed extents, not exercised here. The metamorphic tests
+  exercise `ResidentView` relocation/rematerialization directly instead,
+  since that's the property Phase 1 could actually prove without a real
+  multi-source backing implementation.
 - Per-operator timing instrumentation was not added — deferred as
   explicitly lower priority than correctness per the steering document
   ("do not optimize a wrong engine").
+- The autoregressive decode test uses a fixed 8-step budget and a fixed
+  2-token seed — sufficient to prove the decode loop is deterministic and
+  agrees with the oracle, not an exhaustive search over seeds/lengths.
 
 ## Stop gate
 

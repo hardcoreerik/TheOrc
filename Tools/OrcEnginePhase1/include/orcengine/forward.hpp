@@ -16,15 +16,24 @@
 
 namespace orcengine {
 
-// A named intermediate value: flat row-major data plus its logical shape
-// (as explicit dims, since taps range from 1D to 3D).
-struct Tap {
+// ActivationBuffer: runtime-created, ephemeral execution state produced
+// while running the forward pass -- e.g. "the RMSNorm output at layer 0."
+// Deliberately NOT a ResidentView. ResidentView means "the currently
+// materialized copy of a LogicalTensor backed by durable storage" (model
+// weights); an activation has no LogicalTensor, no BackingExtent, and no
+// identity that survives past this one forward() call. Collapsing the two
+// concepts because both happen to be "a shape plus a float buffer" would
+// quietly erase the model-identity/execution-state distinction Phase 6B's
+// residency contracts depend on (docs/OrcEngine/ARCHITECTURE.md's "Memory
+// model" section) -- so they stay two separate types even though this one
+// is intentionally simpler.
+struct ActivationBuffer {
     std::vector<int64_t> dims;
     std::vector<float> data;
 };
 
 struct ForwardResult {
-    std::unordered_map<std::string, Tap> taps;
+    std::unordered_map<std::string, ActivationBuffer> taps;
     std::vector<float> logits;   // [seq, vocab]
     std::vector<int64_t> selected_token;  // [seq]
 };

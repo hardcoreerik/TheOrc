@@ -18,6 +18,17 @@
 
 namespace orcengine::ops {
 
+// Reduction accumulator type for rmsnorm/softmax/matmul/attention dot
+// products. Phase 1's spec default is F32 storage/compute/accumulate; see
+// docs/OrcEngine/PHASE1_IMPLEMENTATION.md's "F32 vs F64 accumulation" section
+// for the deliberate A/B decision this switch exists to make reproducible.
+// Build with -DORCENGINE_ACCUM_F64 to select the F64 variant for comparison.
+#ifdef ORCENGINE_ACCUM_F64
+using AccumT = double;
+#else
+using AccumT = float;
+#endif
+
 // x: [rows, cols] flattened row-major. weight: [cols] (broadcast per row).
 std::vector<float> rmsnorm(const std::vector<float>& x, int64_t rows, int64_t cols,
                             const std::vector<float>& weight, float epsilon);

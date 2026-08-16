@@ -44,7 +44,7 @@ std::string dims_to_string(const std::vector<int64_t>& d) {
 
 // Compares a computed tap against the expected tap, printing a detailed
 // divergence report (layer/tensor name is `label`) if it fails.
-bool compare_tap(const std::string& label, const Tap& actual, const Tap& expected) {
+bool compare_tap(const std::string& label, const ActivationBuffer& actual, const ActivationBuffer& expected) {
     if (!dims_equal(actual.dims, expected.dims)) {
         std::printf("[FAIL] %s: shape mismatch actual=%s expected=%s\n", label.c_str(),
                     dims_to_string(actual.dims).c_str(), dims_to_string(expected.dims).c_str());
@@ -101,7 +101,7 @@ void run_fixture_gate(const std::string& fixture_path, const std::string& tag) {
     // Final logits (full precision comparison).
     auto logits_it = fx.expected.find("logits");
     if (logits_it != fx.expected.end()) {
-        Tap actual_logits{{static_cast<int64_t>(fx.token_ids.size()), fx.model.config().vocab}, result.logits};
+        ActivationBuffer actual_logits{{static_cast<int64_t>(fx.token_ids.size()), fx.model.config().vocab}, result.logits};
         compare_tap(tag + "::logits", actual_logits, logits_it->second);
     }
 
