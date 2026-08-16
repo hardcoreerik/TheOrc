@@ -48,11 +48,21 @@ Four additional questions were raised before allowing Phase 1 to freeze, all ans
 
 **VERIFIED:** activation values (`ActivationBuffer`, `forward.hpp`) were already a distinct type from `ResidentView` in the original implementation -- `ResidentView` is used exclusively for durable model weights. The freeze audit's concern was a real documentation/naming gap, not an actual type-collapse bug: `ActivationBuffer` now carries an explicit doc comment contrasting it with `ResidentView` (no `LogicalTensor` identity, no `BackingExtent`, no lifetime past one `forward()` call).
 
-**VERIFIED:** three metamorphic properties proving logical model identity is independent of physical backing address -- Phase 1's first tiny proof of OrcEngine's larger oversized-model thesis. `tests/test_metamorphic.cpp`: (1) relocating every weight tensor to a freshly-allocated buffer produces bit-identical logits; (2) a tied model (`effective_lm_head()` aliasing `token_embedding`) produces bit-identical logits to an "untied" model whose `lm_head` is a physically separate but byte-identical copy -- proving tied semantics is a claim about values, not a shared pointer; (3) destroying and rematerializing a `ResidentView` from saved source values at a new address produces bit-identical logits before and after. All three passed via exact `memcmp`, not tolerance, on both F32 and F64-accumulation variants.
+**SUPERSEDED BY THE HARDENING REVIEW BELOW:** the first metamorphic harness established bit-identical results after resident-vector copies, but it did not exercise `BackingExtent`, verified only one relocated address, and compared the rematerialized pointer with an empty view rather than the original allocation. Its mathematical outputs were valid; its storage-independence wording was broader than its evidence.
 
-All 3 new test binaries plus the original differential harness were re-verified green together via `ctest` (3/3 passed) before this entry was written.
+The original CTest registration covered only the three F32 executables. The F64 executables were run directly, but were not registered until the hardening review below.
 
 **Per the steering document's explicit stop-gate instruction, Phase 1 work paused here pending maintainer review. No Phase 2 work has started.**
+
+## Phase 1 freeze hardening, 2026-08-16
+
+**VERIFIED:** the evidence harness now requires an exact structural expectation set: 36 records for each of tied and untied fixtures, 72 total. Missing logits, missing selected token, unexpected records, wrong shapes, and NaN/Inf golden values fail before execution. Decode requires a positive exact step count, self-consistent sequence growth, finite vocabulary-sized logits, exact selected-token agreement, and enforced `1e-3` absolute and relative logit tolerances.
+
+**VERIFIED:** `validate_model()` is called at the start of `forward()` and rejects invalid dimensions, head relationships, sequence lengths, token IDs, layer counts, missing output heads/tensors, tied contradictions, and every required tensor-shape mismatch before unchecked math. The confirmed `n_kv_heads=0` divide-by-zero is now a clean validation error.
+
+**VERIFIED, NARROW CLAIM:** the metamorphic harness now creates owned F32Raw `BackingExtent` bytes for every model weight and calls `materialize(LogicalTensor, BackingExtent)` twice while both resident generations coexist. Every resident has distinct storage with identical shape/values, the first generation is destroyed, and both generations produce bit-identical logits. The tied alias-vs-byte-identical-duplicate test remains exact. This proves the in-memory F32 backing path only; GGUF, mapped-file, disk, paging, and CUDA backing remain unimplemented.
+
+**VERIFIED:** CTest now registers seven cases: F32 and F64 gate/decode/metamorphic variants plus the accumulation-independent hardening regression suite.
 
 ## Executive truth
 

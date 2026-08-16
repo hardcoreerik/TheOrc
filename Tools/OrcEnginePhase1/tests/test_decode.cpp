@@ -13,66 +13,23 @@
 // technically did NOT rule out as a gap -- this test closes that gap).
 #include <cmath>
 #include <cstdio>
-#include <fstream>
 #include <string>
 #include <vector>
 
 #include "orcengine/fixture_loader.hpp"
 #include "orcengine/forward.hpp"
+#include "decode_test_support.hpp"
 
 using namespace orcengine;
 
-namespace {
-
-struct DecodeStep {
-    std::vector<int64_t> seq_before;
-    std::vector<float> logits_last;
-    int64_t selected = 0;
-};
-
-struct Reader {
-    std::ifstream in;
-    explicit Reader(const std::string& path) : in(path) {
-        if (!in) throw std::runtime_error("cannot open " + path);
-    }
-    std::string tok() { std::string t; in >> t; return t; }
-    int64_t i() { return std::stoll(tok()); }
-    float f() { return std::stof(tok()); }
-};
-
-std::vector<DecodeStep> load_python_trace(const std::string& path) {
-    Reader r(path);
-    std::string tag = r.tok();
-    if (tag != "STEPS") throw std::runtime_error("expected STEPS");
-    int64_t n_steps = r.i();
-    std::vector<DecodeStep> steps(static_cast<size_t>(n_steps));
-    for (int64_t s = 0; s < n_steps; ++s) {
-        tag = r.tok();
-        if (tag != "STEP") throw std::runtime_error("expected STEP");
-        r.i();  // step index, unused (implied by position)
-        tag = r.tok();
-        if (tag != "SEQ_BEFORE") throw std::runtime_error("expected SEQ_BEFORE");
-        int64_t seq_len = r.i();
-        steps[static_cast<size_t>(s)].seq_before.resize(static_cast<size_t>(seq_len));
-        for (int64_t i = 0; i < seq_len; ++i) steps[static_cast<size_t>(s)].seq_before[static_cast<size_t>(i)] = r.i();
-        tag = r.tok();
-        if (tag != "LOGITS_LAST") throw std::runtime_error("expected LOGITS_LAST");
-        int64_t vocab = r.i();
-        steps[static_cast<size_t>(s)].logits_last.resize(static_cast<size_t>(vocab));
-        for (int64_t i = 0; i < vocab; ++i) steps[static_cast<size_t>(s)].logits_last[static_cast<size_t>(i)] = r.f();
-        tag = r.tok();
-        if (tag != "SELECTED") throw std::runtime_error("expected SELECTED");
-        steps[static_cast<size_t>(s)].selected = r.i();
-    }
-    return steps;
-}
-
-}  // namespace
-
 int main(int argc, char** argv) {
+    try {
     std::string fixtures_dir = argc > 1 ? argv[1] : "fixtures_phase1";
     LoadedFixture fx = load_fixture(fixtures_dir + "/fixture_decode_weights.txt");
-    std::vector<DecodeStep> python_trace = load_python_trace(fixtures_dir + "/fixture_decode_trace_python.txt");
+    std::vector<decode_test_support::DecodeStep> python_trace =
+        decode_test_support::load_decode_trace(fixtures_dir + "/fixture_decode_trace_python.txt");
+    decode_test_support::validate_decode_trace(
+        python_trace, fx.token_ids, fx.model.config().vocab, fx.model.config().max_positions);
 
     std::printf("=== Autoregressive decode: C++ vs independently-computed Python trace ===\n");
     std::printf("Initial tokens:");
@@ -84,7 +41,7 @@ int main(int argc, char** argv) {
     std::vector<int64_t> full_sequence = tokens;
 
     for (size_t step = 0; step < python_trace.size(); ++step) {
-        const DecodeStep& expected = python_trace[step];
+        const decode_test_support::DecodeStep& expected = python_trace[step];
 
         // Sanity: the sequence going INTO this step must match Python's --
         // if a prior step already diverged, this catches it explicitly
@@ -102,22 +59,16 @@ int main(int argc, char** argv) {
         std::vector<float> logits_last(result.logits.end() - vocab, result.logits.end());
         int64_t selected = result.selected_token.back();
 
-        float max_abs = 0.0f, max_rel = 0.0f;
-        for (int64_t v = 0; v < vocab; ++v) {
-            float a = logits_last[static_cast<size_t>(v)], e = expected.logits_last[static_cast<size_t>(v)];
-            float abs_err = std::fabs(a - e);
-            max_abs = std::max(max_abs, abs_err);
-            max_rel = std::max(max_rel, abs_err / std::max(1.0f, std::fabs(e)));
-        }
-
-        bool token_matches = (selected == expected.selected);
+        const decode_test_support::DecodeComparison comparison =
+            decode_test_support::compare_decode_step(logits_last, selected, expected);
         std::printf("[step %zu] seq_before=[", step);
         for (size_t i = 0; i < tokens.size(); ++i) std::printf("%s%lld", i ? "," : "", static_cast<long long>(tokens[i]));
-        std::printf("] cpp_selected=%lld python_selected=%lld max_logit_abs_err=%.6g %s\n",
+        std::printf("] cpp_selected=%lld python_selected=%lld max_logit_abs_err=%.6g "
+                    "max_logit_rel_err=%.6g %s\n",
                     static_cast<long long>(selected), static_cast<long long>(expected.selected),
-                    max_abs, token_matches ? "[PASS]" : "[FAIL]");
+                    comparison.max_abs, comparison.max_rel, comparison.pass() ? "[PASS]" : "[FAIL]");
 
-        if (!token_matches) ++failures;
+        if (!comparison.pass()) ++failures;
         tokens.push_back(selected);
         full_sequence.push_back(selected);
     }
@@ -133,4 +84,8 @@ int main(int argc, char** argv) {
     }
     std::printf("%d STEP FAILURES\n", failures);
     return 1;
+    } catch (const std::exception& ex) {
+        std::fprintf(stderr, "[FAIL] %s\n", ex.what());
+        return 1;
+    }
 }

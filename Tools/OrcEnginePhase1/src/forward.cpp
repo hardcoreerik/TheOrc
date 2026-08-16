@@ -12,6 +12,7 @@
 
 #include "orcengine/diagnostics.hpp"
 #include "orcengine/ops.hpp"
+#include "orcengine/validation.hpp"
 
 namespace orcengine {
 
@@ -29,6 +30,7 @@ void put_tap(ForwardResult& result, const std::string& name, std::vector<int64_t
 }  // namespace
 
 ForwardResult forward(const Model& model, const std::vector<int64_t>& token_ids) {
+    validate_model(model, token_ids);
     const ModelConfig& cfg = model.config();
     const int64_t seq = static_cast<int64_t>(token_ids.size());
     const int64_t hidden = cfg.hidden;

@@ -5,6 +5,9 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_set>
+
+#include "orcengine/validation.hpp"
 
 namespace orcengine {
 
@@ -28,24 +31,28 @@ struct Reader {
     // Reads "NAME ndims d0 d1 ..." header, then a line of ndims-product float values.
     void read_tensor_body(std::vector<int64_t>& dims, std::vector<float>& data) {
         int64_t ndims = next_int();
+        if (ndims <= 0 || ndims > 8) {
+            throw ValidationError("tensor rank must be in [1, 8]");
+        }
         dims.resize(static_cast<size_t>(ndims));
-        int64_t count = 1;
         for (int64_t i = 0; i < ndims; ++i) {
             dims[static_cast<size_t>(i)] = next_int();
-            count *= dims[static_cast<size_t>(i)];
         }
+        int64_t count = TensorShape(dims).element_count();
         data.resize(static_cast<size_t>(count));
         for (int64_t i = 0; i < count; ++i) data[static_cast<size_t>(i)] = next_float();
     }
 
     void read_tensor_body_int(std::vector<int64_t>& dims, std::vector<int64_t>& data) {
         int64_t ndims = next_int();
+        if (ndims <= 0 || ndims > 8) {
+            throw ValidationError("tensor rank must be in [1, 8]");
+        }
         dims.resize(static_cast<size_t>(ndims));
-        int64_t count = 1;
         for (int64_t i = 0; i < ndims; ++i) {
             dims[static_cast<size_t>(i)] = next_int();
-            count *= dims[static_cast<size_t>(i)];
         }
+        int64_t count = TensorShape(dims).element_count();
         data.resize(static_cast<size_t>(count));
         for (int64_t i = 0; i < count; ++i) data[static_cast<size_t>(i)] = next_int();
     }
@@ -74,6 +81,7 @@ LoadedFixture load_fixture(const std::string& path) {
     cfg.max_positions = r.next_int();
     cfg.rmsnorm_epsilon = r.next_float();
     cfg.rope_theta = r.next_float();
+    validate_model_config(cfg);
 
     tag = r.next_token();
     if (tag != "TIED") throw std::runtime_error("fixture_loader: expected TIED");
@@ -82,6 +90,10 @@ LoadedFixture load_fixture(const std::string& path) {
     tag = r.next_token();
     if (tag != "SEQ") throw std::runtime_error("fixture_loader: expected SEQ");
     int64_t seq = r.next_int();
+    if (seq <= 0) throw ValidationError("input sequence must not be empty");
+    if (seq > cfg.max_positions) {
+        throw ValidationError("input sequence length exceeds max_positions");
+    }
 
     tag = r.next_token();
     if (tag != "TOKENS") throw std::runtime_error("fixture_loader: expected TOKENS");
@@ -93,12 +105,16 @@ LoadedFixture load_fixture(const std::string& path) {
     out.model.layers.resize(static_cast<size_t>(cfg.n_layers));
 
     int64_t current_layer = -1;
+    std::unordered_set<std::string> loaded_tensors;
     while (r.in.peek() != EOF) {
         std::string marker;
         if (!(r.in >> marker)) break;
 
         if (marker == "LAYER") {
             current_layer = r.next_int();
+            if (current_layer < 0 || current_layer >= cfg.n_layers) {
+                throw ValidationError("layer index is outside configured layer count");
+            }
             continue;
         }
         if (marker == "TENSOR") {
@@ -106,7 +122,13 @@ LoadedFixture load_fixture(const std::string& path) {
             std::vector<int64_t> dims;
             std::vector<float> data;
             r.read_tensor_body(dims, data);
-            out.model.manifest.tensors.emplace_back(name, TensorShape(dims));
+            const std::string tensor_key = current_layer < 0
+                ? name
+                : "layer" + std::to_string(current_layer) + "." + name;
+            if (!loaded_tensors.insert(tensor_key).second) {
+                throw ValidationError("duplicate tensor '" + tensor_key + "'");
+            }
+            out.model.manifest.tensors.emplace_back(tensor_key, TensorShape(dims));
 
             if (current_layer < 0) {
                 if (name == "token_embedding") out.model.token_embedding = make_view(dims, data);
@@ -133,7 +155,9 @@ LoadedFixture load_fixture(const std::string& path) {
             std::vector<int64_t> dims;
             std::vector<float> data;
             r.read_tensor_body(dims, data);
-            out.expected[name] = ActivationBuffer{dims, data};
+            if (!out.expected.emplace(name, ActivationBuffer{dims, data}).second) {
+                throw ValidationError("duplicate expectation '" + name + "'");
+            }
             continue;
         }
         if (marker == "EXPECT_INT") {
@@ -144,7 +168,9 @@ LoadedFixture load_fixture(const std::string& path) {
             std::vector<float> data;
             data.reserve(idata.size());
             for (int64_t v : idata) data.push_back(static_cast<float>(v));
-            out.expected[name] = ActivationBuffer{dims, data};
+            if (!out.expected.emplace(name, ActivationBuffer{dims, data}).second) {
+                throw ValidationError("duplicate expectation '" + name + "'");
+            }
             continue;
         }
         throw std::runtime_error("fixture_loader: unknown marker '" + marker + "'");
@@ -153,6 +179,8 @@ LoadedFixture load_fixture(const std::string& path) {
     if (out.model.manifest.tied_embeddings != !out.model.lm_head.has_value()) {
         throw std::runtime_error("fixture_loader: TIED flag disagrees with presence of lm_head tensor");
     }
+
+    validate_model(out.model, out.token_ids);
 
     return out;
 }

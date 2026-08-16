@@ -19,8 +19,17 @@ namespace orcengine::diagnostics {
 
 inline bool debug_taps_enabled() {
     static const bool enabled = [] {
+#ifdef _MSC_VER
+        char* value = nullptr;
+        size_t length = 0;
+        if (_dupenv_s(&value, &length, "ORCENGINE_DEBUG_TAPS") != 0) return false;
+        const bool result = value != nullptr && std::string(value) == "1";
+        std::free(value);
+        return result;
+#else
         const char* v = std::getenv("ORCENGINE_DEBUG_TAPS");
         return v != nullptr && std::string(v) == "1";
+#endif
     }();
     return enabled;
 }

@@ -19,6 +19,7 @@
 
 #include "orcengine/fixture_loader.hpp"
 #include "orcengine/forward.hpp"
+#include "orcengine/validation.hpp"
 
 using namespace orcengine;
 
@@ -61,6 +62,12 @@ bool compare_tap(const std::string& label, const ActivationBuffer& actual, const
     size_t first_bad_index = static_cast<size_t>(-1);
     for (size_t i = 0; i < actual.data.size(); ++i) {
         float a = actual.data[i], e = expected.data[i];
+        if (!std::isfinite(a) || !std::isfinite(e)) {
+            std::printf("[FAIL] %s: non-finite value at index %zu (actual=%.6g expected=%.6g)\n",
+                        label.c_str(), i, a, e);
+            ++g_failures;
+            return false;
+        }
         float abs_err = std::fabs(a - e);
         float rel_err = abs_err / std::max(1.0f, std::fabs(e));
         bool bad = abs_err > kAbsTol && rel_err > kRelTol;
@@ -81,57 +88,72 @@ bool compare_tap(const std::string& label, const ActivationBuffer& actual, const
     return true;
 }
 
-void run_fixture_gate(const std::string& fixture_path, const std::string& tag) {
+void run_fixture_gate(const LoadedFixture& fx, const std::string& fixture_path, const std::string& tag) {
     std::printf("\n=== Gate: %s (%s) ===\n", tag.c_str(), fixture_path.c_str());
-    LoadedFixture fx = load_fixture(fixture_path);
     ForwardResult result = forward(fx.model, fx.token_ids);
 
-    // Every tap the Python oracle captured must be present and match.
-    for (const auto& [name, expected_tap] : fx.expected) {
-        if (name == "logits" || name == "selected_token") continue;  // checked separately below
-        auto it = result.taps.find(name);
+    // Every structurally-required tap must be present and match.
+    for (const ExpectedRequirement& req : required_forward_expectations(
+             fx.model.config(), static_cast<int64_t>(fx.token_ids.size()))) {
+        if (req.name == "logits" || req.name == "selected_token") continue;
+        auto it = result.taps.find(req.name);
         if (it == result.taps.end()) {
-            std::printf("[FAIL] %s: tap missing from C++ forward result\n", name.c_str());
+            std::printf("[FAIL] %s: tap missing from C++ forward result\n", req.name.c_str());
             ++g_failures;
             continue;
         }
-        compare_tap(tag + "::" + name, it->second, expected_tap);
+        compare_tap(tag + "::" + req.name, it->second, fx.expected.at(req.name));
     }
 
     // Final logits (full precision comparison).
-    auto logits_it = fx.expected.find("logits");
-    if (logits_it != fx.expected.end()) {
-        ActivationBuffer actual_logits{{static_cast<int64_t>(fx.token_ids.size()), fx.model.config().vocab}, result.logits};
-        compare_tap(tag + "::logits", actual_logits, logits_it->second);
-    }
+    ActivationBuffer actual_logits{{static_cast<int64_t>(fx.token_ids.size()), fx.model.config().vocab}, result.logits};
+    compare_tap(tag + "::logits", actual_logits, fx.expected.at("logits"));
 
     // Greedy argmax agreement -- exact integer match required, no tolerance.
-    auto selected_it = fx.expected.find("selected_token");
-    if (selected_it != fx.expected.end()) {
-        bool all_match = true;
-        for (size_t i = 0; i < result.selected_token.size(); ++i) {
-            int64_t actual = result.selected_token[i];
-            int64_t expected = static_cast<int64_t>(selected_it->second.data[i]);
-            if (actual != expected) {
-                std::printf("[FAIL] %s::selected_token[%zu]: actual=%lld expected=%lld\n",
-                            tag.c_str(), i, static_cast<long long>(actual), static_cast<long long>(expected));
-                all_match = false;
-                ++g_failures;
-            }
+    const ActivationBuffer& expected_selected = fx.expected.at("selected_token");
+    bool all_match = true;
+    for (size_t i = 0; i < result.selected_token.size(); ++i) {
+        int64_t actual = result.selected_token[i];
+        int64_t expected = static_cast<int64_t>(expected_selected.data[i]);
+        if (actual != expected) {
+            std::printf("[FAIL] %s::selected_token[%zu]: actual=%lld expected=%lld\n",
+                        tag.c_str(), i, static_cast<long long>(actual), static_cast<long long>(expected));
+            all_match = false;
+            ++g_failures;
         }
-        if (all_match) {
-            std::printf("[PASS] %s::selected_token: exact match on all %zu positions\n",
-                        tag.c_str(), result.selected_token.size());
-        }
+    }
+    if (all_match) {
+        std::printf("[PASS] %s::selected_token: exact match on all %zu positions\n",
+                    tag.c_str(), result.selected_token.size());
     }
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
-    std::string fixtures_dir = argc > 1 ? argv[1] : "fixtures_phase1";
-    run_fixture_gate(fixtures_dir + "/fixture_tied.txt", "tied");
-    run_fixture_gate(fixtures_dir + "/fixture_untied.txt", "untied");
+    try {
+        std::string fixtures_dir = argc > 1 ? argv[1] : "fixtures_phase1";
+        const std::string tied_path = fixtures_dir + "/fixture_tied.txt";
+        const std::string untied_path = fixtures_dir + "/fixture_untied.txt";
+        LoadedFixture tied = load_fixture(tied_path);
+        LoadedFixture untied = load_fixture(untied_path);
+
+        validate_forward_expectations(tied.model.config(), static_cast<int64_t>(tied.token_ids.size()), tied.expected);
+        validate_forward_expectations(untied.model.config(), static_cast<int64_t>(untied.token_ids.size()), untied.expected);
+        const size_t required = required_forward_expectations(
+            tied.model.config(), static_cast<int64_t>(tied.token_ids.size())).size() +
+            required_forward_expectations(
+                untied.model.config(), static_cast<int64_t>(untied.token_ids.size())).size();
+        const size_t loaded = tied.expected.size() + untied.expected.size();
+        std::printf("Required expectations: %zu\nLoaded expectations:   %zu\nFixture completeness:  PASS\n",
+                    required, loaded);
+
+        run_fixture_gate(tied, tied_path, "tied");
+        run_fixture_gate(untied, untied_path, "untied");
+    } catch (const std::exception& ex) {
+        std::fprintf(stderr, "[FAIL] %s\n", ex.what());
+        return 1;
+    }
 
     std::printf("\n=== Summary ===\n");
     if (g_failures == 0) {

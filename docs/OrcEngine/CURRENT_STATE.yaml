@@ -1,7 +1,7 @@
 schema_version: 1
 project: OrcEngine
 as_of:
-  date: "2026-08-15"
+  date: "2026-08-16"
   timezone: America/Los_Angeles
   repository: "F:\\Ai\\OrchestratorIDE-dev"
   branch: feat/orcengine-phase0
@@ -12,13 +12,16 @@ as_of:
   native_runtime_fix_branch_status: pushed_not_merged_pending_maintainer_review
 
 status:
-  lifecycle: phase_1_implemented_stopped_for_review
+  lifecycle: phase_1_hardened_pending_second_freeze_review
   implementation_exists: true
   phase1_cpp_reference_core: implemented
   phase1_differential_tests_passing: true
   phase1_autoregressive_decode_proven: true
   phase1_accumulation_semantic: f32_deliberate_default_f64_comparison_only
   phase1_metamorphic_residency_tests_passing: true
+  phase1_fixture_completeness_enforced: true
+  phase1_model_validation_enforced: true
+  phase1_ctest_registered_total: 7
   real_model_loading: not_implemented
   gguf_parser: not_implemented
   cuda_backend: not_implemented
@@ -58,6 +61,14 @@ status:
     Per the steering document's explicit instruction, Phase 1 work stopped here
     pending maintainer review; Phase 2 (GGUF parser expansion, real model loading,
     quantization, CUDA) has NOT started. See PHASE1_IMPLEMENTATION.md for full detail.
+
+    On 2026-08-16 the independent Codex freeze review's confirmed findings were
+    hardened into executable regressions. The gate now requires 36 structural
+    expectations per fixture (72 total), decode tolerances and positive step work
+    are enforced, malformed models fail through central validation before forward
+    math, all six F32/F64 variants are registered with CTest, and the storage test
+    now materializes every weight from retained in-memory F32Raw BackingExtents.
+    This remains a narrow synthetic reference proof, not GGUF or production support.
 
     A separate, explicitly non-architectural research track ("Fringe Lab",
     research/orcengine-fringe-lab) also exists as of 2026-08-15, testing
@@ -208,6 +219,7 @@ phases:
     state: complete
     implementation: test_and_research_only
     completed_date: "2026-08-15"
+    hardened_date: "2026-08-16"
     completion_note: >-
       All 14 PHASE_0_ACCEPTANCE.yaml checks pass; OE-ADR-016 product-value
       thesis accepted by maintainer. See PHASE_0_ACCEPTANCE.yaml phase_result
@@ -231,9 +243,12 @@ phases:
       comparison build -- F64 is marginally more precise but not materially
       necessary); confirmation that activation values were already a distinct
       type from ResidentView (naming/doc gap closed, not a real bug); and
-      three bit-exact metamorphic tests proving logical model identity survives
-      physical backing relocation, tied-alias-vs-physically-separate-duplicate,
-      and evict/rematerialize. All 3 test binaries pass via ctest. Stopped here
+      three bit-exact metamorphic tests. The 2026-08-16 hardening pass replaced
+      the original resident-vector-only claim with a real in-memory F32Raw
+      BackingExtent materialization path covering every weight, retained the tied
+      alias-vs-physically-separate-duplicate proof, added exact 72-expectation
+      completeness and malformed-model regression gates, and registered all six
+      F32/F64 executables plus one regression suite (7 CTest cases). Stopped here
       per steering-document instruction pending maintainer review -- Phase 2 not
       started. See PHASE1_IMPLEMENTATION.md.
   - id: 2

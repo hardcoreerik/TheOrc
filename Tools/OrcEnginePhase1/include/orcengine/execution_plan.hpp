@@ -7,7 +7,7 @@
 // a second OrcScheduler".
 //
 // Phase 1's planner has exactly one strategy (ResidentCPU, everything
-// already materialized by Model::Open) -- the type exists now, with a
+// already materialized by the fixture loader) -- the type exists now, with a
 // single trivial case, so Phase 6B's PagedCUDA/StaticHybrid strategies are
 // additive, not a rewrite of every caller.
 #pragma once

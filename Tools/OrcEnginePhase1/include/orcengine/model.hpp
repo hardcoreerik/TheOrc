@@ -4,16 +4,10 @@
 // ModelManifest / Model: architecture shape plus the LogicalTensor set for
 // one model, and the resident weights bound to it.
 //
-// Model::Open in Phase 1 does not mean "copy every tensor into memory before
-// returning" as a hidden coupling -- it means "the fixture is parsed, the
-// manifest is validated, tensors are addressable." ExecutionPlan::Create is
-// the separate, explicit step that actually materializes ResidentViews (see
-// execution_plan.hpp). Phase 1's ExecutionPlan always resolves to
-// ResidentCPU/immediate, so in practice the distinction has no visible
-// latency yet -- but the two calls are still separate on purpose, per
-// docs/OrcEngine/ARCHITECTURE.md's "Model loaded does not mean fully
-// resident" section, so Phase 6B can make ExecutionPlan::Create actually lazy
-// without changing Model::Open's contract.
+// Phase 1 has no Model::Open API. The fixture loader eagerly constructs and
+// validates this Model. BackingExtent materialization is exercised separately
+// by the storage metamorphic tests; a future production loader may connect
+// those concepts without changing the transformer operators.
 #pragma once
 
 #include <optional>
@@ -65,9 +59,7 @@ public:
     std::vector<LogicalTensor> tensors;  // identity only -- no bytes.
 };
 
-// Model: manifest plus resident weights. Phase 1's "Open" always fully
-// materializes (see model.hpp doc comment above for why that's still
-// behind a named, separate call rather than baked into the type).
+// Model: manifest plus the ResidentViews used by execution.
 class Model {
 public:
     ModelManifest manifest;

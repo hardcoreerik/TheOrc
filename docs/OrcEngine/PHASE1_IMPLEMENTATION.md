@@ -1,6 +1,6 @@
 # Phase 1 Implementation — Tiny Synthetic F32 CPU Transformer
 
-**Status as of 2026-08-15: implemented and passing.** This document is the
+**Status as of 2026-08-16: implemented, hardened, and pending final freeze review.** This document is the
 Phase-1-specific companion to [Engineering Roadmap](ENGINEERING_ROADMAP.md)'s
 Phase 1 section, [Project Truth](PROJECT_TRUTH.md), and
 [Current State](CURRENT_STATE.yaml).
@@ -13,7 +13,8 @@ evidence branch is untouched. Code lives under `Tools/OrcEnginePhase1/`.
 
 A tiny, boring, deliberately unoptimized C++20 reference implementation of
 one transformer forward pass, proven correct tap-by-tap against the trusted
-Python oracle in `Tools/OrcEnginePhase0/oracle/`. F32 only. CPU only. No
+Python oracle in `Tools/OrcEnginePhase0/oracle/`. F32 is the deliberate
+default; an F64-accumulation comparison target is retained. CPU only. No
 CUDA, no quantization, no graph compiler, no production (TheOrc) integration.
 This is the ruler, not the race car.
 
@@ -22,7 +23,7 @@ This is the ruler, not the race car.
 - Not a GGUF parser (Phase 2).
 - Not connected to any real model (Phase 3).
 - Not optimized in any way (Phase 4+) — scalar triple loops throughout,
-  `double` accumulation for numerical safety, no SIMD/BLAS/fusion.
+  F32 accumulation by default, no SIMD/BLAS/fusion.
 - Not CUDA (Phase 6A+).
 - Not wired into TheOrc's runtime in any way.
 
@@ -34,7 +35,9 @@ Tools/OrcEnginePhase1/
   include/orcengine/
     tensor.hpp            TensorShape -- pure semantic shape, no storage
     logical_tensor.hpp     LogicalTensor -- identity (name + shape), no bytes
-    backing_extent.hpp     BackingExtent -- source description (path/offset/encoding)
+    backing_extent.hpp     BackingExtent -- source description or owned F32 bytes
+    materialization.hpp    LogicalTensor + BackingExtent -> fresh ResidentView
+    validation.hpp         model/config/tensor/expectation validation
     resident_view.hpp      ResidentView -- the one place that owns float bytes
     model.hpp               ModelConfig, LayerWeights, ModelManifest, Model
     execution_plan.hpp      ExecutionPlan (Phase 1: always ResidentCPU)
@@ -45,18 +48,22 @@ Tools/OrcEnginePhase1/
     fixture_loader.hpp        flat-text fixture loader
     diagnostics.hpp           opt-in NaN/Inf/min/max/mean tap tracing
   src/
-    ops.cpp forward.cpp fixture_loader.cpp
+    ops.cpp forward.cpp fixture_loader.cpp validation.cpp materialization.cpp
   tests/
-    test_gates.cpp             differential harness + main()
+    test_gates.cpp             differential harness + fixture completeness
+    test_decode.cpp            enforced 8-step autoregressive comparison
+    test_metamorphic.cpp       backing/residency/tied metamorphisms
+    test_regressions.cpp       malformed/missing-evidence regressions
 ```
 
 ## Why these specific contract types, even though Phase 1 barely uses them
 
 `TensorShape` / `LogicalTensor` / `BackingExtent` / `ResidentView` are kept
-as four distinct types — not collapsed into one buffer class — even though
-Phase 1's implementations are trivial (`ResidentView` is the only one that
-owns memory; `BackingExtent` always points at the flat-text fixture;
-`ExecutionPlan` always resolves to `ResidentCPU`). This is a direct,
+as four distinct types — not collapsed into one buffer class. The ordinary
+fixture loader remains eager, while the metamorphic harness creates owned
+F32Raw `BackingExtent` bytes and calls `materialize(LogicalTensor,
+BackingExtent)` to produce fresh `ResidentView` allocations.
+`ExecutionPlan` still always resolves to `ResidentCPU`. This is a direct,
 literal application of `docs/OrcEngine/ARCHITECTURE.md`'s "Memory model"
 section and the explicit Phase-1 instruction: *"do not make LogicalTensor
 itself synonymous with a malloc'd pointer."* The point is that Phase 6B
@@ -150,30 +157,29 @@ materialized copy of a `LogicalTensor` backed by durable storage."
 
 ## Metamorphic tests: physical storage vs logical identity
 
-`tests/test_metamorphic.cpp` is Phase 1's first tiny proof of OrcEngine's
-larger thesis — the same logical model produces the same mathematical
-result even when its physical storage/residency changes. Three properties,
+`tests/test_metamorphic.cpp` proves three deliberately narrow Phase-1
+properties about in-memory F32 backing and residency. Three properties,
 compared bit-for-bit (`std::memcmp`, not a tolerance — these are the exact
 same floating-point operations on the exact same values, so anything but
 exact equality would itself be a bug):
 
-1. **Backing relocation**: every weight tensor is copied into a freshly
-   allocated buffer (confirmed different heap address) before running —
-   logits are bit-identical to the original.
+1. **Backing materialization**: every weight tensor is represented by a
+   `LogicalTensor` plus an owned F32Raw `BackingExtent`, materialized into a
+   fresh `ResidentView`, and compared against the fixture-loaded resident.
+   Every shape/value matches and logits are bit-identical.
 2. **Tied-alias vs tied-duplicate**: a true tied model (`effective_lm_head()`
    aliasing `token_embedding`) is compared against a model whose `lm_head`
    is a physically separate (confirmed different address) but byte-identical
    copy of the same values — logits are bit-identical. This directly shows
-   tied semantics is a claim about *values*, not a requirement for a shared
-   pointer.
-3. **Evict/rematerialize**: a `ResidentView` is destroyed and rebuilt from
-   its saved source values at a new address — logits before and after are
-   bit-identical.
+   tied inference semantics does not require pointer identity.
+3. **Rematerialize from retained backing**: all model tensors are materialized
+   twice from the same retained `BackingExtent` set while both resident
+   generations coexist, forcing distinct addresses. The first generation is
+   then destroyed; the second produces bit-identical logits.
 
-All three passed on first run, on both the F32 and F64-accumulation
-variants. This is Phase 1's evidence for the `LogicalTensor` /
-`BackingExtent` / `ResidentView` type separation actually meaning something,
-not just existing as unused header names.
+All three pass on both F32 and F64-accumulation variants. This proves the
+in-memory F32 path above; it does not claim GGUF, mapped-file, paging, disk,
+or CUDA backing support.
 
 Reductions (`rmsnorm`'s mean-of-squares, `linear_no_bias`'s dot products,
 attention's score/context accumulation, `softmax`'s sum) use the configurable
@@ -183,9 +189,11 @@ are always `float`, matching the Python oracle's own `dtype=DTYPE`
 
 ## Differential test harness
 
-`tests/test_gates.cpp` loads each fixture, runs `forward()`, and compares
-**every intermediate tap** the Python oracle captured — not just final
-logits — against the C++ result: `input_embedding`, and per layer
+`tests/test_gates.cpp` loads both fixtures and, before execution, requires the
+structural Phase-1 expectation set: 36 records per fixture, 72 total. Missing,
+extra, incorrectly-shaped, or non-finite expectations fail before `forward()`.
+It then compares every required intermediate tap — not just final logits —
+against the C++ result: `input_embedding`, and per layer
 `pre_attention_normalized_state`, `q_projection`, `k_projection`,
 `v_projection`, `q_after_rope`, `k_after_rope`, `attention_probabilities`,
 `attention_output_before_projection`, `attention_output_after_projection`,
@@ -222,6 +230,12 @@ never sees what C++ will choose; it decides its 8 tokens on its own, and the
 C++ side is not fed those choices either — it decides its own 8 tokens
 independently and the test only checks agreement after the fact.
 
+The trace validator requires `STEPS > 0`, exact entry count, sequential step
+indices, vocabulary-sized finite logits, and sequence growth consistent with
+each prior selected token. Each step gates both exact token identity and
+`max_abs_error <= 1e-3` plus `max_rel_error <= 1e-3`; printed errors are not
+informational-only.
+
 Result: **all 8 steps matched token-for-token**, both making the identical
 sequence of choices: `[1, 5, 5, 5, 29, 29, 29, 29, 29, 29]`. Per-step max
 logit abs error stayed at float32 machine-epsilon scale throughout
@@ -237,7 +251,9 @@ Every captured tap is checked for NaN/Inf inline (`diagnostics.hpp`,
 `forward.cpp`'s `put_tap`); if either is found, `forward()` throws rather
 than silently propagating poisoned data (fail closed, per the steering
 document's explicit requirement). Verbose per-tap min/max/mean/NaN/Inf
-tracing is opt-in via the `ORCENGINE_DEBUG_TAPS=1` environment variable —
+Golden expectations and decode traces are also rejected if any numeric value
+is non-finite, before delta calculation. Tracing is opt-in via the
+`ORCENGINE_DEBUG_TAPS=1` environment variable —
 zero cost when unset beyond one static bool check per tap.
 
 ## Build and test
@@ -249,14 +265,18 @@ cmake --build build --config Debug
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
-Or run each binary directly (both the default F32-accumulation build and the
-`_f64accum` comparison build exist for every test):
+CTest registers seven cases: F32 and F64 variants of gate, decode, and
+metamorphic tests, plus one accumulation-independent hardening regression
+suite. Or run binaries directly:
 
 ```bash
 ./build/Debug/test_gates.exe ../OrcEnginePhase0/fixtures_phase1
 ./build/Debug/test_decode.exe ../OrcEnginePhase0/fixtures_phase1
 ./build/Debug/test_metamorphic.exe ../OrcEnginePhase0/fixtures_phase1
 ./build/Debug/test_gates_f64accum.exe ../OrcEnginePhase0/fixtures_phase1
+./build/Debug/test_decode_f64accum.exe ../OrcEnginePhase0/fixtures_phase1
+./build/Debug/test_metamorphic_f64accum.exe ../OrcEnginePhase0/fixtures_phase1
+./build/Debug/test_regressions.exe ../OrcEnginePhase0/fixtures_phase1
 ```
 
 To regenerate the fixtures from the Python oracle (only needed if the
@@ -268,7 +288,7 @@ python oracle/export_cpp_phase1_fixture.py
 python oracle/export_cpp_phase1_decode_fixture.py
 ```
 
-## Results (2026-08-15, first green run; re-verified same day after freeze audit)
+## Results (2026-08-16 hardening run)
 
 Both fixtures, all taps, all pass. Every divergence measured is at float32
 machine-epsilon scale (`~1e-7` to `~7e-7`), roughly 4 orders of magnitude
@@ -282,7 +302,8 @@ untied fixture, AND across all 8 autoregressive decode steps (see above).
 | `test_gates` (untied, F32 accum) | ALL PASS | 5.22e-8 (logits) | 34 taps + logits + selected_token |
 | `test_gates` (tied, F64 accum) | ALL PASS | 2.38e-7 (logits) | comparison build only |
 | `test_decode` (F32 accum) | ALL PASS | 1.79e-7 (per-step logits) | 8/8 autoregressive steps, token-for-token |
-| `test_metamorphic` (F32 accum) | ALL PASS | 0 (bit-identical) | relocation, tied-alias-vs-duplicate, evict/rematerialize |
+| `test_metamorphic` (F32 accum) | ALL PASS | 0 (bit-identical) | BackingExtent materialization, tied alias-vs-duplicate, repeated rematerialization |
+| `test_regressions` | ALL PASS | n/a | 14 malformed/missing-evidence mutations rejected |
 
 Argmax agreement: 4/4 single-pass positions (both fixtures) + 8/8
 autoregressive decode steps, all exact.
@@ -299,12 +320,10 @@ autoregressive decode steps, all exact.
   `apply_rope` — Fixture C uses full rotation, so this was never needed for
   Phase-1 gate-passing; the Python oracle already supports it for later reuse.
 - No GGUF, no quantization, no CUDA, no batching, no multi-sequence context.
-- `BackingExtent` is defined but not yet populated per-tensor by the fixture
-  loader (it always reads eagerly from one path) — the type exists for
-  Phase 2's GGUF-backed extents, not exercised here. The metamorphic tests
-  exercise `ResidentView` relocation/rematerialization directly instead,
-  since that's the property Phase 1 could actually prove without a real
-  multi-source backing implementation.
+- The flat-text fixture loader still reads eagerly and does not retain
+  per-tensor extents. Phase 1's real `BackingExtent` path is intentionally
+  limited to owned in-memory F32Raw bytes used by the metamorphic tests; GGUF
+  file ranges and other storage tiers remain Phase 2+ work.
 - Per-operator timing instrumentation was not added — deferred as
   explicitly lower priority than correctness per the steering document
   ("do not optimize a wrong engine").

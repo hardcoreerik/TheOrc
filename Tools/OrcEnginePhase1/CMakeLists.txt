@@ -22,6 +22,8 @@ function(add_orcengine_variant target_suffix use_f64)
         src/ops.cpp
         src/forward.cpp
         src/fixture_loader.cpp
+        src/validation.cpp
+        src/materialization.cpp
     )
     target_include_directories(${lib_name} PUBLIC include)
     target_compile_options(${lib_name} PRIVATE
@@ -49,6 +51,9 @@ add_orcengine_variant("" FALSE)
 # variant above is the one Phase 1 actually ships.
 add_orcengine_variant("_f64accum" TRUE)
 
+add_executable(test_regressions tests/test_regressions.cpp)
+target_link_libraries(test_regressions PRIVATE orcengine_phase1)
+
 enable_testing()
 add_test(NAME differential_gates
          COMMAND test_gates "${CMAKE_SOURCE_DIR}/../OrcEnginePhase0/fixtures_phase1")
@@ -56,3 +61,11 @@ add_test(NAME autoregressive_decode
          COMMAND test_decode "${CMAKE_SOURCE_DIR}/../OrcEnginePhase0/fixtures_phase1")
 add_test(NAME metamorphic_residency
          COMMAND test_metamorphic "${CMAKE_SOURCE_DIR}/../OrcEnginePhase0/fixtures_phase1")
+add_test(NAME differential_gates_f64
+         COMMAND test_gates_f64accum "${CMAKE_SOURCE_DIR}/../OrcEnginePhase0/fixtures_phase1")
+add_test(NAME autoregressive_decode_f64
+         COMMAND test_decode_f64accum "${CMAKE_SOURCE_DIR}/../OrcEnginePhase0/fixtures_phase1")
+add_test(NAME metamorphic_residency_f64
+         COMMAND test_metamorphic_f64accum "${CMAKE_SOURCE_DIR}/../OrcEnginePhase0/fixtures_phase1")
+add_test(NAME hardening_regressions
+         COMMAND test_regressions "${CMAKE_SOURCE_DIR}/../OrcEnginePhase0/fixtures_phase1")

@@ -8,6 +8,7 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <numeric>
 #include <stdexcept>
 #include <string>
@@ -25,7 +26,17 @@ public:
     const std::vector<int64_t>& dims() const { return dims_; }
 
     int64_t element_count() const {
-        return std::accumulate(dims_.begin(), dims_.end(), int64_t{1}, std::multiplies<int64_t>());
+        int64_t count = 1;
+        for (int64_t dim : dims_) {
+            if (dim <= 0) {
+                throw std::invalid_argument("TensorShape: dimensions must be > 0");
+            }
+            if (count > std::numeric_limits<int64_t>::max() / dim) {
+                throw std::overflow_error("TensorShape: element count overflow");
+            }
+            count *= dim;
+        }
+        return count;
     }
 
     bool operator==(const TensorShape& other) const { return dims_ == other.dims_; }
