@@ -12,8 +12,16 @@ as_of:
   native_runtime_fix_branch_status: pushed_not_merged_pending_maintainer_review
 
 status:
-  lifecycle: phase_0_complete_phase_1_not_started
-  implementation_exists: false
+  lifecycle: phase_1_implemented_stopped_for_review
+  implementation_exists: true
+  phase1_cpp_reference_core: implemented
+  phase1_differential_tests_passing: true
+  real_model_loading: not_implemented
+  gguf_parser: not_implemented
+  cuda_backend: not_implemented
+  quantization: not_implemented
+  paged_execution: research_only
+  production_theorc_integration: not_implemented
   runnable_engine_exists: false
   theorc_integration_exists: false
   production_ready: false
@@ -21,6 +29,7 @@ status:
   experimental_backend_available: false
   ablation_diagnostic_tooling_exists: true
   streaming_oversized_model_execution_proven: true
+  fringe_lab_exists: true
   summary: >-
     Phase 0 (deterministic reference oracle) is COMPLETE as of 2026-08-15: all 14
     required checks in PHASE_0_ACCEPTANCE.yaml read pass, and the maintainer
@@ -28,11 +37,30 @@ status:
     This proves the oracle/comparison methodology is correct against hand-derived
     ground truth, an independently-written second implementation, a pinned llama.cpp
     deployment oracle, and the real HuggingFace reference implementation for the real-
-    model candidate (SmolLM2-135M) -- it does NOT mean an OrcEngine tensor-execution
-    engine exists. Zero engine code has been written; only Python oracle/test code
-    (Tools/OrcEnginePhase0/). Existing TheOrc runtime paths remain authoritative and
-    unchanged. Phase 1 (tiny synthetic float32 CPU transformer, C++20) is the next
-    unblocked phase per ENGINEERING_ROADMAP.md and has NOT started.
+    model candidate (SmolLM2-135M).
+
+    Phase 1 (tiny synthetic float32 CPU transformer, C++20) is IMPLEMENTED as of
+    2026-08-15 on branch feat/orcengine-phase1 (worktree
+    F:/Ai/OrchestratorIDE-phase1), based on feat/orcengine-phase0's tip. A real,
+    dependency-free C++ project (Tools/OrcEnginePhase1/) reuses Phase 0's Fixture C
+    dimensions, implements every operator in one transformer block, and its
+    differential test harness passes every intermediate tap plus final logits plus
+    greedy argmax against Python-oracle-exported fixtures (tied AND untied lm_head),
+    with measured divergence at float32 machine-epsilon scale (~1e-7), four orders of
+    magnitude inside the 1e-3 acceptance threshold. The harness was verified to
+    actually catch injected faults, not just pass trivially. This is still a
+    synthetic-fixture-only reference core: it does NOT load GGUF, does NOT execute a
+    real model, has NO CUDA/quantization/batching, and has NO TheOrc product
+    integration. Existing TheOrc runtime paths remain authoritative and unchanged.
+    Per the steering document's explicit instruction, Phase 1 work stopped here
+    pending maintainer review; Phase 2 (GGUF parser expansion, real model loading,
+    quantization, CUDA) has NOT started. See PHASE1_IMPLEMENTATION.md for full detail.
+
+    A separate, explicitly non-architectural research track ("Fringe Lab",
+    research/orcengine-fringe-lab) also exists as of 2026-08-15, testing
+    unconventional memory/execution assumptions (chunked lm_head streaming, cache
+    simulation) in isolation from both Phase 0 and Phase 1 -- see FRINGE_LAB.md.
+    Nothing from it has been promoted into OrcEngine architecture.
 
     Since Phase 0 closed, the same session extended the fault-injection suite into
     ablation-study diagnostic tooling (oracle/ablation_sweep*.py) and, while making that
@@ -176,7 +204,19 @@ phases:
       and DECISION_LOG.md for full evidence trail.
   - id: 1
     name: tiny_synthetic_float32_cpu_transformer
-    state: not_started
+    state: implemented_stopped_for_review
+    implementation: cpp20_cmake_reference_core
+    completed_date: "2026-08-15"
+    completion_note: >-
+      Tools/OrcEnginePhase1/ (branch feat/orcengine-phase1, worktree
+      F:/Ai/OrchestratorIDE-phase1). Zero external dependencies. Reuses Phase 0
+      Fixture C dimensions. All operators implemented; differential harness
+      (tests/test_gates.cpp) passes every intermediate tap, final logits, and
+      greedy argmax against Python-oracle-exported tied and untied fixtures at
+      float32 machine-epsilon divergence (~1e-7 vs 1e-3 threshold). Harness
+      verified to catch injected faults, not just pass trivially. Stopped here
+      per steering-document instruction pending maintainer review -- Phase 2 not
+      started. See PHASE1_IMPLEMENTATION.md.
   - id: 2
     name: strict_gguf_reader_and_inspector
     state: not_started

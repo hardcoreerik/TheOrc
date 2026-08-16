@@ -34,9 +34,15 @@ Found during the same architecture-steering review, in PRODUCTION code (not OrcE
 
 **Full C# test suite:** 809 passed, 0 failed, 14 skipped (gated real-model tests, separately run with `THEORC_TEST_GGUF` set and confirmed passing).
 
+## Phase 1 findings, 2026-08-15
+
+**VERIFIED:** Phase 1 (tiny synthetic F32 CPU transformer) is implemented and passing. `Tools/OrcEnginePhase1/` (branch `feat/orcengine-phase1`, worktree `F:/Ai/OrchestratorIDE-phase1`, based on `feat/orcengine-phase0`'s tip `d9045995`) is a ~16-file C++20/CMake project with zero external dependencies. It reuses Phase 0's own Fixture C dimensions (`vocab=32, hidden=16, intermediate=32, n_layers=2, n_q_heads=4, n_kv_heads=2, head_dim=4`), implements every operator in the block (embedding lookup, RMSNorm, linear/matmul, non-interleaved RoPE, GQA causal attention, SwiGLU FFN, tied/untied lm_head resolution, greedy argmax), and a differential test harness (`tests/test_gates.cpp`) comparing all 34 intermediate taps plus final logits plus greedy token selection against fixtures exported directly from the trusted Python oracle (`Tools/OrcEnginePhase0/oracle/export_cpp_phase1_fixture.py`). Both a tied-embeddings and an independently-seeded untied-embeddings fixture pass every tap: measured divergence is `~1e-7` (float32 machine-epsilon scale), roughly four orders of magnitude inside the `1e-3` acceptance threshold. Greedy argmax matches exactly (integer equality) on all 4 test positions in both fixtures. The harness was verified to actually detect faults, not just pass trivially: a deliberately injected one-value weight corruption was caught, with the failure correctly localized to only the taps that algebra predicts should diverge (logits/selected_token), while all upstream taps correctly still passed. NaN/Inf checking runs on every captured tap and fails closed (throws) if triggered; verbose per-tap tracing is opt-in via `ORCENGINE_DEBUG_TAPS=1`. See `PHASE1_IMPLEMENTATION.md` for full detail, build/test commands, and explicitly deferred scope (no cached decode, no GGUF, no CUDA, no quantization -- all Phase 2+).
+
+**Per the steering document's explicit stop-gate instruction, Phase 1 work paused here pending maintainer review. No Phase 2 work has started.**
+
 ## Executive truth
 
-**VERIFIED:** OrcEngine currently consists only of this documentation suite. There is no OrcEngine source project, CMake target, native library, managed wrapper, model loader, tensor implementation, test binary, benchmark, or product integration.
+**VERIFIED:** as of Phase 1 (above), OrcEngine has one real C++ source project: `Tools/OrcEnginePhase1/`, a CMake target (`orcengine_phase1` static lib + `test_gates` executable), and a passing differential test binary against the Python oracle. There is still no GGUF model loader, no real-model tensor loading, no managed wrapper, no CUDA backend, no quantization, no benchmark, and no product (TheOrc) integration of any kind -- Phase 1 is a synthetic-fixture-only reference core, not a usable inference engine.
 
 **VERIFIED:** TheOrc already has three runtime implementations behind `IModelRuntime`:
 
