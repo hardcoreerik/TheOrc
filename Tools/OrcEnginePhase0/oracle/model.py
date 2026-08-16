@@ -244,11 +244,14 @@ def forward(
         if capture_taps:
             taps[f"layer_{layer_idx}"] = layer_taps
 
-    # 12. Final RMSNorm, then multiply by transposed (tied) token-embedding matrix for logits.
+    # 12. Final RMSNorm, then multiply by the output projection (lm_head) for logits -- tied
+    # models reuse token_embedding (weights.lm_head is None), untied models use their own
+    # distinct output.weight (see ModelWeights.effective_lm_head's docs for why this matters:
+    # silently using token_embedding on a genuinely untied model computes wrong logits).
     final_normed = ops.rmsnorm(x, weights.final_norm_weight, config.rmsnorm_epsilon)
     if capture_taps:
         taps["final_normalized_state"] = final_normed.copy()
-    logits = ops.linear_no_bias(final_normed, weights.token_embedding)  # [seq, vocab]
+    logits = ops.linear_no_bias(final_normed, weights.effective_lm_head())  # [seq, vocab]
     if capture_taps:
         taps["logits"] = logits.copy()
         selected = np.argmax(logits, axis=-1)
@@ -426,7 +429,7 @@ def forward_cached(
     final_normed = ops.rmsnorm(x, weights.final_norm_weight, config.rmsnorm_epsilon)
     if capture_taps:
         taps["final_normalized_state"] = final_normed.copy()
-    logits = ops.linear_no_bias(final_normed, weights.token_embedding)
+    logits = ops.linear_no_bias(final_normed, weights.effective_lm_head())
     if capture_taps:
         taps["logits"] = logits.copy()
         selected = np.argmax(logits, axis=-1)

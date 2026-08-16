@@ -148,7 +148,13 @@ def load_gguf_as_model_weights(path: str) -> tuple[ModelWeights, ModelConfig, di
 
     token_embedding = get("token_embd.weight")
     final_norm_weight = get("output_norm.weight")
-    tied = "output.weight" not in tensors_by_name
+    # Load the REAL output.weight when present, rather than only detecting-and-discarding it.
+    # Previously this loader reported tied_embeddings=False in `info` but every forward pass
+    # still unconditionally used token_embedding.T for logits -- a silent wrong-math bug for any
+    # untied model (confirmed: it corrupted the first Llama-3.1-8B streaming ablation result,
+    # see DECISION_LOG). lm_head stays None (tied) when output.weight doesn't exist.
+    lm_head = get_optional("output.weight")
+    tied = lm_head is None
 
     layers = []
     for i in range(n_layers):
@@ -169,6 +175,7 @@ def load_gguf_as_model_weights(path: str) -> tuple[ModelWeights, ModelConfig, di
         seed=-1, generator=f"real GGUF file (dequantized): {path}",
         weight_scale=float("nan"), token_embedding=token_embedding,
         layers=tuple(layers), final_norm_weight=final_norm_weight,
+        lm_head=lm_head,
     )
     config = ModelConfig(
         vocab=token_embedding.shape[0], hidden=hidden, intermediate=intermediate,

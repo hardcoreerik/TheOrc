@@ -108,7 +108,11 @@ def load_gguf_to_gpu(
 
     token_embedding = get("token_embd.weight")
     final_norm_weight = get("output_norm.weight")
-    tied = "output.weight" not in tensors_by_name
+    # Load the REAL output.weight when present -- see oracle/gguf_model_loader.py's identical
+    # fix for why "detect tied_embeddings=False but keep using token_embedding anyway" was a
+    # real, confirmed silent-wrong-math bug, not just a theoretical gap.
+    lm_head = get_optional("output.weight")
+    tied = lm_head is None
 
     layers = []
     for i in range(n_layers):
@@ -126,7 +130,7 @@ def load_gguf_to_gpu(
         ))
 
     weights = TorchModelWeights(token_embedding=token_embedding, layers=layers,
-                                 final_norm_weight=final_norm_weight)
+                                 final_norm_weight=final_norm_weight, lm_head=lm_head)
     config = ModelConfig(
         vocab=token_embedding.shape[0], hidden=hidden, intermediate=intermediate,
         n_layers=n_layers, n_q_heads=n_heads, n_kv_heads=n_kv_heads, head_dim=head_dim,

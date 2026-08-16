@@ -365,3 +365,68 @@ Supersedes / superseded by:
   the independent reviewer found broken.
   `independent_reproduction` marked `pass` in `PHASE_0_ACCEPTANCE.yaml` on this combined
   evidence: genuine independent discovery + direct confirmation the fix works.
+
+## OE-ADR-019 — Untied output-head bug invalidated the first Llama-3.1-8B evidence artifact
+
+- **Status:** accepted (correction applied, evidence artifact replaced).
+- **Context:** Every forward-pass implementation (CPU oracle `oracle/model.py`, GPU oracle
+  `oracle/model_gpu.py`, streaming oracle `oracle/ablation_sweep_streaming.py`) computed final
+  logits as `final_normed @ token_embedding.T` unconditionally. The GGUF loaders correctly
+  *detected* whether a model's output projection was tied (presence of a distinct
+  `output.weight` tensor) and reported `tied_embeddings: false` for untied models, but no
+  forward pass ever actually *used* that real tensor -- an untied model's logits were silently
+  computed through the wrong projection matrix.
+- **How found:** during an OrcEngine architecture-steering review (not a routine test failure),
+  a grep across every forward-pass implementation showed the pattern; checked the already-
+  retained `Meta-Llama-3.1-8B-Instruct-Q5_K_M.yaml` artifact's own `gguf_info.tied_embeddings`
+  field and found `false` -- confirming the bug was live for exactly the model that artifact
+  reports on, not a hypothetical gap.
+- **Decision:** added `ModelWeights.lm_head` / `TorchModelWeights.lm_head` /
+  `StreamingGGUFModel.lm_head` (all `None` by default = tied, resolving to `token_embedding` via
+  a shared `effective_lm_head()` helper -- no physical duplication of tied storage) across every
+  loader (`gguf_model_loader.py`, `gguf_gpu_loader.py`, `gguf_streaming_loader.py`) and every
+  forward pass. Added `oracle/fixture_untied_lm_head.py`, a synthetic regression fixture proving
+  an untied `lm_head` actually changes computed logits (would have caught this bug before the
+  first artifact was ever produced).
+- **Evidence:** reloaded Llama-3.1-8B via the streaming loader post-fix and confirmed `lm_head`
+  is a real, distinct tensor (shape `(128256, 4096)`, 0.354 max absolute difference from
+  `token_embedding` -- genuinely different values, not a coincidental near-match). Regenerated
+  the ablation sweep: `Tools/OrcEnginePhase0/artifacts/ablation_streaming/Meta-Llama-3.1-8B-Instruct-Q5_K_M.CORRECTED.yaml`.
+  Full invalidation record with before/after comparison, provenance (original artifact SHA256,
+  producing commit, correcting commit), and corrected-vs-invalid ranking table:
+  `Tools/OrcEnginePhase0/artifacts/ablation_streaming/Meta-Llama-3.1-8B-Instruct-Q5_K_M.INVALIDATED.md`.
+  The original artifact file is preserved unmodified for provenance -- never deleted or
+  overwritten.
+- **What survived the correction, what didn't:** the qualitative "bookends" finding (layers
+  0/1/29-31 dominate, middle layers comparatively safe) held up. The internal ranking and
+  magnitudes did not: layer 31 was ranked 3rd (580.00) under the wrong projection and is
+  ranked 1st (1006.61) under the correct one -- a structural consequence of measuring logit
+  divergence through the wrong output matrix, not numerical noise (see the INVALIDATED.md
+  file's full explanation).
+- **Consequences:** any prior conversation or document citing "Llama-3.1-8B layer 0/1/31
+  bookends dominance, magnitudes ~580-623" is citing invalidated evidence. Use the CORRECTED
+  artifact's numbers instead. Findings from this whole ablation-sweep effort are stated as
+  "on this deterministic probe set" (three fixed pseudo-random token-ID prompts), not universal
+  architectural claims -- and zero-ablation sensitivity is explicitly NOT the same claim as
+  quantization sensitivity (ablation is a prior for where to investigate precision, not a
+  substitute for direct quantization-perturbation experiments).
+- **Related architectural correction (multi-intervention execution model):** the layer-major
+  streaming sweep's original multi-intervention fix (cloning one full layer's weights per
+  ablation spec targeting that layer) was itself corrected during the same review to use
+  execution interventions (`LayerIntervention`: `identity_bypass` / `mask_head` / `disable_ffn`)
+  applied to shared, immutable layer weights instead -- weights are never cloned or mutated.
+  Verified bit-exact against the spec-major reference (max diff 0.0) and within fp16-storage
+  tolerance against the CPU clone-and-zero reference (`oracle/fixture_layer_major_correctness.py`).
+  A full-component sweep (previously unsafe due to the original `next()`-based multi-intervention
+  bug, which silently left every branch but the first targeting a layer running against
+  unablated baseline weights) now runs correctly: 608 components on SmolLM2-360M in 54.3s at
+  0.32GB peak VRAM. This is the architectural principle the whole session's streaming/layer-major
+  work converged on: **an ablation is an execution intervention, not a modified copy of the
+  model** -- weights stay immutable backing data while execution policy varies. The same
+  principle is expected to generalize to adapters, selective precision, progressive residual
+  quantization, and expert disabling in OrcEngine's eventual execution planner.
+- **Validation/revisit trigger:** if a future architecture (MoE, hybrid/recurrent) makes any of
+  the `LayerIntervention` kinds' algebraic equivalence claims (identity_bypass = x_out equals
+  x_in; mask_head = zeroing activation equals zeroing weight columns; disable_ffn = ffn output
+  is exactly zero) no longer hold, that must be re-derived and re-verified per-architecture, not
+  assumed to generalize automatically.

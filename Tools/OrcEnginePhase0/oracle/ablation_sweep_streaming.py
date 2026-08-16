@@ -19,6 +19,7 @@ models this tool exists specifically to make merely POSSIBLE, not fast.
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 
 import numpy as np
 import torch
@@ -29,9 +30,72 @@ from oracle.model import ModelConfig
 from oracle.model_gpu import TorchLayerWeights, _apply_rope, _rmsnorm, _rope_cos_sin
 
 
+@dataclass(frozen=True)
+class LayerIntervention:
+    """An ablation as an EXECUTION INTERVENTION, not a modified copy of the model -- weights
+    stay immutable and shared across every branch; only how one layer's activations get
+    computed for a given branch changes. This is the architectural correction to the original
+    layer-major implementation, which cloned an entire layer's weights (hundreds of MB to a few
+    GB) per branch targeting it -- for a full-component sweep (~28 interventions/layer) that
+    meant "baseline layer + 28 complete cloned layers in VRAM," directly defeating the
+    oversized-model execution philosophy this whole module exists for. See
+    Infinite_Model_Runtime_Claude_Handoff.md section 21/steering-update sections 2-5.
+
+    kind:
+      "identity_bypass" -- full_layer. Skips the block's computation entirely; x passes
+        through unchanged (algebraically exact, see intervention_for_spec's docs).
+      "mask_head" -- attn_head. Attention is computed normally with the SHARED (unmodified)
+        w_q/w_k/w_v/w_o; only that head's CONTEXT ACTIVATION (a [seq, head_dim] slice, not the
+        weight matrix) is zeroed before the shared w_o projection is applied. Mathematically
+        identical to zeroing w_o's columns for that head (both eliminate the head's contribution
+        to attn_out identically), but touches an activation tensor orders of magnitude smaller
+        than cloning w_o.
+      "disable_ffn" -- ffn_gate/ffn_up/ffn_down. All three specs produce the exact same
+        algebraic result (ffn=0 -- see intervention_for_spec's docs for why), so all three route
+        through this ONE intervention kind; the FFN sub-block's computation is skipped entirely
+        rather than computed-then-zeroed.
+    """
+    kind: str  # "identity_bypass" | "mask_head" | "disable_ffn"
+    head_idx: int | None = None
+
+
+def intervention_for_spec(spec: AblationSpec) -> LayerIntervention:
+    """Maps an AblationSpec to the execution intervention that reproduces its effect.
+
+    Algebraic justification for each mapping (verified, not assumed -- see
+    fixture_layer_major_correctness.py for the differential proof against the original
+    clone-and-zero oracle):
+      full_layer -> identity_bypass: zeroing every attention+FFN projection makes attn_out and
+        ffn both exactly zero regardless of intermediate (even biased) values, since the OUTPUT
+        projections (w_o, w_down) are what get zeroed -- x_out = x + 0 + 0 = x_in exactly.
+      attn_head -> mask_head: a head's contribution to attn_out is
+        context_flat[:, head_slice] @ w_o[head_slice, :] summed over all heads' slices; zeroing
+        EITHER the activation slice OR the weight slice removes that head's term identically.
+      ffn_gate/ffn_up/ffn_down -> disable_ffn: SwiGLU's ffn = (silu(gate) * up) @ w_down.T is
+        exactly zero if gate=0 (silu(0)=0, so activated=0), if up=0 (activated=silu(gate)*0=0),
+        OR if w_down=0 (0 @ anything = 0) -- all three ablation targets produce the SAME ffn=0
+        result, confirmed empirically earlier this session (CPU/GPU sweeps found
+        ffn_gate/ffn_up/ffn_down numerically indistinguishable for every model tested)."""
+    if spec.component == "full_layer":
+        return LayerIntervention("identity_bypass")
+    if spec.component == "attn_head":
+        return LayerIntervention("mask_head", head_idx=spec.head_idx)
+    if spec.component in ("ffn_gate", "ffn_up", "ffn_down"):
+        return LayerIntervention("disable_ffn")
+    raise ValueError(f"unknown ablation component: {spec.component!r}")
+
+
 def _zero_component_inplace(lw: TorchLayerWeights, spec: AblationSpec, config: ModelConfig) -> None:
     """Zeros the targeted component in a FRESHLY LOADED (not shared/resident) layer -- no
-    restore needed, since this layer gets discarded after this one forward call regardless."""
+    restore needed, since this layer gets discarded after this one forward call regardless.
+
+    DIFFERENTIAL REFERENCE ONLY as of the LayerIntervention redesign: still used by
+    forward_streaming() (the spec-major reference path, which re-reads the whole model per
+    spec anyway, so cloning one already-freshly-loaded layer costs nothing extra there) and by
+    fixture_layer_major_correctness.py (proves the new intervention-based path produces the
+    same result as this mutate-and-discard path). run_sweep_streaming_layer_major -- the path
+    real sweeps actually use -- no longer calls this; see LayerIntervention's docs for why
+    weight-cloning per branch was architecturally wrong for the oversized-model case."""
     if spec.component == "full_layer":
         for name in ("w_q", "w_k", "w_v", "w_o", "w_gate", "w_up", "w_down"):
             getattr(lw, name).zero_()
@@ -101,6 +165,65 @@ def _apply_one_layer(x: torch.Tensor, lw: TorchLayerWeights, config: ModelConfig
     return r + ffn
 
 
+def _apply_one_layer_intervened(
+    x: torch.Tensor, lw: TorchLayerWeights, config: ModelConfig,
+    cos: torch.Tensor, sin: torch.Tensor, causal_mask: torch.Tensor,
+    scale: float, group_size: int, intervention: LayerIntervention | None,
+) -> torch.Tensor:
+    """Same block math as _apply_one_layer, but lw is NEVER cloned or mutated -- every branch
+    (baseline and every ablated one) passes the SAME shared layer object; `intervention`
+    describes how this ONE branch's computation should differ this layer, not how the weights
+    should be copied. See LayerIntervention's docs for the per-kind algebra."""
+    if intervention is not None and intervention.kind == "identity_bypass":
+        return x
+
+    seq = x.shape[0]
+    a = _rmsnorm(x, lw.attn_norm_weight.float(), config.rmsnorm_epsilon)
+    q = a @ lw.w_q.float().T
+    k = a @ lw.w_k.float().T
+    v = a @ lw.w_v.float().T
+    if lw.attn_q_bias is not None:
+        q = q + lw.attn_q_bias.float()
+    if lw.attn_k_bias is not None:
+        k = k + lw.attn_k_bias.float()
+    if lw.attn_v_bias is not None:
+        v = v + lw.attn_v_bias.float()
+
+    q = q.view(seq, config.n_q_heads, config.head_dim).transpose(0, 1)
+    k = k.view(seq, config.n_kv_heads, config.head_dim).transpose(0, 1)
+    v = v.view(seq, config.n_kv_heads, config.head_dim).transpose(0, 1)
+    q = _apply_rope(q, cos, sin)
+    k = _apply_rope(k, cos, sin)
+    k_rep = k.repeat_interleave(group_size, dim=0)
+    v_rep = v.repeat_interleave(group_size, dim=0)
+
+    scores = torch.einsum("hsd,htd->hst", q, k_rep) * scale
+    scores = scores + causal_mask.unsqueeze(0)
+    probs = torch.softmax(scores, dim=-1)
+    context = torch.einsum("hst,htd->hsd", probs, v_rep)  # [n_q_heads, seq, head_dim]
+
+    if intervention is not None and intervention.kind == "mask_head":
+        # Zero this head's ACTIVATION, not lw.w_o -- mathematically identical to zeroing w_o's
+        # columns for this head (see LayerIntervention's docs), but touches a [seq, head_dim]
+        # tensor instead of cloning the whole [hidden, n_q_heads*head_dim] weight matrix.
+        context = context.clone()  # einsum's output may not support in-place indexed writes safely
+        context[intervention.head_idx] = 0.0
+
+    context_flat = context.transpose(0, 1).reshape(seq, config.n_q_heads * config.head_dim)
+    attn_out = context_flat @ lw.w_o.float().T  # SHARED w_o, never cloned
+    r = x + attn_out
+
+    if intervention is not None and intervention.kind == "disable_ffn":
+        return r  # ffn=0 algebraically for all three ffn_gate/ffn_up/ffn_down targets
+
+    f = _rmsnorm(r, lw.ffn_norm_weight.float(), config.rmsnorm_epsilon)
+    gate = f @ lw.w_gate.float().T
+    up = f @ lw.w_up.float().T
+    activated = torch.nn.functional.silu(gate) * up
+    ffn = activated @ lw.w_down.float().T
+    return r + ffn
+
+
 def _clone_layer(lw: TorchLayerWeights) -> TorchLayerWeights:
     return TorchLayerWeights(
         attn_norm_weight=lw.attn_norm_weight.clone(), w_q=lw.w_q.clone(), w_k=lw.w_k.clone(),
@@ -139,7 +262,7 @@ def forward_streaming(token_ids: torch.Tensor, model: StreamingGGUFModel,
         del lw  # discard this layer's weights before loading the next -- the whole point
 
     final_normed = _rmsnorm(x, model.final_norm_weight.float(), config.rmsnorm_epsilon)
-    logits = final_normed @ model.token_embedding.float().T
+    logits = final_normed @ model.effective_lm_head().float().T
     return logits
 
 
@@ -158,9 +281,12 @@ def run_sweep_streaming_layer_major(gguf_path: str, prompts: list[np.ndarray], *
     unablated baseline and branches 1..N are the N ablation specs. Hidden states are tiny
     ([seq, hidden] float32 -- e.g. 5 tokens x 4096 hidden x 4 bytes = 80KB) compared to a
     layer's weights (hundreds of MB), so keeping dozens of them resident simultaneously costs
-    nothing that matters. At layer L, load L's weights ONCE; the one branch whose
-    spec.layer_idx == L gets a cloned-and-zeroed copy of L's weights for its own step (cloning
-    a single layer, not the whole model), every other branch uses L's real weights unmodified.
+    nothing that matters. At layer L, load L's weights ONCE; every branch whose spec targets
+    layer L gets its own LayerIntervention applied to the SAME shared, immutable lw_baseline
+    object -- weights are never cloned or mutated (see LayerIntervention's docs for why this
+    replaced the original clone-and-zero design: for a full-component sweep, cloning one layer
+    per branch meant "baseline + ~28 complete cloned layers in VRAM," directly defeating the
+    oversized-model execution philosophy this module exists for).
 
     Total layer loads from disk: exactly n_layers, regardless of how many specs are swept --
     versus forward_streaming()'s (n_specs + 1) x n_layers. For a 32-layer model with 32
@@ -191,32 +317,39 @@ def run_sweep_streaming_layer_major(gguf_path: str, prompts: list[np.ndarray], *
 
     for layer_idx in range(config.n_layers):
         lw_baseline = model.get_layer(layer_idx)  # the ONE disk read for this layer
-        ablated_branch_idx = next(
-            (b_idx for b_idx, spec in enumerate(branches) if spec is not None and spec.layer_idx == layer_idx),
-            None,
-        )
-        lw_ablated = None
-        if ablated_branch_idx is not None:
-            lw_ablated = _clone_layer(lw_baseline)
-            _zero_component_inplace(lw_ablated, branches[ablated_branch_idx], config)
+
+        # BUG THIS FIXES (found during the OrcEngine steering review, not previously caught by
+        # any test): the original version used `next(...)` to find a SINGLE branch targeting
+        # this layer, which is only correct for components="layers_only" (exactly one
+        # intervention per layer). For components="full", a layer has up to ~28 interventions
+        # (full_layer, every head, every FFN sub-matrix) -- `next()` would silently apply only
+        # the FIRST one found and leave every OTHER branch targeting this same layer running
+        # against unablated baseline weights, i.e. silently returning baseline values for
+        # branches that were never actually ablated. Now maps EVERY branch targeting this layer
+        # to its own LayerIntervention -- lw_baseline itself is never cloned or mutated; the SAME
+        # object is passed to _apply_one_layer_intervened for every branch, baseline included
+        # (intervention=None for baseline and for branches targeting a different layer).
+        interventions_by_branch: dict[int, LayerIntervention] = {
+            b_idx: intervention_for_spec(spec) for b_idx, spec in enumerate(branches)
+            if spec is not None and spec.layer_idx == layer_idx
+        }
 
         for b_idx in range(len(branches)):
-            lw = lw_ablated if b_idx == ablated_branch_idx else lw_baseline
+            intervention = interventions_by_branch.get(b_idx)
             for p_idx in range(len(prompts_gpu)):
                 cos, sin, causal_mask, scale, group_size = rope_by_prompt[p_idx]
-                hidden[(b_idx, p_idx)] = _apply_one_layer(
-                    hidden[(b_idx, p_idx)], lw, config, cos, sin, causal_mask, scale, group_size
+                hidden[(b_idx, p_idx)] = _apply_one_layer_intervened(
+                    hidden[(b_idx, p_idx)], lw_baseline, config, cos, sin, causal_mask,
+                    scale, group_size, intervention,
                 )
 
         del lw_baseline
-        if lw_ablated is not None:
-            del lw_ablated
         if log_progress and (layer_idx + 1) % max(1, config.n_layers // 10) == 0:
             print(f"  layer {layer_idx + 1}/{config.n_layers} done ({time.time() - t0:.1f}s elapsed)")
 
     logits_by_branch_prompt: dict[tuple[int, int], np.ndarray] = {}
     final_norm = model.final_norm_weight.float()
-    embed_t = model.token_embedding.float().T
+    embed_t = model.effective_lm_head().float().T
     for key, x in hidden.items():
         final_normed = _rmsnorm(x, final_norm, config.rmsnorm_epsilon)
         logits_by_branch_prompt[key] = (final_normed @ embed_t).cpu().numpy()

@@ -51,6 +51,14 @@ class TorchModelWeights:
     token_embedding: torch.Tensor
     layers: list[TorchLayerWeights]
     final_norm_weight: torch.Tensor
+    # None (default) = tied: logits reuse token_embedding. Set when the GGUF has a real, distinct
+    # output.weight -- see oracle/weights.py's ModelWeights.lm_head docs for why this matters
+    # (silently using token_embedding on an untied model computes wrong logits; this was a real
+    # confirmed bug, not a hypothetical).
+    lm_head: torch.Tensor | None = None
+
+    def effective_lm_head(self) -> torch.Tensor:
+        return self.lm_head if self.lm_head is not None else self.token_embedding
 
 
 def _rmsnorm(x: torch.Tensor, weight: torch.Tensor, eps: float) -> torch.Tensor:
@@ -171,5 +179,5 @@ def forward_gpu(token_ids: torch.Tensor, weights: TorchModelWeights, config: Mod
         x = r + ffn
 
     final_normed = _rmsnorm(x, weights.final_norm_weight.float(), config.rmsnorm_epsilon)
-    logits = final_normed @ weights.token_embedding.float().T
+    logits = final_normed @ weights.effective_lm_head().float().T
     return logits

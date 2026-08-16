@@ -47,8 +47,11 @@ def _cpu_weights_to_gpu(weights, device, dtype) -> TorchModelWeights:
         )
         for lw in weights.layers
     ]
-    return TorchModelWeights(token_embedding=t(weights.token_embedding), layers=layers,
-                              final_norm_weight=t(weights.final_norm_weight))
+    return TorchModelWeights(
+        token_embedding=t(weights.token_embedding), layers=layers,
+        final_norm_weight=t(weights.final_norm_weight),
+        lm_head=t(weights.lm_head) if weights.lm_head is not None else None,
+    )
 
 
 def run(gguf_path: str) -> bool:

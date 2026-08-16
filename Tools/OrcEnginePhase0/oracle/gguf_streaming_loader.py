@@ -78,7 +78,15 @@ class StreamingGGUFModel:
 
         self.token_embedding = self._get("token_embd.weight")
         self.final_norm_weight = self._get("output_norm.weight")
-        self.tied_embeddings = "output.weight" not in self.tensors_by_name
+        # Load the REAL output.weight when present and keep it resident alongside
+        # token_embedding (both are needed on every single forward call: token_embedding for the
+        # input lookup, lm_head for the final logits) -- previously this loader only DETECTED
+        # tied_embeddings via presence-of-key and then every forward pass unconditionally used
+        # token_embedding.T regardless, silently computing wrong logits for genuinely untied
+        # models. This is what corrupted the first Llama-3.1-8B streaming ablation result (that
+        # model reports tied_embeddings: false) -- see DECISION_LOG for the correction.
+        self.lm_head = self._get_optional("output.weight")
+        self.tied_embeddings = self.lm_head is None
 
         self.config = ModelConfig(
             vocab=self.token_embedding.shape[0], hidden=hidden, intermediate=intermediate,
@@ -86,6 +94,9 @@ class StreamingGGUFModel:
             max_positions=max_pos, rmsnorm_epsilon=rms_eps, rope_theta=rope_theta,
             rotary_dim=rotary_dim,
         )
+
+    def effective_lm_head(self) -> torch.Tensor:
+        return self.lm_head if self.lm_head is not None else self.token_embedding
 
     def _get(self, name: str) -> torch.Tensor:
         t = self.tensors_by_name[name]

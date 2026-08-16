@@ -62,9 +62,22 @@ class ModelWeights:
     seed: int
     generator: str
     weight_scale: float
-    token_embedding: np.ndarray     # [vocab, hidden] -- tied with output projection
+    token_embedding: np.ndarray     # [vocab, hidden] -- input embedding lookup table
     layers: tuple[LayerWeights, ...]
     final_norm_weight: np.ndarray  # [hidden]
+    # None (default) = tied: the output projection reuses token_embedding, matching every
+    # fixture/model this oracle supported before untied-output support existed (Profile A,
+    # SmolLM2-135M, and every "tied_embeddings: true" real model swept so far). When a real
+    # GGUF has a distinct output.weight tensor, gguf_model_loader.py populates this field and
+    # the forward pass must use IT for the final logits, not token_embedding -- silently using
+    # token_embedding.T on an untied model computes mathematically wrong logits (confirmed: the
+    # first Llama-3.1-8B streaming ablation result predates this field and used the wrong
+    # projection on a genuinely untied model; see DECISION_LOG for the correction). Use
+    # effective_lm_head() below rather than reading this field directly.
+    lm_head: np.ndarray | None = None  # [vocab, hidden], same layout as token_embedding
+
+    def effective_lm_head(self) -> np.ndarray:
+        return self.lm_head if self.lm_head is not None else self.token_embedding
 
 
 def _randn(rng: np.random.Generator, shape: tuple[int, ...]) -> np.ndarray:
