@@ -261,8 +261,15 @@ def run() -> bool:
         report["source"] = model.source
         _print_summary(report)
         _demo_per_position_query(report)
-        safe_name = name.replace("/", "__").replace("\\", "__").replace(":", "_")
-        out_path = os.path.join(FLEET_REPORT_DIR, f"{os.path.splitext(safe_name)[0]}.yaml")
+        # Strip only a REAL trailing .gguf extension (models_dir/extra_dir sources) --
+        # NOT via os.path.splitext, which would mistake the dot in an Ollama tag name like
+        # "registry.ollama.ai/library/phi4-mini/latest" for a file extension and truncate
+        # everything after it (confirmed: produced "registry.ollama.yaml" instead of the
+        # full phi4-mini report name). Ollama-sourced display names have no real extension
+        # to strip in the first place.
+        base = name[:-5] if name.lower().endswith(".gguf") else name
+        safe_name = base.replace("/", "__").replace("\\", "__").replace(":", "_")
+        out_path = os.path.join(FLEET_REPORT_DIR, f"{safe_name}.yaml")
         _write_report(report, out_path)
 
         most_impactful = report["results"][0]

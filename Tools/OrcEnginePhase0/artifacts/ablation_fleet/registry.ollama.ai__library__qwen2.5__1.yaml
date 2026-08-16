@@ -1,7 +1,7 @@
 model_label: registry.ollama.ai/library/qwen2.5/1.5b-instruct
 n_prompts: 3
 components_swept: 28
-elapsed_seconds: 111.026113986969
+elapsed_seconds: 163.17335295677185
 results:
 - label: layer0.full_layer
   layer_idx: 0
@@ -1912,6 +1912,8 @@ gguf_info:
   architecture: qwen2
   tied_embeddings: true
   has_qkv_bias: true
+  has_fused_qkv: false
+  partial_rotary: false
   quant_types:
   - F32
   - Q4_K

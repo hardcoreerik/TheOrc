@@ -9,7 +9,7 @@ results:
   architecture: llama
   n_layers: 32
   hidden: 960
-  elapsed_seconds: 32.93961191177368
+  elapsed_seconds: 37.60199975967407
   most_impactful_layer: layer0.full_layer
   most_impactful_logit_l2: 1136.204342913808
   least_impactful_layer: layer20.full_layer
@@ -23,7 +23,7 @@ results:
   architecture: qwen2
   n_layers: 28
   hidden: 1536
-  elapsed_seconds: 109.96841263771057
+  elapsed_seconds: 112.33682084083557
   most_impactful_layer: layer0.full_layer
   most_impactful_logit_l2: 1948.3944438369763
   least_impactful_layer: layer13.full_layer
@@ -46,7 +46,7 @@ results:
   architecture: llama
   n_layers: 28
   hidden: 3072
-  elapsed_seconds: 239.83486461639404
+  elapsed_seconds: 286.1517195701599
   most_impactful_layer: layer1.full_layer
   most_impactful_logit_l2: 1097.2845821789706
   least_impactful_layer: layer8.full_layer
@@ -62,7 +62,7 @@ results:
   reason: 'unsupported architecture: gpt-oss'
 - file: hf.co/bartowski/p-e-w_phi-4-heretic-GGUF/Q4_K_M
   status: skipped
-  reason: 'unsupported architecture: phi3'
+  reason: 'too large: 58.6GB estimated > 16.7GB budget'
 - file: hf.co/cognitivecomputations/Dolphin3.0-Llama3.1-8B-GGUF/Q4_0
   status: skipped
   reason: 'too large: 32.1GB estimated > 16.7GB budget'
@@ -100,8 +100,16 @@ results:
   status: skipped
   reason: 'unsupported architecture: nomic-bert'
 - file: registry.ollama.ai/library/phi4-mini/latest
-  status: skipped
-  reason: 'unsupported architecture: phi3'
+  source: ollama
+  status: completed
+  architecture: phi3
+  n_layers: 32
+  hidden: 3072
+  elapsed_seconds: 461.98823976516724
+  most_impactful_layer: layer31.full_layer
+  most_impactful_logit_l2: 5196.45669885217
+  least_impactful_layer: layer15.full_layer
+  least_impactful_logit_l2: 193.77089283872922
 - file: registry.ollama.ai/library/qwen2.5-coder/14b
   status: skipped
   reason: 'too large: 59.1GB estimated > 16.7GB budget'
@@ -117,7 +125,7 @@ results:
   architecture: qwen2
   n_layers: 28
   hidden: 1536
-  elapsed_seconds: 111.026113986969
+  elapsed_seconds: 163.17335295677185
   most_impactful_layer: layer0.full_layer
   most_impactful_logit_l2: 1986.4657429981999
   least_impactful_layer: layer14.full_layer

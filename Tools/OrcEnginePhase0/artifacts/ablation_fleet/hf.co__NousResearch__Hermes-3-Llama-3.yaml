@@ -1,7 +1,7 @@
 model_label: hf.co/NousResearch/Hermes-3-Llama-3.2-3B-GGUF/Q4_K_M
 n_prompts: 3
 components_swept: 28
-elapsed_seconds: 239.83486461639404
+elapsed_seconds: 286.1517195701599
 results:
 - label: layer1.full_layer
   layer_idx: 1
@@ -1912,6 +1912,8 @@ gguf_info:
   architecture: llama
   tied_embeddings: true
   has_qkv_bias: false
+  has_fused_qkv: false
+  partial_rotary: false
   quant_types:
   - F32
   - Q4_K

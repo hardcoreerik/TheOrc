@@ -1,7 +1,7 @@
 model_label: Qwen2.5-1.5B-Instruct-Q4_K_M.gguf
 n_prompts: 3
 components_swept: 28
-elapsed_seconds: 109.96841263771057
+elapsed_seconds: 112.33682084083557
 results:
 - label: layer0.full_layer
   layer_idx: 0
@@ -1912,6 +1912,8 @@ gguf_info:
   architecture: qwen2
   tied_embeddings: true
   has_qkv_bias: true
+  has_fused_qkv: false
+  partial_rotary: false
   quant_types:
   - F32
   - Q4_K
