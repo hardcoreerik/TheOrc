@@ -44,6 +44,10 @@ class ModelConfig:
     max_positions: int = 16
     rmsnorm_epsilon: float = RMSNORM_EPSILON
     rope_theta: float = ROPE_THETA
+    # None = full rotation (head_dim), the Profile A / Llama / Qwen2 default. Set smaller
+    # than head_dim for "partial rotary factor" models (Phi-3/Phi-4: rotary_dim=96 of
+    # head_dim=128) -- see ops.rope_cos_sin/apply_rope for the actual partial-rotation math.
+    rotary_dim: int | None = None
 
 
 @dataclass
@@ -121,7 +125,8 @@ def forward(
     cos_by_pos = []
     sin_by_pos = []
     for p in range(seq):
-        c, s = ops.rope_cos_sin(position=p, head_dim=config.head_dim, theta=config.rope_theta)
+        c, s = ops.rope_cos_sin(position=p, head_dim=config.head_dim, theta=config.rope_theta,
+                                 rotary_dim=config.rotary_dim)
         cos_by_pos.append(c)
         sin_by_pos.append(s)
 
@@ -314,7 +319,8 @@ def forward_cached(
     cos_by_pos = {}
     sin_by_pos = {}
     for p in range(start_position, start_position + new_len):
-        c, s = ops.rope_cos_sin(position=p, head_dim=config.head_dim, theta=config.rope_theta)
+        c, s = ops.rope_cos_sin(position=p, head_dim=config.head_dim, theta=config.rope_theta,
+                                 rotary_dim=config.rotary_dim)
         cos_by_pos[p] = c
         sin_by_pos[p] = s
 

@@ -1,7 +1,7 @@
 model_label: synthetic-6layer
 n_prompts: 3
 components_swept: 48
-elapsed_seconds: 0.18392014503479004
+elapsed_seconds: 0.18564701080322266
 results:
 - label: layer0.full_layer
   layer_idx: 0

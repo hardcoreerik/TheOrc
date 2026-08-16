@@ -78,17 +78,26 @@ def causal_mask_rectangular(scores: np.ndarray, query_start_position: int) -> np
     return out
 
 
-def rope_cos_sin(position: int, head_dim: int, theta: float) -> tuple[np.ndarray, np.ndarray]:
+def rope_cos_sin(position: int, head_dim: int, theta: float,
+                  rotary_dim: int | None = None) -> tuple[np.ndarray, np.ndarray]:
     """
     Non-interleaved Llama RoPE cos/sin vectors for one position.
-    freq_i = theta ** (-2i / head_dim) for i in [0, head_dim/2).
-    Returned vectors are length head_dim (each half repeats the head_dim/2
-    frequencies once), matching the "split into equal first/second halves"
-    rotation convention in PHASE_0_ARCHITECTURE_PROFILE.md.
+    freq_i = theta ** (-2i / rotary_dim) for i in [0, rotary_dim/2).
+    Returned vectors are length rotary_dim (each half repeats the
+    rotary_dim/2 frequencies once), matching the "split into equal
+    first/second halves" rotation convention in
+    PHASE_0_ARCHITECTURE_PROFILE.md.
+
+    rotary_dim defaults to head_dim (full rotation, Profile A / Llama /
+    Qwen2 behavior). Pass a smaller rotary_dim for "partial rotary factor"
+    models (e.g. Phi-3/Phi-4: rotary_dim=96 of head_dim=128, factor 0.75)
+    -- apply_rope() below only rotates that leading slice and passes the
+    remaining head_dim - rotary_dim columns through unchanged.
     """
-    half = head_dim // 2
+    rotary_dim = rotary_dim if rotary_dim is not None else head_dim
+    half = rotary_dim // 2
     i = np.arange(half, dtype=np.float64)
-    freqs = theta ** (-2.0 * i / head_dim)
+    freqs = theta ** (-2.0 * i / rotary_dim)
     angles = np.float64(position) * freqs
     cos_half = np.cos(angles).astype(DTYPE)
     sin_half = np.sin(angles).astype(DTYPE)
@@ -106,9 +115,20 @@ def rope_rotate_half(x: np.ndarray) -> np.ndarray:
 
 
 def apply_rope(x: np.ndarray, cos: np.ndarray, sin: np.ndarray) -> np.ndarray:
-    """x * cos + rotate_half(x) * sin, applied per position."""
+    """x * cos + rotate_half(x) * sin, applied per position.
+
+    If cos/sin (length rotary_dim) are shorter than x's last dimension
+    (head_dim), only that leading rotary_dim slice is rotated -- the
+    remaining head_dim - rotary_dim columns pass through unchanged. This
+    is the "partial rotary factor" scheme (Phi-3/Phi-4: rotary_dim=96 of
+    head_dim=128). Output shape always equals x's shape."""
     x = x.astype(DTYPE)
-    return (x * cos + rope_rotate_half(x) * sin).astype(DTYPE)
+    rotary_dim = cos.shape[-1]
+    if rotary_dim == x.shape[-1]:
+        return (x * cos + rope_rotate_half(x) * sin).astype(DTYPE)
+    x_rot, x_pass = x[..., :rotary_dim], x[..., rotary_dim:]
+    rotated = (x_rot * cos + rope_rotate_half(x_rot) * sin).astype(DTYPE)
+    return np.concatenate([rotated, x_pass], axis=-1).astype(DTYPE)
 
 
 def linear_no_bias(x: np.ndarray, weight_out_in: np.ndarray) -> np.ndarray:
