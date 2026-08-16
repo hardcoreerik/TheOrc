@@ -1,0 +1,3269 @@
+model_label: synthetic-6layer
+n_prompts: 3
+components_swept: 48
+elapsed_seconds: 0.21361541748046875
+results:
+- label: layer0.full_layer
+  layer_idx: 0
+  component: full_layer
+  head_idx: null
+  logit_l2: 1.953627689193415
+  kl_divergence: 0.06975078849907007
+  argmax_flip_rate: 0.7388888888888889
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 2.5490017497963873
+    - 3.2796586284325846
+    - 1.4626029148989557
+    - 2.2646134524626933
+    kl_divergence_per_position:
+    - 0.09930588473669999
+    - 0.17673610548825566
+    - 0.03406327287293904
+    - 0.07931433586027635
+    argmax_flip_per_position:
+    - true
+    - true
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 1.2145066295909215
+    - 0.8252232458051882
+    - 1.508163090642388
+    - 1.6392717829361847
+    - 1.3547927491009117
+    kl_divergence_per_position:
+    - 0.020310903933968283
+    - 0.011279120199159325
+    - 0.03715990612711417
+    - 0.04486790265094464
+    - 0.028429941017605053
+    argmax_flip_per_position:
+    - true
+    - true
+    - true
+    - true
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 1.0909683174487006
+    - 2.348520947019898
+    - 3.0510778802338123
+    kl_divergence_per_position:
+    - 0.01660534636255967
+    - 0.08640569277133184
+    - 0.14745269378183595
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer0.attn_head2
+  layer_idx: 0
+  component: attn_head
+  head_idx: 2
+  logit_l2: 1.5618651179974747
+  kl_divergence: 0.04541698259752302
+  argmax_flip_rate: 0.6055555555555555
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 1.7883745875211443
+    - 2.9168005716623435
+    - 2.0888302932237193
+    - 2.4484581767795524
+    kl_divergence_per_position:
+    - 0.05262932684795855
+    - 0.1316424140701177
+    - 0.06972981160531008
+    - 0.09171512059437667
+    argmax_flip_per_position:
+    - true
+    - true
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 1.0042316217967282
+    - 1.2561046001677536
+    - 1.114580139115561
+    - 1.020795959566425
+    - 1.1240819940001008
+    kl_divergence_per_position:
+    - 0.016424603864525142
+    - 0.0260981082885742
+    - 0.016760500967737308
+    - 0.015494804553718045
+    - 0.020790966042714916
+    argmax_flip_per_position:
+    - true
+    - true
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.7427610667547959
+    - 0.9799882159036128
+    - 2.0903124686408514
+    kl_divergence_per_position:
+    - 0.009037155123232225
+    - 0.01700682046153653
+    - 0.06607997272425434
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer1.full_layer
+  layer_idx: 1
+  component: full_layer
+  head_idx: null
+  logit_l2: 1.5437308801399519
+  kl_divergence: 0.042388054042771656
+  argmax_flip_rate: 0.7388888888888889
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.6194058436157147
+    - 1.5474789399515583
+    - 1.0849839310788214
+    - 1.5551778947386279
+    kl_divergence_per_position:
+    - 0.006047148030245654
+    - 0.039272097262648936
+    - 0.019023013864028562
+    - 0.03578424586435985
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 1.2046930753373515
+    - 1.249781169954391
+    - 1.8862893316918976
+    - 2.1419993475356227
+    - 2.5852932212804633
+    kl_divergence_per_position:
+    - 0.023419350431292018
+    - 0.02762235236188914
+    - 0.0634661529643396
+    - 0.06950847230942907
+    - 0.10884592263994905
+    argmax_flip_per_position:
+    - true
+    - false
+    - true
+    - true
+    - true
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.8749688282012654
+    - 1.54232786849076
+    - 2.430162580049164
+    kl_divergence_per_position:
+    - 0.0101253989961409
+    - 0.03535776026244124
+    - 0.08519709793626119
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer0.attn_head3
+  layer_idx: 0
+  component: attn_head
+  head_idx: 3
+  logit_l2: 1.4560096175736448
+  kl_divergence: 0.04149162729023185
+  argmax_flip_rate: 0.5777777777777777
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 1.6661866774551692
+    - 2.0868679965938424
+    - 2.970181895146124
+    - 2.8641687810168897
+    kl_divergence_per_position:
+    - 0.04621296428491271
+    - 0.06801864824099046
+    - 0.12784079149926247
+    - 0.11902411221930573
+    argmax_flip_per_position:
+    - true
+    - true
+    - true
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.7323079008413786
+    - 0.6509370957376376
+    - 1.5988645726320259
+    - 1.3534165376149738
+    - 0.8618789367594498
+    kl_divergence_per_position:
+    - 0.007205536430233995
+    - 0.006526896901569341
+    - 0.037721469644917835
+    - 0.029910771009930705
+    - 0.012272867315328543
+    argmax_flip_per_position:
+    - true
+    - false
+    - false
+    - true
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.5684762486399056
+    - 0.7661861433867303
+    - 1.460427127325869
+    kl_divergence_per_position:
+    - 0.00559088194918563
+    - 0.008837284659489261
+    - 0.03199156703886994
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+- label: layer3.full_layer
+  layer_idx: 3
+  component: full_layer
+  head_idx: null
+  logit_l2: 1.2737497164703864
+  kl_divergence: 0.026991599368206404
+  argmax_flip_rate: 0.6722222222222222
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 1.2331710601917538
+    - 2.2797480144689004
+    - 1.3499108944348885
+    - 1.6681536472069591
+    kl_divergence_per_position:
+    - 0.019907936517978814
+    - 0.07535010013028537
+    - 0.02979615276622209
+    - 0.041805921201909346
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 1.016146238567271
+    - 1.3152036485899006
+    - 1.6252600776047117
+    - 1.4065182422878333
+    - 1.269521477108352
+    kl_divergence_per_position:
+    - 0.016396311694203115
+    - 0.0280765497923176
+    - 0.03386482994942118
+    - 0.030593499822611236
+    - 0.029912307665995907
+    argmax_flip_per_position:
+    - true
+    - true
+    - true
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.6313822808294396
+    - 0.8363212500267048
+    - 1.1182163946556154
+    kl_divergence_per_position:
+    - 0.006219473730747306
+    - 0.01017321722287641
+    - 0.018080521043207815
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer2.full_layer
+  layer_idx: 2
+  component: full_layer
+  head_idx: null
+  logit_l2: 1.1062428472031371
+  kl_divergence: 0.0246106572772004
+  argmax_flip_rate: 0.6277777777777778
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.880438621777314
+    - 1.7155638208325985
+    - 1.5260217003035799
+    - 2.2558890156160305
+    kl_divergence_per_position:
+    - 0.013439820009303185
+    - 0.04519952119738047
+    - 0.036302788555083926
+    - 0.07579836456163669
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 1.4201443583070166
+    - 1.1321469327868754
+    - 1.342639699739247
+    - 1.3307285935563562
+    - 1.448284838681617
+    kl_divergence_per_position:
+    - 0.029457874163917257
+    - 0.018644834195422972
+    - 0.027597161137405707
+    - 0.03171950205595966
+    - 0.036401912654176846
+    argmax_flip_per_position:
+    - true
+    - true
+    - true
+    - true
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.27715954031511064
+    - 0.4631043715597524
+    - 0.4281201902135617
+    kl_divergence_per_position:
+    - 0.0009308566999476282
+    - 0.0031460654757145268
+    - 0.003070852052458738
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer1.attn_head3
+  layer_idx: 1
+  component: attn_head
+  head_idx: 3
+  logit_l2: 1.0187856745891046
+  kl_divergence: 0.021087713092944268
+  argmax_flip_rate: 0.6722222222222222
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 1.1459377215078355
+    - 1.8475718558168432
+    - 1.2707672626822542
+    - 1.4750256426424218
+    kl_divergence_per_position:
+    - 0.01960346375973581
+    - 0.051460713436512005
+    - 0.025542479256651596
+    - 0.03568775161232254
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.6732871371879946
+    - 0.8467478084049518
+    - 1.6368721721684767
+    - 1.8014780215753643
+    - 1.6095334394674081
+    kl_divergence_per_position:
+    - 0.007235045026986898
+    - 0.012210594862577431
+    - 0.039605584556233864
+    - 0.046929279962433734
+    - 0.03721388189415821
+    argmax_flip_per_position:
+    - true
+    - false
+    - true
+    - true
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.22678707286587815
+    - 0.25323625316569703
+    - 0.44381973600083363
+    kl_divergence_per_position:
+    - 0.0007147025079107595
+    - 0.0009709408912505955
+    - 0.002966336606986506
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer4.full_layer
+  layer_idx: 4
+  component: full_layer
+  head_idx: null
+  logit_l2: 0.9866173509527378
+  kl_divergence: 0.017339796831320104
+  argmax_flip_rate: 0.5222222222222223
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.8312573497961937
+    - 1.4874295647431344
+    - 1.1526489327539395
+    - 1.5459209250961354
+    kl_divergence_per_position:
+    - 0.009136066947221556
+    - 0.03277318977888859
+    - 0.02020637090795948
+    - 0.03820218751119509
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 1.2487553876328326
+    - 1.0702987280466116
+    - 1.3218685579032874
+    - 1.314597264076997
+    - 1.1361490377864805
+    kl_divergence_per_position:
+    - 0.024254124192764112
+    - 0.019351281836269947
+    - 0.024292016671557917
+    - 0.026280651140377344
+    - 0.020435589350027886
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.3441891633807784
+    - 0.37575720018870246
+    - 0.7416658304453823
+    kl_divergence_per_position:
+    - 0.0017456717750289439
+    - 0.0019447701840371902
+    - 0.008361170249267944
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer5.full_layer
+  layer_idx: 5
+  component: full_layer
+  head_idx: null
+  logit_l2: 0.9794952525605075
+  kl_divergence: 0.017248530020985867
+  argmax_flip_rate: 0.5611111111111111
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.691521069565777
+    - 1.1116470332995998
+    - 0.869105856230771
+    - 1.0697462273123561
+    kl_divergence_per_position:
+    - 0.008685307414223178
+    - 0.019783543090092674
+    - 0.01261197368970241
+    - 0.01877906472408549
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.9708396537879053
+    - 1.0060918308576092
+    - 1.5704691836991729
+    - 1.199596146848512
+    - 1.2132329515852602
+    kl_divergence_per_position:
+    - 0.016888625112306273
+    - 0.018715904791620264
+    - 0.04402114510600048
+    - 0.023026118745048813
+    - 0.024848644028954474
+    argmax_flip_per_position:
+    - true
+    - true
+    - false
+    - true
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.5083498507939928
+    - 0.696922049138454
+    - 1.2275323732386654
+    kl_divergence_per_position:
+    - 0.003488222163590791
+    - 0.007515765067048346
+    - 0.022837603599297675
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer1.attn_head2
+  layer_idx: 1
+  component: attn_head
+  head_idx: 2
+  logit_l2: 0.8695985481975453
+  kl_divergence: 0.01710772155210306
+  argmax_flip_rate: 0.6055555555555555
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 1.0430725421201326
+    - 1.8099267246673596
+    - 1.2732701299387175
+    - 1.5252402932762925
+    kl_divergence_per_position:
+    - 0.018310678529284873
+    - 0.06242289181464746
+    - 0.03074511481839101
+    - 0.043042772403447865
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.286212018970263
+    - 0.49934762662009347
+    - 0.9432473073738425
+    - 0.574356389045636
+    - 0.8335160690278122
+    kl_divergence_per_position:
+    - 0.0015006430322320932
+    - 0.003780048220968535
+    - 0.013228887170695432
+    - 0.005114110190137593
+    - 0.010509653824547164
+    argmax_flip_per_position:
+    - true
+    - true
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.26559958843289955
+    - 0.4860984113493076
+    - 0.9540490198712357
+    kl_divergence_per_position:
+    - 0.0008694371218475028
+    - 0.003531896376848592
+    - 0.013197061832754552
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer0.attn_head1
+  layer_idx: 0
+  component: attn_head
+  head_idx: 1
+  logit_l2: 0.8235217909782313
+  kl_divergence: 0.013077588667505422
+  argmax_flip_rate: 0.4666666666666666
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.8268345884481908
+    - 0.7823929091350248
+    - 0.42441720506243397
+    - 0.44938346828523923
+    kl_divergence_per_position:
+    - 0.01208883142417266
+    - 0.00991803376444926
+    - 0.00345330195450899
+    - 0.0034279581891974347
+    argmax_flip_per_position:
+    - true
+    - true
+    - true
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.9453441529478479
+    - 0.8829084365603483
+    - 1.0386268570412163
+    - 1.527552773629857
+    - 1.6069176207208977
+    kl_divergence_per_position:
+    - 0.012720043195257342
+    - 0.012965052622946449
+    - 0.01772888440479911
+    - 0.037251127533239045
+    - 0.03528884722336294
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.293441101820364
+    - 0.5377533113284537
+    - 1.117420672916997
+    kl_divergence_per_position:
+    - 0.001261165607353107
+    - 0.004121254443472284
+    - 0.02107741096971421
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+- label: layer1.attn_head1
+  layer_idx: 1
+  component: attn_head
+  head_idx: 1
+  logit_l2: 0.7435180584739137
+  kl_divergence: 0.013360069689204536
+  argmax_flip_rate: 0.39444444444444443
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.20433769835175103
+    - 0.23348646536812365
+    - 0.3344734777179294
+    - 0.48409024753888424
+    kl_divergence_per_position:
+    - 0.0006200304994398119
+    - 0.0008746125733260046
+    - 0.0017418881951402516
+    - 0.003432133803185543
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 1.0083375390070504
+    - 1.3497834995308071
+    - 2.1075539663371545
+    - 1.513016485139798
+    - 0.9830510524796616
+    kl_divergence_per_position:
+    - 0.015553588759174758
+    - 0.028783216841382565
+    - 0.06627956644032502
+    - 0.03243025105996762
+    - 0.017464878314015497
+    argmax_flip_per_position:
+    - true
+    - false
+    - true
+    - true
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.23860123959269344
+    - 0.42384342644500345
+    - 0.9098814179983287
+    kl_divergence_per_position:
+    - 0.0009840021344222503
+    - 0.0033892982401158094
+    - 0.014558927176064752
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer3.attn_head2
+  layer_idx: 3
+  component: attn_head
+  head_idx: 2
+  logit_l2: 0.7395719535703439
+  kl_divergence: 0.010293587510044175
+  argmax_flip_rate: 0.45555555555555555
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.8243709013341165
+    - 0.9863577965593758
+    - 0.9977382825009173
+    - 1.2143645025039735
+    kl_divergence_per_position:
+    - 0.0112734334930601
+    - 0.013494190800548388
+    - 0.014319751410863947
+    - 0.01955909800451557
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.7202917878779604
+    - 1.0141858492977875
+    - 1.2771615709055775
+    - 1.1424327021612113
+    - 0.9812627604327656
+    kl_divergence_per_position:
+    - 0.007811123764740866
+    - 0.01561816151863866
+    - 0.021336140848580307
+    - 0.01922690497159361
+    - 0.01448768217914518
+    argmax_flip_per_position:
+    - true
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.14179365570291877
+    - 0.1247389426179579
+    - 0.2912905692332499
+    kl_divergence_per_position:
+    - 0.00029591904957933235
+    - 0.00022764696910813073
+    - 0.0010458583203499417
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer1.attn_head0
+  layer_idx: 1
+  component: attn_head
+  head_idx: 0
+  logit_l2: 0.7342037680457802
+  kl_divergence: 0.010983730931539254
+  argmax_flip_rate: 0.24444444444444446
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.2826776541074576
+    - 0.4330055513218781
+    - 0.52752113133029
+    - 0.8346779044714836
+    kl_divergence_per_position:
+    - 0.0012909161099295182
+    - 0.0028317193333940813
+    - 0.004333893415648328
+    - 0.01091456854357526
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 1.1325435369713355
+    - 0.6659693953533868
+    - 0.7292357772524019
+    - 0.6281968473253253
+    - 0.43432048750497215
+    kl_divergence_per_position:
+    - 0.020740609599873085
+    - 0.00774417832193558
+    - 0.006923801137418239
+    - 0.006904262495133385
+    - 0.003335320199656597
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - true
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.31789565946399356
+    - 0.8463321890382141
+    - 1.7310347563420303
+    kl_divergence_per_position:
+    - 0.0015269676443925599
+    - 0.01112335168562574
+    - 0.04428603294951446
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+- label: layer0.attn_head0
+  layer_idx: 0
+  component: attn_head
+  head_idx: 0
+  logit_l2: 0.7335936873807966
+  kl_divergence: 0.011877366516161654
+  argmax_flip_rate: 0.4222222222222222
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.8883929062632667
+    - 0.759953234454742
+    - 0.4580435795177053
+    - 0.5859180250309504
+    kl_divergence_per_position:
+    - 0.013471952767971255
+    - 0.007779719263210572
+    - 0.0032267357939946848
+    - 0.005180635268208767
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.7682166576990321
+    - 0.7725203157999515
+    - 1.5679756967343221
+    - 1.5715772860375263
+    - 1.0450538742158626
+    kl_divergence_per_position:
+    - 0.011655686714634541
+    - 0.011681733592474855
+    - 0.04059999127730989
+    - 0.04715702220801555
+    - 0.01863532517190357
+    argmax_flip_per_position:
+    - true
+    - false
+    - true
+    - true
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.3024868293655996
+    - 0.401345713169352
+    - 0.44407353665020144
+    kl_divergence_per_position:
+    - 0.0011866821791744107
+    - 0.002619571829264627
+    - 0.003007906938373846
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer3.attn_head0
+  layer_idx: 3
+  component: attn_head
+  head_idx: 0
+  logit_l2: 0.7143925493826783
+  kl_divergence: 0.0085538090867528
+  argmax_flip_rate: 0.47222222222222215
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.6388641720373679
+    - 1.363557215384224
+    - 0.879548370920995
+    - 0.8211453321742508
+    kl_divergence_per_position:
+    - 0.006355912733509536
+    - 0.028210628368991256
+    - 0.011662328250321898
+    - 0.0099487494084961
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.29668332967310496
+    - 0.3412890474455944
+    - 0.6857584821334505
+    - 0.6406444701561106
+    - 0.5916715926694807
+    kl_divergence_per_position:
+    - 0.001244212591861909
+    - 0.001724701282026269
+    - 0.007446862484023538
+    - 0.007201317569724552
+    - 0.005328471009346695
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.6246822799903121
+    - 0.6897250490621518
+    - 0.8041611442573682
+    kl_divergence_per_position:
+    - 0.005699924532853591
+    - 0.006864725256382799
+    - 0.008519078958359936
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer3.attn_head3
+  layer_idx: 3
+  component: attn_head
+  head_idx: 3
+  logit_l2: 0.6316873640774109
+  kl_divergence: 0.008208004204596294
+  argmax_flip_rate: 0.41111111111111115
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.5796506296852694
+    - 0.6174083520544512
+    - 0.6188644856937778
+    - 0.8157514995497915
+    kl_divergence_per_position:
+    - 0.005844115827049177
+    - 0.0064711386962793506
+    - 0.006882928685090829
+    - 0.012807767595972764
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.7551983626143711
+    - 0.8320222950195248
+    - 1.213010604739402
+    - 1.094069750664786
+    - 1.0748055952475164
+    kl_divergence_per_position:
+    - 0.008751526176337707
+    - 0.011642607102565367
+    - 0.020319541814753733
+    - 0.017455114500402033
+    - 0.02090236585849308
+    argmax_flip_per_position:
+    - true
+    - true
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.22141027948747413
+    - 0.24140837353723857
+    - 0.267147433463157
+    kl_divergence_per_position:
+    - 0.0006388937484138003
+    - 0.0007346221551261314
+    - 0.0010513655630014786
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer1.ffn_gate
+  layer_idx: 1
+  component: ffn_gate
+  head_idx: null
+  logit_l2: 0.6118439604341089
+  kl_divergence: 0.007141518747752332
+  argmax_flip_rate: 0.24444444444444446
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.19583269185310506
+    - 0.546475646912819
+    - 0.26435841554650763
+    - 0.7705078349894096
+    kl_divergence_per_position:
+    - 0.0006476781108986987
+    - 0.0040580002067856094
+    - 0.001106008996215005
+    - 0.008164635341133538
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.3316864332185869
+    - 0.6112869033082028
+    - 0.740194981269071
+    - 1.0365927111404896
+    - 1.7305216902731162
+    kl_divergence_per_position:
+    - 0.0017504937621201366
+    - 0.005852676090209006
+    - 0.007977815690025689
+    - 0.016044423821795415
+    - 0.04077248906590311
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - true
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.44175288337195995
+    - 0.40965196522500796
+    - 0.6521402218079512
+    kl_divergence_per_position:
+    - 0.0028155038923031546
+    - 0.002147358105192394
+    - 0.005389825682968791
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer1.ffn_up
+  layer_idx: 1
+  component: ffn_up
+  head_idx: null
+  logit_l2: 0.6118439604341089
+  kl_divergence: 0.007141518747752332
+  argmax_flip_rate: 0.24444444444444446
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.19583269185310506
+    - 0.546475646912819
+    - 0.26435841554650763
+    - 0.7705078349894096
+    kl_divergence_per_position:
+    - 0.0006476781108986987
+    - 0.0040580002067856094
+    - 0.001106008996215005
+    - 0.008164635341133538
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.3316864332185869
+    - 0.6112869033082028
+    - 0.740194981269071
+    - 1.0365927111404896
+    - 1.7305216902731162
+    kl_divergence_per_position:
+    - 0.0017504937621201366
+    - 0.005852676090209006
+    - 0.007977815690025689
+    - 0.016044423821795415
+    - 0.04077248906590311
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - true
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.44175288337195995
+    - 0.40965196522500796
+    - 0.6521402218079512
+    kl_divergence_per_position:
+    - 0.0028155038923031546
+    - 0.002147358105192394
+    - 0.005389825682968791
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer1.ffn_down
+  layer_idx: 1
+  component: ffn_down
+  head_idx: null
+  logit_l2: 0.6118439604341089
+  kl_divergence: 0.007141518747752332
+  argmax_flip_rate: 0.24444444444444446
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.19583269185310506
+    - 0.546475646912819
+    - 0.26435841554650763
+    - 0.7705078349894096
+    kl_divergence_per_position:
+    - 0.0006476781108986987
+    - 0.0040580002067856094
+    - 0.001106008996215005
+    - 0.008164635341133538
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.3316864332185869
+    - 0.6112869033082028
+    - 0.740194981269071
+    - 1.0365927111404896
+    - 1.7305216902731162
+    kl_divergence_per_position:
+    - 0.0017504937621201366
+    - 0.005852676090209006
+    - 0.007977815690025689
+    - 0.016044423821795415
+    - 0.04077248906590311
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - true
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.44175288337195995
+    - 0.40965196522500796
+    - 0.6521402218079512
+    kl_divergence_per_position:
+    - 0.0028155038923031546
+    - 0.002147358105192394
+    - 0.005389825682968791
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer2.attn_head1
+  layer_idx: 2
+  component: attn_head
+  head_idx: 1
+  logit_l2: 0.5974502164604403
+  kl_divergence: 0.008122368070262955
+  argmax_flip_rate: 0.39444444444444443
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.4533750171111851
+    - 0.8383234450668704
+    - 0.6811959655964364
+    - 0.8171415985468874
+    kl_divergence_per_position:
+    - 0.0032790568167166707
+    - 0.010828632645934283
+    - 0.007495756764896861
+    - 0.01165232734014076
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.3664411039910523
+    - 0.5918613631745604
+    - 0.8143462966009297
+    - 1.289126125914437
+    - 1.4091247363562527
+    kl_divergence_per_position:
+    - 0.00209858732487959
+    - 0.005692043305967315
+    - 0.01068616350539175
+    - 0.02701132878295353
+    - 0.03092513568233168
+    argmax_flip_per_position:
+    - true
+    - true
+    - false
+    - true
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.10967090362902741
+    - 0.16918748228599728
+    - 0.3231267668655634
+    kl_divergence_per_position:
+    - 0.00015521052197092116
+    - 0.00045856452904236705
+    - 0.0016977522446725395
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer5.attn_head1
+  layer_idx: 5
+  component: attn_head
+  head_idx: 1
+  logit_l2: 0.5870821870873236
+  kl_divergence: 0.00636686013616036
+  argmax_flip_rate: 0.39444444444444443
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.5156536776608549
+    - 0.5049171986313857
+    - 0.5066898687084963
+    - 0.6277144267339264
+    kl_divergence_per_position:
+    - 0.004188982283908016
+    - 0.004014871284756574
+    - 0.004654637236025441
+    - 0.006991099723014501
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.6424017467382364
+    - 0.7431849715348042
+    - 0.9228798532322644
+    - 0.8021477323845162
+    - 0.8979038415944479
+    kl_divergence_per_position:
+    - 0.007890158407100696
+    - 0.010564081541419752
+    - 0.01573625681226987
+    - 0.011050144712779722
+    - 0.01233844202557467
+    argmax_flip_per_position:
+    - true
+    - true
+    - false
+    - true
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.36560596827345926
+    - 0.40154066313735287
+    - 0.49525078628354113
+    kl_divergence_per_position:
+    - 0.001857087168226221
+    - 0.002220595053453374
+    - 0.003789416008498418
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer2.attn_head2
+  layer_idx: 2
+  component: attn_head
+  head_idx: 2
+  logit_l2: 0.5568170667762437
+  kl_divergence: 0.005830213580349192
+  argmax_flip_rate: 0.2833333333333333
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.4440642452564439
+    - 0.7077102072960363
+    - 0.6937028030536881
+    - 0.9459659155119363
+    kl_divergence_per_position:
+    - 0.0033704393015579993
+    - 0.007365203947475544
+    - 0.007683913662798099
+    - 0.013242710381044728
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.4897396537181531
+    - 0.5309550152436467
+    - 1.0604348289379302
+    - 0.8079106897062094
+    - 0.5367456841526318
+    kl_divergence_per_position:
+    - 0.0038714825515879297
+    - 0.004707913647767832
+    - 0.016191899515022368
+    - 0.010215677289731509
+    - 0.004212558677257923
+    argmax_flip_per_position:
+    - true
+    - true
+    - false
+    - true
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.13475258665561485
+    - 0.20629515306236934
+    - 0.521251959874487
+    kl_divergence_per_position:
+    - 0.00030479281893162576
+    - 0.0006946188660283746
+    - 0.004206091059704914
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+- label: layer2.attn_head3
+  layer_idx: 2
+  component: attn_head
+  head_idx: 3
+  logit_l2: 0.5273205653351979
+  kl_divergence: 0.0051494036092532515
+  argmax_flip_rate: 0.3444444444444444
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.27757240473189737
+    - 0.6700214801105399
+    - 0.7264702059422267
+    - 0.9077430597808643
+    kl_divergence_per_position:
+    - 0.0010461039540012457
+    - 0.006640487436182786
+    - 0.008202875642140398
+    - 0.012418722118504946
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.5126957565793712
+    - 0.5312405172318662
+    - 0.6250025229554982
+    - 0.6923001020140539
+    - 0.9272317400352774
+    kl_divergence_per_position:
+    - 0.004160510958189586
+    - 0.004804553529468474
+    - 0.005118509841393044
+    - 0.008206732445185261
+    - 0.014252240920035558
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.1995015384259924
+    - 0.31917525332742586
+    - 0.3177705500495761
+    kl_divergence_per_position:
+    - 0.0004828484594401626
+    - 0.0013210273442697304
+    - 0.0013840861998841818
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer5.attn_head0
+  layer_idx: 5
+  component: attn_head
+  head_idx: 0
+  logit_l2: 0.5173922326860186
+  kl_divergence: 0.004199454363522142
+  argmax_flip_rate: 0.45555555555555555
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.3469361403398377
+    - 0.46591634115864444
+    - 0.4053385810272456
+    - 0.525633186720813
+    kl_divergence_per_position:
+    - 0.002314063787204039
+    - 0.003362536607042655
+    - 0.0026706279240780355
+    - 0.004419162345717403
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.4307244477058509
+    - 0.4902229170222163
+    - 0.4632026145534215
+    - 0.43970451308341485
+    - 0.5554683849210945
+    kl_divergence_per_position:
+    - 0.0031234189163124306
+    - 0.00418451124729945
+    - 0.0035954972537157875
+    - 0.0029755850497681386
+    - 0.005512017962555887
+    argmax_flip_per_position:
+    - true
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.4696923846384519
+    - 0.6045355283689083
+    - 0.8468402678603031
+    kl_divergence_per_position:
+    - 0.003082338552454814
+    - 0.004779470633612868
+    - 0.008723868829808978
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer0.ffn_gate
+  layer_idx: 0
+  component: ffn_gate
+  head_idx: null
+  logit_l2: 0.5129943702293659
+  kl_divergence: 0.005239291040127637
+  argmax_flip_rate: 0.17777777777777778
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.15169041844323763
+    - 0.8334963819161474
+    - 0.34200812927599883
+    - 0.4373856781026423
+    kl_divergence_per_position:
+    - 0.00035225351486717934
+    - 0.009951912147154462
+    - 0.001548545180599291
+    - 0.0025143208239862837
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.23451686476870842
+    - 0.61163544241777
+    - 0.9901563588760247
+    - 0.923010937417429
+    - 0.8066205670802672
+    kl_divergence_per_position:
+    - 0.0008178776107341133
+    - 0.006832551590557905
+    - 0.015133264544052071
+    - 0.012243196212620848
+    - 0.011741459234183217
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.14767641931334552
+    - 0.5588285432741827
+    - 0.44744481133712555
+    kl_divergence_per_position:
+    - 0.0003626989976528033
+    - 0.005450914773624892
+    - 0.002503722324626737
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+- label: layer0.ffn_up
+  layer_idx: 0
+  component: ffn_up
+  head_idx: null
+  logit_l2: 0.5129943702293659
+  kl_divergence: 0.005239291040127637
+  argmax_flip_rate: 0.17777777777777778
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.15169041844323763
+    - 0.8334963819161474
+    - 0.34200812927599883
+    - 0.4373856781026423
+    kl_divergence_per_position:
+    - 0.00035225351486717934
+    - 0.009951912147154462
+    - 0.001548545180599291
+    - 0.0025143208239862837
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.23451686476870842
+    - 0.61163544241777
+    - 0.9901563588760247
+    - 0.923010937417429
+    - 0.8066205670802672
+    kl_divergence_per_position:
+    - 0.0008178776107341133
+    - 0.006832551590557905
+    - 0.015133264544052071
+    - 0.012243196212620848
+    - 0.011741459234183217
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.14767641931334552
+    - 0.5588285432741827
+    - 0.44744481133712555
+    kl_divergence_per_position:
+    - 0.0003626989976528033
+    - 0.005450914773624892
+    - 0.002503722324626737
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+- label: layer0.ffn_down
+  layer_idx: 0
+  component: ffn_down
+  head_idx: null
+  logit_l2: 0.5129943702293659
+  kl_divergence: 0.005239291040127637
+  argmax_flip_rate: 0.17777777777777778
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.15169041844323763
+    - 0.8334963819161474
+    - 0.34200812927599883
+    - 0.4373856781026423
+    kl_divergence_per_position:
+    - 0.00035225351486717934
+    - 0.009951912147154462
+    - 0.001548545180599291
+    - 0.0025143208239862837
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.23451686476870842
+    - 0.61163544241777
+    - 0.9901563588760247
+    - 0.923010937417429
+    - 0.8066205670802672
+    kl_divergence_per_position:
+    - 0.0008178776107341133
+    - 0.006832551590557905
+    - 0.015133264544052071
+    - 0.012243196212620848
+    - 0.011741459234183217
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.14767641931334552
+    - 0.5588285432741827
+    - 0.44744481133712555
+    kl_divergence_per_position:
+    - 0.0003626989976528033
+    - 0.005450914773624892
+    - 0.002503722324626737
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+- label: layer2.attn_head0
+  layer_idx: 2
+  component: attn_head
+  head_idx: 0
+  logit_l2: 0.5118927283939492
+  kl_divergence: 0.004952569852860606
+  argmax_flip_rate: 0.3277777777777778
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.29652575916146134
+    - 0.37292532783662335
+    - 0.4846994216765107
+    - 0.6614029622929996
+    kl_divergence_per_position:
+    - 0.0015138566524120858
+    - 0.002302584167307776
+    - 0.0035817388233925123
+    - 0.006681986020576799
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.7303331975919732
+    - 0.671382156235065
+    - 0.666623526455677
+    - 0.92843642729912
+    - 0.7853728467443288
+    kl_divergence_per_position:
+    - 0.008599623035920741
+    - 0.007304581926118575
+    - 0.007009059504103849
+    - 0.012937903063123871
+    - 0.010327843454002459
+    argmax_flip_per_position:
+    - true
+    - true
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.13580827356213543
+    - 0.2554373274694588
+    - 0.5848349586925539
+    kl_divergence_per_position:
+    - 0.0003116974466344626
+    - 0.0010746007021050848
+    - 0.004919299689277335
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer5.attn_head2
+  layer_idx: 5
+  component: attn_head
+  head_idx: 2
+  logit_l2: 0.43673378716102834
+  kl_divergence: 0.0029616485222390097
+  argmax_flip_rate: 0.3444444444444444
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.3000106043872841
+    - 0.4764750703414674
+    - 0.4327858588011033
+    - 0.5348328646347833
+    kl_divergence_per_position:
+    - 0.0013874908007028095
+    - 0.003607281327110954
+    - 0.002880399101622677
+    - 0.004138231515243761
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.42646355324032653
+    - 0.4700616722848385
+    - 0.5791050215729172
+    - 0.6097444312547226
+    - 0.6382242943813159
+    kl_divergence_per_position:
+    - 0.002404691501389021
+    - 0.002824736141777296
+    - 0.004988095768974342
+    - 0.004765637690084982
+    - 0.005000811410113462
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.20637522434141353
+    - 0.3294353594021337
+    - 0.45255581844175663
+    kl_divergence_per_position:
+    - 0.0007491417094482975
+    - 0.0016507022393910482
+    - 0.0032545571853981265
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer4.attn_head0
+  layer_idx: 4
+  component: attn_head
+  head_idx: 0
+  logit_l2: 0.43665045291476545
+  kl_divergence: 0.003767187371396561
+  argmax_flip_rate: 0.15
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.5362650690516096
+    - 0.9845349178131225
+    - 0.6844156473150117
+    - 0.7537400788627304
+    kl_divergence_per_position:
+    - 0.004016269207459873
+    - 0.014663640905047716
+    - 0.006670636041857815
+    - 0.007894443622894744
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.47640633520493786
+    - 0.46943236285323225
+    - 0.34588066287445707
+    - 0.26064947771291685
+    - 0.13805189684245975
+    kl_divergence_per_position:
+    - 0.0037712246393021356
+    - 0.003947787891102892
+    - 0.0015373172100253093
+    - 0.0009805559122084656
+    - 0.0003280139910987823
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.3027680476015027
+    - 0.18426100464191797
+    - 0.20935579791481015
+    kl_divergence_per_position:
+    - 0.001502891946348138
+    - 0.0005449477607312944
+    - 0.0005841645163019516
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+- label: layer4.attn_head2
+  layer_idx: 4
+  component: attn_head
+  head_idx: 2
+  logit_l2: 0.4348656155293442
+  kl_divergence: 0.0037550230732269784
+  argmax_flip_rate: 0.19444444444444442
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.3847882417195179
+    - 0.84473127354095
+    - 0.6450754953495612
+    - 0.7216345049709816
+    kl_divergence_per_position:
+    - 0.0024501588820108554
+    - 0.012541820308861048
+    - 0.006077112083404222
+    - 0.0074140721285477565
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.3993733604223155
+    - 0.36982335344291484
+    - 0.470898263449891
+    - 0.5243501383743657
+    - 0.6223568774537466
+    kl_divergence_per_position:
+    - 0.00230420703063174
+    - 0.0020157957527455602
+    - 0.003170264132109169
+    - 0.0041040547006273055
+    - 0.0062315142146917475
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.07336973412004395
+    - 0.14652256740450853
+    - 0.31464490566784686
+    kl_divergence_per_position:
+    - 8.958343162641502e-05
+    - 0.0002808888659210137
+    - 0.0013668613108941499
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer2.ffn_gate
+  layer_idx: 2
+  component: ffn_gate
+  head_idx: null
+  logit_l2: 0.4280622858130337
+  kl_divergence: 0.0032617080913146823
+  argmax_flip_rate: 0.2611111111111111
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.4672887484744037
+    - 0.6298169659982402
+    - 0.37742401481648924
+    - 0.44827535774505245
+    kl_divergence_per_position:
+    - 0.0031170752287412035
+    - 0.005585484362361199
+    - 0.0023515757951982626
+    - 0.0034594983747346358
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.35254270687534683
+    - 0.5451828224953431
+    - 0.640190886553728
+    - 0.5300958492559398
+    - 0.3652259065997649
+    kl_divergence_per_position:
+    - 0.002364632709606744
+    - 0.005373871800883286
+    - 0.005973845462450833
+    - 0.005044647927842259
+    - 0.0026589792508855317
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.09651955919212094
+    - 0.35683912055324696
+    - 0.49715517422822286
+    kl_divergence_per_position:
+    - 0.00015213044716169948
+    - 0.002202698260061208
+    - 0.0032657325028315684
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer2.ffn_up
+  layer_idx: 2
+  component: ffn_up
+  head_idx: null
+  logit_l2: 0.4280622858130337
+  kl_divergence: 0.0032617080913146823
+  argmax_flip_rate: 0.2611111111111111
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.4672887484744037
+    - 0.6298169659982402
+    - 0.37742401481648924
+    - 0.44827535774505245
+    kl_divergence_per_position:
+    - 0.0031170752287412035
+    - 0.005585484362361199
+    - 0.0023515757951982626
+    - 0.0034594983747346358
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.35254270687534683
+    - 0.5451828224953431
+    - 0.640190886553728
+    - 0.5300958492559398
+    - 0.3652259065997649
+    kl_divergence_per_position:
+    - 0.002364632709606744
+    - 0.005373871800883286
+    - 0.005973845462450833
+    - 0.005044647927842259
+    - 0.0026589792508855317
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.09651955919212094
+    - 0.35683912055324696
+    - 0.49715517422822286
+    kl_divergence_per_position:
+    - 0.00015213044716169948
+    - 0.002202698260061208
+    - 0.0032657325028315684
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer2.ffn_down
+  layer_idx: 2
+  component: ffn_down
+  head_idx: null
+  logit_l2: 0.4280622858130337
+  kl_divergence: 0.0032617080913146823
+  argmax_flip_rate: 0.2611111111111111
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.4672887484744037
+    - 0.6298169659982402
+    - 0.37742401481648924
+    - 0.44827535774505245
+    kl_divergence_per_position:
+    - 0.0031170752287412035
+    - 0.005585484362361199
+    - 0.0023515757951982626
+    - 0.0034594983747346358
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.35254270687534683
+    - 0.5451828224953431
+    - 0.640190886553728
+    - 0.5300958492559398
+    - 0.3652259065997649
+    kl_divergence_per_position:
+    - 0.002364632709606744
+    - 0.005373871800883286
+    - 0.005973845462450833
+    - 0.005044647927842259
+    - 0.0026589792508855317
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.09651955919212094
+    - 0.35683912055324696
+    - 0.49715517422822286
+    kl_divergence_per_position:
+    - 0.00015213044716169948
+    - 0.002202698260061208
+    - 0.0032657325028315684
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer3.attn_head1
+  layer_idx: 3
+  component: attn_head
+  head_idx: 1
+  logit_l2: 0.40292476989083603
+  kl_divergence: 0.002789144957464018
+  argmax_flip_rate: 0.15
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.43023437800791847
+    - 0.6359362427597877
+    - 0.44746119568620407
+    - 0.47869191795497534
+    kl_divergence_per_position:
+    - 0.002853656584915096
+    - 0.0066941785274399175
+    - 0.0033112106844781636
+    - 0.0037638195907073613
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.1667046178803165
+    - 0.2156336414481914
+    - 0.35970553156031115
+    - 0.5393178648600546
+    - 0.4106232589376666
+    kl_divergence_per_position:
+    - 0.0004742083592051325
+    - 0.0007917627258999835
+    - 0.002204996337332293
+    - 0.004397096570713949
+    - 0.0023532866552950886
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.3177236295523111
+    - 0.3502633445856916
+    - 0.44890220526093305
+    kl_divergence_per_position:
+    - 0.0014568250065975698
+    - 0.0017966167162918253
+    - 0.003248903464563498
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+- label: layer5.attn_head3
+  layer_idx: 5
+  component: attn_head
+  head_idx: 3
+  logit_l2: 0.38724682316944586
+  kl_divergence: 0.002225896182961774
+  argmax_flip_rate: 0.17777777777777778
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.36142540713064086
+    - 0.49027146728115373
+    - 0.38566605250184177
+    - 0.43339955880452347
+    kl_divergence_per_position:
+    - 0.0018526342356736782
+    - 0.0035234363007429145
+    - 0.002277265742844276
+    - 0.0029290074521659253
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.356977588753134
+    - 0.4104067930499081
+    - 0.5077679995874763
+    - 0.42388247522248385
+    - 0.4196688341607627
+    kl_divergence_per_position:
+    - 0.0020145351663839895
+    - 0.0025050024663753187
+    - 0.003420730848917144
+    - 0.0021907929143448347
+    - 0.0025497156879013575
+    argmax_flip_per_position:
+    - true
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.20997319564096376
+    - 0.31384894237437766
+    - 0.4371051917567918
+    kl_divergence_per_position:
+    - 0.0006423253299076333
+    - 0.001348211277069572
+    - 0.0024973049907550775
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer4.attn_head3
+  layer_idx: 4
+  component: attn_head
+  head_idx: 3
+  logit_l2: 0.34691763364277
+  kl_divergence: 0.0024460790681581648
+  argmax_flip_rate: 0.24444444444444446
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.21479352445884076
+    - 0.5359604746826155
+    - 0.47683737570486795
+    - 0.7095454213562102
+    kl_divergence_per_position:
+    - 0.0006837312633896499
+    - 0.004483579151518597
+    - 0.003623371381002995
+    - 0.00875783533777827
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.3689230351158311
+    - 0.3154085160531129
+    - 0.47259191819493185
+    - 0.45819800724763177
+    - 0.36297851634497186
+    kl_divergence_per_position:
+    - 0.0019120556990964274
+    - 0.001503849387453318
+    - 0.003322783817264593
+    - 0.0033197298632307976
+    - 0.002110122160320412
+    argmax_flip_per_position:
+    - true
+    - true
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.06887683418363912
+    - 0.14077461596088936
+    - 0.2728946597146135
+    kl_divergence_per_position:
+    - 7.586185927906325e-05
+    - 0.0002994521527223829
+    - 0.0011768851947355765
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer5.ffn_gate
+  layer_idx: 5
+  component: ffn_gate
+  head_idx: null
+  logit_l2: 0.3460532164418197
+  kl_divergence: 0.002382758867477873
+  argmax_flip_rate: 0.2611111111111111
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.1397175359246392
+    - 0.4738647247976739
+    - 0.18591737424512272
+    - 0.2987479618061886
+    kl_divergence_per_position:
+    - 0.0003197971538619663
+    - 0.004026027201298589
+    - 0.0005225932570432665
+    - 0.0012273909501080288
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.26107131854338034
+    - 0.2641253053529146
+    - 0.29482520666831635
+    - 0.5325261260739024
+    - 0.5523906135940998
+    kl_divergence_per_position:
+    - 0.0010776257021259277
+    - 0.0011797219819856355
+    - 0.001438870580302155
+    - 0.004977567886636562
+    - 0.004350086402562294
+    argmax_flip_per_position:
+    - true
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.18035030392428397
+    - 0.2790296777572228
+    - 0.6884501265750842
+    kl_divergence_per_position:
+    - 0.0004800370430998737
+    - 0.0010896831314211024
+    - 0.007488929678878448
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer5.ffn_up
+  layer_idx: 5
+  component: ffn_up
+  head_idx: null
+  logit_l2: 0.3460532164418197
+  kl_divergence: 0.002382758867477873
+  argmax_flip_rate: 0.2611111111111111
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.1397175359246392
+    - 0.4738647247976739
+    - 0.18591737424512272
+    - 0.2987479618061886
+    kl_divergence_per_position:
+    - 0.0003197971538619663
+    - 0.004026027201298589
+    - 0.0005225932570432665
+    - 0.0012273909501080288
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.26107131854338034
+    - 0.2641253053529146
+    - 0.29482520666831635
+    - 0.5325261260739024
+    - 0.5523906135940998
+    kl_divergence_per_position:
+    - 0.0010776257021259277
+    - 0.0011797219819856355
+    - 0.001438870580302155
+    - 0.004977567886636562
+    - 0.004350086402562294
+    argmax_flip_per_position:
+    - true
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.18035030392428397
+    - 0.2790296777572228
+    - 0.6884501265750842
+    kl_divergence_per_position:
+    - 0.0004800370430998737
+    - 0.0010896831314211024
+    - 0.007488929678878448
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer5.ffn_down
+  layer_idx: 5
+  component: ffn_down
+  head_idx: null
+  logit_l2: 0.3460532164418197
+  kl_divergence: 0.002382758867477873
+  argmax_flip_rate: 0.2611111111111111
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.1397175359246392
+    - 0.4738647247976739
+    - 0.18591737424512272
+    - 0.2987479618061886
+    kl_divergence_per_position:
+    - 0.0003197971538619663
+    - 0.004026027201298589
+    - 0.0005225932570432665
+    - 0.0012273909501080288
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.26107131854338034
+    - 0.2641253053529146
+    - 0.29482520666831635
+    - 0.5325261260739024
+    - 0.5523906135940998
+    kl_divergence_per_position:
+    - 0.0010776257021259277
+    - 0.0011797219819856355
+    - 0.001438870580302155
+    - 0.004977567886636562
+    - 0.004350086402562294
+    argmax_flip_per_position:
+    - true
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.18035030392428397
+    - 0.2790296777572228
+    - 0.6884501265750842
+    kl_divergence_per_position:
+    - 0.0004800370430998737
+    - 0.0010896831314211024
+    - 0.007488929678878448
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer4.attn_head1
+  layer_idx: 4
+  component: attn_head
+  head_idx: 1
+  logit_l2: 0.34225928157182883
+  kl_divergence: 0.0021422708677854715
+  argmax_flip_rate: 0.15
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.37197369231858607
+    - 0.6868161914970072
+    - 0.4637075889297732
+    - 0.4713446841925906
+    kl_divergence_per_position:
+    - 0.0020470633050787414
+    - 0.006889416394136648
+    - 0.0033324775996368987
+    - 0.003231389979112071
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.39142851114323113
+    - 0.35381338283278835
+    - 0.41098996716029185
+    - 0.3939369327296598
+    - 0.24588766152282562
+    kl_divergence_per_position:
+    - 0.0024574156754779324
+    - 0.0021132844842745692
+    - 0.0024351047028497016
+    - 0.0024594794593155622
+    - 0.001213737660078978
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.15364583279774946
+    - 0.13675814327103838
+    - 0.2169140671409259
+    kl_divergence_per_position:
+    - 0.00034740451105531997
+    - 0.0002597031621599886
+    - 0.0006406564891826196
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+- label: layer4.ffn_gate
+  layer_idx: 4
+  component: ffn_gate
+  head_idx: null
+  logit_l2: 0.32125827836038906
+  kl_divergence: 0.0019032505476256378
+  argmax_flip_rate: 0.3055555555555555
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.37536689784376037
+    - 0.6684359945013351
+    - 0.30704273563285456
+    - 0.36310926436172347
+    kl_divergence_per_position:
+    - 0.002197604718291412
+    - 0.00745719342479658
+    - 0.0012314612508456542
+    - 0.0018203507511453726
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.16954982139523783
+    - 0.1520264713580004
+    - 0.4128178807765131
+    - 0.21241544753288225
+    - 0.4474188350904641
+    kl_divergence_per_position:
+    - 0.000433344048777046
+    - 0.00040237492475628483
+    - 0.0025012276507397355
+    - 0.0006840348111429011
+    - 0.002470320851708032
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.17840433351956564
+    - 0.20663188961882165
+    - 0.38428503915850043
+    kl_divergence_per_position:
+    - 0.00051817141686312
+    - 0.0006081153800063304
+    - 0.0025782291506776245
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer4.ffn_up
+  layer_idx: 4
+  component: ffn_up
+  head_idx: null
+  logit_l2: 0.32125827836038906
+  kl_divergence: 0.0019032505476256378
+  argmax_flip_rate: 0.3055555555555555
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.37536689784376037
+    - 0.6684359945013351
+    - 0.30704273563285456
+    - 0.36310926436172347
+    kl_divergence_per_position:
+    - 0.002197604718291412
+    - 0.00745719342479658
+    - 0.0012314612508456542
+    - 0.0018203507511453726
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.16954982139523783
+    - 0.1520264713580004
+    - 0.4128178807765131
+    - 0.21241544753288225
+    - 0.4474188350904641
+    kl_divergence_per_position:
+    - 0.000433344048777046
+    - 0.00040237492475628483
+    - 0.0025012276507397355
+    - 0.0006840348111429011
+    - 0.002470320851708032
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.17840433351956564
+    - 0.20663188961882165
+    - 0.38428503915850043
+    kl_divergence_per_position:
+    - 0.00051817141686312
+    - 0.0006081153800063304
+    - 0.0025782291506776245
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer4.ffn_down
+  layer_idx: 4
+  component: ffn_down
+  head_idx: null
+  logit_l2: 0.32125827836038906
+  kl_divergence: 0.0019032505476256378
+  argmax_flip_rate: 0.3055555555555555
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.37536689784376037
+    - 0.6684359945013351
+    - 0.30704273563285456
+    - 0.36310926436172347
+    kl_divergence_per_position:
+    - 0.002197604718291412
+    - 0.00745719342479658
+    - 0.0012314612508456542
+    - 0.0018203507511453726
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.16954982139523783
+    - 0.1520264713580004
+    - 0.4128178807765131
+    - 0.21241544753288225
+    - 0.4474188350904641
+    kl_divergence_per_position:
+    - 0.000433344048777046
+    - 0.00040237492475628483
+    - 0.0025012276507397355
+    - 0.0006840348111429011
+    - 0.002470320851708032
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.17840433351956564
+    - 0.20663188961882165
+    - 0.38428503915850043
+    kl_divergence_per_position:
+    - 0.00051817141686312
+    - 0.0006081153800063304
+    - 0.0025782291506776245
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer3.ffn_gate
+  layer_idx: 3
+  component: ffn_gate
+  head_idx: null
+  logit_l2: 0.2673738213304167
+  kl_divergence: 0.0011001520528013278
+  argmax_flip_rate: 0.2222222222222222
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.3020946132595968
+    - 0.30292566418906647
+    - 0.2007610237847065
+    - 0.23246051164090623
+    kl_divergence_per_position:
+    - 0.001172583731848894
+    - 0.0014431524975256696
+    - 0.000529404866668724
+    - 0.0007717471047873413
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.28019011289466494
+    - 0.2780722714968572
+    - 0.2811256171825862
+    - 0.27740049066848715
+    - 0.5212677171713355
+    kl_divergence_per_position:
+    - 0.0011273353637135323
+    - 0.0012026755207326005
+    - 0.0011528707072882992
+    - 0.001077403433886832
+    - 0.0035470423055901775
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.20277826580913094
+    - 0.17842818948123573
+    - 0.2636428513793181
+    kl_divergence_per_position:
+    - 0.0005472638630049441
+    - 0.0005196838144296452
+    - 0.0010323582484275265
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer3.ffn_up
+  layer_idx: 3
+  component: ffn_up
+  head_idx: null
+  logit_l2: 0.2673738213304167
+  kl_divergence: 0.0011001520528013278
+  argmax_flip_rate: 0.2222222222222222
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.3020946132595968
+    - 0.30292566418906647
+    - 0.2007610237847065
+    - 0.23246051164090623
+    kl_divergence_per_position:
+    - 0.001172583731848894
+    - 0.0014431524975256696
+    - 0.000529404866668724
+    - 0.0007717471047873413
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.28019011289466494
+    - 0.2780722714968572
+    - 0.2811256171825862
+    - 0.27740049066848715
+    - 0.5212677171713355
+    kl_divergence_per_position:
+    - 0.0011273353637135323
+    - 0.0012026755207326005
+    - 0.0011528707072882992
+    - 0.001077403433886832
+    - 0.0035470423055901775
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.20277826580913094
+    - 0.17842818948123573
+    - 0.2636428513793181
+    kl_divergence_per_position:
+    - 0.0005472638630049441
+    - 0.0005196838144296452
+    - 0.0010323582484275265
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer3.ffn_down
+  layer_idx: 3
+  component: ffn_down
+  head_idx: null
+  logit_l2: 0.2673738213304167
+  kl_divergence: 0.0011001520528013278
+  argmax_flip_rate: 0.2222222222222222
+  per_prompt:
+  - token_ids:
+    - 1
+    - 5
+    - 9
+    - 3
+    logit_l2_per_position:
+    - 0.3020946132595968
+    - 0.30292566418906647
+    - 0.2007610237847065
+    - 0.23246051164090623
+    kl_divergence_per_position:
+    - 0.001172583731848894
+    - 0.0014431524975256696
+    - 0.000529404866668724
+    - 0.0007717471047873413
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 2
+    - 17
+    - 4
+    - 22
+    - 11
+    logit_l2_per_position:
+    - 0.28019011289466494
+    - 0.2780722714968572
+    - 0.2811256171825862
+    - 0.27740049066848715
+    - 0.5212677171713355
+    kl_divergence_per_position:
+    - 0.0011273353637135323
+    - 0.0012026755207326005
+    - 0.0011528707072882992
+    - 0.001077403433886832
+    - 0.0035470423055901775
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 30
+    - 0
+    - 15
+    logit_l2_per_position:
+    - 0.20277826580913094
+    - 0.17842818948123573
+    - 0.2636428513793181
+    kl_divergence_per_position:
+    - 0.0005472638630049441
+    - 0.0005196838144296452
+    - 0.0010323582484275265
+    argmax_flip_per_position:
+    - false
+    - true
+    - true

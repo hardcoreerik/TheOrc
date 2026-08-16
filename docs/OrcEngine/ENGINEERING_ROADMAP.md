@@ -115,7 +115,7 @@ No phase changes TheOrc’s default runtime without a separate product decision.
 
 **Definition of done:** format parser and dequantizer match trusted vectors; logits are compared against both float and a pinned external engine; memory reduction is measured; quality impact is reported on a fixed corpus.
 
-## Phase 6 — CUDA correctness baseline
+## Phase 6A — Resident CUDA correctness baseline
 
 **Goal:** reproduce approved CPU results on one NVIDIA target.
 
@@ -129,9 +129,40 @@ No phase changes TheOrc’s default runtime without a separate product decision.
 - compute capability, driver, CUDA toolkit, library versions, and build flags are recorded;
 - prompt and decode paths both execute on the intended backend.
 
+**Renumbered from "Phase 6" (2026-08-15, `Infinite_Model_Runtime_Claude_Handoff.md` steering review, see [Decision Log](DECISION_LOG.md) OE-ADR-019).** Full-residency CUDA is still the correct FIRST CUDA milestone — do not skip it for paging — but it is no longer treated as the *only* supported CUDA execution mode before the stable ABI freezes. See 6B/6C/6D below and the roadmap contract note at the top of this document.
+
+## Phase 6B — ExecutionPlanner and explicit residency model
+
+**Goal:** formalize where tensors live and how that's decided, before paged/streamed execution is attempted — so 6C doesn't retrofit residency semantics onto types that assumed permanent residency.
+
+**Why this phase exists:** Phase 0's own ablation-diagnostic tooling (`Tools/OrcEnginePhase0/oracle/gguf_streaming_loader.py`, built after Phase 0 closed) proved in Python that a model does not need to be materialized all at once to execute — Meta-Llama-3.1-8B, which failed to load under every full-residency approach tried in the same session, completed a full forward-pass sweep using 3.17GB peak VRAM by loading one transformer layer from disk, using it, and discarding it before the next. That is real evidence, not speculation, that OrcEngine's permanent architecture must not bake in "the model lives in VRAM" as a foundational assumption.
+
+**Scope — contracts, not full implementations (Phase 1 stays boring; see this document's Permanent verification rule and `ARCHITECTURE.md`):**
+
+- `LogicalTensor` (semantic identity: shape, layout, architecture role) is distinct from `BackingExtent` (source artifact, byte offset, codec, checksum) is distinct from `ResidentView` (memory tier, resident address, resident/compute dtype, lease/lifetime). A logical tensor must survive eviction/reload without changing identity.
+- "Model loaded" means source opened, GGUF validated, tensor index built, architecture manifest built, model addressable through a plan — NOT "all tensors copied into RAM/VRAM." Separate `Model::Open` / `ExecutionPlan::Create` / `Context::Create` (or equivalent) rather than one monolithic load call.
+- `ExecutionPlanner` (OrcEngine: where do tensors live, what's resident, what streams, what's the fallback plan) is explicitly NOT `OrcScheduler` (TheOrc: should this workload run, on which role/node, what resource policy) — do not build a second product scheduler.
+- `gpu_layers` (the llama.cpp placement mechanism TheOrc's `OrcScheduler`/`RuntimeOrchestrator` already use for admission estimates) is a useful CURRENT signal but is explicitly NOT promoted to a fundamental OrcEngine ABI concept — a single integer cannot describe per-tensor/per-tile placement across VRAM/RAM/NVMe tiers, which OrcEngine may eventually need.
+- Separate source format / transport format / resident format / compute format as four independent concepts (do not assume GGUF dtype == VRAM dtype == compute dtype) — motivated directly by a real bug this session found and fixed in the streaming/GPU oracle path: naive fp16 storage with fp16 compute silently overflowed (RMSNorm's `x^2` reduction, raw attention-score accumulation, and an FFN down-projection all independently overflowed fp16's max before this was caught), fixed by keeping storage compressed but computing in float32. The general principle — storage precision and compute precision are independent choices, not the same thing — is exactly what this phase should formalize for the C++ engine.
+- Unknown/unsupported resource cost is `UnknownCost(reason)` / `UnsupportedCostModel(reason)`, an explicit state the planner understands, not a numeric placeholder. (The Native Runtime C# patch for the equivalent admission bug used a large sentinel constant as a pragmatic, narrowly-scoped compatibility fix — that sentinel-value pattern is explicitly NOT the design to carry into OrcEngine's own cost model.)
+
+**Definition of done:** the three type distinctions above exist as documented contracts (`ARCHITECTURE.md`) with trivial Phase-1-appropriate implementations (`ResidentView` = a CPU pointer; `ExecutionPlanner` = always chooses `ResidentCPU`; `ContextStateStore` = `ContiguousKVStore`) — sophistication belongs in the contracts, not in Phase 1's code.
+
+## Phase 6C — Paged/streamed CUDA proof
+
+**Goal:** prove the same true-streaming, layer-by-layer execution already demonstrated in the Python research harness works in the actual C++/CUDA engine, not just as a research tool.
+
+**Definition of done:** at least one model whose weights exceed available VRAM executes successfully end-to-end through the real engine (not the Python oracle) using the `ExecutionPlanner`/residency contracts from 6B. Slow is an acceptable outcome; "too big for VRAM" alone is not an acceptable terminal failure once this phase starts.
+
+## Phase 6D — Compressed transport and advanced paging research
+
+**Goal:** explicitly experimental research, allowed to fail, not a Phase 1/6A-6C blocker. Candidate directions (see `Infinite_Model_Runtime_Claude_Handoff.md` for the full list; do not treat any of these as decided): tensor/tile-level paging below whole-layer granularity, separate storage/transport/resident/compute precision per tensor, ablation-sensitivity-informed quantization bit allocation (Phase 0's ablation tooling already produces the sensitivity data this would consume — see `oracle/ablation_sweep*.py` and the retained fleet reports under `Tools/OrcEnginePhase0/artifacts/`, though zero-ablation sensitivity is explicitly NOT the same claim as quantization sensitivity and would need its own direct experiments), speculative decoding as a way to amortize expensive weight-page loads over more useful tokens rather than only as a latency trick, MoE expert paging/prefetching, and a disposable content-addressed derived execution cache (GGUF stays canonical; the cache is rebuildable, never a competing model format).
+
 ## Phase 7 — Stable native API and managed wrapper
 
 **Goal:** expose the proven standalone engine safely to .NET.
+
+**Gated on 6C, not just 6A.** The stable ABI must not be frozen before paged/nonresident execution has exercised the model/context/storage contracts — freezing it right after 6A would bake in a full-residency worldview this project's own Phase-0-adjacent evidence has already disproven (see OE-ADR-019).
 
 **Scope:** small C ABI, opaque handles, stable errors, cancellation, UTF-8/token buffers, measured telemetry, SafeHandle-based managed ownership.
 

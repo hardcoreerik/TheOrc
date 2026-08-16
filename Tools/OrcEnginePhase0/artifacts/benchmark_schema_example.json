@@ -1,0 +1,21 @@
+{
+  "environment_capture_example": {
+    "operating_system": "Windows 11 (10.0.26200)",
+    "os_power_plan": null,
+    "cpu_model": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "cpu_cores_logical": 12,
+    "cpu_cores_physical": null,
+    "cpu_instruction_path": "unknown (Windows: no simple /proc/cpuinfo-equivalent flags query used here)",
+    "thread_count_used": null,
+    "cpu_affinity_used": null,
+    "ram_total_bytes": 33378181120,
+    "numa_topology": null,
+    "gpu_model": "NVIDIA GeForce RTX 5070 Ti",
+    "gpu_compute_capability": "12.0",
+    "gpu_driver_version": "610.47",
+    "gpu_toolkit_version": null,
+    "gpu_cublas_version": null,
+    "gpu_clock_power_settings": null
+  },
+  "note": "No benchmark was run -- OrcEngine has no executable code yet (Phase 1+ not started). This proves the record schema and environment-capture function are real and populatable, not that any benchmark exists."
+}

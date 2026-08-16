@@ -87,6 +87,11 @@ training_pit/flag_review.txt
 # GGUF model files — binary artifacts, host on HuggingFace or Ollama registry
 *.gguf
 
+# OrcEngine Phase 0 real-model candidate download — large binary artifacts (269MB
+# safetensors + friends), fully regenerable from the pinned revision via
+# Tools/OrcEnginePhase0/oracle/download_candidate.py. See LICENSING_AND_ATTRIBUTION.md.
+Tools/OrcEnginePhase0/artifacts/smollm2-135m/
+
 # Swarm dataset staging (auto-generated plan captures from DatasetCapture.cs)
 # Files require human review before moving to training_pit/datasets/
 .orc/swarm/dataset-staging/

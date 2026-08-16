@@ -1,0 +1,145 @@
+device: NVIDIA GeForce RTX 5070 Ti
+models_dir: C:\Users\hardc\AppData\Roaming\OrchestratorIDE\Models
+extra_models_dirs:
+- F:\AI\Models
+ollama_models_dir: F:\.ollama
+components: full
+results:
+- file: 2fa3f013dcdd7b99f9b237717fa0b12d75bbb89984cc1274be1471a465bac9c2.gguf
+  source: models_dir
+  status: completed
+  architecture: llama
+  n_layers: 32
+  hidden: 960
+  elapsed_seconds: 47.77590298652649
+  components_swept: 608
+  most_impactful_layer: layer0.full_layer
+  most_impactful_logit_l2: 1136.4626905352332
+  least_impactful_layer: layer9.attn_head11
+  least_impactful_logit_l2: 2.225606276887173
+- file: Meta-Llama-3.1-8B-Instruct-Q5_K_M.gguf
+  status: skipped
+  reason: 'too large for VRAM: 16.1GB estimated > 11.0GB budget'
+- file: Qwen2.5-1.5B-Instruct-Q4_K_M.gguf
+  source: models_dir
+  status: completed
+  architecture: qwen2
+  n_layers: 28
+  hidden: 1536
+  elapsed_seconds: 61.1688187122345
+  components_swept: 448
+  most_impactful_layer: layer0.full_layer
+  most_impactful_logit_l2: 1948.6843613683623
+  least_impactful_layer: layer6.attn_head9
+  least_impactful_logit_l2: 6.111752503642427
+- file: Qwen3.8-27B-IQ4_XS.gguf
+  status: skipped
+  reason: 'unsupported architecture: qwen35'
+- file: Qwen3.8-27B-Q3_K_M.gguf
+  status: skipped
+  reason: 'unsupported architecture: qwen35'
+- file: theorc-toolcaller-qwen25-1.5b-lora-v0-f16.gguf
+  status: skipped
+  reason: 'load failed: "required GGUF metadata key ''qwen2.block_count'' not found"'
+- file: dolphin-2.9.2-qwen2-7b-Q5_K_M.gguf
+  status: skipped
+  reason: 'too large for VRAM: 15.2GB estimated > 11.0GB budget'
+- file: hf.co/NousResearch/Hermes-3-Llama-3.2-3B-GGUF/Q4_K_M
+  source: ollama
+  status: completed
+  architecture: llama
+  n_layers: 28
+  hidden: 3072
+  elapsed_seconds: 144.28961634635925
+  components_swept: 784
+  most_impactful_layer: layer1.full_layer
+  most_impactful_logit_l2: 1097.7103646175262
+  least_impactful_layer: layer18.attn_head22
+  least_impactful_logit_l2: 2.4160647036111564
+- file: hf.co/bartowski/NousResearch_Hermes-4-14B-GGUF/Q5_K_M
+  status: skipped
+  reason: 'unsupported architecture: qwen3'
+- file: hf.co/bartowski/p-e-w_Llama-3.1-8B-Instruct-heretic-GGUF/Q4_K_M
+  status: skipped
+  reason: 'too large for VRAM: 16.1GB estimated > 11.0GB budget'
+- file: hf.co/bartowski/p-e-w_gpt-oss-20b-heretic-GGUF/Q4_K_M
+  status: skipped
+  reason: 'unsupported architecture: gpt-oss'
+- file: hf.co/bartowski/p-e-w_phi-4-heretic-GGUF/Q4_K_M
+  status: skipped
+  reason: 'too large for VRAM: 29.3GB estimated > 11.0GB budget'
+- file: hf.co/cognitivecomputations/Dolphin3.0-Llama3.1-8B-GGUF/Q4_0
+  status: skipped
+  reason: 'too large for VRAM: 16.1GB estimated > 11.0GB budget'
+- file: hf.co/google/gemma-4-12B-it-qat-q4_0-gguf/Q4_0
+  status: skipped
+  reason: 'unsupported architecture: gemma4'
+- file: registry.ollama.ai/library/deepseek-coder-v2/16b
+  status: skipped
+  reason: 'unsupported architecture: deepseek2'
+- file: registry.ollama.ai/library/devstral/24b
+  status: skipped
+  reason: 'too large for VRAM: 47.1GB estimated > 11.0GB budget'
+- file: registry.ollama.ai/library/gemma4/12b
+  status: skipped
+  reason: 'unsupported architecture: gemma4'
+- file: registry.ollama.ai/library/gemma4/e4b
+  status: skipped
+  reason: 'unsupported architecture: gemma4'
+- file: registry.ollama.ai/library/hardcoreerik-nemotron3-custom/latest
+  status: skipped
+  reason: 'unsupported architecture: nemotron_h'
+- file: registry.ollama.ai/library/hermes3/latest
+  status: skipped
+  reason: 'too large for VRAM: 16.1GB estimated > 11.0GB budget'
+- file: registry.ollama.ai/library/llama3.1/8b
+  status: skipped
+  reason: 'too large for VRAM: 16.1GB estimated > 11.0GB budget'
+- file: registry.ollama.ai/library/mistral-small/latest
+  status: skipped
+  reason: 'too large for VRAM: 47.1GB estimated > 11.0GB budget'
+- file: registry.ollama.ai/library/nemotron-3-nano/4b-q8_0
+  status: skipped
+  reason: 'unsupported architecture: nemotron_h'
+- file: registry.ollama.ai/library/nomic-embed-text/latest
+  status: skipped
+  reason: 'unsupported architecture: nomic-bert'
+- file: registry.ollama.ai/library/phi4-mini/latest
+  source: ollama
+  status: completed
+  architecture: phi3
+  n_layers: 32
+  hidden: 3072
+  elapsed_seconds: 216.34444499015808
+  components_swept: 896
+  most_impactful_layer: layer31.full_layer
+  most_impactful_logit_l2: 5196.465089913971
+  least_impactful_layer: layer27.attn_head7
+  least_impactful_logit_l2: 3.5033846987194885
+- file: registry.ollama.ai/library/qwen2.5-coder/14b
+  status: skipped
+  reason: 'too large for VRAM: 29.5GB estimated > 11.0GB budget'
+- file: registry.ollama.ai/library/qwen2.5-coder/32b
+  status: skipped
+  reason: 'too large for VRAM: 65.5GB estimated > 11.0GB budget'
+- file: registry.ollama.ai/library/qwen2.5-coder/7b
+  status: skipped
+  reason: 'too large for VRAM: 15.2GB estimated > 11.0GB budget'
+- file: registry.ollama.ai/library/qwen2.5/1.5b-instruct
+  source: ollama
+  status: completed
+  architecture: qwen2
+  n_layers: 28
+  hidden: 1536
+  elapsed_seconds: 62.126303911209106
+  components_swept: 448
+  most_impactful_layer: layer0.full_layer
+  most_impactful_logit_l2: 1987.3833101107577
+  least_impactful_layer: layer6.attn_head9
+  least_impactful_logit_l2: 5.097083756816358
+- file: registry.ollama.ai/library/qwen2.5/14b-instruct
+  status: skipped
+  reason: 'too large for VRAM: 29.5GB estimated > 11.0GB budget'
+- file: registry.ollama.ai/library/qwen3/14b
+  status: skipped
+  reason: 'unsupported architecture: qwen3'

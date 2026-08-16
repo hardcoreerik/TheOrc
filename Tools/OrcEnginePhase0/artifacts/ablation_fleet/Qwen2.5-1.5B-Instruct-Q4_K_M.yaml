@@ -1,0 +1,1922 @@
+model_label: Qwen2.5-1.5B-Instruct-Q4_K_M.gguf
+n_prompts: 3
+components_swept: 28
+elapsed_seconds: 112.33682084083557
+results:
+- label: layer0.full_layer
+  layer_idx: 0
+  component: full_layer
+  head_idx: null
+  logit_l2: 1948.3944438369763
+  kl_divergence: 10.098079287860177
+  argmax_flip_rate: 1.0
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 2510.7941133658796
+    - 1961.314541413674
+    - 2022.3119507860276
+    - 1439.2361918871588
+    kl_divergence_per_position:
+    - 8.720513927327431
+    - 15.960467023965837
+    - 11.544057804602183
+    - 10.641185507676525
+    argmax_flip_per_position:
+    - true
+    - true
+    - true
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 1452.0072761140818
+    - 2887.1224127040828
+    - 1469.4554906616536
+    - 1348.1762735929265
+    - 1981.8597051461522
+    kl_divergence_per_position:
+    - 8.847280154427901
+    - 8.146474864828377
+    - 9.382104058926473
+    - 7.055072527526599
+    - 12.063203492188853
+    argmax_flip_per_position:
+    - true
+    - true
+    - true
+    - true
+    - true
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 1735.5952260106026
+    - 2225.94158181177
+    - 2140.5978936895217
+    kl_divergence_per_position:
+    - 12.033497366093508
+    - 7.512318067533767
+    - 8.890748900696408
+    argmax_flip_per_position:
+    - true
+    - true
+    - true
+- label: layer1.full_layer
+  layer_idx: 1
+  component: full_layer
+  head_idx: null
+  logit_l2: 1326.5233654352485
+  kl_divergence: 4.982600797064684
+  argmax_flip_rate: 1.0
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 1249.364231552214
+    - 1276.9341863751656
+    - 1180.756451279323
+    - 1286.5467286784728
+    kl_divergence_per_position:
+    - 5.615104746881202
+    - 5.009327679425858
+    - 4.338645449029281
+    - 7.41522188807729
+    argmax_flip_per_position:
+    - true
+    - true
+    - true
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 1362.6371087769803
+    - 1868.517676730994
+    - 1283.1363656833723
+    - 860.1807604567827
+    - 2392.5736751847767
+    kl_divergence_per_position:
+    - 7.47121180124135
+    - 5.4406538529960216
+    - 5.297928143270687
+    - 2.1371028142789696
+    - 10.481982854487235
+    argmax_flip_per_position:
+    - true
+    - true
+    - true
+    - true
+    - true
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 1389.0541372095017
+    - 1103.87508406848
+    - 1040.3525171256297
+    kl_divergence_per_position:
+    - 3.9741515948845954
+    - 3.707115105129951
+    - 1.8810879712428368
+    argmax_flip_per_position:
+    - true
+    - true
+    - true
+- label: layer27.full_layer
+  layer_idx: 27
+  component: full_layer
+  head_idx: null
+  logit_l2: 1218.4746081160276
+  kl_divergence: 1.6586870269983365
+  argmax_flip_rate: 0.9166666666666666
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 1201.564984075318
+    - 897.3097279414523
+    - 974.0735316835471
+    - 1258.953565356588
+    kl_divergence_per_position:
+    - 1.5988239864664504
+    - 0.34961389686527916
+    - 0.6901360444948607
+    - 0.5827883357959855
+    argmax_flip_per_position:
+    - true
+    - true
+    - true
+    - false
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 1038.76008286696
+    - 1669.944267136342
+    - 1316.9301036420966
+    - 1256.7577398753324
+    - 1562.5912091984546
+    kl_divergence_per_position:
+    - 2.139938168211073
+    - 1.0503764170757968
+    - 1.9314417052819381
+    - 1.3147996818018886
+    - 3.1681894899798984
+    argmax_flip_per_position:
+    - true
+    - true
+    - true
+    - true
+    - true
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 1077.862012009103
+    - 1166.77026211836
+    - 1365.7228004925971
+    kl_divergence_per_position:
+    - 5.468375768806526
+    - 0.7146876611764456
+    - 0.5662508378747675
+    argmax_flip_per_position:
+    - true
+    - true
+    - true
+- label: layer26.full_layer
+  layer_idx: 26
+  component: full_layer
+  head_idx: null
+  logit_l2: 806.3283393550252
+  kl_divergence: 3.9713776263610225
+  argmax_flip_rate: 0.6555555555555556
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 1638.123587631788
+    - 186.56754941279985
+    - 306.26384892923704
+    - 424.440487548814
+    kl_divergence_per_position:
+    - 15.070496614425078
+    - 0.06738938317289131
+    - 0.13152796812147055
+    - 0.44422676877692463
+    argmax_flip_per_position:
+    - true
+    - false
+    - false
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 1761.031091619904
+    - 371.40557736169467
+    - 467.37459512814826
+    - 405.2754926942826
+    - 412.27849637974833
+    kl_divergence_per_position:
+    - 14.484532895761737
+    - 0.36006674228850044
+    - 0.41282251787182656
+    - 0.49491782710076904
+    - 0.18972011125235178
+    argmax_flip_per_position:
+    - true
+    - true
+    - true
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 2477.551537058293
+    - 481.57751115366216
+    - 330.8602489310258
+    kl_divergence_per_position:
+    - 13.97789879783867
+    - 0.28768881775253485
+    - 0.12634441422061335
+    argmax_flip_per_position:
+    - true
+    - false
+    - true
+- label: layer2.full_layer
+  layer_idx: 2
+  component: full_layer
+  head_idx: null
+  logit_l2: 781.2414394925621
+  kl_divergence: 3.110898285938287
+  argmax_flip_rate: 0.7833333333333333
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 1612.2285196888934
+    - 237.7654592916239
+    - 285.5077643310926
+    - 234.91978494679518
+    kl_divergence_per_position:
+    - 9.318357897227902
+    - 0.28180853974134124
+    - 0.2868389079753685
+    - 0.3106180532651708
+    argmax_flip_per_position:
+    - true
+    - false
+    - true
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 1617.9258986682817
+    - 601.9650238144359
+    - 691.858570084093
+    - 713.8008203499357
+    - 332.6286196748682
+    kl_divergence_per_position:
+    - 12.374482231000513
+    - 1.4528489164310157
+    - 0.556239713121251
+    - 0.658235973677909
+    - 0.10951453883921518
+    argmax_flip_per_position:
+    - true
+    - true
+    - false
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 1748.482695877874
+    - 427.62056052687524
+    - 702.3461932795364
+    kl_divergence_per_position:
+    - 9.832507508770755
+    - 0.6436381114493696
+    - 0.782928580725177
+    argmax_flip_per_position:
+    - true
+    - true
+    - true
+- label: layer3.full_layer
+  layer_idx: 3
+  component: full_layer
+  head_idx: null
+  logit_l2: 750.1416771595897
+  kl_divergence: 1.6017391785698554
+  argmax_flip_rate: 0.6722222222222222
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 1757.1100453997255
+    - 244.5937550345839
+    - 585.3821743603289
+    - 272.9686650173008
+    kl_divergence_per_position:
+    - 2.3570410856905433
+    - 0.15698038737424966
+    - 1.45919962658285
+    - 0.24851740692217653
+    argmax_flip_per_position:
+    - true
+    - false
+    - true
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 1612.4698287365295
+    - 420.3399901415066
+    - 555.9995342930239
+    - 653.2153475466203
+    - 614.2313228545664
+    kl_divergence_per_position:
+    - 6.45754057666692
+    - 0.7005455816980763
+    - 0.33736392187624975
+    - 0.8617862305881238
+    - 1.1692282979317221
+    argmax_flip_per_position:
+    - true
+    - true
+    - false
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 1449.5777198590995
+    - 327.7876138862209
+    - 515.1151666886838
+    kl_divergence_per_position:
+    - 4.800074832116531
+    - 0.3262113988075071
+    - 0.4071837310206412
+    argmax_flip_per_position:
+    - true
+    - false
+    - true
+- label: layer24.full_layer
+  layer_idx: 24
+  component: full_layer
+  head_idx: null
+  logit_l2: 630.4829907384564
+  kl_divergence: 1.6220691257270456
+  argmax_flip_rate: 0.4388888888888889
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 952.0866705074407
+    - 341.23769272593813
+    - 381.7273360920245
+    - 352.83705794611774
+    kl_divergence_per_position:
+    - 4.8482882227909405
+    - 0.08606340345203584
+    - 0.10682102174365171
+    - 0.2988667885820085
+    argmax_flip_per_position:
+    - true
+    - false
+    - false
+    - false
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 960.7866163728759
+    - 375.4614897487465
+    - 450.32041065879986
+    - 478.16258883425786
+    - 457.9414941278758
+    kl_divergence_per_position:
+    - 3.765645108100842
+    - 0.5351430571122181
+    - 0.7781748987536269
+    - 0.5980333263600294
+    - 0.20693312890604576
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 1544.7999773189774
+    - 493.90254463767764
+    - 481.12426689027734
+    kl_divergence_per_position:
+    - 6.349263371938304
+    - 0.4222911315696394
+    - 0.2916803390693321
+    argmax_flip_per_position:
+    - true
+    - true
+    - false
+- label: layer5.full_layer
+  layer_idx: 5
+  component: full_layer
+  head_idx: null
+  logit_l2: 592.1039225090117
+  kl_divergence: 0.7590326416624927
+  argmax_flip_rate: 0.39444444444444443
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 1337.470814148285
+    - 280.1017109911104
+    - 458.36781319516086
+    - 387.28512536125146
+    kl_divergence_per_position:
+    - 0.27902726382871945
+    - 0.25122246669522147
+    - 0.4787002305663973
+    - 0.6824756053653512
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+    - false
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 1305.637241216015
+    - 278.6789757201126
+    - 449.40736530463994
+    - 353.19992115542385
+    - 281.0425944496993
+    kl_divergence_per_position:
+    - 2.566595458815805
+    - 0.2631479237573989
+    - 0.6079676054046839
+    - 0.3528844196104005
+    - 0.11099471342284532
+    argmax_flip_per_position:
+    - true
+    - true
+    - false
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 1179.7780117870377
+    - 363.00857361736234
+    - 337.94996069731576
+    kl_divergence_per_position:
+    - 2.576469253636084
+    - 0.2838067509612998
+    - 0.36149452291660383
+    argmax_flip_per_position:
+    - true
+    - false
+    - false
+- label: layer4.full_layer
+  layer_idx: 4
+  component: full_layer
+  head_idx: null
+  logit_l2: 478.3252832761511
+  kl_divergence: 0.5446443007289805
+  argmax_flip_rate: 0.4777777777777778
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 625.4513797627261
+    - 316.25976758152336
+    - 340.51022744978764
+    - 297.9947737594168
+    kl_divergence_per_position:
+    - 0.16926575814142494
+    - 0.34989213440435935
+    - 0.39124699245177436
+    - 0.48601182023378753
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 797.861499239061
+    - 423.9893552752477
+    - 405.24386614786954
+    - 360.6764056289639
+    - 409.5742574006043
+    kl_divergence_per_position:
+    - 0.34136903590536377
+    - 0.9030779106388032
+    - 0.36906474314251175
+    - 0.43993117448598906
+    - 1.9205269265338467
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 771.6166681112697
+    - 509.3668001638627
+    - 400.37473958008894
+    kl_divergence_per_position:
+    - 0.5782330895540205
+    - 0.48098332484715745
+    - 0.41088788881222804
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+- label: layer21.full_layer
+  layer_idx: 21
+  component: full_layer
+  head_idx: null
+  logit_l2: 354.004857857128
+  kl_divergence: 0.40842423406140765
+  argmax_flip_rate: 0.5055555555555555
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 78.12741039309776
+    - 297.48380211330095
+    - 559.8147910714413
+    - 427.2488290971315
+    kl_divergence_per_position:
+    - 0.0076197925269235
+    - 0.11225622201708016
+    - 0.2828865323094042
+    - 0.6073735212264535
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 87.14149887355951
+    - 359.6977065815768
+    - 402.4888863823604
+    - 476.08162048071273
+    - 541.0468219441557
+    kl_divergence_per_position:
+    - 0.037449731664001354
+    - 0.48002139128472665
+    - 0.4751069233175894
+    - 0.6488542836642659
+    - 2.018459322823972
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - true
+    - true
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 123.10671163332601
+    - 468.15419493540253
+    - 452.9027690817758
+    kl_divergence_per_position:
+    - 0.03689255245846447
+    - 0.5010343547897167
+    - 0.18435415659185814
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer25.full_layer
+  layer_idx: 25
+  component: full_layer
+  head_idx: null
+  logit_l2: 345.03089623517593
+  kl_divergence: 0.22995417572422505
+  argmax_flip_rate: 0.21666666666666667
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 178.48835921990462
+    - 198.96142894817694
+    - 268.9625304233736
+    - 427.3846208876366
+    kl_divergence_per_position:
+    - 0.01669646765561949
+    - 0.05983832830096234
+    - 0.11694196515247311
+    - 0.6553011771185154
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 178.35006404789323
+    - 306.2780679349879
+    - 390.20322059967856
+    - 399.8933052801634
+    - 350.09490054713405
+    kl_divergence_per_position:
+    - 0.07640497358412977
+    - 0.2755123092286336
+    - 0.54598751304845
+    - 0.47235990105755044
+    - 0.18087182307515903
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 291.6849312774633
+    - 468.06564686232286
+    - 565.288048321564
+    kl_divergence_per_position:
+    - 0.12238566187293698
+    - 0.24498630027364388
+    - 0.13495025370441324
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+- label: layer23.full_layer
+  layer_idx: 23
+  component: full_layer
+  head_idx: null
+  logit_l2: 320.2150901897655
+  kl_divergence: 0.2787835193614144
+  argmax_flip_rate: 0.2833333333333333
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 94.6571421045232
+    - 231.43173702610858
+    - 304.29478969886867
+    - 529.5959087377763
+    kl_divergence_per_position:
+    - 0.010831178228916452
+    - 0.10193203878001125
+    - 0.1582290638377732
+    - 0.8604542376447363
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 104.92162886872869
+    - 304.2234656682435
+    - 483.3730698259787
+    - 442.7516131091697
+    - 525.765128734523
+    kl_divergence_per_position:
+    - 0.04503206603033832
+    - 0.27909538956632063
+    - 0.5219790445369357
+    - 0.43411025692383626
+    - 0.3334150878583296
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 142.3681529386002
+    - 484.34481044248054
+    - 268.61722142736494
+    kl_divergence_per_position:
+    - 0.06113920515686724
+    - 0.4218308323702378
+    - 0.20931764090759067
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+- label: layer22.full_layer
+  layer_idx: 22
+  component: full_layer
+  head_idx: null
+  logit_l2: 296.6466908968252
+  kl_divergence: 0.28516975675304207
+  argmax_flip_rate: 0.41111111111111115
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 90.65513466614546
+    - 319.1083202363634
+    - 269.5473979833541
+    - 298.83142287158444
+    kl_divergence_per_position:
+    - 0.004074527324938255
+    - 0.12029297064666811
+    - 0.14287292561263762
+    - 0.5278774940665579
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 97.35728591858063
+    - 399.35567812156523
+    - 363.71323179508005
+    - 467.5707478564612
+    - 647.5559532127139
+    kl_divergence_per_position:
+    - 0.018360121343855968
+    - 0.5805548174636912
+    - 0.2431137982249925
+    - 0.4214270467349608
+    - 1.4279149117778522
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 107.01305787021153
+    - 330.2085257619268
+    - 313.66018947856276
+    kl_divergence_per_position:
+    - 0.011265294892777557
+    - 0.23447923608348709
+    - 0.10962242423580082
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+- label: layer19.full_layer
+  layer_idx: 19
+  component: full_layer
+  head_idx: null
+  logit_l2: 256.49222143487617
+  kl_divergence: 0.19563305661226427
+  argmax_flip_rate: 0.45555555555555555
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 68.03755112526785
+    - 209.8455915387016
+    - 215.5891075791764
+    - 366.54348427895036
+    kl_divergence_per_position:
+    - 0.004183363143854795
+    - 0.10725726529923324
+    - 0.14740600076316343
+    - 0.27029487829592397
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 70.81508780051095
+    - 252.5349437259778
+    - 449.35973123219395
+    - 290.967913434454
+    - 394.12722816866165
+    kl_divergence_per_position:
+    - 0.0045015832058713885
+    - 0.2516792768191083
+    - 0.50270659053073
+    - 0.25256357921723943
+    - 0.44215695066973143
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 71.12943965209212
+    - 362.5810376818153
+    - 355.02477207132716
+    kl_divergence_per_position:
+    - 0.010692797111760164
+    - 0.2373698549351067
+    - 0.24361393857127167
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+- label: layer6.full_layer
+  layer_idx: 6
+  component: full_layer
+  head_idx: null
+  logit_l2: 255.993973029862
+  kl_divergence: 0.1931486575317257
+  argmax_flip_rate: 0.41111111111111115
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 93.89599038592209
+    - 192.8894330174349
+    - 558.134323349815
+    - 320.41213963771264
+    kl_divergence_per_position:
+    - 0.00859445512190418
+    - 0.09780146293853953
+    - 0.6828947453449845
+    - 0.46952557805882456
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 89.7352925403806
+    - 209.68120183334
+    - 302.57782381074145
+    - 187.30321353598237
+    - 212.0280926784969
+    kl_divergence_per_position:
+    - 0.012104295309764763
+    - 0.24592030392352654
+    - 0.2041476195354561
+    - 0.1062692344003641
+    - 0.08418088619388119
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 102.19952475907478
+    - 307.6737313795466
+    - 419.2782116976082
+    kl_divergence_per_position:
+    - 0.03251072505836851
+    - 0.1565751567427533
+    - 0.21356645126842433
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+- label: layer20.full_layer
+  layer_idx: 20
+  component: full_layer
+  head_idx: null
+  logit_l2: 200.08315536072675
+  kl_divergence: 0.10308166798874108
+  argmax_flip_rate: 0.3
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 72.77606904614339
+    - 149.80719002424232
+    - 238.4836386799477
+    - 220.32841906208245
+    kl_divergence_per_position:
+    - 0.004607872867194545
+    - 0.08070105008127347
+    - 0.09892059200538385
+    - 0.15454266716234785
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 85.49655336745342
+    - 211.24676638368578
+    - 332.9772125554568
+    - 421.0047014483379
+    - 274.60913368664995
+    kl_divergence_per_position:
+    - 0.005220381598715696
+    - 0.1900376553774631
+    - 0.366759734720779
+    - 0.14902669103655183
+    - 0.08137583437868935
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 79.79869327964516
+    - 225.98362254827063
+    - 188.71897434436272
+    kl_divergence_per_position:
+    - 0.014568107780732743
+    - 0.10098703264900458
+    - 0.08264855661446316
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+- label: layer7.full_layer
+  layer_idx: 7
+  component: full_layer
+  head_idx: null
+  logit_l2: 197.97604120051923
+  kl_divergence: 0.15977010383592094
+  argmax_flip_rate: 0.41111111111111115
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 86.85909313061875
+    - 153.68172456101007
+    - 370.9203364587695
+    - 186.97237493967992
+    kl_divergence_per_position:
+    - 0.004200514627089718
+    - 0.11178848002298172
+    - 0.29516202828494387
+    - 0.22783693523665546
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 85.1992787852634
+    - 216.4637679028977
+    - 310.76251969550606
+    - 228.9288338828517
+    - 202.3015977956891
+    kl_divergence_per_position:
+    - 0.002797749289739758
+    - 0.22301773944820394
+    - 0.5391637890264819
+    - 0.1478164197623306
+    - 0.0902697861768781
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 93.50073116317581
+    - 265.1840037782253
+    - 198.08089020838844
+    kl_divergence_per_position:
+    - 0.03222295204134189
+    - 0.17427992449634624
+    - 0.1503477991346666
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+- label: layer8.full_layer
+  layer_idx: 8
+  component: full_layer
+  head_idx: null
+  logit_l2: 184.6021193987804
+  kl_divergence: 0.10319998165905618
+  argmax_flip_rate: 0.3277777777777778
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 56.997396566570416
+    - 134.53486707042015
+    - 435.9465985090093
+    - 130.40477187331274
+    kl_divergence_per_position:
+    - 0.004579763190041582
+    - 0.0938439750914134
+    - 0.34329244382131047
+    - 0.07925843564721599
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 53.217170018513684
+    - 154.56505786278558
+    - 295.6824068235642
+    - 271.34277270696947
+    - 199.57716217097843
+    kl_divergence_per_position:
+    - 0.0032467133192878184
+    - 0.10421506062548763
+    - 0.29492870413304273
+    - 0.10301433253720016
+    - 0.06867714069349434
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 66.34086641334127
+    - 186.4704395660542
+    - 255.56430134545664
+    kl_divergence_per_position:
+    - 0.010841394449476802
+    - 0.09577105924923676
+    - 0.08700724713519827
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer18.full_layer
+  layer_idx: 18
+  component: full_layer
+  head_idx: null
+  logit_l2: 179.18940760320083
+  kl_divergence: 0.09815081898377169
+  argmax_flip_rate: 0.39444444444444443
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 73.55044325425496
+    - 193.80066143039235
+    - 151.21472732988678
+    - 158.72670678957095
+    kl_divergence_per_position:
+    - 0.003375142116239166
+    - 0.09536102397801464
+    - 0.07997896445599473
+    - 0.09432579678886825
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+    - false
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 66.45963353898114
+    - 294.70238712718515
+    - 277.7092572134787
+    - 207.9581055978454
+    - 221.77905362933762
+    kl_divergence_per_position:
+    - 0.005687636668353907
+    - 0.29289448018768993
+    - 0.20515277766032228
+    - 0.13729436099694406
+    - 0.0846254646780535
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 67.65908884861042
+    - 306.34719697441386
+    - 164.56391623860742
+    kl_divergence_per_position:
+    - 0.014095764823782313
+    - 0.15744835736398777
+    - 0.07163972104701927
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer17.full_layer
+  layer_idx: 17
+  component: full_layer
+  head_idx: null
+  logit_l2: 178.8593027530495
+  kl_divergence: 0.10067226288530046
+  argmax_flip_rate: 0.2611111111111111
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 54.699082927880454
+    - 156.69009912516165
+    - 240.60221089012634
+    - 137.71017414770654
+    kl_divergence_per_position:
+    - 0.002326130978223929
+    - 0.0945842291538522
+    - 0.1784955726050057
+    - 0.07288344453337695
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+    - false
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 57.17891939033477
+    - 167.37114732189033
+    - 474.97455204299894
+    - 196.787748390234
+    - 165.2736033252301
+    kl_divergence_per_position:
+    - 0.00431444616110389
+    - 0.1163048985550623
+    - 0.37840859342341043
+    - 0.09220332478690178
+    - 0.08191567234386174
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 64.5635908015799
+    - 205.70870752984263
+    - 260.2336688454539
+    kl_divergence_per_position:
+    - 0.008633241505543588
+    - 0.10990185798731149
+    - 0.12241007235980081
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer10.full_layer
+  layer_idx: 10
+  component: full_layer
+  head_idx: null
+  logit_l2: 161.68703497691607
+  kl_divergence: 0.07266582105958426
+  argmax_flip_rate: 0.3444444444444444
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 52.98181521311905
+    - 94.5809414957199
+    - 222.71629862408878
+    - 197.59438437603853
+    kl_divergence_per_position:
+    - 0.003079741253255366
+    - 0.04179737201366031
+    - 0.19192112283863866
+    - 0.07833773164954164
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 50.16968118644482
+    - 135.85597463707194
+    - 192.50584765978337
+    - 144.17400241909147
+    - 173.22313543736448
+    kl_divergence_per_position:
+    - 0.005738089997483569
+    - 0.07502016573964253
+    - 0.09075871251595406
+    - 0.08712293350079597
+    - 0.06533936111173351
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 64.9604147056549
+    - 155.0903501766817
+    - 391.67028532432965
+    kl_divergence_per_position:
+    - 0.011923750521574523
+    - 0.06513736220559359
+    - 0.14619174327340254
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer9.full_layer
+  layer_idx: 9
+  component: full_layer
+  head_idx: null
+  logit_l2: 152.02274657808388
+  kl_divergence: 0.08499221828316579
+  argmax_flip_rate: 0.2833333333333333
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 68.6291964547923
+    - 135.74293489375444
+    - 141.33892125076565
+    - 150.41975287692506
+    kl_divergence_per_position:
+    - 0.004566319259132187
+    - 0.05731950030862589
+    - 0.09267388648615632
+    - 0.09821617148359307
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 69.37892157941404
+    - 183.35462597398478
+    - 249.1941342759773
+    - 229.16874925616003
+    - 143.69815915527278
+    kl_divergence_per_position:
+    - 0.006639077793877436
+    - 0.1458317412773967
+    - 0.13469415728005124
+    - 0.12617378289693143
+    - 0.04236810782258113
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 81.91166529928435
+    - 160.39815685727564
+    - 228.92003879453142
+    kl_divergence_per_position:
+    - 0.014126863114493472
+    - 0.10254802007156039
+    - 0.18524905296680494
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+- label: layer12.full_layer
+  layer_idx: 12
+  component: full_layer
+  head_idx: null
+  logit_l2: 141.1219058517548
+  kl_divergence: 0.06339839057833352
+  argmax_flip_rate: 0.2611111111111111
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 39.80271859211644
+    - 179.3573139778086
+    - 160.79668149651044
+    - 112.72388783966744
+    kl_divergence_per_position:
+    - 0.002908949268389488
+    - 0.0948311900060651
+    - 0.059494551352970375
+    - 0.05340954767223996
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 43.08520225056886
+    - 152.19335556795548
+    - 252.67352616355177
+    - 144.85262518136767
+    - 164.51774177967306
+    kl_divergence_per_position:
+    - 0.003112286189327894
+    - 0.12534937961230996
+    - 0.09120817587356218
+    - 0.07211113815211646
+    - 0.03310458937225158
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - false
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 53.503828239294634
+    - 182.4804022180659
+    - 210.20900021298522
+    kl_divergence_per_position:
+    - 0.010921652140029544
+    - 0.09342425256032039
+    - 0.11332509026016216
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer16.full_layer
+  layer_idx: 16
+  component: full_layer
+  head_idx: null
+  logit_l2: 140.84315783280013
+  kl_divergence: 0.05581516860940285
+  argmax_flip_rate: 0.3444444444444444
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 50.761292385353926
+    - 119.23952245352629
+    - 203.56226549127842
+    - 133.71480895921192
+    kl_divergence_per_position:
+    - 0.0026504004270718117
+    - 0.03661441950420505
+    - 0.08794603561310001
+    - 0.07214817733818485
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 57.61098090030527
+    - 153.01127771741037
+    - 217.60139204418172
+    - 181.7932866317103
+    - 132.61321486031412
+    kl_divergence_per_position:
+    - 0.0030736753796877752
+    - 0.11660860545038278
+    - 0.0585744171390681
+    - 0.07988901835167087
+    - 0.023055962240408068
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - false
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 54.84663696733269
+    - 145.59811545589625
+    - 241.10715981259133
+    kl_divergence_per_position:
+    - 0.006305461719679703
+    - 0.06805225321961433
+    - 0.10973852074667972
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+- label: layer11.full_layer
+  layer_idx: 11
+  component: full_layer
+  head_idx: null
+  logit_l2: 138.68667369073003
+  kl_divergence: 0.08228475769173985
+  argmax_flip_rate: 0.2611111111111111
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 53.55598398096325
+    - 142.34235955368942
+    - 128.9898406147919
+    - 121.48526930143508
+    kl_divergence_per_position:
+    - 0.006294939045134532
+    - 0.08523188028950233
+    - 0.06695302116051069
+    - 0.03914047303803742
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 55.704785740444905
+    - 187.08793269360692
+    - 381.41464516306416
+    - 182.65248216632506
+    - 130.69294167950966
+    kl_divergence_per_position:
+    - 0.0010792304714628592
+    - 0.11113943927737276
+    - 0.42290093634965836
+    - 0.12228233517546443
+    - 0.04978822468095069
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 71.90947168542083
+    - 142.6799611366841
+    - 136.27886784053536
+    kl_divergence_per_position:
+    - 0.011680350127062183
+    - 0.07451973816205595
+    - 0.08183339621370635
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer15.full_layer
+  layer_idx: 15
+  component: full_layer
+  head_idx: null
+  logit_l2: 136.5332125124407
+  kl_divergence: 0.06964582103359276
+  argmax_flip_rate: 0.2611111111111111
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 52.20789288215002
+    - 95.62952447045166
+    - 195.73892959241138
+    - 121.19554768450848
+    kl_divergence_per_position:
+    - 0.0021387648678777606
+    - 0.038259159667877275
+    - 0.10228167900018868
+    - 0.05804533331027012
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 52.55353581907682
+    - 156.1037677219951
+    - 239.47417784577053
+    - 205.96225429566277
+    - 166.0514068580243
+    kl_divergence_per_position:
+    - 0.0025052479576095545
+    - 0.10981996350611092
+    - 0.2713699274125856
+    - 0.0820840935617792
+    - 0.045831023416315717
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 51.321861959336154
+    - 160.4430415884555
+    - 176.3680025677159
+    kl_divergence_per_position:
+    - 0.0039791551759053466
+    - 0.07816825331329427
+    - 0.0871551246658343
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer14.full_layer
+  layer_idx: 14
+  component: full_layer
+  head_idx: null
+  logit_l2: 134.5788303081572
+  kl_divergence: 0.06752464441355287
+  argmax_flip_rate: 0.27777777777777773
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 39.06426091316387
+    - 104.88881315208131
+    - 148.27105630590285
+    - 139.83876255269706
+    kl_divergence_per_position:
+    - 0.001420686074547055
+    - 0.0425175166351219
+    - 0.07090946707229208
+    - 0.06740883851514197
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 44.50638564119805
+    - 125.58134663962426
+    - 263.38897342423365
+    - 148.18367904843254
+    - 136.5883508888496
+    kl_divergence_per_position:
+    - 0.0028573032139096927
+    - 0.09061942545903011
+    - 0.08186246251094617
+    - 0.06693855843692213
+    - 0.05005420242322865
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - false
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 50.50105973877261
+    - 172.316949214232
+    - 233.39505274212337
+    kl_divergence_per_position:
+    - 0.005718031926800543
+    - 0.17402159827926397
+    - 0.11589061706666198
+    argmax_flip_per_position:
+    - false
+    - false
+    - true
+- label: layer13.full_layer
+  layer_idx: 13
+  component: full_layer
+  head_idx: null
+  logit_l2: 126.15550635925695
+  kl_divergence: 0.07216396250569164
+  argmax_flip_rate: 0.45555555555555555
+  per_prompt:
+  - token_ids:
+    - 31948
+    - 116759
+    - 84769
+    - 17967
+    logit_l2_per_position:
+    - 43.801221369349896
+    - 122.19641479853958
+    - 139.96631267672902
+    - 152.21093298865756
+    kl_divergence_per_position:
+    - 0.003284222087398011
+    - 0.10971456071440339
+    - 0.058492195585835
+    - 0.09684064267124995
+    argmax_flip_per_position:
+    - false
+    - true
+    - false
+    - true
+  - token_ids:
+    - 28777
+    - 149989
+    - 43171
+    - 39804
+    - 124878
+    logit_l2_per_position:
+    - 43.54709961463084
+    - 101.18825616517142
+    - 247.8663480857063
+    - 130.24995936586214
+    - 142.61090468086547
+    kl_divergence_per_position:
+    - 0.004304909273058395
+    - 0.053397279468551134
+    - 0.11697094681814095
+    - 0.052848665522764744
+    - 0.024748525870556325
+    argmax_flip_per_position:
+    - false
+    - false
+    - false
+    - true
+    - false
+  - token_ids:
+    - 140296
+    - 95814
+    - 51056
+    logit_l2_per_position:
+    - 56.054484224147004
+    - 129.62079270038328
+    - 206.8155781864837
+    kl_divergence_per_position:
+    - 0.008897857872596162
+    - 0.06449313946627476
+    - 0.22347375324634614
+    argmax_flip_per_position:
+    - false
+    - true
+    - true
+gguf_info:
+  path: C:\Users\hardc\AppData\Roaming\OrchestratorIDE\Models\Qwen2.5-1.5B-Instruct-Q4_K_M.gguf
+  architecture: qwen2
+  tied_embeddings: true
+  has_qkv_bias: true
+  has_fused_qkv: false
+  partial_rotary: false
+  quant_types:
+  - F32
+  - Q4_K
+  - Q6_K
+  n_tensors: 338
+source: models_dir

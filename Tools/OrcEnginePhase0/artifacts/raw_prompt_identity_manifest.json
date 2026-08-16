@@ -1,0 +1,112 @@
+{
+  "records": [
+    {
+      "fixture_id": "OE-L0-SYNTH-1-control-tokens",
+      "raw_bytes_length": 15,
+      "raw_bytes_sha256": "7b28e8aaa3d338683f74d7a6a38025ff96aced7b982296393e111a7eee631de5",
+      "raw_text": "<1><5><9><3><7>",
+      "rendered_equals_raw": true,
+      "rendered_prompt": "<1><5><9><3><7>",
+      "rendered_prompt_sha256": "7b28e8aaa3d338683f74d7a6a38025ff96aced7b982296393e111a7eee631de5",
+      "template_applied": false,
+      "token_ids": [
+        1,
+        5,
+        9,
+        3,
+        7
+      ],
+      "token_ids_sha256": "5eb6aa36a9616d2c28f3b641cb17d32e24346204caa9c3769c4abdd07deb8fdb"
+    },
+    {
+      "fixture_id": "smollm2-135m:'The capital of France is'",
+      "raw_bytes_length": 24,
+      "raw_bytes_sha256": "bbaff4d2ecd5892d4a442b0f53131641bf6e6f284761dd20fc0664bc97145762",
+      "raw_text": "The capital of France is",
+      "rendered_equals_raw": true,
+      "rendered_prompt": "The capital of France is",
+      "rendered_prompt_sha256": "bbaff4d2ecd5892d4a442b0f53131641bf6e6f284761dd20fc0664bc97145762",
+      "template_applied": false,
+      "token_ids": [
+        504,
+        3575,
+        282,
+        4649,
+        314
+      ],
+      "token_ids_sha256": "02c4603615c4e89a02c16effeaa7b972351d73f1ba217efc75a3eac318a632fe"
+    },
+    {
+      "fixture_id": "smollm2-135m:'Hello, world!'",
+      "raw_bytes_length": 13,
+      "raw_bytes_sha256": "315f5bdb76d078c43b8ac0064e4a0164612b1fce77c869345bfc94c75894edd3",
+      "raw_text": "Hello, world!",
+      "rendered_equals_raw": true,
+      "rendered_prompt": "Hello, world!",
+      "rendered_prompt_sha256": "315f5bdb76d078c43b8ac0064e4a0164612b1fce77c869345bfc94c75894edd3",
+      "template_applied": false,
+      "token_ids": [
+        19556,
+        28,
+        905,
+        17
+      ],
+      "token_ids_sha256": "23a9a7a6fd28353167a8b0b569d075966d7130d635e4f891e210d57ca69cae1b"
+    },
+    {
+      "fixture_id": "smollm2-135m:'12345 test'",
+      "raw_bytes_length": 10,
+      "raw_bytes_sha256": "98f70cbe1a6a9f563db89d25606d52690adcf36661398a35da0096d742e4a8f2",
+      "raw_text": "12345 test",
+      "rendered_equals_raw": true,
+      "rendered_prompt": "12345 test",
+      "rendered_prompt_sha256": "98f70cbe1a6a9f563db89d25606d52690adcf36661398a35da0096d742e4a8f2",
+      "template_applied": false,
+      "token_ids": [
+        33,
+        34,
+        35,
+        36,
+        37,
+        1028
+      ],
+      "token_ids_sha256": "9ad0e572061aee97f475ee872efff28a5ff8940be249e5409e5176e25981ee2e"
+    },
+    {
+      "fixture_id": "smollm2-135m:'  leading spaces'",
+      "raw_bytes_length": 16,
+      "raw_bytes_sha256": "7c66daa62ebf1c862d8ade0b923b3168b1abb7ad13f160dfd02c489778d1ae38",
+      "raw_text": "  leading spaces",
+      "rendered_equals_raw": true,
+      "rendered_prompt": "  leading spaces",
+      "rendered_prompt_sha256": "7c66daa62ebf1c862d8ade0b923b3168b1abb7ad13f160dfd02c489778d1ae38",
+      "template_applied": false,
+      "token_ids": [
+        216,
+        2899,
+        5600
+      ],
+      "token_ids_sha256": "dde080f939dfd256069de368b3b22f24f035606406ac0c001e9a4d410c1576ab"
+    },
+    {
+      "fixture_id": "smollm2-135m:'unicode: café résumé'",
+      "raw_bytes_length": 23,
+      "raw_bytes_sha256": "4c090e1bb7cfeee7ec6de2f86fb9e1b8ff6eb3dbada88921872f03d3d0362d7e",
+      "raw_text": "unicode: café résumé",
+      "rendered_equals_raw": true,
+      "rendered_prompt": "unicode: café résumé",
+      "rendered_prompt_sha256": "4c090e1bb7cfeee7ec6de2f86fb9e1b8ff6eb3dbada88921872f03d3d0362d7e",
+      "template_applied": false,
+      "token_ids": [
+        35852,
+        42,
+        37366,
+        412,
+        2756,
+        5422,
+        2756
+      ],
+      "token_ids_sha256": "7ff5daf51b279f7f896a0011de00de3471f82f5d67b3a625bc97344bb76e2b69"
+    }
+  ]
+}
