@@ -404,10 +404,15 @@ public sealed class NativeRoleRuntime : IRoleRuntime, IRoleRuntimeDiagnostics, I
 
         var conversation = tracked.Inner;
         var executor = conversation.Executor;
-        using var sampler = new DefaultSamplingPipeline
-        {
-            Temperature = (float)Math.Clamp(temperature, 0.0, 2.0),
-        };
+        // NativeSamplingPolicy is the SAME construction the stateless path (LLamaSharpRuntime)
+        // uses -- this persistent path previously built its own DefaultSamplingPipeline with
+        // only Temperature set, never attaching the ORCISH TONGUE tool-name grammar, so a
+        // persistent-role tool call could name any string the model generated, not just a live
+        // registered tool, despite LLamaSharpRuntime.cs's docstring claiming native tool
+        // generation was universally grammar-constrained. It wasn't, for this path. See
+        // NativeSamplingPolicy's docs for the full account.
+        using var sampler = NativeSamplingPolicy.BuildPipeline(
+            Math.Clamp(temperature, 0.0, 2.0), topP: null, tools);
 
         var promptTokens = _runtime.TokenizePromptForLoadedModel(history, tools);
         var promptPath = _runtime.GetLastPromptPath() ?? "Unknown";

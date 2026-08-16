@@ -127,21 +127,64 @@ public sealed class OrcSchedulerTests
     }
 
     [Test]
-    public void TryAdmit_Treats_Null_BaseModel_SizeBytes_As_Zero_Cost()
+    public void TryAdmit_Treats_Null_BaseModel_SizeBytes_As_Unknown_Not_Zero_Cost()
     {
-        // ModelDepot never produces a BaseModelGguf asset with SizeBytes: null (it's always a
-        // single file, never a directory) -- but TryAdmit doesn't assume that invariant holds,
-        // it falls back to 0 defensively. Documents that this is a fail-OPEN (under-estimate,
-        // always admits) rather than fail-closed default, since a caller passing malformed data
-        // gets "admitted" rather than a thrown exception or a denial with no clear reason.
+        // Previously fell back to 0 bytes here (fail-OPEN: an indeterminate cost silently became
+        // "free," always admitted regardless of budget). Fixed to use
+        // OrcScheduler.UnknownBaseModelSizeEstimateBytes -- a deliberately huge sentinel, since
+        // there is no small conservative guess for a model's dominant cost term the way
+        // UnknownAdapterSizeEstimateBytes is for adapters. A GPU-resident request for an
+        // unknown-size base model must now be DENIED against a budget too small to prove it fits,
+        // not silently admitted. ModelDepot never actually produces a BaseModelGguf asset with
+        // SizeBytes: null today (it's always a single file, never a directory) -- this test
+        // exists for the case where that invariant doesn't hold, same as before.
         var scheduler = new OrcScheduler();
         var baseModel = BaseModelAsset(RuntimeRole.Boss, sizeBytes: 0) with { SizeBytes = null };
         var binding = new RuntimeRoleBinding(RuntimeRole.Boss, baseModel, Adapter: null);
-        var budget = new VramBudget(TotalBytes: 1, ReservedBytes: 0); // tiny budget — only admits if cost is treated as 0
+        var budget = new VramBudget(TotalBytes: 1, ReservedBytes: 0); // tiny budget — must deny on unknown cost
 
         var decision = scheduler.TryAdmit(binding, budget);
 
-        Assert.That(decision.Admitted, Is.True);
+        Assert.That(decision.Admitted, Is.False);
+    }
+
+    [Test]
+    public void TryAdmit_Null_BaseModel_SizeBytes_Still_Admits_CpuOnly_Degraded_Mode()
+    {
+        // The GPU-resident case above must deny on unknown cost, but the existing degraded-
+        // admission search (TryAdmit's own layer-reduction loop) should still be able to find
+        // CPU-only (0 GPU layers) admissible for an unknown-size model -- CPU-only residency
+        // costs 0 VRAM for base weights BY DESIGN regardless of how large those weights are
+        // (EstimateRequiredBytes scales gpuBaseBytes by gpuLayerOverride/BlockCount, which is
+        // exactly 0 at gpuLayerOverride: 0), so the unknown-cost sentinel must not block this
+        // legitimate, always-safe fallback path. Needs a REAL readable GGUF header (unlike the
+        // synthetic "base.gguf" path used elsewhere in this file) since the degraded-admission
+        // search only activates once a header can actually be read.
+        var path = WriteLlamaHeaderFixture(blockCount: 32, headCountKv: 8, keyLength: 128);
+        try
+        {
+            var scheduler = new OrcScheduler();
+            var baseModel = BaseModelAsset(RuntimeRole.Boss, sizeBytes: 0)
+                with { Path = path, SizeBytes = null };
+            var binding = new RuntimeRoleBinding(RuntimeRole.Boss, baseModel, Adapter: null);
+            var budget = new VramBudget(TotalBytes: GB(1), ReservedBytes: 0);
+            var options = new RuntimeOptions { GpuLayers = -1, ContextLength = 4096 };
+
+            var decision = scheduler.TryAdmit(binding, budget, options);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(decision.Admitted, Is.True,
+                    "CPU-only degraded mode must still be reachable when base size is unknown");
+                Assert.That(decision.EffectiveGpuLayers, Is.EqualTo(0),
+                    "the search should land on 0 GPU layers, the only tier a huge unknown-cost " +
+                    "sentinel can actually fit within a 1GB budget");
+            });
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Test]

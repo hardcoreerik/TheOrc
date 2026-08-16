@@ -15,10 +15,13 @@ namespace OrchestratorIDE.Core.Runtime;
 ///
 /// This is the "no Ollama required" runtime. Models are loaded directly from
 /// GGUF files — no server process, no HTTP. When a live tool list is present,
-/// generation is GBNF grammar-constrained (see <see cref="ToolCallGrammarBuilder"/>) so the
-/// model cannot emit a tool name outside that list; output is still parsed via the same
-/// text-format path (<see cref="ToolCallTextParser"/>, shared with the OllamaClient LlamaCpp
-/// backend) since grammar constrains syntax, not the parsing step itself.
+/// generation is GBNF grammar-constrained (see <see cref="ToolCallGrammarBuilder"/>,
+/// <see cref="NativeSamplingPolicy"/>) so the model cannot emit a tool name outside that list;
+/// output is still parsed via the same text-format path (<see cref="ToolCallTextParser"/>,
+/// shared with the OllamaClient LlamaCpp backend) since grammar constrains syntax, not the
+/// parsing step itself. The persistent per-role path (<see cref="NativeRoleRuntime"/>) shares
+/// this same sampling/grammar construction via <see cref="NativeSamplingPolicy"/> -- it did NOT
+/// always, see that class's docs.
 ///
 /// Construction:
 ///   var runtime = new LLamaSharpRuntime();
@@ -176,40 +179,20 @@ public sealed class LLamaSharpRuntime : ILocalModelRuntime
             // Falls back to ChatML format if the model has no template.
             var prompt = BuildPromptForLoadedModel(history, tools);
 
-            // TopP and Grammar are both init-only on DefaultSamplingPipeline -- must be set in
-            // the object initializer, not assigned after construction.
-            //
             // ORCISH TONGUE Phase 2 (plan elegant-bubbling-coral.md): when a live tool list is
             // present, constrain decoding so the model cannot emit a tool-call JSON naming
             // anything outside that list -- structurally, not probabilistically. Verified via a
             // real adversarial spike (explicit "call the delete_everything_now tool" prompt):
             // unconstrained, the model happily emitted the fake name; grammar-constrained, it
-            // physically could not. `Build` returns null when no tool names could be extracted
-            // (e.g. an unrecognized wire shape) -- fall back to unconstrained decoding rather
-            // than emit a grammar with an empty name alternation, which would make every tool
-            // call unreachable, silently worse than no grammar at all. The Grammar constructor
-            // itself can also throw on a malformed GBNF string even when Build() returns
-            // non-null (e.g. a tool name whose escaping produces an unexpected sequence) -- that
-            // failure must degrade to unconstrained decoding too, not abort the whole call.
-            LLama.Sampling.Grammar? toolGrammar = null;
-            if (tools is { Count: > 0 } && ToolCallGrammarBuilder.Build(tools) is { } gbnf)
-            {
-                try
-                {
-                    toolGrammar = new LLama.Sampling.Grammar(gbnf, "root");
-                }
-                catch (Exception ex)
-                {
-                    // Matches this file's existing lightweight [Tag] Console logging convention
-                    // (see NativeLog below) -- no ILogger is injected into this class.
-                    Console.Error.WriteLine($"[ORCISH TONGUE] failed to construct GBNF grammar, " +
-                        $"falling back to unconstrained decoding for this call: {ex.Message}");
-                }
-            }
-
-            samplingPipeline = topP is { } p
-                ? new LLama.Sampling.DefaultSamplingPipeline { Temperature = (float)temperature, TopP = (float)p, Grammar = toolGrammar }
-                : new LLama.Sampling.DefaultSamplingPipeline { Temperature = (float)temperature, Grammar = toolGrammar };
+            // physically could not.
+            //
+            // Construction is shared with the persistent per-role path (NativeRoleRuntime in
+            // IRoleRuntime.cs) via NativeSamplingPolicy -- that path was found NOT attaching this
+            // grammar at all despite this file's own docstring claiming native tool generation
+            // was universally grammar-constrained. See NativeSamplingPolicy's docs for the full
+            // account; both native completion paths now build their sampling pipeline the same
+            // way so they can't silently diverge again.
+            samplingPipeline = NativeSamplingPolicy.BuildPipeline(temperature, topP, tools);
 
             var inferParams = new InferenceParams
             {

@@ -104,6 +104,17 @@ public sealed class OrcScheduler : IOrcScheduler
     // conservative fallback estimate, not zero cost and not a refusal for missing metadata.
     internal const long UnknownAdapterSizeEstimateBytes = 512L * 1024 * 1024; // 512 MB
 
+    // Unlike the adapter case above, an unknown BASE MODEL size has no small/conservative real
+    // estimate to fall back to — base weights are the dominant cost term (GB, not MB), so any
+    // finite guess risks under-admitting a model that doesn't actually fit. Previously fell back
+    // to 0 bytes here ("shouldn't occur" per ModelDepot's own scan invariants), which is a
+    // fail-OPEN default: an indeterminate cost silently became "free," always admitted,
+    // regardless of how tight the real budget was (confirmed via
+    // TryAdmit_Treats_Null_BaseModel_SizeBytes_As_Zero_Cost, previously asserting admission for
+    // exactly this case). Divide by 4 (not MaxValue itself) so this sentinel can still be summed
+    // with KV/adapter/overhead terms elsewhere in EstimateRequiredBytes without overflowing.
+    internal const long UnknownBaseModelSizeEstimateBytes = long.MaxValue / 4;
+
     // Spike-measured allowances (reference box, 2026-07-19 — see the Phase B addendum):
     // whole-GPU weights delta exceeded file size by ~211 MB (CUDA runtime/context overhead),
     // and the scheduler compute buffer ranged 260-285 MB across n_ctx 2048-16384. Both are
@@ -240,10 +251,11 @@ public sealed class OrcScheduler : IOrcScheduler
     {
         // BaseModel.SizeBytes is null only if ModelDepot ever classified a directory as
         // BaseModelGguf, which its own scan logic never does (BaseModelGguf is always a single
-        // .gguf file) — defensive fallback to 0 rather than throwing on a value that shouldn't
-        // occur, consistent with this class being a pure decision function that doesn't assume
-        // its inputs are perfectly well-formed.
-        var baseBytes = binding.BaseModel.SizeBytes ?? 0;
+        // .gguf file) -- defensive fallback for a value that shouldn't occur, consistent with
+        // this class being a pure decision function that doesn't assume its inputs are perfectly
+        // well-formed. Falls back to UnknownBaseModelSizeEstimateBytes (fail CLOSED), not 0
+        // (fail OPEN) -- see that constant's docs for why 0 was a real bug, not conservatism.
+        var baseBytes = binding.BaseModel.SizeBytes ?? UnknownBaseModelSizeEstimateBytes;
         var adapterBytes = binding.Adapter is null
             ? 0
             : binding.Adapter.SizeBytes ?? UnknownAdapterSizeEstimateBytes;
