@@ -64,9 +64,21 @@ The original CTest registration covered only the three F32 executables. The F64 
 
 **VERIFIED:** CTest now registers seven cases: F32 and F64 gate/decode/metamorphic variants plus the accumulation-independent hardening regression suite.
 
+## Phase 2 GGUF ingestion, 2026-08-16
+
+**VERIFIED:** Phase 1 is frozen at `b27bc9323b89b9151c811c30d41145bb672a2943`, pushed on `feat/orcengine-phase1`, and annotated by the immutable tag `orcengine-phase1-freeze`. Phase-2 work is isolated on `feat/orcengine-phase2-gguf` in `F:/Ai/OrchestratorIDE-phase2-gguf`.
+
+**VERIFIED:** `Tools/OrcEnginePhase2/` implements a strict, bounded little-endian GGUF v3 indexer, one dense Llama semantic mapping, file-backed `BackingExtent` creation, F32 and F16-to-F32 materialization, a human/JSON inspector, and an explicit-token forward CLI. It indexes selected quantized encodings but deliberately rejects their materialization. It does not implement CUDA, quantized compute, tokenizer algorithms, paging, batching, or product integration.
+
+**VERIFIED:** a 270,590,880-byte real mixed-quantized SmolLM2-360M GGUF maps 290/290 tensors and agrees exactly with `gguf-py` on names, dimensions, encodings, offsets, and lengths while remaining nonresident and non-executable. Inspector peak working set was 22,822,912 bytes (8.43% of file size).
+
+**VERIFIED:** the pinned SmolLM2-135M source was converted to a 653,091,040-byte F32 GGUF, mapped 273/273 tensors, and executed through unchanged Phase-1 math. C++ and the independent Phase-0 Python oracle generated `[1, 5, 28, 284, 260, 198]` token-for-token; all compared intermediate values and logits satisfy the declared `1e-3` absolute-or-relative rule. Release is 11/11, Debug's 10 non-real tests plus its one-step real differential pass, strict `/W4 /WX` is 9/9, and MSVC ASan is 10/10. See `PHASE2_GGUF_IMPLEMENTATION.md` for hashes, limits, support matrix, and commands.
+
+**UNKNOWN:** no direct Phase-2 llama.cpp differential was run because no local llama.cpp executable/module was available. This does not invalidate the independent Python and `gguf-py` evidence, but it remains an external-reference gap for review.
+
 ## Executive truth
 
-**VERIFIED:** as of the Phase 1 freeze audit (above), OrcEngine has one real C++ source project: `Tools/OrcEnginePhase1/`, dual CMake library targets (F32-default and F64-comparison), and 3 passing test binaries (`test_gates`, `test_decode`, `test_metamorphic`) covering single-pass differential comparison, multi-step autoregressive decode, and physical/logical storage independence -- all against the Python oracle. There is still no GGUF model loader, no real-model tensor loading, no managed wrapper, no CUDA backend, no quantization, no benchmark, and no product (TheOrc) integration of any kind -- Phase 1 is a synthetic-fixture-only reference core, not a usable inference engine.
+**VERIFIED:** OrcEngine now has the frozen Phase-1 C++ reference core and a separate Phase-2 GGUF ingestion project. Phase 2 can index and semantically map real dense-Llama GGUF v3 files, materialize F32/F16 source tensors into F32 residents, and execute the verified real F32 candidate from explicit token IDs. Quantized execution, tokenizer support, managed wrappers, CUDA, paging, benchmarks, and product integration remain absent; this is a reference/review checkpoint, not a usable production inference engine.
 
 **VERIFIED:** TheOrc already has three runtime implementations behind `IModelRuntime`:
 
@@ -165,7 +177,7 @@ Those are the boundary OrcEngine proposes to explore.
 
 ## Unknowns
 
-- The exact converted GGUF artifact hash and its approved storage/distribution policy.
+- The approved storage/distribution policy for the converted GGUF artifact (its exact hash is recorded in `PHASE2_GGUF_IMPLEMENTATION.md`).
 - Exact numerical tolerances by operator and comparison point.
 - Whether source and GGUF-embedded tokenizers agree for all required fixtures.
 - Whether a standalone repository will eventually be cleaner than this monorepo.

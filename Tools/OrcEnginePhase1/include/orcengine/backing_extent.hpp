@@ -6,9 +6,8 @@
 // whether or how it's currently resident anywhere.
 //
 // Phase 1 exercises an owned in-memory F32Raw backing in its metamorphic
-// tests. The flat-text fixture loader still loads ResidentViews eagerly and
-// does not create per-tensor extents. A future GGUF-backed BackingExtent may
-// reference mapped file ranges instead.
+// tests. Phase 2 also uses this contract for validated file ranges without
+// changing the Phase-1 execution operators.
 #pragma once
 
 #include <cstdint>
@@ -19,7 +18,19 @@ namespace orcengine {
 
 enum class BackingEncoding {
     F32Text,   // Phase 1: whitespace-delimited float32 text in a fixture file.
-    F32Raw,    // reserved for a future raw-binary backing (unused in Phase 1).
+    F32Raw,
+    F16Raw,
+    GgufQ4_0,
+    GgufQ4_1,
+    GgufQ5_0,
+    GgufQ5_1,
+    GgufQ8_0,
+    GgufQ2_K,
+    GgufQ3_K,
+    GgufQ4_K,
+    GgufQ5_K,
+    GgufQ6_K,
+    GgufQ8_K,
 };
 
 class BackingExtent {

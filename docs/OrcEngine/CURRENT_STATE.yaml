@@ -3,8 +3,8 @@ project: OrcEngine
 as_of:
   date: "2026-08-16"
   timezone: America/Los_Angeles
-  repository: "F:\\Ai\\OrchestratorIDE-dev"
-  branch: feat/orcengine-phase0
+  repository: "F:\\Ai\\OrchestratorIDE-phase2-gguf"
+  branch: feat/orcengine-phase2-gguf
   verified_product_commit: 6ecdd66e5b6bd83de2c5aee2f6c7ed86568d40b7
   pending_integration_commit: 16501dae4568391e8891dc091f8869d43ca6b7b9
   native_runtime_fix_branch: fix/native-runtime-grammar-and-admission
@@ -12,7 +12,7 @@ as_of:
   native_runtime_fix_branch_status: pushed_not_merged_pending_maintainer_review
 
 status:
-  lifecycle: phase_1_hardened_pending_second_freeze_review
+  lifecycle: phase_2_ready_for_independent_freeze_review
   implementation_exists: true
   phase1_cpp_reference_core: implemented
   phase1_differential_tests_passing: true
@@ -22,13 +22,18 @@ status:
   phase1_fixture_completeness_enforced: true
   phase1_model_validation_enforced: true
   phase1_ctest_registered_total: 7
-  real_model_loading: not_implemented
-  gguf_parser: not_implemented
+  phase1_freeze_commit: b27bc9323b89b9151c811c30d41145bb672a2943
+  phase1_freeze_tag: orcengine-phase1-freeze
+  real_model_loading: implemented_for_f32_dense_llama_reference_only
+  gguf_parser: implemented_v3_little_endian_strict_bounded
+  gguf_real_model_mapping: implemented_for_dense_llama
+  gguf_quantized_indexing: implemented_for_selected_ggml_encodings
+  gguf_quantized_execution: not_implemented
   cuda_backend: not_implemented
-  quantization: not_implemented
+  quantization: indexing_only_no_materialization_or_compute
   paged_execution: research_only
   production_theorc_integration: not_implemented
-  runnable_engine_exists: false
+  runnable_engine_exists: true_reference_cli_only
   theorc_integration_exists: false
   production_ready: false
   default_runtime: false
@@ -37,6 +42,18 @@ status:
   streaming_oversized_model_execution_proven: true
   fringe_lab_exists: true
   summary: >-
+    Phase 2 is implemented on feat/orcengine-phase2-gguf and stopped at the
+    independent-review boundary. The strict GGUF v3 reader indexes real file-backed
+    tensor extents without loading payloads, maps one dense Llama profile into semantic
+    tensors, materializes F32 and F16-to-F32 only, and executes a converted real
+    SmolLM2-135M through the unchanged Phase-1 operators. Release C++ and the independent
+    Phase-0 Python oracle generated [1, 5, 28, 284, 260, 198] identically, with all
+    compared elements satisfying the declared 1e-3 absolute-or-relative gate. A real
+    mixed-quantized SmolLM2-360M artifact indexes and cross-checks exactly against
+    gguf-py but is deliberately not executable. Debug, Release, strict /W4 /WX, and
+    ASan lanes pass. See PHASE2_GGUF_IMPLEMENTATION.md. No CUDA, quantized compute,
+    tokenizer, paging, or product integration exists.
+
     Phase 0 (deterministic reference oracle) is COMPLETE as of 2026-08-15: all 14
     required checks in PHASE_0_ACCEPTANCE.yaml read pass, and the maintainer
     (hardcoreerik) approved the bounded product-value thesis (OE-ADR-016) as written.
@@ -58,9 +75,9 @@ status:
     synthetic-fixture-only reference core: it does NOT load GGUF, does NOT execute a
     real model, has NO CUDA/quantization/batching, and has NO TheOrc product
     integration. Existing TheOrc runtime paths remain authoritative and unchanged.
-    Per the steering document's explicit instruction, Phase 1 work stopped here
-    pending maintainer review; Phase 2 (GGUF parser expansion, real model loading,
-    quantization, CUDA) has NOT started. See PHASE1_IMPLEMENTATION.md for full detail.
+    Per the steering document's explicit instruction, Phase 1 stopped for review at
+    that checkpoint and was subsequently accepted and frozen. See
+    PHASE1_IMPLEMENTATION.md for full detail.
 
     On 2026-08-16 the independent Codex freeze review's confirmed findings were
     hardened into executable regressions. The gate now requires 36 structural
@@ -226,7 +243,7 @@ phases:
       and DECISION_LOG.md for full evidence trail.
   - id: 1
     name: tiny_synthetic_float32_cpu_transformer
-    state: implemented_stopped_for_review
+    state: accepted_frozen
     implementation: cpp20_cmake_reference_core
     completed_date: "2026-08-15"
     completion_note: >-
@@ -248,12 +265,19 @@ phases:
       BackingExtent materialization path covering every weight, retained the tied
       alias-vs-physically-separate-duplicate proof, added exact 72-expectation
       completeness and malformed-model regression gates, and registered all six
-      F32/F64 executables plus one regression suite (7 CTest cases). Stopped here
-      per steering-document instruction pending maintainer review -- Phase 2 not
-      started. See PHASE1_IMPLEMENTATION.md.
+      F32/F64 executables plus one regression suite (7 CTest cases). This state was
+      accepted and frozen before Phase 2 began. See PHASE1_IMPLEMENTATION.md.
   - id: 2
     name: strict_gguf_reader_and_inspector
-    state: not_started
+    state: ready_for_independent_freeze_review
+    implementation: cpp20_strict_gguf_v3_dense_llama_reference
+    completed_date: "2026-08-16"
+    completion_note: >-
+      Real Q4 mixed-encoding GGUF indexed and cross-checked exactly against gguf-py;
+      real converted F32 SmolLM2-135M mapped 273/273 tensors and executed through the
+      frozen Phase-1 core for four greedy steps with exact tokens and tolerance-clean
+      taps/logits. F32 and F16-to-F32 materialization only. See
+      PHASE2_GGUF_IMPLEMENTATION.md.
   - id: 3
     name: real_model_float32_cpu_inference
     state: not_started
@@ -390,15 +414,12 @@ document_inventory:
   open_questions: OPEN_QUESTIONS.md
 
 next_action:
-  state: phase_1_not_started
+  state: phase_2_independent_freeze_review
   summary: >-
-    Phase 0 is complete (2026-08-15) -- all 14 acceptance checks pass, product-value
-    thesis accepted. Phase 1 (tiny synthetic float32 CPU transformer, C++20, per
-    ENGINEERING_ROADMAP.md) is the next unblocked phase and has NOT started: zero
-    C++ engine code exists anywhere in this repository. Phase 1's own definition of
-    done (every operator against hand-calculated/differential cases, layer taps
-    within tolerance, cache/non-cache agreement, leak/sanitizer clean, one deliberate
-    transpose breaks the comparison) applies -- do not improvise past it.
+    Independently attack the Phase-2 parser, mapping, materialization boundaries,
+    fixture non-vacuity, and real-model differential evidence. Do not start Phase 3,
+    quantized kernels, CUDA, paging, tokenizer generality, or product integration
+    until that review is accepted.
   phase2_prep_started: true
   phase2_prep_note: Tools/OrcEnginePhase0/phase2_prep/ -- malformed-GGUF conformance corpus (test/fixture work only, no parser)
   phase3_prep_started: true
