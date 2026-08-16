@@ -42,8 +42,19 @@ No skipping levels.
 
 | ID | Title | Verdict | One-line result |
 |---|---|---|---|
-| C | Chunked lm_head streaming | RESEARCH CANDIDATE | Exact greedy argmax + top-5 at every chunk size down to 1 row -- max-over-partition is exact, not approximate, by construction |
+| C | Chunked lm_head streaming (NumPy) | RESEARCH CANDIDATE | Exact greedy argmax + top-5 at every chunk size down to 1 row -- max-over-partition is exact, not approximate, by construction |
 | A | Execution-trace cache simulator | INTERESTING | LRU scores **0.0%** hit rate on a plain sequential decode trace (textbook cyclic-access-defeats-LRU pathology); NextUse reaches 54.7% at the same 4GB budget. Don't default to LRU for the future layer cache. |
+| C2 | Chunked lm_head streaming (real disk I/O) | RESEARCH CANDIDATE | Real `Meta-Llama-3.1-8B` output head (128256x4096), real `seek()`/`read()` calls, exact argmax at every chunk size incl. 128256 individual 1-row reads. Caveat: OS page cache was warm (file just written), so this proves syscall-cheap exactness, not disk-bandwidth-bound cost yet. |
+| A2 | Adversarial cache traces (5 shapes) | RESEARCH CANDIDATE | NextUse's advantage is real but regime-dependent: huge on cyclic single-context/speculative traces (LRU 0% vs NextUse up to 58.6%), shrinks as concurrent contexts grow (LRU stops being pathological once streams are staggered), and nearly disappears for skewed MoE routing until memory is nearly exhausted. The valuable primitive is "expose known future execution," not "always pick NextUse." |
+
+**Important correction, logged for honesty**: the first draft of A2's
+interpretation guessed "multi-context traces are worse for LRU than
+single-context" before checking the actual numbers -- the real data showed
+the opposite (LRU stops being pathological once multiple streams are
+interleaved, because interleaving hands it genuinely-recent pages to find).
+The guess was corrected against the measured `survives_summary` output before
+being recorded here. Left as a reminder that plausible-sounding narratives
+still need to be checked against the run's own numbers.
 
 Full JSON reports are reproducible via:
 
@@ -51,18 +62,22 @@ Full JSON reports are reproducible via:
 cd Tools/OrcEnginePhase0
 python fringe_lab/experiment_a_cache_sim.py
 python fringe_lab/experiment_c_chunked_lm_head.py
+python fringe_lab/experiment_c2_real_io_chunked_lm_head.py
+python fringe_lab/experiment_a2_adversarial_cache_traces.py
 ```
 
 Deferred (designed in the steering doc, not yet run this checkpoint): B (tiled
 matmul beyond VRAM budget), D (ablation-vs-quantization sensitivity
-correlation), E (multi-context byte amortization), F (256MB challenge).
+correlation), E (multi-context byte amortization), F (256MB challenge),
+9 (fake-slow-storage emulator -- needed before C2's disk-bandwidth-bound
+crossover question can actually be answered).
 
 ## Cross-discipline notes
 
 | Field | Concept borrowed | OrcEngine analogy | Experiment | Result | Useful? |
 |---|---|---|---|---|---|
-| Databases / OS | Working-set caching, page replacement | VRAM as hot cache, RAM/NVMe as colder tiers | A | LRU pathologically bad on cyclic decode access; NextUse-style scheduling wins because the future access sequence is fully known | Yes -- concrete 6B/6C guidance |
-| Databases | Partitioned aggregation (max over row-blocks) | Streamed/chunked lm_head, never fully resident | C | Exact, not approximate -- associativity of max() | Yes -- research candidate for 6C |
+| Databases / OS | Working-set caching, page replacement | VRAM as hot cache, RAM/NVMe as colder tiers | A, A2 | LRU pathologically bad on cyclic decode access; NextUse wins big there and in staggered multi-context, but is nearly moot for skewed MoE routing except under severe pressure | Yes -- regime-aware 6B/6C guidance, not a blanket policy choice |
+| Databases | Partitioned aggregation (max over row-blocks) | Streamed/chunked lm_head, never fully resident | C, C2 | Exact, not approximate -- associativity of max(); holds under real disk I/O too, though disk-bandwidth-bound cost is still unmeasured (warm cache confound) | Yes -- research candidate for 6C, needs the cold-cache follow-up |
 
 (Sections for Compilers, Signal Processing, Compression, Distributed Systems,
 Fault Tolerance, and Scientific Computing are reserved for later experiments
