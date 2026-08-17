@@ -76,9 +76,9 @@ ModelSourceBinding bind_gguf_source(ModelArtifactManifest manifest) {
         }
         return materialize_gguf_tensor(*it);
     };
-    TensorRegionMaterializer region_materializer =
+    TensorRowRegionMaterializer row_region_materializer =
         [retained](const LogicalTensor& logical, const BackingExtent& backing,
-                   const TensorRegion& region) {
+                   const TensorRowRegion& region) {
             const auto it = std::find_if(
                 retained->mapped_tensors.begin(), retained->mapped_tensors.end(),
                 [&](const MappedGgufTensor& tensor) {
@@ -93,7 +93,8 @@ ModelSourceBinding bind_gguf_source(ModelArtifactManifest manifest) {
                 *it, region.row_begin, region.row_count, backing_bytes);
             return MaterializedRegion{std::move(view), backing_bytes};
         };
-    return {std::move(source), std::move(materializer), std::move(region_materializer)};
+    return {std::move(source), std::move(materializer),
+            std::move(row_region_materializer)};
 }
 
 }  // namespace orcengine

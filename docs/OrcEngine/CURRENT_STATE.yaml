@@ -49,7 +49,8 @@ status:
   phase3_freeze_commit: 98dbcf1f370a93574da32dc02ebdcfeff8a60b3d
   phase3_freeze_tag: orcengine-phase3-freeze
   phase4_bookend_virtualization_implemented: true
-  phase4_region_materialization_format_neutral: true
+  phase4_row_region_materialization_format_neutral: true
+  phase4_arbitrary_region_slicing: not_implemented
   phase4_real_four_step_sequence: "1,5,28,284,260,198"
   phase4_explicit_peak_weight_bytes: 14162688
   phase4_tied_peak_weight_bytes: 14162688

@@ -47,7 +47,9 @@ struct ModelSource {
     std::vector<SourceTensor> tensors;
 };
 
-struct TensorRegion {
+// Phase 4 supports one region kind only: contiguous logical rows of a rank-2
+// tensor. This is not an arbitrary slice, tile, or physical byte range.
+struct TensorRowRegion {
     uint64_t row_begin = 0;
     uint64_t row_count = 0;
 };
@@ -59,13 +61,13 @@ struct MaterializedRegion {
 
 using TensorMaterializer = std::function<ResidentView(
     const LogicalTensor&, const BackingExtent&)>;
-using TensorRegionMaterializer = std::function<MaterializedRegion(
-    const LogicalTensor&, const BackingExtent&, const TensorRegion&)>;
+using TensorRowRegionMaterializer = std::function<MaterializedRegion(
+    const LogicalTensor&, const BackingExtent&, const TensorRowRegion&)>;
 
 struct ModelSourceBinding {
     ModelSource source;
     TensorMaterializer materialize;
-    TensorRegionMaterializer materialize_region;
+    TensorRowRegionMaterializer materialize_rows;
 };
 
 }  // namespace orcengine

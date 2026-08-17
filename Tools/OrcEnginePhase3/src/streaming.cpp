@@ -148,17 +148,20 @@ void ResidencyLedger::observer_failed() {
 }
 
 void ResidencyLedger::record_region(ExecutionOperation operation, uint64_t backing_bytes) {
-    telemetry_.region_materialization_count = checked_add(
-        telemetry_.region_materialization_count, 1, "region materialization count");
+    telemetry_.row_region_materialization_count = checked_add(
+        telemetry_.row_region_materialization_count, 1,
+        "row region materialization count");
     if (operation == ExecutionOperation::InputEmbedding) {
-        telemetry_.embedding_region_count = checked_add(
-            telemetry_.embedding_region_count, 1, "embedding region count");
+        telemetry_.embedding_row_region_count = checked_add(
+            telemetry_.embedding_row_region_count, 1,
+            "embedding row region count");
         telemetry_.embedding_backing_bytes_read = checked_add(
             telemetry_.embedding_backing_bytes_read, backing_bytes,
             "embedding backing bytes");
     } else if (operation == ExecutionOperation::OutputProjection) {
-        telemetry_.output_region_count = checked_add(
-            telemetry_.output_region_count, 1, "output region count");
+        telemetry_.output_row_region_count = checked_add(
+            telemetry_.output_row_region_count, 1,
+            "output row region count");
         telemetry_.output_backing_bytes_read = checked_add(
             telemetry_.output_backing_bytes_read, backing_bytes,
             "output backing bytes");
@@ -173,12 +176,12 @@ void ResidencyLedger::record_output_time(double milliseconds) {
     telemetry_.output_projection_milliseconds += milliseconds;
 }
 
-std::vector<TensorRegion> build_complete_row_partition(uint64_t rows,
-                                                       uint64_t chunk_rows) {
+std::vector<TensorRowRegion> build_complete_row_partition(uint64_t rows,
+                                                          uint64_t chunk_rows) {
     if (rows == 0 || chunk_rows == 0) {
         throw StreamingError("row partition requires non-zero rows and chunk size");
     }
-    std::vector<TensorRegion> regions;
+    std::vector<TensorRowRegion> regions;
     for (uint64_t begin = 0; begin < rows;) {
         const uint64_t count = std::min(chunk_rows, rows - begin);
         regions.push_back({begin, count});
@@ -188,12 +191,12 @@ std::vector<TensorRegion> build_complete_row_partition(uint64_t rows,
 }
 
 void validate_complete_row_partition(uint64_t rows,
-                                     const std::vector<TensorRegion>& regions) {
+                                     const std::vector<TensorRowRegion>& regions) {
     if (rows == 0 || regions.empty()) {
         throw StreamingError("vocabulary row partition is empty");
     }
     uint64_t expected_begin = 0;
-    for (const TensorRegion& region : regions) {
+    for (const TensorRowRegion& region : regions) {
         if (region.row_count == 0 || region.row_begin != expected_begin) {
             throw StreamingError("vocabulary row partition is skipped, duplicated, overlapping, or reordered");
         }
@@ -228,7 +231,7 @@ void require_full_resident_budget(const ModelSource& source, uint64_t budget_byt
 StreamingModel::StreamingModel(ModelSource source, TensorMaterializer materializer,
                                StreamingConfig config)
     : source_(std::move(source)), materializer_(std::move(materializer)),
-      region_materializer_(std::move(config.region_materializer)),
+      row_region_materializer_(std::move(config.row_region_materializer)),
       observer_(std::move(config.observer)),
       virtualize_bookends_(config.virtualize_bookends),
       output_chunk_rows_(config.output_chunk_rows),
@@ -243,8 +246,8 @@ StreamingModel::StreamingModel(ModelSource source, TensorMaterializer materializ
         throw StreamingError("model source has contradictory tied/output-head semantics");
     }
     if (virtualize_bookends_) {
-        if (!region_materializer_ || output_chunk_rows_ == 0) {
-            throw StreamingError("bookend virtualization requires a region materializer and chunk size");
+        if (!row_region_materializer_ || output_chunk_rows_ == 0) {
+            throw StreamingError("bookend virtualization requires a row-region materializer and chunk size");
         }
         const SourceTensor& embedding = require_tensor(source_, TensorRole::TokenEmbedding);
         if (embedding.logical.shape().dims() !=
@@ -310,29 +313,29 @@ ResidentView StreamingModel::materialize(const SourceTensor& tensor) {
     return view;
 }
 
-ResidentView StreamingModel::materialize_region(const SourceTensor& tensor,
-                                                const TensorRegion& region,
-                                                ExecutionOperation operation) {
+ResidentView StreamingModel::materialize_row_region(
+    const SourceTensor& tensor, const TensorRowRegion& region,
+    ExecutionOperation operation) {
     if (tensor.logical.shape().ndim() != 2 || region.row_count == 0) {
-        throw StreamingError("tensor region requires non-zero rows from a rank-2 tensor");
+        throw StreamingError("tensor row region requires non-zero rows from a rank-2 tensor");
     }
     const uint64_t rows = static_cast<uint64_t>(tensor.logical.shape().dim(0));
     const uint64_t columns = static_cast<uint64_t>(tensor.logical.shape().dim(1));
     const uint64_t row_end = checked_add(region.row_begin, region.row_count,
-                                         "tensor region end");
+                                         "tensor row region end");
     if (region.row_begin >= rows || row_end > rows) {
-        throw StreamingError("tensor region is outside logical tensor rows");
+        throw StreamingError("tensor row region is outside logical tensor rows");
     }
     const uint64_t elements = checked_mul(region.row_count, columns,
-                                          "tensor region elements");
+                                          "tensor row region elements");
     const uint64_t resident_bytes = checked_mul(elements, sizeof(float),
-                                                "tensor region resident bytes");
+                                                "tensor row region resident bytes");
     if (elements > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
-        throw StreamingError("tensor region exceeds addressable memory");
+        throw StreamingError("tensor row region exceeds addressable memory");
     }
     ledger_.require_can_materialize(resident_bytes);
 
-    ExecutionEvent requested{ExecutionEventKind::TensorRegionRequested};
+    ExecutionEvent requested{ExecutionEventKind::TensorRowRegionRequested};
     requested.tensor = tensor.identity;
     requested.resident_bytes = ledger_.telemetry().current_resident_weight_bytes;
     requested.tensor_bytes = resident_bytes;
@@ -341,11 +344,11 @@ ResidentView StreamingModel::materialize_region(const SourceTensor& tensor,
     requested.row_count = region.row_count;
     requested.operation = operation;
     emit(requested);
-    requested.kind = ExecutionEventKind::TensorRegionMaterializationBegin;
+    requested.kind = ExecutionEventKind::TensorRowRegionMaterializationBegin;
     emit(requested);
 
     const auto started = std::chrono::steady_clock::now();
-    MaterializedRegion materialized = region_materializer_(
+    MaterializedRegion materialized = row_region_materializer_(
         tensor.logical, tensor.backing, region);
     const double milliseconds = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - started).count();
@@ -353,22 +356,23 @@ ResidentView StreamingModel::materialize_region(const SourceTensor& tensor,
         static_cast<int64_t>(region.row_count), static_cast<int64_t>(columns)};
     if (materialized.view.shape().dims() != expected_shape ||
         materialized.view.raw().size() != static_cast<size_t>(elements)) {
-        throw StreamingError("region materializer returned wrong row count, shape, or resident bytes");
+        throw StreamingError("row-region materializer returned wrong row count, shape, or resident bytes");
     }
     if (materialized.backing_bytes_read == 0 || tensor.backing.byte_length() <= 0 ||
         materialized.backing_bytes_read >
             static_cast<uint64_t>(tensor.backing.byte_length())) {
-        throw StreamingError("region materializer reported invalid backing bytes read");
+        throw StreamingError("row-region materializer reported invalid backing bytes read");
     }
     const std::string key = tensor.backing_identity + ":rows:" +
         std::to_string(region.row_begin) + ":" + std::to_string(region.row_count);
     ledger_.materialized(key, resident_bytes, materialized.backing_bytes_read);
     ledger_.record_region(operation, materialized.backing_bytes_read);
 
-    ExecutionEvent event{ExecutionEventKind::TensorRegionMaterialized};
+    ExecutionEvent event{ExecutionEventKind::TensorRowRegionMaterialized};
     event.tensor = tensor.identity;
     event.resident_bytes = ledger_.telemetry().current_resident_weight_bytes;
     event.tensor_bytes = resident_bytes;
+    event.backing_bytes_read = materialized.backing_bytes_read;
     event.backing_identity = tensor.backing_identity;
     event.row_begin = region.row_begin;
     event.row_count = region.row_count;
@@ -382,12 +386,12 @@ ResidentView StreamingModel::materialize_region(const SourceTensor& tensor,
     return std::move(materialized.view);
 }
 
-void StreamingModel::release_region(const SourceTensor& tensor,
-                                    const TensorRegion& region,
-                                    ExecutionOperation operation,
-                                    uint64_t resident_bytes) {
+void StreamingModel::release_row_region(const SourceTensor& tensor,
+                                        const TensorRowRegion& region,
+                                        ExecutionOperation operation,
+                                        uint64_t resident_bytes) {
     ledger_.released(resident_bytes, 1);
-    ExecutionEvent event{ExecutionEventKind::TensorRegionReleased};
+    ExecutionEvent event{ExecutionEventKind::TensorRowRegionReleased};
     event.tensor = tensor.identity;
     event.resident_bytes = ledger_.telemetry().current_resident_weight_bytes;
     event.tensor_bytes = resident_bytes;
@@ -412,8 +416,8 @@ std::vector<float> StreamingModel::virtualized_embedding(
     std::unordered_set<int64_t> processed;
     for (int64_t token : token_ids) {
         if (!processed.insert(token).second) continue;
-        const TensorRegion region{static_cast<uint64_t>(token), 1};
-        ResidentView row = materialize_region(
+        const TensorRowRegion region{static_cast<uint64_t>(token), 1};
+        ResidentView row = materialize_row_region(
             tensor, region, ExecutionOperation::InputEmbedding);
         try {
             for (size_t position = 0; position < token_ids.size(); ++position) {
@@ -422,10 +426,12 @@ std::vector<float> StreamingModel::virtualized_embedding(
                           output.begin() + position * static_cast<size_t>(source_.config.hidden));
             }
         } catch (...) {
-            release_region(tensor, region, ExecutionOperation::InputEmbedding, row_bytes);
+            release_row_region(tensor, region, ExecutionOperation::InputEmbedding,
+                               row_bytes);
             throw;
         }
-        release_region(tensor, region, ExecutionOperation::InputEmbedding, row_bytes);
+        release_row_region(tensor, region, ExecutionOperation::InputEmbedding,
+                           row_bytes);
     }
     ledger_.record_embedding_time(std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - started).count());
@@ -438,16 +444,16 @@ std::vector<float> StreamingModel::virtualized_output(
     const SourceTensor& tensor = source_.tied_embeddings
         ? require_tensor(source_, TensorRole::TokenEmbedding)
         : require_tensor(source_, TensorRole::OutputHead);
-    const std::vector<TensorRegion> regions = build_complete_row_partition(
+    const std::vector<TensorRowRegion> regions = build_complete_row_partition(
         static_cast<uint64_t>(source_.config.vocab), output_chunk_rows_);
     validate_complete_row_partition(static_cast<uint64_t>(source_.config.vocab), regions);
     std::vector<float> logits(static_cast<size_t>(sequence_length * source_.config.vocab));
-    for (const TensorRegion& region : regions) {
-        ResidentView rows = materialize_region(
+    for (const TensorRowRegion& region : regions) {
+        ResidentView rows = materialize_row_region(
             tensor, region, ExecutionOperation::OutputProjection);
         const uint64_t resident_bytes = checked_mul(
             checked_mul(region.row_count, static_cast<uint64_t>(source_.config.hidden),
-                        "output region elements"),
+                        "output row-region elements"),
             sizeof(float), "output region resident bytes");
         try {
             std::vector<float> chunk = ops::linear_no_bias(
@@ -461,12 +467,12 @@ std::vector<float> StreamingModel::virtualized_output(
                         region.row_begin);
             }
         } catch (...) {
-            release_region(tensor, region, ExecutionOperation::OutputProjection,
-                           resident_bytes);
+            release_row_region(tensor, region,
+                               ExecutionOperation::OutputProjection, resident_bytes);
             throw;
         }
-        release_region(tensor, region, ExecutionOperation::OutputProjection,
-                       resident_bytes);
+        release_row_region(tensor, region, ExecutionOperation::OutputProjection,
+                           resident_bytes);
     }
     ledger_.record_output_time(std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - started).count());

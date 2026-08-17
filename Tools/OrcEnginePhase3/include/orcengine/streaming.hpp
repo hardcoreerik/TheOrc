@@ -40,10 +40,10 @@ enum class ExecutionEventKind {
     LayerExecutionBegin,
     LayerExecutionEnd,
     TensorReleased,
-    TensorRegionRequested,
-    TensorRegionMaterializationBegin,
-    TensorRegionMaterialized,
-    TensorRegionReleased,
+    TensorRowRegionRequested,
+    TensorRowRegionMaterializationBegin,
+    TensorRowRegionMaterialized,
+    TensorRowRegionReleased,
     LayerEnd,
     TokenScored,
     TokenSelected,
@@ -63,6 +63,7 @@ struct ExecutionEvent {
     uint64_t row_count = 0;
     ExecutionOperation operation = ExecutionOperation::None;
     double milliseconds = 0.0;
+    uint64_t backing_bytes_read = 0;
 };
 
 using ExecutionObserver = std::function<void(const ExecutionEvent&)>;
@@ -87,9 +88,9 @@ struct StreamingTelemetry {
     uint64_t peak_active_layers = 0;
     uint64_t observer_event_count = 0;
     uint64_t observer_failure_count = 0;
-    uint64_t region_materialization_count = 0;
-    uint64_t embedding_region_count = 0;
-    uint64_t output_region_count = 0;
+    uint64_t row_region_materialization_count = 0;
+    uint64_t embedding_row_region_count = 0;
+    uint64_t output_row_region_count = 0;
     uint64_t embedding_backing_bytes_read = 0;
     uint64_t output_backing_bytes_read = 0;
     double embedding_milliseconds = 0.0;
@@ -134,16 +135,16 @@ struct StreamingConfig {
     uint64_t residency_budget_bytes = std::numeric_limits<uint64_t>::max();
     ExecutionObserver observer;
     bool virtualize_bookends = false;
-    TensorRegionMaterializer region_materializer;
+    TensorRowRegionMaterializer row_region_materializer;
     uint64_t output_chunk_rows = 1024;
 };
 
 uint64_t full_resident_bytes(const ModelSource& source);
 void require_full_resident_budget(const ModelSource& source, uint64_t budget_bytes);
-std::vector<TensorRegion> build_complete_row_partition(uint64_t rows,
-                                                       uint64_t chunk_rows);
+std::vector<TensorRowRegion> build_complete_row_partition(uint64_t rows,
+                                                          uint64_t chunk_rows);
 void validate_complete_row_partition(uint64_t rows,
-                                     const std::vector<TensorRegion>& regions);
+                                     const std::vector<TensorRowRegion>& regions);
 
 class StreamingModel {
 public:
@@ -157,11 +158,12 @@ public:
 
 private:
     ResidentView materialize(const SourceTensor& tensor);
-    ResidentView materialize_region(const SourceTensor& tensor,
-                                    const TensorRegion& region,
-                                    ExecutionOperation operation);
-    void release_region(const SourceTensor& tensor, const TensorRegion& region,
-                        ExecutionOperation operation, uint64_t resident_bytes);
+    ResidentView materialize_row_region(const SourceTensor& tensor,
+                                        const TensorRowRegion& region,
+                                        ExecutionOperation operation);
+    void release_row_region(const SourceTensor& tensor,
+                            const TensorRowRegion& region,
+                            ExecutionOperation operation, uint64_t resident_bytes);
     std::vector<float> virtualized_embedding(const std::vector<int64_t>& token_ids);
     std::vector<float> virtualized_output(const std::vector<float>& final_normed,
                                           int64_t sequence_length);
@@ -172,7 +174,7 @@ private:
 
     ModelSource source_;
     TensorMaterializer materializer_;
-    TensorRegionMaterializer region_materializer_;
+    TensorRowRegionMaterializer row_region_materializer_;
     ExecutionObserver observer_;
     bool virtualize_bookends_ = false;
     uint64_t output_chunk_rows_ = 0;

@@ -46,7 +46,7 @@
     "output_backing_bytes": 113246208,
     "layer_backing_bytes": 424811520,
     "total_backing_bytes_including_amortized_startup": 538066368,
-    "region_materializations": 53.5,
+    "row_region_materializations": 53.5,
     "all_materializations": 323.75
   },
   "timing_four_step_chunk_1000": {
@@ -67,12 +67,21 @@
       "output_projection_total_ms": 694.4009
     }
   },
+  "freeze_hardening_six_chunk_campaign": {
+    "chunk_rows": [1, 16, 64, 256, 1024, 1000],
+    "explicit_wall_seconds": [33.710181, 24.760435, 26.261840, 25.057714, 26.429399, 26.130153],
+    "explicit_output_projection_ms": [9434.5571, 1130.5005, 717.1763, 712.9834, 642.0649, 732.2602],
+    "tied_wall_seconds": [34.527863, 25.295923, 26.349897, 25.250493, 24.658296, 26.108411],
+    "tied_output_projection_ms": [9561.1939, 1171.4461, 722.7503, 707.9424, 656.9905, 695.1848]
+  },
   "validation": {
     "debug": "13/13",
     "release": "13/13",
     "strict_msvc": "13/13",
     "msvc_asan": "13/13",
     "format_neutral_leakage_scan": "pass",
+    "weird_layout_execution": "bit-identical; physical rows permuted and padded",
+    "f16_row_regions": "exact against full F16-to-F32 materialization",
     "corrupted_real_f32_artifact": "detected; selected token changed 28 to 30"
   }
 }

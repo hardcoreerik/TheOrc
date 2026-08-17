@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
         StreamingConfig config;
         config.residency_budget_bytes = budget;
         config.virtualize_bookends = virtualize_bookends;
-        config.region_materializer = std::move(binding.materialize_region);
+        config.row_region_materializer = std::move(binding.materialize_rows);
         config.output_chunk_rows = output_chunk_rows;
         StreamingModel model(std::move(binding.source), std::move(binding.materialize),
                              std::move(config));
@@ -138,8 +138,8 @@ int main(int argc, char** argv) {
                     "\"backing_bytes_read\":%llu,\"repeated_backing_bytes_read\":%llu,"
                     "\"read_count\":%llu,\"peak_process_working_set_bytes\":%llu,"
                     "\"peak_active_layers\":%llu,\"observer_event_count\":%llu,"
-                    "\"observer_failure_count\":%llu,\"region_materialization_count\":%llu,"
-                    "\"embedding_region_count\":%llu,\"output_region_count\":%llu,"
+                    "\"observer_failure_count\":%llu,\"row_region_materialization_count\":%llu,"
+                    "\"embedding_row_region_count\":%llu,\"output_row_region_count\":%llu,"
                     "\"embedding_backing_bytes_read\":%llu,\"output_backing_bytes_read\":%llu,"
                     "\"embedding_milliseconds\":%.6f,\"output_projection_milliseconds\":%.6f,"
                     "\"current_layer\":%lld,\"layer_timings\":[",
@@ -155,9 +155,9 @@ int main(int argc, char** argv) {
                     static_cast<unsigned long long>(t.peak_active_layers),
                     static_cast<unsigned long long>(t.observer_event_count),
                     static_cast<unsigned long long>(t.observer_failure_count),
-                    static_cast<unsigned long long>(t.region_materialization_count),
-                    static_cast<unsigned long long>(t.embedding_region_count),
-                    static_cast<unsigned long long>(t.output_region_count),
+                    static_cast<unsigned long long>(t.row_region_materialization_count),
+                    static_cast<unsigned long long>(t.embedding_row_region_count),
+                    static_cast<unsigned long long>(t.output_row_region_count),
                     static_cast<unsigned long long>(t.embedding_backing_bytes_read),
                     static_cast<unsigned long long>(t.output_backing_bytes_read),
                     t.embedding_milliseconds,

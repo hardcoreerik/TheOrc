@@ -67,12 +67,12 @@ proven primitive, while cache and transport optimization remain future work.
 The new neutral seam is deliberately small:
 
 ```text
-TensorRegion { row_begin, row_count }
+TensorRowRegion { row_begin, row_count }
         +
 LogicalTensor + BackingExtent
         |
         v
-TensorRegionMaterializer
+TensorRowRegionMaterializer
         |
         v
 MaterializedRegion { ResidentView, backing_bytes_read }
@@ -93,6 +93,100 @@ The neutral in-memory adapter copies requested rows directly from an F32Raw
 `BackingExtent` and passes the same complete test. A source scan over the
 neutral forward, source, and streaming files found no `GGUF`, `.gguf`, or
 `GGML` references.
+
+## Final freeze hardening: defining exactly what a region means
+
+The first Phase-4 candidate at `29513d0000f5def8eb5daf16ff2242ead68aacbe`
+called the contract `TensorRegion`. Independent review accepted the measured
+result but challenged that name: it could be read as promising columns,
+rectangles, arbitrary multidimensional slices, quantization blocks, channels,
+or expert subspaces. None of those had been tested.
+
+The hardening decision was to rename the public concept to
+`TensorRowRegion` and its callback to `TensorRowRegionMaterializer`. Observer,
+telemetry, method, and JSON names were narrowed consistently. The frozen
+meaning is now: **a contiguous range of logical rows from a rank-2 tensor**.
+There is no generic `RegionKind` enum because Phase 4 has only one implemented
+kind; adding speculative enum values would imply unsupported capabilities.
+
+### Hypothesis
+
+A logical row range should be independent of the physical storage layout. The
+execution engine should request logical rows and receive an F32 resident view;
+only the source adapter should know which physical records, padding, checksums,
+or decoding operations satisfy that request.
+
+### Weird-layout experiment
+
+The deterministic non-GGUF source uses the tied synthetic model and this file
+layout:
+
+```text
+19-byte header
+32 physical row slots, permuted by slot = (logical_row * 5) mod 32
+    4-byte logical-row ID
+    3-byte prefix marker
+    16 F32 values (64 logical payload bytes)
+    4-byte FNV-1a row checksum
+    5-byte suffix padding marker
+13-byte footer
+```
+
+Each physical slot is 80 bytes for a 64-byte logical row. Consecutive logical
+rows are normally in nonconsecutive physical slots. A multi-row logical request
+therefore performs multiple physical seeks and returns one contiguous logical
+resident view. A naive `offset + row * row_bytes` implementation reads header,
+padding, or the wrong permuted row and cannot pass.
+
+The same virtualized execution requested unique embedding rows and output
+partitions of seven logical rows. It was bit-identical to the normal in-memory
+source for embedding activation, every tap, complete logits, and selected
+tokens. Accounting reported 80 physical bytes read for each 64-byte logical
+row. `TensorRowRegionMaterialized` events carry both logical/resident bytes and
+`backing_bytes_read`, proving observer truth does not equate the two.
+
+Re-attacks corrupted prefix padding, changed a payload byte without updating
+its checksum, removed a logical-row directory entry, duplicated another row ID,
+and truncated the physical file. Every case failed through a controlled
+exception before incorrect logits could be accepted. Intentional physical row
+reordering is the passing layout, not a failure case.
+
+### Observation and consequence
+
+The experiment confirmed the invariant:
+
+```text
+LOGICAL ROW REGION != PHYSICAL STORAGE BYTE RANGE
+```
+
+The core required no format name, file handle, physical stride, row directory,
+padding rule, or checksum knowledge. This keeps room for future SafeTensors
+adapters, blocked GGUF quantization, custom OrcEngine storage, compressed
+transport, GPU tile residency, and MoE-specific region kinds. It does not
+implement or promise any of them. Columns, tiles, quantization blocks, arbitrary
+slices, and expert regions require separate contracts and evidence.
+
+### F16 row-region experiment
+
+The generated deterministic `model_f16.gguf` was indexed through the existing
+GGUF adapter. Token-embedding requests covered rows `(0,1)`, `(1,1)`, `(15,1)`,
+`(3,5)`, `(9,4)`, and final remainder `(29,3)`. Every returned value was exactly
+equal to the corresponding result of full F16-to-F32 materialization. Shapes,
+logical row counts, encoded bytes read (`rows * columns * 2`), and F32 resident
+bytes (`rows * columns * 4`) were checked independently.
+
+The complete F16 model then ran through virtualized embedding, Phase-3 layer
+streaming, and chunked output projection. It was bit-identical to full
+F16-to-F32 execution, succeeded at its measured resident peak, and rejected at
+peak minus one. Odd declared F16 extent, truncated physical row, and out-of-range
+request all failed closed.
+
+The materializer does not report a second, trusted `resident_bytes` number.
+Resident bytes are derived by the engine from the requested logical shape and
+F32 view, and the returned shape/element count must match. This removes rather
+than tests an opportunity for a source to lie about resident size. Physical
+`backing_bytes_read` remains separately source-reported and bounded by the
+declared backing extent.
 
 ## Execution strategies
 
@@ -181,7 +275,7 @@ single warm/unknown-cache measurements, not a benchmark claim.
 | output backing bytes / generated token | 113,246,208 | 113,246,208 |
 | transformer-layer backing bytes / generated token | 424,811,520 | 424,811,520 |
 | total backing bytes / generated token, startup amortized | 538,066,368 | 538,066,368 |
-| region materializations / generated token | 53.5 | 53.5 |
+| row-region materializations / generated token | 53.5 | 53.5 |
 | all materializations / generated token | 323.75 | 323.75 |
 | wall time / generated token | 7,103.931 ms | 6,530.223 ms |
 | embedding time, four steps | 1.3894 ms | 1.1578 ms |
@@ -200,28 +294,29 @@ The six-partition campaign wall times for four steps were:
 
 | Chunk rows | Explicit seconds | Tied seconds |
 |---:|---:|---:|
-| 1 | 34.387 | 37.255 |
-| 16 | 25.900 | 29.655 |
-| 64 | 25.284 | 29.019 |
-| 256 | 26.136 | 27.837 |
-| 1024 | 24.973 | 26.160 |
-| 1000 | 25.276 | 27.825 |
+| 1 | 33.710 | 34.528 |
+| 16 | 24.760 | 25.296 |
+| 64 | 26.262 | 26.350 |
+| 256 | 25.058 | 25.250 |
+| 1024 | 26.429 | 24.658 |
+| 1000 | 26.130 | 26.108 |
 
 ## Observable inference
 
 Phase 4 adds measured events:
 
-- `TensorRegionRequested`;
-- `TensorRegionMaterializationBegin`;
-- `TensorRegionMaterialized`;
-- `TensorRegionReleased`.
+- `TensorRowRegionRequested`;
+- `TensorRowRegionMaterializationBegin`;
+- `TensorRowRegionMaterialized`;
+- `TensorRowRegionReleased`.
 
-Region events carry semantic tensor role, logical row begin/count, resident and
-region bytes, opaque backing identity, operation (`InputEmbedding` or
-`OutputProjection`), and measured materialization duration. Existing
+Row-region events carry semantic tensor role, logical row begin/count, resident
+and logical region bytes, physical backing bytes read, opaque backing identity,
+operation (`InputEmbedding` or `OutputProjection`), and measured materialization duration. Existing
 `Measured`, `Derived`, and `Interpreted` categories remain distinct; current
-region events are `Measured`. Observer off/on output is bit-identical. A
-throwing observer remains isolated by the inherited Phase-3 behavior.
+row-region events are `Measured`. Observer off/on output is bit-identical. A
+throwing observer is explicitly tested on the row-region path and is disabled
+after one failure without changing inference.
 
 ## Safety re-attack and regressions
 
@@ -229,14 +324,20 @@ The focused Phase-4 test covers:
 
 - row begin at/past end, row end past end, zero rows, and 64-bit extent overflow;
 - malformed rank/dimensions and short source data;
-- wrong returned region shape/count and impossible reported backing bytes;
+- wrong returned row-region shape/count and impossible reported backing bytes;
 - partial final chunk plus missing, duplicate, overlapping, skipped, reordered,
   oversized, incomplete, and overflowed partitions;
 - tied model with an output head, untied model without one, and duplicate
   semantic embedding;
 - unique-token row deduplication and complete exact logits for all chunk sizes;
 - exact peak, peak-minus-one, and Phase-3-under-Phase-4-budget behavior;
-- neutral in-memory region materialization and observer event truth.
+- neutral in-memory row materialization and observer event truth;
+- physically permuted/padded rows, row checksums, padding corruption, payload
+  corruption, missing/duplicate row IDs, and short weird-layout source;
+- F16 first/middle/multi/nonzero/final rows, complete F16 execution, exact
+  budget, odd extent, out-of-range request, and truncated physical row;
+- too many rows, too few rows, wrong width/shape, and impossible physical-byte
+  accounting returned by a materializer.
 
 A copied real explicit F32 GGUF was re-attacked by changing the first float of
 the baseline-selected output row to 1000.0. Parsing still succeeded, but exact
@@ -245,6 +346,11 @@ temporary 653 MB copy was deleted automatically.
 
 Failures discovered while building the evidence are retained here:
 
+- independent review found that the original `TensorRegion` name overstated
+  the proven row-only capability; the contract and observations were narrowed;
+- the first weird-layout accounting assertion assumed two unique fixture
+  tokens, while the actual fixture contains four unique tokens; the test now
+  derives the count from the requested token IDs and passed on rerun;
 - the first focused test used direct map equality, but `ActivationBuffer` has
   no equality operator; it was replaced with explicit dimensions/data checks;
 - the tiny strong-budget test initially stopped at construction and exposed
@@ -258,17 +364,28 @@ Failures discovered while building the evidence are retained here:
 
 ## Validation matrix
 
-| Lane | Configuration | Deterministic result | Real campaigns |
-|---|---|---:|---|
-| Debug | MSVC Debug | 13/13 | not repeated; Release evidence is authoritative |
-| Release | MSVC Release | 13/13 | explicit/tied six-chunk four-step, tied equivalence, HF, corruption |
-| strict MSVC | Release, `/EHsc /W4 /WX /permissive-` | 13/13 | bounded deterministic suite only |
-| MSVC ASan | RelWithDebInfo, `/EHsc /fsanitize=address /W4` | 13/13 | bounded region/lifecycle suite only |
+| Evidence | Debug | Release | strict MSVC | MSVC ASan |
+|---|---:|---:|---:|---:|
+| Frozen Phase-1 suite | pass | pass | pass | pass |
+| Frozen Phase-2 GGUF/conformance/mutation/large-sparse suite | pass | pass | pass | pass |
+| Frozen Phase-3 streaming and cross-freeze suite | pass | pass | pass | pass |
+| Phase-4 `TensorRowRegion` suite | pass | pass | pass | pass |
+| Weird physical-layout source and fault attacks | pass | pass | pass | pass |
+| F16 row decoding, execution, budget, and malformed cases | pass | pass | pass | pass |
+| Observer off/on and throwing-observer isolation | pass | pass | pass | pass |
+| Deterministic CTest total | 13/13 | 13/13 | 13/13 | 13/13 |
+| Real explicit six-chunk/four-step campaign | not run | pass | not run | not run |
+| Real tied six-chunk/four-step campaign | not run | pass | not run | not run |
+| Real exact budget / peak-minus-one | not run | pass | not run | not run |
+| Direct real tied/explicit equivalence | not run | pass | not run | not run |
+| Independent HF/PyTorch | not run | pass | not run | not run |
+| Real F32 corruption detection | not run | pass | not run | not run |
 
-All lanes include Phase-1 frozen tests, Phase-2 GGUF conformance/mutations and
-large-sparse test, Phase-3 streaming/cross-freeze tests, and the Phase-4
-bookend test. Large real F32 campaigns are Release-only to keep warning and
-sanitizer lanes bounded.
+Debug is MSVC Debug; Release is MSVC Release; strict is Release with
+`/EHsc /W4 /WX /permissive-`; ASan is RelWithDebInfo with
+`/EHsc /fsanitize=address /W4`. Real-artifact campaigns are intentionally
+Release-only. Warning and sanitizer lanes execute the complete bounded
+synthetic/GGUF fixture suite, including weird-layout and F16 hardening.
 
 ## Reproduction
 
@@ -320,11 +437,13 @@ No output is the passing result.
 
 ## Evidence boundary and unsupported capabilities
 
-This proves logical row virtualization for dense materializable F32/F16 GGUF
-and a neutral in-memory F32 source. It does not prove efficient blocked or
-quantized region decoding, cold-storage behavior, async I/O, cache policy,
-prefetch, mmap, GPU residency, tokenizer input, KV-cached decode, stochastic
-sampling, multi-context scheduling, or production integration. Complete logits
+This proves contiguous logical row virtualization for dense materializable
+F32/F16 GGUF, ordinary in-memory F32, and one deliberately permuted/padded
+non-GGUF layout. It does not prove columns, rectangular tiles, arbitrary
+multidimensional slices, quantization blocks, channels, expert subspaces,
+efficient blocked or quantized row decoding, cold-storage behavior, async I/O,
+cache policy, prefetch, mmap, GPU residency, tokenizer input, KV-cached decode,
+stochastic sampling, multi-context scheduling, or production integration. Complete logits
 remain activation memory and are intentionally outside weight-residency
 accounting. Process working set includes allocator, executable, activation, and
 OS effects and is not claimed to equal the weight ledger.
@@ -336,5 +455,6 @@ was deliberately not committed.
 
 ## Proposed verdict
 
-**READY FOR INDEPENDENT FREEZE REVIEW.** Do not tag or begin Phase 5 until an
-independent reviewer attacks the implementation and evidence.
+**ACCEPT FOR PHASE-4 FREEZE** is the self-review recommendation. Do not tag or
+begin Phase 5 until the maintainer or an independent reviewer accepts this
+hardening evidence.

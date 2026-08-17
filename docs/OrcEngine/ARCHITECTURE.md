@@ -194,10 +194,12 @@ Three distinct concepts, deliberately kept separate:
 execution. Frozen Phase 2 creates real GGUF file extents and can open/index a
 model nonresident, but its execution path materializes every weight. Hardened
 Phase 3 keeps the same identities and proves one-layer-at-a-time CPU residency.
-Phase 4 adds `TensorRegion` and a source-owned region materializer, proving that
-one large logical tensor can execute without a complete resident view. The
-engine requests logical rows; the source decides what bytes or decoding satisfy
-them. No generic planner or cache is required for these proofs. Phase 6B remains the
+Phase 4 adds `TensorRowRegion` and a source-owned row-region materializer,
+proving that one large logical tensor can execute without a complete resident
+view. The engine requests contiguous logical rows; the source decides what
+bytes or decoding satisfy them. This contract does not imply columns, tiles,
+arbitrary multidimensional slices, quantization blocks, channels, or expert
+subspaces. No generic planner or cache is required for these proofs. Phase 6B remains the
 later point for multi-tier/device placement policy.
 
 Phase 3 also freezes a format boundary: streaming consumes a neutral
@@ -208,7 +210,7 @@ metadata, file handles, or quantization identifiers. GGUF is a source format,
 not OrcEngine's architecture.
 
 Phase 4 preserves that boundary for partial access:
-`TensorRegionMaterializer(LogicalTensor, BackingExtent, TensorRegion) ->
+`TensorRowRegionMaterializer(LogicalTensor, BackingExtent, TensorRowRegion) ->
 MaterializedRegion`. A logical row region is not defined as a raw byte range;
 the current dense GGUF adapter and neutral in-memory adapter are separate
 implementations of the same semantic request.

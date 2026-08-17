@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -12,6 +13,7 @@
 
 #include "orcengine/fixture_loader.hpp"
 #include "orcengine/gguf.hpp"
+#include "orcengine/gguf_source.hpp"
 #include "orcengine/materialization.hpp"
 #include "orcengine/streaming.hpp"
 
@@ -81,9 +83,9 @@ ModelSourceBinding bind_memory_model(const Model& model) {
                                  const BackingExtent& backing) {
         return materialize(logical, backing);
     };
-    TensorRegionMaterializer rows = [](const LogicalTensor& logical,
-                                       const BackingExtent& backing,
-                                       const TensorRegion& region) {
+    TensorRowRegionMaterializer rows = [](const LogicalTensor& logical,
+                                          const BackingExtent& backing,
+                                          const TensorRowRegion& region) {
         if (logical.shape().ndim() != 2 || region.row_count == 0) {
             throw std::runtime_error("invalid memory row request");
         }
@@ -111,6 +113,145 @@ ModelSourceBinding bind_memory_model(const Model& model) {
     return {std::move(source), std::move(full), std::move(rows)};
 }
 
+struct WeirdLayoutFaults {
+    int64_t corrupt_padding_row = -1;
+    int64_t corrupt_data_row = -1;
+    int64_t missing_row = -1;
+    int64_t duplicate_row = -1;
+};
+
+uint32_t row_checksum(const uint8_t* bytes, size_t count) {
+    uint32_t value = 2166136261U;
+    for (size_t i = 0; i < count; ++i) value = (value ^ bytes[i]) * 16777619U;
+    return value;
+}
+
+void put_u32(uint8_t* destination, uint32_t value) {
+    destination[0] = static_cast<uint8_t>(value);
+    destination[1] = static_cast<uint8_t>(value >> 8);
+    destination[2] = static_cast<uint8_t>(value >> 16);
+    destination[3] = static_cast<uint8_t>(value >> 24);
+}
+
+uint32_t get_u32(const uint8_t* source) {
+    return static_cast<uint32_t>(source[0]) |
+           (static_cast<uint32_t>(source[1]) << 8) |
+           (static_cast<uint32_t>(source[2]) << 16) |
+           (static_cast<uint32_t>(source[3]) << 24);
+}
+
+ModelSourceBinding bind_weird_layout_model(const Model& model,
+                                           const std::filesystem::path& path,
+                                           WeirdLayoutFaults faults = {}) {
+    ModelSourceBinding binding = bind_memory_model(model);
+    const uint64_t rows = static_cast<uint64_t>(model.config().vocab);
+    const uint64_t columns = static_cast<uint64_t>(model.config().hidden);
+    const uint64_t row_bytes = columns * sizeof(float);
+    constexpr uint64_t header_bytes = 19;
+    constexpr uint64_t prefix_bytes = 7;
+    constexpr uint64_t suffix_bytes = 9;
+    constexpr uint64_t footer_bytes = 13;
+    const uint64_t stride = prefix_bytes + row_bytes + suffix_bytes;
+    std::vector<uint8_t> file(static_cast<size_t>(
+        header_bytes + rows * stride + footer_bytes), 0xA5);
+    const auto slot_for = [rows](uint64_t logical_row) {
+        return (logical_row * 5) % rows;
+    };
+    for (uint64_t logical_row = 0; logical_row < rows; ++logical_row) {
+        const uint64_t base = header_bytes + slot_for(logical_row) * stride;
+        put_u32(file.data() + base, static_cast<uint32_t>(logical_row));
+        file[static_cast<size_t>(base + 4)] = 0xD1;
+        file[static_cast<size_t>(base + 5)] = 0xD2;
+        file[static_cast<size_t>(base + 6)] = 0xD3;
+        const uint64_t data = base + prefix_bytes;
+        std::memcpy(file.data() + data,
+                    model.token_embedding.raw().data() + logical_row * columns,
+                    static_cast<size_t>(row_bytes));
+        put_u32(file.data() + data + row_bytes,
+                row_checksum(file.data() + data, static_cast<size_t>(row_bytes)));
+        for (uint64_t i = 4; i < suffix_bytes; ++i) {
+            file[static_cast<size_t>(data + row_bytes + i)] =
+                static_cast<uint8_t>(0xE0 + i);
+        }
+    }
+    const auto row_base = [&](int64_t logical_row) {
+        return header_bytes + slot_for(static_cast<uint64_t>(logical_row)) * stride;
+    };
+    if (faults.corrupt_padding_row >= 0) {
+        file[static_cast<size_t>(row_base(faults.corrupt_padding_row) + 4)] ^= 0xFF;
+    }
+    if (faults.corrupt_data_row >= 0) {
+        file[static_cast<size_t>(row_base(faults.corrupt_data_row) + prefix_bytes)] ^= 0x01;
+    }
+    if (faults.missing_row >= 0) {
+        put_u32(file.data() + row_base(faults.missing_row), 0xFFFFFFFFU);
+    }
+    if (faults.duplicate_row >= 0) {
+        put_u32(file.data() + row_base(faults.duplicate_row), 0U);
+    }
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output.write(reinterpret_cast<const char*>(file.data()),
+                 static_cast<std::streamsize>(file.size()));
+    if (!output) throw std::runtime_error("cannot create weird-layout backing");
+    output.close();
+
+    auto embedding = std::find_if(
+        binding.source.tensors.begin(), binding.source.tensors.end(),
+        [](const SourceTensor& tensor) {
+            return tensor.identity.role == TensorRole::TokenEmbedding;
+        });
+    embedding->backing = BackingExtent(
+        path.string(), 0, static_cast<int64_t>(file.size()), BackingEncoding::F32Raw);
+    embedding->backing_identity = "weird-layout:" + path.string();
+    binding.materialize_rows = [path, rows, columns, row_bytes, stride, slot_for](
+        const LogicalTensor& logical, const BackingExtent& backing,
+        const TensorRowRegion& region) {
+        if (logical.shape().dims() !=
+                std::vector<int64_t>{static_cast<int64_t>(rows),
+                                     static_cast<int64_t>(columns)} ||
+            backing.source_path() != path.string() || region.row_count == 0 ||
+            region.row_begin >= rows || region.row_count > rows - region.row_begin) {
+            throw std::runtime_error("invalid weird-layout logical row request");
+        }
+        std::ifstream input(path, std::ios::binary);
+        if (!input) throw std::runtime_error("cannot open weird-layout backing");
+        std::vector<float> values(static_cast<size_t>(region.row_count * columns));
+        std::vector<uint8_t> slot(static_cast<size_t>(stride));
+        uint64_t bytes_read = 0;
+        for (uint64_t i = 0; i < region.row_count; ++i) {
+            const uint64_t logical_row = region.row_begin + i;
+            const uint64_t offset = header_bytes + slot_for(logical_row) * stride;
+            input.seekg(static_cast<std::streamoff>(offset));
+            input.read(reinterpret_cast<char*>(slot.data()),
+                       static_cast<std::streamsize>(slot.size()));
+            if (!input) throw std::runtime_error("short weird-layout physical row");
+            if (get_u32(slot.data()) != logical_row || slot[4] != 0xD1 ||
+                slot[5] != 0xD2 || slot[6] != 0xD3) {
+                throw std::runtime_error("weird-layout row directory or padding is corrupt");
+            }
+            const uint8_t* data = slot.data() + prefix_bytes;
+            if (get_u32(data + row_bytes) !=
+                    row_checksum(data, static_cast<size_t>(row_bytes))) {
+                throw std::runtime_error("weird-layout row checksum is corrupt");
+            }
+            for (uint64_t marker = 4; marker < suffix_bytes; ++marker) {
+                if (data[row_bytes + marker] != static_cast<uint8_t>(0xE0 + marker)) {
+                    throw std::runtime_error("weird-layout suffix padding is corrupt");
+                }
+            }
+            std::memcpy(values.data() + i * columns, data,
+                        static_cast<size_t>(row_bytes));
+            bytes_read += stride;
+        }
+        return MaterializedRegion{
+            ResidentView(TensorShape({static_cast<int64_t>(region.row_count),
+                                      static_cast<int64_t>(columns)}),
+                         std::move(values)),
+            bytes_read};
+    };
+    return binding;
+}
+
 StreamingModel virtual_model(const Model& model, uint64_t chunk_rows,
                              uint64_t budget = std::numeric_limits<uint64_t>::max(),
                              ExecutionObserver observer = {}) {
@@ -119,13 +260,13 @@ StreamingModel virtual_model(const Model& model, uint64_t chunk_rows,
     config.residency_budget_bytes = budget;
     config.observer = std::move(observer);
     config.virtualize_bookends = true;
-    config.region_materializer = std::move(binding.materialize_region);
+    config.row_region_materializer = std::move(binding.materialize_rows);
     config.output_chunk_rows = chunk_rows;
     return StreamingModel(std::move(binding.source), std::move(binding.materialize),
                           std::move(config));
 }
 
-bool partition_rejected(uint64_t rows, std::vector<TensorRegion> regions) {
+bool partition_rejected(uint64_t rows, std::vector<TensorRowRegion> regions) {
     try {
         validate_complete_row_partition(rows, regions);
         return false;
@@ -149,15 +290,218 @@ int main(int argc, char** argv) {
                   ("chunk " + std::to_string(chunk) + " is bit-identical").c_str());
         }
 
+        const std::filesystem::path weird_path = fixtures / "phase4_weird_layout.bin";
+        std::vector<ExecutionEvent> weird_events;
+        ModelSourceBinding weird_binding = bind_weird_layout_model(
+            fixture.model, weird_path);
+        StreamingConfig weird_config;
+        weird_config.virtualize_bookends = true;
+        weird_config.output_chunk_rows = 7;
+        weird_config.observer = [&](const ExecutionEvent& event) {
+            weird_events.push_back(event);
+        };
+        weird_config.row_region_materializer =
+            std::move(weird_binding.materialize_rows);
+        StreamingModel weird(std::move(weird_binding.source),
+                             std::move(weird_binding.materialize),
+                             std::move(weird_config));
+        const ForwardResult weird_result = weird.forward(fixture.token_ids);
+        const uint64_t weird_row_bytes =
+            static_cast<uint64_t>(fixture.model.config().hidden) * sizeof(float);
+        const uint64_t weird_stride = weird_row_bytes + 16;
+        const uint64_t weird_unique_tokens = static_cast<uint64_t>(
+            std::unordered_set<int64_t>(fixture.token_ids.begin(),
+                                        fixture.token_ids.end()).size());
+        check(identical(reference, weird_result),
+              "padded and physically permuted backing executes bit-identically");
+        check(weird.telemetry().embedding_backing_bytes_read ==
+                  weird_unique_tokens * weird_stride &&
+              weird.telemetry().output_backing_bytes_read ==
+                  static_cast<uint64_t>(fixture.model.config().vocab) * weird_stride,
+              "weird layout accounts physical bytes rather than logical resident bytes");
+        check(std::any_of(weird_events.begin(), weird_events.end(),
+            [](const ExecutionEvent& event) {
+                return event.kind == ExecutionEventKind::TensorRowRegionMaterialized &&
+                       event.backing_bytes_read > event.tensor_bytes;
+            }), "observer distinguishes logical row bytes from physical bytes read");
+        std::filesystem::remove(weird_path);
+
+        const auto weird_fault_rejected = [&](const char* filename,
+                                              WeirdLayoutFaults faults,
+                                              bool truncate) {
+            const std::filesystem::path path = fixtures / filename;
+            ModelSourceBinding binding = bind_weird_layout_model(
+                fixture.model, path, faults);
+            if (truncate) {
+                std::filesystem::resize_file(path,
+                    std::filesystem::file_size(path) - weird_stride);
+            }
+            StreamingConfig config;
+            config.virtualize_bookends = true;
+            config.output_chunk_rows = 7;
+            config.row_region_materializer = std::move(binding.materialize_rows);
+            bool rejected = false;
+            try {
+                StreamingModel model(std::move(binding.source),
+                                     std::move(binding.materialize),
+                                     std::move(config));
+                (void)model.forward(fixture.token_ids);
+            } catch (const std::exception&) {
+                rejected = true;
+            }
+            std::filesystem::remove(path);
+            return rejected;
+        };
+        check(weird_fault_rejected("phase4_weird_padding.bin", {1, -1, -1, -1}, false),
+              "physical padding corruption fails closed");
+        check(weird_fault_rejected("phase4_weird_data.bin", {-1, 1, -1, -1}, false),
+              "corrupted physical row fails checksum closed");
+        check(weird_fault_rejected("phase4_weird_missing.bin", {-1, -1, 1, -1}, false),
+              "missing logical row fails closed");
+        check(weird_fault_rejected("phase4_weird_duplicate.bin", {-1, -1, -1, 1}, false),
+              "duplicate logical row fails closed");
+        check(weird_fault_rejected("phase4_weird_short.bin", {}, true),
+              "short weird-layout source fails closed");
+
+        const ModelArtifactManifest f16_manifest = map_llama_model(
+            index_gguf(fixtures / "model_f16.gguf"));
+        const auto f16_embedding = std::find_if(
+            f16_manifest.mapped_tensors.begin(), f16_manifest.mapped_tensors.end(),
+            [](const MappedGgufTensor& tensor) {
+                return tensor.semantic.role == SemanticTensorRole::TokenEmbedding;
+            });
+        const ResidentView f16_full = materialize_gguf_tensor(*f16_embedding);
+        bool f16_regions_exact = true;
+        for (const TensorRowRegion region : {
+                 TensorRowRegion{0, 1}, TensorRowRegion{1, 1},
+                 TensorRowRegion{15, 1},
+                 TensorRowRegion{3, 5}, TensorRowRegion{9, 4},
+                 TensorRowRegion{29, 3}}) {
+            uint64_t bytes_read = 0;
+            const ResidentView rows = materialize_gguf_tensor_rows(
+                *f16_embedding, region.row_begin, region.row_count, bytes_read);
+            const size_t columns = static_cast<size_t>(
+                f16_embedding->logical.shape().dim(1));
+            const auto expected_begin = f16_full.raw().begin() +
+                static_cast<size_t>(region.row_begin) * columns;
+            f16_regions_exact = f16_regions_exact &&
+                rows.shape().dims() == std::vector<int64_t>{
+                    static_cast<int64_t>(region.row_count),
+                    static_cast<int64_t>(columns)} &&
+                rows.raw() == std::vector<float>(
+                    expected_begin,
+                    expected_begin + static_cast<size_t>(region.row_count) * columns) &&
+                bytes_read == region.row_count * columns * 2 &&
+                rows.raw().size() * sizeof(float) ==
+                    region.row_count * columns * sizeof(float);
+        }
+        check(f16_regions_exact,
+              "F16 first, middle, multi-row, nonzero, and final regions decode exactly");
+
+        const ForwardResult f16_reference = forward(
+            materialize_gguf_model(f16_manifest), fixture.token_ids);
+        ModelSourceBinding f16_binding = bind_gguf_source(f16_manifest);
+        StreamingConfig f16_config;
+        f16_config.virtualize_bookends = true;
+        f16_config.output_chunk_rows = 7;
+        f16_config.row_region_materializer = std::move(f16_binding.materialize_rows);
+        StreamingModel f16_model(std::move(f16_binding.source),
+                                 std::move(f16_binding.materialize),
+                                 std::move(f16_config));
+        check(identical(f16_reference, f16_model.forward(fixture.token_ids)),
+              "F16 row-region execution equals full F16-to-F32 execution");
+        const uint64_t f16_peak = f16_model.telemetry().peak_resident_weight_bytes;
+        ModelSourceBinding f16_exact_binding = bind_gguf_source(f16_manifest);
+        StreamingConfig f16_exact_config;
+        f16_exact_config.residency_budget_bytes = f16_peak;
+        f16_exact_config.virtualize_bookends = true;
+        f16_exact_config.output_chunk_rows = 7;
+        f16_exact_config.row_region_materializer =
+            std::move(f16_exact_binding.materialize_rows);
+        StreamingModel f16_exact(std::move(f16_exact_binding.source),
+                                 std::move(f16_exact_binding.materialize),
+                                 std::move(f16_exact_config));
+        check(identical(f16_reference, f16_exact.forward(fixture.token_ids)),
+              "F16 row-region execution succeeds at its exact resident budget");
+        bool f16_below_failed = false;
+        try {
+            ModelSourceBinding below_binding = bind_gguf_source(f16_manifest);
+            StreamingConfig below_config;
+            below_config.residency_budget_bytes = f16_peak - 1;
+            below_config.virtualize_bookends = true;
+            below_config.output_chunk_rows = 7;
+            below_config.row_region_materializer =
+                std::move(below_binding.materialize_rows);
+            StreamingModel below(std::move(below_binding.source),
+                                 std::move(below_binding.materialize),
+                                 std::move(below_config));
+            (void)below.forward(fixture.token_ids);
+        } catch (const ResidencyBudgetError&) {
+            f16_below_failed = true;
+        }
+        check(f16_below_failed, "F16 row-region peak minus one fails closed");
+
+        MappedGgufTensor odd_f16 = *f16_embedding;
+        odd_f16.backing = BackingExtent(
+            odd_f16.backing.source_path(), odd_f16.backing.byte_offset(),
+            odd_f16.backing.byte_length() - 1, odd_f16.backing.encoding());
+        bool odd_f16_failed = false;
+        try {
+            uint64_t bytes = 0;
+            (void)materialize_gguf_tensor_rows(
+                odd_f16, static_cast<uint64_t>(odd_f16.logical.shape().dim(0) - 1),
+                1, bytes);
+        } catch (const GgufError&) {
+            odd_f16_failed = true;
+        }
+        check(odd_f16_failed, "odd F16 encoded extent fails closed");
+        bool f16_bounds_failed = false;
+        try {
+            uint64_t bytes = 0;
+            (void)materialize_gguf_tensor_rows(
+                *f16_embedding,
+                static_cast<uint64_t>(f16_embedding->logical.shape().dim(0)),
+                1, bytes);
+        } catch (const GgufError&) {
+            f16_bounds_failed = true;
+        }
+        check(f16_bounds_failed, "out-of-range F16 row request fails closed");
+
+        const std::filesystem::path short_f16_path =
+            fixtures / "phase4_short_f16.gguf";
+        std::filesystem::copy_file(fixtures / "model_f16.gguf", short_f16_path,
+                                   std::filesystem::copy_options::overwrite_existing);
+        ModelArtifactManifest short_f16_manifest = map_llama_model(
+            index_gguf(short_f16_path));
+        const auto short_f16_embedding = std::find_if(
+            short_f16_manifest.mapped_tensors.begin(),
+            short_f16_manifest.mapped_tensors.end(),
+            [](const MappedGgufTensor& tensor) {
+                return tensor.semantic.role == SemanticTensorRole::TokenEmbedding;
+            });
+        std::filesystem::resize_file(
+            short_f16_path,
+            static_cast<uint64_t>(short_f16_embedding->backing.byte_offset()) +
+                static_cast<uint64_t>(short_f16_embedding->logical.shape().dim(1)) * 2 - 1);
+        bool short_f16_failed = false;
+        try {
+            uint64_t bytes = 0;
+            (void)materialize_gguf_tensor_rows(*short_f16_embedding, 0, 1, bytes);
+        } catch (const GgufError&) {
+            short_f16_failed = true;
+        }
+        check(short_f16_failed, "truncated F16 physical row fails closed");
+        std::filesystem::remove(short_f16_path);
+
         StreamingModel measured = virtual_model(fixture.model, 7);
         const ForwardResult measured_result = measured.forward(fixture.token_ids);
         const StreamingTelemetry telemetry = measured.telemetry();
         const size_t unique_tokens = std::unordered_set<int64_t>(
             fixture.token_ids.begin(), fixture.token_ids.end()).size();
         check(identical(reference, measured_result) &&
-              telemetry.embedding_region_count == unique_tokens,
+              telemetry.embedding_row_region_count == unique_tokens,
               "embedding materializes one row per unique token");
-        check(telemetry.output_region_count ==
+        check(telemetry.output_row_region_count ==
                   (static_cast<uint64_t>(fixture.model.config().vocab) + 6) / 7 &&
               telemetry.current_resident_weight_bytes ==
                   static_cast<uint64_t>(fixture.model.config().hidden) * sizeof(float),
@@ -204,14 +548,22 @@ int main(int argc, char** argv) {
               "observer enabled cannot change output");
         const auto region_events = std::count_if(events.begin(), events.end(),
             [](const ExecutionEvent& event) {
-                return event.kind == ExecutionEventKind::TensorRegionMaterialized &&
+                return event.kind == ExecutionEventKind::TensorRowRegionMaterialized &&
                        event.row_count > 0 && event.tensor_bytes > 0 &&
                        event.operation != ExecutionOperation::None &&
                        event.milliseconds >= 0.0;
             });
         check(static_cast<uint64_t>(region_events) ==
-                  observed.telemetry().region_materialization_count,
+                  observed.telemetry().row_region_materialization_count,
               "observer reports measured role, region, bytes, operation, and timing");
+        StreamingModel throwing_row_observer = virtual_model(
+            fixture.model, 7, std::numeric_limits<uint64_t>::max(),
+            [](const ExecutionEvent&) {
+                throw std::runtime_error("row observer failure");
+            });
+        check(identical(reference, throwing_row_observer.forward(fixture.token_ids)) &&
+              throwing_row_observer.telemetry().observer_failure_count == 1,
+              "throwing row-region observer is isolated from inference");
 
         check(partition_rejected(8, {{0, 3}, {4, 4}}), "skipped vocabulary row rejected");
         check(partition_rejected(8, {{0, 4}, {3, 5}}), "overlapping vocabulary rows rejected");
@@ -233,8 +585,9 @@ int main(int argc, char** argv) {
         StreamingConfig wrong_config;
         wrong_config.virtualize_bookends = true;
         wrong_config.output_chunk_rows = 7;
-        wrong_config.region_materializer = [](const LogicalTensor&, const BackingExtent&,
-                                              const TensorRegion&) {
+        wrong_config.row_region_materializer = [](const LogicalTensor&,
+                                                  const BackingExtent&,
+                                                  const TensorRowRegion&) {
             return MaterializedRegion{ResidentView(TensorShape({1, 1}), {0.0F}), 4};
         };
         bool wrong_shape_failed = false;
@@ -247,13 +600,52 @@ int main(int argc, char** argv) {
         }
         check(wrong_shape_failed, "wrong region return shape fails closed");
 
+        const auto wrong_row_count_rejected = [&](bool too_many) {
+            ModelSourceBinding binding = bind_memory_model(fixture.model);
+            TensorRowRegionMaterializer good = std::move(binding.materialize_rows);
+            StreamingConfig config;
+            config.virtualize_bookends = true;
+            config.output_chunk_rows = 7;
+            config.row_region_materializer =
+                [good = std::move(good), too_many](const LogicalTensor& logical,
+                                                    const BackingExtent& backing,
+                                                    const TensorRowRegion& region) {
+                    if (!too_many && region.row_count == 1) {
+                        return good(logical, backing, region);
+                    }
+                    const uint64_t returned_rows = too_many
+                        ? region.row_count + 1 : region.row_count - 1;
+                    const uint64_t columns =
+                        static_cast<uint64_t>(logical.shape().dim(1));
+                    return MaterializedRegion{
+                        ResidentView(TensorShape({static_cast<int64_t>(returned_rows),
+                                                  static_cast<int64_t>(columns)}),
+                                     std::vector<float>(static_cast<size_t>(
+                                         returned_rows * columns))),
+                        returned_rows * columns * sizeof(float)};
+                };
+            try {
+                StreamingModel model(std::move(binding.source),
+                                     std::move(binding.materialize),
+                                     std::move(config));
+                (void)model.forward(fixture.token_ids);
+                return false;
+            } catch (const StreamingError&) {
+                return true;
+            }
+        };
+        check(wrong_row_count_rejected(true),
+              "materializer returning too many rows fails closed");
+        check(wrong_row_count_rejected(false),
+              "materializer returning too few rows fails closed");
+
         ModelSourceBinding bogus_bytes = bind_memory_model(fixture.model);
         StreamingConfig bogus_bytes_config;
         bogus_bytes_config.virtualize_bookends = true;
         bogus_bytes_config.output_chunk_rows = 7;
-        bogus_bytes_config.region_materializer = [](const LogicalTensor& logical,
-                                                    const BackingExtent& backing,
-                                                    const TensorRegion& region) {
+        bogus_bytes_config.row_region_materializer = [](
+            const LogicalTensor& logical, const BackingExtent& backing,
+            const TensorRowRegion& region) {
             const uint64_t columns = static_cast<uint64_t>(logical.shape().dim(1));
             std::vector<float> values(static_cast<size_t>(region.row_count * columns));
             return MaterializedRegion{
@@ -325,7 +717,8 @@ int main(int argc, char** argv) {
         try {
             StreamingConfig config;
             config.virtualize_bookends = true;
-            config.region_materializer = std::move(malformed_shape.materialize_region);
+            config.row_region_materializer =
+                std::move(malformed_shape.materialize_rows);
             StreamingModel model(std::move(malformed_shape.source),
                                  std::move(malformed_shape.materialize),
                                  std::move(config));
