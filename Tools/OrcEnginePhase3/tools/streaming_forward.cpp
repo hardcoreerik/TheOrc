@@ -3,10 +3,12 @@
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
+#include "orcengine/gguf_source.hpp"
 #include "orcengine/streaming.hpp"
 
 using namespace orcengine;
@@ -38,10 +40,12 @@ void print_tap(const std::string& name, const ActivationBuffer& tap, bool comma)
 int main(int argc, char** argv) {
     try {
         if (argc < 3) throw std::runtime_error(
-            "usage: orcengine_gguf_streaming_forward MODEL.gguf TOKEN_ID... [--steps N] [--reverse-layer-materialization]");
+            "usage: orcengine_gguf_streaming_forward MODEL.gguf TOKEN_ID... [--steps N] [--budget-bytes N] [--require-full-resident] [--reverse-layer-materialization]");
         const std::filesystem::path path = argv[1];
         size_t steps = 1;
         bool reverse = false;
+        bool require_full = false;
+        uint64_t budget = std::numeric_limits<uint64_t>::max();
         std::vector<int64_t> tokens;
         for (int i = 2; i < argc; ++i) {
             const std::string arg = argv[i];
@@ -50,6 +54,11 @@ int main(int argc, char** argv) {
                 steps = static_cast<size_t>(std::stoull(argv[i]));
             } else if (arg == "--reverse-layer-materialization") {
                 reverse = true;
+            } else if (arg == "--budget-bytes") {
+                if (++i >= argc) throw std::runtime_error("--budget-bytes requires a value");
+                budget = std::stoull(argv[i]);
+            } else if (arg == "--require-full-resident") {
+                require_full = true;
             } else {
                 tokens.push_back(std::stoll(arg));
             }
@@ -57,12 +66,19 @@ int main(int argc, char** argv) {
         if (tokens.empty() || steps == 0 || steps > 8)
             throw std::runtime_error("provide at least one token and 1..8 steps");
 
-        const ModelArtifactManifest manifest = map_llama_model(index_gguf(path));
+        ModelSourceBinding binding = bind_gguf_source(map_llama_model(index_gguf(path)));
+        const uint64_t full_bytes = full_resident_bytes(binding.source);
+        if (require_full) require_full_resident_budget(binding.source, budget);
+        bool full_admitted = true;
+        try { require_full_resident_budget(binding.source, budget); }
+        catch (const ResidencyBudgetError&) { full_admitted = false; }
         const auto materialize_started = std::chrono::steady_clock::now();
-        StreamingModel model(manifest);
+        StreamingModel model(std::move(binding.source), std::move(binding.materialize),
+                             {budget, {}});
         const double materialize_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - materialize_started).count();
         const uint64_t bookend_bytes = model.telemetry().current_resident_weight_bytes;
+        const uint64_t bookend_count = model.telemetry().materialization_count;
         const std::vector<std::string> taps = {
             "input_embedding", "layer0.pre_attention_normalized_state",
             "layer0.q_projection", "layer0.k_projection", "layer0.v_projection",
@@ -70,8 +86,15 @@ int main(int argc, char** argv) {
             "final_normalized_state",
         };
 
-        std::printf("{\n  \"materialized_bytes\": %llu,\n  \"materialize_milliseconds\": %.6f,\n  \"steps\": [\n",
-                    static_cast<unsigned long long>(bookend_bytes), materialize_ms);
+        std::printf("{\n  \"materialized_bytes\": %llu,\n  \"materialize_milliseconds\": %.6f,\n"
+                    "  \"residency_budget_bytes\": %llu,\n  \"full_resident_required_bytes\": %llu,\n"
+                    "  \"full_resident_admitted\": %s,\n  \"initial_materialization_count\": %llu,\n"
+                    "  \"steps\": [\n",
+                    static_cast<unsigned long long>(bookend_bytes), materialize_ms,
+                    static_cast<unsigned long long>(budget),
+                    static_cast<unsigned long long>(full_bytes),
+                    full_admitted ? "true" : "false",
+                    static_cast<unsigned long long>(bookend_count));
         for (size_t step = 0; step < steps; ++step) {
             const auto started = std::chrono::steady_clock::now();
             const ForwardResult result = model.forward(tokens, {reverse, -1});
@@ -99,7 +122,8 @@ int main(int argc, char** argv) {
                     "\"materialization_count\":%llu,\"release_count\":%llu,"
                     "\"backing_bytes_read\":%llu,\"repeated_backing_bytes_read\":%llu,"
                     "\"read_count\":%llu,\"peak_process_working_set_bytes\":%llu,"
-                    "\"peak_active_layers\":%llu,\"current_layer\":%lld,\"layer_timings\":[",
+                    "\"peak_active_layers\":%llu,\"observer_event_count\":%llu,"
+                    "\"observer_failure_count\":%llu,\"current_layer\":%lld,\"layer_timings\":[",
                     static_cast<unsigned long long>(t.current_resident_weight_bytes),
                     static_cast<unsigned long long>(t.peak_resident_weight_bytes),
                     static_cast<unsigned long long>(t.cumulative_materialized_bytes),
@@ -110,6 +134,8 @@ int main(int argc, char** argv) {
                     static_cast<unsigned long long>(t.read_count),
                     static_cast<unsigned long long>(t.peak_process_working_set_bytes),
                     static_cast<unsigned long long>(t.peak_active_layers),
+                    static_cast<unsigned long long>(t.observer_event_count),
+                    static_cast<unsigned long long>(t.observer_failure_count),
                     static_cast<long long>(t.current_layer));
         for (size_t i = 0; i < t.layer_timings.size(); ++i) {
             const LayerTiming& timing = t.layer_timings[i];

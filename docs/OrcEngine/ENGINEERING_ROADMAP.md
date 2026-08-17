@@ -90,7 +90,7 @@ Phase 2 exceeded its original scope deliberately after the parser was proven:
 it established real F32 execution correctness before stopping. That invalidates
 the old assumption that real-model loading/execution remained wholly in Phase 3.
 
-## Phase 3 — Real-model streaming / working-set reference — PROPOSED
+## Phase 3 — Real-model streaming / working-set reference — HARDENED, AWAITING FREEZE
 
 **Question:** what is the minimum practical working set required to execute the
 real F32 model correctly?
@@ -101,7 +101,7 @@ F32 model and match the oracle—was completed and independently frozen in Phase
 changes with the first nonresident execution path would confound the memory
 experiment.
 
-**Proposed scope:** retain Phase-1 math and Phase-2 interpretation; keep the
+**Implemented scope:** retain Phase-1 math and Phase-2 interpretation; keep the
 validated manifest open; retain only embedding/final-norm/distinct-output
 bookends; materialize one real GGUF-backed layer at a time; release it before
 the next; compare against full materialization and Hugging Face/PyTorch; measure
@@ -124,8 +124,11 @@ reads, and time.
 **Non-goals:** tokenizer, KV cache, CUDA, quantized compute, BLAS/SIMD/threading,
 generic planner/cache framework, batching, product integration, and tile paging.
 
-**Authority:** see [Phase-3 Working-Set Specification](PHASE3_WORKING_SET_SPEC.md).
-Implementation is stopped pending design review.
+**Authority:** see [Phase-3 Working-Set Specification](PHASE3_WORKING_SET_SPEC.md)
+and [Phase-3 Freeze Hardening](PHASE3_FREEZE_HARDENING.md). Implementation is
+stopped pending independent freeze review. The next roadmap decision must
+compare bookend virtualization against the existing tokenizer/KV/CPU-usability
+direction; Phase 3 does not assume either is automatically Phase 4.
 
 ## Phase 4 — Practical CPU inference semantics and usability baseline
 

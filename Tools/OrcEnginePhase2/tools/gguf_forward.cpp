@@ -78,8 +78,12 @@ int main(int argc, char** argv) {
             "final_normalized_state",
         };
 
-        std::printf("{\n  \"materialized_bytes\": %llu,\n  \"materialize_milliseconds\": %.6f,\n  \"steps\": [\n",
-                    static_cast<unsigned long long>(materialized_bytes), materialize_ms);
+        std::printf("{\n  \"materialized_bytes\": %llu,\n  \"materialize_milliseconds\": %.6f,\n"
+                    "  \"backing_bytes_read\": %llu,\n  \"read_count\": %zu,\n"
+                    "  \"initial_materialization_count\": %zu,\n  \"steps\": [\n",
+                    static_cast<unsigned long long>(materialized_bytes), materialize_ms,
+                    static_cast<unsigned long long>(materialized_bytes), manifest.mapped_tensors.size(),
+                    manifest.mapped_tensors.size());
         for (size_t step = 0; step < steps; ++step) {
             const auto forward_started = std::chrono::steady_clock::now();
             const ForwardResult result = forward(model, tokens);

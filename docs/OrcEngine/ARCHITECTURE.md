@@ -116,7 +116,7 @@ See [Sampling and Decoding](SAMPLING_AND_DECODING.md).
 | GGUF source identity and validated extents | Model manifest | Open/index to final manifest release. Current Phase-2 materialization uses bounded file reads, not an OS mapping. |
 | Validated metadata | Model | Immutable after load. |
 | Logical weight tensors | Model manifest | Immutable after semantic mapping. |
-| Resident weight views | Execution strategy | Full-model lifetime in frozen Phase 2; proposed layer scope in Phase 3. |
+| Resident weight views | Execution strategy | Full-model lifetime in frozen Phase 2; hardened Phase 3 proves bookend plus one-layer scope. |
 | Backend weight copies | Model/backend allocation set | Lifetime is explicit in the selected execution strategy; permanent residency is not assumed. |
 | KV cache | Context | Context creation to reset/destroy. |
 | Scratch/workspace | Context or execution arena | Scoped to documented execution lifetime. |
@@ -164,6 +164,12 @@ Telemetry is measurement, not estimate, where the engine owns the resource:
 
 Estimates must carry an `estimated` label and the formula inputs.
 
+Phase 3 adds an optional structured execution observer. Events use semantic
+tensor roles and opaque backing identities rather than source-format names.
+Current lifecycle events are labeled `Measured`; future `Derived` and
+`Interpreted` observations must retain those distinct labels. Observer failure
+is isolated from inference, and enabling observation must not alter output.
+
 ## Memory model: a model is a logical address space, not a VRAM resident
 
 **Added 2026-08-15 and reconciled after Phase-2 freeze on 2026-08-16**
@@ -182,14 +188,21 @@ Three distinct concepts, deliberately kept separate:
 **Observed progression:** frozen Phase 1 uses owned in-memory F32Raw
 `BackingExtent` values in storage tests and fully resident CPU views during
 execution. Frozen Phase 2 creates real GGUF file extents and can open/index a
-model nonresident, but its execution path materializes every weight. Proposed
-Phase 3 keeps the same identities and tests one-layer-at-a-time CPU residency.
+model nonresident, but its execution path materializes every weight. Hardened
+Phase 3 keeps the same identities and proves one-layer-at-a-time CPU residency.
 No generic planner or cache is required for that proof. Phase 6B remains the
 later point for multi-tier/device placement policy.
 
+Phase 3 also freezes a format boundary: streaming consumes a neutral
+`ModelSource` inventory and a `TensorMaterializer(LogicalTensor,
+BackingExtent) -> ResidentView` callback. GGUF mapping and materialization live
+in an adapter. The streaming algorithm does not know GGUF tensor names,
+metadata, file handles, or quantization identifiers. GGUF is a source format,
+not OrcEngine's architecture.
+
 ### "Model loaded" does not mean "fully resident"
 
-For OrcEngine, **"model loaded" means:** source opened, GGUF validated, tensor index built, architecture manifest built, and the model is addressable by an execution strategy. It does **NOT** require every tensor to be copied into RAM, and does not require every tensor to be copied into VRAM. Frozen Phase 2 already separates indexing/mapping from full materialization. Proposed Phase 3 must execute from that nonresident manifest without introducing the eventual generic `ExecutionPlanner`; model open, residency strategy, and future context creation remain separate responsibilities.
+For OrcEngine, **"model loaded" means:** source opened and validated, tensor index built, semantic model source built, and the model is addressable by an execution strategy. It does **NOT** require every tensor to be copied into RAM, and does not require every tensor to be copied into VRAM. Frozen Phase 2 separates indexing/mapping from full materialization; hardened Phase 3 executes from that nonresident source without introducing the eventual generic `ExecutionPlanner`. Model open, residency strategy, and future context creation remain separate responsibilities.
 
 ### ExecutionPlanner is not a second OrcScheduler
 

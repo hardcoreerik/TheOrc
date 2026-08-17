@@ -1,6 +1,13 @@
 # OrcEngine Phase 3: real-model streaming working-set reference
 
-Status: **IMPLEMENTED — READY FOR INDEPENDENT FREEZE REVIEW; NOT FROZEN**
+Status: **HARDENED — ACCEPT FOR PHASE-3 FREEZE; NOT YET TAGGED**
+
+> Freeze-hardening evidence supersedes the original one-step performance
+> interpretation and direct-GGUF core design described historically below. See
+> [PHASE3_FREEZE_HARDENING.md](PHASE3_FREEZE_HARDENING.md) for the controlled
+> budget proof, format-neutral materializer seam, observer contract, persistent
+> decode timings, frozen-binary differential, and final matrix. Historical text
+> remains here to preserve how the implementation reached review.
 
 Date: 2026-08-16 America/Los_Angeles
 

@@ -235,20 +235,24 @@ Those are the boundary OrcEngine proposes to explore.
 
 ## Phase 3 working-set status — 2026-08-16
 
-**REPOSITORY- AND RUNTIME-OBSERVED:** Phase 3 is implemented on
-`feat/orcengine-phase3-working-set` and is ready for independent freeze review.
+**REPOSITORY- AND RUNTIME-OBSERVED:** Phase 3 is implemented and hardened on
+`feat/orcengine-phase3-working-set` with a recommendation to accept the freeze.
 Real explicit and tied F32 GGUFs execute one transformer layer at a time through
 the shared Phase-1 math, produce bit-identical full/streamed four-step outputs,
 and match the independent Hugging Face/PyTorch gate. Exact engine-owned peaks
-are 240,655,104 bytes explicit and 127,408,896 bytes tied. See
-`PHASE3_WORKING_SET_IMPLEMENTATION.md` for commands, failures, measurements,
-matrix, limitations, and the stop verdict. Phase 3 is not frozen and Phase 4
-has not started.
+are 240,655,104 bytes explicit and 127,408,896 bytes tied. Those exact budgets
+reject full residency but admit streamed execution with exact output. The core
+streaming algorithm now consumes a format-neutral source/materializer contract,
+and optional structured observations are output-invariant. Persistent decode
+shows a 1.49x explicit and 1.85x tied streamed/full post-residency slowdown. See
+`PHASE3_FREEZE_HARDENING.md` for commands, discovery history, raw evidence,
+matrix, limitations, and verdict. Phase 3 is not tagged and Phase 4 has not
+started.
 
 ## Current blockers
 
-An independent adversarial freeze review must accept Phase 3 before Phase 4 is
-planned or implemented.
+An independent reviewer must accept and tag the hardened Phase 3 result before
+Phase 4 is planned or implemented.
 
 ## How to update this document
 

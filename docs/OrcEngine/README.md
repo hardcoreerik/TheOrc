@@ -1,6 +1,6 @@
 # OrcEngine documentation index
 
-> Status: Phase 2 implementation complete/frozen; Phase 3 working-set design proposed, implementation not started
+> Status: Phase 2 frozen; Phase 3 implemented and hardened, awaiting independent freeze/tag decision
 >
 > Product posture: experimental backend candidate; not a replacement for the current production/default runtime
 >
@@ -44,8 +44,9 @@ Every document should distinguish these states:
 12. [Phase 2 GGUF Implementation](PHASE2_GGUF_IMPLEMENTATION.md)
 13. [Phase 2 Freeze Hardening](PHASE2_FREEZE_HARDENING.md)
 14. [Proposed Phase 3 Working-Set Specification](PHASE3_WORKING_SET_SPEC.md)
-15. Technical-design documents in pipeline order
-16. Verification, risk, security, licensing, and review documents
+15. [Phase 3 Freeze Hardening](PHASE3_FREEZE_HARDENING.md)
+16. Technical-design documents in pipeline order
+17. Verification, risk, security, licensing, and review documents
 
 ## Document index
 
@@ -66,6 +67,7 @@ Every document should distinguish these states:
 | [Phase 2 GGUF Implementation](PHASE2_GGUF_IMPLEMENTATION.md) | Frozen implementation evidence | Real GGUF ingestion, F32 execution, artifacts, and support boundary. |
 | [Phase 2 Freeze Hardening](PHASE2_FREEZE_HARDENING.md) | Freeze evidence | Independent closure tests, matrix, re-attack, and limitations. |
 | [Phase 3 Working-Set Specification](PHASE3_WORKING_SET_SPEC.md) | Proposed phase gate | Real-model layer-streaming mission, baseline, risks, metrics, and completion gates. |
+| [Phase 3 Freeze Hardening](PHASE3_FREEZE_HARDENING.md) | Freeze evidence | Controlled budget, format-neutral source, observer, persistent timing, cross-freeze differential, and final matrix. |
 | [Model Format and GGUF](MODEL_FORMAT_AND_GGUF.md) | Model ingestion | File parsing, validation, tensor mapping, and compatibility posture. |
 | [Tensor Engine Design](TENSOR_ENGINE_DESIGN.md) | Compute core | Tensor representation, operators, allocation, and graph execution. |
 | [CPU Backend Design](CPU_BACKEND_DESIGN.md) | CPU execution | Reference kernels, threading, SIMD, and optimization gates. |
