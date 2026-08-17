@@ -76,7 +76,24 @@ ModelSourceBinding bind_gguf_source(ModelArtifactManifest manifest) {
         }
         return materialize_gguf_tensor(*it);
     };
-    return {std::move(source), std::move(materializer)};
+    TensorRegionMaterializer region_materializer =
+        [retained](const LogicalTensor& logical, const BackingExtent& backing,
+                   const TensorRegion& region) {
+            const auto it = std::find_if(
+                retained->mapped_tensors.begin(), retained->mapped_tensors.end(),
+                [&](const MappedGgufTensor& tensor) {
+                    return tensor.logical.name() == logical.name() &&
+                           same_extent(tensor.backing, backing);
+                });
+            if (it == retained->mapped_tensors.end()) {
+                throw GgufError("row materialization request is not present in the bound GGUF source");
+            }
+            uint64_t backing_bytes = 0;
+            ResidentView view = materialize_gguf_tensor_rows(
+                *it, region.row_begin, region.row_count, backing_bytes);
+            return MaterializedRegion{std::move(view), backing_bytes};
+        };
+    return {std::move(source), std::move(materializer), std::move(region_materializer)};
 }
 
 }  // namespace orcengine

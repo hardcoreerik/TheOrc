@@ -3,8 +3,8 @@ project: OrcEngine
 as_of:
   date: "2026-08-16"
   timezone: America/Los_Angeles
-  repository: "F:\\Ai\\OrchestratorIDE-phase3-working-set"
-  branch: feat/orcengine-phase3-working-set
+  repository: "F:\\Ai\\OrchestratorIDE-phase4-bookend-virtualization"
+  branch: feat/orcengine-phase4-bookend-virtualization
   verified_product_commit: 6ecdd66e5b6bd83de2c5aee2f6c7ed86568d40b7
   pending_integration_commit: 16501dae4568391e8891dc091f8869d43ca6b7b9
   native_runtime_fix_branch: fix/native-runtime-grammar-and-admission
@@ -12,7 +12,7 @@ as_of:
   native_runtime_fix_branch_status: pushed_not_merged_pending_maintainer_review
 
 status:
-  lifecycle: phase_2_complete_frozen_phase_3_ready_for_independent_freeze_review
+  lifecycle: phase_3_complete_frozen_phase_4_ready_for_independent_freeze_review
   implementation_exists: true
   phase1_cpp_reference_core: implemented
   phase1_differential_tests_passing: true
@@ -45,7 +45,15 @@ status:
   phase3_real_four_step_sequence: "1,5,28,284,260,198"
   phase3_explicit_peak_weight_bytes: 240655104
   phase3_tied_peak_weight_bytes: 127408896
-  phase3_freeze_verdict: pending_independent_review
+  phase3_freeze_verdict: accepted_frozen
+  phase3_freeze_commit: 98dbcf1f370a93574da32dc02ebdcfeff8a60b3d
+  phase3_freeze_tag: orcengine-phase3-freeze
+  phase4_bookend_virtualization_implemented: true
+  phase4_region_materialization_format_neutral: true
+  phase4_real_four_step_sequence: "1,5,28,284,260,198"
+  phase4_explicit_peak_weight_bytes: 14162688
+  phase4_tied_peak_weight_bytes: 14162688
+  phase4_freeze_verdict: pending_independent_review
   cuda_backend: not_implemented
   quantization: indexing_only_no_materialization_or_compute
   paged_execution: research_only
@@ -59,13 +67,15 @@ status:
   streaming_oversized_model_execution_proven: true
   fringe_lab_exists: true
   summary: >-
-    Phase 3 is implemented on feat/orcengine-phase3-working-set and is ready for
-    independent freeze review. Real explicit and tied F32 artifacts execute with
-    one transformer layer resident at a time, remain bit-identical to full
-    materialization through four greedy steps, and match Hugging Face/PyTorch.
-    Exact engine-owned peaks are 240,655,104 bytes explicit and 127,408,896 bytes
-    tied. Phase 3 is not frozen; Phase 4 has not started. See
-    PHASE3_WORKING_SET_IMPLEMENTATION.md.
+    Phase 3 is frozen at 98dbcf1f under orcengine-phase3-freeze. Phase 4 is
+    implemented on feat/orcengine-phase4-bookend-virtualization and awaits
+    independent freeze review. Logical row regions supply unique embedding rows
+    and output chunks while preserving Phase-3 layer streaming. Explicit and tied
+    real artifacts are bit-identical to frozen Phase 3 across six chunk sizes and
+    four generated steps, and match Hugging Face/PyTorch. Measured peak is
+    14,162,688 bytes for both artifacts; frozen Phase 3 rejects that budget,
+    Phase 4 succeeds exactly there, and peak-minus-one rejects. Debug, Release,
+    strict MSVC, and ASan pass 13/13. See PHASE4_BOOKEND_VIRTUALIZATION.md.
 
     Phase 2 is implemented and freeze-hardened on feat/orcengine-phase2-gguf. The
     strict GGUF v3 reader indexes real file-backed
@@ -459,14 +469,16 @@ document_inventory:
   phase2_freeze_report: PHASE2_FREEZE_HARDENING.md
   phase3_specification: PHASE3_WORKING_SET_SPEC.md
   phase3_implementation_report: PHASE3_WORKING_SET_IMPLEMENTATION.md
+  phase4_implementation_report: PHASE4_BOOKEND_VIRTUALIZATION.md
 
 next_action:
-  state: phase_3_independent_freeze_review
+  state: phase_4_independent_freeze_review
   summary: >-
-    Adversarially review feat/orcengine-phase3-working-set and
-    PHASE3_WORKING_SET_IMPLEMENTATION.md. Do not freeze Phase 3 or start Phase 4
-    until that review accepts the code and evidence. Quantized kernels, CUDA,
-    paging, tokenizer work, KV cache, and product integration remain deferred.
+    Adversarially review feat/orcengine-phase4-bookend-virtualization and
+    PHASE4_BOOKEND_VIRTUALIZATION.md. Do not freeze Phase 4 or start the next
+    phase until that review accepts the code and evidence. Quantized kernels,
+    CUDA, paging, tokenizer work, KV cache, cache/prefetch, and product
+    integration remain deferred.
   phase2_prep_started: true
   phase2_prep_note: Tools/OrcEnginePhase0/phase2_prep/ -- malformed-GGUF conformance corpus (test/fixture work only, no parser)
   phase3_prep_started: true

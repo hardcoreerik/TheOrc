@@ -31,6 +31,8 @@ void validate_bookend_weights(const ModelConfig& config,
                               const ResidentView& token_embedding,
                               const ResidentView* lm_head,
                               const ResidentView& final_norm_weight);
+void validate_final_norm_weight(const ModelConfig& config,
+                                const ResidentView& final_norm_weight);
 void validate_layer_weights(const ModelConfig& config,
                             const LayerWeights& layer,
                             int64_t layer_index);

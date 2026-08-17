@@ -47,12 +47,25 @@ struct ModelSource {
     std::vector<SourceTensor> tensors;
 };
 
+struct TensorRegion {
+    uint64_t row_begin = 0;
+    uint64_t row_count = 0;
+};
+
+struct MaterializedRegion {
+    ResidentView view;
+    uint64_t backing_bytes_read = 0;
+};
+
 using TensorMaterializer = std::function<ResidentView(
     const LogicalTensor&, const BackingExtent&)>;
+using TensorRegionMaterializer = std::function<MaterializedRegion(
+    const LogicalTensor&, const BackingExtent&, const TensorRegion&)>;
 
 struct ModelSourceBinding {
     ModelSource source;
     TensorMaterializer materialize;
+    TensorRegionMaterializer materialize_region;
 };
 
 }  // namespace orcengine

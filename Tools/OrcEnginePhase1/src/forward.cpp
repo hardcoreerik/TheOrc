@@ -32,18 +32,11 @@ void put_tap(ForwardResult& result, const std::string& name, std::vector<int64_t
 namespace {
 
 ForwardResult forward_impl(const ModelConfig& cfg,
-                           bool tied_embeddings,
-                           const ResidentView& token_embedding,
-                           const ResidentView* lm_head,
-                           const ResidentView& final_norm_weight,
-                           const std::vector<int64_t>& token_ids,
-                           const LayerRunner& run_layer,
-                           bool validate_residents) {
-    if (validate_residents) {
-        validate_forward_inputs(cfg, token_ids);
-        validate_bookend_weights(cfg, tied_embeddings, token_embedding, lm_head,
-                                 final_norm_weight);
-    }
+                            const ResidentView& final_norm_weight,
+                            const std::vector<int64_t>& token_ids,
+                            const EmbeddingRunner& run_embedding,
+                            const LayerRunner& run_layer,
+                            const OutputRunner& run_output) {
     const int64_t seq = static_cast<int64_t>(token_ids.size());
     const int64_t hidden = cfg.hidden;
     const int64_t group_size = cfg.group_size();
@@ -51,7 +44,10 @@ ForwardResult forward_impl(const ModelConfig& cfg,
 
     ForwardResult result;
 
-    std::vector<float> x = ops::embedding_lookup(token_embedding.raw(), hidden, token_ids);
+    std::vector<float> x = run_embedding(token_ids);
+    if (x.size() != static_cast<size_t>(seq * hidden)) {
+        throw std::runtime_error("forward: embedding runner returned wrong element count");
+    }
     put_tap(result, "input_embedding", {seq, hidden}, x);
 
     std::vector<std::vector<float>> cos_by_pos(static_cast<size_t>(seq)), sin_by_pos(static_cast<size_t>(seq));
@@ -65,7 +61,7 @@ ForwardResult forward_impl(const ModelConfig& cfg,
         run_layer(li, [&](const LayerWeights& lw) {
         if (consumed) throw std::runtime_error("forward: layer runner invoked consumer more than once");
         consumed = true;
-        if (validate_residents) validate_layer_weights(cfg, lw, li);
+        validate_layer_weights(cfg, lw, li);
         const std::string prefix = "layer" + std::to_string(li) + ".";
 
         std::vector<float> a = ops::rmsnorm(x, seq, hidden, lw.attn_norm_weight.raw(), cfg.rmsnorm_epsilon);
@@ -204,8 +200,10 @@ ForwardResult forward_impl(const ModelConfig& cfg,
     std::vector<float> final_normed = ops::rmsnorm(x, seq, hidden, final_norm_weight.raw(), cfg.rmsnorm_epsilon);
     put_tap(result, "final_normalized_state", {seq, hidden}, final_normed);
 
-    const ResidentView& effective_lm_head = lm_head != nullptr ? *lm_head : token_embedding;
-    std::vector<float> logits = ops::linear_no_bias(final_normed, seq, hidden, effective_lm_head.raw(), cfg.vocab);
+    std::vector<float> logits = run_output(final_normed, seq);
+    if (logits.size() != static_cast<size_t>(seq * cfg.vocab)) {
+        throw std::runtime_error("forward: output runner returned wrong element count");
+    }
     put_tap(result, "logits", {seq, cfg.vocab}, logits);
     result.logits = logits;
 
@@ -227,18 +225,52 @@ ForwardResult forward_with_layer_runner(const ModelConfig& cfg,
                                         const ResidentView& final_norm_weight,
                                         const std::vector<int64_t>& token_ids,
                                         const LayerRunner& run_layer) {
-    return forward_impl(cfg, tied_embeddings, token_embedding, lm_head,
-                        final_norm_weight, token_ids, run_layer, true);
+    validate_forward_inputs(cfg, token_ids);
+    validate_bookend_weights(cfg, tied_embeddings, token_embedding, lm_head,
+                             final_norm_weight);
+    const ResidentView& effective_lm_head = lm_head != nullptr ? *lm_head : token_embedding;
+    return forward_impl(
+        cfg, final_norm_weight, token_ids,
+        [&](const std::vector<int64_t>& ids) {
+            return ops::embedding_lookup(token_embedding.raw(), cfg.hidden, ids);
+        },
+        run_layer,
+        [&](const std::vector<float>& final_normed, int64_t seq) {
+            return ops::linear_no_bias(final_normed, seq, cfg.hidden,
+                                       effective_lm_head.raw(), cfg.vocab);
+        });
+}
+
+ForwardResult forward_with_execution_runners(const ModelConfig& cfg,
+                                             const ResidentView& final_norm_weight,
+                                             const std::vector<int64_t>& token_ids,
+                                             const EmbeddingRunner& run_embedding,
+                                             const LayerRunner& run_layer,
+                                             const OutputRunner& run_output) {
+    validate_forward_inputs(cfg, token_ids);
+    validate_final_norm_weight(cfg, final_norm_weight);
+    if (!run_embedding || !run_layer || !run_output) {
+        throw std::invalid_argument("forward: execution runners are required");
+    }
+    return forward_impl(cfg, final_norm_weight, token_ids, run_embedding,
+                        run_layer, run_output);
 }
 
 ForwardResult forward(const Model& model, const std::vector<int64_t>& token_ids) {
     validate_model(model, token_ids);
+    const ResidentView& effective_lm_head = model.effective_lm_head();
     return forward_impl(
-        model.config(), model.manifest.tied_embeddings, model.token_embedding,
-        model.lm_head ? &*model.lm_head : nullptr, model.final_norm_weight,
-        token_ids, [&](int64_t layer, const LayerConsumer& consume) {
+        model.config(), model.final_norm_weight, token_ids,
+        [&](const std::vector<int64_t>& ids) {
+            return ops::embedding_lookup(model.token_embedding.raw(), model.config().hidden, ids);
+        },
+        [&](int64_t layer, const LayerConsumer& consume) {
             consume(model.layers.at(static_cast<size_t>(layer)));
-        }, false);
+        },
+        [&](const std::vector<float>& final_normed, int64_t seq) {
+            return ops::linear_no_bias(final_normed, seq, model.config().hidden,
+                                       effective_lm_head.raw(), model.config().vocab);
+        });
 }
 
 }  // namespace orcengine

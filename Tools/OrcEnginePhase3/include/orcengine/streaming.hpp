@@ -29,6 +29,7 @@ public:
 };
 
 enum class EvidenceSemantics { Measured, Derived, Interpreted };
+enum class ExecutionOperation { None, InputEmbedding, OutputProjection };
 
 enum class ExecutionEventKind {
     ModelExecutionBegin,
@@ -39,6 +40,10 @@ enum class ExecutionEventKind {
     LayerExecutionBegin,
     LayerExecutionEnd,
     TensorReleased,
+    TensorRegionRequested,
+    TensorRegionMaterializationBegin,
+    TensorRegionMaterialized,
+    TensorRegionReleased,
     LayerEnd,
     TokenScored,
     TokenSelected,
@@ -54,6 +59,10 @@ struct ExecutionEvent {
     uint64_t resident_bytes = 0;
     uint64_t tensor_bytes = 0;
     std::string backing_identity;
+    uint64_t row_begin = 0;
+    uint64_t row_count = 0;
+    ExecutionOperation operation = ExecutionOperation::None;
+    double milliseconds = 0.0;
 };
 
 using ExecutionObserver = std::function<void(const ExecutionEvent&)>;
@@ -78,6 +87,13 @@ struct StreamingTelemetry {
     uint64_t peak_active_layers = 0;
     uint64_t observer_event_count = 0;
     uint64_t observer_failure_count = 0;
+    uint64_t region_materialization_count = 0;
+    uint64_t embedding_region_count = 0;
+    uint64_t output_region_count = 0;
+    uint64_t embedding_backing_bytes_read = 0;
+    uint64_t output_backing_bytes_read = 0;
+    double embedding_milliseconds = 0.0;
+    double output_projection_milliseconds = 0.0;
     int64_t current_layer = -1;
     std::vector<LayerTiming> layer_timings;
 };
@@ -98,6 +114,9 @@ public:
     void record_layer_timing(LayerTiming timing);
     void observer_succeeded();
     void observer_failed();
+    void record_region(ExecutionOperation operation, uint64_t backing_bytes);
+    void record_embedding_time(double milliseconds);
+    void record_output_time(double milliseconds);
 
 private:
     StreamingTelemetry telemetry_;
@@ -114,10 +133,17 @@ struct StreamingOptions {
 struct StreamingConfig {
     uint64_t residency_budget_bytes = std::numeric_limits<uint64_t>::max();
     ExecutionObserver observer;
+    bool virtualize_bookends = false;
+    TensorRegionMaterializer region_materializer;
+    uint64_t output_chunk_rows = 1024;
 };
 
 uint64_t full_resident_bytes(const ModelSource& source);
 void require_full_resident_budget(const ModelSource& source, uint64_t budget_bytes);
+std::vector<TensorRegion> build_complete_row_partition(uint64_t rows,
+                                                       uint64_t chunk_rows);
+void validate_complete_row_partition(uint64_t rows,
+                                     const std::vector<TensorRegion>& regions);
 
 class StreamingModel {
 public:
@@ -131,6 +157,14 @@ public:
 
 private:
     ResidentView materialize(const SourceTensor& tensor);
+    ResidentView materialize_region(const SourceTensor& tensor,
+                                    const TensorRegion& region,
+                                    ExecutionOperation operation);
+    void release_region(const SourceTensor& tensor, const TensorRegion& region,
+                        ExecutionOperation operation, uint64_t resident_bytes);
+    std::vector<float> virtualized_embedding(const std::vector<int64_t>& token_ids);
+    std::vector<float> virtualized_output(const std::vector<float>& final_normed,
+                                          int64_t sequence_length);
     LayerWeights materialize_layer(int64_t layer, bool reverse_order,
                                    uint64_t& resident_bytes,
                                    uint64_t& tensor_count);
@@ -138,8 +172,11 @@ private:
 
     ModelSource source_;
     TensorMaterializer materializer_;
+    TensorRegionMaterializer region_materializer_;
     ExecutionObserver observer_;
-    ResidentView token_embedding_;
+    bool virtualize_bookends_ = false;
+    uint64_t output_chunk_rows_ = 0;
+    std::optional<ResidentView> token_embedding_;
     std::optional<ResidentView> lm_head_;
     ResidentView final_norm_weight_;
     ResidencyLedger ledger_;

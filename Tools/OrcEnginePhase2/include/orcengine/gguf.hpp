@@ -153,6 +153,10 @@ GgufArtifact index_gguf(const std::filesystem::path& path,
                         const GgufLimits& limits = {});
 ModelArtifactManifest map_llama_model(const GgufArtifact& artifact);
 ResidentView materialize_gguf_tensor(const MappedGgufTensor& tensor);
+ResidentView materialize_gguf_tensor_rows(const MappedGgufTensor& tensor,
+                                          uint64_t row_begin,
+                                          uint64_t row_count,
+                                          uint64_t& backing_bytes_read);
 Model materialize_gguf_model(const ModelArtifactManifest& manifest);
 
 const GgufValue& require_metadata(const GgufArtifact& artifact,

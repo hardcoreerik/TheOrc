@@ -116,7 +116,7 @@ See [Sampling and Decoding](SAMPLING_AND_DECODING.md).
 | GGUF source identity and validated extents | Model manifest | Open/index to final manifest release. Current Phase-2 materialization uses bounded file reads, not an OS mapping. |
 | Validated metadata | Model | Immutable after load. |
 | Logical weight tensors | Model manifest | Immutable after semantic mapping. |
-| Resident weight views | Execution strategy | Full-model lifetime in frozen Phase 2; hardened Phase 3 proves bookend plus one-layer scope. |
+| Resident weight views | Execution strategy | Full-model lifetime in frozen Phase 2; frozen Phase 3 proves one-layer scope; Phase 4 candidate proves logical embedding/output row regions. |
 | Backend weight copies | Model/backend allocation set | Lifetime is explicit in the selected execution strategy; permanent residency is not assumed. |
 | KV cache | Context | Context creation to reset/destroy. |
 | Scratch/workspace | Context or execution arena | Scoped to documented execution lifetime. |
@@ -170,6 +170,10 @@ Current lifecycle events are labeled `Measured`; future `Derived` and
 `Interpreted` observations must retain those distinct labels. Observer failure
 is isolated from inference, and enabling observation must not alter output.
 
+Phase 4 extends this seam with measured request/materialize/release events for
+logical row regions. Events carry row bounds, operation identity, bytes, and
+timing. They describe actual engine activity, not interpretability claims.
+
 ## Memory model: a model is a logical address space, not a VRAM resident
 
 **Added 2026-08-15 and reconciled after Phase-2 freeze on 2026-08-16**
@@ -190,7 +194,10 @@ Three distinct concepts, deliberately kept separate:
 execution. Frozen Phase 2 creates real GGUF file extents and can open/index a
 model nonresident, but its execution path materializes every weight. Hardened
 Phase 3 keeps the same identities and proves one-layer-at-a-time CPU residency.
-No generic planner or cache is required for that proof. Phase 6B remains the
+Phase 4 adds `TensorRegion` and a source-owned region materializer, proving that
+one large logical tensor can execute without a complete resident view. The
+engine requests logical rows; the source decides what bytes or decoding satisfy
+them. No generic planner or cache is required for these proofs. Phase 6B remains the
 later point for multi-tier/device placement policy.
 
 Phase 3 also freezes a format boundary: streaming consumes a neutral
@@ -199,6 +206,12 @@ BackingExtent) -> ResidentView` callback. GGUF mapping and materialization live
 in an adapter. The streaming algorithm does not know GGUF tensor names,
 metadata, file handles, or quantization identifiers. GGUF is a source format,
 not OrcEngine's architecture.
+
+Phase 4 preserves that boundary for partial access:
+`TensorRegionMaterializer(LogicalTensor, BackingExtent, TensorRegion) ->
+MaterializedRegion`. A logical row region is not defined as a raw byte range;
+the current dense GGUF adapter and neutral in-memory adapter are separate
+implementations of the same semantic request.
 
 ### "Model loaded" does not mean "fully resident"
 

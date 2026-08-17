@@ -90,7 +90,7 @@ Phase 2 exceeded its original scope deliberately after the parser was proven:
 it established real F32 execution correctness before stopping. That invalidates
 the old assumption that real-model loading/execution remained wholly in Phase 3.
 
-## Phase 3 — Real-model streaming / working-set reference — HARDENED, AWAITING FREEZE
+## Phase 3 — Real-model streaming / working-set reference — FROZEN
 
 **Question:** what is the minimum practical working set required to execute the
 real F32 model correctly?
@@ -124,29 +124,34 @@ reads, and time.
 **Non-goals:** tokenizer, KV cache, CUDA, quantized compute, BLAS/SIMD/threading,
 generic planner/cache framework, batching, product integration, and tile paging.
 
-**Authority:** see [Phase-3 Working-Set Specification](PHASE3_WORKING_SET_SPEC.md)
-and [Phase-3 Freeze Hardening](PHASE3_FREEZE_HARDENING.md). Implementation is
-stopped pending independent freeze review. The next roadmap decision must
-compare bookend virtualization against the existing tokenizer/KV/CPU-usability
-direction; Phase 3 does not assume either is automatically Phase 4.
+**Authority:** immutable tag `orcengine-phase3-freeze`, commit
+`98dbcf1f370a93574da32dc02ebdcfeff8a60b3d`; see
+[Phase-3 Working-Set Specification](PHASE3_WORKING_SET_SPEC.md) and
+[Phase-3 Freeze Hardening](PHASE3_FREEZE_HARDENING.md).
 
-## Phase 4 — Practical CPU inference semantics and usability baseline
+## Phase 4 — Bookend virtualization / sub-tensor working set — IMPLEMENTED, AWAITING REVIEW
 
-**Goal:** turn the correct nonresident CPU reference into a practical inference
-baseline without losing its diagnostic path.
+**Question:** does a complete embedding/output matrix need to be resident at
+once after transformer layers already stream?
 
-**Candidate order:** exact tokenizer/text boundary; incremental KV-cached decode
-equivalent to full-prefix recompute; reusable bounded activation workspace;
-lifecycle/cancellation; prompt/decode benchmark separation; then BLAS-backed
-GEMM, bounded threading, tiled kernels, and SIMD only where profiling justifies
-them.
+**Implemented scope:** format-neutral logical row regions, one row per unique
+input token, vocabulary-row output chunks with complete logits, unchanged
+Phase-3 layer streaming, tied backing reuse, measured observer events, exact
+budgets, and adversarial partition validation.
 
 **Definition of done:**
 
-- optimized results remain within differential tolerances;
-- scalar/reference path is retained;
-- benchmark captures hardware, compiler, flags, thread count, memory, prompt/decode rates, and raw artifacts;
-- no unexplained regression exceeds the agreed threshold.
+- all frozen Phase-1/2/3 behavior remains green;
+- multiple partitions including one row and a remainder produce exact complete logits;
+- explicit and tied real artifacts match frozen Phase 3 and Hugging Face/PyTorch;
+- measured peak is substantially below Phase 3 and peak-minus-one rejects;
+- neutral in-memory regions, observer neutrality, safety attacks, and all four build lanes pass;
+- independent freeze review accepts the result.
+
+**Evidence:** [Phase 4 Bookend Virtualization](PHASE4_BOOKEND_VIRTUALIZATION.md).
+The prior practical CPU/tokenizer/KV/usability roadmap item is deferred, not
+silently discarded. Its eventual phase number will be chosen only after Phase 4
+is independently reviewed; Phase 4 does not begin that work.
 
 ## Phase 5 — Initial quantization
 

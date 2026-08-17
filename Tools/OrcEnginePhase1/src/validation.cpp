@@ -109,7 +109,7 @@ void validate_bookend_weights(const ModelConfig& cfg,
                               const ResidentView& final_norm_weight) {
     validate_model_config(cfg);
     require_view_shape("token_embedding", token_embedding, {cfg.vocab, cfg.hidden});
-    require_view_shape("final_norm_weight", final_norm_weight, {cfg.hidden});
+    validate_final_norm_weight(cfg, final_norm_weight);
 
     if (tied_embeddings) {
         if (lm_head != nullptr) {
@@ -121,6 +121,11 @@ void validate_bookend_weights(const ModelConfig& cfg,
         require(lm_head != nullptr, "untied model requires lm_head");
         require_view_shape("lm_head", *lm_head, {cfg.vocab, cfg.hidden});
     }
+}
+
+void validate_final_norm_weight(const ModelConfig& cfg,
+                                const ResidentView& final_norm_weight) {
+    require_view_shape("final_norm_weight", final_norm_weight, {cfg.hidden});
 }
 
 void validate_layer_weights(const ModelConfig& cfg,

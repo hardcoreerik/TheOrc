@@ -18,12 +18,14 @@ ABS_TOL = 1e-3
 REL_TOL = 1e-3
 
 
-def main(executable: str, gguf_path: str, source_dir: str, steps: int) -> None:
+def main(executable: str, gguf_path: str, source_dir: str, steps: int,
+         extra_args: list[str] | None = None) -> None:
     if steps <= 0:
         raise ValueError("steps must be positive")
     initial = [1, 5]
     cpp = json.loads(subprocess.check_output(
-        [executable, gguf_path, *map(str, initial), "--steps", str(steps)], text=True
+        [executable, gguf_path, *map(str, initial), "--steps", str(steps),
+         *(extra_args or [])], text=True
     ))
     if len(cpp["steps"]) != steps:
         raise AssertionError(f"C++ returned {len(cpp['steps'])} steps, expected {steps}")
@@ -74,6 +76,6 @@ def main(executable: str, gguf_path: str, source_dir: str, steps: int) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 5:
-        raise SystemExit("usage: hf_pytorch_forward_check.py FORWARD_EXE MODEL.gguf HF_SOURCE_DIR STEPS")
-    main(sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]))
+    if len(sys.argv) < 5:
+        raise SystemExit("usage: hf_pytorch_forward_check.py FORWARD_EXE MODEL.gguf HF_SOURCE_DIR STEPS [FORWARD_ARGS...]")
+    main(sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5:])

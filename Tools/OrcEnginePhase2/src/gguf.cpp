@@ -751,6 +751,79 @@ ResidentView materialize_gguf_tensor(const MappedGgufTensor& tensor) {
     return ResidentView(tensor.logical.shape(), std::move(values));
 }
 
+ResidentView materialize_gguf_tensor_rows(const MappedGgufTensor& tensor,
+                                          uint64_t row_begin,
+                                          uint64_t row_count,
+                                          uint64_t& backing_bytes_read) {
+    if (!gguf_encoding_materializable(tensor.encoding)) {
+        throw GgufError("unsupported GGUF tensor encoding " + gguf_encoding_name(tensor.encoding) +
+                        " for row materialization of tensor '" + tensor.source_name + "'");
+    }
+    if (tensor.logical.shape().ndim() != 2 || row_count == 0) {
+        throw GgufError("row materialization requires a non-empty rank-2 tensor region");
+    }
+    const uint64_t rows = static_cast<uint64_t>(tensor.logical.shape().dim(0));
+    const uint64_t columns = static_cast<uint64_t>(tensor.logical.shape().dim(1));
+    const uint64_t row_end = checked_add(row_begin, row_count, "tensor row region end");
+    if (row_begin >= rows || row_end > rows) {
+        throw GgufError("tensor row region is outside logical tensor '" +
+                        tensor.logical.name() + "'");
+    }
+    const uint64_t bytes_per_element = tensor.encoding == GgufTensorEncoding::F32 ? 4 : 2;
+    const uint64_t row_bytes = checked_mul(columns, bytes_per_element, "tensor row bytes");
+    const uint64_t relative_offset = checked_mul(row_begin, row_bytes, "tensor row offset");
+    const uint64_t read_bytes = checked_mul(row_count, row_bytes, "tensor row byte count");
+    const uint64_t relative_end = checked_add(relative_offset, read_bytes, "tensor row byte end");
+    if (tensor.backing.byte_offset() < 0 || tensor.backing.byte_length() <= 0 ||
+        relative_end > static_cast<uint64_t>(tensor.backing.byte_length())) {
+        throw GgufError("tensor row region exceeds backing extent for '" +
+                        tensor.logical.name() + "'");
+    }
+    const uint64_t absolute_offset = checked_add(
+        static_cast<uint64_t>(tensor.backing.byte_offset()), relative_offset,
+        "tensor row absolute offset");
+    if (absolute_offset > static_cast<uint64_t>(std::numeric_limits<std::streamoff>::max()) ||
+        read_bytes > static_cast<uint64_t>(std::numeric_limits<std::streamsize>::max()) ||
+        read_bytes > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
+        throw GgufError("tensor row region exceeds stream limits");
+    }
+
+    std::ifstream stream(tensor.backing.source_path(), std::ios::binary);
+    if (!stream) throw GgufError("cannot reopen backing file '" + tensor.backing.source_path() + "'");
+    stream.seekg(static_cast<std::streamoff>(absolute_offset));
+    if (!stream) throw GgufError("cannot seek to tensor row region '" + tensor.source_name + "'");
+    std::vector<uint8_t> bytes(static_cast<size_t>(read_bytes));
+    stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    if (!stream) throw GgufError("short read materializing tensor row region '" +
+                                 tensor.source_name + "'");
+
+    const uint64_t elements = checked_mul(row_count, columns, "tensor row elements");
+    if (elements > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
+        throw GgufError("tensor row region exceeds addressable memory");
+    }
+    std::vector<float> values(static_cast<size_t>(elements));
+    if (tensor.encoding == GgufTensorEncoding::F32) {
+        for (size_t i = 0; i < values.size(); ++i) {
+            const size_t p = i * 4;
+            const uint32_t bits = static_cast<uint32_t>(bytes[p]) |
+                                  (static_cast<uint32_t>(bytes[p + 1]) << 8) |
+                                  (static_cast<uint32_t>(bytes[p + 2]) << 16) |
+                                  (static_cast<uint32_t>(bytes[p + 3]) << 24);
+            values[i] = std::bit_cast<float>(bits);
+        }
+    } else {
+        for (size_t i = 0; i < values.size(); ++i) {
+            const size_t p = i * 2;
+            values[i] = half_to_float(static_cast<uint16_t>(bytes[p]) |
+                                      static_cast<uint16_t>(static_cast<uint16_t>(bytes[p + 1]) << 8));
+        }
+    }
+    backing_bytes_read = read_bytes;
+    return ResidentView(TensorShape({static_cast<int64_t>(row_count),
+                                     static_cast<int64_t>(columns)}),
+                        std::move(values));
+}
+
 Model materialize_gguf_model(const ModelArtifactManifest& manifest) {
     if (manifest.kind != ModelArtifactKind::FullModel) throw GgufError("artifact is not a complete Llama model");
     if (!manifest.materializable) throw GgufError("model contains indexed but non-materializable encodings");

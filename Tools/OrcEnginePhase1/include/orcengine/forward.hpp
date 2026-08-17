@@ -41,6 +41,8 @@ struct ForwardResult {
 
 using LayerConsumer = std::function<void(const LayerWeights&)>;
 using LayerRunner = std::function<void(int64_t, const LayerConsumer&)>;
+using EmbeddingRunner = std::function<std::vector<float>(const std::vector<int64_t>&)>;
+using OutputRunner = std::function<std::vector<float>(const std::vector<float>&, int64_t)>;
 
 // Phase-3 internal seam: the runner must invoke the consumer exactly once for
 // each requested layer and keep that LayerWeights alive until it returns.
@@ -51,6 +53,15 @@ ForwardResult forward_with_layer_runner(const ModelConfig& config,
                                         const ResidentView& final_norm_weight,
                                         const std::vector<int64_t>& token_ids,
                                         const LayerRunner& run_layer);
+
+// Phase-4 bookend seam: callers provide exact input embeddings and complete
+// logits while the frozen transformer layer loop remains shared.
+ForwardResult forward_with_execution_runners(const ModelConfig& config,
+                                             const ResidentView& final_norm_weight,
+                                             const std::vector<int64_t>& token_ids,
+                                             const EmbeddingRunner& run_embedding,
+                                             const LayerRunner& run_layer,
+                                             const OutputRunner& run_output);
 
 // token_ids: [seq]. Captures every tap the Python oracle captures.
 ForwardResult forward(const Model& model, const std::vector<int64_t>& token_ids);
