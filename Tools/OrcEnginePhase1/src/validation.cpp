@@ -77,6 +77,21 @@ void validate_model(const Model& model, const std::vector<int64_t>& token_ids) {
     const ModelConfig& cfg = model.config();
     validate_model_config(cfg);
 
+    validate_forward_inputs(cfg, token_ids);
+
+    require(static_cast<int64_t>(model.layers.size()) == cfg.n_layers,
+            "layer count metadata does not match loaded layer tensor count");
+    validate_bookend_weights(cfg, model.manifest.tied_embeddings, model.token_embedding,
+                             model.lm_head ? &*model.lm_head : nullptr,
+                             model.final_norm_weight);
+    for (int64_t i = 0; i < cfg.n_layers; ++i) {
+        validate_layer_weights(cfg, model.layers[static_cast<size_t>(i)], i);
+    }
+}
+
+void validate_forward_inputs(const ModelConfig& cfg,
+                             const std::vector<int64_t>& token_ids) {
+    validate_model_config(cfg);
     require(!token_ids.empty(), "input sequence must not be empty");
     require(static_cast<int64_t>(token_ids.size()) <= cfg.max_positions,
             "input sequence length exceeds max_positions");
@@ -85,37 +100,47 @@ void validate_model(const Model& model, const std::vector<int64_t>& token_ids) {
                 "input token is outside [0, vocab)");
     }
 
-    require(static_cast<int64_t>(model.layers.size()) == cfg.n_layers,
-            "layer count metadata does not match loaded layer tensor count");
-    require_view_shape("token_embedding", model.token_embedding, {cfg.vocab, cfg.hidden});
-    require_view_shape("final_norm_weight", model.final_norm_weight, {cfg.hidden});
+}
 
-    if (model.manifest.tied_embeddings) {
-        if (model.lm_head.has_value()) {
-            require_view_shape("lm_head", *model.lm_head, {cfg.vocab, cfg.hidden});
-            require(model.lm_head->raw() == model.token_embedding.raw(),
+void validate_bookend_weights(const ModelConfig& cfg,
+                              bool tied_embeddings,
+                              const ResidentView& token_embedding,
+                              const ResidentView* lm_head,
+                              const ResidentView& final_norm_weight) {
+    validate_model_config(cfg);
+    require_view_shape("token_embedding", token_embedding, {cfg.vocab, cfg.hidden});
+    require_view_shape("final_norm_weight", final_norm_weight, {cfg.hidden});
+
+    if (tied_embeddings) {
+        if (lm_head != nullptr) {
+            require_view_shape("lm_head", *lm_head, {cfg.vocab, cfg.hidden});
+            require(lm_head->raw() == token_embedding.raw(),
                     "tied lm_head duplicate must be byte-identical to token_embedding");
         }
     } else {
-        require(model.lm_head.has_value(), "untied model requires lm_head");
-        require_view_shape("lm_head", *model.lm_head, {cfg.vocab, cfg.hidden});
+        require(lm_head != nullptr, "untied model requires lm_head");
+        require_view_shape("lm_head", *lm_head, {cfg.vocab, cfg.hidden});
     }
+}
 
+void validate_layer_weights(const ModelConfig& cfg,
+                            const LayerWeights& layer,
+                            int64_t layer_index) {
+    validate_model_config(cfg);
+    require(layer_index >= 0 && layer_index < cfg.n_layers,
+            "layer index is outside model configuration");
     const int64_t q_dim = cfg.n_q_heads * cfg.head_dim;
     const int64_t kv_dim = cfg.n_kv_heads * cfg.head_dim;
-    for (int64_t i = 0; i < cfg.n_layers; ++i) {
-        const LayerWeights& layer = model.layers[static_cast<size_t>(i)];
-        const std::string p = "layer" + std::to_string(i) + ".";
-        require_view_shape(p + "attn_norm_weight", layer.attn_norm_weight, {cfg.hidden});
-        require_view_shape(p + "w_q", layer.w_q, {q_dim, cfg.hidden});
-        require_view_shape(p + "w_k", layer.w_k, {kv_dim, cfg.hidden});
-        require_view_shape(p + "w_v", layer.w_v, {kv_dim, cfg.hidden});
-        require_view_shape(p + "w_o", layer.w_o, {cfg.hidden, q_dim});
-        require_view_shape(p + "ffn_norm_weight", layer.ffn_norm_weight, {cfg.hidden});
-        require_view_shape(p + "w_gate", layer.w_gate, {cfg.intermediate, cfg.hidden});
-        require_view_shape(p + "w_up", layer.w_up, {cfg.intermediate, cfg.hidden});
-        require_view_shape(p + "w_down", layer.w_down, {cfg.hidden, cfg.intermediate});
-    }
+    const std::string p = "layer" + std::to_string(layer_index) + ".";
+    require_view_shape(p + "attn_norm_weight", layer.attn_norm_weight, {cfg.hidden});
+    require_view_shape(p + "w_q", layer.w_q, {q_dim, cfg.hidden});
+    require_view_shape(p + "w_k", layer.w_k, {kv_dim, cfg.hidden});
+    require_view_shape(p + "w_v", layer.w_v, {kv_dim, cfg.hidden});
+    require_view_shape(p + "w_o", layer.w_o, {cfg.hidden, q_dim});
+    require_view_shape(p + "ffn_norm_weight", layer.ffn_norm_weight, {cfg.hidden});
+    require_view_shape(p + "w_gate", layer.w_gate, {cfg.intermediate, cfg.hidden});
+    require_view_shape(p + "w_up", layer.w_up, {cfg.intermediate, cfg.hidden});
+    require_view_shape(p + "w_down", layer.w_down, {cfg.hidden, cfg.intermediate});
 }
 
 std::vector<ExpectedRequirement> required_forward_expectations(

@@ -1,8 +1,8 @@
 # Project Truth
 
-> Snapshot date: 2026-08-16 America/Los_Angeles (Phase 2 frozen; Phase 3 working-set design proposed)
+> Snapshot date: 2026-08-16 America/Los_Angeles (Phase 2 frozen; Phase 3 implemented pending independent freeze review)
 >
-> Repository snapshot: `F:\Ai\OrchestratorIDE-phase2-gguf`
+> Repository snapshot: `F:\Ai\OrchestratorIDE-phase3-working-set`
 >
 > Product baseline: `origin/master`
 >
@@ -119,12 +119,12 @@ single warm/unknown-cache planning observations, not a benchmark campaign.
 (predicted 127,408,896 bytes, 23.68% of full), before activation/conversion and
 runtime overhead. These are static predictions, not streamed measurements.
 
-**PROPOSED:** Phase 3 becomes a real-model streaming/working-set reference,
+**HISTORICAL PROPOSAL — IMPLEMENTED BELOW:** Phase 3 becomes a real-model streaming/working-set reference,
 starting with one real GGUF-backed layer at a time and no cache. It must preserve
 frozen math and GGUF semantics, compare bit-identically with full
 materialization, measure RAM/read amplification honestly, and stop before
 tokenizer, KV cache, optimization, quantization, or CUDA. See
-`PHASE3_WORKING_SET_SPEC.md`. Implementation has not started.
+`PHASE3_WORKING_SET_SPEC.md`. At this planning checkpoint implementation had not started.
 
 ## Executive truth
 
@@ -233,9 +233,22 @@ Those are the boundary OrcEngine proposes to explore.
 - Whether a standalone repository will eventually be cleaner than this monorepo.
 - Which prevented capability or measured improvement first justifies continued product investment.
 
+## Phase 3 working-set status — 2026-08-16
+
+**REPOSITORY- AND RUNTIME-OBSERVED:** Phase 3 is implemented on
+`feat/orcengine-phase3-working-set` and is ready for independent freeze review.
+Real explicit and tied F32 GGUFs execute one transformer layer at a time through
+the shared Phase-1 math, produce bit-identical full/streamed four-step outputs,
+and match the independent Hugging Face/PyTorch gate. Exact engine-owned peaks
+are 240,655,104 bytes explicit and 127,408,896 bytes tied. See
+`PHASE3_WORKING_SET_IMPLEMENTATION.md` for commands, failures, measurements,
+matrix, limitations, and the stop verdict. Phase 3 is not frozen and Phase 4
+has not started.
+
 ## Current blockers
 
-No implementation should start until the Phase 0 oracle contract, first model artifact, provenance record, and acceptance tolerances are approved.
+An independent adversarial freeze review must accept Phase 3 before Phase 4 is
+planned or implemented.
 
 ## How to update this document
 

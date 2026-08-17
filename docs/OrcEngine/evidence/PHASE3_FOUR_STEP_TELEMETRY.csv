@@ -1,0 +1,3 @@
+artifact,sequence,current_weight_bytes,peak_weight_bytes,cumulative_materialized_bytes,materialization_count,release_count,backing_bytes_read,repeated_backing_bytes_read,read_count,peak_process_working_set_bytes,peak_active_layers,current_layer
+explicit,"1 5 28 284 260 198",226494720,240655104,1925740800,1083,1080,1925740800,1274434560,1083,254418944,1,-1
+tied,"1 5 28 284 260 198",113248512,127408896,1812494592,1082,1080,1812494592,1274434560,1082,141045760,1,-1

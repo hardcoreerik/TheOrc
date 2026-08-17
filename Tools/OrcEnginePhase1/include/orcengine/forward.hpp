@@ -8,6 +8,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -37,6 +38,19 @@ struct ForwardResult {
     std::vector<float> logits;   // [seq, vocab]
     std::vector<int64_t> selected_token;  // [seq]
 };
+
+using LayerConsumer = std::function<void(const LayerWeights&)>;
+using LayerRunner = std::function<void(int64_t, const LayerConsumer&)>;
+
+// Phase-3 internal seam: the runner must invoke the consumer exactly once for
+// each requested layer and keep that LayerWeights alive until it returns.
+ForwardResult forward_with_layer_runner(const ModelConfig& config,
+                                        bool tied_embeddings,
+                                        const ResidentView& token_embedding,
+                                        const ResidentView* lm_head,
+                                        const ResidentView& final_norm_weight,
+                                        const std::vector<int64_t>& token_ids,
+                                        const LayerRunner& run_layer);
 
 // token_ids: [seq]. Captures every tap the Python oracle captures.
 ForwardResult forward(const Model& model, const std::vector<int64_t>& token_ids);

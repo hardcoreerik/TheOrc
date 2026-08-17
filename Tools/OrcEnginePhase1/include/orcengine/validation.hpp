@@ -24,6 +24,16 @@ struct ExpectedRequirement {
 };
 
 void validate_model_config(const ModelConfig& config);
+void validate_forward_inputs(const ModelConfig& config,
+                             const std::vector<int64_t>& token_ids);
+void validate_bookend_weights(const ModelConfig& config,
+                              bool tied_embeddings,
+                              const ResidentView& token_embedding,
+                              const ResidentView* lm_head,
+                              const ResidentView& final_norm_weight);
+void validate_layer_weights(const ModelConfig& config,
+                            const LayerWeights& layer,
+                            int64_t layer_index);
 void validate_model(const Model& model, const std::vector<int64_t>& token_ids);
 
 std::vector<ExpectedRequirement> required_forward_expectations(

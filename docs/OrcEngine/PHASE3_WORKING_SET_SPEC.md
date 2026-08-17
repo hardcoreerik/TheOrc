@@ -1,6 +1,6 @@
 # OrcEngine Phase 3 proposed specification: real-model streaming working set
 
-Status: **PROPOSED — pending design review; implementation has not started**
+Status: **IMPLEMENTED — ready for independent freeze review; see `PHASE3_WORKING_SET_IMPLEMENTATION.md`**
 
 Prepared: 2026-08-16 America/Los_Angeles
 
