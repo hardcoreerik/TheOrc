@@ -565,6 +565,38 @@ int main(int argc, char** argv) {
               throwing_row_observer.telemetry().observer_failure_count == 1,
               "throwing row-region observer is isolated from inference");
 
+        // The check above throws on the FIRST emitted event of any kind
+        // (ModelExecutionBegin, before any row-region event fires), so it
+        // never actually exercises a throw occurring DURING row-region event
+        // handling despite its name. This test closes that gap: the observer
+        // stays silent until it specifically sees a TensorRowRegionMaterialized
+        // event, throws only there, and we verify every claim explicitly --
+        // the region event was reached, the observer failed there (not
+        // earlier/later), the failure was counted exactly once, the observer
+        // was disabled per the existing generic isolation policy, inference
+        // still completed, and output remained bit-identical.
+        bool reached_row_region_event = false;
+        bool threw_on_row_region_event = false;
+        StreamingModel throwing_on_row_region = virtual_model(
+            fixture.model, 7, std::numeric_limits<uint64_t>::max(),
+            [&](const ExecutionEvent& event) {
+                if (event.kind == ExecutionEventKind::TensorRowRegionMaterialized) {
+                    reached_row_region_event = true;
+                    threw_on_row_region_event = true;
+                    throw std::runtime_error("row-region-specific observer failure");
+                }
+            });
+        const ForwardResult row_region_throw_result =
+            throwing_on_row_region.forward(fixture.token_ids);
+        check(reached_row_region_event,
+              "row-region-specific observer reached a TensorRowRegionMaterialized event");
+        check(threw_on_row_region_event,
+              "row-region-specific observer threw specifically during region event handling");
+        check(throwing_on_row_region.telemetry().observer_failure_count == 1,
+              "row-region-specific observer failure was counted exactly once");
+        check(identical(reference, row_region_throw_result),
+              "inference remained bit-identical after a row-region observer failure");
+
         check(partition_rejected(8, {{0, 3}, {4, 4}}), "skipped vocabulary row rejected");
         check(partition_rejected(8, {{0, 4}, {3, 5}}), "overlapping vocabulary rows rejected");
         check(partition_rejected(8, {{4, 4}, {0, 4}}), "reordered vocabulary rows rejected");
