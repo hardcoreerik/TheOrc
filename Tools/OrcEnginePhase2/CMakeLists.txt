@@ -64,15 +64,29 @@ if(ORCENGINE_REAL_GGUF)
 endif()
 
 set(ORCENGINE_REAL_F32_GGUF "" CACHE FILEPATH "Optional real F32 GGUF for frozen-core differential test")
+set(ORCENGINE_HF_SOURCE_DIR "" CACHE PATH "Optional original Hugging Face source for direct PyTorch differential")
 if(ORCENGINE_REAL_F32_GGUF)
-    add_test(NAME gguf_real_f32_forward
-        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/real_forward_check.py"
-                "$<TARGET_FILE:orcengine_gguf_forward>" "${ORCENGINE_REAL_F32_GGUF}"
-                "$<IF:$<CONFIG:Release>,4,1>")
+    # ORCENGINE_HF_SOURCE_DIR is optional here too: real_forward_check.py's
+    # load_real_weights() falls back to the in-repo SOURCE_DIR default when
+    # no explicit HF source directory is passed, matching its historical
+    # behavior. Passing it explicitly lets this test load the pinned
+    # candidate's weights from ANY worktree/location, not just one whose
+    # Tools/OrcEnginePhase0/artifacts/smollm2-135m happens to be populated --
+    # see docs/OrcEngine/DECISION_LOG.md OE-ADR-023 for why this was added.
+    if(ORCENGINE_HF_SOURCE_DIR)
+        add_test(NAME gguf_real_f32_forward
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/real_forward_check.py"
+                    "$<TARGET_FILE:orcengine_gguf_forward>" "${ORCENGINE_REAL_F32_GGUF}"
+                    "$<IF:$<CONFIG:Release>,4,1>" "${ORCENGINE_HF_SOURCE_DIR}")
+    else()
+        add_test(NAME gguf_real_f32_forward
+            COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/real_forward_check.py"
+                    "$<TARGET_FILE:orcengine_gguf_forward>" "${ORCENGINE_REAL_F32_GGUF}"
+                    "$<IF:$<CONFIG:Release>,4,1>")
+    endif()
     set_tests_properties(gguf_real_f32_forward PROPERTIES TIMEOUT 300)
 endif()
 
-set(ORCENGINE_HF_SOURCE_DIR "" CACHE PATH "Optional original Hugging Face source for direct PyTorch differential")
 if(ORCENGINE_REAL_F32_GGUF AND ORCENGINE_HF_SOURCE_DIR)
     add_test(NAME gguf_real_hf_pytorch_forward
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tests/hf_pytorch_forward_check.py"

@@ -59,7 +59,7 @@ def check_close(label: str, actual: np.ndarray, expected: np.ndarray,
     return max_abs, max_rel
 
 
-def main(executable: str, gguf_path: str, steps: int) -> None:
+def main(executable: str, gguf_path: str, steps: int, hf_source_dir: str | None = None) -> None:
     if steps <= 0:
         raise ValueError("steps must be positive")
     initial = [1, 5]
@@ -67,7 +67,7 @@ def main(executable: str, gguf_path: str, steps: int) -> None:
     cpp = json.loads(subprocess.check_output(command, text=True))
     if len(cpp["steps"]) != steps:
         raise AssertionError(f"C++ returned {len(cpp['steps'])} steps, expected {steps}")
-    weights, config = load_real_weights()
+    weights, config = load_real_weights(hf_source_dir)
 
     tokens = initial.copy()
     generated = initial.copy()
@@ -116,6 +116,9 @@ def main(executable: str, gguf_path: str, steps: int) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        raise SystemExit("usage: real_forward_check.py FORWARD_EXE MODEL.gguf STEPS")
-    main(sys.argv[1], sys.argv[2], int(sys.argv[3]))
+    if len(sys.argv) not in (4, 5):
+        raise SystemExit(
+            "usage: real_forward_check.py FORWARD_EXE MODEL.gguf STEPS [HF_SOURCE_DIR]"
+        )
+    main(sys.argv[1], sys.argv[2], int(sys.argv[3]),
+         sys.argv[4] if len(sys.argv) == 5 else None)
