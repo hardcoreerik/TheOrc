@@ -55,7 +55,10 @@ status:
   phase4_explicit_peak_weight_bytes: 14162688
   phase4_tied_peak_weight_bytes: 14162688
   phase4_peak_condition: output_chunk_rows_le_6146_for_this_model
-  phase4_freeze_verdict: accept_with_fixes_docs_corrected_2026_08_18
+  phase4_test_count_is_configuration_dependent: true
+  phase4_hf_source_dir_override_supported: true
+  phase4_row_region_observer_failure_specifically_tested: true
+  phase4_freeze_verdict: accept_with_fixes_closure_complete_2026_08_18
   cuda_backend: not_implemented
   quantization: indexing_only_no_materialization_or_compute
   paged_execution: research_only
@@ -366,6 +369,7 @@ phases:
     specification: PHASE3_WORKING_SET_SPEC.md
     implementation_report: PHASE4_BOOKEND_VIRTUALIZATION.md
     freeze_review_decision: OE-ADR-022
+    freeze_hygiene_closure: OE-ADR-023
     mission: determine_whether_retained_embedding_output_bookends_can_be_row_virtualized
     note: >-
       Originally planned as "practical CPU inference semantics and usability
@@ -381,8 +385,17 @@ phases:
       tied semantics, and observer behavior were all independently reproduced
       and hold; one real documentation overclaim was found (the headline
       14,162,688-byte peak is conditional on output_chunk_rows <= 6,146 for
-      this model, not an unconditional property) and corrected in place. Not
-      yet tagged; Phase 5 has not started.
+      this model, not an unconditional property) and corrected in place.
+      Freeze-hygiene closure (same day, OE-ADR-023) then resolved three
+      residual items: the 12/12-vs-13/13 test-count question was root-caused
+      to a CMake option difference (both prior reports correct, no defect,
+      verified by building both configurations plus a combined 21/21); a
+      recurring hardcoded HF-source-path assumption was fixed narrowly and
+      proven working from an external worktree with no directory junction;
+      and a test-coverage gap (throwing row-region observer never actually
+      reached row-region-specific code) was closed with a new focused test,
+      exposing no engine defect. ASan was independently rebuilt and re-run
+      against post-closure code. Not yet tagged; Phase 5 has not started.
   - id: 5
     name: initial_quantization
     state: not_started

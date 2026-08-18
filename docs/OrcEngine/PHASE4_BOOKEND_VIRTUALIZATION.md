@@ -398,28 +398,160 @@ Failures discovered while building the evidence are retained here:
 
 ## Validation matrix
 
+**Test count is a function of which CMake cache options are configured, not
+a single fixed number.** A "13/13" or "12/12" figure is meaningless without
+stating the configuration that produced it — found and closed during the
+2026-08-18 freeze-hygiene pass (see OE-ADR-023). The canonical registration:
+
+| Test | Registration condition | Category |
+|---|---|---|
+| `bookend_virtualization` | always | deterministic |
+| `streaming_working_set` | always | deterministic |
+| `gguf_conformance` | always | deterministic |
+| `gguf_mutations` | always | deterministic |
+| `gguf_large_sparse` | always | deterministic |
+| `differential_gates` (+`_f64`) | always | deterministic |
+| `autoregressive_decode` (+`_f64`) | always | deterministic |
+| `metamorphic_residency` (+`_f64`) | always | deterministic |
+| `hardening_regressions` | always | deterministic |
+| **12 unconditional tests total** | | |
+| `phase1_frozen_cross_differential` | `ORCENGINE_FROZEN_PHASE1_SNAPSHOT` set | deterministic, conditional |
+| `gguf_real_cross_reader` | `ORCENGINE_REAL_GGUF` set | real-artifact |
+| `gguf_real_f32_forward` | `ORCENGINE_REAL_F32_GGUF` set (optionally with `ORCENGINE_HF_SOURCE_DIR` — see closure fix below) | real-artifact |
+| `gguf_real_hf_pytorch_forward` | `ORCENGINE_REAL_F32_GGUF` + `ORCENGINE_HF_SOURCE_DIR` set | real-artifact |
+| `gguf_real_tied_forward` | `ORCENGINE_REAL_F32_GGUF` + `ORCENGINE_REAL_TIED_F32_GGUF` set | real-artifact |
+| `streaming_real_explicit` (+`_budget`) | `ORCENGINE_REAL_F32_GGUF` set | real-artifact |
+| `streaming_real_tied` (+`_budget`) | `ORCENGINE_REAL_TIED_F32_GGUF` set | real-artifact |
+| `streaming_real_hf_pytorch` | `ORCENGINE_REAL_F32_GGUF` + `ORCENGINE_HF_SOURCE_DIR` set | real-artifact |
+
+Codex's original "13/13" figure and the independent review's original "12/12"
+figure are **both correct** — for different, undocumented configurations.
+Codex's reproduction commands set `ORCENGINE_FROZEN_PHASE1_SNAPSHOT` (12 + 1 =
+13); the independent review's first clean-configuration build did not (12).
+Reproduced directly during this closure pass: 12/12 with no optional options,
+13/13 with `ORCENGINE_FROZEN_PHASE1_SNAPSHOT` set, 21/21 with
+`ORCENGINE_FROZEN_PHASE1_SNAPSHOT` + `ORCENGINE_REAL_F32_GGUF` +
+`ORCENGINE_REAL_TIED_F32_GGUF` + `ORCENGINE_HF_SOURCE_DIR` all set (12
+unconditional + `phase1_frozen_cross_differential` + 5 Phase-3 real tests + 3
+Phase-2 real tests = 21). No test was miscounted; no defect exists.
+
 | Evidence | Debug | Release | strict MSVC | MSVC ASan |
 |---|---:|---:|---:|---:|
 | Frozen Phase-1 suite | pass | pass | pass | pass |
 | Frozen Phase-2 GGUF/conformance/mutation/large-sparse suite | pass | pass | pass | pass |
 | Frozen Phase-3 streaming and cross-freeze suite | pass | pass | pass | pass |
-| Phase-4 `TensorRowRegion` suite | pass | pass | pass | pass |
+| Phase-4 `TensorRowRegion` suite (incl. row-region-specific observer-failure test, closed 2026-08-18) | pass | pass | pass | pass |
 | Weird physical-layout source and fault attacks | pass | pass | pass | pass |
 | F16 row decoding, execution, budget, and malformed cases | pass | pass | pass | pass |
-| Observer off/on and throwing-observer isolation | pass | pass | pass | pass |
-| Deterministic CTest total | 13/13 | 13/13 | 13/13 | 13/13 |
+| Observer off/on, generic throwing-observer isolation, AND row-region-specific throwing-observer isolation | pass | pass | pass | pass |
+| Deterministic CTest (12 unconditional) | 12/12 | 12/12 | 12/12 | 12/12 |
+| Deterministic CTest (13, with `ORCENGINE_FROZEN_PHASE1_SNAPSHOT`) | 13/13 | 13/13 | 13/13 | not independently re-run with this option† |
 | Real explicit six-chunk/four-step campaign | not run | pass | not run | not run |
 | Real tied six-chunk/four-step campaign | not run | pass | not run | not run |
 | Real exact budget / peak-minus-one | not run | pass | not run | not run |
 | Direct real tied/explicit equivalence | not run | pass | not run | not run |
-| Independent HF/PyTorch | not run | pass | not run | not run |
+| Independent HF/PyTorch (via external `ORCENGINE_HF_SOURCE_DIR`, no junction) | not run | pass | not run | not run |
 | Real F32 corruption detection | not run | pass | not run | not run |
+| Full real-artifact matrix, all options combined (21 tests) | not run | 21/21 pass | not run | not run |
 
 Debug is MSVC Debug; Release is MSVC Release; strict is Release with
 `/EHsc /W4 /WX /permissive-`; ASan is RelWithDebInfo with
 `/EHsc /fsanitize=address /W4`. Real-artifact campaigns are intentionally
-Release-only. Warning and sanitizer lanes execute the complete bounded
-synthetic/GGUF fixture suite, including weird-layout and F16 hardening.
+Release-only (matches Codex's original scoping decision, independently
+confirmed reasonable — Debug real-artifact scans take 500+ seconds and add
+no correctness signal beyond Release). Warning and sanitizer lanes execute
+the complete bounded synthetic/GGUF fixture suite, including weird-layout,
+F16, and (as of this closure) the row-region-specific observer test. ASan
+was independently re-run 2026-08-18 (13/13, real Q4 cross-reader included)
+against the post-closure code, not just re-cited from Codex's prior evidence.
+†ASan was run with `ORCENGINE_REAL_GGUF` (the real Q4 cross-reader test) but
+not `ORCENGINE_FROZEN_PHASE1_SNAPSHOT` in this pass — both are independent
+optional axes; combining them was not necessary to answer either open
+question and was skipped to keep this closure pass bounded.
+
+## Freeze-hygiene closure, 2026-08-18
+
+Following OE-ADR-022's independent review, three residual gaps were closed
+(see OE-ADR-023 for the full decision record):
+
+1. **Test-count ambiguity resolved** — see the canonical registration table
+   above. Not a defect; both prior reports were correct under different,
+   previously-undocumented configurations.
+2. **HF artifact-path assumption fixed.** `real_forward_check.py`'s
+   `load_real_weights()` previously always read from
+   `oracle/convert_real_candidate.py`'s module-level `SOURCE_DIR` constant
+   (a path relative to whichever worktree the Phase-0 oracle package lives
+   in), with no way to override it — even though the sibling
+   `gguf_real_hf_pytorch_forward`/`streaming_real_hf_pytorch` tests already
+   correctly accepted an explicit HF source directory. This meant
+   `gguf_real_f32_forward` failed in any worktree whose own
+   `Tools/OrcEnginePhase0/artifacts/smollm2-135m/` wasn't separately
+   populated, even when a perfectly valid HF source existed elsewhere and was
+   configured via `ORCENGINE_HF_SOURCE_DIR` for the *other* tests. The
+   independent review hit this and worked around it with a temporary
+   directory junction (the same workaround Phase 3's own hardening already
+   documented once for a related issue). Fixed narrowly:
+   `_load_config()`/`load_real_weights()` now accept an optional `source_dir`
+   override (default preserves the original `SOURCE_DIR` behavior for every
+   other caller); `real_forward_check.py` accepts an optional 4th CLI
+   argument; `Tools/OrcEnginePhase2/CMakeLists.txt`'s `gguf_real_f32_forward`
+   registration passes `${ORCENGINE_HF_SOURCE_DIR}` through when set. Proven
+   fixed: the 21/21 real-artifact Release run above used
+   `ORCENGINE_HF_SOURCE_DIR` pointed at a *different worktree's* artifacts
+   directory (`OrchestratorIDE-phase2-gguf`, not this Phase-4 worktree) with
+   **no junction, no symlink, no copy** — confirmed by checking the junction
+   path didn't exist before the build. No artifact-management redesign; the
+   fallback default is unchanged.
+3. **Row-region observer-failure test gap closed.** The existing "throwing
+   row-region observer is isolated from inference" check installed an
+   observer that threw on the very first emitted event
+   (`ModelExecutionBegin`), before any `TensorRowRegion*` event could fire —
+   so it never actually proved isolation of a failure occurring *during*
+   row-region event handling, despite its name. Added a second, focused check
+   that stays silent until it observes a real `TensorRowRegionMaterialized`
+   event, throws only there, and explicitly asserts: the event was reached;
+   the observer threw specifically there (not earlier/later); the failure was
+   counted exactly once; inference still completed; output remained
+   bit-identical to the frozen reference. This closed the gap with a
+   test-only change — no engine defect was found or needed fixing.
+
+## Region granularity is a policy variable (permanent architectural lesson)
+
+The peak resident weight bytes measured above are not architecture-fixed.
+Under the current (strictly sequential, non-overlapping) execution lifecycle
+— confirmed directly from `forward_impl`'s call order in
+`Tools/OrcEnginePhase1/src/forward.cpp`: embedding regions fully release
+before any transformer layer materializes, each layer fully releases before
+the next, and output regions only begin after the last layer releases —
+the accurate formula is:
+
+```
+peak resident weight bytes
+    = persistent resident bytes (final norm, 2,304 bytes for this model)
+    + max(
+          embedding region working set   (hidden * 4 bytes; one row at a time)
+          transformer layer working set  (the largest single layer's 9-tensor sum)
+          output region working set      (output_chunk_rows * hidden * 4 bytes)
+      )
+```
+
+For every tested configuration (`output_chunk_rows` in {1, 16, 64, 256, 1000,
+1024}), the transformer-layer term dominates (14,160,384 bytes), giving the
+reported 14,162,688-byte peak. **14,162,688 is a measured result under the
+tested region policy, not an immutable minimum, an unconditional floor, or a
+universal property of `TensorRowRegion`.** The crossover point (6,146 rows
+for this model) is a function of `hidden`, resident dtype width, and this
+model's largest layer size — a different model, dtype, or backend would have
+a different threshold, and `6,146` is deliberately NOT promoted to an
+OrcEngine constant anywhere in this codebase.
+
+The general lesson for `ExecutionPlanner` (Phase 6B): execution granularity
+is a real policy knob with a real tradeoff — smaller regions reduce
+residency at the cost of more materializations (more read/decode overhead);
+larger regions reduce overhead at the cost of higher residency. This is
+future planner evidence. It is not authorization to build a planner, add
+caching/prefetch, clamp `output_chunk_rows`, or generalize `TensorRowRegion`
+beyond contiguous rows now — none of that was done in this closure pass.
 
 ## Reproduction
 
@@ -429,16 +561,23 @@ $build = 'F:\Ai\_build_orcengine_p4'
 $frozen = 'F:\Ai\_build_orcengine_p3_hardening\Release\orcengine_phase1_snapshot_current.exe'
 $frozenFull = 'F:\Ai\_build_orcengine_p3_hardening\phase2\Release\orcengine_gguf_forward.exe'
 $frozenStream = 'F:\Ai\_build_orcengine_p3_hardening\Release\orcengine_gguf_streaming_forward.exe'
+# These three point at ANOTHER worktree's artifacts directory on purpose --
+# proving (2026-08-18 closure) that no junction/symlink/copy into the active
+# Phase-4 worktree is required for any of the real-artifact tests, including
+# gguf_real_f32_forward, to find them.
 $explicit = 'F:\Ai\OrchestratorIDE-phase2-gguf\Tools\OrcEnginePhase0\artifacts\smollm2-135m.gguf'
 $tied = 'F:\Ai\OrchestratorIDE-phase2-gguf\Tools\OrcEnginePhase0\artifacts\smollm2-135m-tied.gguf'
 $hf = 'F:\Ai\OrchestratorIDE-phase2-gguf\Tools\OrcEnginePhase0\artifacts\smollm2-135m'
 
 cmake -S "$root\Tools\OrcEnginePhase4" -B $build `
-  -DORCENGINE_FROZEN_PHASE1_SNAPSHOT=$frozen
+  -DORCENGINE_FROZEN_PHASE1_SNAPSHOT=$frozen `
+  -DORCENGINE_REAL_F32_GGUF=$explicit `
+  -DORCENGINE_REAL_TIED_F32_GGUF=$tied `
+  -DORCENGINE_HF_SOURCE_DIR=$hf
 cmake --build $build --config Debug --parallel
-ctest --test-dir $build -C Debug --output-on-failure
+ctest --test-dir $build -C Debug -E "streaming_real|gguf_real" --output-on-failure
 cmake --build $build --config Release --parallel
-ctest --test-dir $build -C Release --output-on-failure
+ctest --test-dir $build -C Release --output-on-failure   # 21/21 with all four options set
 
 $current = "$build\phase3\Release\orcengine_gguf_streaming_forward.exe"
 python "$root\Tools\OrcEnginePhase4\tests\real_bookend_check.py" `

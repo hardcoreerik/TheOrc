@@ -654,3 +654,143 @@ Supersedes / superseded by:
 - **Verdict:** **ACCEPT WITH FIXES.** Fixes (documentation only) are
   applied as of this entry. Phase 4 is not tagged. Phase 5 does not begin.
   Tagging remains a separate, deliberate maintainer decision.
+
+## OE-ADR-023 — Phase-4 freeze-hygiene closure: test-count reconciliation, HF artifact-path fix, observer-test gap closed
+
+- **Status:** Accepted. Closure changes applied (code, test, and docs). Phase
+  4 remains untagged.
+- **Context:** OE-ADR-022 left three residual, non-freeze-blocking items open
+  from the independent review: (1) an unexplained 12/12-vs-13/13 deterministic
+  test-count discrepancy between Codex's report and the independent review's
+  reproduction; (2) a recurrence, during the independent review, of the same
+  hardcoded-relative-HF-source-path environmental issue Phase 3's own
+  hardening report had already hit and worked around once with a temporary
+  directory junction; (3) the "throwing row-region observer is isolated from
+  inference" test not actually exercising a throw during row-region event
+  handling, as its name claims. The maintainer requested a dedicated closure
+  pass to resolve all three plus reconfirm the row-region contract, physical-
+  layout independence, and F16 evidence, and to re-run ASan directly against
+  post-closure code rather than relying on Codex's prior ASan evidence.
+
+### 1. Test-count reconciliation
+
+- **Root cause, found by inspecting `Tools/OrcEnginePhase{1,2,3,4}/
+  CMakeLists.txt`:** deterministic-suite test count is a function of which
+  optional CMake cache options are set. 12 tests register unconditionally.
+  `phase1_frozen_cross_differential` (Phase 3) registers only when
+  `ORCENGINE_FROZEN_PHASE1_SNAPSHOT` points at a separately-built frozen
+  Phase-1 snapshot executable — exactly what Codex's own documented
+  reproduction commands (`PHASE3_FREEZE_HARDENING.md`, `PHASE4_BOOKEND_
+  VIRTUALIZATION.md`) set, and exactly what the independent review's first
+  clean-configuration build did not.
+- **Verified experimentally, not just inferred from the CMake files:** built
+  the frozen Phase-1 snapshot probe from the tagged `orcengine-phase1-freeze`
+  source (`Tools/OrcEnginePhase3/tests/frozen_phase1_probe`), configured
+  Phase 4 with `-DORCENGINE_FROZEN_PHASE1_SNAPSHOT=<probe>` alone, and
+  observed exactly 13/13 with `phase1_frozen_cross_differential` as the new
+  test #3. Reconfigured with all four real-artifact/frozen-snapshot options
+  together and observed 21/21 (12 unconditional + `phase1_frozen_cross_
+  differential` + 3 Phase-2 real tests + 5 Phase-3 real tests).
+- **Decision:** both Codex's 13/13 and the independent review's 12/12 were
+  correct, under different, previously-undocumented configurations — not a
+  discrepancy, not a defect. Test registration was NOT altered to force a
+  fixed count (explicitly out of scope per the maintainer's instruction).
+  Documented the canonical registration table in `PHASE4_BOOKEND_
+  VIRTUALIZATION.md`'s "Validation matrix" section instead, so future
+  reports state their configuration explicitly rather than a bare N/N.
+
+### 2. HF artifact-path fix
+
+- **Root cause:** `Tools/OrcEnginePhase2/tests/real_forward_check.py`'s
+  `main()` called `load_real_weights()` with zero arguments;
+  `oracle/real_candidate_logits_check.py`'s `load_real_weights()` in turn
+  always read from `oracle/convert_real_candidate.py`'s module-level
+  `SOURCE_DIR` constant (`Tools/OrcEnginePhase0/artifacts/smollm2-135m`,
+  relative to wherever the oracle package happens to live) with no override
+  parameter — even though the sibling `hf_pytorch_forward_check.py`
+  (backing `gguf_real_hf_pytorch_forward` and `streaming_real_hf_pytorch`)
+  already correctly accepted an explicit HF source directory argument. This
+  meant `gguf_real_f32_forward` specifically failed in any worktree whose own
+  local `artifacts/smollm2-135m/` wasn't separately populated, regardless of
+  what `ORCENGINE_HF_SOURCE_DIR` was configured to for the other tests in the
+  same CMake invocation.
+- **Fix (narrow, additive, no artifact-management redesign):**
+  `_load_config(source_dir: str | None = None)` in `convert_real_candidate.py`
+  now accepts an optional override, defaulting to the original module
+  constant for every other existing caller (`convert()`, etc. — unchanged
+  behavior). `load_real_weights(source_dir: str | None = None)` in
+  `real_candidate_logits_check.py` threads it through.
+  `real_forward_check.py`'s `main()` gained an optional `hf_source_dir`
+  parameter and its CLI gained an optional 4th positional argument.
+  `Tools/OrcEnginePhase2/CMakeLists.txt`'s `gguf_real_f32_forward`
+  registration now passes `${ORCENGINE_HF_SOURCE_DIR}` through when set,
+  matching the pattern its sibling tests already used correctly.
+- **Reproduction proof:** the closure pass's 21/21 real-artifact Release run
+  used `ORCENGINE_HF_SOURCE_DIR` pointed at the separate
+  `OrchestratorIDE-phase2-gguf` worktree's artifacts directory, with **no
+  directory junction present** (checked and confirmed absent immediately
+  before the build) and no symlink or file copy of any kind.
+  `gguf_real_f32_forward` passed.
+
+### 3. Row-region observer-failure test gap closed
+
+- **Root cause:** the existing "throwing row-region observer is isolated
+  from inference" check (`test_bookend_virtualization.cpp`) installed an
+  observer that threw unconditionally on the very first event `StreamingModel
+  ::forward` emits (`ModelExecutionBegin`), which fires before any
+  `TensorRowRegion*` event — so the observer was disabled by the engine's
+  existing generic isolation policy before ever reaching row-region-specific
+  code, despite the test's name implying otherwise.
+- **Fix (test-only, no engine defect found):** added a second, focused check
+  whose observer stays silent (no-op) until it specifically observes a
+  `TensorRowRegionMaterialized` event, throws only there, and explicitly
+  asserts each claim separately: the region event was reached; the observer
+  threw specifically during that event's handling (not earlier or later);
+  `observer_failure_count == 1`; the forward pass still completed; output
+  remained bit-identical to the frozen reference. All five assertions passed
+  on first run. The original generic-throw test was kept unmodified (still
+  useful coverage for "throws on the very first event" as its own case).
+
+### Region granularity as a permanent architectural lesson
+
+Per the maintainer's explicit instruction, the chunk-size-conditional finding
+from OE-ADR-022 was preserved and generalized (not walked back): the exact
+peak-residency formula was derived from the real, verified execution order
+in `Tools/OrcEnginePhase1/src/forward.cpp`'s `forward_impl` (embedding,
+then layers one-at-a-time, then output — strictly sequential, never
+overlapping), confirming `peak = persistent_bytes + max(embedding_ws,
+layer_ws, output_ws)` is accurate to the actual code lifetimes, not just an
+approximation. `6,146` (this model's specific crossover row count) is
+explicitly NOT promoted to an OrcEngine-wide constant anywhere in this
+closure. `ENGINEERING_ROADMAP.md`'s Phase 6B section gained one paragraph
+recording "region granularity is a policy variable" as evidence for the
+future `ExecutionPlanner`, without authorizing any planner work now.
+
+- **Validation re-run against post-closure code (not merely re-cited from
+  Codex's prior evidence):** 12/12 deterministic (Debug, Release, strict,
+  ASan, no optional options); 13/13 deterministic (Debug, Release, strict,
+  with `ORCENGINE_FROZEN_PHASE1_SNAPSHOT` — ASan not combined with this
+  option in this pass, an explicit scope boundary, not an omission); 21/21
+  full real-artifact Release matrix (all four optional CMake variables set,
+  including the new HF-path fix exercised with no junction); ASan
+  independently rebuilt and re-run this pass (13/13, including the real Q4
+  cross-reader test) rather than only citing Codex's prior ASan pass.
+- **Alternatives considered:** clamp or warn on `output_chunk_rows` in the
+  engine (rejected — explicitly out of scope for this closure pass per the
+  maintainer's instruction; remains a legitimate open question for a future
+  phase or `ExecutionPlanner` design); redesign the Phase-0 oracle's artifact
+  path resolution more broadly, e.g. a general external-artifact registry
+  (rejected — disproportionate to the actual gap, which was one missing
+  parameter on one function in one call chain); force the deterministic test
+  count to a fixed number by always/never registering
+  `phase1_frozen_cross_differential` (rejected — the conditional registration
+  is intentional and correct; the fix was documentation, not code).
+- **Evidence authority:** this closure pass's full report (delivered
+  in-session); `PHASE4_BOOKEND_VIRTUALIZATION.md`'s updated "Validation
+  matrix," "Freeze-hygiene closure, 2026-08-18," and "Region granularity is a
+  policy variable" sections; `ENGINEERING_ROADMAP.md`'s Phase 6B addendum.
+- **Verdict:** closure items resolved; **verdict remains ACCEPT WITH FIXES
+  from OE-ADR-022, now with all identified fixes actually applied** (docs in
+  OE-ADR-022, code/test/docs in this entry). Phase 4 is still not tagged;
+  Phase 5 has not started; tagging remains the maintainer's separate
+  decision.

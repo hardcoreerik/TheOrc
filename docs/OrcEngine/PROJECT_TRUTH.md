@@ -284,11 +284,41 @@ reproduced clean (12/12). ASan was not independently re-run in this review
 pass. See `PHASE4_BOOKEND_VIRTUALIZATION.md` for exact evidence and
 limitations.
 
+**FREEZE-HYGIENE CLOSURE, 2026-08-18 (same day, follow-up):** three residual
+items from the independent review were resolved -- see `DECISION_LOG.md`
+OE-ADR-023 for the full record. (1) The apparent 12/12-vs-13/13 deterministic
+test-count discrepancy was root-caused (not a defect): `phase1_frozen_cross_
+differential` registers only when `ORCENGINE_FROZEN_PHASE1_SNAPSHOT` is
+configured, which Codex's reproduction commands set and the independent
+review's first build did not -- both prior reports were correct under
+different configurations, verified experimentally by building both ways
+(12/12 and 13/13 reproduced directly) and a combined 21/21 with every
+optional real-artifact/frozen-snapshot option set together. (2) The recurring
+hardcoded-relative-HF-source-path issue (already hit once during Phase-3
+hardening) was fixed narrowly: `load_real_weights()` and its call chain now
+accept an optional source-directory override, and `gguf_real_f32_forward`'s
+CMake registration passes `ORCENGINE_HF_SOURCE_DIR` through -- proven fixed
+by a 21/21 real-artifact run using an HF source directory in a genuinely
+different worktree, with no directory junction present. (3) The "throwing
+row-region observer is isolated" test's coverage gap (it threw on the first
+event of any kind, never actually reaching row-region-specific code) was
+closed with a new, explicit test that arms the throw only on a
+`TensorRowRegionMaterialized` event and verifies every claim (event reached,
+threw there specifically, failure counted once, inference completed
+bit-identically) -- no engine defect was found. ASan was independently
+rebuilt and re-run against the post-closure code (13/13). The chunk-size-
+conditional finding from OE-ADR-022 was preserved and generalized into a
+verified formula (derived from `forward_impl`'s actual, confirmed-sequential
+execution order) rather than walked back, and `ENGINEERING_ROADMAP.md`'s
+Phase 6B section now records "region granularity is a policy variable" as
+forward-looking `ExecutionPlanner` evidence.
+
 ## Current blockers
 
-None remaining after the 2026-08-18 independent review and documentation
-correction above. See `DECISION_LOG.md` OE-ADR-022 for the full independent
-freeze-review verdict.
+None remaining after the 2026-08-18 independent review, documentation
+correction, and freeze-hygiene closure above. See `DECISION_LOG.md`
+OE-ADR-022 and OE-ADR-023 for the full record. Tagging Phase 4 remains a
+separate, deliberate maintainer decision.
 
 ## How to update this document
 
