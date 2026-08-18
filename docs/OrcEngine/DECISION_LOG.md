@@ -472,3 +472,78 @@ Supersedes / superseded by:
   `research/orcengine-fringe-lab`.
 - **Acceptance trigger:** maintainer approval of the Phase-3 specification. Until
   then no Phase-3 branch or engine implementation begins.
+
+## OE-ADR-021 — Evidence-driven Phase 3 → Phase 4 roadmap correction: bookend/row-region virtualization ahead of tokenizer/KV-cache/BLAS
+
+- **Status:** Phase-4 implementation complete and self-reviewed; awaiting
+  independent freeze review. Not tagged.
+- **Original assumption (recorded in `PHASE3_WORKING_SET_SPEC.md` section 15,
+  written before Phase-3 measurement existed):** once whole-layer streaming was
+  proven, Phase 4 should become "practical CPU inference semantics and
+  usability baseline" — exact tokenizer and text/token boundary, incremental
+  KV-cached decode, a reusable bounded activation workspace, prompt-versus-
+  decode benchmarking, and only then BLAS/threading. This was a reasonable
+  plan given what was known at the time; it is recorded here, not rewritten,
+  so the roadmap change below reads as a correction rather than a
+  predetermined destination.
+- **Measurement that triggered the correction:** Phase-3 freeze hardening
+  measured the actual engine-owned residency peak for both real SmolLM2-135M
+  artifacts once whole-layer streaming was in place:
+
+  | Artifact | Full resident weights | Permanent bookends | Phase-3 peak | Bookends / peak |
+  |---|---:|---:|---:|---:|
+  | explicit output | 651,306,240 | 226,494,720 | 240,655,104 | 94.11% |
+  | tied output | 538,060,032 | 113,248,512 | 127,408,896 | 88.88% |
+
+  The largest single transformer layer was only 14,160,384 bytes — once
+  layers streamed, the retained token-embedding/output-head bookends, not the
+  transformer body, were the dominant remaining term (88.88%–94.11% of the
+  Phase-3 peak, per `PHASE3_FREEZE_HARDENING.md`'s evidence boundary section).
+  This was a genuine surprise: the original plan implicitly treated the
+  transformer layers as the residency problem and the embedding/output
+  matrices as fixed, necessary bookends. The measurement showed the opposite
+  — the bookends were now the bottleneck.
+- **Experiment run in response:** rather than proceeding to tokenizer/KV-cache
+  work with that bookend cost baked in as a permanent floor, Phase 4 tested
+  whether the same logical-row-region decomposition Fringe Lab had already
+  shown was mathematically exact for a synthetic `lm_head` (Fringe experiments
+  C/C2) would hold for a real GGUF-backed model executing through the actual
+  C++ engine — input embedding materializing one row per unique token, output
+  projection materializing contiguous vocabulary-row chunks, both released
+  after use, both compared bit-identically against the frozen Phase-3
+  full-resident and streamed references.
+- **Result:** it held. Measured peak weight residency dropped to exactly
+  14,162,688 bytes (the largest layer plus the still-resident 2,304-byte final
+  norm) for both artifacts — a 94.11% reduction from the Phase-3 peak for the
+  explicit artifact and 88.88% for the tied artifact, 2.17% and 2.63% of full
+  model weights respectively. Complete logits, all retained taps, and the
+  four-step greedy sequence `[1, 5, 28, 284, 260, 198]` remained bit-identical
+  to frozen Phase-3 execution and within the existing Hugging Face/PyTorch
+  tolerance gate. See `PHASE4_BOOKEND_VIRTUALIZATION.md` for full evidence.
+- **Accepted decision:** retarget Phase 4 from "practical CPU inference
+  semantics and usability baseline" to "bookend/row-region virtualization,"
+  implemented on `feat/orcengine-phase4-bookend-virtualization`. This is a
+  roadmap correction driven by a specific, reproducible Phase-3 measurement,
+  not arbitrary scope drift — the originally planned Phase-4 scope (tokenizer,
+  KV-cached decode, activation workspace, BLAS) is deferred, not abandoned,
+  and remains the logical next phase after bookend virtualization closes.
+- **Alternatives considered:** proceed directly to the originally planned
+  tokenizer/KV-cache/BLAS scope with the 88.88–94.11%-bookend-dominated
+  residency floor left unaddressed (rejected — would freeze a full-residency
+  assumption for the embedding/output matrices into the next phase's
+  activation-workspace and decode-loop design, exactly the mistake the
+  Phase-1→Phase-3 memory-model work was meant to prevent); generalize
+  immediately to arbitrary multidimensional tensor-region slicing, tiling, or
+  quantized-block decoding (rejected as unproven scope — Phase 4's own
+  hardening pass independently caught and narrowed an initial `TensorRegion`
+  name for overclaiming exactly this, down to the proven `TensorRowRegion`
+  contiguous-row-only contract); defer the measurement's implication and
+  proceed with CPU optimization instead (rejected for the same reason
+  OE-ADR-020 rejected it for Phase 3 — optimizing a residency shape not yet
+  known to be necessary).
+- **Evidence authority:** `PHASE3_FREEZE_HARDENING.md` (the triggering
+  measurement), `PHASE4_BOOKEND_VIRTUALIZATION.md` (the implementation and
+  full correctness/budget/format-neutrality evidence), `CURRENT_STATE.yaml`
+  phase `id: 4` entry.
+- **Acceptance trigger:** independent Phase-4 freeze review. Until accepted,
+  Phase 4 is not tagged and Phase 5 does not begin.

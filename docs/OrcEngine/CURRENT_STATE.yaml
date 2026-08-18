@@ -330,15 +330,40 @@ phases:
       PHASE2_GGUF_IMPLEMENTATION.md.
   - id: 3
     name: real_model_streaming_working_set_reference
-    state: implemented_pending_independent_freeze_review
+    state: complete_frozen
     implementation: cpp20_one_layer_at_a_time_no_cache_reference
     specification: PHASE3_WORKING_SET_SPEC.md
     implementation_report: PHASE3_WORKING_SET_IMPLEMENTATION.md
+    freeze_hardening_report: PHASE3_FREEZE_HARDENING.md
     mission: determine_minimum_practical_real_gguf_backed_resident_working_set
     first_strategy: one_layer_at_a_time_no_cache
+    completed_date: "2026-08-16"
+    completion_note: >-
+      ACCEPT FOR PHASE-3 FREEZE. Immutable pushed annotated tag
+      orcengine-phase3-freeze peels to 98dbcf1f370a93574da32dc02ebdcfeff8a60b3d.
+      Both real explicit and tied SmolLM2-135M artifacts execute layer-at-a-time
+      from Phase-2 BackingExtent reads with bit-identical taps/logits/tokens
+      against full materialization, plus a controlled residency-budget proof
+      and a format-neutral (non-GGUF) ModelSource/TensorMaterializer seam. See
+      PHASE3_FREEZE_HARDENING.md for the full re-attack and validation matrix.
   - id: 4
-    name: practical_cpu_inference_semantics_and_usability_baseline
-    state: not_started
+    name: bookend_row_region_virtualization
+    state: implemented_pending_independent_freeze_review
+    implementation: cpp20_logical_row_region_materialization
+    specification: PHASE3_WORKING_SET_SPEC.md
+    implementation_report: PHASE4_BOOKEND_VIRTUALIZATION.md
+    mission: determine_whether_retained_embedding_output_bookends_can_be_row_virtualized
+    note: >-
+      Originally planned as "practical CPU inference semantics and usability
+      baseline" (tokenizer, KV cache, BLAS -- see PHASE3_WORKING_SET_SPEC.md
+      section 15). Retargeted after Phase-3 freeze measurement showed retained
+      embedding/output bookends were ~88-94% of the remaining weight-residency
+      peak (240,655,104 explicit / 127,408,896 tied bytes, largest layer only
+      14,160,384 bytes). See OE-ADR-021 for the full evidence-driven roadmap-
+      correction record. The originally planned scope (tokenizer, KV cache,
+      BLAS) is not abandoned, only deferred behind this measurement-driven
+      detour -- see PHASE4_BOOKEND_VIRTUALIZATION.md for implementation
+      evidence; not yet independently reviewed, tagged, or frozen.
   - id: 5
     name: initial_quantization
     state: not_started
