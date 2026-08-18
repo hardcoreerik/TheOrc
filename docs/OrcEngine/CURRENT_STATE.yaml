@@ -54,7 +54,8 @@ status:
   phase4_real_four_step_sequence: "1,5,28,284,260,198"
   phase4_explicit_peak_weight_bytes: 14162688
   phase4_tied_peak_weight_bytes: 14162688
-  phase4_freeze_verdict: pending_independent_review
+  phase4_peak_condition: output_chunk_rows_le_6146_for_this_model
+  phase4_freeze_verdict: accept_with_fixes_docs_corrected_2026_08_18
   cuda_backend: not_implemented
   quantization: indexing_only_no_materialization_or_compute
   paged_execution: research_only
@@ -69,14 +70,26 @@ status:
   fringe_lab_exists: true
   summary: >-
     Phase 3 is frozen at 98dbcf1f under orcengine-phase3-freeze. Phase 4 is
-    implemented on feat/orcengine-phase4-bookend-virtualization and awaits
-    independent freeze review. Logical row regions supply unique embedding rows
-    and output chunks while preserving Phase-3 layer streaming. Explicit and tied
-    real artifacts are bit-identical to frozen Phase 3 across six chunk sizes and
+    implemented on feat/orcengine-phase4-bookend-virtualization; an independent
+    freeze review completed 2026-08-18 with verdict ACCEPT WITH FIXES (see
+    OE-ADR-022). Logical row regions supply unique embedding rows and output
+    chunks while preserving Phase-3 layer streaming. Explicit and tied real
+    artifacts are bit-identical to frozen Phase 3 across six chunk sizes and
     four generated steps, and match Hugging Face/PyTorch. Measured peak is
-    14,162,688 bytes for both artifacts; frozen Phase 3 rejects that budget,
-    Phase 4 succeeds exactly there, and peak-minus-one rejects. Debug, Release,
-    strict MSVC, and ASan pass 13/13. See PHASE4_BOOKEND_VIRTUALIZATION.md.
+    14,162,688 bytes for both artifacts CONDITIONAL on output_chunk_rows
+    staying at or below 6,146 rows for this model (all six tested chunk sizes
+    qualify) -- found during independent review (adversarial Grok pass,
+    confirmed against streaming.cpp): a documentation-precision correction,
+    not a code defect, since the residency budget check correctly enforces
+    whatever limit is configured for any chunk size. Frozen Phase 3 rejects
+    that budget, Phase 4 succeeds exactly there for the tested range, and
+    peak-minus-one rejects. Independent review reproduced: 12/12 deterministic
+    tests (Debug and Release, no real-artifact options), 20/20 real-artifact
+    Release campaign (after a directory-junction workaround for a known
+    pre-existing Phase-2 oracle path issue, same fix Phase 3's own hardening
+    report already documents), 12/12 strict /W4 /WX /permissive- lane. ASan
+    not independently re-run. See PHASE4_BOOKEND_VIRTUALIZATION.md for
+    corrected evidence.
 
     Phase 2 is implemented and freeze-hardened on feat/orcengine-phase2-gguf. The
     strict GGUF v3 reader indexes real file-backed
@@ -348,10 +361,11 @@ phases:
       PHASE3_FREEZE_HARDENING.md for the full re-attack and validation matrix.
   - id: 4
     name: bookend_row_region_virtualization
-    state: implemented_pending_independent_freeze_review
+    state: independently_reviewed_accept_with_fixes_not_yet_tagged
     implementation: cpp20_logical_row_region_materialization
     specification: PHASE3_WORKING_SET_SPEC.md
     implementation_report: PHASE4_BOOKEND_VIRTUALIZATION.md
+    freeze_review_decision: OE-ADR-022
     mission: determine_whether_retained_embedding_output_bookends_can_be_row_virtualized
     note: >-
       Originally planned as "practical CPU inference semantics and usability
@@ -362,8 +376,13 @@ phases:
       14,160,384 bytes). See OE-ADR-021 for the full evidence-driven roadmap-
       correction record. The originally planned scope (tokenizer, KV cache,
       BLAS) is not abandoned, only deferred behind this measurement-driven
-      detour -- see PHASE4_BOOKEND_VIRTUALIZATION.md for implementation
-      evidence; not yet independently reviewed, tagged, or frozen.
+      detour. Independent freeze review (2026-08-18, OE-ADR-022) verdict is
+      ACCEPT WITH FIXES: code, correctness, format-neutrality, F16 support,
+      tied semantics, and observer behavior were all independently reproduced
+      and hold; one real documentation overclaim was found (the headline
+      14,162,688-byte peak is conditional on output_chunk_rows <= 6,146 for
+      this model, not an unconditional property) and corrected in place. Not
+      yet tagged; Phase 5 has not started.
   - id: 5
     name: initial_quantization
     state: not_started

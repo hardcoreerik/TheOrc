@@ -7,14 +7,20 @@
 > Frozen parent: `orcengine-phase3-freeze`, peeled commit
 > `98dbcf1f370a93574da32dc02ebdcfeff8a60b3d`
 >
-> Evidence date: 2026-08-16 America/Los_Angeles
+> Evidence date: 2026-08-16 America/Los_Angeles; independent freeze review and
+> a documentation correction 2026-08-18 (see "Residency and budget proof" for
+> the `output_chunk_rows` precondition the headline peak number depends on)
 
 Phase 4 answers one question: **does a large logical tensor have to be fully
-resident to execute?** For the pinned real F32 SmolLM2-135M artifacts, the
-answer is no. Input embedding now materializes one row per unique input token,
-and output projection materializes vocabulary-row chunks while retaining the
+resident to execute?** For the pinned real F32 SmolLM2-135M artifacts and a
+chosen output chunk size within the tested/documented range, the answer is
+no. Input embedding now materializes one row per unique input token, and
+output projection materializes vocabulary-row chunks while retaining the
 complete exact logits. The Phase-3 one-layer-at-a-time transformer lifecycle
-and arithmetic remain shared.
+and arithmetic remain shared. The specific 14,162,688-byte peak is a property
+of the chunk sizes actually tested (1-1024 rows), not an unconditional
+property of the row-region strategy itself — see "Residency and budget
+proof" for the exact precondition and threshold.
 
 This is a reference implementation, not a throughput optimization. It adds no
 cache, prefetch, mmap policy, tokenizer, KV cache, CUDA, quantized compute,
@@ -56,10 +62,12 @@ norm: `14,160,384 + 2,304 = 14,162,688` bytes.
 ### Experiment and consequence
 
 The implementation requested logical row regions, ran all six output
-partitions through unchanged F32 kernels, retained full logits, and compared
-against both frozen Phase-3 executables and Hugging Face/PyTorch. Measured peak
-was exactly 14,162,688 bytes for explicit and tied artifacts. The next
-architecture decision can therefore treat sub-tensor materialization as a
+partitions (chunk sizes 1-1024, all well under the 6,146-row threshold where
+output-chunk residency would overtake the largest layer — see "Residency and
+budget proof" below) through unchanged F32 kernels, retained full logits, and
+compared against both frozen Phase-3 executables and Hugging Face/PyTorch.
+Measured peak was exactly 14,162,688 bytes for explicit and tied artifacts at
+every tested chunk size. The next architecture decision can therefore treat sub-tensor materialization as a
 proven primitive, while cache and transport optimization remain future work.
 
 ## Architecture
@@ -249,7 +257,33 @@ The measured result confirms layer dominance, with the precise correction that
 the peak is the largest layer plus the 2,304-byte final norm—not the layer in
 isolation.
 
-The deterministic strong budget is 14,162,688 bytes. For both artifacts:
+**This number is conditional on `output_chunk_rows`, not an unconditional
+architectural floor.** Found during independent freeze review (2026-08-18):
+`StreamingConfig::output_chunk_rows` is a caller-supplied parameter with no
+upper bound enforced by construction or by `virtualized_output`
+(`Tools/OrcEnginePhase3/src/streaming.cpp`); the residency budget check
+(`ResidencyLedger::require_can_materialize`) correctly enforces whatever
+budget is configured, but it does not clamp or warn on `output_chunk_rows`
+itself. The 14,162,688-byte peak holds only while a single output row-chunk's
+resident bytes (`output_chunk_rows * hidden * 4`) stay at or below the largest
+layer's resident bytes (14,160,384) — i.e. `output_chunk_rows <= 6,146` for
+this model (`14,160,384 / (576 * 4) = 6,146` exactly). All six tested/
+documented chunk sizes (1, 16, 64, 256, 1024, 1000) satisfy this by a wide
+margin, so every measured number below is real and reproducible for that
+tested range — but choosing `output_chunk_rows` above 6,146 (up to the vocab
+size, 49,152) would make the output-projection chunk the new dominant term,
+approaching the old Phase-3 bookend size (up to 113,246,208 bytes) rather
+than 14,162,688. This is not a code defect — the engine correctly executes
+and correctly enforces admission for any chunk size, including large ones —
+it means the specific "2.17%/2.63% of full weights" headline figures describe
+the tested/recommended configuration, not an inherent property of row-region
+virtualization as a technique. A future phase should either document a
+recommended chunk-size ceiling explicitly or add an engine-level advisory
+check; neither was added here.
+
+The deterministic strong budget is 14,162,688 bytes, valid for
+`output_chunk_rows <= 6,146` (all six tested chunk sizes qualify). For both
+artifacts, at any chunk size in the tested range:
 
 - the immutable Phase-3 streamed executable rejects this budget;
 - Phase 4 succeeds exactly at this budget with exact outputs;

@@ -547,3 +547,110 @@ Supersedes / superseded by:
   phase `id: 4` entry.
 - **Acceptance trigger:** independent Phase-4 freeze review. Until accepted,
   Phase 4 is not tagged and Phase 5 does not begin.
+
+## OE-ADR-022 — Independent Phase-4 freeze review: ACCEPT WITH FIXES
+
+- **Status:** Accepted. Documentation corrected; Phase 4 not yet tagged.
+- **Context:** Codex's self-review of Phase 4 (bookend/row-region
+  virtualization) proposed `ACCEPT FOR PHASE-4 FREEZE`. Per the maintainer's
+  explicit instruction, an independent reviewer (Claude, this session)
+  attacked that self-review's conclusions rather than accepting them,
+  treating the central claim — a large logical weight tensor does not need to
+  be fully resident when the operation decomposes into logical row regions,
+  demonstrated by a measured 14,162,688-byte peak (2.17%/2.63% of full
+  explicit/tied weights) — as needing independent, reproducible verification
+  from code and real execution, not from documentation alone.
+- **Method:** direct code inspection of the row-region contract
+  (`Tools/OrcEnginePhase3/include/orcengine/{model_source,streaming}.hpp`,
+  `src/streaming.cpp`, `src/gguf_source.cpp`, `Tools/OrcEnginePhase2/src/
+  gguf.cpp`'s `materialize_gguf_tensor_rows`); a from-scratch build of the
+  deterministic Phase-4 suite (12/12 pass, Debug and Release); a from-scratch
+  build with real `smollm2-135m`/`smollm2-135m-tied` GGUF artifacts configured
+  (20/20 pass in Release after applying the same directory-junction
+  workaround `PHASE3_FREEZE_HARDENING.md` already documents for a
+  pre-existing Phase-2 Python-oracle hardcoded relative-path issue —
+  confirmed environmental, not a Phase-4 code defect); an independently built
+  strict `/W4 /WX /permissive-` lane (12/12 pass); and two external Grok
+  (`grok-4.5`) reviews of the full Phase-3→Phase-4 diff via the
+  `grok-review` skill — a `full` pass (CLEAN) and an `adversary` pass primed
+  to find what a prior clean review might have missed.
+- **What the independent review confirmed, matching the self-review's
+  claims:** the `TensorRowRegion{row_begin, row_count}` contract is
+  genuinely narrow (contiguous rank-2 rows only, no arbitrary-slice/tile/
+  quantization-block/expert-region support implied by the type itself);
+  `Tools/OrcEnginePhase3/src/streaming.cpp` contains zero GGUF references
+  (confirmed by direct grep, not just trusting the documented scan) — the
+  core is genuinely format-neutral, with GGUF isolated to
+  `gguf_source.cpp`/`gguf.cpp`; `validate_complete_row_partition` is a real,
+  generic, non-vacuous check (rejects skipped/duplicate/overlapping/
+  reordered/oversized/incomplete partitions by construction, independent of
+  any specific materializer); the weird physical-layout test genuinely
+  exercises `backing_bytes_read != tensor_bytes` (permuted/padded storage,
+  not just a relabeled contiguous buffer) with five distinct fault-injection
+  cases; the F16 row-decode path independently reproduces exact-match
+  results at first/middle/multi-row/nonzero/final positions against full
+  F16-to-F32 materialization; the corruption-detection script performs a
+  real semantic attack (mutates the exact byte range of the previously
+  selected output row in a copied 653MB real GGUF and confirms the selection
+  changes); tied-vs-explicit equivalence, the complete-logits comparison
+  methodology (`real_bookend_check.py` compares full `(tokens, selected,
+  logits_last, taps)` tuples against both frozen Phase-3 executables, not
+  argmax alone), and the residency-budget admission gate (exact peak passes,
+  peak-minus-one fails closed, frozen Phase-3 full bookends fail at the same
+  budget) all held under independent re-execution.
+- **What the independent review found wrong:** the adversarial Grok pass
+  identified that the headline 14,162,688-byte peak and the associated
+  2.17%/2.63%-of-full-weights figures were being documented as an
+  unconditional property of the row-region virtualization strategy, when
+  they are actually conditional on `StreamingConfig::output_chunk_rows` (a
+  free, caller-supplied parameter with no upper bound enforced by
+  construction or by `virtualized_output`) staying at or below 6,146 rows
+  for this model — the row count at which a single output chunk's resident
+  bytes (`output_chunk_rows * hidden * 4`) equal the largest transformer
+  layer's resident bytes (14,160,384). All six documented/tested chunk sizes
+  (1, 16, 64, 256, 1024, 1000) are far under this threshold, so every
+  specific measured number in the evidence documents is real and
+  reproducible — verified directly, not merely arithmetically inferred — but
+  a caller choosing a larger `output_chunk_rows` (up to the 49,152-row
+  vocabulary) would make the output-projection chunk the new dominant
+  resident term, approaching the old Phase-3 bookend size (up to
+  113,246,208 bytes) rather than the reported floor. This is a
+  documentation-precision defect, not a code defect: the residency budget
+  check (`ResidencyLedger::require_can_materialize`) correctly enforces
+  whatever limit is configured for any chunk size: nothing overruns, nothing
+  silently substitutes different math. A separate MINOR finding (also
+  confirmed against the actual test code) is that
+  `test_bookend_virtualization.cpp`'s "throwing row-region observer is
+  isolated from inference" check throws on the very first emitted event
+  (`ModelExecutionBegin`, before any row-region-specific event fires), so it
+  does not specifically exercise observer-failure isolation during
+  `TensorRowRegion*` event handling despite its name — left as a documented
+  test-coverage gap rather than fixed, since it is not freeze-blocking and
+  fixing it would be a test/engine change outside this review's authorized
+  docs-only scope.
+- **Decision:** three documentation locations
+  (`PHASE4_BOOKEND_VIRTUALIZATION.md`, `PROJECT_TRUTH.md`,
+  `CURRENT_STATE.yaml`) were corrected in place to state the peak/reduction
+  figures as conditional on `output_chunk_rows <= 6,146` for this model,
+  with the exact threshold derivation shown, rather than as an unconditional
+  architectural invariant. No engine or test code was changed — the
+  independent review found no freeze-blocking defect in the implementation
+  itself, only in how one measured result was framed.
+- **Alternatives considered:** accept the self-review's `ACCEPT FOR
+  PHASE-4 FREEZE` verdict as written (rejected — the peak-budget claim as
+  originally documented would mislead a future caller or Phase-5 designer
+  into treating 14,162,688 bytes as a hard architectural ceiling rather than
+  a chosen-parameter result); reject Phase 4 outright and require an
+  engine-level fix, e.g. clamping or warning on `output_chunk_rows`
+  (rejected as disproportionate — the underlying mechanism is correct and
+  safe for any parameter value; a future phase can add a documented
+  recommended ceiling or an advisory check without touching correctness,
+  and doing so now was outside this review's docs-only authorization).
+- **Evidence authority:** this independent review's full 23-item report
+  (delivered to the maintainer in-session); `.orc/reviews/grok_full_
+  20260818_142900.md` and `.orc/reviews/grok_adversary_20260818_143542.md`;
+  `PHASE4_BOOKEND_VIRTUALIZATION.md`'s corrected "Residency and budget
+  proof" section.
+- **Verdict:** **ACCEPT WITH FIXES.** Fixes (documentation only) are
+  applied as of this entry. Phase 4 is not tagged. Phase 5 does not begin.
+  Tagging remains a separate, deliberate maintainer decision.

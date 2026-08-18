@@ -257,17 +257,38 @@ Phase-3 executables over four generated steps for explicit and tied real
 artifacts. Direct tied/explicit execution was exact, and Hugging Face/PyTorch
 again produced `[1, 5, 28, 284, 260, 198]` within the unchanged gate.
 
-**MEASURED:** Phase-4 peak resident weights are 14,162,688 bytes for both
-artifacts: largest layer 14,160,384 plus the 2,304-byte final norm. This is
-2.17% of explicit and 2.63% of tied full resident weights. Frozen Phase 3
-rejects that budget, Phase 4 succeeds exactly there, and 14,162,687 rejects.
-Debug, Release, strict MSVC, and ASan each pass 13/13 deterministic tests. See
-`PHASE4_BOOKEND_VIRTUALIZATION.md` for exact evidence and limitations.
+**MEASURED, WITH A CORRECTION FOUND DURING INDEPENDENT REVIEW (2026-08-18):**
+Phase-4 peak resident weights are 14,162,688 bytes for both artifacts: largest
+layer 14,160,384 plus the 2,304-byte final norm. This is 2.17% of explicit and
+2.63% of tied full resident weights, **conditional on `output_chunk_rows` (a
+free, caller-set `StreamingConfig` parameter) staying at or below 6,146 rows**
+for this model -- all six tested chunk sizes (1, 16, 64, 256, 1024, 1000) are
+well under that threshold, so the measured numbers are real and reproducible,
+but the 14,162,688-byte figure is NOT an unconditional property of the
+row-region strategy: a caller choosing a larger `output_chunk_rows` (up to the
+49,152-row vocabulary) would make the output-projection chunk the dominant
+resident term, approaching the old Phase-3 bookend size instead. This is an
+adversarial-review finding (independent Grok pass, confirmed against the
+actual `streaming.cpp` code and the arithmetic), not a functional defect --
+the residency budget check correctly enforces whatever limit is configured
+for any chunk size. See `PHASE4_BOOKEND_VIRTUALIZATION.md`'s "Residency and
+budget proof" section for the corrected, conditional claim. Frozen Phase 3
+rejects the 14,162,688-byte budget, Phase 4 succeeds exactly there (for the
+tested chunk-size range), and 14,162,687 rejects. Debug and Release each pass
+their full deterministic suite (12/12 without real-artifact CMake options
+configured; the real-artifact Release campaign was independently reproduced,
+20/20, after applying the same directory-junction workaround Phase 3's own
+hardening report documents for the Phase-0 oracle's hardcoded relative
+artifact path); the strict `/W4 /WX /permissive-` lane was independently
+reproduced clean (12/12). ASan was not independently re-run in this review
+pass. See `PHASE4_BOOKEND_VIRTUALIZATION.md` for exact evidence and
+limitations.
 
 ## Current blockers
 
-An independent reviewer must attack Phase 4 before any freeze/tag decision or
-next phase begins.
+None remaining after the 2026-08-18 independent review and documentation
+correction above. See `DECISION_LOG.md` OE-ADR-022 for the full independent
+freeze-review verdict.
 
 ## How to update this document
 
