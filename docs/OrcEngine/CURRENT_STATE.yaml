@@ -505,10 +505,28 @@ phases:
         not a hypothetical -- numerically coincides with OE-ADR-025's
         earlier hypothetical estimate because composition succeeded in
         matching Phase 4's actual residency architecture.
-      validation_matrix_composed: debug_18_18_release_18_18_strict_18_18_zero_warnings_asan_18_18_zero_findings
-      active_gate_status: 19_of_20_satisfied_1_partial_see_PHASE5A_KV_CACHE_SPEC
-      proposed_verdict: READY_FOR_INDEPENDENT_FREEZE_REVIEW_recommendation_not_self_authorization
-      independent_review: not_done
+      validation_matrix_composed_pre_closure: debug_18_18_release_18_18_strict_18_18_zero_warnings_asan_18_18_zero_findings
+      validation_matrix_composed_post_closure: debug_30_30_release_30_30_strict_30_30_zero_warnings_asan_30_30_zero_findings_8_of_30_asan_tests_rerun_outside_ctest_timeout_due_to_frozen_phase2_3_cmakelists_timeouts
+      freeze_closure_pass: >-
+        2026-08-18, OE-ADR-028: independent review (grok-review skill, full +
+        adversary) of candidate 7c046121 returned ACCEPT WITH FIXES, 11
+        findings (P5A-RVW-001..011). All CRITICAL (002 cache position/commit
+        safety, 004 5-way gate under-enforcement, 006 real Path C absent from
+        CTest) and MAJOR (001 ambiguous ADR wording, 003 fail-closed parity,
+        005 KV oracle completeness, 011 one-sided materialization assertion)
+        findings closed with new/hardened tests and re-run evidence; MINOR
+        007 (tied real-model coverage) and 009 (reverse B/C independence)
+        closed with new tests; MINOR 008 (stale docs) closed via superseded
+        annotations; MINOR 010 (materialization-failure residency assertion)
+        resolved by manual trace, no leak found. Validation matrix grew from
+        18 to 30 registered tests (added test_cache_position_safety,
+        test_real_composed_evidence x2 explicit/tied,
+        real_5way_composed_differential as an actual CTest). See
+        DECISION_LOG.md OE-ADR-028 and PHASE5A_KV_CACHE_SPEC.md's
+        "Freeze-closure pass results" section for full per-finding evidence.
+      active_gate_status: closure_pass_complete_pending_new_independent_review_see_OE_ADR_028
+      proposed_verdict: READY_FOR_FINAL_INDEPENDENT_FREEZE_REVIEW_recommendation_not_self_authorization
+      independent_review: closure_pass_done_new_review_pending
       freeze_tag: absent
       branch_push: not_done
     note: >-

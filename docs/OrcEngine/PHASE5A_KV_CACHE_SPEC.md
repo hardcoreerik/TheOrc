@@ -430,10 +430,18 @@ work -- the fully-resident load path is exactly Phase 2's pre-existing
 composition-audit finding above.)
 
 **VERIFIED — transactional failure semantics
-(`tests/test_transactional_semantics.cpp`, 6/6 pass).** Chosen semantics
-(deliberately the smallest correct policy, not a rollback framework):
-`current_length()` is caller-driven and is never auto-advanced by
-`forward_cached_step`, including on failure. A mid-step failure (proven
+(`tests/test_transactional_semantics.cpp`, 6/6 pass).** *(SUPERSEDED
+2026-08-18 by the freeze-closure pass below — at the time this paragraph
+was written, `current_length()` was purely caller-driven with no
+auto-commit; the closure pass folded commit-on-success into
+`forward_cached_step` itself and further added a position-match
+requirement. The failure-path guarantee this paragraph describes --
+current_length() unchanged after a failed step -- still holds exactly as
+stated; only the SUCCESS-path mechanics changed. See "Composition
+implementation results" and the P5A-RVW-002 closure entry below for the
+current contract.)* Chosen semantics (deliberately the smallest correct
+policy, not a rollback framework): `current_length()` is caller-driven and
+is never auto-advanced by `forward_cached_step`, including on failure. A mid-step failure (proven
 here by corrupting layer 1's `w_v` weights with NaN mid-decode, on the
 synthetic Fixture-C model) leaves the cache genuinely **poisoned in
 place** at the positions that step was attempting to write (layer 1's
@@ -769,6 +777,138 @@ any `orcengine-phase5a-freeze` tag is created. Until that review happens:
 do not create the tag; do not push the branch unless separately
 authorized; do not begin Phase 5B, 5C, Phase 6, CUDA, or product
 integration.
+
+## Freeze-closure pass results (2026-08-18, OE-ADR-028)
+
+An independent review (via the repo's `grok-review` skill, full + adversary
+passes) of the commit above (`7c046121`) returned verdict **ACCEPT WITH
+FIXES**, confirming the architecture but finding 11 real findings
+(P5A-RVW-001 through 011), several freeze-blocking. This section records
+the closure of that review. Full findings and severities are in the
+review report; only the closure evidence is summarized here.
+
+- **P5A-RVW-002 (CRITICAL, cache position/commit safety) -- CLOSED.**
+  `forward_cached_step`/`VirtualizedCachedModel::step` now REQUIRE
+  `start_position == cache.current_length()` and throw `KVCacheError`
+  before any mutation if it does not -- gaps, rewinds, and resets can no
+  longer silently succeed and auto-commit. A new low-level seam
+  (`forward_cached_step_unsafe_explicit_position` /
+  `step_unsafe_explicit_position`) preserves deliberate fault-injection
+  capability for tests that need it. New dedicated test:
+  `test_cache_position_safety.cpp` (correct position succeeds; gap +1,
+  large gap, rewind, and nonzero-on-fresh-cache all reject before
+  mutation with `current_length()` and physical cache content unchanged;
+  capacity boundary and RoPE fault-injection remain possible through the
+  unsafe seam) -- for both Reference Path B and Reference Path C. Every
+  existing fault-injection test that relied on a wrong position was
+  updated to use the unsafe seam explicitly, and additionally gained a
+  companion assertion that the SAFE API now rejects that same scenario
+  outright.
+- **P5A-RVW-003 (MAJOR, fail-closed parity B vs C) -- CLOSED.**
+  `VirtualizedCachedModel::step` now calls the same `check_finite` checks
+  Reference Path B has always had on input embedding, final normalized
+  state, and logits (previously only the shared per-layer checks were
+  present on Path C). Attacked directly via the same real-model and
+  synthetic test infrastructure used elsewhere in this pass.
+- **P5A-RVW-004 (CRITICAL, 5-way gate under-enforcement) -- CLOSED.**
+  `real_5way_composed_differential.py` now REQUIRES (not merely prints)
+  `A == B == C` bit-identical logits at every step, requires `C` vs HF
+  native cached (`E`) directly (not only via both separately agreeing
+  with HF full-prefix), and requires exact trace-length equality. Also
+  closed at the C++ layer independently: `test_real_composed_evidence.cpp`
+  (new, registered as `real_composed_evidence_explicit`/`_tied`) asserts
+  A/B/C bit-identical directly in the C++ process itself, not just in the
+  Python differential -- this is the durable, compiled, ASan-covered form
+  of the same enforcement.
+- **P5A-RVW-005 (MAJOR, KV oracle completeness) -- CLOSED.** The real KV
+  numeric cross-check now requires `len(kv_results) == len(dump_specs)`
+  before PASS is possible; an unresolved sample is a hard error, not a
+  silent `continue` that shrinks the comparison set.
+- **P5A-RVW-006 (CRITICAL, real Path C absent from CTest) -- CLOSED.**
+  `test_real_composed_evidence.cpp` is now a registered CTest
+  (`real_composed_evidence_explicit`, `real_composed_evidence_tied`),
+  meaning real-GGUF-backed Path C (via `bind_gguf_source`, real row-region
+  reads, real per-layer materialize/release) now runs under
+  Debug/Release/strict/ASan like every other lane, closing the gap where
+  only the *synthetic* in-memory materializer had ever been exercised
+  under those lanes. `real_5way_composed_differential.py` is also now
+  registered as a CTest (`real_5way_composed_differential`) when a real
+  artifact, HF source directory, and Python interpreter are all
+  configured. CMake configuration was normalized to prefer explicit `-D`
+  variables (`ORCENGINE_REAL_F32_GGUF`, `ORCENGINE_REAL_TIED_F32_GGUF`,
+  `ORCENGINE_HF_SOURCE_DIR`, matching Phase 3/4's own convention) with the
+  pre-existing environment-variable form retained for backward
+  compatibility.
+- **P5A-RVW-007 (MINOR, tied-artifact real-model coverage) -- CLOSED.**
+  `test_real_composed_evidence.cpp` was run against both
+  `smollm2-135m.gguf` (explicit output head) and
+  `smollm2-135m-tied.gguf` (tied embeddings) -- all checks pass on both,
+  confirming Reference Path C's `tied_embeddings` branch (output
+  row-region materialization reading from the token-embedding backing
+  source rather than a separate output-head tensor) is correct on a real
+  artifact, not only the synthetic tied fixture.
+- **P5A-RVW-008 (MINOR, stale documentation) -- CLOSED.** The stale "never
+  auto-advanced" claim in this document's earlier transactional-semantics
+  paragraph and in `test_transactional_semantics.cpp`'s file header are
+  both annotated with superseded notes pointing at the current contract,
+  per this project's append-only documentation discipline (not rewritten
+  in place).
+- **P5A-RVW-009 (MINOR, missing reverse independence attack) -- CLOSED.**
+  `test_virtualized_cache_attacks.cpp` attack 11 corrupts ONLY Reference
+  Path B's resident `Model` (confirming B diverges from its own
+  pre-corruption baseline) and confirms an independently-constructed
+  Reference Path C -- its `ModelSource` snapshotted via `bind_memory_model`
+  BEFORE the corruption, so it cannot alias `fx.model`'s live storage --
+  remains completely unaffected, matching its own pre-corruption result
+  bit-exactly. This is the mirror image of the pre-existing corrupt-only-C
+  attack (9), completing the symmetric B/C independence proof in both
+  directions.
+- **P5A-RVW-010 (MINOR, materialization-failure residency assertion) --
+  addressed via manual trace, not additional code.** Direct trace of
+  `VirtualizedCachedModel::step`'s exception paths confirmed
+  `materialize_layer`'s own internal catch block already calls
+  `ledger_.released()` before rethrowing, using the SAME `bytes`/`count`
+  reference parameters `step()`'s outer catch would otherwise
+  double-release; the outer catch correctly does not re-release. No leak
+  exists on manual inspection. The underlying invariant (residency returns
+  to baseline after a materialization failure) is not a new gap; recorded
+  as verified by trace rather than by a new dedicated assertion, since
+  adding one would duplicate coverage `peak_active_layers<=1` and
+  `current_length()==0` (both already asserted for this case) already
+  provide.
+- **P5A-RVW-011 (MAJOR, one-sided materialization-count assertion) --
+  CLOSED.** `test_virtualized_cached_decode.cpp`'s materialization-count
+  check now computes the EXACT deterministic expected count (per-step
+  per-layer tensors + exact per-step distinct-token embedding rows,
+  matching `virtualized_embedding`'s own dedup logic + output chunks) and
+  requires equality, not a one-sided `<=` that could not detect
+  under-materialization despite its own comment claiming otherwise.
+- **P5A-RVW-001 (MAJOR, ambiguous OE-ADR-027 wording) -- CLOSED.** The
+  "no frozen Phase 1/3/4 file was modified" sentence in OE-ADR-027 is
+  clarified to be explicitly scoped to the composition pass it describes,
+  with an explicit cross-reference to Phase 5A's earlier, legitimate
+  extension of `context.hpp` (which does not affect Path A, confirmed by
+  grep showing zero references to it under `Tools/OrcEnginePhase3/`).
+
+**Additional closure work beyond the specific findings, per the freeze-
+closure instructions:** a bounded real-model prefill-schedule comparison
+(layer-major vs token-major, explicit token IDs, no tokenizer) was added
+to `test_real_composed_evidence.cpp` and passes bit-identically on the
+real model, strengthening item 12's evidence beyond the 2-layer synthetic
+fixture alone.
+
+**Updated validation matrix: 30 registered tests** (up from 18), all four
+lanes (Debug/Release/strict `/W4 /WX /permissive- /EHsc`/ASan) run with
+`ORCENGINE_REAL_F32_GGUF`, `ORCENGINE_REAL_TIED_F32_GGUF`, and
+`ORCENGINE_HF_SOURCE_DIR` all configured. See the closure commit history
+and `DECISION_LOG.md` OE-ADR-028 for the full per-lane pass/fail report.
+
+**New proposed verdict pending re-review: `READY FOR FINAL INDEPENDENT
+FREEZE REVIEW`.** All CRITICAL and MAJOR findings from the prior review
+are closed with real, re-run evidence; the one MINOR finding
+(P5A-RVW-010) was resolved by trace rather than new code, recorded
+honestly as such. This is still a recommendation, not a self-authorized
+freeze -- see below.
 
 ## Independent-review requirement
 

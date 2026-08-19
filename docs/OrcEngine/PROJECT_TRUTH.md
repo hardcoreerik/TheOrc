@@ -436,13 +436,52 @@ OE-ADR-027.
 recommendation, not a self-authorization. No `orcengine-phase5a-freeze`
 tag has been created; the branch remains unpushed pending that review.
 
+## OE-ADR-028: freeze-closure pass, review findings closed, 2026-08-18
+
+**VERIFIED:** an independent review (via the repo's `grok-review` skill,
+full + adversary passes) of the composition candidate returned verdict
+`ACCEPT WITH FIXES` and 11 findings (P5A-RVW-001 through 011: 3 CRITICAL,
+4 MAJOR, 4 MINOR). This entry records their closure. All three CRITICAL
+findings closed with new/hardened evidence: (002) `forward_cached_step`/
+`VirtualizedCachedModel::step` now REQUIRE `start_position ==
+cache.current_length()`, rejecting gaps/rewinds/resets before any
+mutation, with a new explicit low-level seam preserving deliberate
+fault-injection capability; (004) the real 5-way differential now
+enforces (not just prints) A≡B≡C bit-identical logits, plus a NEW
+compiled, CTest-registered, ASan-covered `test_real_composed_evidence.cpp`
+that asserts the same bit-identity directly in C++; (006) real-GGUF-backed
+Path C is now actually registered as a CTest and runs under
+Debug/Release/strict/ASan for the first time, on both the explicit and
+tied real artifacts. All four MAJOR findings closed similarly (fail-closed
+parity between Path B/C, KV-oracle-completeness enforcement, an exact
+materialization-count assertion replacing a one-sided bound, and
+clarified ADR wording). Two MINOR findings closed with new tests (tied
+real-artifact coverage; the reverse B/C independence attack -- corrupt
+only B's resident weights, confirm C, snapshotted independently
+beforehand, is completely unaffected). One MINOR finding closed via
+documentation superseded-annotations. One MINOR finding (a
+materialization-failure residency assertion) was resolved by manual code
+trace rather than new code -- no leak was found; the existing
+`peak_active_layers`/`current_length()` assertions already cover the
+underlying invariant. Full detail in `DECISION_LOG.md` OE-ADR-028 and
+`PHASE5A_KV_CACHE_SPEC.md`'s "Freeze-closure pass results" section.
+
+**Validation matrix grew from 18 to 30 registered tests.** See the
+closure commit history for exact per-lane (Debug/Release/strict/ASan)
+pass counts.
+
+**Proposed verdict pending a NEW independent review:
+`READY FOR FINAL INDEPENDENT FREEZE REVIEW`** -- a recommendation, not a
+self-authorization. No tag created, branch still unpushed.
+
 ## Current blockers
 
 None remaining for Phase 4, which is formally frozen. Phase 5A's
-correctness gate (synthetic + real-model) and its composition gate
-(OE-ADR-026/027) are both satisfied. The sole remaining blocker before a
-freeze tag is independent (non-self-authored) review. See
-`DECISION_LOG.md` OE-ADR-022 through OE-ADR-027 for the full record.
+correctness gate, composition gate, and freeze-closure pass
+(OE-ADR-026/027/028) are all satisfied. The sole remaining blocker before
+a freeze tag is a NEW independent (non-self-authored) review confirming
+the closure evidence. See `DECISION_LOG.md` OE-ADR-022 through OE-ADR-028
+for the full record.
 
 ## How to update this document
 
