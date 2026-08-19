@@ -345,11 +345,49 @@ progress on a separate worktree/branch, using the frozen Phase-4 tag as its
 parent authority. See `PHASE5A_KV_CACHE_SPEC.md` for its bounded hypothesis,
 scope, oracle, memory model, and definition of done.
 
+## Phase 5A real-model composition audit, 2026-08-18
+
+**VERIFIED (runtime-observed, real pinned SmolLM2-135M model):** Phase 5A's
+KV-cached decode correctness now holds against the real model, not just
+synthetic Fixture C -- a 4-way differential (OrcEngine full-prefix,
+OrcEngine cached, HF/PyTorch full-prefix, HF/PyTorch's own independently
+constructed native cached decode) all agree on the established
+`[1,5,28,284,260,198]` sequence, with `cpp_full_vs_hf_full` divergence
+matching the historically-recorded tolerance almost exactly. Real GQA
+(actual 9Q/3KV ratio), real RoPE-position, real capacity-boundary
+(exact 8,192), and cross-context-isolation fault attacks all pass
+(11/11, `test_real_cache_attacks.cpp`). Transactional failure semantics
+(poisoned-in-place, protected by the `current_length()` accounting
+boundary, proven safe to retry) hold (6/6,
+`test_transactional_semantics.cpp`). Full validation matrix (Debug,
+Release, strict `/W4 /WX /permissive-`, ASan) is 13/13 clean across all
+four lanes.
+
+**REJECTED-SUPERSEDED:** Phase 5A does **not** currently compose with
+Phase 3/4's streaming/row-region virtualization -- direct code inspection
+confirms it requires a fully-resident `Model`, bypassing `ModelSource`,
+`TensorRowRegionMaterializer`, and the Phase-3 layer lifecycle entirely.
+KV-memory accounting is independently derived and empirically confirmed
+(46,080 bytes/token; `ContiguousAttentionKVStore` eagerly allocates its
+full `max_positions` capacity at construction -- measured via a
+≈377.5 MiB process working-set jump at cache allocation, matching the
+derived value almost exactly). Full detail, evidence labels, and the
+19-item freeze-candidate checklist are in `PHASE5A_KV_CACHE_SPEC.md`'s
+"Results (2026-08-18, real-model composition-audit pass)" section.
+
+**Proposed verdict: `NOT READY — BLOCKERS REMAIN`** -- specifically, the
+Phase-4 composition gap (correctness is proven; bounded-residency
+composition is not) and the absence of any independent (non-self-authored)
+review. No `orcengine-phase5a-freeze` tag exists; the branch remains
+unpushed pending that review.
+
 ## Current blockers
 
-None remaining for Phase 4, which is formally frozen. Phase 5A's remaining
-gate is its own definition of done, per its specification document. See
-`DECISION_LOG.md` OE-ADR-022 through OE-ADR-024 for the full record.
+None remaining for Phase 4, which is formally frozen. Phase 5A's
+correctness gate (synthetic + real-model) is now satisfied; its remaining
+blockers are the Phase-4 composition question and independent review, per
+`PHASE5A_KV_CACHE_SPEC.md`'s results section above. See `DECISION_LOG.md`
+OE-ADR-022 through OE-ADR-024 for the full record.
 
 ## How to update this document
 

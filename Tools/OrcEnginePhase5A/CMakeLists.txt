@@ -13,7 +13,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 enable_testing()
-add_subdirectory(../OrcEnginePhase1 phase1)
+# Pull in Phase 2 (which itself pulls in Phase 1) so the real-model driver
+# can materialize a real GGUF into a Model -- do NOT also add_subdirectory
+# Phase 1 directly here, that would double-define its targets.
+add_subdirectory(../OrcEnginePhase2 phase2)
 
 add_library(orcengine_phase5a
     src/forward_cached.cpp
@@ -35,3 +38,31 @@ target_compile_options(test_cached_decode PRIVATE
 
 add_test(NAME cached_decode COMMAND test_cached_decode
          "${CMAKE_CURRENT_SOURCE_DIR}/../OrcEnginePhase0/fixtures_phase5a")
+
+if(DEFINED ENV{ORCENGINE_REAL_F32_GGUF})
+    add_test(NAME real_cache_attacks COMMAND test_real_cache_attacks "$ENV{ORCENGINE_REAL_F32_GGUF}")
+endif()
+
+add_executable(test_transactional_semantics tests/test_transactional_semantics.cpp)
+target_link_libraries(test_transactional_semantics PRIVATE orcengine_phase5a)
+target_compile_options(test_transactional_semantics PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+)
+add_test(NAME transactional_semantics COMMAND test_transactional_semantics
+         "${CMAKE_CURRENT_SOURCE_DIR}/../OrcEnginePhase0/fixtures_phase5a")
+
+add_executable(orcengine_gguf_cached_forward tools/gguf_cached_forward.cpp)
+target_link_libraries(orcengine_gguf_cached_forward PRIVATE orcengine_phase5a orcengine_phase2
+    $<$<PLATFORM_ID:Windows>:Psapi>)
+target_compile_options(orcengine_gguf_cached_forward PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+)
+
+add_executable(test_real_cache_attacks tests/test_real_cache_attacks.cpp)
+target_link_libraries(test_real_cache_attacks PRIVATE orcengine_phase5a orcengine_phase2)
+target_compile_options(test_real_cache_attacks PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra>
+)

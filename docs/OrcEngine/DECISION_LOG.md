@@ -968,3 +968,101 @@ future `ExecutionPlanner`, without authorizing any planner work now.
   Phase 5A closes, per roadmap sequencing (risk-reduction, not hard
   dependency, as recorded above) unless a future decision explicitly
   revises that ordering with its own evidence.
+
+## OE-ADR-025 — Phase 5A real-model composition audit: correctness verified, Phase-4 composition gap found
+
+- **Status:** Accepted. Phase 5A's KV-cache correctness claim is now
+  real-model verified. Phase 5A is **not** frozen -- proposed verdict
+  `NOT READY — BLOCKERS REMAIN`. No `orcengine-phase5a-freeze` tag exists;
+  branch `feat/orcengine-phase5a-kv-cache` remains unpushed.
+- **Context:** the maintainer required proof that incremental KV-cached
+  decode remains correct when composed with the real Phase-4 execution
+  architecture, using the pinned `HuggingFaceTB/SmolLM2-135M` artifact
+  (SHA-256 re-verified against the claimed hashes before use), before any
+  independent-review checkpoint. This entry records what that pass found.
+- **VERIFIED — real-model correctness.** A 4-way differential (OrcEngine
+  full-prefix, OrcEngine Phase-5A cached, HF/PyTorch full-prefix, and
+  HF/PyTorch's own independently-constructed native cached decode -- never
+  fed by OrcEngine's cache) all agree on the historically-established
+  sequence `[1,5,28,284,260,198]`; `cpp_full_vs_hf_full` divergence
+  (0.00104618) matches the historically-recorded Phase 2/3/4 value
+  (0.00104618073) almost exactly, an independent consistency check beyond
+  a fresh pass/fail. `cpp_full` and `cpp_cached` are bit-identical every
+  step. A dedicated real-model fault-attack suite
+  (`test_real_cache_attacks.cpp`, 11/11 pass) exercises the model's actual
+  `n_q_heads=9, n_kv_heads=3, group_size=3` ratio (not the synthetic
+  4Q/2KV fixture): wrong cache position, corrupted shared-GQA-head cache
+  content, RoPE position deltas of -1/+1/reset-to-0, the exact real
+  `max_positions=8192` capacity boundary (fail-closed at exactly 8192,
+  succeeds at 8191), and cross-context isolation all produce detectable
+  divergence. Transactional failure semantics
+  (`test_transactional_semantics.cpp`, 6/6 pass) are proven, not just
+  reasoned about: a mid-decode-step NaN fault (corrupted layer weights)
+  leaves the cache genuinely poisoned in place at the attempted position,
+  `current_length()` is confirmed unchanged (the failed step was never
+  committed), and a retry at the same position overwrites the poison and
+  reproduces the untouched baseline bit-exactly -- the chosen contract is
+  "poisoned-until-overwritten via the explicit accounting boundary," not a
+  rollback framework, per the maintainer's explicit preference for the
+  smallest correct semantics.
+- **MEASURED — KV memory accounting, independently derived.**
+  `bytes/token = n_layers * n_kv_heads * head_dim * 2 * sizeof(float) =
+  30*3*64*2*4 = 46,080`, derived from the real GGUF's own metadata, not
+  trusted from any prompt. `ContiguousAttentionKVStore`'s eager full-
+  capacity allocation (`46,080 * 8,192 ≈ 377.5 MiB`) is now empirically
+  confirmed, not just established by code inspection: a Windows process
+  working-set sample taken immediately before and after cache construction
+  in `gguf_cached_forward.cpp` shows a jump of ≈377.5 MiB, matching the
+  derived value almost exactly.
+- **REJECTED-SUPERSEDED — Phase-4 composition.** Direct code inspection
+  (`grep -rn "ModelSource\|StreamingModel\|TensorRowRegion\|BackingExtent\|materialize" Tools/OrcEnginePhase5A/`
+  → zero matches) confirms Phase 5A as implemented requires a
+  fully-resident `Model` and does not use `ModelSource`,
+  `TensorRowRegionMaterializer`, or the Phase-3 layer-at-a-time lifecycle
+  at all. It reuses Phase 1's math correctly but gives back exactly the
+  bounded weight-residency property Phase 3/4 spent two phases proving.
+  This is the single most important finding of this pass: Phase 5A's
+  *correctness* claim is strong; its claim to preserve OrcEngine's
+  bounded-residency architecture is not yet true. Composing the two is
+  explicitly deferred, not silently assumed solved.
+- **DECIDED — residency crossover is architecture-dependent, not a single
+  constant.** Against Phase 4's virtualized single-layer weight peak
+  (≈14.16 MB), the earlier ≈308-token crossover estimate holds but
+  describes an architecture Phase 5A doesn't use. Against Phase 5A's own
+  measured fully-resident footprint (≈630.0 MiB), the crossover
+  (≈14,335 tokens) exceeds `max_positions=8192` entirely -- under Phase
+  5A's current architecture, KV memory never dominates within any valid
+  context. Recorded as a model/configuration-specific planning
+  observation per the maintainer's explicit instruction, not promoted to
+  an architectural constant.
+- **Explicitly not measured this pass:** backing weight bytes read per
+  generated token, separated by transformer/embedding/output-head -- the
+  specific measurement that would make the Phase-4-composition gap's
+  practical cost legible rather than only structurally true. Left
+  UNKNOWN, deferred to whatever follow-up addresses composition.
+- **Validation matrix:** Debug 13/13, Release 13/13, strict
+  `/W4 /WX /permissive- /EHsc` 13/13 (zero warnings -- the one MSVC C4530
+  warning hit mid-session was in unmodified frozen Phase-1 code and was
+  resolved by restoring the `/EHsc` default a raw `CMAKE_CXX_FLAGS`
+  override had dropped, not by weakening any check), MSVC ASan 13/13 (zero
+  memory-safety findings across the new raw-pointer cache accessors and
+  `--dump-cache` reads).
+- **Alternatives considered:** declare Phase 5A ready for independent
+  freeze review now that real-model correctness is proven (rejected --
+  the maintainer's explicit gate was composition with Phase 4, not just
+  correctness, and that gate is not met); silently fold the Phase-4
+  composition gap into a future phase without recording it as a rejection
+  of any implicit "Phase 5A is Phase-4-compatible" assumption (rejected --
+  the instruction is explicit that composition gaps must not be hidden).
+- **Evidence authority:** `PHASE5A_KV_CACHE_SPEC.md`'s "Results
+  (2026-08-18, real-model composition-audit pass)" section (full 19-item
+  freeze-candidate checklist); `tests/real_hf_cached_differential.py`;
+  `tests/test_real_cache_attacks.cpp`; `tests/test_transactional_semantics.cpp`;
+  `tools/gguf_cached_forward.cpp`.
+- **Acceptance trigger:** independent (non-self-authored) review of this
+  pass's findings, followed by either a decision to pursue Phase-4/5A
+  composition before freezing, or an explicit maintainer decision to
+  freeze Phase 5A's correctness claim alone with the composition gap
+  recorded as a known, accepted limitation. Neither has happened. Do not
+  create `orcengine-phase5a-freeze`. Do not push the branch. Do not begin
+  Phase 5B, 5C, Phase 6, CUDA, or product integration.

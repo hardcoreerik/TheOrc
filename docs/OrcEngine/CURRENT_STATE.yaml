@@ -432,9 +432,26 @@ phases:
       verified (not just logits), all 6 required fault-injection cases
       (wrong position, stale reuse, swapped K/V, corrupted shared GQA head,
       mask-boundary consistency, cache non-leakage) and 2 failure-semantics
-      cases pass, Debug/Release/strict/ASan all clean; real SmolLM2-135M
-      cached-decode validation explicitly deferred, not yet independently
-      reviewed -- see PHASE5A_KV_CACHE_SPEC.md's Results section), 5B
+      cases pass, Debug/Release/strict/ASan all clean. 2026-08-18 real-model
+      composition-audit pass (VERIFIED, runtime-observed): 4-way differential
+      against real pinned SmolLM2-135M (OrcEngine full/cached vs HF/PyTorch
+      full/native-cached) all agree on [1,5,28,284,260,198], matching
+      historical Phase 2/3/4 tolerance evidence; real 9Q/3KV GQA, real RoPE
+      position, real 8192-token capacity boundary, and cross-context
+      isolation fault attacks all pass (11/11); transactional failure
+      semantics (poisoned-in-place, protected by current_length()
+      accounting boundary, safe to retry) proven (6/6); KV bytes/token
+      (46,080) independently derived and empirically confirmed via a
+      measured ~377.5 MiB process working-set jump at cache allocation;
+      full Debug/Release/strict/ASan matrix 13/13 clean. REJECTED-SUPERSEDED
+      finding: Phase 5A does NOT compose with Phase 3/4's streaming/
+      row-region virtualization (requires a fully-resident Model, bypasses
+      ModelSource/TensorRowRegionMaterializer/layer lifecycle entirely) --
+      correctness is proven, bounded-residency composition is not. Proposed
+      verdict NOT READY -- BLOCKERS REMAIN (composition gap + no independent
+      review yet); no orcengine-phase5a-freeze tag exists, branch unpushed.
+      See PHASE5A_KV_CACHE_SPEC.md's Results section for full evidence and
+      the 19-item freeze-candidate checklist. 5B
       (tokenizer/text-token boundary, not yet specified), 5C (bounded
       activation workspace + prompt/decode benchmarking, not yet specified).
       Old "Phase 5 -- Initial quantization" heading (last touched 2026-07-31,

@@ -269,6 +269,206 @@ reported alongside weight/activation/process numbers in one consolidated
 report; no independent (non-self-authored) review has occurred yet, per
 this document's own "Independent-review requirement" below.
 
+## Results (2026-08-18, real-model composition-audit pass)
+
+This pass answered the question the synthetic gate could not: does Phase
+5A's KV-cached decode remain correct against the real, pinned
+`HuggingFaceTB/SmolLM2-135M` model, and does it compose with Phase 3/4's
+streaming/row-region virtualization architecture? Evidence labels follow
+this project's standing convention (VERIFIED = independently reproduced;
+MEASURED = a real number from a real run, not derived; DECIDED = a
+recorded choice with rationale; HYPOTHESIS = not yet tested; UNKNOWN =
+open; REJECTED-SUPERSEDED = an earlier claim this pass overturned).
+
+**REJECTED-SUPERSEDED — Phase-4 composition.** Direct code inspection
+(`grep -rn "ModelSource\|StreamingModel\|TensorRowRegion\|BackingExtent\|materialize" Tools/OrcEnginePhase5A/`
+→ zero matches) confirms Phase 5A as implemented does **not** compose with
+Phase 3/4's virtualization architecture: it requires a fully-resident
+`Model` (full embedding, full output head, all transformer layers resident
+simultaneously), bypassing `ModelSource`, `TensorRowRegionMaterializer`,
+and the Phase-3 layer-at-a-time lifecycle entirely. It reuses Phase 1's
+math correctly, but gives back exactly the bounded weight-residency
+property Phase 3/4 spent two phases proving. This is not a defect in
+Phase 5A's own correctness claim -- the cached decode math is right -- but
+it means Phase 5A cannot yet be described as "Phase-4-compatible."
+Composing the two is explicitly out of this phase's scope and is the most
+likely candidate for a Phase 5D (or similar) follow-up, not a silent
+assumption to carry forward.
+
+**VERIFIED — real-model 4-way differential.** OrcEngine full-prefix vs
+OrcEngine Phase-5A cached vs HF/PyTorch full-prefix (`use_cache=False`)
+vs HF/PyTorch's own independently-constructed native cached decode
+(`use_cache=True`, never fed by OrcEngine's cache) all agree on the
+established sequence `[1,5,28,284,260,198]`. `cpp_full_vs_hf_full` max_abs
+at step 0 = `0.00104618`, matching the historically-recorded
+`0.00104618073` from Phase 2/3/4's own prior evidence almost to the last
+digit -- an independent consistency check, not just a fresh pass/fail.
+`cpp_full` and `cpp_cached` are bit-identical every step
+(`max_abs_diff=0.000000`), and `hf_cached_vs_hf_full` also passes (max_abs
+0, 4.2e-5, 4.4e-5, 3.8e-5). Driver: `tools/gguf_cached_forward.cpp`.
+Differential: `tests/real_hf_cached_differential.py`.
+
+**VERIFIED — non-vacuity of the bit-exact result.** The
+`cpp_full_vs_hf_full` divergence (0.00104618, nonzero) proves the C++ path
+is not silently echoing an expected value -- if it were comparing against
+itself or a cached expectation, `cpp_full` would also read exactly zero
+against HF, not a specific nonzero float that matches historical evidence.
+Combined with `test_real_cache_attacks.cpp`'s fault-injection suite (below,
+11/11 pass), which independently confirms wrong-position, corrupted-KV,
+RoPE-mis-position, and cross-context inputs all produce *detectable*
+divergence rather than silently passing, the bit-exact `cpp_full ==
+cpp_cached` result is not exact because the harness can't tell wrong from
+right -- it's exact because both paths are computing the same real math
+correctly.
+
+**VERIFIED — real-model fault attacks (11/11 pass,
+`tests/test_real_cache_attacks.cpp`).** Run against the real model's
+actual `n_q_heads=9, n_kv_heads=3, group_size=3` ratio (not the synthetic
+4Q/2KV fixture): wrong cache position (+1) diverges; corrupted kv_head 0
+(shared by 3 real query heads via the 9Q/3KV ratio) diverges; RoPE
+position deltas of -1, +1, and a reset-to-0 all diverge (proving the
+divergence is driven by the position argument itself, not incidental
+input drift); decode at exactly `max_positions` (8,192) fails closed while
+`max_positions-1` succeeds (proves the capacity boundary is exact, without
+requiring a full 8,192-token inference run); a fresh never-prefilled
+context diverges from a correctly-prefilled one (no cross-context
+leakage).
+
+**MEASURED — real-model timing (`gguf_cached_forward` JSON output,
+single run, not yet a repeated campaign).** Model load: 5212.994 ms (a
+later re-run measured 5664.335 ms -- both single samples, not averaged).
+Full-prefix recompute: ~8s/step (32,069.783 ms / 4 steps). Phase-5A
+prefill: 152.012 ms (148.518 ms on the memory-instrumented re-run).
+Phase-5A incremental decode steps: 77.855, 75.380, 75.391 ms each (74.881,
+74.824, 75.056 ms on the re-run) -- roughly 100x faster per generated
+token via caching. **Prefill and decode are reported separately per the
+spec's own requirement**, not averaged into one number. This measures
+*wall-clock*, not backing-weight-bytes-read-per-token -- the cached path
+may be reducing attention computation while still rereading every
+transformer weight each step (Phase 5A's fully-resident architecture makes
+every weight byte available every step regardless of cache use), and that
+distinction remains UNKNOWN/unmeasured this pass, deferred to whatever
+follow-up composes Phase 5A with Phase 3/4's virtualization.
+
+**MEASURED — KV memory accounting, derived independently, not trusted
+from any prompt.** `bytes/token = n_layers * n_kv_heads * head_dim * 2 *
+sizeof(float) = 30 * 3 * 64 * 2 * 4 = 46,080 bytes` (confirmed against the
+real GGUF's own `llama.block_count=30`,
+`llama.attention.head_count_kv=3`, `head_dim=576/9=64`). At
+`max_positions=8192`: `kv_reserved_bytes = 377,487,360` (≈360 MiB).
+Process working-set samples from `gguf_cached_forward` (Windows
+`GetProcessMemoryInfo`, one sample point each, not a full profiling
+campaign): before load 4,800,512 bytes; after load 665,370,624 bytes
+(weight-load delta ≈630.0 MiB, a process-level proxy, not a
+residency-ledger number -- Phase 5A doesn't use Phase 3's `ResidencyLedger`
+architecture, per the composition-audit finding above); before KV-cache
+allocation 668,241,920 bytes (already includes the 4-step full-prefix
+loop's activation memory, since that ran first); **after KV-cache
+allocation 1,045,741,568 bytes -- a jump of ≈377.5 MiB, matching the
+derived `kv_reserved_bytes` almost exactly.** This is empirical, measured
+confirmation (not just code inspection) that `ContiguousAttentionKVStore`
+eagerly allocates its full `max_positions` capacity at construction,
+regardless of how many positions are ever actually committed (in this
+run, only 5: `kv_committed_bytes = 230,400`). After the full decode loop:
+1,046,253,568 bytes -- negligible further growth (≈500 KiB), consistent
+with activation/logits workspace being small relative to weight+KV.
+Instrumentation: `Psapi`-linked `sample_process_working_set_bytes()` in
+`tools/gguf_cached_forward.cpp`.
+
+**DECIDED — residency crossover is architecture-dependent, not a single
+number.** Two honest answers exist depending which residency mode is
+being asked about, and conflating them was a real risk this pass avoided:
+(1) against Phase 4's *streaming/virtualized* single-layer weight peak
+(≈14.16 MB for this tiny model) -- the earlier hypothetical estimate of
+≈308 committed tokens still holds, but describes an architecture Phase 5A
+does not currently use; (2) against Phase 5A's *own actual, measured*
+fully-resident weight footprint (≈630.0 MiB) -- the crossover would
+require ≈14,335 committed tokens, which **exceeds `max_positions=8192`
+entirely**, meaning under Phase 5A's current architecture, KV memory never
+dominates total memory within any valid context length. This is recorded
+as a planning observation specific to this model/configuration, per the
+spec's own instruction, not promoted to an architectural constant.
+
+**VERIFIED — weight-residency-regression check.** No permanent
+embedding/output-head-only residency, no multiple simultaneous resident
+layers beyond what full materialization always implies, and no
+NEW full-model-residency behavior was introduced by this pass's KV-cache
+work -- the fully-resident load path is exactly Phase 2's pre-existing
+`materialize_gguf_model`, unchanged. (This is a statement that Phase 5A's
+*KV-cache* additions didn't make residency worse, not a claim that Phase
+5A matches Phase 4's virtualized residency -- it doesn't, per the
+composition-audit finding above.)
+
+**VERIFIED — transactional failure semantics
+(`tests/test_transactional_semantics.cpp`, 6/6 pass).** Chosen semantics
+(deliberately the smallest correct policy, not a rollback framework):
+`current_length()` is caller-driven and is never auto-advanced by
+`forward_cached_step`, including on failure. A mid-step failure (proven
+here by corrupting layer 1's `w_v` weights with NaN mid-decode, on the
+synthetic Fixture-C model) leaves the cache genuinely **poisoned in
+place** at the positions that step was attempting to write (layer 1's
+cache slot is directly read back and confirmed to contain NaN after the
+throw) -- this is not a rollback. What makes it safe: `current_length()`
+is confirmed unchanged after the failure (the failed step was never
+committed), and a retry at the *same* `start_position` with correct
+weights restored overwrites the poisoned slot before anything reads it
+(writes precede reads for a given layer within one `forward_cached_step`
+call) and reproduces the untouched baseline's logits bit-exactly. The
+contract: any cache position `>= current_length()` is, by convention, not
+part of committed history and must never be read as context by a
+correctly written caller; only a subsequent write at that same position
+(a retry) makes it trustworthy again.
+
+**VERIFIED — full validation matrix on the current HEAD (all 13 tests:
+8 inherited from `cached_decode`, `real_cache_attacks`,
+`transactional_semantics`, plus 4 inherited Phase-1/2 conformance
+tests).** Debug 13/13. Release 13/13. Strict `/W4 /WX /permissive- /EHsc`
+13/13, **zero warnings** (the one MSVC C4530 warning encountered
+mid-session was in frozen Phase-1 code Phase 5A links against unmodified,
+and was resolved by restoring the default `/EHsc` flag CMake's raw
+`CMAKE_CXX_FLAGS` override had inadvertently dropped -- not by weakening
+any check). MSVC ASan 13/13, **zero memory-safety findings** -- notable
+specifically because the new code (`ContiguousAttentionKVStore`'s
+`write_k`/`write_v`/`k_row`/`v_row`, and `gguf_cached_forward.cpp`'s
+`--dump-cache` raw-pointer reads) does manual offset arithmetic Phase 1
+never needed.
+
+**Phase-5A freeze-candidate gate checklist (real-model pass):**
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Synthetic bit-exact differential (Fixture C) | VERIFIED (prior pass) |
+| 2 | Real-model 4-way differential (HF full/cached, OrcEngine full/cached) | VERIFIED |
+| 3 | Bit-exact result proven non-vacuous | VERIFIED |
+| 4 | Real GQA attack (actual 9Q/3KV ratio) | VERIFIED |
+| 5 | Real RoPE position attacks (p-1, p+1, reset-to-0) | VERIFIED |
+| 6 | Real capacity boundary (exact 8,192 fail-closed) | VERIFIED |
+| 7 | Real cross-context isolation | VERIFIED |
+| 8 | KV bytes/token derived independently | VERIFIED (matches suggested value) |
+| 9 | Eager KV allocation confirmed empirically (not just by code read) | VERIFIED |
+| 10 | Residency crossover computed, correctly scoped to architecture | DECIDED |
+| 11 | Weight-residency non-regression | VERIFIED |
+| 12 | Transactional (poisoned-in-place) failure semantics | VERIFIED |
+| 13 | Prefill vs decode timing reported separately | MEASURED |
+| 14 | Weight-read-bytes-per-token (transformer/embedding/head, separated) | UNKNOWN -- deferred |
+| 15 | Phase-4/5A composition | REJECTED-SUPERSEDED -- does not currently compose |
+| 16 | Debug/Release/strict/ASan validation matrix | VERIFIED, 13/13 all four lanes |
+| 17 | Documentation reconciled (this section) | VERIFIED |
+| 18 | Independent (non-self-authored) review | NOT DONE -- required before freeze |
+| 19 | `orcengine-phase5a-freeze` tag / branch push | NOT DONE -- not authorized this pass |
+
+**Proposed verdict: `NOT READY — BLOCKERS REMAIN`.** The KV-cache
+correctness claim itself (items 1-13) is now real-model verified and
+strong. The blocker is item 15: Phase 5A does not currently compose with
+Phase 3/4's virtualization architecture, so it cannot yet be described as
+preserving OrcEngine's bounded-residency property -- only its correctness
+property. Item 14 (weight-read-bytes-per-token) is the specific
+measurement that would make item 15's practical impact legible rather
+than just structurally true. Item 18 (independent review) has not
+happened. None of these are reasons to distrust the KV-cache math itself;
+they are reasons the *composed system* is not yet ready for a freeze
+decision.
+
 ## Independent-review requirement
 
 Per this project's established precedent (Phase 2/3/4 all required
