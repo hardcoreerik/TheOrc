@@ -1,0 +1,21 @@
+=== git rev-parse HEAD ===
+944f07b86428ec53d46ca19dc66c3d0d5b1e207d
+=== git branch --show-current ===
+research/orcengine-fringe-lab2
+=== git status ===
+On branch research/orcengine-fringe-lab2
+nothing to commit, working tree clean
+=== git worktree list ===
+F:/Ai/OrchestratorIDE                                            08d2455f (detached HEAD)
+F:/Ai/OrchestratorIDE/.claude/worktrees/agent-a58aa43831b2645e3  25d24deb [review/orcengine-phase0-repro]
+F:/Ai/OrchestratorIDE-dev                                        d9045995 [feat/orcengine-phase0]
+F:/Ai/OrchestratorIDE-fringelab                                  ce128cae [research/orcengine-fringe-lab]
+F:/Ai/OrchestratorIDE-fringelab2                                 944f07b8 [research/orcengine-fringe-lab2]
+F:/Ai/OrchestratorIDE-phase1                                     b27bc932 [feat/orcengine-phase1]
+F:/Ai/OrchestratorIDE-phase2-gguf                                4c24d65c [feat/orcengine-phase2-gguf]
+F:/Ai/OrchestratorIDE-phase3-working-set                         98dbcf1f [feat/orcengine-phase3-working-set]
+F:/Ai/OrchestratorIDE-phase4-bookend-virtualization              5e2a3bd5 [feat/orcengine-phase4-bookend-virtualization]
+F:/Ai/OrchestratorIDE-phase5a-kv-cache                           7c046121 [feat/orcengine-phase5a-kv-cache]
+=== git remote -v ===
+origin	https://github.com/hardcoreerik/TheOrc.git (fetch)
+origin	https://github.com/hardcoreerik/TheOrc.git (push)

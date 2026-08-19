@@ -1,0 +1,5 @@
+CPU: AMD Ryzen 5 7600X 6-Core Processor
+RAM: 33378181120 bytes (~31.1 GiB)
+GPU 1: AMD Radeon(TM) Graphics, VRAM_bytes: 536870912 (~512 MiB, iGPU)
+GPU 2: NVIDIA GeForce RTX 5070 Ti, AdapterRAM VRAM_bytes: 4293918720 (~4 GiB reported by WMI -- WMI AdapterRAM is known to under-report on cards with >4GB VRAM due to a 32-bit field; not used as authoritative VRAM figure in this session)
+Storage volume for GGUF/backing data (F: drive): Free bytes: 1280215588864 (~1.16 TiB free)

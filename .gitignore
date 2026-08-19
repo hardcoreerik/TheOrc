@@ -97,8 +97,15 @@ Tools/OrcEnginePhase0/artifacts/smollm2-135m/
 .orc/swarm/dataset-staging/
 .orc/swarm/dataset-staging-test/
 
-# All TheOrc local runtime state (runs, staging, manual captures) — local-only by design
-.orc/
+# All TheOrc local runtime state (runs, staging, manual captures) — local-only by design.
+# Exception: OrcEngine Fringe Lab research evidence IS committed (session charter's
+# explicit "commit discipline" -- experiments, raw measurements, and reports are the
+# deliverable, not ephemeral local state like .orc/reviews or .orc/swarm above). Git's
+# negation rules require un-ignoring the parent directory itself before re-including a
+# subtree, so this is spelled as three rules rather than one.
+!.orc/
+.orc/*
+!.orc/fringelab/
 
 # Test result artifacts
 test-results/

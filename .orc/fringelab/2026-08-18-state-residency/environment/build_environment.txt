@@ -1,0 +1,4 @@
+=== python --version ===
+Python 3.14.3
+=== python executable ===
+C:\Users\hardc\AppData\Local\Python\pythoncore-3.14-64\python.exe

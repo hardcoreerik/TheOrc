@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "F:\Ai\OrchestratorIDE-fringelab2\.orc\fringelab\2026-08-18-state-residency\experiments\FL-05\fl05_shared_prefix.py", line 37, in <module>
+    from oracle import ops  # noqa: E402
+    ^^^^^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'oracle'

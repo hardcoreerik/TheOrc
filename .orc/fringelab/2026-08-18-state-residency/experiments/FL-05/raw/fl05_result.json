@@ -1,0 +1,79 @@
+{
+  "experiment": "FL-05",
+  "seed": 20260818,
+  "equivalence": {
+    "A": {
+      "bit_identical_or_within_tol": true,
+      "max_abs_diff": 8.940696716308594e-08
+    },
+    "B": {
+      "bit_identical_or_within_tol": true,
+      "max_abs_diff": 1.4901161193847656e-07
+    },
+    "C": {
+      "bit_identical_or_within_tol": true,
+      "max_abs_diff": 1.1920928955078125e-07
+    }
+  },
+  "memory": {
+    "shared_prefix_buffer_bytes": 384,
+    "per_branch_suffix_buffer_bytes": 512,
+    "n_branches": 3,
+    "shared_design_physical_bytes": 1920,
+    "shared_design_logical_bytes": 2688,
+    "shared_design_shared_bytes": 384,
+    "shared_design_unique_bytes_total": 1536,
+    "independent_design_physical_bytes_actual": 1536
+  },
+  "shares_memory_by_construction": "verified by code inspection: cached_step_shared_prefix never calls .copy() on shared.k/shared.v",
+  "isolation": {
+    "extend_A_then_B_suffix_unchanged": true,
+    "extend_A_then_C_suffix_unchanged": true,
+    "shared_refcount_before_destroy_A": 4,
+    "shared_refcount_after_destroy_A": 3,
+    "refcount_note": "Measured via an explicit BranchContext wrapper (shared + suffix) constructed for this check, since cached_step_shared_prefix() itself takes `shared` as a bare per-call argument rather than a stored attribute -- a real caller holding contexts, not raw buffers, would see this refcount behavior.",
+    "B_still_valid_after_A_destroyed": true,
+    "C_reset_matches_fresh_branch": {
+      "pass": true,
+      "max_abs_diff": 0.0
+    }
+  },
+  "attacks": {
+    "corrupt_shared_prefix_affects_branch": {
+      "same_token_same_position_controlled_comparison": true,
+      "max_abs_diff": 0.252525269985199,
+      "diverges": true
+    },
+    "wrong_committed_length_reads_stale_zero_row": {
+      "max_abs_diff": 0.07358109951019287,
+      "diverges": true
+    }
+  },
+  "scaling_sweep": [
+    {
+      "n_branches": 1,
+      "shared_design_physical_bytes": 896,
+      "independent_design_physical_bytes_extrapolated": 512
+    },
+    {
+      "n_branches": 2,
+      "shared_design_physical_bytes": 1408,
+      "independent_design_physical_bytes_extrapolated": 1024
+    },
+    {
+      "n_branches": 4,
+      "shared_design_physical_bytes": 2432,
+      "independent_design_physical_bytes_extrapolated": 2048
+    },
+    {
+      "n_branches": 8,
+      "shared_design_physical_bytes": 4480,
+      "independent_design_physical_bytes_extrapolated": 4096
+    },
+    {
+      "n_branches": 16,
+      "shared_design_physical_bytes": 8576,
+      "independent_design_physical_bytes_extrapolated": 8192
+    }
+  ]
+}

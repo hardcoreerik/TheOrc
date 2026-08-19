@@ -1,0 +1,33 @@
+=== FL-05: Shared Prefix State ===
+config: n_layers=2 n_q_heads=4 n_kv_heads=2 head_dim=4 vocab=32 hidden=16
+prefix_tokens=[1, 5, 3] branch_next_token={'A': 7, 'B': 9, 'C': 11}
+  control[A]: selected=7
+  control[B]: selected=3
+  control[C]: selected=3
+  experimental[A]: selected=7
+  experimental[B]: selected=3
+  experimental[C]: selected=3
+  equivalence[A]: max_abs_diff=8.940696716e-08 pass=True
+  equivalence[B]: max_abs_diff=1.490116119e-07 pass=True
+  equivalence[C]: max_abs_diff=1.192092896e-07 pass=True
+  memory: shared_design_physical=1920 independent_design_physical_actual=1536
+
+=== Mutation / isolation tests ===
+  extend A -> B suffix unchanged: True
+  extend A -> C suffix unchanged: True
+  shared refcount before/after destroying A: 4 -> 3
+  B computed successfully against shared prefix after A's destruction (no exception)
+  C reset matches fresh branch: pass=True max_abs_diff=0
+
+=== Fault attacks ===
+  corrupt shared prefix (controlled, same token/position) -> max_abs_diff=0.25252527 diverges=True
+  wrong committed length -> max_abs_diff=0.07358109951 diverges=True
+
+=== Scaling sweep (branch count) ===
+  n=1: shared_design_physical=896 independent_design_physical_extrapolated=512
+  n=2: shared_design_physical=1408 independent_design_physical_extrapolated=1024
+  n=4: shared_design_physical=2432 independent_design_physical_extrapolated=2048
+  n=8: shared_design_physical=4480 independent_design_physical_extrapolated=4096
+  n=16: shared_design_physical=8576 independent_design_physical_extrapolated=8192
+
+Raw results written to F:\Ai\OrchestratorIDE-fringelab2\.orc\fringelab\2026-08-18-state-residency\experiments\FL-05\raw\fl05_result.json

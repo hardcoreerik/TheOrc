@@ -1,0 +1,6 @@
+=== cmake --version ===
+cmake version 4.3.3
+
+CMake suite maintained and supported by Kitware (kitware.com/cmake).
+=== cl (may fail outside dev shell) ===
+/usr/bin/bash: line 14: cl: command not found
