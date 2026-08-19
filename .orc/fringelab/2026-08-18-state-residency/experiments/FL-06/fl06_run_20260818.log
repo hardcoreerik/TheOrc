@@ -1,0 +1,20 @@
+=== FL-06: Context / Effective Execution Identity ===
+identity_a: (20260818, 2, 4, 2, 4, 10000.0, None, 'float32', 'v1')
+identity_b_weights (different weight_seed only): (99999, 2, 4, 2, 4, 10000.0, None, 'float32', 'v1')
+identity_b_rope (different rope_theta only): (20260818, 2, 4, 2, 4, 50000.0, None, 'float32', 'v1')
+
+state produced under identity_a, selected after prefill: 3
+  1. exact identity reuse: pass=True max_abs_diff=2.38419e-07
+  2. equivalent-copy (same seed, different object) reuse: pass=True max_abs_diff=2.38419e-07
+  3a. different identity (weights) contamination: max_abs_diff=1.27222 diverged=True
+  3b. different identity (RoPE theta) contamination: max_abs_diff=5.98133e-05 diverged=True
+  4. decoding policy (top1=3 vs top2=17) cannot retroactively alter already-produced state (structural guarantee -- state is returned before selection happens)
+
+=== Contamination attack, multi-step ===
+  step 0: max_abs_diff=1.27222 diverged=True
+  step 1: max_abs_diff=1.67878 diverged=True
+  step 2: max_abs_diff=1.66336 diverged=True
+  step 3: max_abs_diff=1.67676 diverged=True
+  first divergent step: 0
+
+Raw results written to F:\Ai\OrchestratorIDE-fringelab2\.orc\fringelab\2026-08-18-state-residency\experiments\FL-06\raw\fl06_result.json

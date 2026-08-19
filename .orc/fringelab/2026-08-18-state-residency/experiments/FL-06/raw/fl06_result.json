@@ -1,0 +1,71 @@
+{
+  "experiment": "FL-06",
+  "tests": {
+    "exact_identity_reuse": {
+      "pass": true,
+      "max_abs_diff": 2.384185791015625e-07,
+      "expected": "match (same identity, cached state is valid)"
+    },
+    "equivalent_copy_reuse": {
+      "pass": true,
+      "max_abs_diff": 2.384185791015625e-07,
+      "expected": "match (identity is about VALUES, not Python object identity)"
+    },
+    "different_identity_weights_contamination": {
+      "pass_would_mean_no_detectable_contamination": false,
+      "max_abs_diff": 1.272216796875,
+      "expected": "DIVERGE (state from identity_a is invalid under identity_b_weights)",
+      "actually_diverged": true
+    },
+    "different_identity_rope_contamination": {
+      "pass_would_mean_no_detectable_contamination": false,
+      "max_abs_diff": 5.981326103210449e-05,
+      "expected": "DIVERGE (cached K/V were rotated under theta=10000, being read back under theta=50000)",
+      "actually_diverged": true
+    },
+    "decoding_policy_does_not_affect_prior_state": {
+      "top1_token": 3,
+      "top2_token": 17,
+      "cache_a_object_reused_unmodified_for_both_choices": true,
+      "note": "Structural guarantee, not just an empirical observation: forward_cached() returns cache_a as a fixed value BEFORE any token-selection policy is applied downstream; no selection rule can retroactively alter it. Confirmed by construction, not by searching for a counterexample."
+    }
+  },
+  "contamination_multi_step": [
+    {
+      "step": 0,
+      "max_abs_diff": 1.272216796875,
+      "diverged": true
+    },
+    {
+      "step": 1,
+      "max_abs_diff": 1.6787790060043335,
+      "diverged": true
+    },
+    {
+      "step": 2,
+      "max_abs_diff": 1.663362741470337,
+      "diverged": true
+    },
+    {
+      "step": 3,
+      "max_abs_diff": 1.6767624616622925,
+      "diverged": true
+    }
+  ],
+  "first_divergent_step": 0,
+  "identity_fields": {
+    "experimentally_proven_relevant": [
+      "weight_seed (model weights)",
+      "rope_theta (positional encoding config)"
+    ],
+    "proposed_for_future_identity_not_tested_this_pass": [
+      "kv_dtype (only float32 exists in this oracle -- no second dtype to test against)",
+      "execution_semantics_version (only one execution path exists -- no second version to test against)",
+      "adapter identity / adapter scale (OrcEngine has no adapter execution to exercise)",
+      "architecture (n_layers/n_q_heads/n_kv_heads/head_dim) -- not independently varied this pass; changing these would also change tensor SHAPES, which forward_cached would reject via a shape mismatch before any silent contamination could occur, so this is expected to be structurally safe rather than a genuine identity-tracking question, but was not empirically exercised here"
+    ],
+    "verified_non_state_affecting": [
+      "decoding/token-selection policy (structural argument, see test 4)"
+    ]
+  }
+}
