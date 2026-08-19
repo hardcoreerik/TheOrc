@@ -117,18 +117,18 @@ int main(int argc, char** argv) {
             VirtualizedCachedModel vm = make_vmodel(fx.model);
             ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             vm.step(c, prefill.new_tokens, 0);
-            CachedStepResult r = vm.step(c, first_decode.new_tokens, first_decode.start_position + 1);
+            CachedStepResult r = vm.step_unsafe_explicit_position(c, first_decode.new_tokens, first_decode.start_position + 1);
             std::vector<float> r_last(r.logits.end() - cfg.vocab, r.logits.end());
-            check(max_abs_diff(r_last, baseline_last) > 1e-3f, "1. wrong cache position (+1) diverges (virtualized)");
+            check(max_abs_diff(r_last, baseline_last) > 1e-3f, "1. wrong cache position (+1) diverges (virtualized, unsafe seam)");
         }
 
         // 2. Stale/unwritten KV reuse (skip prefill entirely).
         {
             VirtualizedCachedModel vm = make_vmodel(fx.model);
             ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
-            CachedStepResult r = vm.step(c, first_decode.new_tokens, first_decode.start_position);
+            CachedStepResult r = vm.step_unsafe_explicit_position(c, first_decode.new_tokens, first_decode.start_position);
             std::vector<float> r_last(r.logits.end() - cfg.vocab, r.logits.end());
-            check(max_abs_diff(r_last, baseline_last) > 1e-3f, "2. stale/unwritten KV reuse diverges (virtualized)");
+            check(max_abs_diff(r_last, baseline_last) > 1e-3f, "2. stale/unwritten KV reuse diverges (virtualized, unsafe seam)");
         }
 
         // 3. Swapped K/V at one cache slot.
@@ -163,10 +163,17 @@ int main(int argc, char** argv) {
         {
             VirtualizedCachedModel vm = make_vmodel(fx.model);
             ContiguousAttentionKVStore fresh(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
-            CachedStepResult r = vm.step(fresh, first_decode.new_tokens, first_decode.start_position);
+            CachedStepResult r = vm.step_unsafe_explicit_position(fresh, first_decode.new_tokens, first_decode.start_position);
             std::vector<float> r_last(r.logits.end() - cfg.vocab, r.logits.end());
             check(max_abs_diff(r_last, baseline_last) > 1e-3f,
-                  "5. fresh (never-prefilled) context diverges -- no cross-context leakage (virtualized)");
+                  "5. fresh (never-prefilled) context diverges -- no cross-context leakage (virtualized, unsafe seam)");
+            // 5b. The SAFE API rejects this same scenario outright.
+            VirtualizedCachedModel vm2 = make_vmodel(fx.model);
+            ContiguousAttentionKVStore fresh2(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+            bool rejected5b = false;
+            try { vm2.step(fresh2, first_decode.new_tokens, first_decode.start_position); }
+            catch (const std::exception&) { rejected5b = true; }
+            check(rejected5b, "5b. SAFE API rejects decoding a fresh context at a nonzero position outright (virtualized)");
         }
 
         // 6. Capacity boundary: exact max_positions fails closed, max_positions-1 succeeds.
@@ -175,23 +182,23 @@ int main(int argc, char** argv) {
             try {
                 VirtualizedCachedModel vm = make_vmodel(fx.model);
                 ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
-                vm.step(c, {1}, cfg.max_positions);
+                vm.step_unsafe_explicit_position(c, {1}, cfg.max_positions);
             } catch (const std::exception&) {
                 rejected = true;
             }
-            check(rejected, "6a. decode at exactly max_positions fails closed (virtualized)");
+            check(rejected, "6a. decode at exactly max_positions fails closed (virtualized, capacity check, unsafe seam)");
         }
         {
             bool ok = false;
             try {
                 VirtualizedCachedModel vm = make_vmodel(fx.model);
                 ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
-                vm.step(c, {1}, cfg.max_positions - 1);
+                vm.step_unsafe_explicit_position(c, {1}, cfg.max_positions - 1);
                 ok = true;
             } catch (const std::exception&) {
                 ok = false;
             }
-            check(ok, "6b. decode at max_positions-1 succeeds (virtualized)");
+            check(ok, "6b. decode at max_positions-1 succeeds (virtualized, capacity check, unsafe seam)");
         }
 
         // 7. Reset to position 0 (RoPE attack variant).
@@ -199,9 +206,9 @@ int main(int argc, char** argv) {
             VirtualizedCachedModel vm = make_vmodel(fx.model);
             ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             vm.step(c, prefill.new_tokens, 0);
-            CachedStepResult r = vm.step(c, first_decode.new_tokens, 0);
+            CachedStepResult r = vm.step_unsafe_explicit_position(c, first_decode.new_tokens, 0);
             std::vector<float> r_last(r.logits.end() - cfg.vocab, r.logits.end());
-            check(max_abs_diff(r_last, baseline_last) > 1e-3f, "7. RoPE position reset to 0 diverges (virtualized)");
+            check(max_abs_diff(r_last, baseline_last) > 1e-3f, "7. RoPE position reset to 0 diverges (virtualized, unsafe seam)");
         }
 
         // 8. Forced materialization failure: a materializer that throws partway through
@@ -287,6 +294,55 @@ int main(int argc, char** argv) {
             }
             check(rejected, "10. ResidencyLedger::enter_layer rejects a second concurrently-resident layer "
                   "(the guard peak_active_layers==1 checks above actually depend on)");
+        }
+
+        // 11. Reverse B/C independence (Stage 10 closure): corrupt ONLY Path B's resident
+        //     Model, confirm B diverges while an INDEPENDENTLY-CONSTRUCTED Path C (its
+        //     ModelSource snapshotted via bind_memory_model BEFORE the corruption, so it
+        //     cannot alias fx.model's live storage) remains unaffected. Mirrors attack 9's
+        //     forward direction (corrupt-only-C), completing the symmetric independence proof.
+        {
+            // Build Path C's ModelSource from the CORRECT (pre-corruption) weights first --
+            // BackingExtent::FromF32 copies, so this is a genuine independent snapshot.
+            VirtualizedCachedModel vm_c = make_vmodel(fx.model);
+            ContiguousAttentionKVStore cache_c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+            vm_c.step(cache_c, prefill.new_tokens, 0);
+            CachedStepResult c_before = vm_c.step(cache_c, first_decode.new_tokens, first_decode.start_position);
+            std::vector<float> c_before_last(c_before.logits.end() - cfg.vocab, c_before.logits.end());
+
+            // Baseline for Path B, established BEFORE corruption.
+            ContiguousAttentionKVStore cache_b_baseline(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+            forward_cached_step(fx.model, cache_b_baseline, prefill.new_tokens, 0);
+            CachedStepResult b_baseline = forward_cached_step(fx.model, cache_b_baseline, first_decode.new_tokens,
+                                                               first_decode.start_position);
+            std::vector<float> b_baseline_last(b_baseline.logits.end() - cfg.vocab, b_baseline.logits.end());
+
+            // Corrupt ONLY fx.model's own resident weights -- Path B reads these live;
+            // Path C's vm_c above already holds an independent, unaffected snapshot.
+            std::vector<float> saved_w_v = fx.model.layers[1].w_v.raw();
+            std::vector<float>& mutable_w_v = fx.model.layers[1].w_v.raw();
+            for (float& v : mutable_w_v) v = 999.0f;
+
+            ContiguousAttentionKVStore cache_b_corrupted(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+            forward_cached_step(fx.model, cache_b_corrupted, prefill.new_tokens, 0);
+            CachedStepResult b_corrupted = forward_cached_step(fx.model, cache_b_corrupted, first_decode.new_tokens,
+                                                                first_decode.start_position);
+            std::vector<float> b_corrupted_last(b_corrupted.logits.end() - cfg.vocab, b_corrupted.logits.end());
+            check(max_abs_diff(b_corrupted_last, b_baseline_last) > 1e-3f,
+                  "11a. corrupting ONLY Path B's resident Model makes Path B diverge from its own baseline");
+
+            // Re-run the SAME vm_c (its ModelSource was snapshotted before corruption and
+            // is a materializer/BackingExtent, not a live reference to fx.model) on a fresh
+            // cache and confirm it still matches its own pre-corruption result exactly.
+            ContiguousAttentionKVStore cache_c2(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+            vm_c.step(cache_c2, prefill.new_tokens, 0);
+            CachedStepResult c_after = vm_c.step(cache_c2, first_decode.new_tokens, first_decode.start_position);
+            std::vector<float> c_after_last(c_after.logits.end() - cfg.vocab, c_after.logits.end());
+            check(max_abs_diff(c_after_last, c_before_last) == 0.0f,
+                  "11b. Path C remains COMPLETELY unaffected by corrupting Path B's resident Model "
+                  "(cannot alias fx.model's live storage) -- reverse independence direction closed");
+
+            mutable_w_v = saved_w_v;  // restore for hygiene, though no later test in this file reuses fx.model
         }
 
         std::printf("\n=== Summary ===\n");

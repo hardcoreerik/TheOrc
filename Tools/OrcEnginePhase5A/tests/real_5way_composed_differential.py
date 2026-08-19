@@ -42,6 +42,10 @@ def close(actual: np.ndarray, expected: np.ndarray) -> tuple[bool, float, float]
     return ok, float(absolute.max(initial=0.0)), float(relative.max(initial=0.0))
 
 
+def bit_identical(actual: np.ndarray, expected: np.ndarray) -> bool:
+    return bool(np.array_equal(actual, expected))
+
+
 def main(executable: str, gguf_path: str, source_dir: str, steps: int) -> None:
     initial = [1, 5]
     dump_specs = [(0, 0, 0), (0, 0, 1), (15, 1, 0), (29, 2, 1), (0, 0, 4)]
@@ -99,6 +103,15 @@ def main(executable: str, gguf_path: str, source_dir: str, steps: int) -> None:
         hf_cached_seconds = time.perf_counter() - t0
         hf_cache_layers = past  # DynamicCache / legacy tuple, used ONLY for the KV numeric cross-check below
 
+    # P5A-RVW-004 closure: require and record ALL six pairwise relationships
+    # actually claimed by OE-ADR-027/the active gate, not just the subset
+    # that happened to be checked before. Internal OrcEngine comparisons
+    # (A vs B, A vs C, B vs C) are real-model evidence that the C++ side
+    # already ENFORCES bit-identical via test_real_composed_evidence.cpp;
+    # this script re-derives the SAME requirement independently in Python
+    # rather than trusting the printed diagnostic that used to exist here.
+    # Cross-framework comparisons against HF keep the established
+    # absolute-or-relative tolerance.
     for i in range(steps):
         a = np.asarray(leg_a["logits"][i], dtype=np.float32)
         b = np.asarray(leg_b["logits"][i], dtype=np.float32)
@@ -106,34 +119,46 @@ def main(executable: str, gguf_path: str, source_dir: str, steps: int) -> None:
         d = hf_full_logits[i]
         e = hf_cached_logits[i]
 
-        ok_bc, ma_bc, mr_bc = close(b, c)
+        ab_bit = bit_identical(a, b)
+        ac_bit = bit_identical(a, c)
+        bc_bit = bit_identical(b, c)
         ok_ad, ma_ad, mr_ad = close(a, d)
         ok_cd, ma_cd, mr_cd = close(c, d)
+        ok_ce, ma_ce, mr_ce = close(c, e)
         ok_ed, ma_ed, mr_ed = close(e, d)
         results.append({
             "step": i,
             "selected": {"a": leg_a["selected"][i], "b": leg_b["selected"][i], "c": leg_c["selected"][i],
                         "d": hf_full_selected[i], "e": hf_cached_selected[i]},
-            "b_vs_c": {"pass": ok_bc, "max_abs": ma_bc, "max_rel": mr_bc, "bit_identical": bool(np.array_equal(b, c))},
+            "a_vs_b_bit_identical": ab_bit,
+            "a_vs_c_bit_identical": ac_bit,
+            "b_vs_c_bit_identical": bc_bit,
             "a_vs_hf_full": {"pass": ok_ad, "max_abs": ma_ad, "max_rel": mr_ad},
             "c_vs_hf_full": {"pass": ok_cd, "max_abs": ma_cd, "max_rel": mr_cd},
+            "c_vs_hf_cached": {"pass": ok_ce, "max_abs": ma_ce, "max_rel": mr_ce},
             "hf_cached_vs_hf_full": {"pass": ok_ed, "max_abs": ma_ed, "max_rel": mr_ed},
         })
         print(f"step {i}: selected a={leg_a['selected'][i]} b={leg_b['selected'][i]} c={leg_c['selected'][i]} "
               f"d={hf_full_selected[i]} e={hf_cached_selected[i]} | "
-              f"b_vs_c bit_identical={results[-1]['b_vs_c']['bit_identical']} | "
-              f"c_vs_hf_full max_abs={ma_cd:.6g}")
+              f"a==b={ab_bit} a==c={ac_bit} b==c={bc_bit} | "
+              f"c_vs_hf_full max_abs={ma_cd:.6g} c_vs_hf_cached max_abs={ma_ce:.6g}")
 
     sequences = {k: [r["selected"][k] for r in results] for k in ("a", "b", "c", "d", "e")}
     all_seq_match = len(set(tuple(v) for v in sequences.values())) == 1
-    all_gates_pass = all(r["b_vs_c"]["pass"] and r["a_vs_hf_full"]["pass"] and
-                         r["c_vs_hf_full"]["pass"] and r["hf_cached_vs_hf_full"]["pass"] for r in results)
-    all_b_c_bit_identical = all(r["b_vs_c"]["bit_identical"] for r in results)
+    all_steps_present = len(results) == steps
+    all_internal_bit_identical = all(
+        r["a_vs_b_bit_identical"] and r["a_vs_c_bit_identical"] and r["b_vs_c_bit_identical"] for r in results)
+    all_hf_gates_pass = all(
+        r["a_vs_hf_full"]["pass"] and r["c_vs_hf_full"]["pass"] and
+        r["c_vs_hf_cached"]["pass"] and r["hf_cached_vs_hf_full"]["pass"] for r in results)
+    all_gates_pass = all_internal_bit_identical and all_hf_gates_pass
 
     print()
-    print("REAL 5-WAY COMPOSED DIFFERENTIAL:", "PASS" if (all_seq_match and all_gates_pass) else "FAIL")
+    print("REAL 5-WAY COMPOSED DIFFERENTIAL:",
+          "PASS" if (all_seq_match and all_steps_present and all_gates_pass) else "FAIL")
     print("sequences:", sequences)
-    print("B (resident cached) == C (virtualized cached) bit-identical every step:", all_b_c_bit_identical)
+    print(f"exact trace lengths: expected={steps} actual={len(results)} (must match, not just be >=)")
+    print("A == B == C bit-identical every step (ENFORCED, not printed-only):", all_internal_bit_identical)
     print(f"timing: hf_full_total_s={hf_full_seconds:.3f} hf_cached_total_s={hf_cached_seconds:.3f}")
     print(f"leg_a load_ms={cpp['load_milliseconds']['leg_a']:.3f} "
           f"leg_b load_ms={cpp['load_milliseconds']['leg_b']:.3f} "
@@ -145,9 +170,13 @@ def main(executable: str, gguf_path: str, source_dir: str, steps: int) -> None:
     print("telemetry_c:", leg_c["telemetry"])
 
     # --- Real KV numeric cross-check: HF's own cache vs Reference Path C's cache dumps. ---
+    # P5A-RVW-005 closure: a missing/unresolved sample is now a HARD ERROR, not a
+    # silent `continue` that shrinks the comparison set -- completeness
+    # (len(kv_results) == len(dump_specs)) is required before PASS is possible.
     print()
     print("=== Real KV numeric cross-check (HF native cache vs OrcEngine Reference Path C) ===")
     kv_results = []
+    kv_errors = []
     for dump in cpp["leg_c_virtualized_cached"]["cache_dumps"]:
         layer, kv_head, position = dump["layer"], dump["kv_head"], dump["position"]
         # HF's DynamicCache (current transformers API): past.layers[layer].keys / .values,
@@ -158,7 +187,9 @@ def main(executable: str, gguf_path: str, source_dir: str, steps: int) -> None:
             hf_k = hf_layer.keys[0, kv_head, position].to(torch.float32).cpu().numpy()
             hf_v = hf_layer.values[0, kv_head, position].to(torch.float32).cpu().numpy()
         except (IndexError, AttributeError) as ex:
-            print(f"  layer={layer} kv_head={kv_head} position={position}: SKIPPED ({ex}) -- position beyond HF's final cache length")
+            msg = f"layer={layer} kv_head={kv_head} position={position}: ERROR ({ex}) -- sample could not be resolved"
+            print(f"  {msg}")
+            kv_errors.append(msg)
             continue
         oe_k = np.asarray(dump["k"], dtype=np.float32)
         oe_v = np.asarray(dump["v"], dtype=np.float32)
@@ -171,14 +202,20 @@ def main(executable: str, gguf_path: str, source_dir: str, steps: int) -> None:
               f"K pass={ok_k} max_abs={ma_k:.6g} max_rel={mr_k:.6g} | "
               f"V pass={ok_v} max_abs={ma_v:.6g} max_rel={mr_v:.6g}")
 
-    all_kv_pass = all(r["k"]["pass"] and r["v"]["pass"] for r in kv_results) if kv_results else False
+    all_kv_present = len(kv_results) == len(dump_specs)
+    all_kv_values_pass = all(r["k"]["pass"] and r["v"]["pass"] for r in kv_results)
+    all_kv_pass = all_kv_present and all_kv_values_pass
     print("REAL KV NUMERIC CROSS-CHECK:", "PASS" if all_kv_pass else "FAIL/INCOMPLETE",
-          f"({len(kv_results)}/{len(dump_specs)} dumps checked)")
+          f"({len(kv_results)}/{len(dump_specs)} dumps checked -- ALL REQUIRED, not best-effort)")
 
-    if not (all_seq_match and all_gates_pass):
-        raise AssertionError("5-way real composed differential failed")
+    if not (all_seq_match and all_steps_present and all_gates_pass):
+        raise AssertionError("5-way real composed differential failed "
+                             f"(all_seq_match={all_seq_match} all_steps_present={all_steps_present} "
+                             f"all_gates_pass={all_gates_pass})")
     if not all_kv_pass:
-        raise AssertionError("real KV numeric cross-check failed or incomplete")
+        raise AssertionError(
+            f"real KV numeric cross-check failed or incomplete: {len(kv_results)}/{len(dump_specs)} resolved, "
+            f"values_pass={all_kv_values_pass}, errors={kv_errors}")
 
 
 if __name__ == "__main__":

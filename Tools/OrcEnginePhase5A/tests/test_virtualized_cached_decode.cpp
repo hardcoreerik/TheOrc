@@ -149,19 +149,33 @@ int main(int argc, char** argv) {
         check(cache_match, "resident and virtualized final cache content bit-identical at every layer/head/position");
 
         // Weight residency never regresses to full-model: materialization
-        // count must match exactly the sum of (per-layer tensors + embedding
-        // rows + output chunks) across all steps, not a smaller number that
-        // would imply layers were kept resident across steps instead of
-        // re-materialized, and not an unboundedly larger number either.
+        // count must match EXACTLY the deterministic sum of (per-layer
+        // tensors + distinct embedding rows + output chunks) across all
+        // steps -- an exact equality, not a one-sided bound. A one-sided
+        // `<=` (this test's original form) cannot detect under-materialization
+        // (e.g. a layer silently kept resident across steps instead of
+        // re-materialized) since any smaller actual count would still
+        // satisfy `<=`; equality catches both directions
+        // (P5A-RVW-011 fix).
         const uint64_t output_chunks_per_step = (static_cast<uint64_t>(cfg.vocab) + 6) / 7;  // ceil(vocab/7)
         const uint64_t per_step_layer_tensors = static_cast<uint64_t>(cfg.n_layers) * 9;
         uint64_t expected_materializations = 1;  // final norm, once at construction
         for (const CacheTraceStep& step : trace) {
             expected_materializations += per_step_layer_tensors + output_chunks_per_step;
-            expected_materializations += static_cast<uint64_t>(step.new_tokens.size());  // upper bound: distinct tokens <= count
+            // Exact distinct-token count for this step, matching
+            // virtualized_embedding's own per-call std::unordered_set dedup.
+            std::vector<int64_t> distinct;
+            for (int64_t token : step.new_tokens) {
+                if (std::find(distinct.begin(), distinct.end(), token) == distinct.end()) {
+                    distinct.push_back(token);
+                }
+            }
+            expected_materializations += distinct.size();
         }
-        check(vmodel.telemetry().materialization_count <= expected_materializations,
-              "materialization count matches per-step per-layer re-materialization (never fewer steps' worth than would imply cross-step residency)");
+        check(vmodel.telemetry().materialization_count == expected_materializations,
+              "materialization count EXACTLY matches the deterministic per-step per-layer re-materialization schedule "
+              "(actual=" + std::to_string(vmodel.telemetry().materialization_count) +
+              " expected=" + std::to_string(expected_materializations) + ")");
         check(vmodel.telemetry().peak_resident_weight_bytes < vmodel.telemetry().cumulative_materialized_bytes,
               "peak resident weight bytes are below cumulative materialized bytes (proves release actually happens)");
 
