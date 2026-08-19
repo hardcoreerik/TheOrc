@@ -89,6 +89,27 @@ int main(int argc, char** argv) {
             check(bit_identical(a_last, c_last), "step " + std::to_string(s) + ": A vs C bit-identical (ENFORCED, not printed)");
             check(bit_identical(b_last, c_last), "step " + std::to_string(s) + ": B vs C bit-identical (ENFORCED, not printed)");
 
+            // P5A-RVW-004, closed for real (adversary review 2026-08-19 correctly rejected
+            // the prior "bit-identical logits" claim as overstated): the *_last checks above
+            // only ever cover the FINAL token's logits. That is the only row that exists for
+            // a decode step (new_len==1) but a strict SUBSET of what exists during the s==0
+            // prefill step, where new_len==initial.size()==2 for ALL THREE paths (A's forward()
+            // over the still-2-token tokens_a, and B/C's own initial cached step) -- interior
+            // prefill-position logits were never compared on the real model before, only on the
+            // synthetic fixture via test_prefill_schedule_equivalence.cpp. At every later step
+            // A's logits cover the WHOLE grown sequence while B/C's cover only the newest token,
+            // so a full-array comparison is only meaningful (and only attempted) at s==0.
+            if (s == 0) {
+                check(a_step.logits.size() == b_step.logits.size() && b_step.logits.size() == c_step.logits.size(),
+                      "step 0 (prefill): A/B/C full logits arrays have identical length");
+                check(bit_identical(a_step.logits, b_step.logits),
+                      "step 0 (prefill): A vs B FULL logits bit-identical, including interior prefill positions");
+                check(bit_identical(a_step.logits, c_step.logits),
+                      "step 0 (prefill): A vs C FULL logits bit-identical, including interior prefill positions");
+                check(bit_identical(b_step.logits, c_step.logits),
+                      "step 0 (prefill): B vs C FULL logits bit-identical, including interior prefill positions");
+            }
+
             const int64_t selected_a = a_step.selected_token.back();
             const int64_t selected_b = b_step.selected_token.back();
             const int64_t selected_c = c_step.selected_token.back();

@@ -197,6 +197,20 @@ int main(int argc, char** argv) {
             check(c.current_length() == before, "C: gap +1 rejection leaves current_length() unchanged");
         }
         {
+            // P5A-RVW-002, closed for real (adversary review 2026-08-19 correctly flagged
+            // that the large-gap case existed only for Path B): mirrors "B: larger gap
+            // rejects" exactly, on Path C.
+            VirtualizedCachedModel vm = make_vmodel(fx.model);
+            ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+            vm.step(c, prefill.new_tokens, 0);
+            const int64_t before = c.current_length();
+            bool rejected = false;
+            try { vm.step(c, first_decode.new_tokens, correct_position + 100); }
+            catch (const KVCacheError&) { rejected = true; }
+            check(rejected, "C: larger gap rejects");
+            check(c.current_length() == before, "C: larger gap rejection leaves current_length() unchanged");
+        }
+        {
             VirtualizedCachedModel vm = make_vmodel(fx.model);
             ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             vm.step(c, prefill.new_tokens, 0);
@@ -206,6 +220,22 @@ int main(int argc, char** argv) {
             catch (const KVCacheError&) { rejected = true; }
             check(rejected, "C: rewind rejects");
             check(c.current_length() == before, "C: rewind rejection leaves current_length() unchanged");
+        }
+        {
+            // P5A-RVW-002, closed for real (adversary review 2026-08-19 correctly flagged
+            // that the physical-cache-content-unchanged check existed only for Path B):
+            // mirrors "B: physical cache content at an already-committed slot is unchanged
+            // after a rejected call" exactly, on Path C.
+            VirtualizedCachedModel vm = make_vmodel(fx.model);
+            ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+            vm.step(c, prefill.new_tokens, 0);
+            std::vector<float> k_before(static_cast<size_t>(cfg.head_dim));
+            std::memcpy(k_before.data(), c.k_row(0, 0, 0), sizeof(float) * static_cast<size_t>(cfg.head_dim));
+            try { vm.step(c, first_decode.new_tokens, correct_position + 1); } catch (...) {}
+            const float* k_after = c.k_row(0, 0, 0);
+            bool unchanged = true;
+            for (int64_t d = 0; d < cfg.head_dim; ++d) if (k_before[static_cast<size_t>(d)] != k_after[d]) unchanged = false;
+            check(unchanged, "C: physical cache content at an already-committed slot is unchanged after a rejected call");
         }
         {
             VirtualizedCachedModel vm = make_vmodel(fx.model);

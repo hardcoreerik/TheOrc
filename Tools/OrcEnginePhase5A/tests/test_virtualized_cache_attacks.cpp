@@ -243,6 +243,24 @@ int main(int argc, char** argv) {
                   "8b. forced materialization failure never left more than one layer resident");
             check(c.current_length() == 0,
                   "8c. forced materialization failure did not commit the failed step");
+            // P5A-RVW-010, closed for real (adversary review 2026-08-19 correctly
+            // rejected the prior "resolved by trace" disposition): peak_active_layers
+            // and current_length() say nothing about the WEIGHT-BYTE ledger --
+            // materialize_layer's own catch releases resident_bytes/tensor_count
+            // for the tensors it DID materialize before the throw, but this asserts
+            // that directly rather than by trace. The only tensor that stays
+            // permanently resident across the whole object's lifetime is FinalNorm
+            // (materialized once in the constructor, per forward_cached_virtualized.cpp);
+            // everything else -- embedding rows, output chunks, and every transformer
+            // layer including the one that failed partway through -- must be back to
+            // exactly that one bookend's bytes after the failure, mirroring Phase 3's
+            // own test_streaming.cpp "simulated post-release failure leaves clean
+            // accounting" pattern.
+            const uint64_t expected_bookend_bytes =
+                static_cast<uint64_t>(fx.model.final_norm_weight.raw().size()) * sizeof(float);
+            check(vm.telemetry().current_resident_weight_bytes == expected_bookend_bytes,
+                  "8d. forced materialization failure leaves weight-byte ledger at exactly "
+                  "the permanent FinalNorm bookend (no leaked layer-tensor bytes)");
         }
 
         // 9. Non-vacuity: a materializer that returns CORRUPTED values for one layer 1
@@ -343,6 +361,114 @@ int main(int argc, char** argv) {
                   "(cannot alias fx.model's live storage) -- reverse independence direction closed");
 
             mutable_w_v = saved_w_v;  // restore for hygiene, though no later test in this file reuses fx.model
+        }
+
+        // 12/13/14. P5A-RVW-003, closed for real (adversary review 2026-08-19 correctly
+        // rejected the prior "attacked via shared per-layer checks" disposition, since
+        // execute_cached_transformer_layer's checks are shared with Path B and never
+        // exercise Path C's own three check_finite bookend calls specifically): directly
+        // inject NaN via a corrupting materializer at each of Path C's own bookend sites
+        // (input_embedding, final_normalized_state, logits) and confirm step() throws
+        // closed at each one, rather than propagating the NaN into a result. Distinguishing
+        // signal: virtualized_embedding always requests row_count==1 (one token row at a
+        // time); virtualized_output requests row_count==output_chunk_rows (or the vocab
+        // remainder) -- always >1 for this fixture's small vocab -- so the two row-region
+        // call sites are reliably separable without a fragile call-count assumption.
+
+        // 12. NaN injected into the token-embedding row -> input_embedding bookend.
+        {
+            ModelSourceBinding binding = bind_memory_model(fx.model);
+            TensorRowRegionMaterializer real_rows = binding.materialize_rows;
+            VirtualizedCachedConfig config;
+            config.materializer = std::move(binding.materialize);
+            config.row_region_materializer = [real_rows](const LogicalTensor& logical, const BackingExtent& backing,
+                                                          const TensorRowRegion& region) {
+                MaterializedRegion materialized = real_rows(logical, backing, region);
+                if (region.row_count == 1) {  // embedding phase: one token row per call
+                    materialized.view.raw()[0] = std::nanf("");
+                }
+                return materialized;
+            };
+            config.output_chunk_rows = 7;
+            VirtualizedCachedModel vm(std::move(binding.source), std::move(config));
+            ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+            bool threw = false;
+            std::string what;
+            try {
+                vm.step(c, prefill.new_tokens, 0);
+            } catch (const std::exception& ex) {
+                threw = true;
+                what = ex.what();
+            }
+            check(threw && what.find("input_embedding") != std::string::npos,
+                  "12. NaN in embedding row fails closed at the input_embedding bookend (virtualized)");
+            check(c.current_length() == 0, "12b. NaN-poisoned embedding step did not commit");
+        }
+
+        // 13. NaN injected into the FinalNorm weight -> final_normalized_state bookend.
+        //     final_norm_weight_ is materialized ONCE, in the constructor, and stays
+        //     resident for the object's lifetime -- the corruption must survive into
+        //     every later step() call's rmsnorm, which it does since nothing re-fetches it.
+        {
+            ModelSourceBinding binding = bind_memory_model(fx.model);
+            TensorMaterializer real_full = binding.materialize;
+            VirtualizedCachedConfig config;
+            config.materializer = [real_full](const LogicalTensor& logical, const BackingExtent& backing) {
+                ResidentView view = real_full(logical, backing);
+                if (logical.name() == "final_norm") {
+                    view.raw()[0] = std::nanf("");
+                }
+                return view;
+            };
+            config.row_region_materializer = std::move(binding.materialize_rows);
+            config.output_chunk_rows = 7;
+            VirtualizedCachedModel vm(std::move(binding.source), std::move(config));
+            ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+            bool threw = false;
+            std::string what;
+            try {
+                vm.step(c, prefill.new_tokens, 0);
+            } catch (const std::exception& ex) {
+                threw = true;
+                what = ex.what();
+            }
+            check(threw && what.find("final_normalized_state") != std::string::npos,
+                  "13. NaN in FinalNorm weight fails closed at the final_normalized_state bookend (virtualized)");
+            check(c.current_length() == 0, "13b. NaN-poisoned final-norm step did not commit");
+        }
+
+        // 14. NaN injected into an output-projection row -> logits bookend. This fixture is
+        //     TIED (source.tied_embeddings == true), so virtualized_output reads the SAME
+        //     TokenEmbedding tensor via row_region_materializer as the input-embedding phase
+        //     does -- the row_count>1 signal (output chunking) is what separates this from
+        //     attack 12, not the tensor identity.
+        {
+            ModelSourceBinding binding = bind_memory_model(fx.model);
+            TensorRowRegionMaterializer real_rows = binding.materialize_rows;
+            VirtualizedCachedConfig config;
+            config.materializer = std::move(binding.materialize);
+            config.row_region_materializer = [real_rows](const LogicalTensor& logical, const BackingExtent& backing,
+                                                          const TensorRowRegion& region) {
+                MaterializedRegion materialized = real_rows(logical, backing, region);
+                if (region.row_count > 1) {  // output-projection phase: chunked rows
+                    materialized.view.raw()[0] = std::nanf("");
+                }
+                return materialized;
+            };
+            config.output_chunk_rows = 7;
+            VirtualizedCachedModel vm(std::move(binding.source), std::move(config));
+            ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+            bool threw = false;
+            std::string what;
+            try {
+                vm.step(c, prefill.new_tokens, 0);
+            } catch (const std::exception& ex) {
+                threw = true;
+                what = ex.what();
+            }
+            check(threw && what.find("logits") != std::string::npos,
+                  "14. NaN in output-projection row fails closed at the logits bookend (virtualized)");
+            check(c.current_length() == 0, "14b. NaN-poisoned output step did not commit");
         }
 
         std::printf("\n=== Summary ===\n");
