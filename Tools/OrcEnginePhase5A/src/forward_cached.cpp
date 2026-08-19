@@ -139,20 +139,24 @@ std::vector<float> execute_cached_transformer_layer(
     return y;
 }
 
-CachedStepResult forward_cached_step(const Model& model, ContiguousAttentionKVStore& cache,
-                                      const std::vector<int64_t>& new_token_ids,
-                                      int64_t start_position) {
+CachedStepResult forward_cached_step_unsafe_explicit_position(
+    const Model& model, ContiguousAttentionKVStore& cache,
+    const std::vector<int64_t>& new_token_ids, int64_t start_position) {
     const ModelConfig& cfg = model.config();
     const int64_t new_len = static_cast<int64_t>(new_token_ids.size());
-    if (new_len <= 0) throw std::invalid_argument("forward_cached_step: new_token_ids must be non-empty");
-    if (start_position < 0) throw std::invalid_argument("forward_cached_step: start_position must be >= 0");
+    if (new_len <= 0) {
+        throw std::invalid_argument("forward_cached_step_unsafe_explicit_position: new_token_ids must be non-empty");
+    }
+    if (start_position < 0) {
+        throw std::invalid_argument("forward_cached_step_unsafe_explicit_position: start_position must be >= 0");
+    }
     if (start_position + new_len > cfg.max_positions) {
-        throw std::runtime_error("forward_cached_step: would exceed max_positions (" +
+        throw std::runtime_error("forward_cached_step_unsafe_explicit_position: would exceed max_positions (" +
                                   std::to_string(cfg.max_positions) + ")");
     }
     if (cache.n_layers() != cfg.n_layers || cache.n_kv_heads() != cfg.n_kv_heads ||
         cache.head_dim() != cfg.head_dim) {
-        throw std::runtime_error("forward_cached_step: cache shape does not match model config");
+        throw std::runtime_error("forward_cached_step_unsafe_explicit_position: cache shape does not match model config");
     }
 
     const int64_t hidden = cfg.hidden;
@@ -199,6 +203,26 @@ CachedStepResult forward_cached_step(const Model& model, ContiguousAttentionKVSt
     // normal call pattern, without building rollback machinery.
     cache.set_current_length(start_position + new_len);
     return result;
+}
+
+CachedStepResult forward_cached_step(const Model& model, ContiguousAttentionKVStore& cache,
+                                      const std::vector<int64_t>& new_token_ids,
+                                      int64_t start_position) {
+    // P5A-RVW-002 fix: the normal/safe entry point requires the caller's
+    // claimed position to match the cache's own committed history BEFORE
+    // any mutation happens (embedding lookup, RoPE, cache writes). No
+    // gap-skip, rewind, or reset-to-zero can silently succeed and
+    // auto-commit through this function anymore. Deliberately violating
+    // this invariant for fault-injection purposes must use
+    // forward_cached_step_unsafe_explicit_position instead.
+    if (start_position != cache.current_length()) {
+        throw KVCacheError(
+            "forward_cached_step: start_position " + std::to_string(start_position) +
+            " does not match cache.current_length() " + std::to_string(cache.current_length()) +
+            " -- decode must begin exactly at the committed position; use "
+            "forward_cached_step_unsafe_explicit_position for deliberate fault injection");
+    }
+    return forward_cached_step_unsafe_explicit_position(model, cache, new_token_ids, start_position);
 }
 
 }  // namespace orcengine

@@ -134,11 +134,14 @@ int main(int argc, char** argv) {
             ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             forward_cached_step(fx.model, c, prefill.new_tokens, 0);
             // forward_cached_step auto-commits current_length() on success.
-            CachedStepResult wrong = forward_cached_step(fx.model, c, first_decode.new_tokens,
-                                                          first_decode.start_position + 1);
+            // Deliberately wrong position: the SAFE API now rejects this (P5A-RVW-002),
+            // so proving the resulting divergence is still detectable requires the
+            // explicit low-level seam.
+            CachedStepResult wrong = forward_cached_step_unsafe_explicit_position(
+                fx.model, c, first_decode.new_tokens, first_decode.start_position + 1);
             std::vector<float> wrong_last(wrong.logits.end() - cfg.vocab, wrong.logits.end());
             check(max_abs_diff(wrong_last, first_decode.logits_last) > 1e-3f,
-                  "1. wrong cache position (+1) diverges from correct reference");
+                  "1. wrong cache position (+1) diverges from correct reference (unsafe seam)");
         }
 
         // 2. Stale KV reuse: skip prefill's cache writes (fresh cache, current_length=0)
@@ -146,12 +149,15 @@ int main(int argc, char** argv) {
         //    zero-initialized (stale) positions instead of real prior K/V.
         {
             ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
-            // Deliberately do NOT prefill -- cache is all zeros.
-            CachedStepResult stale = forward_cached_step(fx.model, c, first_decode.new_tokens,
-                                                          first_decode.start_position);
+            // Deliberately do NOT prefill -- cache is all zeros. current_length()==0 here,
+            // so claiming first_decode.start_position (nonzero) is itself the fault under
+            // the SAFE API's new guard -- use the unsafe seam to exercise this the way the
+            // attack originally intended (reading zero-initialized stale positions).
+            CachedStepResult stale = forward_cached_step_unsafe_explicit_position(
+                fx.model, c, first_decode.new_tokens, first_decode.start_position);
             std::vector<float> stale_last(stale.logits.end() - cfg.vocab, stale.logits.end());
             check(max_abs_diff(stale_last, first_decode.logits_last) > 1e-3f,
-                  "2. stale/unwritten KV reuse diverges from correct reference");
+                  "2. stale/unwritten KV reuse diverges from correct reference (unsafe seam)");
         }
 
         // 3. Swapped K/V: manually swap the written K and V rows for one layer/position
@@ -224,17 +230,31 @@ int main(int argc, char** argv) {
             ContiguousAttentionKVStore c2(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
             // c2 is fresh -- never prefilled. A correct implementation must show DIFFERENT
             // decode-step output than c1's, proving no accidental static/shared state.
+            // Uses the unsafe seam since current_length()==0 but first_decode.start_position
+            // is nonzero -- the SAFE API would reject this outright (an even stronger
+            // guarantee, checked separately below).
             bool threw = false;
             try {
-                CachedStepResult r2 = forward_cached_step(fx.model, c2, first_decode.new_tokens,
-                                                          first_decode.start_position);
+                CachedStepResult r2 = forward_cached_step_unsafe_explicit_position(
+                    fx.model, c2, first_decode.new_tokens, first_decode.start_position);
                 std::vector<float> r2_last(r2.logits.end() - cfg.vocab, r2.logits.end());
                 check(max_abs_diff(r2_last, first_decode.logits_last) > 1e-3f,
-                      "6. fresh (never-prefilled) cache diverges from a correctly-prefilled sequence -- no state leakage");
+                      "6. fresh (never-prefilled) cache diverges from a correctly-prefilled sequence -- "
+                      "no state leakage (unsafe seam)");
             } catch (...) {
                 threw = true;
             }
             (void)threw;
+
+            // 6b. The SAFE API rejects this same scenario outright.
+            ContiguousAttentionKVStore c3(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
+            bool rejected = false;
+            try {
+                forward_cached_step(fx.model, c3, first_decode.new_tokens, first_decode.start_position);
+            } catch (const std::exception&) {
+                rejected = true;
+            }
+            check(rejected, "6b. SAFE API rejects decoding a fresh context at a nonzero position outright");
         }
 
         // --- Bounds/failure semantics ---
@@ -243,11 +263,14 @@ int main(int argc, char** argv) {
             bool rejected = false;
             try {
                 ContiguousAttentionKVStore c(cfg.n_layers, cfg.n_kv_heads, cfg.max_positions, cfg.head_dim);
-                forward_cached_step(fx.model, c, {1}, cfg.max_positions);  // exactly at capacity
+                // Unsafe seam: isolates the CAPACITY check from the position-match guard
+                // (a fresh cache's current_length()==0 would otherwise trip the position
+                // guard first, testing the wrong thing).
+                forward_cached_step_unsafe_explicit_position(fx.model, c, {1}, cfg.max_positions);  // exactly at capacity
             } catch (const std::exception&) {
                 rejected = true;
             }
-            check(rejected, "decoding past max_positions fails closed");
+            check(rejected, "decoding past max_positions fails closed (capacity check, unsafe seam)");
         }
         {
             bool rejected = false;

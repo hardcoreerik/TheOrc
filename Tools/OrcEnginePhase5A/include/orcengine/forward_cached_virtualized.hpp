@@ -51,16 +51,28 @@ public:
     const ModelConfig& config() const { return source_.config; }
     const StreamingTelemetry& telemetry() const { return ledger_.telemetry(); }
 
-    // Same contract as forward_cached_step (forward_cached.hpp), including
-    // its narrowed auto-commit rule: this function itself commits
+    // SAFE, NORMAL PRODUCTION ENTRY POINT -- same contract as
+    // forward_cached_step (forward_cached.hpp), including the P5A-RVW-002
+    // fix: REQUIRES start_position == cache.current_length(), throwing
+    // KVCacheError before any mutation if it does not. Commits
     // cache.current_length() to start_position+new_len on the success path
     // ONLY, never on an exception path. Callers must NOT call
-    // cache.set_current_length() themselves afterward. Only ONE transformer layer's weights are resident at any instant
-    // during this call (proven via telemetry().peak_active_layers == 1 and
+    // cache.set_current_length() themselves afterward. Only ONE transformer
+    // layer's weights are resident at any instant during this call (proven
+    // via telemetry().peak_active_layers == 1 and
     // ResidencyLedger::enter_layer's own more-than-one-resident guard).
     CachedStepResult step(ContiguousAttentionKVStore& cache,
                           const std::vector<int64_t>& new_token_ids,
                           int64_t start_position);
+
+    // UNSAFE LOW-LEVEL / TEST-ONLY SEAM -- identical to step() except it
+    // does not require start_position == cache.current_length(). Reserved
+    // for fault-injection tests that deliberately violate the position
+    // invariant step() now enforces. Production/reference driver code must
+    // use step(), not this method.
+    CachedStepResult step_unsafe_explicit_position(ContiguousAttentionKVStore& cache,
+                                                    const std::vector<int64_t>& new_token_ids,
+                                                    int64_t start_position);
 
 private:
     std::vector<float> virtualized_embedding(const std::vector<int64_t>& token_ids);

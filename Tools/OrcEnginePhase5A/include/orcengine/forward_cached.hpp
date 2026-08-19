@@ -46,20 +46,40 @@ std::vector<float> execute_cached_transformer_layer(
 // prior positions [0, start_position) and writing this step's new K/V into
 // the cache at [start_position, start_position + new_len).
 //
-// Commit contract (narrowed 2026-08-18 per the commit-API misuse audit,
-// see DECISION_LOG.md OE-ADR-026's referenced findings): this function
-// commits cache.current_length() to start_position+new_len ITSELF, on the
-// success return path ONLY -- never on any exception path. Callers must
-// NOT call cache.set_current_length() themselves after calling this
-// function; doing so is redundant on success and was the exact
-// "failed step + set_current_length()" pattern that could make poisoned
-// KV appear committed if called after catching an exception. A failed
-// call leaves cache.current_length() exactly as it was before the call
-// (see test_transactional_semantics.cpp / test_transactional_semantics_virtualized.cpp
-// for the proof, including a mid-layer NaN fault and a safe same-position
-// retry).
+// SAFE, NORMAL PRODUCTION ENTRY POINT (narrowed 2026-08-18 per the P5A-RVW-002
+// commit-API safety review finding). This function REQUIRES
+// start_position == cache.current_length() and throws KVCacheError BEFORE
+// any cache mutation if it does not -- a caller can no longer skip unwritten
+// positions, rewind into committed history, or auto-commit a bogus logical
+// length by passing the wrong position. current_length() is committed to
+// start_position+new_len on the success return path ONLY, never on any
+// exception path (including the position-mismatch rejection itself, which
+// mutates nothing). Callers must NOT call cache.set_current_length()
+// themselves after calling this function; doing so is redundant on success
+// and was the exact "failed step + set_current_length()" pattern that could
+// make poisoned KV appear committed if called after catching an exception
+// (see test_transactional_semantics.cpp for the mid-layer-NaN-fault proof).
+//
+// Deliberate position-mismatch fault injection (wrong position, rewind,
+// reset-to-zero, RoPE-position attacks) is NOT possible through this
+// function anymore -- use forward_cached_step_unsafe_explicit_position
+// below, which is the same math with the position check removed, reserved
+// for tests that need to attack the invariant this function now enforces.
 CachedStepResult forward_cached_step(const Model& model, ContiguousAttentionKVStore& cache,
                                       const std::vector<int64_t>& new_token_ids,
                                       int64_t start_position);
+
+// UNSAFE LOW-LEVEL / TEST-ONLY SEAM. Identical to forward_cached_step except
+// it does NOT require start_position == cache.current_length() -- the
+// caller may pass any position that satisfies the underlying capacity
+// bounds, including gaps, rewinds, and resets. Still auto-commits
+// current_length() = start_position+new_len on success (never on failure).
+// This exists ONLY so fault-injection tests can deliberately violate the
+// position invariant forward_cached_step now enforces, to prove the
+// resulting divergence is detectable. Production/reference driver code
+// must use forward_cached_step, not this function.
+CachedStepResult forward_cached_step_unsafe_explicit_position(
+    const Model& model, ContiguousAttentionKVStore& cache,
+    const std::vector<int64_t>& new_token_ids, int64_t start_position);
 
 }  // namespace orcengine

@@ -6,11 +6,23 @@
 #include <stdexcept>
 #include <unordered_set>
 
+#include "orcengine/diagnostics.hpp"
 #include "orcengine/ops.hpp"
 
 namespace orcengine {
 
 namespace {
+
+// P5A-RVW-003 fix: Path B's bookend fail-closed checks (input embedding,
+// final normalized state, logits), mirrored here so Path C's failure
+// semantics match Path B's exactly, not just the per-layer math they
+// already share via execute_cached_transformer_layer.
+void check_finite(const std::string& name, const std::vector<float>& data) {
+    if (diagnostics::check_tap(name, data)) {
+        throw std::runtime_error("VirtualizedCachedModel::step: NaN/Inf detected in '" + name +
+                                  "' -- failing closed rather than propagating poisoned data");
+    }
+}
 
 const SourceTensor& require_tensor(const ModelSource& source, TensorRole role, int64_t layer = -1) {
     const auto matches = [&](const SourceTensor& tensor) {
@@ -131,6 +143,29 @@ LayerWeights VirtualizedCachedModel::materialize_layer(int64_t layer, uint64_t& 
     if (tensors.size() != 9) {
         throw std::runtime_error("VirtualizedCachedModel: layer does not contain exactly nine tensors");
     }
+    // P5A-RVW (Stage 9) fix: tensors.size()==9 alone does not prove the nine
+    // roles are the RIGHT nine, each exactly once -- a duplicate role (e.g.
+    // two AttentionQuery, zero AttentionKey) would previously satisfy the
+    // count check while silently leaving out.w_k as a default-empty
+    // ResidentView, producing wrong math instead of failing closed. Check
+    // role uniqueness/completeness BEFORE materializing anything.
+    {
+        static const TensorRole kRequiredRoles[9] = {
+            TensorRole::AttentionNorm, TensorRole::AttentionQuery, TensorRole::AttentionKey,
+            TensorRole::AttentionValue, TensorRole::AttentionOutput, TensorRole::FfnNorm,
+            TensorRole::FfnGate, TensorRole::FfnUp, TensorRole::FfnDown,
+        };
+        for (TensorRole required : kRequiredRoles) {
+            const int64_t matches = std::count_if(tensors.begin(), tensors.end(),
+                [required](const SourceTensor* tensor) { return tensor->identity.role == required; });
+            if (matches != 1) {
+                throw std::runtime_error(
+                    "VirtualizedCachedModel: layer " + std::to_string(layer) + " has " +
+                    std::to_string(matches) + " tensor(s) for a required role (expected exactly 1) -- "
+                    "duplicate or missing role, refusing to materialize with a default-empty weight");
+            }
+        }
+    }
     LayerWeights out;
     try {
         for (const SourceTensor* tensor : tensors) {
@@ -164,23 +199,28 @@ LayerWeights VirtualizedCachedModel::materialize_layer(int64_t layer, uint64_t& 
     }
 }
 
-CachedStepResult VirtualizedCachedModel::step(ContiguousAttentionKVStore& cache,
-                                              const std::vector<int64_t>& new_token_ids,
-                                              int64_t start_position) {
+CachedStepResult VirtualizedCachedModel::step_unsafe_explicit_position(
+    ContiguousAttentionKVStore& cache, const std::vector<int64_t>& new_token_ids,
+    int64_t start_position) {
     const ModelConfig& cfg = source_.config;
     const int64_t new_len = static_cast<int64_t>(new_token_ids.size());
-    if (new_len <= 0) throw std::invalid_argument("VirtualizedCachedModel::step: new_token_ids must be non-empty");
-    if (start_position < 0) throw std::invalid_argument("VirtualizedCachedModel::step: start_position must be >= 0");
+    if (new_len <= 0) {
+        throw std::invalid_argument("VirtualizedCachedModel::step_unsafe_explicit_position: new_token_ids must be non-empty");
+    }
+    if (start_position < 0) {
+        throw std::invalid_argument("VirtualizedCachedModel::step_unsafe_explicit_position: start_position must be >= 0");
+    }
     if (start_position + new_len > cfg.max_positions) {
-        throw std::runtime_error("VirtualizedCachedModel::step: would exceed max_positions (" +
+        throw std::runtime_error("VirtualizedCachedModel::step_unsafe_explicit_position: would exceed max_positions (" +
                                  std::to_string(cfg.max_positions) + ")");
     }
     if (cache.n_layers() != cfg.n_layers || cache.n_kv_heads() != cfg.n_kv_heads ||
         cache.head_dim() != cfg.head_dim) {
-        throw std::runtime_error("VirtualizedCachedModel::step: cache shape does not match model config");
+        throw std::runtime_error("VirtualizedCachedModel::step_unsafe_explicit_position: cache shape does not match model config");
     }
 
     std::vector<float> x = virtualized_embedding(new_token_ids);
+    check_finite("input_embedding", x);
 
     std::vector<std::vector<float>> cos_by_pos(static_cast<size_t>(new_len)), sin_by_pos(static_cast<size_t>(new_len));
     for (int64_t i = 0; i < new_len; ++i) {
@@ -219,7 +259,9 @@ CachedStepResult VirtualizedCachedModel::step(ContiguousAttentionKVStore& cache,
 
     std::vector<float> final_normed = ops::rmsnorm(x, new_len, cfg.hidden, final_norm_weight_.raw(),
                                                     cfg.rmsnorm_epsilon);
+    check_finite("final_normalized_state", final_normed);
     std::vector<float> logits = virtualized_output(final_normed, new_len);
+    check_finite("logits", logits);
 
     CachedStepResult result;
     result.logits = logits;
@@ -233,6 +275,20 @@ CachedStepResult VirtualizedCachedModel::step(ContiguousAttentionKVStore& cache,
     // fix from the commit-API audit -- see forward_cached.cpp's comment.
     cache.set_current_length(start_position + new_len);
     return result;
+}
+
+CachedStepResult VirtualizedCachedModel::step(ContiguousAttentionKVStore& cache,
+                                              const std::vector<int64_t>& new_token_ids,
+                                              int64_t start_position) {
+    // P5A-RVW-002 fix, mirroring forward_cached_step's identical guard.
+    if (start_position != cache.current_length()) {
+        throw KVCacheError(
+            "VirtualizedCachedModel::step: start_position " + std::to_string(start_position) +
+            " does not match cache.current_length() " + std::to_string(cache.current_length()) +
+            " -- decode must begin exactly at the committed position; use "
+            "step_unsafe_explicit_position for deliberate fault injection");
+    }
+    return step_unsafe_explicit_position(cache, new_token_ids, start_position);
 }
 
 }  // namespace orcengine

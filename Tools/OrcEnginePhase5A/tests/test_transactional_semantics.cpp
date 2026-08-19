@@ -9,16 +9,20 @@
 // trying to commit.
 //
 // Chosen semantics (deliberately the smallest correct policy, not a
-// rollback framework): current_length() is caller-driven and is NEVER
-// auto-advanced by forward_cached_step itself, including on failure. Any
-// cache position >= current_length() is, by contract, not part of the
-// committed history and must never be read as context by a correctly
-// written caller. A failed step's poisoned writes therefore sit outside
-// the trusted region until a subsequent (successful) call at that SAME
-// start_position overwrites them -- writes always precede reads for a
-// given layer within a single forward_cached_step call, so the retry's
-// correct values are in place before anything reads them. This is proven
-// below, not just asserted. See docs/OrcEngine/PHASE5A_KV_CACHE_SPEC.md.
+// rollback framework): current_length() is committed by forward_cached_step
+// itself, on the SUCCESS path only -- NEVER on any exception path,
+// including this file's mid-step failure (P5A-RVW-002 closure: the
+// function also now requires start_position == cache.current_length()
+// before any mutation, closing a separate wrong-position misuse pattern --
+// see test_cache_position_safety.cpp). Any cache position >=
+// current_length() is, by contract, not part of the committed history and
+// must never be read as context by a correctly written caller. A failed
+// step's poisoned writes therefore sit outside the trusted region until a
+// subsequent (successful) call at that SAME start_position overwrites
+// them -- writes always precede reads for a given layer within a single
+// forward_cached_step call, so the retry's correct values are in place
+// before anything reads them. This is proven below, not just asserted.
+// See docs/OrcEngine/PHASE5A_KV_CACHE_SPEC.md.
 #include <cmath>
 #include <cstdio>
 #include <limits>
