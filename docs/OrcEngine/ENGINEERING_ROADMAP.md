@@ -129,7 +129,7 @@ generic planner/cache framework, batching, product integration, and tile paging.
 [Phase-3 Working-Set Specification](PHASE3_WORKING_SET_SPEC.md) and
 [Phase-3 Freeze Hardening](PHASE3_FREEZE_HARDENING.md).
 
-## Phase 4 — Bookend virtualization / sub-tensor working set — IMPLEMENTED, AWAITING REVIEW
+## Phase 4 — Bookend virtualization / sub-tensor working set — FROZEN
 
 **Question:** does a complete embedding/output matrix need to be resident at
 once after transformer layers already stream?
@@ -149,11 +149,80 @@ budgets, and adversarial partition validation.
 - independent freeze review accepts the result.
 
 **Evidence:** [Phase 4 Bookend Virtualization](PHASE4_BOOKEND_VIRTUALIZATION.md).
-The prior practical CPU/tokenizer/KV/usability roadmap item is deferred, not
-silently discarded. Its eventual phase number will be chosen only after Phase 4
-is independently reviewed; Phase 4 does not begin that work.
+**FROZEN 2026-08-18** at trusted commit `944f07b86428ec53d46ca19dc66c3d0d5b1e207d`,
+immutable pushed annotated tag `orcengine-phase4-freeze`. Independent review
+(OE-ADR-022) returned ACCEPT WITH FIXES; closure (OE-ADR-023) resolved all
+three residual hygiene items with no engine defect found. See OE-ADR-024 for
+the post-freeze roadmap reconciliation below — the prior practical CPU/
+tokenizer/KV/usability roadmap item is now Phase 5, not silently discarded
+and not further deferred.
 
-## Phase 5 — Initial quantization
+## Phase 5 — Practical CPU inference semantics
+
+**Status, 2026-08-18 (OE-ADR-024):** the phase number this roadmap previously
+withheld pending Phase-4 independent review (see the old Phase 4 text above)
+is now assigned. Split into three separately-gated sub-phases rather than one
+bundled implementation step, per the explicit instruction that a phase needs
+one bounded hypothesis and measurable exit gate — tokenizer correctness, KV
+cache correctness, and workspace/benchmark work are three different risk
+profiles, not one.
+
+### Phase 5A — KV-cached incremental decode reference
+
+**Question:** does one-token-at-a-time cached decode, reading each transformer
+layer's weights the same way frozen Phase 3/4 already stream them, produce
+exactly the same logits as full-prefix recompute, at every step, for every
+GQA/RoPE/causal-boundary case the fixed profile exercises?
+
+**Why this is the first bounded slice:** of the deferred items, cached decode
+is the only one that adds a genuinely new *tensor-execution* path (a second
+way to compute attention against evolving state) rather than plumbing an
+already-proven algorithm (tokenization) or an optimization concern (workspace
+reuse, benchmarking) into the existing one. It is explicitly the highest-risk
+correctness boundary among the deferred items — RoPE position handling, GQA
+key/value head indexing, and causal-boundary correctness against a cache all
+have failure modes full-prefix recompute cannot expose. Establishing it first
+means Phase 5B (tokenizer) and 5C (workspace/benchmarking) build on a
+memory-model and execution-correctness foundation that has already survived
+adversarial fault injection, rather than the reverse.
+
+**Scope, oracle, memory model, fault-injection plan, and definition of
+done:** [Phase 5A KV-Cached Decode Specification](PHASE5A_KV_CACHE_SPEC.md).
+
+### Phase 5B — Tokenizer / text-token boundary (deferred, not yet specified)
+
+Exact tokenizer format/profile, source-vs-GGUF-embedded tokenizer agreement,
+BOS/EOS, byte/Unicode/whitespace handling, special-token policy,
+encode/decode round-trip, malformed-metadata rejection — using the pinned
+real SmolLM2-135M candidate, compared against an independent trusted
+implementation. Phase 0's oracle already proved `tokenizer_dual_source_
+agreement` and `raw_prompt_identity` at the Python level (see
+`PHASE_0_ACCEPTANCE.yaml`); this sub-phase's job is wiring an equivalent,
+independently re-proven path into the C++ engine itself, which currently
+takes only explicit token IDs. Not started; spec to be written when 5A closes.
+
+### Phase 5C — Bounded activation workspace and prompt/decode benchmarking (deferred, not yet specified)
+
+Explicit scratch-buffer accounting distinct from `ResidentView`/weight
+residency and from KV-cache residency; workspace-reuse-does-not-change-
+numerics proof; then, only after correctness, prompt/prefill vs first-token
+vs steady-state decode measurement across full-recompute and cached paths.
+Not started; spec to be written when 5A and 5B close, since workspace reuse
+is far more meaningful once decode is actually incremental (5A) and real text
+input exists (5B).
+
+## Phase 6 — Initial quantization
+
+**Renumbered from "Phase 5" (2026-08-18, OE-ADR-024) — the heading's content
+predates Phase 3/4 and OE-ADR-021's later decision that the deferred
+practical-CPU work takes priority; see OE-ADR-024 for the full chronology
+reconciliation.** No dependency requires this to follow Phase 5: quantization
+operates entirely below the token boundary, and Phase 2's existing F32
+full-prefix reference plus a pinned external engine remain a sufficient
+quantization oracle without requiring cached decode first (`PHASE0_
+ACCEPTANCE.yaml`'s and Phase 2's evidence already establish that baseline).
+The ordering is a risk-reduction choice (OE-ADR-021), not a technical
+dependency — recorded explicitly so it is not mistaken for one.
 
 **Goal:** support one quantized weight format without sacrificing diagnosis.
 
@@ -161,7 +230,16 @@ is independently reviewed; Phase 4 does not begin that work.
 
 **Definition of done:** format parser and dequantizer match trusted vectors; logits are compared against both float and a pinned external engine; memory reduction is measured; quality impact is reported on a fixed corpus.
 
-## Phase 6A — Resident CUDA correctness baseline
+**Row-region interaction, flagged in advance (OE-ADR-024):** Phase 4's
+`TensorRowRegion` contract proves contiguous logical F32/F16 rows only. If
+Q8_0 row materialization can be implemented behind that existing logical
+contract without changing its meaning (block-aligned row ranges resolved by
+the source adapter, same as Phase 4's F16 decode path), demonstrate that. If
+quantization-block geometry instead requires a genuinely new logical
+contract, this phase must stop and document that architecture question
+rather than assuming Phase 4 already answered it.
+
+## Phase 7A — Resident CUDA correctness baseline
 
 **Goal:** reproduce approved CPU results on one NVIDIA target.
 
@@ -175,11 +253,11 @@ is independently reviewed; Phase 4 does not begin that work.
 - compute capability, driver, CUDA toolkit, library versions, and build flags are recorded;
 - prompt and decode paths both execute on the intended backend.
 
-**Renumbered from "Phase 6" (2026-08-15, `Infinite_Model_Runtime_Claude_Handoff.md` steering review, see [Decision Log](DECISION_LOG.md) OE-ADR-019).** Full-residency CUDA is still the correct FIRST CUDA milestone — do not skip it for paging — but it is no longer treated as the *only* supported CUDA execution mode before the stable ABI freezes. See 6B/6C/6D below and the roadmap contract note at the top of this document.
+**Renumbered from "Phase 6" (2026-08-15, `Infinite_Model_Runtime_Claude_Handoff.md` steering review, see [Decision Log](DECISION_LOG.md) OE-ADR-019).** Full-residency CUDA is still the correct FIRST CUDA milestone — do not skip it for paging — but it is no longer treated as the *only* supported CUDA execution mode before the stable ABI freezes. See 7B/7C/7D below and the roadmap contract note at the top of this document.
 
-## Phase 6B — ExecutionPlanner and explicit residency model
+## Phase 7B — ExecutionPlanner and explicit residency model
 
-**Goal:** formalize where tensors live and how that's decided, before paged/streamed execution is attempted — so 6C doesn't retrofit residency semantics onto types that assumed permanent residency.
+**Goal:** formalize where tensors live and how that's decided, before paged/streamed execution is attempted — so 7C doesn't retrofit residency semantics onto types that assumed permanent residency.
 
 **Why this phase exists:** Phase 0's own ablation-diagnostic tooling (`Tools/OrcEnginePhase0/oracle/gguf_streaming_loader.py`, built after Phase 0 closed) proved in Python that a model does not need to be materialized all at once to execute — Meta-Llama-3.1-8B, which failed to load under every full-residency approach tried in the same session, completed a full forward-pass sweep using 3.17GB peak VRAM by loading one transformer layer from disk, using it, and discarding it before the next. That is real evidence, not speculation, that OrcEngine's permanent architecture must not bake in "the model lives in VRAM" as a foundational assumption.
 
@@ -197,31 +275,35 @@ is independently reviewed; Phase 4 does not begin that work.
 
 **Roadmap reconciliation, 2026-08-16:** Phase 1/2 already implemented the three
 storage identities, and proposed Phase 3 now validates temporary CPU residency
-before CUDA. If Phase 3 succeeds, Phase 6B narrows to multi-tier/device
+before CUDA. If Phase 3 succeeds, Phase 7B narrows to multi-tier/device
 placement, transfer, fallback, and explicit cost semantics. It must not repeat
 the CPU layer-streaming proof or introduce a planner into Phase 3 prematurely.
 
-## Phase 6C — Paged/streamed CUDA proof
+## Phase 7C — Paged/streamed CUDA proof
 
 **Goal:** prove the same true-streaming, layer-by-layer execution already demonstrated in the Python research harness works in the actual C++/CUDA engine, not just as a research tool.
 
-**Definition of done:** at least one model whose weights exceed available VRAM executes successfully end-to-end through the real engine (not the Python oracle) using the `ExecutionPlanner`/residency contracts from 6B. Slow is an acceptable outcome; "too big for VRAM" alone is not an acceptable terminal failure once this phase starts.
+**Definition of done:** at least one model whose weights exceed available VRAM executes successfully end-to-end through the real engine (not the Python oracle) using the `ExecutionPlanner`/residency contracts from 7B. Slow is an acceptable outcome; "too big for VRAM" alone is not an acceptable terminal failure once this phase starts.
 
-## Phase 6D — Compressed transport and advanced paging research
+## Phase 7D — Compressed transport and advanced paging research
 
-**Goal:** explicitly experimental research, allowed to fail, not a Phase 1/6A-6C blocker. Candidate directions (see `Infinite_Model_Runtime_Claude_Handoff.md` for the full list; do not treat any of these as decided): tensor/tile-level paging below whole-layer granularity, separate storage/transport/resident/compute precision per tensor, ablation-sensitivity-informed quantization bit allocation (Phase 0's ablation tooling already produces the sensitivity data this would consume — see `oracle/ablation_sweep*.py` and the retained fleet reports under `Tools/OrcEnginePhase0/artifacts/`, though zero-ablation sensitivity is explicitly NOT the same claim as quantization sensitivity and would need its own direct experiments), speculative decoding as a way to amortize expensive weight-page loads over more useful tokens rather than only as a latency trick, MoE expert paging/prefetching, and a disposable content-addressed derived execution cache (GGUF stays canonical; the cache is rebuildable, never a competing model format).
+**Goal:** explicitly experimental research, allowed to fail, not a Phase 1/7A-7C blocker. Candidate directions (see `Infinite_Model_Runtime_Claude_Handoff.md` for the full list; do not treat any of these as decided): tensor/tile-level paging below whole-layer granularity, separate storage/transport/resident/compute precision per tensor, ablation-sensitivity-informed quantization bit allocation (Phase 0's ablation tooling already produces the sensitivity data this would consume — see `oracle/ablation_sweep*.py` and the retained fleet reports under `Tools/OrcEnginePhase0/artifacts/`, though zero-ablation sensitivity is explicitly NOT the same claim as quantization sensitivity and would need its own direct experiments), speculative decoding as a way to amortize expensive weight-page loads over more useful tokens rather than only as a latency trick, MoE expert paging/prefetching, and a disposable content-addressed derived execution cache (GGUF stays canonical; the cache is rebuildable, never a competing model format).
 
-## Phase 7 — Stable native API and managed wrapper
+## Phase 8 — Stable native API and managed wrapper
+
+**Renumbered from "Phase 7" (2026-08-18, OE-ADR-024, insertion of Phase 5 -- practical CPU inference semantics -- bumped every phase from the old Phase 5 quantization slot onward by one).**
 
 **Goal:** expose the proven standalone engine safely to .NET.
 
-**Gated on 6C, not just 6A.** The stable ABI must not be frozen before paged/nonresident execution has exercised the model/context/storage contracts — freezing it right after 6A would bake in a full-residency worldview this project's own Phase-0-adjacent evidence has already disproven (see OE-ADR-019).
+**Gated on 7C, not just 7A.** The stable ABI must not be frozen before paged/nonresident execution has exercised the model/context/storage contracts — freezing it right after 7A would bake in a full-residency worldview this project's own Phase-0-adjacent evidence has already disproven (see OE-ADR-019).
 
 **Scope:** small C ABI, opaque handles, stable errors, cancellation, UTF-8/token buffers, measured telemetry, SafeHandle-based managed ownership.
 
 **Definition of done:** invalid handles and lifetime misuse fail safely; callbacks do not outlive owners; cancellation works; packaging resolves exact native binaries; repeated managed load/generate/dispose is clean.
 
-## Phase 8 — Experimental TheOrc backend
+## Phase 9 — Experimental TheOrc backend
+
+**Renumbered from "Phase 8" (2026-08-18, OE-ADR-024).**
 
 **Goal:** add `OrcEngineRuntime` as an explicitly experimental `ILocalModelRuntime` implementation.
 
@@ -229,9 +311,11 @@ the CPU layer-streaming proof or introduce a planner into Phase 3 prematurely.
 
 **Definition of done:** targeted unit tests, native integration tests, one real manual `/verify` flow, exact runtime identity, and documented rollback.
 
-## Phase 9 — Agent-native experiments
+## Phase 10 — Agent-native experiments
 
-Only after Phase 8 may the project test role-owned caches, reusable Context Fabric token blocks, adapter-aware planning, or HIVE execution. Each experiment requires a baseline against the current runtime and an explicit unique-value criterion.
+**Renumbered from "Phase 9" (2026-08-18, OE-ADR-024).**
+
+Only after Phase 9 may the project test role-owned caches, reusable Context Fabric token blocks, adapter-aware planning, or HIVE execution. Each experiment requires a baseline against the current runtime and an explicit unique-value criterion.
 
 ## Permanent verification rule
 

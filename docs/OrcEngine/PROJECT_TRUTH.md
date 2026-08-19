@@ -313,12 +313,43 @@ execution order) rather than walked back, and `ENGINEERING_ROADMAP.md`'s
 Phase 6B section now records "region granularity is a policy variable" as
 forward-looking `ExecutionPlanner` evidence.
 
+## Phase 4 formal freeze and Phase 5 assignment, 2026-08-18
+
+**VERIFIED (repository- and remote-observed):** Phase 4 is **FORMALLY
+FROZEN**, maintainer-authorized (OE-ADR-024), at trusted commit
+`944f07b86428ec53d46ca19dc66c3d0d5b1e207d`. Immutable annotated tag
+`orcengine-phase4-freeze` created after a clean-worktree check and one
+bounded final deterministic verification (12/12) at that exact commit, then
+pushed. Remote peeled tag verified to point at
+`944f07b86428ec53d46ca19dc66c3d0d5b1e207d`, matching local exactly. Branch
+`feat/orcengine-phase4-bookend-virtualization` pushed to `origin`, not
+merged into `master`.
+
+**DECIDED (OE-ADR-024):** the post-Phase-4 roadmap question -- old
+`ENGINEERING_ROADMAP.md` said "Phase 5 = Initial quantization," while
+OE-ADR-021 said the deferred practical-CPU work "remains the logical next
+phase" -- was resolved by chronology, not prose position: `git blame`/`git
+log -S` showed the quantization heading was last touched **2026-07-31**
+(`0c361e26`), sixteen days before OE-ADR-021 (2026-08-16) and before Phase 3
+or Phase 4 existed. Stale prose, not a competing decision. Phase 5 is now
+assigned to "practical CPU inference semantics," split into three
+separately-gated sub-phases (5A KV-cached decode, 5B tokenizer, 5C
+workspace/benchmarking) rather than one bundled step. Old quantization
+content is unchanged but renumbered to Phase 6; CUDA phases 6A-6D become
+7A-7D; stable API/experimental backend/agent-native phases 7/8/9 become
+8/9/10. Full renumbering table and reasoning in `DECISION_LOG.md`
+OE-ADR-024.
+
+Phase 5A (KV-cached incremental decode reference) implementation is now in
+progress on a separate worktree/branch, using the frozen Phase-4 tag as its
+parent authority. See `PHASE5A_KV_CACHE_SPEC.md` for its bounded hypothesis,
+scope, oracle, memory model, and definition of done.
+
 ## Current blockers
 
-None remaining after the 2026-08-18 independent review, documentation
-correction, and freeze-hygiene closure above. See `DECISION_LOG.md`
-OE-ADR-022 and OE-ADR-023 for the full record. Tagging Phase 4 remains a
-separate, deliberate maintainer decision.
+None remaining for Phase 4, which is formally frozen. Phase 5A's remaining
+gate is its own definition of done, per its specification document. See
+`DECISION_LOG.md` OE-ADR-022 through OE-ADR-024 for the full record.
 
 ## How to update this document
 

@@ -794,3 +794,177 @@ future `ExecutionPlanner`, without authorizing any planner work now.
   OE-ADR-022, code/test/docs in this entry). Phase 4 is still not tagged;
   Phase 5 has not started; tagging remains the maintainer's separate
   decision.
+
+## OE-ADR-024 — Phase 4 formal freeze; post-Phase-4 roadmap reconciliation and renumbering
+
+- **Status:** Accepted. Phase 4 formally frozen and tagged. Roadmap
+  renumbered. Phase 5A specified separately
+  (`PHASE5A_KV_CACHE_SPEC.md`); implementation follows this entry.
+- **Context — chronology reconstruction, not document presentation order:**
+  the maintainer required repository chronology, not prose position, to
+  settle an apparent conflict between `ENGINEERING_ROADMAP.md`'s
+  `## Phase 5 — Initial quantization` heading and OE-ADR-021's statement that
+  the deferred practical-CPU work (tokenizer, KV-cached decode, activation
+  workspace, prompt/decode measurement, then BLAS) "remains the logical next
+  phase after bookend virtualization closes." Resolved via `git blame`/`git
+  log -S` directly on the roadmap file, not assumption: the "Phase 5 —
+  Initial quantization" heading was last touched in commit `0c361e26`
+  ("docs: synchronize runtime and toolcalling truth"), dated **2026-07-31**.
+  OE-ADR-021 was written **2026-08-16**, sixteen days later, specifically to
+  address post-Phase-3 sequencing, and Phase 3 and Phase 4 did not exist yet
+  when the quantization heading was last edited. The quantization heading
+  therefore predates and was never reconciled against OE-ADR-021's explicit,
+  later, decision-log-recorded ordering decision — it is stale prose, not a
+  competing current decision.
+- **Full reconstructed chronology** (each transition: assumption before ->
+  evidence -> result -> decision -> what was deferred):
+  1. **Phase 0** (2026-07-18 through 2026-08-15): established the oracle
+     methodology itself. No engine code; proved the comparison
+     infrastructure is trustworthy (hand-derived, cross-implementation, and
+     real-model-ground-truth independence classes) before anything else
+     could be graded against it.
+  2. **-> Phase 1** (2026-08-15/16): tiny synthetic F32 CPU transformer,
+     proved against the Python oracle. Deferred: real GGUF loading, cached
+     decode, tokenizer, everything beyond synthetic fixtures.
+  3. **-> Phase 2 scope expansion**: originally scoped as "parse and
+     validate the pinned artifact without executing it" (pure GGUF
+     inspection). Actual implementation went further unprompted and
+     established real explicit/tied F32 execution through frozen Phase-1
+     math, matching Hugging Face/PyTorch directly. This is the pivot OE-ADR-020
+     records.
+  4. **OE-ADR-020** (2026-08-16): accepted Phase 2 as COMPLETE/FROZEN at
+     `b8e06a0058a56f2ae9fbd1f92ae0bade40b88ec7` given it exceeded its
+     original scope, and reproposed Phase 3 as "real-model streaming /
+     working-set reference" (whole-layer streaming) rather than the old
+     roadmap's "load and match the oracle" (already done). Explicit
+     alternative rejected: proceeding straight to CPU optimization, because
+     that would optimize a residency shape not yet known to be necessary.
+  5. **-> Phase 3**: whole-layer streaming implemented and measured against
+     real SmolLM2-135M artifacts.
+  6. **Measured Phase-3 residency result**: engine-owned peak was 240,655,104
+     bytes (explicit) / 127,408,896 bytes (tied) -- 36.95%/23.68% of full
+     weights -- with permanent embedding/output bookends accounting for
+     88.88-94.11% of that remaining peak, far more than the transformer
+     layers themselves (largest layer only 14,160,384 bytes). This measured
+     result, not intuition, is what triggered the next pivot.
+  7. **OE-ADR-021** (2026-08-16): recorded this measurement as the trigger
+     for retargeting Phase 4 from the old "practical CPU inference
+     semantics" plan to bookend/row-region virtualization, explicitly
+     deferring (not abandoning) tokenizer/KV/workspace/BLAS, and explicitly
+     stating its eventual phase number "will be chosen only after Phase 4 is
+     independently reviewed."
+  8. **-> Phase 4**: bookend/row-region virtualization implemented (Codex),
+     proving embedding/output matrices need not be fully resident either.
+  9. **OE-ADR-022** (2026-08-18): independent freeze review (Claude, a
+     session that did not author the Phase-4 implementation) attacked the
+     self-review's conclusions rather than accepting them. Verdict: ACCEPT
+     WITH FIXES -- found the headline 14,162,688-byte peak was documented as
+     an unconditional architectural invariant when it is actually conditional
+     on `output_chunk_rows <= 6,146` for this model; corrected in
+     documentation, no engine defect found.
+  10. **Closure fixes**: three residual hygiene items (test-count ambiguity,
+      recurring HF-artifact-path assumption, an observer test that didn't
+      test what its name claimed) fixed in commits `684f3720`, `b89785c9`.
+  11. **OE-ADR-023** (2026-08-18): recorded the closure, self-validated by
+      the same session that made the fixes -- explicitly NOT claimed as
+      equivalent to the independent review OE-ADR-022 required, per the
+      maintainer's own explicit distinction between "closure/self-validation
+      pass" and "final independent review of HEAD 944f07b8."
+  12. **-> current roadmap question** (this entry): the maintainer
+      authorized proceeding with formal closure at `944f07b8` given the
+      accumulated evidence (independent review + self-validated closure +
+      Grok full/adversary passes, no defect found across any pass), and
+      directed reconstruction of the correct next phase from chronology
+      rather than stale prose.
+- **Decision 1 -- Phase 4 formal freeze:** Phase 4 is **FROZEN**. Trusted
+  commit `944f07b86428ec53d46ca19dc66c3d0d5b1e207d`, clean worktree verified
+  immediately before tagging, one bounded final deterministic verification
+  (12/12) run at that exact commit. Immutable annotated tag
+  `orcengine-phase4-freeze` created and pushed; remote peeled tag verified to
+  point at `944f07b86428ec53d46ca19dc66c3d0d5b1e207d` exactly, matching
+  local. Branch `feat/orcengine-phase4-bookend-virtualization` pushed to
+  `origin` (new branch, not merged into `master`). Frozen parent unchanged:
+  `orcengine-phase3-freeze` at `98dbcf1f370a93574da32dc02ebdcfeff8a60b3d`.
+  Documentation commits made before this freeze point (`c9a82db7`,
+  `371602b0`) are explicitly documentation/review commits layered on top of
+  the same trusted implementation commit `944f07b8` -- they did not move the
+  freeze point, since `944f07b8` itself is the last commit in the closure
+  chain and is what is tagged.
+- **Decision 2 -- post-Phase-4 roadmap, Outcome B/C combined:** the roadmap
+  contradiction resolves in favor of OE-ADR-021's later, explicit decision
+  (Outcome B) but is implemented as a split rather than one bundled phase
+  (Outcome C), because Stage B of the maintainer's own instruction explicitly
+  prohibited assuming "all five items belong in one implementation step
+  merely because they were once grouped together." Dependency analysis:
+  quantization (the old Phase 5) does not technically depend on tokenizer or
+  KV-cached decode -- it operates entirely below the token boundary, and
+  Phase 2's existing F32 full-prefix reference plus a pinned external engine
+  are already a sufficient quantization oracle (established evidence, not a
+  new claim). The practical-CPU-work-first ordering in OE-ADR-021 is
+  therefore a **risk-reduction choice**, not a hard technical dependency, and
+  is recorded as such so it is not mistaken for one by a future reader.
+  Within the practical-CPU-work group, KV-cached decode is selected as the
+  first bounded sub-phase (5A) over tokenizer (5B) or workspace/benchmarking
+  (5C) because it is the only one of the three that introduces a genuinely
+  new tensor-execution path (a second way to compute attention against
+  evolving state) rather than plumbing an already-Python-proven algorithm
+  (tokenizer correctness was already established at the oracle level in
+  Phase 0's `tokenizer_dual_source_agreement`/`raw_prompt_identity` checks)
+  or an optimization concern (workspace reuse is more meaningful once decode
+  is actually incremental, i.e. after 5A) into the engine.
+- **New roadmap numbering** (renumbered in `ENGINEERING_ROADMAP.md`, mapping
+  recorded explicitly rather than silently, per the maintainer's instruction
+  not to renumber casually):
+
+  | Old | New | Reason |
+  |---|---|---|
+  | Phase 5 (Initial quantization) | Phase 6 | Phase 5 inserted ahead of it |
+  | Phase 6A | Phase 7A | bumped by the Phase 5 insertion |
+  | Phase 6B | Phase 7B | bumped by the Phase 5 insertion |
+  | Phase 6C | Phase 7C | bumped by the Phase 5 insertion |
+  | Phase 6D | Phase 7D | bumped by the Phase 5 insertion |
+  | Phase 7 (stable API) | Phase 8 | bumped by the Phase 5 insertion |
+  | Phase 8 (experimental backend) | Phase 9 | bumped by the Phase 5 insertion |
+  | Phase 9 (agent-native) | Phase 10 | bumped by the Phase 5 insertion |
+
+  New Phase 5 -- "Practical CPU inference semantics" -- is inserted as an
+  umbrella covering three separately-gated sub-phases: **5A** (KV-cached
+  incremental decode reference, specified in
+  `PHASE5A_KV_CACHE_SPEC.md`, implementation beginning immediately after this
+  entry), **5B** (tokenizer/text-token boundary, not yet specified, spec to
+  be written when 5A closes), **5C** (bounded activation workspace and
+  prompt/decode benchmarking, not yet specified, spec to be written when 5A
+  and 5B close).
+- **Preserved architectural invariants, explicitly reaffirmed for Phase 5A**
+  (per the maintainer's Stage D instruction): no permanent full-resident
+  embedding/output bookends reintroduced; no silent full-model-residency
+  fallback; KV-cache growth accounted separately from weight residency, never
+  conflated; the model-specific 6,146-row crossover from OE-ADR-022/023 is
+  not treated as a universal constant; row-region/output granularity remains
+  a policy variable; the format-neutral `TensorRowRegion` contract is
+  preserved unchanged and not generalized to arbitrary tensor slicing without
+  new evidence.
+- **Alternatives considered:** leave the old "Phase 5 = quantization"
+  heading as-is and treat OE-ADR-021's wording as merely aspirational
+  (rejected -- OE-ADR-021 is an accepted decision-log entry with its own
+  evidence trail, not a proposal, and is chronologically later than the
+  heading it appears to conflict with); implement all five deferred items
+  (tokenizer, KV cache, workspace, benchmarking, BLAS) as one Phase 5
+  (rejected -- explicitly prohibited by the maintainer's Stage B
+  instruction, and each item has a meaningfully different risk/evidence
+  profile); make tokenizer work the first bounded slice instead of KV cache
+  (rejected -- tokenizer correctness at the algorithm level was already
+  established in Phase 0; the remaining gap is C++ plumbing, lower
+  architectural risk than a genuinely new cached-execution path); require
+  KV-cached decode to precede quantization for technical (not risk-reduction)
+  reasons (rejected -- no such dependency exists; recording the true
+  relationship prevents a future reader from inventing a false blocker).
+- **Evidence authority:** `git blame`/`git log -S` output on
+  `ENGINEERING_ROADMAP.md` (this entry's chronology section); OE-ADR-019
+  through OE-ADR-023; `orcengine-phase4-freeze` tag and its remote
+  verification; `PHASE5A_KV_CACHE_SPEC.md`.
+- **Acceptance trigger:** Phase 5A's own definition of done, per its
+  specification document. Phase 6 (quantization) does not begin before
+  Phase 5A closes, per roadmap sequencing (risk-reduction, not hard
+  dependency, as recorded above) unless a future decision explicitly
+  revises that ordering with its own evidence.
